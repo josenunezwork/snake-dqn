@@ -19,6 +19,7 @@ from research.gpu_sim_spike.make_manifests import (
     sha256_file,
     write_once,
 )
+from research.metadata_archive import bundle_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "research/gpu_sim_spike"
@@ -99,6 +100,12 @@ def require_source_pin(commit: str) -> None:
         f"{PACKAGE}/V8_SPLIT_INTENT_20261023.md",
         f"{PACKAGE}/V8_SPLIT_FROZEN_COMPONENTS.json",
         f"{PACKAGE}/fixtures/v8_split/device_sim_85180521.py",
+        # Package-side metadata admission only.  It is deliberately outside the
+        # qualified transport tree and cannot alter the frozen V8 runtime.
+        "research/metadata_archive.py",
+        # The helper's source closure is extended only to ship the archive
+        # verifier; no benchmark/runtime files outside the frozen allowlist move.
+        f"{PACKAGE}/a1_prof_pack.py",
     }
     changed = set(
         filter(
@@ -404,6 +411,10 @@ def manifest(
         if canary_receipt:
             result["canary"] = {"receipt": binding}
     result = convert_public_checkpoints(result, repo=ROOT)
+    archive = output_dir.parent / f"metadata-{'canary' if canary else 'main'}.tar"
+    result["inputs"] = bundle_inputs(result["inputs"], archive, reuse_verified=True)
+    metadata = next(row for row in result["inputs"] if row["dest"] == "metadata.tar")
+    result["env"]["METADATA_ARCHIVE_SHA256"] = metadata["sha256"]
     assert_upload_budget(result, repo=ROOT)
     return result
 

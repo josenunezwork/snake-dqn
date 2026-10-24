@@ -15,6 +15,7 @@ from pathlib import Path
 
 from research.gpu_sim_spike import v8_split_pack, v8_split_units
 from research.gpu_sim_spike.make_manifests import checkpoint_inputs, sha256_file
+from research.metadata_archive import bundle_inputs
 
 
 def preflight(root: Path, commit: str) -> dict:
@@ -28,13 +29,23 @@ def preflight(root: Path, commit: str) -> dict:
         target = inputs / item["dest"]
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(item["path"], target)
-    ledger = inputs / "inputs/verified-ledger.json"
+    metadata_source = root / "metadata-source"
+    ledger = metadata_source / "verified-ledger.json"
     v8_split_units.publish_json(
         ledger,
         v8_split_units.empty_ledger(
             v8_split_units.namespace(commit, smoke=True), v8_split_units.allocation(smoke=True)
         ),
     )
+    metadata = bundle_inputs(
+        v8_split_pack._ledger_inputs(ledger, "inputs"), inputs / "metadata.tar"
+    )
+    metadata_digest = next(row["sha256"] for row in metadata if row["dest"] == "metadata.tar")
+    for row in metadata:
+        if row["dest"] != "metadata.tar" and "path" in row:
+            target = inputs / row["dest"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(row["path"], target)
     env = dict(os.environ)
     env.update(
         {
@@ -46,6 +57,7 @@ def preflight(root: Path, commit: str) -> dict:
             "V8_SPLIT_BENCH_LEDGER_PATH": "inputs/verified-ledger.json",
             "COLAB_CLI_ROOT": str(root / "runtime"),
             "COLAB_INPUT_DIR": str(inputs),
+            "METADATA_ARCHIVE_SHA256": metadata_digest,
             "SNAKE_DQN_DEVICE": "cpu",
             "OMP_NUM_THREADS": "1",
             "MKL_NUM_THREADS": "1",

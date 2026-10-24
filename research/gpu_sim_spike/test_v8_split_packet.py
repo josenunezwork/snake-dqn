@@ -62,6 +62,38 @@ def test_ledger_inputs_uploads_recorded_fixture_trio(tmp_path) -> None:
     assert "inputs/recorded-states/one.npz.complete" in destinations
 
 
+def test_v8_manifest_reuses_verified_metadata_archive(tmp_path, monkeypatch) -> None:
+    ledger = tmp_path / "verified-ledger.json"
+    canary_ledger = tmp_path / "canary" / "verified-ledger.json"
+    for path, canary in ((ledger, False), (canary_ledger, True)):
+        units.publish_json(
+            path,
+            units.empty_ledger(
+                units.namespace(COMMIT, canary=canary), units.allocation(canary=canary)
+            ),
+        )
+    monkeypatch.setattr(pack, "checkpoint_inputs", lambda: [])
+    monkeypatch.setattr(pack, "convert_public_checkpoints", lambda value, repo: value)
+    monkeypatch.setattr(pack, "assert_upload_budget", lambda value, repo: None)
+    monkeypatch.setattr(pack, "_ruling_inputs", lambda: [])
+    monkeypatch.setattr(pack, "_preflight_inputs", lambda value: [])
+    kwargs = dict(
+        commit=COMMIT,
+        output_dir=tmp_path / "canary-output",
+        ledger=ledger,
+        canary_ledger=canary_ledger,
+        canary=True,
+        preflight={},
+    )
+    first = pack.manifest(**kwargs)
+    second = pack.manifest(**kwargs)
+    rows = [row for row in first["inputs"] if row["dest"] == "metadata.tar"]
+    assert len(rows) == 1 and rows == [
+        row for row in second["inputs"] if row["dest"] == "metadata.tar"
+    ]
+    assert first["env"]["METADATA_ARCHIVE_SHA256"] == rows[0]["sha256"]
+
+
 def test_canary_binding_refuses_missing_release_or_incomplete_producer(tmp_path) -> None:
     receipt = tmp_path / "receipt.json"
     units.publish_json(receipt, {"status": "INCOMPLETE", "commit": COMMIT, "stop_verified": False})
