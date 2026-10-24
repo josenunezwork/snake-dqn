@@ -310,6 +310,7 @@ class CLI:
             (self.deadline if self.deadline is not None else math.inf) - time.monotonic(),
             (self.priced_deadline if self.priced_deadline is not None else math.inf)
             - time.monotonic(),
+            (getattr(self, "handoff_deadline", None) or math.inf) - time.monotonic(),
         )
         if remaining <= 0:
             raise Refused("whole-session deadline reached before helper")
@@ -412,6 +413,7 @@ class CLI:
             deadline = min(
                 self.deadline if self.deadline is not None else math.inf,
                 self.priced_deadline if self.priced_deadline is not None else math.inf,
+                getattr(self, "handoff_deadline", None) or math.inf,
             )
             timeout = min(timeout, deadline - time.monotonic())
             if timeout <= 0:
@@ -872,6 +874,12 @@ class Broker:
 
     def run(self, manifest: dict[str, Any], retained: dict[str, Any] | None = None) -> None:
         m = validate(manifest)
+        from research.colab_cli.retention import RetentionError, runtime_cache
+
+        try:
+            cache_contract = runtime_cache(m, REPO)
+        except RetentionError as exc:
+            raise Refused(str(exc)) from exc
         # Public release assets are re-checked for every job immediately before
         # this broker can reserve units or request an assignment.
         public_preflight = input_preflight(m)
@@ -945,19 +953,26 @@ class Broker:
                 cli.verified_exports = {}
                 cli.warmup_seconds = 0.0
             started = time.monotonic()
+            cli.handoff_deadline = (retained or {}).get("handoff_deadline")
             cli.deadline = min(
                 started + m["timeout_minutes"] * 60 - 45, (retained or {}).get("deadline", math.inf)
             )
-            cli.priced_deadline = (
-                started + m["budget"]["unit_cap"] * 3600 / m["budget"]["rate_units_per_hour"]
+            cli.priced_deadline = min(
+                started + m["budget"]["unit_cap"] * 3600 / m["budget"]["rate_units_per_hour"],
+                (retained or {}).get("priced_deadline", math.inf),
             )
             endpoint = None
+            assignment_allocated_started = (retained or {}).get(
+                "assignment_allocated_started_monotonic"
+            )
             usage_before = None
             accounting = None
             error = None
             failure_class = None
             cleanup = None
+            cache_evidence = None
             usage_after = None
+            release_verified_monotonic = None
             terminal = None
             exports = []
             intent = ACCOUNT_ROOT / f"pending-{session}.json"
@@ -1000,18 +1015,37 @@ class Broker:
                         [m["budget"]["reserve_units"]] + [r["reserve_units"] for r in reservations]
                     )
                     reserved_cap = (retained or {}).get("unit_cap", m["budget"]["unit_cap"])
+                    if reusing:
+                        tracker = retained.get("accounting")
+                        if tracker is None:
+                            raise Refused("retained assignment lacks continuous accounting state")
+                        charged = (time.monotonic() - tracker.started_monotonic) * (
+                            tracker.own_rate_units_per_hour / 3600
+                        )
+                        reserved_cap = max(0.0, retained["unit_cap"] - charged)
                     if usage_before["balance"] <= reserved_cap + committed + reserve:
                         raise Refused("insufficient balance for cap plus study reserve")
                     from research.colab_cli.accounting import admit_account
 
-                    account_before = {e: n for e, n in before.items() if e != endpoint}
-                    measured_before = dict(usage_before)
                     if reusing:
-                        measured_before["assignments"] -= 1
-                        measured_before["rate"] -= retained["observed_rate_units_per_hour"]
-                    accounting = admit_account(
-                        account_before, measured_before, m["budget"], active_records=reservations
-                    )
+                        accounting = retained.get("accounting")
+                        if accounting is None:
+                            raise Refused("retained assignment lacks continuous accounting state")
+                        if accounting.endpoint != endpoint:
+                            raise Refused(
+                                "retained accounting endpoint differs from live assignment"
+                            )
+                    else:
+                        account_before = {e: n for e, n in before.items() if e != endpoint}
+                        accounting_budget = dict(m["budget"])
+                        if retained is not None:
+                            accounting_budget["unit_cap"] = retained["unit_cap"]
+                        accounting = admit_account(
+                            account_before,
+                            usage_before,
+                            accounting_budget,
+                            active_records=reservations,
+                        )
                     cli.accounting = accounting
                     write_once(
                         output / "accounting-baseline.json", accounting.accounted_assignments()
@@ -1028,6 +1062,7 @@ class Broker:
                                 "assignment_record": str(cli.assignment_record),
                             },
                         )
+                        assignment_allocated_started = time.monotonic()
                         args = ["new", "-s", session]
                         if m["requirements"]["gpu"] != "cpu":
                             args += ["--gpu", m["requirements"]["gpu"]]
@@ -1068,8 +1103,25 @@ class Broker:
                             },
                         )
                     terminal, exports = self.execute(
-                        cli, m, generation, output, started, usage_before, retained, admission_lock
+                        cli,
+                        m,
+                        generation,
+                        output,
+                        started,
+                        usage_before,
+                        retained,
+                        admission_lock,
+                        cache_contract=cache_contract,
                     )
+                    evidence_path = output / "cache-evidence.json"
+                    if (
+                        cache_contract is not None
+                        or m["script"] == "research/colab_cli/retention_acceptance_probe.sh"
+                        or m["env"].get("COLAB_RETENTION_CAPTURE_PINS") == "1"
+                    ):
+                        if not evidence_path.is_file():
+                            raise Refused("retention cache evidence was not exported by bootstrap")
+                        cache_evidence = json.loads(evidence_path.read_text())
                 except BaseException as exc:
                     from research.colab_cli.failures import classify_exception
 
@@ -1122,6 +1174,8 @@ class Broker:
                                         },
                                     )
                                 stop_verified(cli, endpoint)
+                                release_verified_monotonic = time.monotonic()
+                                cli.handoff_deadline = None
                                 cli.deadline = (
                                     None  # Only read account data after verified release.
                                 )
@@ -1157,6 +1211,15 @@ class Broker:
                         "accounting": accounting.receipt() if accounting else None,
                         "elapsed_seconds": time.monotonic() - started,
                         "warmup_seconds": cli.warmup_seconds,
+                        "assignment_allocated_started_monotonic": assignment_allocated_started,
+                        "assignment_allocated_elapsed_seconds": (
+                            release_verified_monotonic - assignment_allocated_started
+                            if assignment_allocated_started is not None
+                            and release_verified_monotonic is not None
+                            else None
+                        ),
+                        "release_verified_monotonic": release_verified_monotonic,
+                        "cache_evidence": cache_evidence,
                         "terminal": terminal,
                         "exports": exports,
                         "transfers": cli.transfer_records,
@@ -1190,7 +1253,11 @@ class Broker:
                             active=active,
                             intent=intent,
                             observed_rate_units_per_hour=accounting.observed_rate_units_per_hour,
+                            accounting=accounting,
+                            assignment_allocated_started_monotonic=assignment_allocated_started,
                         )
+                        if retained.get("kind") == "A100":
+                            retained["handoff_deadline"] = time.monotonic() + 15 * 60
                         retained.setdefault("completed", []).append(
                             ("/content/snake-cli/" + generation, generation)
                         )
@@ -1332,6 +1399,7 @@ class Broker:
         baseline: dict[str, float],
         retained: dict[str, Any] | None = None,
         admission_lock: contextlib.ExitStack | None = None,
+        cache_contract: tuple[dict[str, str], str] | None = None,
     ) -> tuple[Any, list[Any]]:
         """Warm the transport, then arm the watchdog before dependency work."""
         root = "/content/snake-cli/" + generation
@@ -1370,6 +1438,24 @@ class Broker:
                 ],
                 "release_endpoint": json.loads(cli.config.read_text())[cli.session]["endpoint"],
             }
+            if cache_contract is not None:
+                pins, key = cache_contract
+                spec["retention_cache"] = {"pins": pins, "key": key}
+            if (
+                cache_contract is not None
+                or m["script"] == "research/colab_cli/retention_acceptance_probe.sh"
+                or m["env"].get("COLAB_RETENTION_CAPTURE_PINS") == "1"
+            ):
+                from research.colab_cli.retention import pinned_tree_sha256
+
+                source_plan = json.loads((staging / "source-plan.json").read_text())
+                if source_plan["commit"] != m["commit"]:
+                    raise Refused("retention source plan differs from frozen commit")
+                spec["retention_source_identity"] = {
+                    "commit": m["commit"],
+                    "tree": source_plan["tree"],
+                    "tree_sha256": pinned_tree_sha256(REPO, m["commit"]),
+                }
             if retained is not None:
                 spec["post_terminal_timeout_seconds"] = max(
                     spec["timeout_seconds"], retained["deadline"] - time.monotonic() - 25
@@ -1467,9 +1553,22 @@ class Broker:
 
             cli.renew = renew
             renew()
-            self.calibrate_rate(
-                cli, m, output, started, retained, account_lock_held=admission_lock is not None
-            )
+            if retained is None or retained.get("accounting") is None:
+                self.calibrate_rate(
+                    cli, m, output, started, retained, account_lock_held=admission_lock is not None
+                )
+            else:
+                boundary = cli.accounting.check(
+                    cli.usage(),
+                    sessions=cli.sessions(),
+                    active_records=[
+                        json.loads(p.read_text())
+                        for p in ACCOUNT_ROOT.glob("active-*.json")
+                        if p.name != f"active-{cli.session}.json"
+                    ],
+                    budget_other_assignments=m["budget"].get("other_assignments"),
+                )
+                write_once(output / "retained-accounting-boundary.json", boundary)
             # Until calibration is durable, no other lane can observe an active
             # record with an unknown rate. Waiting lanes renew their watchdogs.
             if admission_lock is not None:
@@ -1572,6 +1671,13 @@ class Broker:
             write_once(output / "input-hashes.json", checks)
             # Hardware admission and process launch are short RPCs. Bootstrap
             # runs in the lease-fenced child, never in the notebook kernel.
+            source_delivery_proof = None
+            if "retention_source_identity" in spec:
+                source_delivery_proof = dict(
+                    delivery,
+                    generation=generation,
+                    tree_sha256=spec["retention_source_identity"]["tree_sha256"],
+                )
             code = (
                 "import hashlib, json, os, subprocess, sys, time\n"
                 "from pathlib import Path\n"
@@ -1581,7 +1687,14 @@ class Broker:
                 "        assert hashlib.file_digest(f, 'sha256').hexdigest()==expected, rel\n"
                 f"assert (os.cpu_count() or 1)>={m['requirements']['min_vcpu']}\n"
                 "repo=root/'repo'\nassert repo.is_dir()\n"
-                "(root/'ready.json').write_text(json.dumps({'ready':True}))\n"
+                + (
+                    f"proof={source_delivery_proof!r}\n"
+                    "with (root/'retention-source-delivery.json').open('x') as f:\n"
+                    "    json.dump(proof,f)\n"
+                    if source_delivery_proof is not None
+                    else ""
+                )
+                + "(root/'ready.json').write_text(json.dumps({'ready':True}))\n"
                 "result={'ready':True}"
             )
             # Price and admit substitutions explicitly, before bootstrap or training.
@@ -1603,6 +1716,7 @@ class Broker:
                 "result={'ready':True,'hardware':gpu}",
             )
             admitted = cli.recoverable_rpc(code)
+            cli.handoff_deadline = None
             write_once(output / "hardware.json", admitted)
             if self.observer:
                 self.observer(
@@ -1720,6 +1834,31 @@ class Broker:
                     validate_export_inventory(m, list(exported.values()))
                 except SchemaError as exc:
                     raise Refused(str(exc)) from exc
+                if (
+                    cache_contract is not None
+                    or m["script"] == "research/colab_cli/retention_acceptance_probe.sh"
+                    or m["env"].get("COLAB_RETENTION_CAPTURE_PINS") == "1"
+                ):
+                    cache_evidence = cli.poll_rpc(
+                        "import json\nfrom pathlib import Path\n"
+                        f"p=Path({(root + '/cache-evidence.json')!r})\n"
+                        "assert p.is_file(), 'retention cache evidence missing'\n"
+                        "result=json.loads(p.read_text())"
+                    )
+                    if not isinstance(cache_evidence, dict):
+                        raise Refused("retention cache evidence is malformed")
+                    write_once(output / "cache-evidence.json", cache_evidence)
+                if cache_contract is not None:
+                    extension_evidence = cli.poll_rpc(
+                        "import json\nfrom pathlib import Path\n"
+                        f"p=Path({(root + '/extension-cache-events.jsonl')!r})\n"
+                        "rows=[json.loads(line) for line in p.read_text().splitlines()] "
+                        "if p.exists() else []\n"
+                        "result={'events':rows}"
+                    )
+                    if not isinstance(extension_evidence, dict):
+                        raise Refused("retention extension evidence is malformed")
+                    write_once(output / "extension-cache-events.json", extension_evidence)
                 if self.observer:
                     self.observer(
                         "terminal",
@@ -1776,25 +1915,61 @@ class Broker:
             )
 
     def chain(
-        self, manifests: list[dict[str, Any]], retention_minutes: float, retention_units: float
+        self,
+        manifests: list[dict[str, Any]],
+        retention_minutes: float,
+        retention_units: float,
+        *,
+        acceptance_plan: Path | None = None,
     ) -> None:
-        """Keep an obtained H100 only for a finite already-approved job list."""
+        """Keep one assignment for a finite, source-bound approved chain."""
         jobs = [validate(m) for m in manifests]
-        if len(jobs) < 2 or any(m["requirements"]["gpu"] != "H100" for m in jobs):
-            raise Refused("chain requires >=2 approved H100 jobs; no hardware fallback")
+        if len(jobs) < 2:
+            raise Refused("chain requires at least two approved jobs")
+        a100 = bool(jobs) and all(m["requirements"]["gpu"] == "A100" for m in jobs)
+        h100 = bool(jobs) and all(m["requirements"]["gpu"] == "H100" for m in jobs)
+        if not h100 and not a100:
+            raise Refused("chain requires one approved H100 family or source-bound A100 retention")
         if len({m["job_id"] for m in jobs}) != len(jobs):
             raise Refused("duplicate chain job identifiers")
-        rate = max(m["budget"]["rate_units_per_hour"] for m in jobs)
         minutes = positive(retention_minutes, "retention_minutes")
         units = positive(retention_units, "retention_units")
+        if a100:
+            from research.colab_cli.retention import (
+                RetentionError,
+                require_acceptance_plan,
+                require_native_qualification,
+                validate_a100_chain,
+            )
+
+            try:
+                _shared, _cache_key = validate_a100_chain(jobs, minutes, units)
+                if acceptance_plan is not None:
+                    require_acceptance_plan(acceptance_plan, jobs, minutes, units, REPO)
+                else:
+                    for job in jobs:
+                        require_native_qualification(job["retention_chain"]["qualification"], REPO)
+            except RetentionError as exc:
+                raise Refused(str(exc)) from exc
+        elif acceptance_plan is not None:
+            raise Refused("acceptance plan is only valid for the bounded A100 retention package")
+        rate = max(m["budget"]["rate_units_per_hour"] for m in jobs)
         if sum(m["timeout_minutes"] for m in jobs) > minutes or minutes * rate / 60 > units:
             raise Refused("approved chain does not fit priced retention lease")
         started = time.monotonic()
-        retained: dict[str, Any] = {"deadline": started + minutes * 60 - 45, "unit_cap": units}
+        retained: dict[str, Any] = {
+            "started": started,
+            "deadline": started + minutes * 60 - 45,
+            "priced_deadline": started + units * 3600 / rate,
+            "unit_cap": units,
+            "rate_units_per_hour": rate,
+            "kind": "A100" if a100 else "H100",
+        }
         failure = None
         try:
             for m in jobs:
-                if time.monotonic() - started >= minutes * 60:
+                elapsed = time.monotonic() - started
+                if elapsed >= minutes * 60 or elapsed * rate / 3600 >= units:
                     raise Refused("retention lease elapsed; no further job")
                 self.run(m, retained)
         except BaseException as exc:
@@ -1804,11 +1979,18 @@ class Broker:
             if retained.get("cli"):
                 cli = retained["cli"]
                 release_error = None
+                release_verified_monotonic = None
+                usage_after_release = None
                 try:
                     with account_locked(cli, cleanup=True):
                         stop_verified(cli, retained["endpoint"])
+                        release_verified_monotonic = time.monotonic()
+                        cli.deadline = None
+                        cli.priced_deadline = None
+                        cli.handoff_deadline = None
                         retained["active"].unlink(missing_ok=True)
                         retained["intent"].unlink(missing_ok=True)
+                        usage_after_release = cli.usage()
                 except BaseException as exc:
                     release_error = repr(exc)
                 for out in retained["outputs"]:
@@ -1822,6 +2004,25 @@ class Broker:
                             "priced_retention_minutes": minutes,
                             "priced_retention_units": units,
                             "elapsed_seconds": time.monotonic() - started,
+                            "assignment_allocated_started_monotonic": retained.get(
+                                "assignment_allocated_started_monotonic"
+                            ),
+                            "release_verified_monotonic": release_verified_monotonic,
+                            "assignment_allocated_elapsed_seconds": (
+                                release_verified_monotonic
+                                - retained["assignment_allocated_started_monotonic"]
+                                if release_verified_monotonic is not None
+                                and retained.get("assignment_allocated_started_monotonic")
+                                is not None
+                                else None
+                            ),
+                            "usage_after_verified_release": usage_after_release,
+                            "chain_kind": retained["kind"],
+                            "continuous_accounting": (
+                                retained.get("accounting").receipt()
+                                if retained.get("accounting") is not None
+                                else None
+                            ),
                         },
                     )
                 if release_error and failure is None:
@@ -1915,6 +2116,7 @@ def main() -> None:
     chain.add_argument("manifests", nargs="+", type=Path)
     chain.add_argument("--retention-minutes", type=float, required=True)
     chain.add_argument("--retention-units", type=float, required=True)
+    chain.add_argument("--acceptance-plan", type=Path)
     args = parser.parse_args()
     try:
         if args.command == "validate":
@@ -1928,6 +2130,7 @@ def main() -> None:
                 [json.loads(p.read_text()) for p in args.manifests],
                 args.retention_minutes,
                 args.retention_units,
+                acceptance_plan=args.acceptance_plan,
             )
         else:
             Broker(args.state_dir, args.colab).run(json.loads(args.manifest.read_text()))
