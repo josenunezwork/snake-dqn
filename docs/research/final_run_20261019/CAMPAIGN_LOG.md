@@ -197,6 +197,11 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 2026-10-23 18:55 PT | Astra ruling ALLOW_BOUNDED_CONCURRENCY (JUDGMENT_FACTORY_CONCURRENCY_20261023.md): during factory windows Astra/Sol may run at nice ≥15 on a shared 0.25-core budget, plus one test lane at nice 19, 1 thread, ≤120 s wall and ≤90 CPU-s per test (≤300 CPU-s per 30 min). The test lane is revoked when the window median exceeds 1.15×B. Existing guards and timing exclusivity stay binding. Sol 'concurrency' is implementing it; D256 dispatches after that. |
 | 2026-10-23 18:55 PT | Round-28 Astra panel (8 memos) on shortening the GPU engine: consensus 3–5 days and ~25–75 u (vs 10–15 days / 100–300 u). Repair, not rewrite. Main tricks: reuse the existing CUDA sparse-flood/component kernels that vector61 bypasses; remove the 96 repeated body gathers per feature call (2 calls per tick); cache free-space sufficiency proofs; a CPU-authoritative hybrid with batched GPU inference. First test is 0 u stage attribution, with a kill if the remainder exceeds 512 ms per E1024 tick. Dissent (Astra 06): keep STOP unless the end-to-end useful throughput gain is ≥4×. Astra judge is ruling on the 5-day A100 queue. |
 | 2026-10-23 18:57 PT | A1-PROF prepared for the standing owner A100 engine lane; source `557ad8a66677acd14bf78b0acc087020fa42a7c4` published on main, no Colab dispatch. E64/256/1024 x scripted/frozen/mixed, separate uninstrumented full ticks, exclusive CUDA-event segments and profiler kernel/copy/launch/Python/memory attribution; dense vector61 flood isolated, broad and conservative non-observation remainders reported beside descriptive 0.512 s E1024 reference. Published-pin real Mac entrypoint preflight 19.955589 s, 3/3 E1 rosters with progress and immutable sidecars; supervisor canary validation PASS. Codex-V LIGHT: no outstanding findings, 18 package tests passed/1 CUDA skip, 20 source/export tests passed; broader bounded canary/schema/ops selection 178 passed/1 skip. Receipt `research/gpu_sim_spike/CODEX_V_A1_PROF_20261023.json` SHA256 `dc6356244b32674a5f8b2e64ee6838f2228a4107bd22f0b46ac7ec39d311b495`. Forecast 40 min / 5.13-6.67 u total; effective doubled main90min/20u+4reserve and canary30min/5u+1reserve, first cap wins. Same-pin A100 canary mandatory before main; main remains an unbound template. Exact commands in `research/gpu_sim_spike/A1_PROF_HANDOFF_20261023.md`; pinned operational checkout `snake-dqn-a1-prof-run`. Outcome-free diagnostics only, no labels/gate/release evidence; engine, transport, serving and legacy workers unchanged. |
+| 2026-10-23 19:12 PT | OWNER: open-ended speed-up review. Round-29 Astra (4 generalists: RL research lead, ML infra, process/statistics, outsider red team) gets the full list of speed-ups already in place and is asked what is missing. The specialist round-30 panels will follow the directions it raises. |
+| 2026-10-23 19:25 PT | Round-28 Astra JUDGMENT (round-28/JUDGMENT.md): run A1-PROF first, since the 0 u receipt audit cannot establish exclusive stage shares. Then: sparse CUDA floods; remove repeated body gathers; exact geometry; measured residual bottlenecks; cached proofs. A CPU-authoritative batched-inference fallback is built in parallel. Bar: ≥2,000 complete world-steps/s on every roster by hour 72. Day-5 falsifier: ≥4× verified useful lives/h. A ready A100 queue runs within 120 h / ≤1,100 u. A1-PROF (pin 557ad8a6; Mac preflight PASS 20 s; Codex-V PASS) A100 canary DISPATCHED 19:22 PT (cap 5+1 u; main 20+4 u). |
+| 2026-10-23 19:25 PT | Full concurrency implementation 22c0db2f = PREPARED_NOT_QUALIFIED (activation HOLD). Owner-directed interim is being built (sol-interimconc on 5dfd4a74): the factory ignores nice ≥15 processes, and agents/tests are launched via agent_nice.sh. Astra quick ruling requested (JUDGMENT_FACTORY_CONCURRENCY_INTERIM_20261023.md). D256 dispatches after both. |
+| 2026-10-23 19:35 PT | A1-PROF canary INCOMPLETE: the strict profiler-correlation check aborted at 17,843/17,910 kernels attributed (99.6%); the CUDA flood self-check passed on A100-SXM4-40GB. Sol a100prof2 fix running. Interim concurrency ruling ALLOW_NICE15_INTERIM (JUDGMENT_FACTORY_CONCURRENCY_INTERIM_20261023.md); Sol pin 4b46454d (191 tests, Codex-V light PASS); a focused Codex-V (condition 3) is running before the D256 dispatch. run_round.sh and all agent launches now go through ~/.claude/bin/agent_nice.sh. |
+| 2026-10-23 19:40 PT | Round 29 (open-ended, 4 Astras) raised five directions: (1) converting search to policy, using existing labels first; (2) hindsight leaking privileged future randomness; (3) rehearsing the full decision path plus separating 'beats B8' from 'data caused it' and adaptive Mac episode allocation; (4) ops throughput and never-idle; (5) remote verification capacity. Specialist rounds 30 (search→policy), 31 (privileged-randomness leakage), 32 (rehearsal plus sequential/adaptive gates), 33 (ops throughput) launched with 3 experts each. |
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -418,3 +423,33 @@ with materialized plans. Packages:
 Use that immutable implementation SHA for every NEW-run command, including after
 later metadata publication commits; the handoff now spells it out literally.
 Actual T-EQ and calibration receipts do not yet exist from this task.
+F0 bounded-concurrency candidate (2026-10-23, Sol): **PREPARED_NOT_QUALIFIED /
+ACTIVATION HOLD**, under ruling `ALLOW_BOUNDED_CONCURRENCY`, SHA256
+`af117cd98d51f428cd83d6e33138fcd13def0b4d7c7cf63a8b2e2b83db99105f`.
+Prepared an operations-only supervisor, argv/desktop-helper recognition,
+absolute-priority wrappers, global test-slot/duty/protected-period policy,
+v2 resume host receipts, 1.15 companion warning, and production integration.
+The mandatory qualification fence refuses monitor/client/tool allocation,
+production admission and host-check publication; no environment/manual PASS
+override exists. Independent Codex-V light review permits publication only as
+a disabled candidate, not activation or a completed implementation of the ruling.
+Native arbitrary-descendant ownership/stable topology, cross-group native CPU
+transfer credits/wrapper overhead, independent watchdog, complete cooperative
+recovery and downstream exclusive-launch proof remain blocking requirements.
+
+Root verification: 200 serial tests passed in 36.30 seconds, plus Black/isort/
+flake8 on all 24 changed Python files and bounded shell checks. Native tests
+validated counter units, waited-child accounting, PID/start/argv identity,
+owned cleanup and an excluded frozen-collector payload/SHA/preempt/resume
+fixture with an admitted nice-15 control command. These are partial evidence,
+not global concurrency qualification. Frozen science remains clean at
+`61900af28932e47e22e332840fc4406559adb062`; scientific source, cumulative
+accounting, caps, allocation, ledger and serving are unchanged. No factory,
+production monitor/client, calibration, timing/strict/serving or long job ran.
+Evidence: `research/bl_labels/CODEX_V_FACTORY_CONCURRENCY_20261023.json`, SHA256
+`3872b77235af797155a0480c26e51992409808cbb1f47a8c603213e1d69a9b4a`;
+operational closure SHA256
+`4b2270d7b70f2a66c6dca137e28def079b0f139b46c1d585fbc383817e54aae0`.
+Operator commands are future protocol only in
+`research/bl_labels/FACTORY_CONCURRENCY_HANDOFF_20261023.md`; do not dispatch
+`bl-f0-d256-guard-w12-03` under this candidate while the fence is HOLD.

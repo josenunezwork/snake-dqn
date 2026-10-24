@@ -52,6 +52,7 @@ def _host_check(state: Path, epoch: float) -> None:
     )
 
 
+@pytest.mark.parametrize("nice", [-5, 0, 14, 15, 19])
 @pytest.mark.parametrize(
     ("argv", "blocked"),
     [
@@ -107,12 +108,22 @@ def _host_check(state: Path, epoch: float) -> None:
         ("/opt/homebrew/bin/codex exec-server", False),
         ("/opt/homebrew/bin/codex", False),
         ("/usr/local/bin/sol unrelated", False),
+        ("python -m pytest tests", True),
+        ("pytest research/bl_labels/test_slowdown_resume.py", True),
+        ("python research/study/train.py", True),
     ],
 )
 def test_process_checks_match_job_argv_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: str, blocked: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: str, blocked: bool, nice: int
 ) -> None:
-    monkeypatch.setattr(mac_driver, "_command_output", lambda _: f"123 1 {argv}\n")
+    blocked = blocked and nice < 15
+    process_calls = []
+
+    def command_output(command):
+        process_calls.append(command)
+        return f"123 1 {nice} {argv}\n"
+
+    monkeypatch.setattr(mac_driver, "_command_output", command_output)
     if blocked:
         with pytest.raises(mac_driver.MacGuardError, match="concurrent compute pid 123"):
             mac_driver._exclusive_factory_guard(set())
@@ -129,12 +140,11 @@ def test_process_checks_match_job_argv_only(
             return "CPU_Speed_Limit = 100\n"
         if command == ["/bin/ps", "-axo", "pid=,pcpu=,comm="]:
             return " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex\n"
-        assert command == ["/bin/ps", "-axo", "pid=,args="]
-        return f" 123 {argv}\n"
+        raise AssertionError(command)
 
     monkeypatch.setattr(slowdown_resume.subprocess, "check_output", check_output)
     if blocked:
-        with pytest.raises(ValueError, match="host check found Sol/Codex process; HOLD"):
+        with pytest.raises(ValueError, match="host check found unsafe process observation; HOLD"):
             slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
         assert not list(tmp_path.glob("slowdown-host-check-*"))
     else:
@@ -146,7 +156,8 @@ def test_process_checks_match_job_argv_only(
             " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex"
         ]
         assert slowdown_resume.resume_policy(6, tmp_path) == (6, [])
-    assert calls[-1] == ["/bin/ps", "-axo", "pid=,args="]
+    assert calls[-1] == ["/bin/ps", "-axo", "pid=,pcpu=,comm="]
+    assert process_calls == [["/bin/ps", "-A", "-o", "pid=,ppid=,nice=,args="]] * 2
 
 
 def test_w12_pair_uses_common_verified_24_hour_clean_return_rule(tmp_path: Path) -> None:

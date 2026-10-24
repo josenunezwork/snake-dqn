@@ -257,6 +257,30 @@ environment entries are preserved. A lock left after interruption or uncertain t
 submission requires operator inspection;
 never delete an active run's lock. Worktrees and logs are retained.
 
+## Factory companion work
+
+**PREPARED_NOT_QUALIFIED — activation HOLD.** The companion monitor, client/tool
+lanes and production continuation currently refuse activation. No qualified
+native descendant tracking backend is implemented; manual evidence flags or
+environment variables cannot override the fence. See the handoff for unresolved
+acceptance requirements. The following interfaces describe a future protocol.
+
+After full qualification, local Astra/Sol commands during an F0
+D256/D1024/D4096 production window would use `factory_companion.sh`.
+It binds the reviewed concurrency
+policy SHA and active factory attempt identity, accepts only reviewed argv forms,
+and delegates admission, absolute priority, CPU/thread caps, monitoring and
+cleanup to `research.compute.factory_companion`.  The production operator
+commands and the exact one-test-lane pytest shape are in
+`research/bl_labels/FACTORY_CONCURRENCY_HANDOFF_20261023.md`.  This wrapper does
+not acquire the research Mac lease and does not launch a factory job.
+
+The future protocol starts or reuses `factory_companion_monitor.sh` before the
+required light-only observation. `start` currently refuses with activation HOLD;
+`status` remains available for diagnostics. Its verified-owned `stop` command is
+for cleanup. These commands are the
+operator interface for the persistent monitor; it is not a factory launcher.
+
 ## Offline verification and calendar lint
 
 ```bash

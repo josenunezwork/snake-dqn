@@ -255,13 +255,13 @@ def record_host_check(state_dir: Path, *, checked_epoch: float | None = None) ->
     consumers = sorted(
         rows, key=lambda row: float(row.split()[1]) if len(row.split()) >= 2 else 0.0, reverse=True
     )[:20]
-    process_rows = subprocess.check_output(["/bin/ps", "-axo", "pid=,args="], text=True)
-    if any(
-        _sol_codex_job(row.split(maxsplit=1)[1])
-        for row in process_rows.splitlines()
-        if len(row.split(maxsplit=1)) == 2
-    ):
-        raise ValueError("host check found Sol/Codex process; HOLD")
+    # Share the runtime guard's ownership, desktop-helper and nice >= 15 rules.
+    from .mac_driver import MacGuardError, _exclusive_factory_guard
+
+    try:
+        _exclusive_factory_guard(set())
+    except MacGuardError as exc:
+        raise ValueError("host check found unsafe process observation; HOLD") from exc
     path = state_dir / f"slowdown-host-check-{int(epoch)}.json"
     publish_json(
         path,
