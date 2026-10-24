@@ -1,0 +1,35 @@
+{
+  "dispatch_performed": false,
+  "dry_run_log": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-flood-sparse-main-20261024-02/DISPATCH_DRY_RUN.log",
+    "sha256": "b4e622c206aecffd24a272d227d94de6e81df590373593e8b92bd7e5b368df03"
+  },
+  "findings": [],
+  "implementation": {
+    "research/gpu_sim_spike/native_compile.py": "6084ee272df0aaae8b565b626a89372d2f09433c0a142f9bccf8b6280d963ae4",
+    "tests/test_flood_sparse_main.py": "bb79de6518d15331760f8de5bb96334e343683e9629d453e1f2ce6caee716479",
+    "tools/ops/dispatch.py": "8c5abae7d799b2afb869cf3bd71804bd7b8b6324ad0cd77be395e1bb22c88666",
+    "tools/ops/dispatch.sh": "4678d42469033d23f5178ce36b0b3c62d6e4488d211bd76afaa6b67bcf31f931",
+    "tools/ops/flood_sparse_main.py": "970142ac50dc128fa2d5aa6ea7e5050a908eb96feec61c712ce0a7857b38373d",
+    "tools/ops/repack_gpu_upload.py": "f1b503044d1f9f7f1d3d07fcd75e4779d6a2245d19e63115a9b8583fe79f9ebc"
+  },
+  "limitations": [
+    "Live account/global/calendar/external-liability admission remains operator duty",
+    "Separate A1-PROF nine-cell coverage not established by sparse package",
+    "Native performance not rerun; route remains INCOMPLETE pending registered main",
+    "Frozen runtime terminates after first failing roster"
+  ],
+  "manifest_sha256": "c9a69df5e0e65af82cdde285c84e417d5dc29cf8f5b7d975ac2203d2f3af8b1a",
+  "preparation_sha256": "73594d2212fa9881924698790bda5df9d0ca96d0a75de4601d0b1697524be4ad",
+  "reviewer": "Independent read-only reviewer /root/flood_review",
+  "schema": "codex-v-flood-sparse-main-light/v1",
+  "status": "ACCEPT_OFFLINE",
+  "verified": [
+    "Frozen b7dfa1fc runtime, source_paths and canary upload bytes retained",
+    "Original receipt layout: raw broker receipt plus complete export triples",
+    "Exact three E1024 roster allocation, three warmups/repeats, full-tick2x",
+    "Prior8 receipts conservatively accounted;160min/26.666666666666668u main fits216min/36u series",
+    "Immutable preparation/dispatch/manifest/source hashes verified independently",
+    "Mandatory actual generated helper dry-run PASS; allocations0"
+  ]
+}
