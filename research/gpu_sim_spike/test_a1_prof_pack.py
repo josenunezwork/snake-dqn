@@ -43,6 +43,8 @@ def test_a1_prof_main_and_canary_preserve_doubled_envelope_and_inventory(tmp_pat
         "other_assignments": {},
     }
     assert main["env"]["A1_PROF_SECONDS"] == "2400"
+    assert main["env"]["A1_PROF_EXPORT_CHROME_TRACES"] == "0"
+    assert main["max_export_bytes"] == 64 * 1024**2
     assert main["env"]["PYTORCH_ALLOC_CONF"] == "expandable_segments:True"
     assert "PYTORCH_CUDA_ALLOC_CONF" not in main["env"]
     assert main["resume"]["unit_kind"] == "profile-cell"
@@ -51,6 +53,7 @@ def test_a1_prof_main_and_canary_preserve_doubled_envelope_and_inventory(tmp_pat
     assert main["a1_prof"]["matrix"]["rosters"] == ["frozen", "mixed", "scripted"]
     assert input_inventory(main) == input_inventory(canary)
     assert main["a1_prof"]["version"] == 4
+    assert main["a1_prof"]["chrome_trace_export"].startswith("optional; disabled")
     assert main["timeout_minutes"] + canary["timeout_minutes"] == 72
     assert main["budget"]["unit_cap"] + canary["budget"]["unit_cap"] == 12
     assert main["env"]["GPU_SIM_VECTOR_FLOOD"] == "dense"

@@ -99,51 +99,51 @@ def _preflight_binding(path: Path, commit: str) -> dict[str, Any]:
     }
 
 
-def _a1_v4_canary_binding(path: Path, commit: str) -> dict[str, Any]:
-    """Require the exact current-pin v4 profiler canary before sparse spending."""
-    receipt = path.resolve(strict=True)
-    value = json.loads(receipt.read_text())
-    saved = receipt.parent / "manifest.json"
-    if not saved.is_file() or value.get("manifest_sha256") != sha256_file(saved):
-        raise ManifestRefused("A1-PROF v4 receipt lacks its bound probe manifest")
+def _a1_v4_exports_binding(exports: Path) -> dict[str, Any]:
+    """Bind recovered diagnostic units, without requiring a successful job receipt.
+
+    These prior-pin units are provenance only, never a sparse resume ledger or
+    native canary proof. Verify complete payload triples and their frozen identity;
+    do not score outcomes or require large optional Chrome traces.
+    """
+    from research.gpu_sim_spike import a1_prof_units
+
+    root = exports.resolve(strict=True)
+    saved = root.parent / "manifest.json"
     probe = json.loads(saved.read_text())
+    commit = probe.get("commit", "")
+    _require_commit(commit)
     if (
-        probe.get("commit") != commit
-        or probe.get("env", {}).get("GPU_SIM_SPIKE_ENTRYPOINT") != "a1-prof"
+        probe.get("env", {}).get("GPU_SIM_SPIKE_ENTRYPOINT") != "a1-prof"
         or probe.get("a1_prof", {}).get("version") != 4
     ):
-        raise ManifestRefused("A1-PROF receipt is not a current same-pin v4 probe")
-    # Re-use the supervisor's independent release/export/transport proof rather
-    # than inventing a second terminal receipt schema.
-    target = json.loads(saved.read_text())
-    target["env"].pop("SNAKE_COLAB_CANARY", None)
-    target["env"].pop("SNAKE_COLAB_CANARY_PACKAGE", None)
-    target["canary"] = {"receipt": {"path": str(receipt), "sha256": sha256_file(receipt)}}
-    try:
-        from research.colab_cli.canary import check
-
-        check(target, ROOT)
-    except Exception as exc:
-        raise ManifestRefused("A1-PROF v4 canary lacks verified release/evidence") from exc
-    try:
-        from research.gpu_sim_spike import a1_prof_analyze
-
-        analysis = a1_prof_analyze.aggregate([receipt.parent / "exports"], commit, canary=True)
-        if len(analysis.get("cells", [])) != 9:
-            raise ValueError("A1-PROF v4 canary did not export its complete nine-cell matrix")
-        for cell in analysis["cells"]:
-            if cell.get("metrics", {}).get("attribution_status") != "COMPLETE":
-                raise ValueError("A1-PROF v4 diagnostic reconciliation is incomplete")
-            if not cell.get("native_launch_event_ticks") or any(
-                not tick.get("launches") for tick in cell["native_launch_event_ticks"]
-            ):
-                raise ValueError("A1-PROF v4 canary lacks native launch timing")
-            traces = cell.get("profiler_ticks", [])
-            if not traces or any(not trace.get("kernel_inventory") for trace in traces):
-                raise ValueError("A1-PROF v4 canary lacks native kernel inventory")
-    except Exception as exc:
-        raise ManifestRefused("A1-PROF v4 canary lacks complete native producer proof") from exc
-    return {"path": str(receipt), "sha256": sha256_file(receipt), "commit": commit, "version": 4}
+        raise ManifestRefused("recovered exports must belong to an A1-PROF v4 manifest")
+    canary = probe.get("env", {}).get("A1_PROF_CANARY") == "1"
+    namespace = a1_prof_units.namespace(commit, canary=canary)
+    allocation = a1_prof_units.allocation(canary=canary)
+    units = []
+    for path in sorted((root / a1_prof_units.UNIT_DIRECTORY).glob("*.json")):
+        digest = a1_prof_units._verify_sidecars(path)
+        value = json.loads(path.read_text())
+        if (
+            value.get("schema") != a1_prof_units.SCHEMA
+            or value.get("namespace") != namespace
+            or value.get("allocation") != list(allocation)
+            or value.get("unit_id") != path.stem
+            or path.stem not in allocation
+        ):
+            raise ManifestRefused("recovered A1-PROF unit has foreign identity/allocation")
+        units.append({"path": str(path), "sha256": digest, "size": path.stat().st_size})
+    if not units:
+        raise ManifestRefused("no complete recovered A1-PROF v4 units")
+    return {
+        "role": "optional diagnostic provenance; not canary or sparse resume proof",
+        "manifest": {"path": str(saved), "sha256": sha256_file(saved)},
+        "commit": commit,
+        "version": 4,
+        "namespace": namespace,
+        "units": units,
+    }
 
 
 def manifest(
@@ -230,8 +230,7 @@ def manifest(
             "max_outcome_blind_retries": 2,
         },
         "sparse_bench": {
-            "requires_a1_prof_version": 4,
-            "requires_same_pin_a1_prof_v4_canary_receipt": True,
+            "a1_prof_v4_exports_optional": True,
             "base_envelope": {
                 "forecast_minutes": 90,
                 "wall_minutes": 108,
@@ -261,9 +260,7 @@ def manifest(
         value["canary"] = {"schema": "colab-family-canary/v1", "mode": "probe", "family": SCRIPT}
     else:
         if canary_receipt is None:
-            value["canary"] = {
-                "required": "same-pin sparse canary receipt plus A1-PROF-v4 canary receipt"
-            }
+            value["canary"] = {"required": "same-pin sparse canary receipt"}
         else:
             receipt = canary_receipt.resolve(strict=True)
             value["canary"] = {"receipt": {"path": str(receipt), "sha256": sha256_file(receipt)}}
@@ -273,16 +270,21 @@ def manifest(
 
 
 def _dispatch_text(artifact: Path, commit: str) -> str:
-    return f"""# Prepared only; refresh assignment/rate evidence and verify the v4 canary.
+    return f"""# Prepared only; ops refreshes assignment/rate evidence at dispatch.
 REPO={ROOT}
 ART={artifact}
 cd "$REPO"
-"$ART/dispatch-canary-after-a1-prof-v4.sh"
+"$ART/dispatch-canary.sh"
 bash "$ART/dispatch-main-after-canary.sh"
 """
 
 
-def _canary_script(artifact: Path, commit: str, preflight: Path, rate: float) -> str:
+def _canary_script(
+    artifact: Path, commit: str, preflight: Path, rate: float, exports: Path | None = None
+) -> str:
+    binding = (
+        "" if exports is None else " --a1-prof-v4-exports " + shlex.quote(str(exports.resolve()))
+    )
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 REPO={ROOT}
@@ -291,12 +293,9 @@ PIN={commit}
 PY="$REPO/venv/bin/python"
 [[ -x "$PY" ]] || PY={PRIMARY_PY}
 export PATH="$(dirname "$PY"):$PATH"
-: "${{A1_PROF_V4_RECEIPT:?provide the original broker v4 canary receipt path}}"
-RECEIPT="$A1_PROF_V4_RECEIPT"
-[[ -f "$RECEIPT" ]] || {{ echo "missing current same-pin A1-PROF v4 canary receipt" >&2; exit 1; }}
 cd "$REPO"
 "$PY" -m research.gpu_sim_spike.sparse_pack \\
-  --commit "$PIN" --artifact-dir "$ART" --a1-prof-v4-receipt "$RECEIPT" \\
+  --commit "$PIN" --artifact-dir "$ART" {binding} \\
   --preflight {shlex.quote(str(preflight.resolve()))} \\
   --rate-units-per-hour {rate} --validate
 exec "$REPO/tools/ops/dispatch.sh" sparse-bench-a100-canary-{commit[:8]} \\
@@ -305,7 +304,12 @@ exec "$REPO/tools/ops/dispatch.sh" sparse-bench-a100-canary-{commit[:8]} \\
 """
 
 
-def _main_script(artifact: Path, commit: str, preflight: Path, rate: float) -> str:
+def _main_script(
+    artifact: Path, commit: str, preflight: Path, rate: float, exports: Path | None = None
+) -> str:
+    binding = (
+        "" if exports is None else " --a1-prof-v4-exports " + shlex.quote(str(exports.resolve()))
+    )
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 REPO={ROOT}
@@ -315,14 +319,11 @@ PY="$REPO/venv/bin/python"
 [[ -x "$PY" ]] || PY={PRIMARY_PY}
 export PATH="$(dirname "$PY"):$PATH"
 SPARSE_RECEIPT="$ART/canary-output/receipt.json"
-: "${{A1_PROF_V4_RECEIPT:?provide the original broker v4 canary receipt path}}"
-A1_V4_RECEIPT="$A1_PROF_V4_RECEIPT"
 [[ -f "$SPARSE_RECEIPT" ]] || {{ echo "missing sparse canary receipt" >&2; exit 1; }}
-[[ -f "$A1_V4_RECEIPT" ]] || {{ echo "missing same-pin A1-PROF v4 canary receipt" >&2; exit 1; }}
 cd "$REPO"
 "$PY" -m research.gpu_sim_spike.sparse_pack \\
   --commit "$PIN" --artifact-dir "$ART" --canary-receipt "$SPARSE_RECEIPT" \\
-  --a1-prof-v4-receipt "$A1_V4_RECEIPT" \\
+  {binding} \\
   --preflight {shlex.quote(str(preflight.resolve()))} \\
   --rate-units-per-hour {rate} --validate
 exec "$REPO/tools/ops/dispatch.sh" sparse-bench-a100-main-{commit[:8]} \\
@@ -337,7 +338,7 @@ def main() -> None:
     parser.add_argument("--artifact-dir", type=Path, default=DEFAULT_ARTIFACT_DIR)
     parser.add_argument("--preflight", type=Path)
     parser.add_argument("--canary-receipt", type=Path)
-    parser.add_argument("--a1-prof-v4-receipt", type=Path)
+    parser.add_argument("--a1-prof-v4-exports", type=Path)
     parser.add_argument("--rate-units-per-hour", type=float, default=10.0)
     parser.add_argument("--validate", action="store_true")
     args = parser.parse_args()
@@ -361,9 +362,7 @@ def main() -> None:
                 sparse_units.namespace(commit, canary=True), sparse_units.allocation(canary=True)
             ),
         )
-    a1_v4 = (
-        _a1_v4_canary_binding(args.a1_prof_v4_receipt, commit) if args.a1_prof_v4_receipt else None
-    )
+    a1_v4 = _a1_v4_exports_binding(args.a1_prof_v4_exports) if args.a1_prof_v4_exports else None
     canary = manifest(
         commit=commit,
         output_dir=art / "canary-output",
@@ -373,10 +372,8 @@ def main() -> None:
         preflight=preflight,
         rate=args.rate_units_per_hour,
     )
-    if args.canary_receipt and a1_v4 is None:
-        raise ManifestRefused("sparse main requires the original A1-PROF v4 canary receipt")
     if a1_v4 is not None:
-        canary["a1_prof_v4_canary"] = a1_v4
+        canary["a1_prof_v4_recovered_exports"] = a1_v4
     main_job = manifest(
         commit=commit,
         output_dir=art / "main-output",
@@ -388,7 +385,7 @@ def main() -> None:
         rate=args.rate_units_per_hour,
     )
     if a1_v4 is not None:
-        main_job["a1_prof_v4_canary"] = a1_v4
+        main_job["a1_prof_v4_recovered_exports"] = a1_v4
     if args.validate:
         from research.colab_cli.supervisor import validate
         from tools.ops.dispatch import require_resume_policy
@@ -400,7 +397,7 @@ def main() -> None:
             validate(main_job, repo=ROOT)
     for path, data in (
         (
-            art / ("sparse-bench-canary.json" if a1_v4 else "sparse-bench-canary-template.json"),
+            art / "sparse-bench-canary.json",
             canary,
         ),
         (
@@ -408,11 +405,7 @@ def main() -> None:
             / (
                 "sparse-bench-main.json"
                 if args.canary_receipt
-                else (
-                    "sparse-bench-main-a1-template.json"
-                    if a1_v4
-                    else "sparse-bench-main-template.json"
-                )
+                else "sparse-bench-main-template.json"
             ),
             main_job,
         ),
@@ -426,14 +419,18 @@ def main() -> None:
     if not handoff.exists():
         write_once(handoff, _dispatch_text(art, commit))
     script = art / "dispatch-main-after-canary.sh"
-    text = _main_script(art, commit, preflight_path, args.rate_units_per_hour)
+    text = _main_script(
+        art, commit, preflight_path, args.rate_units_per_hour, args.a1_prof_v4_exports
+    )
     if not script.exists():
         write_once(script, text)
         script.chmod(0o755)
     elif script.read_text() != text:
         raise ManifestRefused(f"immutable pack differs: {script}")
-    canary_script = art / "dispatch-canary-after-a1-prof-v4.sh"
-    text = _canary_script(art, commit, preflight_path, args.rate_units_per_hour)
+    canary_script = art / "dispatch-canary.sh"
+    text = _canary_script(
+        art, commit, preflight_path, args.rate_units_per_hour, args.a1_prof_v4_exports
+    )
     if not canary_script.exists():
         write_once(canary_script, text)
         canary_script.chmod(0o755)

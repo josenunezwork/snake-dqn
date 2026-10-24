@@ -35,7 +35,7 @@ def _ledger(path, *, canary=False):
     )
 
 
-def test_sparse_manifest_binds_q2_envelope_and_a1_prof_v4_gate(tmp_path, monkeypatch):
+def test_sparse_manifest_binds_q2_envelope_without_profiler_gate(tmp_path, monkeypatch):
     ledger, canary = tmp_path / "verified-ledger.json", tmp_path / "canary" / "verified-ledger.json"
     _ledger(ledger)
     _ledger(canary, canary=True)
@@ -61,7 +61,8 @@ def test_sparse_manifest_binds_q2_envelope_and_a1_prof_v4_gate(tmp_path, monkeyp
     )
     assert main["timeout_minutes"] == 192 and probe["timeout_minutes"] == 24
     assert main["budget"]["unit_cap"] + probe["budget"]["unit_cap"] == 36
-    assert main["sparse_bench"]["requires_a1_prof_version"] == 4
+    assert main["sparse_bench"]["a1_prof_v4_exports_optional"] is True
+    assert main["canary"]["required"] == "same-pin sparse canary receipt"
     assert main["sparse_bench"]["kill_rule"].startswith("STOP_ROUTE")
     assert (
         main["resume"]["skip_verified"] is True and main["resume"]["max_outcome_blind_retries"] == 2
@@ -108,39 +109,62 @@ def test_sparse_ledger_copies_verified_payload_for_portable_resume(tmp_path):
     assert list(sparse_units.load_ledger(portable, ns, allocation)) == [allocation[0]]
 
 
-def test_a1_v4_receipt_gate_refuses_missing_wrong_pin_and_failed(tmp_path):
-    receipt = tmp_path / "receipt.json"
-    with pytest.raises(FileNotFoundError):
-        sparse_pack._a1_v4_canary_binding(receipt, COMMIT)
+def test_recovered_v4_exports_bind_prior_pin_without_success_or_traces(tmp_path):
+    import json
+
     from research.gpu_sim_spike import a1_prof_units
 
-    a1_prof_units.publish_json(
-        receipt,
-        {
-            "schema": "gpu-sim-spike-a1-prof/v1",
-            "status": "COMPLETE",
-            "commit": "b" * 40,
-            "device": "cuda",
-            "a1_prof_version": 4,
-            "mode": "canary",
-        },
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(
+            {
+                "commit": COMMIT,
+                "env": {"GPU_SIM_SPIKE_ENTRYPOINT": "a1-prof", "A1_PROF_CANARY": "1"},
+                "a1_prof": {"version": 4},
+            }
+        )
     )
-    with pytest.raises(sparse_pack.ManifestRefused):
-        sparse_pack._a1_v4_canary_binding(receipt, COMMIT)
-    failed = tmp_path / "failed.json"
-    a1_prof_units.publish_json(
-        failed,
-        {
-            "schema": "gpu-sim-spike-a1-prof/v1",
-            "status": "INCOMPLETE",
-            "commit": COMMIT,
-            "device": "cuda",
-            "a1_prof_version": 4,
-            "mode": "canary",
-        },
+    exports = tmp_path / "exports"
+    allocation = a1_prof_units.allocation(canary=True)
+    payload = a1_prof_units.publish_unit(
+        exports,
+        a1_prof_units.namespace(COMMIT, canary=True),
+        allocation,
+        allocation[0],
+        {"chrome_traces": [{"path": "missing-large-trace"}]},
     )
-    with pytest.raises(sparse_pack.ManifestRefused):
-        sparse_pack._a1_v4_canary_binding(failed, COMMIT)
+    binding = sparse_pack._a1_v4_exports_binding(exports)
+    assert binding["commit"] == COMMIT and len(binding["units"]) == 1
+    assert "not canary" in binding["role"]
+    payload.write_text("tampered")
+    with pytest.raises(ValueError, match="checksum"):
+        sparse_pack._a1_v4_exports_binding(exports)
+
+
+def test_recovered_v4_exports_refuse_foreign_identity(tmp_path):
+    import json
+
+    from research.gpu_sim_spike import a1_prof_units
+
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(
+            {
+                "commit": COMMIT,
+                "env": {"GPU_SIM_SPIKE_ENTRYPOINT": "a1-prof", "A1_PROF_CANARY": "1"},
+                "a1_prof": {"version": 4},
+            }
+        )
+    )
+    exports = tmp_path / "exports"
+    allocation = a1_prof_units.allocation(canary=True)
+    a1_prof_units.publish_unit(
+        exports,
+        a1_prof_units.namespace("b" * 40, canary=True),
+        allocation,
+        allocation[0],
+        {},
+    )
+    with pytest.raises(sparse_pack.ManifestRefused, match="foreign"):
+        sparse_pack._a1_v4_exports_binding(exports)
 
 
 def test_cell_stops_for_any_full_feature_or_speed_failure(monkeypatch):
@@ -215,67 +239,63 @@ def test_later_feature_failure_preserves_immutable_recorded_state():
     assert merged["feature_oracle"] == {"match": False, "recorded_fixture": fixture}
 
 
-def test_sparse_pack_stages_immutable_templates_then_bound_manifests(tmp_path, monkeypatch):
+@pytest.mark.parametrize("bind_exports", [False, True])
+def test_sparse_pack_canary_and_main_do_not_require_profiler_pass(
+    tmp_path, monkeypatch, bind_exports
+):
     import sys
 
     monkeypatch.setattr(sparse_pack, "require_source_pin", lambda commit: None)
     monkeypatch.setattr(sparse_pack, "_preflight_binding", lambda path, commit: {})
     monkeypatch.setattr(sparse_pack, "manifest", lambda **kwargs: {"canary": kwargs["canary"]})
-    monkeypatch.setattr(sparse_pack, "_a1_v4_canary_binding", lambda path, commit: {"version": 4})
+    monkeypatch.setattr(sparse_pack, "_a1_v4_exports_binding", lambda path: {"version": 4})
     base = ["pack", "--commit", COMMIT, "--artifact-dir", str(tmp_path)]
+    if bind_exports:
+        base += ["--a1-prof-v4-exports", str(tmp_path / "recovered-exports")]
     monkeypatch.setattr(sys, "argv", base)
     sparse_pack.main()
-    assert (tmp_path / "sparse-bench-canary-template.json").is_file()
-    assert not (tmp_path / "sparse-bench-canary.json").exists()
-    template = (tmp_path / "sparse-bench-main-template.json").read_bytes()
-    bound = base + ["--a1-prof-v4-receipt", str(tmp_path / "original-broker-receipt.json")]
-    monkeypatch.setattr(sys, "argv", bound)
-    sparse_pack.main()
     assert (tmp_path / "sparse-bench-canary.json").is_file()
-    assert (tmp_path / "sparse-bench-main-a1-template.json").is_file()
-    monkeypatch.setattr(sys, "argv", bound + ["--canary-receipt", str(tmp_path / "sparse.json")])
+    template = (tmp_path / "sparse-bench-main-template.json").read_bytes()
+    monkeypatch.setattr(sys, "argv", base + ["--canary-receipt", str(tmp_path / "sparse.json")])
     sparse_pack.main()
     assert (tmp_path / "sparse-bench-main.json").is_file()
     assert (tmp_path / "sparse-bench-main-template.json").read_bytes() == template
+    for name in ("dispatch-canary.sh", "dispatch-main-after-canary.sh"):
+        script = (tmp_path / name).read_text()
+        assert "A1_PROF_V4_RECEIPT" not in script
+        assert ("--a1-prof-v4-exports" in script) == bind_exports
 
 
-@pytest.mark.parametrize("status", ["COMPLETE", "INCOMPLETE"])
-def test_a1_gate_requires_reconciled_complete_native_cells(tmp_path, monkeypatch, status):
-    import json
+def test_generated_helpers_execute_without_profiler_receipt(tmp_path):
+    import subprocess
 
-    from research.colab_cli import canary
-    from research.gpu_sim_spike import a1_prof_analyze
-    from research.gpu_sim_spike.make_manifests import sha256_file
+    repo = tmp_path / "repo"
+    (repo / "venv/bin").mkdir(parents=True)
+    (repo / "tools/ops").mkdir(parents=True)
+    # A tiny fake Python/dispatch boundary records exact arguments, while Bash
+    # exercises the generated helpers' actual environment/receipt checks.
+    python = repo / "venv/bin/python"
+    python.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$ARG_LOG"\n')
+    dispatch = repo / "tools/ops/dispatch.sh"
+    dispatch.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$ARG_LOG"\n')
+    python.chmod(0o755)
+    dispatch.chmod(0o755)
+    import os
 
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text(
-        json.dumps(
-            {
-                "commit": COMMIT,
-                "env": {"GPU_SIM_SPIKE_ENTRYPOINT": "a1-prof"},
-                "a1_prof": {"version": 4},
-            }
+    env = dict(os.environ, ARG_LOG=str(tmp_path / "args"))
+    env.pop("A1_PROF_V4_RECEIPT", None)
+    for generator in (sparse_pack._canary_script, sparse_pack._main_script):
+        script = tmp_path / (generator.__name__ + ".sh")
+        script.write_text(
+            generator(tmp_path, COMMIT, tmp_path / "preflight.json", 10).replace(
+                f"REPO={sparse_pack.ROOT}", f"REPO={repo}"
+            )
         )
-    )
-    receipt = tmp_path / "receipt.json"
-    receipt.write_text(json.dumps({"manifest_sha256": sha256_file(manifest)}))
-    monkeypatch.setattr(canary, "check", lambda target, repo: None)
-    monkeypatch.setattr(
-        a1_prof_analyze,
-        "aggregate",
-        lambda *a, **k: {
-            "cells": [
-                {
-                    "metrics": {"attribution_status": status},
-                    "native_launch_event_ticks": [{"launches": [{"name": "fifo"}]}],
-                    "profiler_ticks": [{"kernel_inventory": {"fifo": {"count": 1}}}],
-                }
-            ]
-            * 9
-        },
-    )
-    if status == "COMPLETE":
-        assert sparse_pack._a1_v4_canary_binding(receipt, COMMIT)["version"] == 4
-    else:
-        with pytest.raises(sparse_pack.ManifestRefused, match="native producer proof"):
-            sparse_pack._a1_v4_canary_binding(receipt, COMMIT)
+        if generator == sparse_pack._main_script:
+            refused = subprocess.run(["bash", str(script)], env=env, capture_output=True)
+            assert refused.returncode != 0 and b"missing sparse canary" in refused.stderr
+            (tmp_path / "canary-output").mkdir()
+            (tmp_path / "canary-output/receipt.json").write_text("{}")
+        result = subprocess.run(["bash", str(script)], env=env, capture_output=True)
+        assert result.returncode == 0, result.stderr
+    assert "--canary-receipt" in (tmp_path / "args").read_text()

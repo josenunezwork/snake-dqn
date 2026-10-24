@@ -36,8 +36,8 @@ def aggregate(
     for unit_id in allocation:
         cell = cells[unit_id]
         traces = cell.get("chrome_traces", [])
-        if not isinstance(traces, list) or len(traces) != 1:
-            raise ValueError("A1-PROF unit lacks its single immutable Chrome trace")
+        if not isinstance(traces, list):
+            raise ValueError("A1-PROF Chrome trace references must be a list")
         for trace in traces:
             if not isinstance(trace, dict) or not isinstance(trace.get("path"), str):
                 raise ValueError("A1-PROF Chrome trace reference is malformed")

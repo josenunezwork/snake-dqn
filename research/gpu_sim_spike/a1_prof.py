@@ -8,6 +8,7 @@ import gzip
 import hashlib
 import json
 import math
+import os
 import platform
 import re
 import statistics
@@ -618,8 +619,14 @@ def measure_cell(
     warmups: int,
     deadline: float,
     output_dir: Path,
+    export_chrome_traces: bool = False,
 ) -> dict[str, Any]:
-    """Same fixed long-body ruler seam, fresh reset for every complete tick."""
+    """Same fixed long-body ruler seam, fresh reset for every complete tick.
+
+    Chrome traces are an opt-in diagnostic.  The reduced Kineto inventory and
+    top-N summaries remain part of every unit, so a slow raw-trace transfer
+    cannot prevent publication of the measurement payload.
+    """
     _check_deadline(deadline)
     ruler._release_cell(device)
     if device == "cuda":
@@ -691,14 +698,12 @@ def measure_cell(
             if event.device_type() == torch.autograd.DeviceType.CUDA
             and event.linked_correlation_id() > 0
         }
-        # Persist the raw trace before reducing it to summary tables.  If the
-        # bounded immutable export fails, this cell is INCOMPLETE rather than
-        # leaving a summary which cannot be independently inspected.
-        trace = _publish_chrome_trace(profiler, output_dir, f"cell-{mix}-e{worlds}-trace")
         summary = profiler_summary(profiler.events(), device, links)
         summary["profiled_tick_wall_seconds"] = profiled_wall
-        summary["chrome_trace"] = trace
-        traces.append(trace)
+        if export_chrome_traces:
+            trace = _publish_chrome_trace(profiler, output_dir, f"cell-{mix}-e{worlds}-trace")
+            summary["chrome_trace"] = trace
+            traces.append(trace)
         profiled.append(summary)
         progress(repeat + 1, repeats, start, cell=f"{mix}-e{worlds}", phase="repeat")
         del profiler
@@ -717,6 +722,7 @@ def measure_cell(
         "native_launch_event_ticks": native_launch_ticks,
         "profiler_ticks": profiled,
         "chrome_traces": traces,
+        "chrome_trace_export": "enabled" if export_chrome_traces else "disabled",
         "memory": ruler._memory_now(device),
         "peak_memory": ruler.realistic._peak_memory(device),
         "metrics": metrics(baseline, timings, worlds),
@@ -772,6 +778,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             1 if args.smoke or args.canary else 3,
             deadline,
             args.output_dir,
+            getattr(args, "chrome_traces", False),
         )
         units.publish_unit(args.output_dir, namespace, allocation, unit_id, cell)
         complete.append(unit_id)
@@ -808,6 +815,12 @@ def main() -> None:
     parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
     parser.add_argument("--seconds", type=float, required=True)
+    parser.add_argument(
+        "--chrome-traces",
+        action="store_true",
+        default=os.environ.get("A1_PROF_EXPORT_CHROME_TRACES", "0") == "1",
+        help="export optional compressed Chrome traces; disabled by default",
+    )
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--canary", action="store_true")
     args = parser.parse_args()
