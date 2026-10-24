@@ -5,6 +5,9 @@ set -euo pipefail
 : "${MOVE2_BENCH_SECONDS:?MOVE2_BENCH_SECONDS is required}"
 : "${MOVE2_BENCH_DEVICE:?MOVE2_BENCH_DEVICE is required}"
 : "${MOVE2_BENCH_LEDGER_PATH:?MOVE2_BENCH_LEDGER_PATH is required}"
+: "${METADATA_ARCHIVE_SHA256:?manifest metadata archive digest required}"
+python -m research.metadata_archive unpack --archive "$COLAB_INPUT_DIR/metadata.tar" \
+  --root "$COLAB_INPUT_DIR" --sha256 "$METADATA_ARCHIVE_SHA256"
 export PYTHONUNBUFFERED=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 MAX_JOBS=2
 if [[ "$MOVE2_BENCH_DEVICE" == cuda ]]; then

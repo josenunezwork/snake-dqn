@@ -14,6 +14,7 @@ from pathlib import Path
 
 from research.gpu_sim_spike import move2_pack, move2_units
 from research.gpu_sim_spike.make_manifests import checkpoint_inputs
+from research.metadata_archive import bundle_inputs
 
 
 def run(root: Path, commit: str) -> dict:
@@ -27,18 +28,27 @@ def run(root: Path, commit: str) -> dict:
         target = inputs / row["dest"]
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(row["path"], target)
-    ledger = inputs / "inputs/verified-ledger.json"
+    metadata_source = root / "metadata-source"
+    ledger = metadata_source / "verified-ledger.json"
     move2_units.publish_json(
         ledger,
         move2_units.empty_ledger(
             move2_units.namespace(commit, smoke=True), move2_units.allocation(smoke=True)
         ),
     )
+    metadata = bundle_inputs(move2_pack._ledger_inputs(ledger, "inputs"), inputs / "metadata.tar")
+    metadata_digest = next(row["sha256"] for row in metadata if row["dest"] == "metadata.tar")
+    for row in metadata:
+        if row["dest"] != "metadata.tar" and "path" in row:
+            target = inputs / row["dest"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(row["path"], target)
     env = dict(os.environ)
     env.update(
         {
             "COLAB_CLI_ROOT": str(root / "runtime"),
             "COLAB_INPUT_DIR": str(inputs),
+            "METADATA_ARCHIVE_SHA256": metadata_digest,
             "MOVE2_BENCH_SECONDS": "300",
             "MOVE2_BENCH_DEVICE": "cpu",
             "MOVE2_BENCH_LEDGER_PATH": "inputs/verified-ledger.json",
