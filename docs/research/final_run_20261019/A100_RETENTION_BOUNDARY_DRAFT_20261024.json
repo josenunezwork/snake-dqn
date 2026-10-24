@@ -1,0 +1,78 @@
+{
+  "artifact": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-retention-20261023/acceptance-01/boundary-admission.draft.json",
+    "sha256": "60835dc8f149b1c1dbc4c97e8a0b00f121cf0ea2668dc187eeda56d0162a4be5"
+  },
+  "claude_live_checks": [
+    "Recover the pre-existing original round-28 sealed admission JSON and hash. Fill original_sealed_admission={path,sha256}, t0_json_pointer (RFC6901) and exact t0_epoch. Never create a replacement T0. Recover original frozen spendable limit and derive absolute T0+48/72/120 deadlines.",
+    "Read /Users/josenunez/.local/bin/colab --auth oauth2 sessions and usage. Reconcile every endpoint against broker active/pending ownership and receipts, notebook assignments, calibrated positive rates, verified release or retained liabilities. Unknown ownership or uncertain stop blocks replacement. No second sprint A100; account cap is three.",
+    "Reconcile actual spend, live balance, outstanding active/queued/completion liabilities and required I0/Q3/Q5/Q6/Q7 reservations against original global and nested local caps. Include setup, failures, export, retention, idle and stop exactly once. Historical crosscheck subtotals are partial and overlapping other intervals must not be added. Resolve historical L4 compile rate/authority discrepancy.",
+    "Reserve at least 48 units and 288 aggregate runtime minutes after liabilities, with the entire 288-minute envelope ending by original T0+120. Confirm dependency completion and I0 priority, original candidate freeze and uncompleted Q5 are not delayed.",
+    "This frozen regression plan binds empty other_assignments in both jobs: use this package only after zero pre-existing assignments is verified. If the live map is nonempty, prepare/review a fresh package with that map, new output paths and new plan binding; never patch immutable manifests or this plan.",
+    "Recheck frozen checkout/published commit, source/plan/input hashes, no O1 execute-started marker or prior receipt, fresh outputs, AC/open lid and healthy Mac control path. Final-only regression must PASS before native A100 work.",
+    "Create a separate boundary-admission.json. Fill the verified T0 binding, pointer and epoch plus actual unencumbered_units and unencumbered_runtime_minutes. Set safe_a100_boundary=true and required_work_not_displaced=true only with current evidence. Keep prior_attempt_receipts=[] only if still no O1 attempt; any prior attempt requires a separately reviewed completion package. Keep the draft immutable. Record admission/ownership/reservations and next packet in CAMPAIGN_LOG before dispatch."
+  ],
+  "frozen_acceptance_checkout": {
+    "head": "5e2db076d505ffa7244c12628b4f213ae561e044",
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-retain",
+    "state": "clean detached; exact HEAD required by verify_plan; do not advance for documentation publication"
+  },
+  "independent_review": {
+    "reviewed_sha256": "60835dc8f149b1c1dbc4c97e8a0b00f121cf0ea2668dc187eeda56d0162a4be5",
+    "reviewer": "Codex-V light (/root/codex_v_light)",
+    "scope": "Preparation, sourced values, all 91 bindings including 18 log-prefix snapshots, distinct receipt discovery, accounting formulas and non-admission guards. Not native acceptance or dispatch authorization.",
+    "verdict": "ACCEPT_DRAFT"
+  },
+  "not_done": [
+    "No dispatch, provider call, allocation, stop, native evidence collection, qualification/adoption or serving change.",
+    "No original sealed T0 or complete liabilities ledger found; draft cannot be used as admission."
+  ],
+  "operator_dispatch_command": "/Users/josenunez/Projects/ml/snake-dqn-retain/tools/ops/dispatch.sh --retention-acceptance /Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-retention-20261023/acceptance-01/acceptance-plan.json --boundary-admission /Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-retention-20261023/acceptance-01/boundary-admission.json --review-token A100_RETENTION_ACCEPTANCE_REVIEWED --broker /Users/josenunez/Projects/ml/snake-dqn-retain --cwd /Users/josenunez/Projects/ml/snake-dqn-retain",
+  "plan": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-retention-20261023/acceptance-01/acceptance-plan.json",
+    "sha256": "318913d7be0a1fdabd10bb0d2ee61c5de93306855074d3d763845d55a515b688"
+  },
+  "preserved": "Original template/plan, prior receipts, qualification registry, tmux jobs, released checkpoints, serving pins and hash-bound research evidence unchanged.",
+  "read_only_inventory_commands": [
+    "/Users/josenunez/.local/bin/colab --auth oauth2 sessions",
+    "/Users/josenunez/.local/bin/colab --auth oauth2 usage"
+  ],
+  "reconciled": {
+    "actual_provider_spend_units": null,
+    "broker_elapsed_minutes": 123.84526673821868,
+    "complete_outstanding_liabilities": null,
+    "conservative_receipt_charge_units": 19.9219907470746,
+    "original_frozen_spendable_limit_units": null,
+    "original_sealed_T0": null,
+    "other_assignments": {},
+    "prior_O1_attempt_receipts": [],
+    "receipt_count": 17,
+    "required_work_nondisplacement": "unverified",
+    "required_work_not_displaced": false,
+    "safe_a100_boundary": false,
+    "source": "artifact /reconciliation/receipt_scan and /reconciliation/sprint_totals; every receipt SHA/field and formula recorded",
+    "unencumbered_runtime_minutes": null,
+    "unencumbered_units": null
+  },
+  "schema": "snake-dqn-o1-boundary-draft-handoff/v1",
+  "status": "PREPARED_ONLY_INCOMPLETE_ADMISSION",
+  "verification": [
+    {
+      "command": "SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q tests/test_colab_cli_retention_acceptance.py -k boundary",
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-retain",
+      "result": "8 passed, 33 deselected"
+    },
+    {
+      "command": "Python verify_plan(acceptance-plan.json)",
+      "result": "PASS: exact frozen HEAD, clean checkout, executable inventory, manifests, inputs, fresh output paths"
+    },
+    {
+      "command": "Independent read-only SHA256 / JSON-pointer / receipt-field / formula / source-discovery audit",
+      "result": "PASS: 91 bindings, 17 distinct broker receipts; append-only logs checked against captured byte prefixes"
+    },
+    {
+      "command": "check_boundary with incomplete draft",
+      "result": "Non-admitted: missing original sealed JSON binding raises AttributeError in bound_json before any operational call. No claim of graceful validation; false guards and eight boundary regressions separately checked."
+    }
+  ]
+}

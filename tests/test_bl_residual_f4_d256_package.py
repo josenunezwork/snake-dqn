@@ -8,12 +8,44 @@ payload outside the temporary fixture.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from research.bl_residual import f4_d256_package as package
+
+
+def test_job_cli_accepts_manifest_cuda_index_without_fitting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from research.bl_residual import job
+
+    calls = []
+
+    def fake_run(inputs: Path, output: Path, *, mode: str, device: str) -> dict:
+        calls.append((inputs, output, mode, device))
+        return {"done": 1, "synthetic": False}
+
+    monkeypatch.setattr(job, "run", fake_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "job",
+            "--input-dir",
+            str(tmp_path / "inputs"),
+            "--output",
+            str(tmp_path / "out"),
+            "--mode",
+            "main",
+            "--device",
+            "cuda:0",
+        ],
+    )
+    job.main()
+    assert calls == [(tmp_path / "inputs", tmp_path / "out", "main", "cuda:0")]
 
 
 def _row(*, ordinary: bool, status: list[str] | None = None, probability: float = 0.25) -> dict:
@@ -140,7 +172,13 @@ def test_stage_d1024_refuses_unpublished_fit_phase_before_checkpoint_or_labels(
         package.stage_d1024(tmp_path / "pack", publication, tmp_path / "out")
 
 
-def test_canary_covers_main_transport_and_caps_leave_series_headroom(tmp_path) -> None:
+def test_canary_covers_main_transport_and_caps_leave_series_headroom(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from research.colab_cli.canary import job_device
+
+    entrypoint = (package.ROOT / "research/bl_residual/f4_d256_colab.sh").read_text()
+    monkeypatch.setattr("research.colab_cli.canary._entrypoint", lambda *_: entrypoint)
     inventory = [{"path": "/fixture", "dest": "b8.pth", "sha256": "a" * 64}]
     main, canary = package.manifests(tmp_path, "b" * 40, inventory)
     assert canary["inputs"] == main["inputs"] == inventory
@@ -149,6 +187,11 @@ def test_canary_covers_main_transport_and_caps_leave_series_headroom(tmp_path) -
     assert main["output_dir"] != canary["output_dir"]
     liability = 0
     for manifest in (main, canary):
+        assert manifest["device"] == manifest["env"]["F4_DEVICE"] == "cuda:0"
+        # Exercise the qualified parser against the real shell bytes, including
+        # its required-variable guard and manifest-bound --device argument.
+        assert job_device(manifest) == "cuda"
+        assert job_device(manifest, package.ROOT) == "cuda"
         limits, budget = manifest["f4"], manifest["budget"]
         assert budget["unit_cap"] == 2 * limits["base_units"]
         assert budget["reserve_units"] == 2 * limits["base_reserve_units"]

@@ -111,6 +111,16 @@ def _required(manifest: dict[str, Any]) -> list[str]:
         required.extend(["research/mac_lease.py", "research/published_ledger.py"])
     if manifest.get("env", {}).get("SNAKE_COLAB_CANARY") == "1":
         required.append("research/colab_cli/canary_observer.py")
+    if (
+        "retention_chain" in manifest
+        or str(manifest["script"]) == "research/colab_cli/retention_acceptance_probe.sh"
+        or manifest.get("env", {}).get("COLAB_RETENTION_CAPTURE_PINS") == "1"
+    ):
+        required.append("research/colab_cli/retention.py")
+    if "retention_chain" in manifest:
+        required.extend(
+            ["research/colab_cli/cache_environment.py", "research/colab_cli/extension_cache.py"]
+        )
     return required
 
 
