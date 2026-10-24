@@ -196,7 +196,7 @@ def _validate_plan(plan: dict[str, Any], root: Path) -> None:
 def run_sealed(*, root: Path = ROOT) -> dict[str, str]:
     """Claim the single look, compute in memory, and seal without disclosing it."""
     from research.bl_residual.f2_c0 import fit_c0
-    from research.bl_residual.f2_inputs import load_inputs, load_raw, safe_path
+    from research.bl_residual.f2_inputs import _plain_path, load_inputs, load_raw
 
     if (
         any(os.environ.get(name) != "1" for name in THREAD_ENV)
@@ -206,7 +206,7 @@ def run_sealed(*, root: Path = ROOT) -> dict[str, str]:
     published_ref = _published(root / INPUT_LEDGER, INPUT_LEDGER, root)
     plan = json.loads((root / INPUT_LEDGER).read_text())
     _validate_plan(plan, root)
-    safe_path(RECEIPT)
+    _plain_path(RECEIPT)
     if any(Path(str(RECEIPT) + suffix).exists() for suffix in ("", ".sha256", ".complete")):
         raise FileExistsError("F2 receipt already exists")
     os.umask(0o077)
@@ -256,6 +256,9 @@ def run_sealed(*, root: Path = ROOT) -> dict[str, str]:
 
 def stage_publication(*, root: Path = ROOT) -> dict[str, str]:
     """Publish only receipt path/hash/size; never parse the sealed receipt."""
+    from research.bl_residual.f2_inputs import _plain_path
+
+    _plain_path(RECEIPT)
     input_ref = _published(root / INPUT_LEDGER, INPUT_LEDGER, root)
     sha = verify_export(RECEIPT)
     value = {
@@ -273,10 +276,10 @@ def stage_publication(*, root: Path = ROOT) -> dict[str, str]:
 
 def verify_published_receipt(receipt: Path, *, root: Path | None = None) -> dict[str, str]:
     """Return only binding metadata; the result ledger must be published first."""
-    from research.bl_residual.f2_inputs import safe_path
+    from research.bl_residual.f2_inputs import _plain_path
 
     root = ROOT if root is None else Path(root)
-    receipt = safe_path(receipt)
+    receipt = _plain_path(receipt)
     if receipt != RECEIPT.resolve():
         raise ValueError("F2 requires the canonical one-look receipt")
     input_ref = _published(root / INPUT_LEDGER, INPUT_LEDGER, root)

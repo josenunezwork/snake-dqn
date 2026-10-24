@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ class LineageError(ValueError):
 
 
 def _sha256(path: Path) -> str:
+    path = _plain_path(path)
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1 << 20), b""):
@@ -55,15 +57,28 @@ def safe_path(path: Path | str) -> Path:
     return resolved
 
 
+def _has_symlink(path: Path | str) -> bool:
+    lexical = Path(path).absolute()
+    return any(part.is_symlink() for part in (lexical, *lexical.parents))
+
+
+def _plain_path(path: Path | str) -> Path:
+    """Check lexical components before resolution erases symlink evidence."""
+    resolved = safe_path(path)
+    if _has_symlink(path):
+        raise ValueError("F2 input component is a symlink")
+    return resolved
+
+
 def _file(path: Path, *, sha256: str | None = None) -> dict[str, Any]:
-    path = safe_path(path)
+    path = _plain_path(path)
     if not path.is_file():
         raise ValueError(f"missing F2 input: {path}")
     return {"path": str(path), "sha256": sha256, "size": path.stat().st_size}
 
 
 def _json(path: Path) -> dict[str, Any]:
-    path = safe_path(path)
+    path = _plain_path(path)
     value = json.loads(path.read_text())
     if not isinstance(value, dict):
         raise ValueError(f"metadata is not an object: {path}")
@@ -88,6 +103,12 @@ def _reject_forbidden_references(value: Any, base: Path) -> None:
 
 def _sidecar_entry(path: Path, index: int) -> dict[str, Any] | None:
     """Read only a checksum sidecar plus completion marker; never the NPZ itself."""
+    lexical_parts = (path, Path(str(path) + ".complete"), Path(str(path) + ".sha256"))
+    # Check forbidden resolution even when a symlink otherwise means fallback.
+    for part in lexical_parts:
+        safe_path(part)
+    if any(_has_symlink(part) for part in lexical_parts):
+        return None
     path = safe_path(path)
     marker = safe_path(Path(str(path) + ".complete"))
     sidecar = safe_path(Path(str(path) + ".sha256"))
@@ -138,7 +159,7 @@ def metadata_inputs(
     checkpoint: Path = B8_CHECKPOINT,
 ) -> dict[str, Any]:
     """Prepare the hash/lineage plan without opening a table or prediction payload."""
-    t5_root, a2_exports, t4e_root = map(safe_path, (t5_root, a2_exports, t4e_root))
+    t5_root, a2_exports, t4e_root = map(_plain_path, (t5_root, a2_exports, t4e_root))
     features = _file(t5_root / "features.npz", sha256=EXPECTED_T5_SHA)
     folds = _file(
         t5_root / "fits/folds.npz",
@@ -158,8 +179,6 @@ def metadata_inputs(
         "features-part-3.json",
     ):
         path = t5_root / name
-        if not path.is_file():
-            continue
         value = _json(path)
         _reject_forbidden_references(value, path.parent)
         metadata.append(_file(path, sha256=_sha256(path)))
@@ -194,7 +213,7 @@ def metadata_inputs(
         checkpoint,
         sha256=B8_SHA,
     )
-    return {
+    value = {
         "features": features,
         "folds": folds,
         "metadata": metadata,
@@ -205,10 +224,13 @@ def metadata_inputs(
         "raw_manifests": manifests,
         "t4e_root": str(t4e_root),
     }
+    validate_metadata(value, payloads=False)
+    return value
 
 
-def validate_metadata(inputs: dict[str, Any]) -> None:
+def validate_metadata(inputs: dict[str, Any], *, payloads: bool = True) -> None:
     """Verify fixed identity and recursive lineage before deserializing NPZ bytes."""
+    _reject_forbidden_references(inputs, T5_ROOT)
     if inputs.get("allocation") != ALLOCATION or inputs.get("namespace") != NAMESPACE:
         raise ValueError("foreign A2 allocation")
     if not (T5_ROOT / "features.json").is_file():
@@ -222,7 +244,6 @@ def validate_metadata(inputs: dict[str, Any]) -> None:
             "features-part-2.json",
             "features-part-3.json",
         )
-        if (T5_ROOT / name).is_file()
     } | {
         str(safe_path(A2_EXPORTS / "allocation.json")),
         str(safe_path(A2_EXPORTS / "materialization.json")),
@@ -246,7 +267,7 @@ def validate_metadata(inputs: dict[str, Any]) -> None:
     # Only ancestry metadata is opened in this phase.  This must finish before
     # any feature, fold, prediction, shard, or checkpoint payload is hashed.
     for item in metadata + manifests:
-        path = safe_path(item["path"])
+        path = _plain_path(item["path"])
         if _sha256(path) != item["sha256"]:
             raise ValueError("metadata hash differs")
         _reject_forbidden_references(_json(path), path.parent)
@@ -255,6 +276,27 @@ def validate_metadata(inputs: dict[str, Any]) -> None:
         bound = [item for item in manifests if item["path"] == path]
         if len(bound) != 1 or bound[0].get("sha256") != expected:
             raise ValueError("T4e manifest pin differs from A2")
+    source_receipt = _json(T5_ROOT / "features.json")
+    if (
+        source_receipt.get("schema") != "t5-separability-features/v1"
+        or source_receipt.get("output_sha256") != EXPECTED_T5_SHA
+        or safe_path(source_receipt["output"]) != safe_path(T5_ROOT / "features.npz")
+    ):
+        raise ValueError("T5 source lineage receipt differs")
+    for split, expected in EXPECTED_T4E_MANIFESTS.items():
+        if (
+            source_receipt.get("input_sha256", {}).get(
+                str(T4E_ROOT / "banks" / split / "manifest.json")
+            )
+            != expected
+        ):
+            raise ValueError("T5 source does not bind the original T4e manifests")
+    for item in metadata:
+        if (
+            Path(item["path"]).name.startswith("features-part-")
+            and source_receipt.get("part_receipts", {}).get(item["path"]) != item["sha256"]
+        ):
+            raise ValueError("T5 part receipt differs from the source lineage")
     materialization = _json(A2_EXPORTS / "materialization.json")
     if (
         materialization.get("schema") != "a2-materialization/v1"
@@ -271,19 +313,41 @@ def validate_metadata(inputs: dict[str, Any]) -> None:
         or materialized.get("t5/folds.npz") != FOLDS_SHA
     ):
         raise ValueError("A2 materialization does not bind original T5 table/folds")
-    for name, expected in (("features", EXPECTED_T5_SHA),):
+    payload_bindings = (
+        ("features", EXPECTED_T5_SHA, T5_ROOT / "features.npz"),
+        ("folds", FOLDS_SHA, T5_ROOT / "fits/folds.npz"),
+        ("checkpoint", B8_SHA, B8_CHECKPOINT),
+    )
+    for name, expected, expected_path in payload_bindings:
         item = inputs.get(name, {})
-        if item.get("sha256") != expected or _sha256(safe_path(item["path"])) != expected:
+        path = _plain_path(item["path"])
+        if (
+            item.get("sha256") != expected
+            or path != safe_path(expected_path)
+            or path.stat().st_size != item.get("size")
+        ):
             raise ValueError(f"pinned {name} hash differs")
-    folds = inputs.get("folds", {})
-    if folds.get("sha256") != FOLDS_SHA or _sha256(safe_path(folds["path"])) != FOLDS_SHA:
-        raise ValueError("pinned folds hash differs")
-    checkpoint = inputs.get("checkpoint", {})
-    if checkpoint.get("sha256") != B8_SHA or _sha256(safe_path(checkpoint["path"])) != B8_SHA:
-        raise ValueError("B8 checkpoint identity differs")
+    if payloads:
+        for name, expected, _ in payload_bindings:
+            if _sha256(Path(inputs[name]["path"])) != expected:
+                raise ValueError(f"pinned {name} payload hash differs")
 
 
 def _load_predictions(
+    inputs: dict[str, Any], table: dict[str, np.ndarray], folds: np.ndarray
+) -> dict[int, np.ndarray] | None:
+    """Use the A2 union only when every selected export remains verifiable."""
+    try:
+        return _prediction_union(inputs, table, folds)
+    except LineageError:
+        raise
+    except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
+        # Unavailable, partial, or malformed predictions take the one pinned
+        # c0-only refit route. Forbidden ancestry never reaches that fallback.
+        return None
+
+
+def _prediction_union(
     inputs: dict[str, Any], table: dict[str, np.ndarray], folds: np.ndarray
 ) -> dict[int, np.ndarray] | None:
     wanted = _selected_indices()
@@ -294,6 +358,10 @@ def _load_predictions(
     seen: set[int] = set()
     for entry in entries:
         index = entry["index"]
+        for key in ("path", "complete", "sidecar"):
+            safe_path(entry[key])
+        if any(_has_symlink(entry[key]) for key in ("path", "complete", "sidecar")):
+            return None
         path = safe_path(entry["path"])
         complete = safe_path(entry["complete"])
         sidecar = safe_path(entry["sidecar"])
@@ -353,6 +421,8 @@ def _load_predictions(
                 for key in ("table", "encoder", "target", "dose", "seed")
             ):
                 return None
+            if archive["row_index"].dtype.kind not in "iu":
+                return None
             rows = archive["row_index"].astype(np.int64, copy=False)
             if (
                 rows.ndim != 1
@@ -404,9 +474,9 @@ def load_inputs(
 ) -> tuple[dict[str, np.ndarray], np.ndarray, dict[int, np.ndarray] | None]:
     """Open the T5 table and only the selected, hash-verified A2 c0 exports."""
     validate_metadata(inputs)
-    with np.load(safe_path(inputs["features"]["path"]), allow_pickle=False) as archive:
+    with np.load(_plain_path(inputs["features"]["path"]), allow_pickle=False) as archive:
         table = {name: archive[name].copy() for name in archive.files}
-    with np.load(safe_path(inputs["folds"]["path"]), allow_pickle=False) as archive:
+    with np.load(_plain_path(inputs["folds"]["path"]), allow_pickle=False) as archive:
         if not {"world", "state_id", "fold"}.issubset(archive.files):
             raise ValueError("malformed published fold table")
         folds = archive["fold"].astype(np.int16, copy=True)
@@ -458,12 +528,12 @@ def load_raw(
     packed: list[np.ndarray | None] = [None] * len(wanted)
     scalar: list[np.ndarray | None] = [None] * len(wanted)
     for manifest_item in inputs["raw_manifests"]:
-        manifest_path = safe_path(manifest_item["path"])
+        manifest_path = _plain_path(manifest_item["path"])
         manifest = _json(manifest_path)
         for name, expected in manifest.get("shards", {}).items():
             if not isinstance(name, str) or not isinstance(expected, str):
                 raise ValueError("malformed T4e shard manifest")
-            path = safe_path(manifest_path.parent / name)
+            path = _plain_path(manifest_path.parent / name)
             if not path.is_file() or _sha256(path) != expected:
                 raise ValueError("T4e shard hash differs")
             with np.load(path, allow_pickle=False) as archive:
@@ -494,7 +564,8 @@ def load_raw(
         or scalar_array.tobytes() != np.asarray(table["scalars"]).tobytes()
     ):
         raise ValueError("canonical T4e scalar identity differs")
-    local, global_ = unpack(np.stack(packed), np.arange(len(packed)), train_layout())  # type: ignore[arg-type]
+    packed_array = np.stack(packed)  # type: ignore[arg-type]
+    local, global_ = unpack(packed_array, np.arange(len(packed)), train_layout())
     horizon = np.asarray(table["horizon"])
     legal = np.asarray(table["legal"], bool)
     died = np.asarray(table["died"], bool)
