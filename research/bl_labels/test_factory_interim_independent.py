@@ -398,8 +398,21 @@ def test_source_accounting_and_frozen_science_closure():
         and isinstance(node.func, ast.Name)
         and node.func.id == "_exclusive_factory_guard"
     ]
-    assert {ast.unparse(node.args[0]) for node in calls} == {"set()", "set(active)"}
+    assert {ast.unparse(node.args[0]) for node in calls} == {"set(active)"}
     assert all(len(node.args) == 2 for node in calls)
+    admission = next(
+        node
+        for node in ast.parse(driver.read_text()).body
+        if isinstance(node, ast.FunctionDef) and node.name == "_factory_admission_window"
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_exclusive_factory_guard"
+        and ast.unparse(node.args[0]) == "set()"
+        and len(node.args) == 2
+        for node in ast.walk(admission)
+    )
 
 
 def test_real_launcher_obeys_the_outer_canonical_test_lock(tmp_path):
