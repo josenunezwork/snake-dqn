@@ -18,6 +18,10 @@ import numpy as np
 import torch
 
 from research.bl_ppo.exports import digest, export_json, export_torch, limit_exports, verify_export
+from research.bl_residual.collection_receipts import (
+    l4_accounting,
+    validate_mac_projection,
+)
 from research.bl_residual.data import allocate_lives, tensor_cache, validate_rows, world_fold
 from research.bl_residual.fit import FitFault, FitRecipe, fit_residual
 from research.bl_residual.model import FrozenB8Residual, fuse_residual
@@ -221,6 +225,55 @@ def _validate_staging(
     expected_projection = (
         measured_units / selected_lives * 3072 * 1.2 if selected_lives else float("inf")
     )
+    zero_mac_ok = False
+    if type(projected) in (int, float) and projected == 0:
+        mac_name = stage.get("D4096_MAC_PROJECTION")
+        if mac_name and all(
+            c.get("placement") == "mac"
+            and type(c.get("charged_units")) in (int, float)
+            and c["charged_units"] == 0
+            for c in collections
+        ):
+            mac_projection = _sealed_stage_receipt(input_dir, control, mac_name)
+            validate_mac_projection(mac_projection, collections)
+            provenance_ok = True
+            for collection, prior_name in zip(collections, (d256_control, d1024_control)):
+                prior = _sealed_stage_receipt(input_dir, control, prior_name)
+                if collection.get("collection_ledger_sha256") != prior.get(
+                    "factory_union_ledger_sha256"
+                ) or collection.get("source_control_sha256") != digest(input_dir / prior_name):
+                    provenance_ok = False
+            mac_sha = digest(input_dir / mac_name)
+            zero_mac_ok = (
+                provenance_ok
+                and projection.get("mac_projection_receipt_sha256") == mac_sha
+                and isinstance(projection.get("qualified_placement_receipts"), list)
+                and mac_sha in projection.get("qualified_placement_receipts", [])
+                and projection.get("collection_receipt_sha256")
+                == [digest(input_dir / name) for name in collection_names]
+                and selected_lives == 1024
+                and [m.get("selected_rescue_lives") for m in checked_measurements] == [256, 768]
+                and isinstance(projection.get("l4_tail_accounting"), dict)
+            )
+    tail = projection.get("l4_tail_accounting")
+    if (
+        tail is not None
+        or projection.get("l4_tail_accounting_sha256") is not None
+        or stage.get("D4096_L4_ACCOUNTING")
+    ):
+        # A separate sealed R7 ledger charges all L4 attempts. It never changes
+        # the measured Mac projection, and the worker repeats its cap check.
+        tail_name = stage.get("D4096_L4_ACCOUNTING")
+        if tail_name:
+            tail_value = _sealed_stage_receipt(input_dir, control, tail_name)
+            if projection.get("l4_tail_accounting_sha256") != digest(input_dir / tail_name):
+                raise ValueError("unbound D4096 L4 accounting")
+        else:
+            tail_value = None
+            if projection.get("l4_tail_accounting_sha256") is not None:
+                raise ValueError("missing D4096 L4 accounting binding")
+        if tail != l4_accounting(tail_value, series_id):
+            raise ValueError("D4096 L4 R7 accounting differs")
     projection_ok = (
         projection.get("schema") == "bl-residual-d4096-projection/v1"
         and projection.get("series_id") == series_id
@@ -235,7 +288,7 @@ def _validate_staging(
         and isinstance(projected, (int, float))
         and not isinstance(projected, bool)
         and np.isfinite(projected)
-        and float(projected) > 0
+        and (float(projected) > 0 or zero_mac_ok)
         and measurements_valid
         and projected <= 480
         and np.isclose(float(projected), expected_projection, rtol=0.0, atol=1e-9)
