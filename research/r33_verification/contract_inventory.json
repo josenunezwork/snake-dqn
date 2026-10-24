@@ -1,0 +1,61 @@
+{
+  "schema": "r33-research-contract-inventory/v1",
+  "shards": [
+    {
+      "index": 0,
+      "name": "durable-ops",
+      "nodes": [
+        "tests/test_r33_journal.py::test_one_hundred_deterministic_crash_restart_schedules_preserve_actionability",
+        "tests/test_r33_journal.py::test_ambiguous_claim_and_expired_intent_commit_hold_then_refuse",
+        "tests/test_r33_proof_dependencies.py::test_foreign_closure_missing_dependency_and_builder_self_certification_refuse",
+        "tests/test_r33_independent.py::JournalAdversarialTests::test_expired_possible_submission_enters_hold_without_reoffer",
+        "tests/test_r33_independent.py::DependencyAdversarialTests::test_delta_rejects_foreign_package_and_nonhex_reused_proof"
+      ]
+    },
+    {
+      "index": 1,
+      "name": "package-contracts",
+      "nodes": [
+        "tests/test_r33_package.py::test_destination_sidecar_and_ledger_refusals",
+        "tests/test_r33_package.py::test_full_synthetic_lifecycle_and_foreign_identity_refusal",
+        "tests/test_r33_package.py::test_mechanical_mutations_and_union_refusals",
+        "tests/test_r33_pilot_integration.py::test_required_missing_skip_and_xfail_refused",
+        "tests/test_colab_cli_schema_failures.py::test_shared_schema_rejects_historical_other_assignment_list_shape",
+        "tests/test_r33_independent.py::PackageAdversarialTests::test_every_unit_identity_is_checked_before_terminal_pass"
+      ]
+    },
+    {
+      "index": 2,
+      "name": "process-slowdown-transport",
+      "nodes": [
+        "research/r33_verification/test_process_harness.py::test_current_callers_share_frozen_process_table",
+        "research/bl_labels/test_slowdown_guard.py::test_actual_attempt_two_prior_state_excludes_every_replay_first_life",
+        "research/bl_labels/test_slowdown_guard.py::test_actual_attempt_one_lives_scaled_135_trip_within_k_120_never_trips",
+        "tests/test_colab_cli_fault_properties.py::test_fake_fault_plan_records_virtual_latency_and_post_commit_mutation"
+      ]
+    }
+  ],
+  "linux_required": [
+    "tests/test_r33_journal.py::test_one_hundred_deterministic_crash_restart_schedules_preserve_actionability",
+    "tests/test_r33_journal.py::test_ambiguous_claim_and_expired_intent_commit_hold_then_refuse",
+    "tests/test_r33_proof_dependencies.py::test_foreign_closure_missing_dependency_and_builder_self_certification_refuse",
+    "tests/test_r33_independent.py::JournalAdversarialTests::test_expired_possible_submission_enters_hold_without_reoffer",
+    "tests/test_r33_independent.py::DependencyAdversarialTests::test_delta_rejects_foreign_package_and_nonhex_reused_proof",
+    "tests/test_r33_package.py::test_destination_sidecar_and_ledger_refusals",
+    "tests/test_r33_package.py::test_full_synthetic_lifecycle_and_foreign_identity_refusal",
+    "tests/test_r33_package.py::test_mechanical_mutations_and_union_refusals",
+    "tests/test_r33_pilot_integration.py::test_required_missing_skip_and_xfail_refused",
+    "tests/test_colab_cli_schema_failures.py::test_shared_schema_rejects_historical_other_assignment_list_shape",
+    "tests/test_r33_independent.py::PackageAdversarialTests::test_every_unit_identity_is_checked_before_terminal_pass",
+    "research/r33_verification/test_process_harness.py::test_current_callers_share_frozen_process_table",
+    "research/bl_labels/test_slowdown_guard.py::test_actual_attempt_two_prior_state_excludes_every_replay_first_life",
+    "research/bl_labels/test_slowdown_guard.py::test_actual_attempt_one_lives_scaled_135_trip_within_k_120_never_trips",
+    "tests/test_colab_cli_fault_properties.py::test_fake_fault_plan_records_virtual_latency_and_post_commit_mutation"
+  ],
+  "native_pending": [
+    "Darwin native ownership/descendant qualification (full concurrency activation remains HOLD)",
+    "A100 native nested-annotation correlation canary and mandatory attribution (existing A1-PROF owner)",
+    "Mac timing, strict/product and serving qualification remain separate"
+  ],
+  "required_skip_policy": "Every named Linux node must collect and PASS; absent, skipped or xfailed required work is INCOMPLETE."
+}

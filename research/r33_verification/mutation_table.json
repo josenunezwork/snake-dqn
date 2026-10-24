@@ -1,0 +1,1 @@
+{"schema":"r33-mechanical-mutations/v1","cases":["missing-uploaded-ledger","bad-destination","duplicate-id","foreign-id","missing-full-state-snapshot","stale-canary","cap-exhaustion","timeout-after-success","changed-transport-procedure"]}

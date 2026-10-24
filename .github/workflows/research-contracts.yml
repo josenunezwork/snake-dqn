@@ -1,0 +1,39 @@
+name: Research contracts
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  linux-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SNAKE_DQN_DEVICE: cpu
+      OMP_NUM_THREADS: '1'
+      OMP_THREAD_LIMIT: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      NUMBA_NUM_THREADS: '1'
+      VECLIB_MAXIMUM_THREADS: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install declared runner and style tools
+        run: >-
+          nice -n 15 python -m pip install -r research/r33_verification/requirements.txt
+          black==26.5.1 isort==8.0.1 flake8==7.3.0
+      - name: Lint R33 research and ops source
+        run: |
+          files="tools/ops/task_journal.py tools/ops/proof_dependencies.py tools/ops/package_spec.py research/r33_verification tests/test_r33_journal.py tests/test_r33_proof_dependencies.py tests/test_r33_package.py tests/test_r33_independent.py tests/test_r33_pilot_integration.py"
+          nice -n 15 python -m black --workers 1 --check --line-length 100 $files
+          nice -n 15 python -m isort --profile black --check-only $files
+          nice -n 15 python -m flake8 $files
+      - name: Enforce frozen Linux collection and passing packet
+        run: nice -n 15 python research/r33_verification/inventory.py
