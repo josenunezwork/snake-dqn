@@ -554,5 +554,10 @@ calibration, strict/serving, remote runtime or long job was launched, and no liv
 D256 process was stopped, reniced, patched or restarted. The existing attempt
 at `387b1dde` stays on its pin until natural preemption/completion and verified
 stop; only then may the normal operator-requested verified-ledger continuation
-use the exact `bl-f0-d256-guard-w12-07` command in the handoff, if missing work and
+use the exact fresh `bl-f0-d256-guard-w12-08` command in the handoff, if missing work and
 all other registered admission conditions permit. No automatic dispatch.
+Final command-name correction: another operator consumed the requested `-07`
+at `387b1dde` during this implementation (worktree/runner/log observed at
+20:12 PT); this task preserved those artifacts and performed no dispatch.
+The new pin cannot reuse that differently pinned worktree. `-08` was verified
+without a worktree, runner or log reservation at closeout.

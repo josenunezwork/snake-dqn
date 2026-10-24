@@ -96,13 +96,18 @@ preserves all charges, and admits only verified missing units when its other
 registered conditions permit. No automatic redispatch is authorized. A natural
 completion may leave no eligible work to dispatch.
 
-`bl-f0-d256-guard-w12-07` was unused at handoff. The exact future operator command
-is:
+The requested `bl-f0-d256-guard-w12-07` was unused during command preparation,
+but another operator consumed it at `387b1dde` while this task was finishing.
+Final read-only inspection found that pinned worktree and its runner/log at
+20:12 PT; this task did not launch or alter them. Reusing `-07` at the new pin
+would fail the launcher's existing clean/detached/pin check. Preserve that
+evidence. `bl-f0-d256-guard-w12-08` has no worktree, runner or log reservation at
+closeout. The exact executable future operator command therefore uses `-08`:
 
 ```bash
 /Users/josenunez/Projects/ml/snake-dqn-f0/tools/ops/dispatch.sh --mac \
   --repo /Users/josenunez/Projects/ml/snake-dqn-f0 \
-  bl-f0-d256-guard-w12-07 caafdf5d079bd73bcfbde6f9356dc0f60de42e0f -- \
+  bl-f0-d256-guard-w12-08 caafdf5d079bd73bcfbde6f9356dc0f60de42e0f -- \
   /bin/bash research/bl_labels/RUN_D256_RESUME.sh --host-check \
   --calibration-receipt /Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0/w12-admission-01/receipt.json
 ```
@@ -110,7 +115,7 @@ is:
 The receipt and this operator record inform the owner of the prospective policy
 activation; they do not claim that the running old-pin job has switched policy.
 Observed tmux sessions left untouched across this work: `git-sync`,
-`job-a1-prof-a100-canary-03`, `job-p1-repair10-04-repair`,
+`job-a1-prof-a100-canary-03`, `job-p1-repair10-04-repair`, `renicer`,
 `mac-bl-f0-d256-guard-w12-06-387b1dde8241`, `sol-gpuflood`, `sol-persist`,
 `sol-r33build`, and `watchd`. Session inventory naturally changed during the task;
 this implementation performed no tmux process-control action.
