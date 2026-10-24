@@ -1,0 +1,333 @@
+{
+  "artifact_output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-integration-i0-20261024-03/packet/canary-output",
+  "cells": [
+    {
+      "I_plain_seconds": [
+        0.18904773600002045
+      ],
+      "R_plain_seconds": [
+        0.32712313799993353
+      ],
+      "cpu_geometry_carry": true,
+      "frozen_device_identity": true,
+      "mix": "frozen",
+      "repeats": 1,
+      "warmups": 1,
+      "worlds": 64
+    },
+    {
+      "I_plain_seconds": [
+        0.17879780199996276
+      ],
+      "R_plain_seconds": [
+        0.33383696300006704
+      ],
+      "cpu_geometry_carry": true,
+      "frozen_device_identity": true,
+      "mix": "mixed",
+      "repeats": 1,
+      "warmups": 1,
+      "worlds": 64
+    },
+    {
+      "I_plain_seconds": [
+        0.12282655099988915
+      ],
+      "R_plain_seconds": [
+        0.2782168889998502
+      ],
+      "cpu_geometry_carry": true,
+      "frozen_device_identity": true,
+      "mix": "scripted",
+      "repeats": 1,
+      "warmups": 1,
+      "worlds": 64
+    }
+  ],
+  "dispatched": false,
+  "export_verification": {
+    "all_payload_size_sha256_and_completion_sidecars": "PASS",
+    "inventory": [
+      {
+        "path": "discrepancy-register.json",
+        "sha256": "a24ba85bba75e707c356afaf391626e2c721a16bc2dfb10a9baecce1d89b1e60",
+        "size": 134662
+      },
+      {
+        "path": "native-parity.json",
+        "sha256": "0e74d6cf3d6401b00ecb198ae45cea2c7564554201e5f7f1a21aecf2ce2c2eae",
+        "size": 31922
+      },
+      {
+        "path": "integration-bench.json",
+        "sha256": "7365be6136cc7000673644386bfb3ab29b23cc798fc9f4321c3daf91e9e6b08a",
+        "size": 14739
+      },
+      {
+        "path": "integration-units/cell-frozen-e64.json",
+        "sha256": "f4d7c984a333b807bc10982c5d005dabd302513549e1d192c2908bb65f8caf3d",
+        "size": 1197371
+      },
+      {
+        "path": "integration-units/cell-mixed-e64.json",
+        "sha256": "9fa8eef5c487fa923c4effe9fff84a4b8706f23574ff10b4098695f52b67d8dd",
+        "size": 428766
+      },
+      {
+        "path": "integration-units/cell-scripted-e64.json",
+        "sha256": "4067df96e1ebb96b1a51017dfd026abb4fc71bb65304bd8e2967aa5a45061f34",
+        "size": 242300
+      },
+      {
+        "path": "traces/cell-frozen-e64.json.gz",
+        "sha256": "d4a232169da562715d9593abd6c97f665345a3120737fdc1cef3151c97cf8d18",
+        "size": 1204934
+      },
+      {
+        "path": "verified-ledger.json",
+        "sha256": "21f20298556818ac026b9e36e11ab296f44d0d3a0b87b1951997d86427627584",
+        "size": 911
+      }
+    ],
+    "payload_bytes": 3255605,
+    "payload_count": 8,
+    "receipt_terminal_inventory_identity": "PASS"
+  },
+  "fresh_mac_tests": {
+    "command": "nice -n 15 env PYTHONDONTWRITEBYTECODE=1 SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:cacheprovider research/gpu_sim_spike/test_integration_contract.py research/gpu_sim_spike/test_integration_packet.py research/gpu_sim_spike/test_integration_parity.py research/gpu_sim_spike/test_integration_engine.py research/gpu_sim_spike/test_integration_bench.py research/gpu_sim_spike/test_integration_native.py -k \"not cuda\"",
+    "cwd": "/Users/josenunez/Projects/ml/snake-dqn-gpuint-qualified-03.noindex",
+    "deselected_cuda": 3,
+    "independent_parity_reviewer": "11 passed, 3 CUDA deselected; read-only source/evidence cross-check agrees.",
+    "passed": 35,
+    "seconds": 0.88
+  },
+  "immutability": {
+    "all_existing_canary_files_rehashed_unchanged_before_publication": true,
+    "old_manifests_receipts_exports_and_rulings_modified": false,
+    "tmux_workers_checkpoints_serving_pins_touched": false
+  },
+  "integration_main_admission": "BLOCKED",
+  "mac_reducer": {
+    "bar_world_steps_per_second": 2000,
+    "commit": "968f02765f7c86ca27d2947347896e2fe4e6ce23",
+    "continuous_complete_world_steps_per_second": {},
+    "cpu_closed_loop_identity": "UNPROVED",
+    "cpu_engine_exactness": "UNPROVED",
+    "e1024_complete_world_steps_per_second": {},
+    "ingestion_errors": [],
+    "malformed_units": [],
+    "missing_units": [],
+    "native_a100_parity": [
+      "PASS"
+    ],
+    "schema": "gpu-sim-spike-i0-analysis/v1",
+    "verdict": "PASS_CANARY"
+  },
+  "main_forecast": {
+    "E64_pair_seconds": {
+      "frozen": 1.0697312570000577,
+      "mixed": 1.070093621000069,
+      "scripted": 0.8389856719998079
+    },
+    "continuity_pair_equivalents": 4752.0,
+    "disposition": "Prospective independent judge-approved sizing resolution/amendment and audited preparation required before main data. Do not lower estimate, trim coverage, raise caps or edit frozen evidence to bypass refusal.",
+    "forecast_minutes": 97.04023517866757,
+    "forecast_seconds": 5822.414110720054,
+    "max_E64_pair_seconds": 1.070093621000069,
+    "ordinary_pair_equivalents": 189.84375,
+    "reason": "measured I0 canary forecast exceeds registered main ceiling",
+    "registered_forecast_ceiling_minutes": 60,
+    "registered_main_unit_cap": 20,
+    "registered_main_wall_minutes": 120,
+    "rounded_forecast_minutes": 98,
+    "setup_seconds": 534.1786378659938,
+    "status": "REFUSED"
+  },
+  "main_remaining_requirements": [
+    "Resolve the 98-minute frozen forecast refusal prospectively, within original parent budgets and deadlines; audit any revised preparer and qualification requirements.",
+    "Provide independently reduced V8 split SELECT_G or SELECT_GV at pin 669405e2bef629f7f69bc951cf49486d8b0a87bf with complete saved receipt/export hashes and verified release. Expected amended main-output does not yet exist at review.",
+    "FLOOD admission is static fallback for this frozen I0 in both arms. Sparse FLOOD remains NOT_ADMITTED; including sparse needs its own accepted evidence and a newly frozen/qualified integration packet. SELECT_GV does not enable indexed v8 in I0.",
+    "Operator must reconcile original T0/deadlines, actual spend, liabilities/reservations, remaining Q4/first-wave/global allowances and current assignments/rates before dispatch through qualified broker."
+  ],
+  "native_parity": {
+    "binary_scope": "Runtime binary fingerprints bound by exported report; binaries not exported for Mac rehash.",
+    "compiled_binaries": {
+      "events": {
+        "sha256": "39356b3202a31e03a6dc711dfb5682d2e8282259273b09009e579504636ff8e1",
+        "size": 315944
+      },
+      "flood": {
+        "sha256": "4d82e7db31b1d3f4a92e869aa4492a0a2c1726e5e3fecb35b4b46137216974ac",
+        "size": 443952
+      },
+      "geometry": {
+        "sha256": "f9175dfb1926a6809a118a1d4508b2a5485334590f0698ef46baa27a79371f89",
+        "size": 409048
+      },
+      "move": {
+        "sha256": "b0473582775f9f8348a62cbb546e7525b6e2dddf43f74c4790a4393061dcaccd",
+        "size": 368832
+      }
+    },
+    "evidence_scope": "Native execution verified from immutable A100 reports; Mac did not rerun CUDA.",
+    "executed_call_reports": [
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_integration_native.py::test_ordinary_v8_cpu_contract[wrap-overlap-cpu]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_integration_native.py::test_ordinary_v8_cpu_contract[dead-boost-cpu]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_integration_native.py::test_ordinary_v8_cpu_contract[tail-release-cpu]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_integration_native.py::test_geometry_frozen_contract[repair]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_integration_native.py::test_geometry_frozen_contract[clone]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_integration_native.py::test_geometry_frozen_contract[selection]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_integration_native.py::test_geometry_frozen_contract[stale]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_vector_geometry.py::test_cuda_indexed_geometry_bytes_match_canonical_cpu[False-dense]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_vector_geometry.py::test_cuda_indexed_geometry_bytes_match_canonical_cpu[False-static]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_vector_geometry.py::test_cuda_indexed_geometry_bytes_match_canonical_cpu[True-dense]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_vector_geometry.py::test_cuda_indexed_geometry_bytes_match_canonical_cpu[True-static]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_integration_native.py::test_ordinary_v8_cpu_contract[wrap-overlap-cuda]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_integration_native.py::test_ordinary_v8_cpu_contract[dead-boost-cuda]",
+        "outcome": "passed",
+        "phase": "call"
+      },
+      {
+        "detail": null,
+        "nodeid": "research/gpu_sim_spike/test_integration_native.py::test_ordinary_v8_cpu_contract[tail-release-cuda]",
+        "outcome": "passed",
+        "phase": "call"
+      }
+    ],
+    "fallback": false,
+    "geometry_native_calls": {
+      "indexed_body_view": 8,
+      "indexed_features58": 12
+    },
+    "move_event_cases": 10,
+    "move_native_calls": {
+      "collisions": 6,
+      "respawn": 5
+    },
+    "status": "PASS"
+  },
+  "not_established": [
+    "E1024 >=2000 complete world-steps/s on all rosters",
+    "12-cell main and continuous coverage",
+    "CPU-exact resident mechanics or closed-loop policy",
+    "CPU-valid natural ancestry or usable labels",
+    "training, stronger gameplay, strict/product/serving qualification or release"
+  ],
+  "operational_evidence": {
+    "elapsed_seconds": 537.1574484159937,
+    "manifest_sha256": "ddf5c426b631f59677ed9ade7decd2e04008278e3061bfa49308153d7cffa6cc",
+    "receipt_sha256": "d230135d78fdf51f8647659d4926b19677bc47136903172d3cff3fcc91157ad0",
+    "receipt_status": "PASS",
+    "release_scope": "Saved broker stop/sessions/usage evidence verified; no fresh account query.",
+    "stop_verified": true,
+    "terminal_returncode": 0,
+    "terminal_sha256": "9f13804e495b955b2ef8f1ed210603e94681984c67c82bdd332728b2ba5e76ca",
+    "usage_after_assignments": 0.0
+  },
+  "operator_commands": {
+    "dispatch": "nice -n 15 bash /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-integration-i0-20261024-03/dispatch-main.sh",
+    "prepare": "bash /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-integration-i0-20261024-03/prepare-main-after-canary.sh /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/main-output/exports/v8-split-analysis.json",
+    "status": "CONDITIONAL_ONLY: current prepare refuses absent V8 evidence and oversized frozen forecast. Use an audited revised preparer if the prospective sizing ruling requires it; never run dispatch before successful admission."
+  },
+  "parity_claims": {
+    "classification": "CPU_EXACTNESS_NOT_CLAIMED",
+    "cpu_closed_loop_identity": "UNPROVED",
+    "cpu_engine_exactness": "UNPROVED",
+    "cpu_geometry_v8_component_exactness": "PASS on matched tested states, diagnostics, actions and carry",
+    "detail": "Frozen baseline independently reproduces reward discrepancy for scripted and reward/ordered-food/aligned-corpse discrepancies for frozen/mixed; RNG incompatibility is explicit. No new unexplained mismatch observed.",
+    "discrepancy_register_sha256": "a24ba85bba75e707c356afaf391626e2c721a16bc2dfb10a9baecce1d89b1e60",
+    "fixture_scope": "One synthetic long-body root per roster replicated E64; one supplied action tick per cell.",
+    "inherited_discrepancies": "CLASSIFIED_DIAGNOSTIC_ONLY",
+    "optimization_identity": "PASS on tested independent frozen-device domain"
+  },
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "review_checkout": "/Users/josenunez/Projects/ml/snake-dqn-gpuint",
+  "review_checkout_pin": "8da63770a152af0412a1aee40e20b5ecbbc684c3",
+  "reviewed_at_utc": "2026-10-24T09:27:41.811295+00:00",
+  "reviewer": "Independent Codex-V Mac review; root plus read-only parity reviewer",
+  "runtime_pin": "968f02765f7c86ca27d2947347896e2fe4e6ce23",
+  "same_pin_l4_compile": {
+    "architectures": "8.0;8.9",
+    "binding": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-integration-i0-20261024-03/packet/native-compile/output/receipt.json",
+      "sha256": "52d2c41e218f45b44ac8dbd34aefff00e2af7e23e05c9e4a95676aee7b60ce53"
+    },
+    "kernels_launched": false,
+    "payload_sha256": "7314caab1cf5389b140b7fb8b7633d26bd5fee3b53715147ad6380d7a3c24132",
+    "reader": "Corrected Mac host native_compile.binding at review checkout; immutable runtime reader is historical.",
+    "status": "PASS"
+  },
+  "schema": "codex-v-i0-mac-review/v1",
+  "scope": "Bounded integration engineering canary only; no dispatch authorization or main speed verdict.",
+  "source_verification": {
+    "all_source_hashes_vs_git_pin": "PASS",
+    "input_hashes_preflight_and_MOVE_admission": "PASS",
+    "metadata_archive_sha256": "350f4de106285510fcb611fd974ac2b3801bc28b104cdddd851987937bdcb327",
+    "metadata_members_and_frozen_rulings_intent_admission_empty_ledgers": "PASS",
+    "runtime_package_file_count": 148,
+    "source_inventory_sha256": "769b6a029fc0d083ffb85434bf64e4d1345700e9f66af59a40f9d91a90fd3de6"
+  },
+  "verdict": "PASS_CANARY"
+}
