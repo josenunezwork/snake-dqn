@@ -35,6 +35,7 @@ def _call(**extra: Any) -> dict[str, Any]:
 def _acceptance(tmp_path: Path, l4_calls: list[dict[str, Any]]) -> Path:
     """A fix-pin final-only result with both arms and their planned manifests."""
     jobs, execution = [], []
+    l4_observer_gate: dict[str, Any] | None = None
     for name, gpu in (("cpu", "cpu"), ("l4", "L4")):
         job_id = f"acceptance-1-{name}"
         entries = injection_manifest.acceptance_entries(gpu)
@@ -44,8 +45,13 @@ def _acceptance(tmp_path: Path, l4_calls: list[dict[str, Any]]) -> Path:
             elif entry["command"] == "terminal":
                 entry.update(
                     {
-                        "watchdog_event_id": entry["injection_id"] + "-event",
-                        "watchdog_event_sha256": "e" * 64,
+                        "watchdog_event_id": "mac-loss-watchdog-unassign",
+                        "watchdog_plan": {
+                            "lease_seconds": 180,
+                            "release_bound_seconds": 300,
+                            "renewal_suppressed": True,
+                            "checkpoint_exported_during_grace": True,
+                        },
                     }
                 )
             else:
@@ -89,11 +95,32 @@ def _acceptance(tmp_path: Path, l4_calls: list[dict[str, Any]]) -> Path:
                     "job_id": job_id,
                     "stop_verified": True,
                     "cleanup_error": None,
+                    "endpoint": "https://example.test/accounting",
                     "cli_calls": calls,
                     **terminal,
                 }
             )
         )
+        if name == "l4":
+            l4_observer_gate = {
+                "job_id": job_id,
+                "planned_event_id": "mac-loss-watchdog-unassign",
+                "endpoint": "https://example.test/accounting",
+                "lease_seconds": 180,
+                "release_bound_seconds": 300,
+                "observed_after_lease_seconds": 1,
+                "renewal_suppressed": True,
+                "checkpoint_exported_during_grace": True,
+                "assignment_disappeared_within_bound": True,
+            }
+            (tmp_path / "acceptance-observer.json").write_text(
+                json.dumps(
+                    {
+                        "profile": "final-only",
+                        "gates": {"mac-loss-watchdog-unassign": l4_observer_gate},
+                    }
+                )
+            )
         execution.append(
             {
                 "job": name,
@@ -110,6 +137,12 @@ def _acceptance(tmp_path: Path, l4_calls: list[dict[str, Any]]) -> Path:
                     "commit": admission.git_commit(REPO),
                     "jobs": jobs,
                     "execution": execution,
+                    "gates": [
+                        {
+                            "id": "mac-loss-watchdog-unassign",
+                            "evidence_record": l4_observer_gate,
+                        }
+                    ],
                 }
             }
         )
@@ -127,7 +160,7 @@ def _harness_admission(monkeypatch: pytest.MonkeyPatch) -> None:
 
     original = l4_faults_v2.classify_session
 
-    def classified(receipt: dict, _manifest: dict | None = None) -> dict:
+    def classified(receipt: dict, _manifest: dict | None = None, **_evidence: Any) -> dict:
         if _manifest is None:
             return original(receipt)
         calls = receipt["cli_calls"]
@@ -161,7 +194,7 @@ def _exec(status: str) -> dict[str, Any]:
 
 
 def test_pin_is_rebound_to_the_fix_commit() -> None:
-    assert admission.TRANSPORT_PIN == "4216927615fe80581daf4fb98d608a807c370ef3"
+    assert admission.TRANSPORT_PIN == "a6334f664e2b60d2cd1721ab2005ad7419e77202"
     assert admission.FAULT_DEFINITION == "l4-label-faults/v2"
     assert admission.SCHEMA == "rpc-qualification-profile/v2"
 
@@ -329,7 +362,8 @@ def test_f1_bis_reads_the_stall_rule_as_v2(tmp_path: Path) -> None:
     v2 = f1_analyze.load_attempt(attempt, "b" * 64, fault_definition=f1_analyze.V2_FAULTS)
     # The historical fixture does not carry prospective durable-reply or marker
     # evidence, so it may not be projected as a new-session PASS.
-    assert [row["class"] for row in v2["transport_faults"]] == ["C2", "C3", "C4"]
+    assert [row["class"] for row in v2["transport_faults"]] == ["C2", "C3"]
+    assert v2["transport_v2"]["evidence_missing"]
     assert v2["transport_v2"]["recovered_events"] == 0
     with pytest.raises(ValueError, match="not part of"):
         f1_analyze.load_attempt(

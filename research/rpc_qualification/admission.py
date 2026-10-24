@@ -15,8 +15,8 @@ FAULT_AUTHORITY_SHA256 = "fe8579c2aec5489ea25149b5d88036cb22daad0faa5310913231f3
 FAULT_DEFINITION = "l4-label-faults/v2"
 WORKER_PIN = "2af48cd0b98a2063f46871cf4d320a5541b789af"
 # Rebound to the v2 recovery-fix commit (judgment §4 step 1c); a18bf6b4 was attempt 1.
-TRANSPORT_PIN = "4216927615fe80581daf4fb98d608a807c370ef3"
-TRANSPORT_TREE = "4eefe6b10345f0a7b53c22f3158ce1c131093bfe"
+TRANSPORT_PIN = "a6334f664e2b60d2cd1721ab2005ad7419e77202"
+TRANSPORT_TREE = "76f069ae7c2082b0c1e3bfac0b39f00cc6f0ffc6"
 # The independent reviewer's create-only ACCEPT lives outside the repository so
 # recording it never moves the pack's pinned source commit.
 REVIEW_PATH = Path(
@@ -45,7 +45,6 @@ def review_source_inventory(repo: Path, package_commit: str | None = None) -> di
     ).splitlines()
     explicit = {
         "research/bl_labels/l4_faults_v2.py",
-        "research/rpc_qualification/probe_policy.py",
         "tools/ops/requalify.py",
         "tests/test_colab_cli_acceptance_stall_diagnosis.py",
         "tests/test_colab_cli_rpc_recovery.py",
@@ -53,7 +52,6 @@ def review_source_inventory(repo: Path, package_commit: str | None = None) -> di
         "tests/test_l4_lane_admission.py",
         "tests/test_ops_qualification.py",
         "tests/test_rpc_qualification_checker.py",
-        "tests/test_rpc_qualification_probe_policy.py",
         "tests/fixtures/make_l4_faults_v2_fixture.py",
     }
     paths = [
@@ -188,10 +186,73 @@ def prerequisite_arms(
             raise ValueError("prerequisite receipt changed after acceptance")
         receipt = json.loads(receipt_path.read_text())
         validate_injection_manifest(manifest, job_id=receipt.get("job_id"))
-        verdict = classify_session(receipt, manifest)
+        observer: dict[str, Any] | None = None
+        # The observer is created after the immutable receipt, so it is a
+        # sibling artifact. Bind its raw bytes to this exact receipt/job and
+        # endpoint before letting it excuse a designed watchdog release.
+        observer_path = receipt_path.with_name("acceptance-observer.json")
+        terminal_entries = [
+            entry for entry in manifest["entries"] if entry["command"] == "terminal"
+        ]
+        if terminal_entries:
+            if not observer_path.is_file():
+                raise ValueError("prerequisite watchdog arm lacks acceptance observer")
+            raw_observer = observer_path.read_bytes()
+            observer = json.loads(raw_observer)
+            if not isinstance(observer, dict):
+                raise ValueError("acceptance observer is not an object")
+            gate_id = terminal_entries[0].get("watchdog_event_id")
+            gate = (observer.get("gates") or {}).get(gate_id)
+            planned_gate = next(
+                (
+                    candidate
+                    for candidate in plan.get("gates", [])
+                    if candidate.get("id") == gate_id
+                ),
+                None,
+            )
+            endpoint = receipt.get("endpoint", receipt.get("accounting_endpoint"))
+            if (
+                not isinstance(gate, dict)
+                or not isinstance(planned_gate, dict)
+                or gate.get("planned_event_id") != gate_id
+                or planned_gate.get("evidence_record") != gate
+                or gate.get("job_id") != receipt.get("job_id")
+                or not isinstance(endpoint, str)
+                or not endpoint
+                or gate.get("endpoint") != endpoint
+            ):
+                raise ValueError("acceptance observer is not bound to the receipt job/endpoint")
+            expected_observer = row.get("acceptance_observer")
+            if expected_observer is not None and expected_observer != str(observer_path):
+                raise ValueError("acceptance observer path differs from final plan binding")
+            expected_digest = row.get("acceptance_observer_sha256")
+            observed_digest = hashlib.sha256(raw_observer).hexdigest()
+            if expected_digest is not None and expected_digest != observed_digest:
+                raise ValueError("acceptance observer hash differs from final plan binding")
+            # Record these immutable bindings in the return value, while the
+            # classifier consumes only the exact parsed observer bytes.
+            observer = {
+                **observer,
+                "_binding": {
+                    "path": str(observer_path),
+                    "sha256": observed_digest,
+                    "receipt_sha256": sha(receipt_path),
+                    "injection_manifest_sha256": sha(manifest_path),
+                    "plan_sha256": hashlib.sha256(
+                        json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
+                    ).hexdigest(),
+                },
+            }
+        verdict = (
+            classify_session(receipt, manifest, acceptance_observer=observer)
+            if observer is not None
+            else classify_session(receipt, manifest)
+        )
         arms["l4" if row["job"] == "l4" else "cpu"] = {
             **verdict,
             "harness_status": row.get("status"),
+            **({"acceptance_observer": observer["_binding"]} if observer is not None else {}),
         }
     if set(arms) != {"cpu", "l4"}:
         raise ValueError("prerequisite lacks both acceptance arms")

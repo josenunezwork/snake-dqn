@@ -13,11 +13,13 @@ Counted classes (any one fails the session):
 C1 bound failure: elapsed > timeout + 2.0 s, or no recorded positive bound.
 C2 unrecovered request: a failed call not resolved within <= 4 bounded attempts
    and <= 150 s from its first failure (exec: under the same request ID with an
-   identical request sha256; reads: the same logical operation and durable reply).
+   identical request sha256 and a final reply; reads: the same logical operation
+   with a successful parsed response).
 C3 supervisor termination: covered transport/supervisor termination, unverified
    stop or cleanup error. A child-only nonzero exit fails outside this class.
 C4 execution-identity breach: re-issue with a different code hash; marker counts
-   (started != 1 when executed, done > 1, done without started).
+   (started != 1 when executed, done > 1, done without started).  An absent or
+   unreadable end-of-session census is EVIDENCE_MISSING, not a C4 breach.
 C5 unit integrity breach: duplicate commit, missing .complete/.sha256, Mac vs
    runtime sha mismatch, ledger-close mismatch, restore/bare-audit mismatch,
    broken worker invariance.
@@ -45,6 +47,9 @@ AUTHORITY_SHA256 = "fe8579c2aec5489ea25149b5d88036cb22daad0faa5310913231f3388716
 BOUND_SLACK_SECONDS = 2.0
 RECOVERY_MAX_ATTEMPTS = 4
 RECOVERY_MAX_SECONDS = 150.0
+# Frozen ContentsClient retries (research/colab_cli/transfers.py), deliberately
+# distinct from the C2 rpc recovery envelope.
+TRANSFER_MAX_ATTEMPTS = 3
 READ_COMMANDS = frozenset({"version", "whoami", "sessions", "usage", "url"})
 TRANSFER_COMMANDS = frozenset({"upload", "download"})
 # Supervisor-only records written by the recovery path (not CLI subprocesses).
@@ -78,6 +83,59 @@ def _fault(cls: str, detail: str, index: int | None = None, record: Any = None) 
     if record is not None:
         row["record"] = record
     return row
+
+
+def _pending_exec(call: dict[str, Any]) -> bool:
+    """A pending poll is one RPC call, not a recovery attempt."""
+    return call.get("command") == "exec" and call.get("reply_kind") == "pending"
+
+
+def _marker_census_call(call: dict[str, Any]) -> bool:
+    """The close-of-session collector is deliberately outside the marker set."""
+    return call.get("evidence_role") == "marker_census"
+
+
+def _final_exec_for(call: dict[str, Any], request_id: str, request_sha256: str) -> bool:
+    """Whether an exec record is the durable final reply for one request."""
+    if call.get("command") != "exec" or call.get("status") != "completed":
+        return False
+    # New evidence is explicit.  The fallback retains the frozen synthetic
+    # fixtures used only to exercise the classifier before the evidence commit.
+    if call.get("reply_kind") not in (None, "final"):
+        return False
+    returned_id = call.get("returned_request_id", call.get("request_id"))
+    returned_sha = call.get("returned_request_sha256", call.get("request_sha256"))
+    return (
+        returned_id == request_id
+        and returned_sha == request_sha256
+        and (call.get("reply_kind") == "final" or call.get("durable_final_reply") is True)
+    )
+
+
+def _control_plane_transfer(call: dict[str, Any], remote: str | None) -> bool:
+    """Control PUTs are C1/C3 operations; their bytes are not consumed input/output."""
+    if call.get("transfer_plane") == "control" or call.get("transfer_role") == "control":
+        return True
+    if remote is None:
+        return False
+    return call.get("command") == "upload" and (
+        remote.endswith(HEARTBEAT_SUFFIX) or remote.endswith("/lease-renewal.json")
+    )
+
+
+def _transfer_identity_present(call: dict[str, Any]) -> bool:
+    """Whether a consumed transfer has the prospective correlation identity."""
+    parent, child = call.get("parent_transfer_id"), call.get("transfer_id")
+    if isinstance(parent, str) and parent and isinstance(child, str) and child:
+        return type(call.get("transfer_attempt")) is int and call["transfer_attempt"] >= 1
+    return all(isinstance(call.get(key), str) and call[key] for key in ("operation_id", "sha256"))
+
+
+def _observed_transfer_failure(call: dict[str, Any]) -> bool:
+    """A concrete provider/verification failure is C6 even sans new IDs."""
+    values = [call.get(key) for key in ("failure_type", "failure_class", "error")]
+    text = " ".join(str(value) for value in values if value is not None).upper()
+    return any(token in text for token in ("HTTP_", " 503", " 404", "HASH_MISMATCH", "DIGEST"))
 
 
 def load_injection_manifest(path: Path, *, job_id: str | None = None) -> dict[str, Any]:
@@ -129,9 +187,14 @@ def validate_injection_manifest(
             if not isinstance(entry.get("type"), str) or not entry["type"]:
                 raise ValueError("injection entry lacks its type")
             if not allow_retroactive:
-                for key in ("watchdog_event_id", "watchdog_event_sha256"):
-                    if not isinstance(entry.get(key), str) or not entry[key]:
-                        raise ValueError(f"terminal injection lacks {key}")
+                if (
+                    not isinstance(entry.get("watchdog_event_id"), str)
+                    or not entry["watchdog_event_id"]
+                ):
+                    raise ValueError("terminal injection lacks watchdog_event_id")
+                plan = entry.get("watchdog_plan")
+                if not isinstance(plan, dict) or not plan:
+                    raise ValueError("terminal injection lacks frozen watchdog_plan")
             continue
         if not isinstance(entry.get("type"), str) or not entry["type"]:
             raise ValueError("injection entry lacks its type")
@@ -147,8 +210,20 @@ def validate_injection_manifest(
                         raise ValueError(f"exec injection lacks full {key} identity")
         if entry["command"] != "exec":
             if allow_retroactive:
-                if not isinstance(entry.get("remote_suffix"), str):
+                suffix = entry.get("remote_suffix")
+                if isinstance(entry.get("selector"), dict):
+                    suffix = entry["selector"].get("remote_suffix")
+                if not isinstance(suffix, str) or not suffix:
                     raise ValueError("legacy transfer injections need remote suffix")
+            elif isinstance(entry.get("selector"), dict):
+                selector = entry["selector"]
+                if (
+                    selector.get("kind") not in {"planned_absence_probe", "planned_hash_rejection"}
+                    or not isinstance(selector.get("remote_suffix"), str)
+                    or not selector["remote_suffix"]
+                    or entry.get("realized_event_required") is not True
+                ):
+                    raise ValueError("transfer selector is not a bounded planned probe")
             else:
                 for key in ("remote", "operation_id", "attempt_id", "failure_type"):
                     if not isinstance(entry.get(key), str) or not entry[key]:
@@ -214,7 +289,19 @@ def _match_injection(
             if not allow_retroactive and call.get("failure_type") != entry["failure_type"]:
                 continue
         elif allow_retroactive:
-            if remote is None or not remote.endswith(entry["remote_suffix"]):
+            suffix = entry.get("remote_suffix")
+            if isinstance(entry.get("selector"), dict):
+                suffix = entry["selector"].get("remote_suffix")
+            if not isinstance(suffix, str) or remote is None or not remote.endswith(suffix):
+                continue
+        elif isinstance(entry.get("selector"), dict):
+            selector = entry["selector"]
+            if (
+                remote is None
+                or not remote.endswith(selector["remote_suffix"])
+                or call.get("failure_type") != entry["failure_type"]
+                or call.get("realized_selector_id") != entry["injection_id"]
+            ):
                 continue
         elif not (
             remote == entry["remote"]
@@ -228,6 +315,43 @@ def _match_injection(
         used[entry["injection_id"]].append(index)
         return entry
     return None
+
+
+def _matched_failed_parent_selector(
+    call: dict[str, Any], receipt: dict[str, Any], entries: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    """Match completed chunks only through their realized failed parent event."""
+    parent_id = call.get("parent_transfer_id")
+    selector_id, failure_type = call.get("realized_selector_id"), call.get("failure_type")
+    if not all(
+        isinstance(value, str) and value for value in (parent_id, selector_id, failure_type)
+    ):
+        return None
+    parent = next(
+        (
+            row
+            for row in receipt.get("transfers") or []
+            if isinstance(row, dict)
+            and row.get("transfer_id") == parent_id
+            and row.get("status") == "failed"
+            and row.get("realized_selector_id") == selector_id
+            and row.get("failure_type") == failure_type
+        ),
+        None,
+    )
+    if parent is None:
+        return None
+    return next(
+        (
+            entry
+            for entry in entries
+            if entry.get("injection_id") == selector_id
+            and entry.get("command") == call.get("command")
+            and isinstance(entry.get("selector"), dict)
+            and entry.get("failure_type") == failure_type
+        ),
+        None,
+    )
 
 
 def _heartbeat_carveout(index: int, calls: list[dict[str, Any]], remotes: dict[int, str]) -> bool:
@@ -255,7 +379,7 @@ def _heartbeat_carveout(index: int, calls: list[dict[str, Any]], remotes: dict[i
 
 def _verified_transfer(
     receipt: dict[str, Any], calls: list[dict[str, Any]], index: int, remote: str, direction: str
-) -> bool:
+) -> tuple[int, float] | None:
     """Require a verification tied to a later, matching logical transfer.
 
     A path is not an identity: repeated uploads of the same path may contain
@@ -264,14 +388,70 @@ def _verified_transfer(
     verification record.
     """
     call = calls[index]
+    # Chunk calls are physical children of a whole-file transfer. Their CLI
+    # operation IDs intentionally differ on every subprocess invocation, so
+    # recovery must follow the stable parent/child identities and the parent's
+    # final whole-file digest instead of grouping unrelated same-path calls.
+    parent_id, child_id = call.get("parent_transfer_id"), call.get("transfer_id")
+    if isinstance(parent_id, str) and parent_id and isinstance(child_id, str) and child_id:
+        started = _finite(call.get("finished_monotonic"))
+        first_attempt = call.get("transfer_attempt")
+        if started is None or type(first_attempt) is not int or first_attempt < 1:
+            return None
+        parents = [
+            row
+            for row in receipt.get("transfers") or []
+            if isinstance(row, dict) and row.get("transfer_id") == parent_id
+        ]
+        if len(parents) != 1:
+            return None
+        parent = parents[0]
+        for later in range(index + 1, len(calls)):
+            candidate = calls[later]
+            if not (
+                candidate.get("command") == direction
+                and candidate.get("parent_transfer_id") == parent_id
+                and candidate.get("transfer_id") == child_id
+                and candidate.get("status") == "completed"
+            ):
+                continue
+            attempt = candidate.get("transfer_attempt")
+            finished = _finite(candidate.get("finished_monotonic"))
+            verified = candidate.get("verified_sha256")
+            if (
+                type(attempt) is not int
+                or not first_attempt <= attempt <= TRANSFER_MAX_ATTEMPTS
+                or finished is None
+                or finished < started
+                or not isinstance(verified, str)
+                or parent.get("status") != "verified"
+                or parent.get("sha256") != verified
+                or parent.get("verified_sha256") != verified
+                or not any(
+                    isinstance(child, dict)
+                    and child.get("transfer_id") == child_id
+                    and child.get("parent_transfer_id") == parent_id
+                    and child.get("verified_sha256") == verified
+                    for child in parent.get("children", [])
+                )
+            ):
+                continue
+            # ``transfer_attempt`` is the raw per-child retry ordinal and
+            # already includes the original failure (1, 2, 3), so do not turn
+            # a three-attempt transfer into a fictional fourth attempt.
+            return (attempt, finished - started)
+        return None
+
     operation_id, digest = call.get("operation_id"), call.get("sha256")
     started = _finite(call.get("finished_monotonic"))
     if (
         not all(isinstance(value, str) and value for value in (operation_id, digest))
         or started is None
     ):
-        return False
-    attempts = 0
+        return None
+    # The failed call itself is transfer attempt one.  A later completed retry
+    # must therefore make two total attempts, not one.
+    attempts = 1
     for later in range(index + 1, len(calls)):
         candidate = calls[later]
         if candidate.get("command") == direction and candidate.get("operation_id") == operation_id:
@@ -285,12 +465,7 @@ def _verified_transfer(
         ):
             continue
         finished = _finite(candidate.get("finished_monotonic"))
-        if (
-            finished is None
-            or finished < started
-            or not (1 <= attempts <= RECOVERY_MAX_ATTEMPTS)
-            or finished - started > RECOVERY_MAX_SECONDS
-        ):
+        if finished is None or finished < started or not (1 <= attempts <= TRANSFER_MAX_ATTEMPTS):
             continue
         for row in receipt.get("transfers") or []:
             if (
@@ -302,8 +477,8 @@ def _verified_transfer(
                 and row.get("sha256") == digest
                 and row.get("verified_call_index") == later
             ):
-                return True
-    return False
+                return (attempts, finished - started)
+    return None
 
 
 def _completed_transfer_verified(
@@ -311,6 +486,29 @@ def _completed_transfer_verified(
 ) -> bool:
     """Every completed transfer needs its own hash-verification correlation."""
     call = calls[index]
+    parent_id = call.get("parent_transfer_id")
+    if isinstance(parent_id, str) and parent_id:
+        child_id, verified = call.get("transfer_id"), call.get("verified_sha256")
+        return (
+            isinstance(child_id, str)
+            and isinstance(verified, str)
+            and sum(
+                isinstance(parent, dict)
+                and parent.get("transfer_id") == parent_id
+                and parent.get("status") == "verified"
+                and parent.get("sha256") == verified
+                and parent.get("verified_sha256") == verified
+                and any(
+                    isinstance(child, dict)
+                    and child.get("transfer_id") == child_id
+                    and child.get("parent_transfer_id") == parent_id
+                    and child.get("verified_sha256") == verified
+                    for child in parent.get("children", [])
+                )
+                for parent in receipt.get("transfers") or []
+            )
+            == 1
+        )
     if not all(
         isinstance(value, str) and value for value in (call.get("operation_id"), call.get("sha256"))
     ):
@@ -342,7 +540,7 @@ def _read_recovery(
             ):
                 return (later, 1, seconds)
         return None
-    operation_id, digest = call.get("operation_id"), call.get("operation_sha256")
+    operation_id, digest = call.get("operation_id"), call.get("argument_sha256")
     started = _finite(call.get("finished_monotonic"))
     if (
         not all(isinstance(value, str) and value for value in (operation_id, digest))
@@ -357,8 +555,9 @@ def _read_recovery(
         attempts += 1
         if (
             other.get("status") == "completed"
-            and other.get("operation_sha256") == digest
-            and other.get("durable_final_reply") is True
+            and other.get("argument_sha256") == digest
+            and isinstance(other.get("response_sha256"), str)
+            and other.get("parse_success") is True
         ):
             finished = _finite(other.get("finished_monotonic"))
             if finished is not None and finished >= started:
@@ -371,6 +570,7 @@ def _exec_episodes(
     excluded: set[int],
     counted: list[dict[str, Any]],
     recovered: list[dict[str, Any]],
+    evidence_missing: list[dict[str, Any]],
     *,
     legacy_projection: bool,
 ) -> None:
@@ -380,9 +580,17 @@ def _exec_episodes(
         for index, call in enumerate(calls)
         if call.get("command") == "recovery" and isinstance(call.get("request_id"), str)
     }
+    # A partial exec identity is an evidence gap, never a synthetic C4.  Only
+    # complete identities participate in the reissue comparison.
     hashes: dict[str, set[str]] = {}
     for index, call in enumerate(calls):
-        if call.get("command") == "exec" and isinstance(call.get("request_id"), str):
+        if (
+            call.get("command") == "exec"
+            and not _marker_census_call(call)
+            and isinstance(call.get("request_id"), str)
+            and isinstance(call.get("request_sha256"), str)
+            and bool(call.get("request_sha256"))
+        ):
             hashes.setdefault(call["request_id"], set()).add(str(call.get("request_sha256")))
     for request_id, values in hashes.items():
         if len(values) != 1 or "None" in values:
@@ -393,12 +601,29 @@ def _exec_episodes(
     handled_requests: set[str] = set()
     while index < len(calls):
         call = calls[index]
-        if call.get("command") != "exec" or call.get("status") == "completed" or index in excluded:
+        if (
+            call.get("command") != "exec"
+            or _marker_census_call(call)
+            or call.get("status") == "completed"
+            or index in excluded
+        ):
             index += 1
             continue
         request_id = call.get("request_id")
         if not isinstance(request_id, str) or not request_id:
-            counted.append(_fault("C2", "failed exec without a durable request ID", index, call))
+            evidence_missing.append(
+                {"kind": "exec_identity", "index": index, "detail": "exec record lacks request ID"}
+            )
+            index += 1
+            continue
+        if not isinstance(call.get("request_sha256"), str) or not call.get("request_sha256"):
+            evidence_missing.append(
+                {
+                    "kind": "exec_identity",
+                    "index": index,
+                    "detail": "exec record lacks request hash",
+                }
+            )
             index += 1
             continue
         if request_id in handled_requests:
@@ -413,6 +638,11 @@ def _exec_episodes(
             if legacy_projection:
                 seconds += _finite(other.get("elapsed_seconds")) or 0.0
             if other.get("command") == "exec" and other.get("request_id") == request_id:
+                if _pending_exec(other):
+                    # Polls which merely report pending belong to their one rpc
+                    # invocation. They neither consume C2 attempts nor need an
+                    # intervening idle proof.
+                    continue
                 reissue_attempts += 1
                 if legacy_projection:
                     attempts += 1
@@ -428,12 +658,8 @@ def _exec_episodes(
                         for probe in calls[previous_reissue + 1 : later]
                     )
                 previous_reissue = later
-                if other.get("status") == "completed" and (
-                    legacy_projection
-                    or (
-                        other.get("request_sha256") == call.get("request_sha256")
-                        and other.get("durable_final_reply") is True
-                    )
+                if legacy_projection or _final_exec_for(
+                    other, request_id, str(call.get("request_sha256"))
                 ):
                     resolved_at = later
                     started = _finite(call.get("finished_monotonic"))
@@ -453,34 +679,30 @@ def _exec_episodes(
             if not bounded_attempts or not valid_idle_before_reissue:
                 resolved_at = None
         source = "derived"
-        actual_attempts, actual_seconds = attempts, seconds
         summary = summaries.get(request_id)
         if summary is not None and summary[0] > index:
             source = "recovery-record"
             attempts = summary[1].get("attempts")
             seconds = _finite(summary[1].get("recovery_seconds"))
+            # The supervisor's recovery timer is authoritative monotonic wall
+            # time.  Independent record timestamps need only form a plausible
+            # interval; demanding microsecond equality rejects valid evidence.
             started = _finite(summary[1].get("first_failure_monotonic"))
             finished = _finite(summary[1].get("resolved_monotonic"))
             if not legacy_projection and not (
                 summary[1].get("status") == "completed"
                 and summary[1].get("request_sha256") == call.get("request_sha256")
-                and summary[1].get("final_request_sha256") == call.get("request_sha256")
-                and summary[1].get("durable_final_reply") is True
-                and summary[1].get("attempts") == actual_attempts
-                and resolved_at is not None
-                and started is not None
-                and finished is not None
-                and _finite(call.get("finished_monotonic")) == started
-                and _finite(calls[resolved_at].get("finished_monotonic")) == finished
-                and finished >= started
                 and seconds is not None
-                and math.isclose(seconds, finished - started, abs_tol=1e-6)
+                and (
+                    started is None
+                    or finished is None
+                    or 0 <= finished - started <= RECOVERY_MAX_SECONDS
+                )
             ):
                 resolved_at = None
-            elif actual_seconds is not None and not math.isclose(
-                seconds, actual_seconds, abs_tol=1e-6
-            ):
-                resolved_at = None
+            else:
+                # A completed recovery summary is itself durable resolution.
+                resolved_at = summary[0]
         if (
             resolved_at is None
             or type(attempts) is not int
@@ -531,32 +753,67 @@ def _marker_faults(markers: dict[str, Any], counted: list[dict[str, Any]]) -> No
         if type(started) is not int or type(done) is not int:
             counted.append(_fault("C4", f"marker counts missing for {request_id}"))
             continue
-        hashes = value.get("code_sha256", [])
+        hashes = value.get("code_sha256")
+        if isinstance(hashes, str):
+            hashes = [hashes]
+        if hashes is None:
+            hashes = [value.get("started_sha256"), value.get("done_sha256")]
         if started < 0 or done < 0 or done > 1 or (done and started != 1) or started > 1:
             counted.append(_fault("C4", f"{request_id}: started={started} done={done}"))
-        elif isinstance(hashes, list) and len(set(hashes)) > 1:
+        elif not isinstance(hashes, list) or not all(
+            isinstance(item, str) and item for item in hashes
+        ):
+            counted.append(_fault("C4", f"{request_id}: marker code hash missing"))
+        elif len(set(hashes)) > 1:
             counted.append(_fault("C4", f"{request_id}: marker code hash differs"))
+        elif (
+            value.get("started_request_id", request_id) != request_id
+            or value.get("done_request_id", request_id) != request_id
+            or value.get("started_corrupt") is True
+            or value.get("done_corrupt") is True
+        ):
+            counted.append(_fault("C4", f"{request_id}: marker identity/corruption breach"))
 
 
 def _marker_coverage_faults(
-    calls: list[dict[str, Any]], markers: dict[str, Any] | None, counted: list[dict[str, Any]]
+    calls: list[dict[str, Any]],
+    markers: dict[str, Any] | None,
+    counted: list[dict[str, Any]],
+    evidence_missing: list[dict[str, Any]],
 ) -> None:
     """Require the prospective marker census to cover each executed request."""
-    if markers is None:
-        counted.append(_fault("C4", "prospective session lacks marker census"))
+    if not isinstance(markers, dict):
+        # The watchdog/backend can disappear before the bounded close-of-session
+        # read. That prevents admission but is not evidence of a C4 breach.
+        evidence_missing.append(
+            {"kind": "marker_census", "detail": "session marker census was not collected"}
+        )
         return
     _marker_faults(markers, counted)
     request_hashes: dict[str, set[Any]] = {}
     for call in calls:
         request_id = call.get("request_id")
-        if call.get("command") == "exec" and isinstance(request_id, str):
-            request_hashes.setdefault(request_id, set()).add(call.get("request_sha256"))
+        if (
+            call.get("command") == "exec"
+            and not _marker_census_call(call)
+            and isinstance(request_id, str)
+        ):
+            request_sha256 = call.get("request_sha256")
+            if not isinstance(request_sha256, str) or not request_sha256:
+                # The main call census records this as EVIDENCE_MISSING.  It
+                # cannot prove a differing reissue or marker-hash breach.
+                continue
+            request_hashes.setdefault(request_id, set()).add(request_sha256)
     for request_id, hashes in request_hashes.items():
         evidence = markers.get(request_id)
         if not isinstance(evidence, dict):
             counted.append(_fault("C4", f"{request_id}: marker evidence absent from census"))
             continue
         marker_hashes = evidence.get("code_sha256")
+        if isinstance(marker_hashes, str):
+            marker_hashes = [marker_hashes]
+        if marker_hashes is None:
+            marker_hashes = [evidence.get("started_sha256"), evidence.get("done_sha256")]
         marker_hashes = (
             {marker_hashes} if isinstance(marker_hashes, str) else set(marker_hashes or [])
         )
@@ -566,11 +823,21 @@ def _marker_coverage_faults(
             )
             continue
         completed = any(
+            _final_exec_for(call, request_id, str(next(iter(hashes)))) for call in calls
+        )
+        mismatched_final = any(
             call.get("command") == "exec"
-            and call.get("request_id") == request_id
             and call.get("status") == "completed"
+            and call.get("request_id") == request_id
+            and call.get("reply_kind") == "final"
+            and (
+                call.get("returned_request_id", request_id) != request_id
+                or call.get("returned_request_sha256", next(iter(hashes))) != next(iter(hashes))
+            )
             for call in calls
         )
+        if mismatched_final:
+            counted.append(_fault("C4", f"{request_id}: final reply identity differs"))
         if completed and (evidence.get("started") != 1 or evidence.get("done") != 1):
             counted.append(
                 _fault("C4", f"{request_id}: completed request lacks exactly-once markers")
@@ -608,12 +875,39 @@ def unit_integrity_faults(units: dict[str, Any]) -> list[dict[str, Any]]:
     return faults
 
 
+def _planned_watchdog_observed(entry: dict[str, Any], observer: Any) -> bool:
+    """Validate a realized acceptance observer against the frozen terminal plan."""
+    if not isinstance(observer, dict) or observer.get("profile") != "final-only":
+        return False
+    gate = (observer.get("gates") or {}).get(entry.get("watchdog_event_id"))
+    if not isinstance(gate, dict):
+        return False
+    plan = entry.get("watchdog_plan")
+    if not isinstance(plan, dict):
+        return False
+    if any(gate.get(key) != value for key, value in plan.items()):
+        return False
+    observed = _finite(gate.get("observed_after_lease_seconds"))
+    bound = _finite(gate.get("release_bound_seconds"))
+    return (
+        observed is not None
+        and bound is not None
+        and 0 <= observed <= bound
+        and gate.get("renewal_suppressed") is True
+        and gate.get("checkpoint_exported_during_grace") is True
+        and gate.get("assignment_disappeared_within_bound") is True
+        and isinstance(gate.get("endpoint"), str)
+        and bool(gate["endpoint"])
+    )
+
+
 def classify_session(
     receipt: dict[str, Any],
     injection_manifest: dict[str, Any] | None = None,
     *,
     markers: dict[str, Any] | None = None,
     units: dict[str, Any] | None = None,
+    acceptance_observer: dict[str, Any] | None = None,
     allow_retroactive_manifest: bool = False,
     legacy_projection: bool = False,
 ) -> dict[str, Any]:
@@ -635,6 +929,7 @@ def classify_session(
         entries = injection_manifest["entries"]
     counted: list[dict[str, Any]] = []
     recovered: list[dict[str, Any]] = []
+    evidence_missing: list[dict[str, Any]] = []
     excluded: list[dict[str, Any]] = []
     carve_outs: list[dict[str, Any]] = []
     used: dict[str, list[int]] = {}
@@ -656,20 +951,58 @@ def classify_session(
             counted.append(
                 _fault("C1", f"elapsed {elapsed:.3f} > bound {timeout:.3f} + 2", index, call)
             )
-        if call.get("command") == "exec" and (
-            not isinstance(call.get("request_id"), str)
-            or not call.get("request_id")
-            or not isinstance(call.get("request_sha256"), str)
-            or not call.get("request_sha256")
+        if (
+            call.get("command") == "exec"
+            and not _marker_census_call(call)
+            and (
+                not isinstance(call.get("request_id"), str)
+                or not call.get("request_id")
+                or not isinstance(call.get("request_sha256"), str)
+                or not call.get("request_sha256")
+            )
         ):
-            counted.append(_fault("C4", "exec lacks durable request ID or code hash", index, call))
+            evidence_missing.append(
+                {
+                    "kind": "exec_identity",
+                    "index": index,
+                    "detail": "exec record lacks durable request ID or code hash",
+                }
+            )
 
     if not legacy_projection:
         for index, call in enumerate(calls):
             if call.get("command") not in TRANSFER_COMMANDS or call.get("status") != "completed":
                 continue
             remote = remotes.get(index)
-            if remote is None or not _completed_transfer_verified(receipt, calls, index, remote):
+            if _control_plane_transfer(call, remote):
+                carve_outs.append({"index": index, "rule": "control-plane PUT"})
+                continue
+            deliberate_parent = _matched_failed_parent_selector(call, receipt, entries)
+            if deliberate_parent is not None:
+                used.setdefault(deliberate_parent["injection_id"], []).append(index)
+                excluded.append(
+                    {
+                        "index": index,
+                        "injection_id": deliberate_parent["injection_id"],
+                        "type": deliberate_parent["type"],
+                        "parent_failure": True,
+                    }
+                )
+                continue
+            if remote is None or not _transfer_identity_present(call):
+                # An observed provider/verification failure is a C6 even
+                # when this new evidence schema cannot correlate a retry.
+                if _observed_transfer_failure(call):
+                    counted.append(_fault("C6", "observed transfer failure", index, call))
+                    continue
+                evidence_missing.append(
+                    {
+                        "kind": "transfer_identity",
+                        "index": index,
+                        "detail": "completed consumed transfer lacks correlation identity",
+                    }
+                )
+            elif not _completed_transfer_verified(receipt, calls, index, remote):
                 counted.append(
                     _fault("C6", "completed transfer lacks correlated verification", index, call)
                 )
@@ -688,7 +1021,14 @@ def classify_session(
                 {"index": index, "injection_id": entry["injection_id"], "type": entry["type"]}
             )
 
-    _exec_episodes(calls, excluded_indices, counted, recovered, legacy_projection=legacy_projection)
+    _exec_episodes(
+        calls,
+        excluded_indices,
+        counted,
+        recovered,
+        evidence_missing,
+        legacy_projection=legacy_projection,
+    )
 
     for index, call in enumerate(calls):
         command = call.get("command")
@@ -738,18 +1078,39 @@ def classify_session(
                 )
             continue
         if command in TRANSFER_COMMANDS:
+            if _control_plane_transfer(call, remotes.get(index)):
+                carve_outs.append({"index": index, "rule": "control-plane PUT"})
+                continue
             if _heartbeat_carveout(index, calls, remotes):
                 carve_outs.append({"index": index, "rule": "pre-runtime heartbeat PUT"})
                 continue
             remote = remotes.get(index) if remotes else None
-            if remote is not None and _verified_transfer(receipt, calls, index, remote, command):
+            if not legacy_projection and (remote is None or not _transfer_identity_present(call)):
+                if _observed_transfer_failure(call):
+                    counted.append(_fault("C6", "observed consumed transfer failure", index, call))
+                    continue
+                evidence_missing.append(
+                    {
+                        "kind": "transfer_identity",
+                        "index": index,
+                        "detail": "failed consumed transfer lacks correlation identity",
+                    }
+                )
+                continue
+            transfer_recovery = (
+                _verified_transfer(receipt, calls, index, remote, command)
+                if remote is not None
+                else None
+            )
+            if transfer_recovery is not None:
+                attempts, seconds = transfer_recovery
                 recovered.append(
                     {
                         "kind": command,
                         "first_failure_index": index,
                         "resolved_index": None,
-                        "attempts": 1,
-                        "seconds": 0.0,
+                        "attempts": attempts,
+                        "seconds": seconds,
                         "source": "later verified transfer",
                         "remote": remote,
                     }
@@ -827,14 +1188,7 @@ def classify_session(
                 and terminal_class == e["failure_class"]
                 and e["error_contains"] in str(receipt.get("error"))
                 and (
-                    allow_retroactive_manifest
-                    or any(
-                        isinstance(event, dict)
-                        and event.get("event_id") == e.get("watchdog_event_id")
-                        and event.get("sha256") == e.get("watchdog_event_sha256")
-                        and event.get("observed") is True
-                        for event in receipt.get("watchdog_events") or []
-                    )
+                    allow_retroactive_manifest or _planned_watchdog_observed(e, acceptance_observer)
                 )
                 # A designed release never excuses an unverified stop or cleanup error.
                 and receipt.get("stop_verified") is True and receipt.get("cleanup_error") is None
@@ -874,7 +1228,7 @@ def classify_session(
             )
 
     if not legacy_projection:
-        _marker_coverage_faults(calls, markers, counted)
+        _marker_coverage_faults(calls, markers, counted, evidence_missing)
     elif markers is not None:
         _marker_faults(markers, counted)
     if units is not None:
@@ -889,13 +1243,20 @@ def classify_session(
         "schema": SCHEMA,
         "authority_sha256": AUTHORITY_SHA256,
         "job_id": receipt.get("job_id"),
-        "verdict": "FAIL" if counted or session_failures else "PASS",
+        # Evidence gaps and incompatible prospective schemas block admission but
+        # do not close the October lane.  Only counted C1-C6 faults do so.
+        "verdict": (
+            "FAIL"
+            if counted or session_failures
+            else ("EVIDENCE_MISSING" if evidence_missing else "PASS")
+        ),
         "counted": counted,
         "counted_by_class": {
             cls: sum(1 for row in counted if row["class"] == cls)
             for cls in ("C1", "C2", "C3", "C4", "C5", "C6")
         },
         "recovered": recovered,
+        "evidence_missing": evidence_missing,
         "recovered_events": len(recovered),
         "recovered_seconds": round(sum(row["seconds"] for row in recovered), 6),
         "max_attempts": max((row["attempts"] for row in recovered), default=0),

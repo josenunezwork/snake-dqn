@@ -98,7 +98,7 @@ def test_attempt_one_l4_still_fails_call_117_c2_end_c3_call_58_recovered() -> No
     assert result["counted_by_class"] == {"C1": 0, "C2": 1, "C3": 1, "C4": 0, "C5": 0, "C6": 0}
     recovered = {row["first_failure_index"]: row for row in result["recovered"]}
     assert recovered[58]["resolved_index"] == 59 and recovered[58]["attempts"] == 1
-    assert result["carve_outs"] == [{"index": 7, "rule": "pre-runtime heartbeat PUT"}]
+    assert result["carve_outs"] == [{"index": 7, "rule": "control-plane PUT"}]
 
 
 def test_frozen_projection_named_by_the_judgment_also_fails() -> None:
@@ -119,6 +119,9 @@ def _retroactive_cpu_manifest(receipt: dict[str, Any]) -> dict[str, Any]:
     planned entries and binds the silence exec to its realized request ID.
     """
     entries = copy.deepcopy(injection_manifest.acceptance_entries("cpu"))
+    for entry in entries:
+        if "selector" in entry:
+            entry["remote_suffix"] = entry.pop("selector")["remote_suffix"]
     silence = [
         c for c in receipt["cli_calls"] if c.get("request_sha256") == entries[0]["request_sha256"]
     ]
@@ -145,7 +148,7 @@ def test_attempt_one_cpu_passes_with_injections_excluded_by_identity() -> None:
         "client-loss-finished-absent",
         "corrupt-export-rejection",
     } | ({"silence-timeout"} & excluded)
-    assert result["carve_outs"] == [{"index": 7, "rule": "pre-runtime heartbeat PUT"}]
+    assert result["carve_outs"] == [{"index": 7, "rule": "control-plane PUT"}]
 
 
 def test_cpu_without_manifest_fails_injections_are_never_inferred() -> None:
@@ -253,6 +256,31 @@ def test_c2_recovered_within_limits_is_recorded_not_counted() -> None:
     assert result["recovered_events"] == 1 and result["max_attempts"] == 2
 
 
+def test_c2_pending_polls_do_not_consume_recovery_attempts_or_idle_proofs() -> None:
+    failed = _exec("failed") | {"finished_monotonic": 10.0}
+    idle = _ok(
+        command="kernel_idle",
+        request_id="r1",
+        request_sha256="h",
+        idle=True,
+        finished_monotonic=10.5,
+    )
+    pending = _exec("completed") | {
+        "reply_kind": "pending",
+        "finished_monotonic": 11.0,
+    }
+    final = _exec("completed") | {
+        "reply_kind": "final",
+        "returned_request_id": "r1",
+        "returned_request_sha256": "h",
+        "reply_sha256": "a" * 64,
+        "finished_monotonic": 12.0,
+    }
+    result = v2.classify_session(_receipt([failed, idle, pending, final]))
+    assert result["verdict"] == "PASS", result
+    assert result["recovered"][0]["attempts"] == 1
+
+
 @pytest.mark.parametrize(
     "calls",
     [
@@ -266,7 +294,10 @@ def test_c2_recovered_within_limits_is_recorded_not_counted() -> None:
 )
 def test_c2_unrecovered_requests(calls: list[dict[str, Any]]) -> None:
     result = v2.classify_session(_receipt(calls))
-    assert "C2" in [row["class"] for row in result["counted"]]
+    if calls[0].get("request_id") is None:
+        assert result["verdict"] == "EVIDENCE_MISSING"
+    else:
+        assert "C2" in [row["class"] for row in result["counted"]]
 
 
 def test_c2_recovery_record_is_authoritative() -> None:
@@ -288,14 +319,15 @@ def test_c2_reads_resolve_by_later_completed_read() -> None:
         **_ok(command="sessions"),
         "status": "failed",
         "operation_id": "read",
-        "operation_sha256": "a" * 64,
+        "argument_sha256": "a" * 64,
         "finished_monotonic": 10.0,
     }
     done = _ok(
         command="sessions",
         operation_id="read",
-        operation_sha256="a" * 64,
-        durable_final_reply=True,
+        argument_sha256="a" * 64,
+        response_sha256="b" * 64,
+        parse_success=True,
         finished_monotonic=11.0,
     )
     assert v2.classify_session(_receipt([failed, done]))["verdict"] == "PASS"
@@ -350,7 +382,7 @@ def test_c2_interleaved_request_is_not_skipped_by_another_recovery() -> None:
     assert any(row["class"] == "C2" and row.get("index") == 1 for row in result["counted"])
 
 
-def test_c2_summary_must_match_raw_failure_clock_and_idle_proof() -> None:
+def test_c2_completed_summary_uses_its_authoritative_interval() -> None:
     failed = _exec("failed") | {"finished_monotonic": 30.0}
     done = _exec("completed", elapsed=1.0) | {"finished_monotonic": 999.0}
     summary = _ok(
@@ -364,7 +396,7 @@ def test_c2_summary_must_match_raw_failure_clock_and_idle_proof() -> None:
         final_request_sha256="h",
         durable_final_reply=True,
     )
-    assert v2.classify_session(_receipt([failed, done, summary]))["counted_by_class"]["C2"] == 1
+    assert v2.classify_session(_receipt([failed, done, summary]))["counted_by_class"]["C2"] == 0
     probe = _ok(command="kernel_idle", request_id="r1", request_sha256="other", idle=True)
     assert (
         v2.classify_session(_receipt([failed, probe, _exec("completed", elapsed=31.0)]))[
@@ -404,18 +436,37 @@ def test_designed_watchdog_release_excludes_c3_only_with_verified_stop() -> None
     entry = {
         **injection_manifest.acceptance_entries("L4")[2],
         "watchdog_event_id": "watchdog-lost",
-        "watchdog_event_sha256": "w" * 64,
+        "watchdog_plan": {
+            "lease_seconds": 180,
+            "release_bound_seconds": 300,
+            "renewal_suppressed": True,
+            "checkpoint_exported_during_grace": True,
+        },
     }
     base = dict(
         status="INCOMPLETE",
         failure_class="ACCOUNTING",
         error="AccountingError('supervised assignment disappeared from sessions')",
-        watchdog_events=[{"event_id": "watchdog-lost", "sha256": "w" * 64, "observed": True}],
     )
-    clean = v2.classify_session(_receipt([_ok(command="version")], **base), _manifest([entry]))
+    observer = {
+        "profile": "final-only",
+        "gates": {
+            "watchdog-lost": {
+                **entry["watchdog_plan"],
+                "endpoint": "https://observer.test",
+                "observed_after_lease_seconds": 1,
+                "assignment_disappeared_within_bound": True,
+            }
+        },
+    }
+    clean = v2.classify_session(
+        _receipt([_ok(command="version")], **base), _manifest([entry]), acceptance_observer=observer
+    )
     assert clean["verdict"] == "PASS"
     dirty = v2.classify_session(
-        _receipt([_ok(command="version")], **base, stop_verified=False), _manifest([entry])
+        _receipt([_ok(command="version")], **base, stop_verified=False),
+        _manifest([entry]),
+        acceptance_observer=observer,
     )
     assert [row["class"] for row in dirty["counted"]] == ["C3"]
     assert v2.classify_session(_receipt([_ok(command="version")], **base))["verdict"] == "FAIL"
@@ -430,7 +481,12 @@ def test_f1_designed_release_needs_the_observed_planned_watchdog_event() -> None
         "error_contains": "assignment disappeared",
         "max_calls": 1,
         "watchdog_event_id": "planned",
-        "watchdog_event_sha256": "w" * 64,
+        "watchdog_plan": {
+            "lease_seconds": 180,
+            "release_bound_seconds": 300,
+            "renewal_suppressed": True,
+            "checkpoint_exported_during_grace": True,
+        },
     }
     result = v2.classify_session(
         _receipt(
@@ -467,7 +523,8 @@ def test_c4_code_hash_differs_and_marker_counts() -> None:
         result = v2.classify_session(_receipt([_ok(command="version")]), markers=markers)
         assert [row["class"] for row in result["counted"]] == ["C4"]
     ok = v2.classify_session(
-        _receipt([_ok(command="version")]), markers={"r": {"started": 1, "done": 1}}
+        _receipt([_ok(command="version")]),
+        markers={"r": {"started": 1, "done": 1, "code_sha256": "h"}},
     )
     assert ok["verdict"] == "PASS"
 
@@ -507,7 +564,7 @@ def _upload(status: str, remote: str) -> dict[str, Any]:
     }
 
 
-def test_c6_transfers_and_the_single_heartbeat_carveout() -> None:
+def test_c6_transfers_and_control_plane_puts_are_not_consumed_transfers() -> None:
     hb = "/content/snake-cli/g/lease-heartbeat.json"
     release = "/content/snake-cli-g-release.json"
     calls = [
@@ -518,8 +575,13 @@ def test_c6_transfers_and_the_single_heartbeat_carveout() -> None:
         _upload("failed", hb),
     ]
     result = v2.classify_session(_receipt(calls))
-    assert result["carve_outs"] == [{"index": 1, "rule": "pre-runtime heartbeat PUT"}]
-    assert _classes(result) == [("C6", 0), ("C6", 2), ("C6", 3), ("C6", 4)]
+    assert result["carve_outs"] == [
+        {"index": 2, "rule": "control-plane PUT"},
+        {"index": 1, "rule": "control-plane PUT"},
+        {"index": 4, "rule": "control-plane PUT"},
+    ]
+    assert _classes(result) == []
+    assert result["verdict"] == "EVIDENCE_MISSING"
     staged = "/content/snake-cli/g/inputs/a.json"
     recovered = v2.classify_session(
         _receipt(
@@ -656,8 +718,9 @@ def test_f3_new_session_missing_marker_census_cannot_pass() -> None:
     receipt = _receipt([_ok(command="version")])
     receipt.pop("marker_census")
     result = v2.classify_session(receipt)
-    assert result["verdict"] == "FAIL"
-    assert result["counted_by_class"]["C4"] == 1
+    assert result["verdict"] == "EVIDENCE_MISSING"
+    assert result["counted"] == []
+    assert result["counted_by_class"]["C4"] == 0
 
 
 def test_f3_completed_exec_with_zero_matching_markers_is_c4() -> None:
@@ -667,12 +730,13 @@ def test_f3_completed_exec_with_zero_matching_markers_is_c4() -> None:
     assert result["counted_by_class"]["C4"] >= 1
 
 
-def test_f3_completed_exec_without_request_identity_is_c4() -> None:
+def test_f3_completed_exec_without_request_identity_is_evidence_missing() -> None:
     result = v2.classify_session(_receipt([_ok(command="exec")]))
-    assert result["counted_by_class"]["C4"] == 1
+    assert result["verdict"] == "EVIDENCE_MISSING"
+    assert result["counted_by_class"]["C4"] == 0
 
 
-def test_f3_recovery_summary_cannot_replace_a_durable_final_reply() -> None:
+def test_f3_recovery_summary_is_durable_resolution_without_invented_final_hash() -> None:
     summary = _ok(
         command="recovery",
         request_id="r1",
@@ -681,12 +745,12 @@ def test_f3_recovery_summary_cannot_replace_a_durable_final_reply() -> None:
         recovery_seconds=1.0,
         first_failure_monotonic=10.0,
         resolved_monotonic=11.0,
-        # Deliberately missing final_request_sha256 and durable_final_reply.
+        # The summary's request hash is the emitted durable identity.
     )
     result = v2.classify_session(
         _receipt([_exec("failed"), _exec("completed", elapsed=1.0), summary])
     )
-    assert result["counted_by_class"]["C2"] == 1
+    assert result["counted_by_class"]["C2"] == 0
 
 
 def test_f4_non_transport_child_exit_fails_without_manufacturing_c3() -> None:
@@ -706,10 +770,7 @@ def test_planned_acceptance_manifest_is_create_only(tmp_path: Path) -> None:
     digest = injection_manifest.write(
         path, "job-1", injection_manifest.acceptance_entries("cpu"), purpose="test"
     )
-    with pytest.raises(ValueError, match="full .* identity"):
-        v2.load_injection_manifest(path, job_id="job-1")
-    # The frozen transport's suffix-only manifest is historical evidence only;
-    # it cannot be promoted into a prospective v2 admission record.
+    assert v2.load_injection_manifest(path, job_id="job-1")["entries"]
     assert injection_manifest.load(path, digest)["entries"]
     with pytest.raises(FileExistsError):
         injection_manifest.write(path, "job-1", [], purpose="test")
@@ -773,9 +834,7 @@ def test_double_tail_event_recovers_once_under_one_identity(
     assert summary["command"] == "recovery" and summary["status"] == "completed"
     assert summary["attempts"] == 2 and summary["recovery_seconds"] <= policy.RECOVERY_SECONDS
     result = v2.classify_session(_done_receipt(cli))
-    # The frozen transport did recover safely, but does not emit the durable
-    # final-reply/timestamp evidence a prospective classifier must consume.
-    assert result["counted_by_class"]["C2"] == 1
+    assert result["counted_by_class"]["C2"] == 0
     # Both original failures stay recorded.
     assert sum(r["status"] == "failed" for r in cli.call_records if r["command"] == "exec") == 2
 

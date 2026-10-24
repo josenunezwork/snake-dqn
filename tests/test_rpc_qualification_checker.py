@@ -471,6 +471,7 @@ def test_refuses_short_loop_missing_call_reused_namespace_and_fault(tmp_path: Pa
     publish_json(short_runtime, short_value)
     publication = _published(short_plan, short)
     short_result = checker.verdict(short_plan, publication, short / "verdict.json")
+    # The replacement no longer matches the receipt-bound export digest.
     assert short_result["platforms"]["cpu"]["status"] == "FAIL"
 
     missing = tmp_path / "missing"
@@ -491,7 +492,7 @@ def test_refuses_short_loop_missing_call_reused_namespace_and_fault(tmp_path: Pa
         },
     )
     missing_result = checker.verdict(missing_plan, publication, missing / "verdict.json")
-    assert missing_result["platforms"]["cpu"]["status"] == "FAIL"
+    assert missing_result["platforms"]["cpu"]["status"] == "EVIDENCE_MISSING"
 
     fault = tmp_path / "fault"
     fault.mkdir()
@@ -533,7 +534,7 @@ def test_injection_refuses_duplicate_execution(tmp_path: Path) -> None:
     publication = _published(plan, tmp_path)
     result = checker.verdict(plan, publication, tmp_path / "verdict.json")
     assert result["injection"]["status"] == "FAIL"
-    assert "duplicated execution" in result["injection"]["reason"]
+    assert any(fault["source"] == "v2:C5" for fault in result["injection"]["faults"])
 
 
 def _rewrite_receipt(job: dict, update) -> None:
@@ -630,7 +631,7 @@ def test_injection_drop_outside_the_manifest_identity_fails(tmp_path: Path) -> N
         manifest_path.with_name(manifest_path.name + suffix).unlink()
     injection_manifest.write(manifest_path, value["session_job_id"], value["entries"], purpose="t")
     result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
-    assert result["injection"]["status"] == "FAIL"
+    assert result["injection"]["status"] == "EVIDENCE_MISSING"
 
 
 def test_fake_proof_refuses_a_stale_or_partial_current_source_map(

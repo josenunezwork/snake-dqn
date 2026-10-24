@@ -28,21 +28,34 @@ PLATFORMS = ("cpu", "l4")
 FAKE_PROOF_TESTS = (
     "tests/test_colab_cli_rpc_recovery.py",
     "tests/test_colab_cli_acceptance_stall_diagnosis.py",
+    "tests/test_colab_cli_evidence.py",
+    "tests/test_colab_cli_evidence_differential.py",
     "tests/test_l4_faults_v2.py",
+    "tests/test_rpc_qualification_matrix.py",
     "tests/test_rpc_qualification_probe_policy.py",
+    "tests/test_rpc_qualification_injection.py",
+    "tests/test_rpc_qualification_checker.py",
+    "tests/test_l4_lane_admission.py",
 )
 FAKE_PROOF_EXTRA_SOURCES = (
     "research/bl_labels/l4_faults_v2.py",
     "research/rpc_qualification/broker.py",
     "research/rpc_qualification/checker.py",
     "research/rpc_qualification/fake_proof.py",
-    "research/rpc_qualification/probe_policy.py",
+    "tools/ops/requalify.py",
     "tests/fixtures/colab_control_faults_f1.json",
     "tests/fixtures/colab_control_faults_acceptance_1792762502.json",
     "tests/fixtures/l4_faults_v2_acceptance_1792762502.json",
     "tests/fixtures/make_l4_faults_v2_fixture.py",
-    "tests/test_rpc_qualification_probe_policy.py",
 )
+
+
+class CountedIntegrityError(ValueError):
+    """An observed immutable-integrity breach, distinct from absent evidence."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.fault = {"source": "v2:C5", "record": {"class": "C5", "detail": detail}}
 
 
 def _sha(path: Path) -> str:
@@ -52,11 +65,25 @@ def _sha(path: Path) -> str:
 def fake_proof_source_inventory(repo: Path) -> dict[str, str]:
     """Complete source map for fake-CLI evidence, excluding the proof itself."""
     names = subprocess.check_output(
-        ["git", "ls-files", "research/colab_cli", *FAKE_PROOF_EXTRA_SOURCES, *FAKE_PROOF_TESTS],
+        [
+            "git",
+            "ls-files",
+            "research/colab_cli",
+            "research/rpc_qualification",
+            *FAKE_PROOF_EXTRA_SOURCES,
+            *FAKE_PROOF_TESTS,
+        ],
         cwd=repo,
         text=True,
         timeout=30,
     ).splitlines()
+    names = [
+        name
+        for name in names
+        if name.endswith((".py", ".sh"))
+        or name in FAKE_PROOF_EXTRA_SOURCES
+        or name in FAKE_PROOF_TESTS
+    ]
     expected = set(FAKE_PROOF_EXTRA_SOURCES) | set(FAKE_PROOF_TESTS)
     if not expected <= set(names):
         raise ValueError("fake-CLI proof source inventory is incomplete")
@@ -79,6 +106,39 @@ def validate_fake_proof(fake_path: Path, repo: Path, package_commit: str) -> dic
     expected = fake_proof_source_inventory(repo)
     if value["source_sha256"] != expected:
         raise ValueError("fake-CLI proof source map is incomplete or stale")
+    trace = value.get("differential_trace")
+    if not isinstance(trace, dict) or trace.get("transport_tree") != (
+        "4eefe6b10345f0a7b53c22f3158ce1c131093bfe"
+    ):
+        raise ValueError("fake-CLI proof lacks its reviewed-tree differential trace")
+    trace_bytes = (json.dumps(trace, indent=2, sort_keys=True) + "\n").encode()
+    if hashlib.sha256(trace_bytes).hexdigest() != value.get("differential_trace_sha256"):
+        raise ValueError("fake-CLI proof differential trace digest differs")
+    from .behavior_trace import strip_evidence as _strip_evidence
+
+    required_scenarios = {
+        "pending",
+        "tails",
+        "recovery",
+        "exhaustion",
+        "permanent",
+        "heartbeat",
+        "reads",
+        "probe_policy",
+        "stop",
+        "chunks",
+        "chunks_retry",
+    }
+    if set(trace.get("scenarios", {})) != required_scenarios:
+        raise ValueError("fake-CLI differential scenario coverage is incomplete")
+    for name, row in trace["scenarios"].items():
+        if name == "probe_policy":
+            if row.get("baseline", {}).get("probe_policy") != [True] * 6 or row.get(
+                "current", {}
+            ).get("probe_policy") != [False, True, False, True, True, True]:
+                raise ValueError("differential probe hardening differs from the ruling")
+        elif _strip_evidence(row.get("baseline")) != _strip_evidence(row.get("current")):
+            raise ValueError(f"transport differential behavior differs: {name}")
     if subprocess.run(
         ["git", "merge-base", "--is-ancestor", value["source_commit"], package_commit],
         cwd=repo,
@@ -209,7 +269,10 @@ def _ledger_inventory(job: dict[str, Any], output: Path) -> dict[str, Any]:
     ledger_path = output / "exports" / "verified-ledger.json"
     if not ledger_path.is_file():
         return {"path": str(ledger_path), "status": "MISSING"}
-    _verify(ledger_path)
+    try:
+        _verify(ledger_path)
+    except (OSError, ValueError) as exc:
+        raise CountedIntegrityError("committed ledger integrity: " + str(exc)) from exc
     ledger = _read(ledger_path)
     if (
         ledger.get("schema") != "rpc-qualification-verified-ledger/v1"
@@ -225,12 +288,18 @@ def _ledger_inventory(job: dict[str, Any], output: Path) -> dict[str, Any]:
         if not isinstance(row, dict) or not isinstance(row.get("index"), int):
             raise ValueError("malformed qualification ledger row")
         index = row["index"]
-        if index < 0 or index in seen or row.get("path") != f"units/unit-{index:08d}.json":
-            raise ValueError("duplicate or foreign ledger unit")
+        if index < 0 or row.get("path") != f"units/unit-{index:08d}.json":
+            raise ValueError("foreign ledger unit identity")
+        if index in seen:
+            raise CountedIntegrityError(f"duplicate verified ledger index {index}")
         seen.add(index)
         payload = ledger_path.parent / row["path"]
-        if _verify(payload) != row.get("sha256") or payload.stat().st_size != row.get("size"):
-            raise ValueError("ledger unit differs from immutable payload")
+        try:
+            payload_digest = _verify(payload)
+        except (OSError, ValueError) as exc:
+            raise CountedIntegrityError("committed unit integrity: " + str(exc)) from exc
+        if payload_digest != row.get("sha256") or payload.stat().st_size != row.get("size"):
+            raise CountedIntegrityError("ledger unit differs from immutable payload")
         unit = _read(payload)
         if (
             unit.get("schema") != "rpc-qualification-loop/v1"
@@ -360,7 +429,7 @@ def _bound_export(path: Path, receipt: dict[str, Any], name: str) -> None:
         or rows[0].get("sha256") != digest
         or rows[0].get("size") != path.stat().st_size
     ):
-        raise ValueError(f"receipt export binding differs: {name}")
+        raise CountedIntegrityError(f"receipt export binding differs: {name}")
 
 
 def _injections(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -420,13 +489,31 @@ def _check_loop(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
     ):
         raise ValueError("qualification loop is shorter than 60 minutes")
     integrity = runtime.get("integrity")
-    if (
-        not isinstance(integrity, dict)
-        or integrity.get("all_attempted_roots_clean") is not True
-        or integrity.get("repeat_digest_consistent") is not True
-        or integrity.get("bare_audit_mismatches") != 0
-    ):
-        raise ValueError("qualification runtime integrity fails")
+    if not isinstance(integrity, dict):
+        raise ValueError("qualification runtime lacks integrity evidence")
+    integrity_faults: list[dict[str, Any]] = []
+    if integrity.get("all_attempted_roots_clean") is False:
+        integrity_faults.append(
+            {"source": "v2:C5", "record": {"class": "C5", "detail": "roots not clean"}}
+        )
+    elif integrity.get("all_attempted_roots_clean") is not True:
+        raise ValueError("qualification runtime root-clean evidence is missing")
+    if integrity.get("repeat_digest_consistent") is False:
+        integrity_faults.append(
+            {"source": "v2:C5", "record": {"class": "C5", "detail": "repeat digest mismatch"}}
+        )
+    elif integrity.get("repeat_digest_consistent") is not True:
+        raise ValueError("qualification runtime repeat-digest evidence is missing")
+    bare_mismatches = integrity.get("bare_audit_mismatches")
+    if type(bare_mismatches) is not int or bare_mismatches < 0:
+        raise ValueError("qualification runtime bare-audit evidence is malformed")
+    if bare_mismatches:
+        integrity_faults.append(
+            {
+                "source": "v2:C5",
+                "record": {"class": "C5", "detail": f"bare_audit_mismatches={bare_mismatches}"},
+            }
+        )
     repeats = runtime.get("root_repeat_counts")
     if (
         not isinstance(repeats, dict)
@@ -447,11 +534,21 @@ def _check_loop(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
         integrity_row = unit.get("integrity")
         if not isinstance(integrity_row, dict):
             raise ValueError("qualification unit lacks integrity")
-        if (
-            integrity_row.get("digest_checks") != 1
-            or integrity_row.get("bare_audit_mismatches") != 0
-        ):
-            raise ValueError("qualification unit integrity fails")
+        if integrity_row.get("digest_checks") != 1:
+            raise ValueError("qualification unit digest-check evidence is missing")
+        unit_bare = integrity_row.get("bare_audit_mismatches")
+        if type(unit_bare) is not int or unit_bare < 0:
+            raise ValueError("qualification unit bare-audit evidence is malformed")
+        if unit_bare:
+            integrity_faults.append(
+                {
+                    "source": "v2:C5",
+                    "record": {
+                        "class": "C5",
+                        "detail": f"unit {row.get('unit_id')} bare_audit_mismatches={unit_bare}",
+                    },
+                }
+            )
         root = unit.get("root_id")
         digest = integrity_row.get("digest")
         label = integrity_row.get("label_row_sha256")
@@ -462,15 +559,16 @@ def _check_loop(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
         _bound_export(output / "exports" / row["path"], receipt, row["path"])
         prior = observed.get(root)
         if prior and prior[:2] != (digest, label):
-            raise ValueError("qualification repeat digest/hash differs")
+            raise CountedIntegrityError("qualification repeat digest/hash differs")
         observed[root] = (digest, label, (prior[2] if prior else 0) + 1)
     if len(observed) != 64 or any(value[2] < 2 for value in observed.values()):
         raise ValueError("qualification unit ledger lacks repeated frozen roots")
     faults, v2 = _raw_faults(receipt, _injections(manifest))
+    faults.extend(integrity_faults)
     return {
         "session": job["job_id"],
         "platform": job["platform"],
-        "status": "FAIL" if faults else "PASS",
+        "status": "FAIL" if faults else v2["verdict"],
         "v2": v2,
         "counted_faults": len(faults),
         "faults": faults,
@@ -499,6 +597,8 @@ def _check_injection(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
     if len(ledger_units) != 3:
         raise ValueError("injection ledger does not have exactly three committed units")
     request_ids, unit_ids, injected_indices = set(), set(), set()
+    integrity_faults: list[dict[str, Any]] = []
+    duplicate_execution = False
     for item in units:
         if not isinstance(item, dict):
             raise ValueError("malformed injection unit")
@@ -515,7 +615,13 @@ def _check_injection(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
         request_ids.add(request_id)
         unit_ids.add(unit_id)
         if item.get("execution_count") != 1:
-            raise ValueError("injection duplicated execution")
+            duplicate_execution = True
+            integrity_faults.append(
+                {
+                    "source": "v2:C5",
+                    "record": {"class": "C5", "detail": "injection duplicated execution"},
+                }
+            )
         if unit_id not in ledger_units:
             raise ValueError("injection proof has foreign unit identity")
         marker_values = {}
@@ -548,13 +654,39 @@ def _check_injection(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
             if marker in {"execution_started", "execution_done", "result"} and (
                 value.get("unit_id") != unit_id or value.get("execution_count") != 1
             ):
-                raise ValueError("injection duplicated execution or foreign unit")
+                if value.get("unit_id") == unit_id and type(value.get("execution_count")) is int:
+                    duplicate_execution = True
+                    integrity_faults.append(
+                        {
+                            "source": "v2:C5",
+                            "record": {
+                                "class": "C5",
+                                "detail": "injection execution marker count differs",
+                            },
+                        }
+                    )
+                else:
+                    raise ValueError("injection execution marker has foreign or missing identity")
             if marker == "done" and value.get("ok") is not True:
                 raise ValueError("injected RPC did not complete successfully")
         if item["result"]["sha256"] != ledger_units[unit_id]["sha256"]:
-            raise ValueError("injection committed result differs from verified ledger")
+            integrity_faults.append(
+                {
+                    "source": "v2:C5",
+                    "record": {
+                        "class": "C5",
+                        "detail": "injection committed result differs from verified ledger",
+                    },
+                }
+            )
         if marker_values["execution_started"] != marker_values["execution_done"]:
-            raise ValueError("injection execution markers disagree")
+            duplicate_execution = True
+            integrity_faults.append(
+                {
+                    "source": "v2:C5",
+                    "record": {"class": "C5", "detail": "injection execution markers disagree"},
+                }
+            )
         code_hash = marker_values["started"].get("sha256")
         if (
             not isinstance(code_hash, str)
@@ -601,6 +733,7 @@ def _check_injection(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
     if sorted(planned_ids) != sorted(request_ids):
         raise ValueError("injected units do not use the pre-dispatch request identities")
     faults, v2 = _raw_faults(receipt, injections)
+    faults.extend(integrity_faults)
     excluded = {row["index"] for row in v2["excluded_injections"] if "index" in row}
     if not injected_indices <= excluded or v2["unrealized_injections"]:
         raise ValueError("deliberate drops differ from the manifest-identified exclusions")
@@ -625,12 +758,12 @@ def _check_injection(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
     return {
         "session": job["job_id"],
         "platform": "cpu",
-        "status": "FAIL" if faults else "PASS",
+        "status": "FAIL" if faults else v2["verdict"],
         "counted_faults": len(faults),
         "faults": faults,
         "raw_records": receipt,
         "injected_units": len(units),
-        "no_duplicate": True,
+        "no_duplicate": not duplicate_execution,
         "v2": v2,
     }
 
@@ -712,22 +845,29 @@ def verdict(plan_path: Path, publication_path: Path, out: Path) -> dict[str, Any
             except (ValueError, OSError) as receipt_error:
                 receipt = {"malformed_receipt": str(receipt_error)}
             try:
+                census_detail = ""
                 try:
                     injections = _injections(_read(_manifest_path))
                 except (ValueError, OSError, KeyError, TypeError):
                     injections = None  # stricter: nothing is excluded
                 faults, _summary = _raw_faults(receipt, injections)
             except (ValueError, KeyError, TypeError) as census_error:
-                faults = [
-                    {"source": "missing_or_malformed_call_census", "record": str(census_error)}
-                ]
+                faults = []
+                census_detail = str(census_error)
+            # Missing/corrupt receipt evidence is deliberately non-terminal for
+            # October. It blocks a PASS, but only a counted C1-C6 fault closes
+            # the lane (JUDGMENT §2.3(e)).
+            counted_integrity = [error.fault] if isinstance(error, CountedIntegrityError) else []
             return {
                 "session": job["job_id"],
                 "platform": job["platform"],
-                "status": "FAIL",
+                "status": "FAIL" if counted_integrity else "EVIDENCE_MISSING",
                 "reason": str(error),
-                "counted_faults": len(faults),
-                "faults": faults,
+                "counted_faults": len([*faults, *counted_integrity]),
+                "faults": [*faults, *counted_integrity],
+                "evidence_missing": [
+                    {"kind": "schema_or_binding", "detail": f"{error}; {census_detail}"}
+                ],
                 "raw_records": receipt,
                 "no_duplicate": False if job["mode"] == "injection" else None,
             }
@@ -754,7 +894,10 @@ def verdict(plan_path: Path, publication_path: Path, out: Path) -> dict[str, Any
         "one_look": True,
         "platforms": {},
         "injection": injection,
-        "fake_proof": {"status": "FAIL" if fake_error else "PASS", "reason": fake_error},
+        "fake_proof": {
+            "status": "EVIDENCE_MISSING" if fake_error else "PASS",
+            "reason": fake_error,
+        },
     }
     for platform, rows in by_platform.items():
         if platform == "cpu" and not cpu_run:
@@ -765,23 +908,77 @@ def verdict(plan_path: Path, publication_path: Path, out: Path) -> dict[str, Any
             }
             continue
         faults = [fault for row in rows for fault in row["faults"]]
+        # Optional CPU loops are optional only to start.  Once any ran, its
+        # counted fault belongs to the single shared qualification attempt and
+        # must block the L4 consumer as well as the CPU report.
+        if platform == "l4" and cpu_run:
+            faults.extend(fault for row in by_platform["cpu"] for fault in row.get("faults", []))
         # The CPU injection proof is mandatory even when optional CPU loops are
         # NOT_RUN; a counted non-injected fault ends the one shared attempt.
         faults.extend(injection["faults"])
+        evidence_missing = [
+            row for row in [*rows, injection] if row.get("status") == "EVIDENCE_MISSING"
+        ]
+        if platform == "l4" and cpu_run:
+            evidence_missing.extend(
+                row for row in by_platform["cpu"] if row.get("status") == "EVIDENCE_MISSING"
+            )
+        nonqualifying = [
+            row
+            for row in [*rows, injection]
+            if row.get("status") not in {"PASS", "EVIDENCE_MISSING"}
+        ]
+        if platform == "l4" and cpu_run:
+            nonqualifying.extend(
+                row
+                for row in by_platform["cpu"]
+                if row.get("status") not in {"PASS", "EVIDENCE_MISSING"}
+            )
+        if fake_error is not None:
+            evidence_missing.append({"kind": "fake_proof", "detail": fake_error})
         result["platforms"][platform] = {
             "status": (
-                "PASS"
-                if not faults
-                and fake_error is None
-                and all(row.get("status") == "PASS" for row in rows)
-                and injection.get("status") == "PASS"
-                and injection.get("no_duplicate") is True
-                else "FAIL"
+                "FAIL"
+                if faults
+                else (
+                    "EVIDENCE_MISSING"
+                    if evidence_missing or nonqualifying
+                    else (
+                        "PASS"
+                        if all(row.get("status") == "PASS" for row in rows)
+                        and injection.get("status") == "PASS"
+                        and injection.get("no_duplicate") is True
+                        else "EVIDENCE_MISSING"
+                    )
+                )
             ),
             "sessions": rows,
             "counted_faults": len(faults),
             "faults": faults,
+            "evidence_missing": evidence_missing,
+            "nonqualifying": nonqualifying,
         }
+    # The CPU loops are optional to dispatch, but once dispatched their counted
+    # faults belong to the one qualification attempt, not merely a CPU report.
+    attempted_rows = [*sessions, injection]
+    attempt_faults = [fault for row in attempted_rows for fault in row.get("faults", [])]
+    attempt_evidence_missing = [
+        row for row in attempted_rows if row.get("status") == "EVIDENCE_MISSING"
+    ]
+    attempt_nonqualifying = [
+        row for row in attempted_rows if row.get("status") not in {"PASS", "EVIDENCE_MISSING"}
+    ]
+    if fake_error is not None:
+        attempt_evidence_missing.append({"kind": "fake_proof", "detail": fake_error})
+    result["attempt_counted_faults"] = len(attempt_faults)
+    result["attempt_faults"] = attempt_faults
+    result["attempt_status"] = (
+        "FAIL"
+        if attempt_faults
+        else "EVIDENCE_MISSING" if attempt_evidence_missing or attempt_nonqualifying else "PASS"
+    )
+    result["attempt_evidence_missing"] = attempt_evidence_missing
+    result["attempt_nonqualifying"] = attempt_nonqualifying
     publish_json(out, result)
     return result
 

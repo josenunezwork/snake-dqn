@@ -17,7 +17,6 @@ from __future__ import annotations
 import io
 import json
 import os
-import re
 import subprocess
 import sys
 import tarfile
@@ -25,6 +24,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
+
+from research.rpc_qualification.behavior_trace import strip_evidence as _strip_evidence
 
 REPO = Path(__file__).resolve().parents[1]
 TRANSPORT_TREE = "4eefe6b10345f0a7b53c22f3158ce1c131093bfe"
@@ -484,52 +485,6 @@ def _run_worker(source_root: Path, workspace_root: Path, scenario: str) -> dict:
         raise AssertionError(
             f"worker did not emit JSON: {result.stdout!r}\n{result.stderr}"
         ) from exc
-
-
-def _strip_evidence(value, *, preserve_errors: bool = False):
-    """Remove evidence-only fields while retaining behavior-bearing facts."""
-    evidence_keys = {
-        "operation_id",
-        "attempt_id",
-        "logical_operation_id",
-        "argument_sha256",
-        "request_id",
-        "request_sha256",
-        "returned_request_id",
-        "returned_request_sha256",
-        "reply_kind",
-        "reply_sha256",
-        "response_sha256",
-        "started_monotonic",
-        "finished_monotonic",
-        "elapsed_seconds",
-        "call_site",
-        "evidence_role",
-        "transfer_role",
-        "transfer_plane",
-        "parse_success",
-        "failure_class",
-        "parent_transfer_id",
-        "child_transfer_id",
-        "transfer_id",
-        "whole_file_sha256",
-    }
-    if isinstance(value, dict):
-        return {
-            key: _strip_evidence(item, preserve_errors=(key == "outcome"))
-            for key, item in value.items()
-            if key not in evidence_keys and (preserve_errors or key != "error")
-        }
-    if isinstance(value, list):
-        return [_strip_evidence(item, preserve_errors=preserve_errors) for item in value]
-    if isinstance(value, str):
-        value = re.sub(
-            r"/(?:private/)?var/folders/[^ ]+?/(?:tmp|T)/[^ ]+\.(?:py|json)",
-            "<file>",
-            value,
-        )
-        return value.replace("/tmp/fake-config", "<config>")
-    return value
 
 
 def _differential_trace(tmp_path: Path) -> dict:
