@@ -173,8 +173,15 @@ def main() -> None:
     parser.add_argument("--old-factory-root", type=Path)
     parser.add_argument("--f4-control", type=Path, required=True)
     parser.add_argument("--f4-inputs", type=Path, required=True)
+    parser.add_argument(
+        "--delegation-dir",
+        type=Path,
+        help="D4096 L4 split only: forwarded to mac_driver; absent = Mac-only, unchanged",
+    )
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
+    if args.delegation_dir is not None and args.stage != "d4096":
+        parser.error("--delegation-dir is admitted only for the D4096 stage")
     os.environ.update(mac_driver.THREAD_ENV)
     os.environ["SNAKE_DQN_DEVICE"] = "cpu"
     _prepare_science_root(args.control, args.stage)
@@ -249,6 +256,7 @@ def main() -> None:
         "--deadline-seconds",
         str(deadline),
         *flags,
+        *(["--delegation-dir", str(args.delegation_dir)] if args.delegation_dir else []),
     ]
     subprocess.run([*command, "--check"], check=True)
     print(

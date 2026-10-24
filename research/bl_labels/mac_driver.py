@@ -520,8 +520,14 @@ def run(
     state_dir: Path | None = None,
     started_monotonic: float | None = None,
     d256_frozen_root: Path | None = None,
+    delegation_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Run admitted parents until complete, guard stop, or cooperative preemption."""
+    """Run admitted parents until complete, guard stop, or cooperative preemption.
+
+    ``delegation_dir`` (default None) enables the L4 split: parents delegated to
+    L4 are skipped at admission and re-admitted after a verified reclaim. Without
+    it, admission, outputs and the result are unchanged.
+    """
     started = time.monotonic() if started_monotonic is None else started_monotonic
     if state_dir is not None and workers in RESUME_WIDTHS:
         from .w12_runtime import resolve_resume_workers
@@ -593,6 +599,13 @@ def run(
     if _timing_armed(timing_armed):
         raise MacGuardError("refusing F0 admission while Mac timing is armed")
     namespace, allocation, jobs = _prepare_jobs(control, ledger)
+    delegation_gate = None
+    delegated_jobs: list[_Job] = []
+    allocation_order = {item["allocation_id"]: index for index, item in enumerate(allocation)}
+    if delegation_dir is not None:
+        from .l4_delegation import MacDelegationGate
+
+        delegation_gate = MacDelegationGate(delegation_dir, namespace, allocation)
     attempt_id = uuid.uuid4().hex
     factory_tracker: PersistenceTracker | None = None
     if control.get("mac_gate", {}).get("stage") in {"d256", "d1024", "d4096"}:
@@ -953,6 +966,24 @@ def run(
                 preempt_started = time.monotonic()
                 stop_event.set()
             admission_guard: dict[str, Any] | None = None
+            if delegation_gate is not None and delegated_jobs and not preempted:
+                returned = delegation_gate.admissible(
+                    [item.allocation["allocation_id"] for item in delegated_jobs]
+                )
+                if returned:
+                    pending.extend(
+                        item
+                        for item in delegated_jobs
+                        if item.allocation["allocation_id"] in returned
+                    )
+                    delegated_jobs[:] = [
+                        item
+                        for item in delegated_jobs
+                        if item.allocation["allocation_id"] not in returned
+                    ]
+                    pending.sort(
+                        key=lambda item: allocation_order[item.allocation["allocation_id"]]
+                    )
             while pending and len(active) < admission_workers and not preempted:
                 if _timing_armed(timing_armed) or (
                     deadline is not None and time.monotonic() >= deadline
@@ -976,6 +1007,11 @@ def run(
                     preempted = True
                     stop_event.set()
                     break
+                if delegation_gate is not None and not delegation_gate.claim(
+                    pending[0].allocation["allocation_id"]
+                ):
+                    delegated_jobs.append(pending.pop(0))
+                    continue
                 telemetry.append(
                     {"event": "admit", "at_monotonic": time.monotonic(), "guard": admission_guard}
                 )
@@ -1179,6 +1215,8 @@ def run(
         _stop_workers(active)
         active.clear()
     status = "INVALID" if invalid else ("PREEMPTED" if preempted else "COMPLETE")
+    if status == "COMPLETE" and delegated_jobs:
+        status = "COMPLETE_EXCEPT_DELEGATED"
     attempt_elapsed = time.monotonic() - started
     result = {
         "schema": "bl-labels-f0-mac-driver/v1",
@@ -1247,6 +1285,9 @@ def run(
         "platform_attestation": platform_attestation(),
         "telemetry_sealed_no_outcomes": telemetry,
     }
+    if delegation_gate is not None:
+        result["delegation_dir"] = str(Path(delegation_dir).resolve())
+        result["delegated_parents"] = [job.allocation["allocation_id"] for job in delegated_jobs]
     if state_dir is not None:
         result["state_dir"] = str(state_dir.resolve())
         assert attempt_id is not None
@@ -1285,6 +1326,11 @@ def main() -> None:
     parser.add_argument("--owner-w12-ok", action="store_true")
     parser.add_argument("--w12-calibration-receipt", type=Path)
     parser.add_argument("--d256-frozen-root", type=Path)
+    parser.add_argument(
+        "--delegation-dir",
+        type=Path,
+        help="L4 split only: skip parents delegated in this create-only record directory",
+    )
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     control = json.loads(args.control.read_text())
@@ -1309,6 +1355,10 @@ def main() -> None:
         else:
             require_admission(control)
         _prepare_jobs(control, args.ledger)
+        if args.delegation_dir is not None:
+            from .l4_delegation import MacDelegationGate
+
+            MacDelegationGate(args.delegation_dir, control["namespace"], control["allocation"])
         _validate_workers(args.workers, args.owner_w12_ok, args.w12_calibration_receipt is not None)
         if args.workers == MAX_WORKERS:
             _require_w12_authorization(control, args.owner_w12_ok, args.w12_calibration_receipt)
@@ -1344,6 +1394,7 @@ def main() -> None:
                 state_dir=args.state_dir,
                 started_monotonic=entry_started,
                 d256_frozen_root=args.d256_frozen_root,
+                **({"delegation_dir": args.delegation_dir} if args.delegation_dir else {}),
             )
             result["mac_lease"] = lease.receipt
             publish_json(args.output / "runtime-result.json", result)
@@ -1355,6 +1406,8 @@ def main() -> None:
             {key: result[key] for key in ("status", "workers", "elapsed_seconds")}, sort_keys=True
         )
     )
+    if result["status"] == "COMPLETE_EXCEPT_DELEGATED":
+        raise SystemExit(3)
     if result["status"] != "COMPLETE":
         raise SystemExit(2)
 
