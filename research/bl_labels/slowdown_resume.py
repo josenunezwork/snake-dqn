@@ -23,7 +23,35 @@ from .exports import _verify, publish_json
 W6 = 6
 W12 = 12
 SIX_HOURS = 6 * 60 * 60
-HOST_CHECK_SCHEMA = "bl-labels-f0-slowdown-host-check/v1"
+HOST_CHECK_SCHEMA = "bl-labels-f0-slowdown-host-check-nice-interim/v2"
+INTERIM_POLICY = "ALLOW_NICE15_INTERIM"
+INTERIM_RULING_SHA256 = "ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd"
+
+
+def _operational_pin() -> str:
+    """Bind recovery to this checkout's pin, never the frozen science env pin."""
+    root = Path(__file__).resolve().parents[2]
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    ).stdout.strip()
+    if dirty:
+        raise ValueError("interim operational checkout is dirty; HOLD")
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    ).stdout.strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", result):
+        raise ValueError("cannot establish interim operational pin; HOLD")
+    return result
 
 
 def _finite_positive(value: object, what: str) -> float:
@@ -177,13 +205,22 @@ def _baseline_sanity_widths(state_dir: Path) -> set[int]:
 
 
 def _host_check_after(state_dir: Path, trip_epoch: float) -> bool:
+    pin = _operational_pin()
     for path in state_dir.glob("slowdown-host-check-*.json"):
         value = _read_triplet(path)
         if (
             value.get("schema") == HOST_CHECK_SCHEMA
+            and value.get("policy") == INTERIM_POLICY
+            and value.get("ruling_sha256") == INTERIM_RULING_SHA256
+            and value.get("operational_pin") == pin
             and value.get("for_trip_epoch") == trip_epoch
             and _finite_positive(value.get("checked_epoch"), "host check epoch") >= trip_epoch
-            and value.get("no_sol_codex") is True
+            and "no_sol_codex" not in value
+            and value.get("no_disallowed_competing_compute") is True
+            and value.get("serial_test_lane_stopped") is True
+            and isinstance(value.get("host_health"), dict)
+            and value["host_health"].get("ac_power") is True
+            and value["host_health"].get("lid_open") is True
             and isinstance(value.get("pmset_therm"), str)
             and isinstance(value.get("top_cpu_consumers"), list)
         ):
@@ -240,6 +277,16 @@ def _sol_codex_job(argv: str) -> bool:
 
 def record_host_check(state_dir: Path, *, checked_epoch: float | None = None) -> Path:
     """Capture the required operator W6 check as a completion-last receipt."""
+    from research.compute.factory_interim_launcher import serial_test_slot
+
+    # Hold the same lock as every admitted numerical test until publication.
+    # A lock-file's existence alone cannot establish that a test is stopped.
+    with serial_test_slot():
+        return _record_host_check_locked(state_dir, checked_epoch=checked_epoch)
+
+
+def _record_host_check_locked(state_dir: Path, *, checked_epoch: float | None = None) -> Path:
+    """Observe health/top consumers while the numerical lane is fenced."""
     latest = escalation(state_dir)["w6_epoch"]
     if latest is None:
         raise ValueError("no qualifying W6 slowdown pair requires a host check; HOLD")
@@ -250,14 +297,18 @@ def record_host_check(state_dir: Path, *, checked_epoch: float | None = None) ->
     )
     if epoch < float(latest):
         raise ValueError("host check predates qualifying W6 slowdown pair; HOLD")
-    therm = subprocess.check_output(["/usr/bin/pmset", "-g", "therm"], text=True)
-    rows = subprocess.check_output(["/bin/ps", "-axo", "pid=,pcpu=,comm="], text=True).splitlines()
+    pin = _operational_pin()
+    from .mac_driver import MacGuardError, _exclusive_factory_guard, _guard_snapshot
+
+    health = _guard_snapshot(state_dir)
+    therm = health["thermal"]
+    rows = subprocess.check_output(
+        ["/bin/ps", "-axo", "pid=,pcpu=,comm="], text=True, timeout=10
+    ).splitlines()
     consumers = sorted(
         rows, key=lambda row: float(row.split()[1]) if len(row.split()) >= 2 else 0.0, reverse=True
     )[:20]
     # Share the runtime guard's ownership, desktop-helper and nice >= 15 rules.
-    from .mac_driver import MacGuardError, _exclusive_factory_guard
-
     try:
         _exclusive_factory_guard(set())
     except MacGuardError as exc:
@@ -267,11 +318,16 @@ def record_host_check(state_dir: Path, *, checked_epoch: float | None = None) ->
         path,
         {
             "schema": HOST_CHECK_SCHEMA,
+            "policy": INTERIM_POLICY,
+            "ruling_sha256": INTERIM_RULING_SHA256,
+            "operational_pin": pin,
             "for_trip_epoch": latest,
             "checked_epoch": epoch,
             "pmset_therm": therm,
             "top_cpu_consumers": consumers,
-            "no_sol_codex": True,
+            "host_health": health,
+            "no_disallowed_competing_compute": True,
+            "serial_test_lane_stopped": True,
         },
     )
     return path
