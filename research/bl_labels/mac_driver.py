@@ -161,15 +161,25 @@ def _exclusive_factory_guard(owned_pids: set[int]) -> None:
         if descendants <= owned:
             break
         owned.update(descendants)
-    for pid, _, nice, command in rows:
-        if pid in owned or nice >= 15:
-            continue
+    relevant = set()
+    for pid, _, _, command in rows:
         executable = Path(command.split()[0]).name.lower()
         agent = _sol_codex_job(command)
         research = executable.startswith(("python", "pytest")) and re.search(
             r"(?:-m\s+(?:pytest|research\.)|(?:research|src/scripts)/|train_)", command
         )
         if agent or research:
+            relevant.add(pid)
+    # A local tool remains relevant even when its argv alone is generic (for
+    # example Python -c importing NumPy). Never let an accepted agent root
+    # hide a higher-priority numerical or native descendant.
+    while True:
+        descendants = {pid for pid, parent, _, _ in rows if parent in relevant}
+        if descendants <= relevant:
+            break
+        relevant.update(descendants)
+    for pid, _, nice, _ in rows:
+        if pid in relevant and pid not in owned and nice < 15:
             raise MacGuardError(f"exclusive factory window: concurrent compute pid {pid}")
 
 
