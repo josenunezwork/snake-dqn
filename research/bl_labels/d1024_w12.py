@@ -125,7 +125,7 @@ def _check_paths(
             ).returncode
             != 0
         )
-        if head != mac_gates.LEGACY_FACTORY_COMMIT or dirty.strip() or not detached:
+        if head != frozen_factory.OLD_PIN or dirty.strip() or not detached:
             raise ValueError("OLD factory root is not clean detached frozen 61900af2")
 
 
