@@ -252,21 +252,24 @@ class InjectionObserver:
         descriptors = prepared.get("descriptors") if isinstance(prepared, dict) else None
         if not isinstance(descriptors, list) or len(descriptors) < 3:
             raise supervisor.Refused("injection preparation did not publish three descriptors")
+        # l4-label-faults/v2 §2.3: injected responses are excluded only by the
+        # request IDs written into the create-only manifest before dispatch.
+        planned = manifest.get("rq", {}).get("injection_manifest", {}).get("request_ids")
+        if not isinstance(planned, list) or len(planned) != 3 or len(set(planned)) != 3:
+            raise supervisor.Refused("injection lacks three pre-dispatch request identities")
         units = []
-        for descriptor in descriptors[:3]:
+        for descriptor, request_id in zip(descriptors[:3], planned):
             if not isinstance(descriptor, dict) or not isinstance(descriptor.get("unit_id"), str):
                 raise supervisor.Refused("injection descriptor lacks unit identity")
+            if descriptor.get("request_id") != request_id:
+                raise supervisor.Refused("runtime descriptor differs from the planned request ID")
             proof_unit = self._rpc_with_loss(
                 cli,
                 code=lambda request_id, path=str(descriptor["path"]): _remote_unit_code(
                     root, path, request_id
                 ),
                 unit_id=descriptor["unit_id"],
-                request_id=(
-                    descriptor["request_id"]
-                    if isinstance(descriptor.get("request_id"), str)
-                    else None
-                ),
+                request_id=request_id,
             )
             evidence = cli.rpc(
                 _remote_evidence_code(

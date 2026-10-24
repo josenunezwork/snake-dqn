@@ -129,6 +129,12 @@ def main() -> int:
     run.add_argument("--plan", required=True, type=Path)
     run.add_argument("--review-token", required=True)
     run.add_argument("--oauth-python", default=str(Path.home() / ".venvs/colab-cli/bin/python"))
+    run.add_argument(
+        "--registry",
+        type=Path,
+        help="qualification record to write on PASS (default: main's colab-cli-qualified.json); "
+        "the L4 label lane uses OPS_DIR/l4-label-lane-qualified.json",
+    )
     args = parser.parse_args()
     ops = Path(os.environ.get("OPS_DIR", OPS))
     try:
@@ -145,7 +151,7 @@ def main() -> int:
             print(
                 execute(
                     args.plan.resolve(),
-                    ops / "colab-cli-qualified.json",
+                    args.registry or ops / "colab-cli-qualified.json",
                     args.review_token,
                     args.oauth_python,
                 )

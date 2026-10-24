@@ -1,4 +1,4 @@
-"""Prepare immutable seven-job C1 packs and dispatch priced waves for Claude."""
+"""Prepare immutable attempt-2 C1 packs (v2 faults) and dispatch priced waves."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import lzma
+import os
 import shlex
 import subprocess
 import tarfile
@@ -23,6 +24,8 @@ from research.bl_upload import assert_upload_budget, convert_public_checkpoints
 from .admission import (
     AUTHORITY_SHA256,
     BANK_SHA256,
+    FAULT_AUTHORITY_SHA256,
+    FAULT_DEFINITION,
     SCHEMA,
     SCRIPT,
     TRANSPORT_PIN,
@@ -35,10 +38,10 @@ from .admission import (
 REPO = Path(__file__).resolve().parents[2]
 ARTIFACTS = REPO.parent / "snake-dqn-artifacts"
 DEFAULT_BANK = ARTIFACTS / "bl-labels-f0/f1-pack-09/f1-root-bank.json.xz"
-DEFAULT_ACCEPTANCE = ARTIFACTS / (
-    "ops/control-rpc-stall-requalification-20261023/requalify-p6wss65b/"
-    "acceptance-1792762502/acceptance-result.json"
-)
+# Attempt 2 keeps its fix-pin qualification apart from main's registry so a
+# lane result never de-qualifies the transport every other lane dispatches.
+LANE_REGISTRY = ARTIFACTS / "ops/l4-label-lane-qualified.json"
+PUBLICATION_BRANCH = "ops-l4-faults-v2-20261024"
 
 
 def git(*args: str) -> str:
@@ -84,7 +87,7 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
     commit = git("rev-parse", "HEAD")
     transport = git("rev-parse", f"{commit}:research/colab_cli")
     if transport != git("rev-parse", f"{TRANSPORT_PIN}:research/colab_cli"):
-        raise ValueError("qualified a18 transport tree changed")
+        raise ValueError("pack transport tree differs from the v2 fix pin")
     out.mkdir(parents=True)
     archive = out / "f1-source.tar"
     source = frozen_source(archive)
@@ -129,6 +132,36 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
             }
         ]
         inputs += checkpoints
+        from research.colab_cli import injection_manifest
+
+        from .loop import unit_id
+
+        # The runtime derives each injected unit's request ID from its unit
+        # identity (loop.py descriptor); namespace and allocation are fixed
+        # here, so the exact IDs are known and frozen before dispatch.
+        entries = (
+            [
+                {
+                    "injection_id": f"response-loss-{k + 1}",
+                    "type": "post_send_response_loss",
+                    "command": "exec",
+                    "request_id": hashlib.sha256(
+                        ("rpc-injection/" + unit_id(namespace, allocation, k)).encode()
+                    ).hexdigest()[:32],
+                    "max_calls": 1,
+                }
+                for k in range(3)
+            ]
+            if mode == "injection"
+            else []
+        )
+        injections = folder / "injection-manifest.json"
+        injections_sha256 = injection_manifest.write(
+            injections,
+            name,
+            entries,
+            purpose=f"attempt-2 {platform} {mode} deliberate faults (none for loops)",
+        )
         rq = {
             "schema": SCHEMA,
             "authority_sha256": AUTHORITY_SHA256,
@@ -143,6 +176,14 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
             "loop_seconds": 3600 if mode == "loop" else 0,
             "envelope": limits,
             "prerequisite": None,
+            "fault_authority_sha256": FAULT_AUTHORITY_SHA256,
+            "fault_definition": FAULT_DEFINITION,
+            "injection_manifest": {
+                "path": str(injections),
+                "sha256": injections_sha256,
+                "request_ids": [entry["request_id"] for entry in entries],
+            },
+            "optional": platform == "cpu" and mode == "loop",
         }
         manifest = {
             "job_id": name,
@@ -221,6 +262,9 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
                 "runtime": str(output / "exports/runtime-result.json"),
                 "units_dir": str(output / "exports/units"),
                 "ledger": str(folder / "published-ledger.json"),
+                "injection_manifest": str(injections),
+                "injection_manifest_sha256": injections_sha256,
+                "optional": platform == "cpu" and mode == "loop",
             }
         )
     proof = REPO / "research/rpc_qualification/FAKE_CLI_PROOF_20261023.json"
@@ -233,14 +277,23 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
         "authority_sha256": AUTHORITY_SHA256,
         "jobs": jobs,
         "fake_proof": {"path": str(proof), "sha256": sha(proof)},
-        "publication_ref": "refs/heads/ops-rpc-stall-fix-20261023",
+        "publication_ref": f"refs/heads/{PUBLICATION_BRANCH}",
+        "fault_definition": FAULT_DEFINITION,
+        "fault_authority_sha256": FAULT_AUTHORITY_SHA256,
+        "transport_tree": transport,
+        "lane_registry": str(LANE_REGISTRY),
         "publication_ledger": f"docs/research/results/rpc-qualification-{token}-ledger.json",
         "repo": str(REPO),
         "package_cap_units": 16.02,
     }
     publish_json(out / "plan.json", plan)
-    commands = ["# Dispatch only after the a18 final-only prerequisite PASS; no automatic retries."]
-    for wave in ("l4", "cpu", "injection"):
+    commands = [
+        "# Attempt 2 (JUDGMENT_L4_FAULT_DEFINITION_20261024 §4 steps 3-4). Order:",
+        "# 1. final-only prerequisite at the fix pin (see the handoff); set ACCEPTANCE to its",
+        "#    acceptance-result.json. 2. L4 wave (3 sessions concurrently). 3. injection wave.",
+        "# 4. optional CPU loop wave only if account slots are free. No automatic retries.",
+    ]
+    for wave_name in ("l4", "injection", "cpu"):
         commands.append(
             shlex.join(
                 [
@@ -251,11 +304,11 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
                     "--plan",
                     str(out / "plan.json"),
                     "--wave",
-                    wave,
+                    wave_name,
                     "--acceptance",
-                    str(DEFAULT_ACCEPTANCE),
                 ]
             )
+            + ' "$ACCEPTANCE"'
         )
     (out / "DISPATCH.txt").write_text("\n".join(commands) + "\n")
     publication = out / "publication.json"
@@ -292,7 +345,7 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
                 "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
             ]
         ),
-        "git push origin HEAD:ops-rpc-stall-fix-20261023",
+        f"git push origin HEAD:{PUBLICATION_BRANCH}",
         shlex.join(
             [
                 str(REPO.parent / "snake-dqn/venv/bin/python"),
@@ -312,13 +365,13 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
     return out / "plan.json"
 
 
-def wave(plan_path: Path, wave_name: str, acceptance: Path) -> None:
+def wave(plan_path: Path, wave_name: str, acceptance: Path, record: Path = LANE_REGISTRY) -> None:
     """Serialize account admissions, then leave up to three runtimes concurrent."""
     plan = json.loads(plan_path.read_text())
     _verify(plan_path)
     if git("rev-parse", "HEAD") != plan["source_commit"]:
         raise ValueError("source changed since pack preparation")
-    require_prerequisite(acceptance, REPO)
+    require_prerequisite(acceptance, REPO, "l4" if wave_name == "l4" else "cpu")
     selected = [
         job
         for job in plan["jobs"]
@@ -328,10 +381,10 @@ def wave(plan_path: Path, wave_name: str, acceptance: Path) -> None:
             else job["mode"] == "loop" and job["platform"] == wave_name
         )
     ]
-    if wave_name == "cpu":
+    if wave_name in {"cpu", "injection"}:
         for job in plan["jobs"]:
-            if job["platform"] == "l4" and not Path(job["receipt"]).is_file():
-                raise ValueError("L4 wave must finish before CPU wave")
+            if job["platform"] == "l4" and not Path(job["manifest"]).is_file():
+                raise ValueError("dispatch the required L4 wave before CPU sessions")
     # Refuse a short account before consuming any session in the fixed wave.
     # Dispatch rechecks the complete priced account map under its normal lock.
     from research.colab_cli.supervisor import CLI
@@ -377,6 +430,7 @@ def wave(plan_path: Path, wave_name: str, acceptance: Path) -> None:
             check=True,
             capture_output=True,
             text=True,
+            env={**os.environ, "OPS_QUALIFICATION_RECORD": str(record)},
         )
         print(result.stdout, end="", flush=True)
         if "allocation=failed" in result.stdout or "allocation=timeout" in result.stdout:
@@ -393,11 +447,17 @@ def main() -> None:
     dispatch.add_argument("--plan", type=Path, required=True)
     dispatch.add_argument("--wave", choices=["l4", "cpu", "injection"], required=True)
     dispatch.add_argument("--acceptance", type=Path, required=True)
+    dispatch.add_argument("--qualification-record", type=Path, default=LANE_REGISTRY)
     args = parser.parse_args()
     if args.action == "prepare":
         print(prepare(args.out.resolve(), args.bank))
     else:
-        wave(args.plan.resolve(), args.wave, args.acceptance.resolve())
+        wave(
+            args.plan.resolve(),
+            args.wave,
+            args.acceptance.resolve(),
+            args.qualification_record.resolve(),
+        )
 
 
 if __name__ == "__main__":

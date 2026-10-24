@@ -106,6 +106,7 @@ def test_post_send_loss_recovers_same_id_once_and_reissues_completed(
 ) -> None:
     fake = FakeCLI()
     observer = InjectionObserver(tmp_path)
+    planned = [f"{n:032x}" for n in range(3)]  # the fake runtime's descriptor IDs
     monkeypatch.setattr(cli_guard, "kernel_idle", lambda *args, **kwargs: True)
     monkeypatch.setattr(
         broker,
@@ -122,12 +123,17 @@ def test_post_send_loss_recovers_same_id_once_and_reissues_completed(
         {
             "cli": fake,
             "root": "/content/snake-cli/x",
-            "manifest": {"env": {"RQ_MODE": "injection"}},
+            "manifest": {
+                "env": {"RQ_MODE": "injection"},
+                "rq": {"injection_manifest": {"request_ids": planned}},
+            },
         },
     )
 
     proof = __import__("json").loads((tmp_path / "injection-proof.json").read_text())
     assert proof["status"] == "COMPLETE"
+    # v2 §2.3: injected units use exactly the pre-dispatch request identities.
+    assert [row["request_id"] for row in proof["injected_units"]] == planned
     assert len(proof["injected_units"]) == len(proof["injected_call_records"]) == 3
     assert all(row["injected"] is True for row in proof["injected_call_records"])
     assert set(fake.executions.values()) == {1}, "same request ID never re-executes its unit"

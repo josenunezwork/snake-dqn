@@ -63,7 +63,38 @@ def allocation_lock(path: Path, seconds: float) -> Iterator[float]:
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
-def qualified(broker: Path, ops: Path, deadline: float | None = None, ref: str = "HEAD") -> None:
+LANE_RECORD_ENV = "OPS_QUALIFICATION_RECORD"
+LANE_RECORD_NAME = "l4-label-lane-qualified.json"
+
+
+def qualification_record(ops: Path, manifest: dict) -> Path:
+    """Main's registry, or the L4 label lane's own fix-pin record.
+
+    The lane record (judgment JUDGMENT_L4_FAULT_DEFINITION_20261024 §4) is
+    honoured only for the exact rq-profile entrypoint, only at its fixed name
+    under OPS_DIR; locks, names and accounting stay shared and unchanged.
+    """
+    override = os.environ.get(LANE_RECORD_ENV)
+    if not override:
+        return ops / "colab-cli-qualified.json"
+    path = Path(override).resolve()
+    if (
+        manifest.get("script") != "research/rpc_qualification/colab.sh"
+        or manifest.get("rq", {}).get("schema") != "rpc-qualification-profile/v2"
+    ):
+        raise Refused(f"{LANE_RECORD_ENV} is only for the attempt-2 qualification profile")
+    if path != (ops / LANE_RECORD_NAME).resolve():
+        raise Refused(f"{LANE_RECORD_ENV} must be {ops / LANE_RECORD_NAME}")
+    return path
+
+
+def qualified(
+    broker: Path,
+    ops: Path,
+    deadline: float | None = None,
+    ref: str = "HEAD",
+    record: Path | None = None,
+) -> None:
     """Check actual broker bytes both before validation and under allocation lock."""
     command(
         [
@@ -73,7 +104,7 @@ def qualified(broker: Path, ops: Path, deadline: float | None = None, ref: str =
             "--repo",
             str(broker),
             "--record",
-            str(ops / "colab-cli-qualified.json"),
+            str(record or ops / "colab-cli-qualified.json"),
             "--ref",
             ref,
         ],
@@ -415,8 +446,9 @@ def dispatch(args: argparse.Namespace) -> str:
     commit = value.get("commit")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise Refused("manifest commit must be a full published SHA")
-    qualified(broker, ops)
-    qualified(broker, ops, ref=commit)
+    record = qualification_record(ops, value)
+    qualified(broker, ops, record=record)
+    qualified(broker, ops, ref=commit, record=record)
     # Create-only name reservation also fences two clients dispatched concurrently.
     (ops / "dispatch" / args.name).mkdir()
     log = ops / "logs" / f"{args.name}.log"
@@ -438,8 +470,8 @@ def dispatch(args: argparse.Namespace) -> str:
             name = args.name if attempt == 0 else f"{args.name}-retry-1"
             if read_json(manifest) != expected:
                 raise Refused("manifest changed after validation")
-            qualified(broker, ops, deadline)
-            qualified(broker, ops, deadline, ref=commit)
+            qualified(broker, ops, deadline, record=record)
+            qualified(broker, ops, deadline, ref=commit, record=record)
             evidence = ops / "dispatch" / args.name / f"{name}.accounting.json"
             live_manifest = refresh_assignments(manifest, evidence, deadline)
             validate(
@@ -458,7 +490,8 @@ def dispatch(args: argparse.Namespace) -> str:
             if (
                 outcome == "retry"
                 and value.get("script") == "research/rpc_qualification/colab.sh"
-                and value.get("rq", {}).get("schema") == "rpc-qualification-profile/v1"
+                and value.get("rq", {}).get("schema")
+                in {"rpc-qualification-profile/v1", "rpc-qualification-profile/v2"}
             ):
                 note(log, "OPS_QUALIFICATION_COUNTED_FAILURE_NO_REPLACEMENT")
                 outcome = "failed"

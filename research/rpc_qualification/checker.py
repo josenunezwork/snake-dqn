@@ -16,14 +16,14 @@ from pathlib import Path
 from typing import Any
 
 from research.bl_labels.exports import _verify, publish_json
-from research.bl_labels.f1_analyze import transport_faults
+from research.bl_labels.l4_faults_v2 import classify_session, load_injection_manifest
 
-SCHEMA = "rpc-qualification-profile/v1"
+SCHEMA = "rpc-qualification-profile/v2"
 PUBLICATION_SCHEMA = "rpc-qualification-ledger-publication/v1"
-VERDICT_SCHEMA = "rpc-qualification-verdict/v1"
+VERDICT_SCHEMA = "rpc-qualification-verdict/v2"
 FROZEN_BANK = "a8c1dc4bbe1fd579d59b69d6ca6ca9dbd2814b088f74277f008f504f6d1bbb0d"
 F1_PIN = "2af48cd0b98a2063f46871cf4d320a5541b789af"
-BRANCH_REF = "refs/heads/ops-rpc-stall-fix-20261023"
+BRANCH_REF = "refs/heads/ops-l4-faults-v2-20261024"
 PLATFORMS = ("cpu", "l4")
 
 
@@ -291,60 +291,32 @@ def _bound_export(path: Path, receipt: dict[str, Any], name: str) -> None:
         raise ValueError(f"receipt export binding differs: {name}")
 
 
+def _injections(manifest: dict[str, Any]) -> dict[str, Any]:
+    """The session's create-only, pre-dispatch injection manifest (sha-bound)."""
+    planned = manifest.get("rq", {}).get("injection_manifest")
+    if not isinstance(planned, dict) or not isinstance(planned.get("path"), str):
+        raise ValueError("session lacks its pre-dispatch injection manifest")
+    path = Path(planned["path"])
+    if _sha(path) != planned.get("sha256"):
+        raise ValueError("injection manifest differs from its dispatched binding")
+    return load_injection_manifest(path, job_id=manifest.get("job_id"))
+
+
 def _raw_faults(
-    receipt: dict[str, Any], *, injected_indices: set[int] | None = None
-) -> list[dict[str, Any]]:
-    """Census every raw call/transfer/release failure; recovered calls still count."""
-    injected_indices = injected_indices or set()
-    faults: list[dict[str, Any]] = []
-    calls = receipt.get("cli_calls")
-    # Frozen helper rejects missing/malformed calls and catches recovered failures.
-    frozen_faults = {id(call) for call in transport_faults(receipt)}
-    for index, call in enumerate(calls):
-        if id(call) not in frozen_faults:
-            continue
-        if index not in injected_indices:
-            faults.append({"source": "cli_calls", "index": index, "record": call})
-    for key in ("contents_transfers", "transfers"):
-        rows = receipt.get(key)
-        if rows is not None and not isinstance(rows, list):
-            raise ValueError(f"malformed {key} census")
-        for index, row in enumerate(rows or []):
-            if not isinstance(row, dict):
-                raise ValueError(f"malformed {key} row")
-            if row.get("status") not in {
-                None,
-                "completed",
-                "PASS",
-                "success",
-                "succeeded",
-                "verified",
-            }:
-                faults.append({"source": key, "index": index, "record": row})
-    release = receipt.get("release")
-    if release is not None:
-        if not isinstance(release, dict):
-            raise ValueError("malformed release evidence")
-        if release.get("status") not in {
-            None,
-            "completed",
-            "PASS",
-            "success",
-            "succeeded",
-            "verified",
-        }:
-            faults.append({"source": "release", "record": release})
-    if receipt.get("failure_class") or receipt.get("cleanup_error"):
-        faults.append(
-            {
-                "source": "terminal",
-                "record": {
-                    "failure_class": receipt.get("failure_class"),
-                    "cleanup_error": receipt.get("cleanup_error"),
-                },
-            }
-        )
-    return faults
+    receipt: dict[str, Any], injections: dict[str, Any] | None = None
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Counted faults under l4-label-faults/v2 (C1-C6) with the raw records kept.
+
+    Recovered requests are recorded (``recovered``), never counted; deliberate
+    faults are excluded only by the session's pre-dispatch manifest identity.
+    """
+    result = classify_session(receipt, injections)
+    faults = [
+        {"source": "v2:" + row["class"], "index": row.get("index"), "record": row}
+        for row in result["counted"]
+    ]
+    summary = {key: value for key, value in result.items() if key != "counted"}
+    return faults, summary
 
 
 def _check_loop(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
@@ -422,11 +394,12 @@ def _check_loop(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
         observed[root] = (digest, label, (prior[2] if prior else 0) + 1)
     if len(observed) != 64 or any(value[2] < 2 for value in observed.values()):
         raise ValueError("qualification unit ledger lacks repeated frozen roots")
-    faults = _raw_faults(receipt)
+    faults, v2 = _raw_faults(receipt, _injections(manifest))
     return {
         "session": job["job_id"],
         "platform": job["platform"],
         "status": "FAIL" if faults else "PASS",
+        "v2": v2,
         "counted_faults": len(faults),
         "faults": faults,
         "raw_records": receipt,
@@ -551,7 +524,14 @@ def _check_injection(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
         or reissue.get("same_result_sha256") is not True
     ):
         raise ValueError("injection lacks completed-request reissue proof")
-    faults = _raw_faults(receipt, injected_indices=injected_indices)
+    injections = _injections(manifest)
+    planned_ids = [entry["request_id"] for entry in injections["entries"]]
+    if sorted(planned_ids) != sorted(request_ids):
+        raise ValueError("injected units do not use the pre-dispatch request identities")
+    faults, v2 = _raw_faults(receipt, injections)
+    excluded = {row["index"] for row in v2["excluded_injections"] if "index" in row}
+    if not injected_indices <= excluded or v2["unrealized_injections"]:
+        raise ValueError("deliberate drops differ from the manifest-identified exclusions")
     elapsed = _finite(receipt.get("elapsed_seconds"), "injection elapsed")
     if (
         receipt.get("status") != "PASS"
@@ -579,6 +559,7 @@ def _check_injection(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
         "raw_records": receipt,
         "injected_units": len(units),
         "no_duplicate": True,
+        "v2": v2,
     }
 
 
@@ -659,7 +640,11 @@ def verdict(plan_path: Path, publication_path: Path, out: Path) -> dict[str, Any
             except (ValueError, OSError) as receipt_error:
                 receipt = {"malformed_receipt": str(receipt_error)}
             try:
-                faults = _raw_faults(receipt)
+                try:
+                    injections = _injections(_read(_manifest_path))
+                except (ValueError, OSError, KeyError, TypeError):
+                    injections = None  # stricter: nothing is excluded
+                faults, _summary = _raw_faults(receipt, injections)
             except (ValueError, KeyError, TypeError) as census_error:
                 faults = [
                     {"source": "missing_or_malformed_call_census", "record": str(census_error)}
@@ -675,7 +660,18 @@ def verdict(plan_path: Path, publication_path: Path, out: Path) -> dict[str, Any
                 "no_duplicate": False if job["mode"] == "injection" else None,
             }
 
-    sessions = [assess(job) for job in jobs if job["mode"] == "loop"]
+    def dispatched(job: dict[str, Any]) -> bool:
+        return _job_paths(plan_path, job)[0].is_file()
+
+    # Attempt 2 (judgment §4 step 4): the CPU loop series is optional and
+    # all-or-none; L4 loops and the injection proof are required.
+    cpu_loops = [job for job in jobs if job["mode"] == "loop" and job["platform"] == "cpu"]
+    cpu_run = any(dispatched(job) for job in cpu_loops)
+    sessions = [
+        assess(job)
+        for job in jobs
+        if job["mode"] == "loop" and (job["platform"] == "l4" or cpu_run)
+    ]
     injection = assess(next(job for job in jobs if job["mode"] == "injection"))
     by_platform: dict[str, list[dict[str, Any]]] = {platform: [] for platform in PLATFORMS}
     for session in sessions:
@@ -689,6 +685,13 @@ def verdict(plan_path: Path, publication_path: Path, out: Path) -> dict[str, Any
         "fake_proof": {"status": "FAIL" if fake_error else "PASS", "reason": fake_error},
     }
     for platform, rows in by_platform.items():
+        if platform == "cpu" and not cpu_run:
+            result["platforms"]["cpu"] = {
+                "status": "NOT_RUN",
+                "reason": "optional CPU loop series not dispatched",
+                "injection_status": injection.get("status"),
+            }
+            continue
         faults = [fault for row in rows for fault in row["faults"]]
         if platform == "cpu":
             faults.extend(injection["faults"])

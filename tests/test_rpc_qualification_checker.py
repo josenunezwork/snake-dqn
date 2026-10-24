@@ -48,6 +48,24 @@ def _job(root: Path, name: str, platform: str, mode: str = "loop") -> dict:
         "output_dir": str(output),
         "runtime": str(output / "exports" / "runtime-result.json"),
     }
+    from research.colab_cli import injection_manifest
+
+    entries = (
+        [
+            {
+                "injection_id": f"response-loss-{number}",
+                "type": "post_send_response_loss",
+                "command": "exec",
+                "request_id": f"request-{number}",
+                "max_calls": 1,
+            }
+            for number in range(3)
+        ]
+        if mode == "injection"
+        else []
+    )
+    planned = root / f"{name}.injection-manifest.json"
+    planned_sha256 = injection_manifest.write(planned, name, entries, purpose="test")
     publish_json(
         manifest,
         {
@@ -69,6 +87,11 @@ def _job(root: Path, name: str, platform: str, mode: str = "loop") -> dict:
                 "worker_pin": checker.F1_PIN,
                 "frozen_source_sha256": "a" * 64,
                 "envelope": envelope,
+                "injection_manifest": {
+                    "path": str(planned),
+                    "sha256": planned_sha256,
+                    "request_ids": [entry["request_id"] for entry in entries],
+                },
             },
         },
     )
@@ -496,3 +519,86 @@ def test_injection_refuses_duplicate_execution(tmp_path: Path) -> None:
     result = checker.verdict(plan, publication, tmp_path / "verdict.json")
     assert result["injection"]["status"] == "FAIL"
     assert "duplicated execution" in result["injection"]["reason"]
+
+
+def _rewrite_receipt(job: dict, update) -> None:
+    receipt = Path(job["output_dir"]) / "receipt.json"
+    value = json.loads(receipt.read_text())
+    update(value)
+    for suffix in ("", ".sha256", ".complete"):
+        receipt.with_name(receipt.name + suffix).unlink()
+    publish_json(receipt, value)
+
+
+def _recovered_exec(value: dict) -> None:
+    value["cli_calls"] = [
+        {
+            "command": "exec",
+            "attempt": 1,
+            "timeout_seconds": 30,
+            "elapsed_seconds": 30.01,
+            "status": "failed",
+            "failure_class": "CONTROL_RPC_TIMEOUT",
+            "request_id": "r" * 32,
+            "request_sha256": "h" * 64,
+        },
+        {
+            "command": "exec",
+            "attempt": 1,
+            "timeout_seconds": 30,
+            "elapsed_seconds": 2.3,
+            "status": "completed",
+            "request_id": "r" * 32,
+            "request_sha256": "h" * 64,
+        },
+    ]
+
+
+def test_v2_recovered_timeout_is_recorded_not_counted(tmp_path: Path) -> None:
+    plan, jobs = _plan(tmp_path)
+    _rewrite_receipt(next(j for j in jobs if j["job_id"] == "l4-0"), _recovered_exec)
+    result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
+    assert result["platforms"]["l4"]["status"] == "PASS"
+    session = next(r for r in result["platforms"]["l4"]["sessions"] if r["session"] == "l4-0")
+    assert session["v2"]["recovered_events"] == 1 and session["counted_faults"] == 0
+
+
+def test_v2_unresolved_timeout_fails_the_platform(tmp_path: Path) -> None:
+    plan, jobs = _plan(tmp_path)
+
+    def unresolved(value: dict) -> None:
+        _recovered_exec(value)
+        value["cli_calls"].pop()
+
+    _rewrite_receipt(next(j for j in jobs if j["job_id"] == "l4-1"), unresolved)
+    result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
+    assert result["platforms"]["l4"]["status"] == "FAIL"
+    assert result["platforms"]["l4"]["faults"][0]["source"] == "v2:C2"
+
+
+def test_optional_cpu_loops_not_dispatched_leave_cpu_not_run(tmp_path: Path) -> None:
+    plan, jobs = _plan(tmp_path)
+    for job in jobs:
+        if job["mode"] == "loop" and job["platform"] == "cpu":
+            for suffix in ("", ".sha256", ".complete"):
+                Path(job["manifest"] + suffix).unlink(missing_ok=True)
+    result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
+    assert result["platforms"]["cpu"]["status"] == "NOT_RUN"
+    assert result["platforms"]["l4"]["status"] == "PASS"
+    assert result["injection"]["status"] == "PASS"
+
+
+def test_injection_drop_outside_the_manifest_identity_fails(tmp_path: Path) -> None:
+    from research.colab_cli import injection_manifest
+
+    plan, jobs = _plan(tmp_path)
+    injection = next(job for job in jobs if job["mode"] == "injection")
+    planned = json.loads(Path(injection["manifest"]).read_text())["rq"]["injection_manifest"]
+    manifest_path = Path(planned["path"])
+    value = json.loads(manifest_path.read_text())
+    value["entries"][0]["request_id"] = "not-the-dropped-request"
+    for suffix in ("", ".sha256", ".complete"):
+        manifest_path.with_name(manifest_path.name + suffix).unlink()
+    injection_manifest.write(manifest_path, value["session_job_id"], value["entries"], purpose="t")
+    result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
+    assert result["injection"]["status"] == "FAIL"

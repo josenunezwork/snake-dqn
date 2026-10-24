@@ -136,13 +136,41 @@ def transport_faults(
     return faults
 
 
+FROZEN_FAULTS = "frozen-f1"
+V2_FAULTS = "l4-label-faults/v2"
+
+
 def load_attempt(
-    path: Path, bank_sha256: str, *, allow_refund_upload_carveout: bool = False
+    path: Path,
+    bank_sha256: str,
+    *,
+    allow_refund_upload_carveout: bool = False,
+    fault_definition: str = FROZEN_FAULTS,
 ) -> dict[str, Any]:
-    """Bind an immutable runtime export to its terminal supervisor receipt."""
+    """Bind an immutable runtime export to its terminal supervisor receipt.
+
+    ``fault_definition`` defaults to the frozen F1 census (historical looks).
+    F1-bis reads its stall rule as ``l4-label-faults/v2``
+    (JUDGMENT_L4_FAULT_DEFINITION_20261024 §2.1): recovered requests are
+    recorded, not counted; there are no injections in a ruler session.
+    """
     receipt_path = path / "receipt.json"
     receipt = json.loads(receipt_path.read_text())
-    faults = transport_faults(receipt, allow_refund_upload_carveout=allow_refund_upload_carveout)
+    recovered: dict[str, Any] | None = None
+    if fault_definition == V2_FAULTS:
+        if allow_refund_upload_carveout:
+            raise ValueError("the F1 refund carve-out is not part of l4-label-faults/v2")
+        from research.bl_labels.l4_faults_v2 import classify_session
+
+        classified = classify_session(receipt)
+        faults = list(classified["counted"])
+        recovered = {k: v for k, v in classified.items() if k != "counted"}
+    elif fault_definition == FROZEN_FAULTS:
+        faults = transport_faults(
+            receipt, allow_refund_upload_carveout=allow_refund_upload_carveout
+        )
+    else:
+        raise ValueError(f"unknown fault definition: {fault_definition}")
     manifest_path = path / "manifest.json"
     if hashlib.sha256(manifest_path.read_bytes()).hexdigest() != receipt.get("manifest_sha256"):
         raise ValueError("F1 canonical manifest differs from receipt")
@@ -154,9 +182,12 @@ def load_attempt(
         "platform": platform,
         "receipt_sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
         "transport_faults": faults,
+        "fault_definition": fault_definition,
         "configs": [],
         "complete": False,
     }
+    if recovered is not None:
+        result["transport_v2"] = recovered
     if receipt.get("stop_verified") is not True or receipt.get("cleanup_error"):
         raise ValueError("F1 attempt has no verified backend release")
     exported = path / "exports" / "runtime-result.json"
@@ -427,6 +458,9 @@ def main() -> None:
     parser.add_argument("--attempt", type=Path, action="append", required=True)
     parser.add_argument("--refund-census", type=Path)
     parser.add_argument("--l4-not-run", action="store_true")
+    parser.add_argument(
+        "--fault-definition", choices=[FROZEN_FAULTS, V2_FAULTS], default=FROZEN_FAULTS
+    )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     bank_sha256 = bank_digest(args.bank)
@@ -453,7 +487,10 @@ def main() -> None:
             _load_ruled_excluded_attempt(path, excluded_by_path[path], bank_sha256)
             if path in excluded_by_path
             else load_attempt(
-                path, bank_sha256, allow_refund_upload_carveout=bool(args.refund_census)
+                path,
+                bank_sha256,
+                allow_refund_upload_carveout=bool(args.refund_census),
+                fault_definition=args.fault_definition,
             )
         )
         for path in attempt_paths

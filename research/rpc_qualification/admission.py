@@ -10,12 +10,18 @@ from typing import Any
 
 SCRIPT = "research/rpc_qualification/colab.sh"
 AUTHORITY_SHA256 = "738a367bec2c3399ed8bd9383811d7fa643109a8aaba384a775f1c028a7285ea"
+# Prospective fault definition and attempt-2 authority (gate change, pre-data).
+FAULT_AUTHORITY_SHA256 = "fe8579c2aec5489ea25149b5d88036cb22daad0faa5310913231f3388716728e"
+FAULT_DEFINITION = "l4-label-faults/v2"
 WORKER_PIN = "2af48cd0b98a2063f46871cf4d320a5541b789af"
-TRANSPORT_PIN = "a18bf6b4f606f023bfd7c035e68a48e64d7f7457"
+# Rebound to the v2 recovery-fix commit (judgment §4 step 1c); a18bf6b4 was attempt 1.
+TRANSPORT_PIN = "4216927615fe80581daf4fb98d608a807c370ef3"
+TRANSPORT_TREE = "4eefe6b10345f0a7b53c22f3158ce1c131093bfe"
+REVIEW_PATH = "research/rpc_qualification/CLAUDE_V_L4_REQUAL_02_20261024.json"
 BANK_SHA256 = "a8c1dc4bbe1fd579d59b69d6ca6ca9dbd2814b088f74277f008f504f6d1bbb0d"
 FROZEN_ARCHIVE_SHA256 = "9ce2219ed1d6de0ccee84243d1b0ec3f71713431fe6e05334f0e073c958c6f45"
 FROZEN_MANIFEST_SHA256 = "de492863ddb644e91f5bba3a7624377b1f4ad334e05694d86c38767db96962f5"
-SCHEMA = "rpc-qualification-profile/v1"
+SCHEMA = "rpc-qualification-profile/v2"
 
 
 def sha(path: Path) -> str:
@@ -47,21 +53,58 @@ def envelope(platform: str, mode: str) -> dict[str, Any]:
     }
 
 
-def require_prerequisite(path: Path, repo: Path) -> dict[str, Any]:
-    """The a18 final-only acceptance is necessary, never sufficient."""
-    from research.bl_labels.f1_analyze import transport_faults
+def prerequisite_arms(path: Path, repo: Path) -> dict[str, dict[str, Any]]:
+    """v2 classification of each final-only acceptance arm at the fix pin.
+
+    Deliberate acceptance faults are excluded only by each arm's create-only
+    pre-dispatch injection manifest (bound by sha256 in the reviewed plan).
+    """
+    from research.bl_labels.l4_faults_v2 import classify_session, validate_injection_manifest
     from research.colab_cli.admission import require_final_only
 
     result = json.loads(path.read_text())
     require_final_only(result, repo)
     plan = result["final_plan"]
     if plan.get("commit") != TRANSPORT_PIN:
-        raise ValueError("prerequisite is not the frozen a18 final-only acceptance")
+        raise ValueError("prerequisite is not the final-only acceptance at the v2 fix pin")
+    planned = {job["name"]: job for job in plan.get("jobs", [])}
+    arms: dict[str, dict[str, Any]] = {}
     for row in plan["execution"]:
-        receipt = json.loads(Path(row["receipt"]).read_text())
-        if transport_faults(receipt):
-            raise ValueError("prerequisite has counted control/call faults")
-    return result
+        job = planned.get(row.get("job"))
+        if job is None or not job.get("injection_manifest"):
+            raise ValueError("prerequisite arm lacks its pre-dispatch injection manifest")
+        manifest_path = Path(job["injection_manifest"])
+        if sha(manifest_path) != job.get("injection_manifest_sha256"):
+            raise ValueError("prerequisite injection manifest changed after planning")
+        manifest = json.loads(manifest_path.read_text())
+        receipt_path = Path(row["receipt"])
+        if sha(receipt_path) != row.get("receipt_sha256"):
+            raise ValueError("prerequisite receipt changed after acceptance")
+        receipt = json.loads(receipt_path.read_text())
+        validate_injection_manifest(manifest, job_id=receipt.get("job_id"))
+        verdict = classify_session(receipt, manifest)
+        arms["l4" if row["job"] == "l4" else "cpu"] = {
+            **verdict,
+            "harness_status": row.get("status"),
+        }
+    if set(arms) != {"cpu", "l4"}:
+        raise ValueError("prerequisite lacks both acceptance arms")
+    return arms
+
+
+def require_prerequisite(path: Path, repo: Path, platform: str) -> dict[str, Any]:
+    """The fix-pin final-only acceptance is necessary, never sufficient (§4 step 3).
+
+    ``platform`` is the platform about to dispatch: L4 loops need the L4 arm
+    v2 PASS; CPU loops and the CPU injection proof need the CPU arm v2 PASS.
+    """
+    if platform not in {"cpu", "l4"}:
+        raise ValueError("unknown prerequisite platform")
+    arms = prerequisite_arms(path, repo)
+    arm = arms[platform]
+    if arm["verdict"] != "PASS" or arm["harness_status"] != "PASS":
+        raise ValueError(f"prerequisite {platform} arm has counted v2 faults or did not pass")
+    return arm
 
 
 def validate_manifest(manifest: dict[str, Any], repo: Path) -> None:
@@ -74,6 +117,8 @@ def validate_manifest(manifest: dict[str, Any], repo: Path) -> None:
         manifest.get("script") != SCRIPT
         or rq.get("schema") != SCHEMA
         or rq.get("authority_sha256") != AUTHORITY_SHA256
+        or rq.get("fault_authority_sha256") != FAULT_AUTHORITY_SHA256
+        or rq.get("fault_definition") != FAULT_DEFINITION
         or rq.get("worker_pin") != WORKER_PIN
         or rq.get("bank_sha256") != BANK_SHA256
         or rq.get("frozen_source_sha256") != FROZEN_ARCHIVE_SHA256
@@ -144,11 +189,30 @@ def validate_manifest(manifest: dict[str, Any], repo: Path) -> None:
     path = Path(prerequisite.get("path", ""))
     if not path.is_file() or sha(path) != prerequisite.get("sha256"):
         raise ValueError("a18 acceptance prerequisite absent or changed")
-    require_prerequisite(path, repo)
-    review_path = repo / "research/rpc_qualification/CODEX_V_20261023.json"
+    require_prerequisite(path, repo, "cpu" if mode == "injection" else platform)
+    planned = rq.get("injection_manifest")
+    if not isinstance(planned, dict) or sha(Path(planned.get("path", ""))) != planned.get("sha256"):
+        raise ValueError("session lacks its create-only pre-dispatch injection manifest")
+    from research.bl_labels.l4_faults_v2 import load_injection_manifest
+
+    injections = load_injection_manifest(Path(planned["path"]), job_id=manifest.get("job_id"))
+    request_ids = [entry.get("request_id") for entry in injections["entries"]]
+    if mode == "injection":
+        if (
+            len(request_ids) != 3
+            or len(set(request_ids)) != 3
+            or planned.get("request_ids") != request_ids
+            or any(e.get("type") != "post_send_response_loss" for e in injections["entries"])
+        ):
+            raise ValueError("injection session needs exactly three planned response losses")
+    elif injections["entries"]:
+        raise ValueError("loop sessions have no deliberate faults")
+    review_path = repo / REVIEW_PATH
+    if not review_path.is_file():
+        raise ValueError("attempt-2 package lacks its independent reviewer ACCEPT record")
     review = json.loads(review_path.read_text())
-    if review.get("verdict") != "ACCEPT_OFFLINE_ONLY":
-        raise ValueError("qualification package lacks independent offline review")
+    if review.get("verdict") != "ACCEPT" or review.get("transport_pin") != TRANSPORT_PIN:
+        raise ValueError("attempt-2 package lacks an independent reviewer ACCEPT at this pin")
     for relative, digest in review["source_sha256"].items():
         if sha(repo / relative) != digest:
             raise ValueError(f"reviewed source differs: {relative}")
