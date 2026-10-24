@@ -7,8 +7,48 @@ from pathlib import Path
 
 import pytest
 
-from research.bl_ppo.exports import digest, verify_export
-from research.r32_rehearsal import decisions, job, lifecycle, package
+from research.bl_ppo.exports import digest, export_json, verify_export
+from research.r32_rehearsal import decisions, job, lifecycle, package, statistics
+
+
+def test_full_main_computation_on_tiny_synthetic_input(tmp_path: Path) -> None:
+    """Exercise every main unit, including all eleven frozen statistics scenarios."""
+    inputs = tmp_path / "inputs"
+    package.prepare_inputs(inputs)
+    spec_path = inputs / "spec.json"
+    spec = json.loads(spec_path.read_text())
+    tiny_trials = statistics.load_protocol()["compute"]["tiny_preflight_trials"]
+    scenarios = []
+    for unit in spec["units"]:
+        if unit["kind"] == "statistics":
+            unit["trials"] = tiny_trials
+            scenarios.append(unit["scenario"])
+    spec["namespace"] = "r32-synthetic-statistics-regression-only"
+    for suffix in ("", ".sha256", ".complete"):
+        (inputs / ("verified-ledger.json" + suffix)).unlink()
+    export_json(inputs / "verified-ledger.json", lifecycle.empty_ledger(spec))
+    spec["ledger_sha256"] = digest(inputs / "verified-ledger.json")
+    for suffix in ("", ".sha256", ".complete"):
+        (inputs / ("spec.json" + suffix)).unlink()
+    export_json(spec_path, spec)
+
+    output = tmp_path / "main-output"
+    output.mkdir()
+    receipt = job.run_portable(inputs, output, mode="main")
+    verify_export(output / "receipt.json")
+    assert receipt["done"] == receipt["expected"] == len(spec["units"])
+    assert receipt["completed"] == list(range(len(spec["units"])))
+    assert receipt["skipped"] == []
+    assert scenarios == [unit["scenario"] for unit in statistics.frozen_units(tiny=True)]
+    for unit in spec["units"]:
+        payload = output / unit["name"]
+        verify_export(payload)
+        value = json.loads(payload.read_text())
+        if unit["kind"] == "statistics":
+            assert value["unit"]["trials"] == tiny_trials
+            assert value["decision"]["verdict"] == "RETAIN_FIXED_DESIGN"
+            power = value["complete_contract_power"]
+            assert 0.0 <= power["futility_64_128"]["rate"] <= power["fixed"]["rate"] <= 1.0
 
 
 def test_worker_accepts_supervisor_precreated_layout(tmp_path: Path) -> None:

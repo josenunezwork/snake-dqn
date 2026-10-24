@@ -339,6 +339,7 @@ def run_frozen_unit(scenario: str, trials: int) -> dict[str, Any]:
     for start in range(0, trials, 2000):
         count = min(2000, trials - start)
         heavy_tail = scenario == "effect_40_heavy_tail"
+        draw_parameters = {"df": df} if heavy_tail else {}
         draw = rng.standard_t if heavy_tail else rng.standard_normal
         draw_scale = scales if heavy_tail else np.array([sd[m] for m in MIXES])
         shared_mass = (
@@ -346,9 +347,13 @@ def run_frozen_unit(scenario: str, trials: int) -> dict[str, Any]:
             if scenario == "effect_40_correlated_mass_survival_watch"
             else 0.0
         )
-        observed = draw(size=(count, 3, 64)) * draw_scale[None, :, None] + shared_mass
+        observed = (
+            draw(size=(count, 3, 64), **draw_parameters) * draw_scale[None, :, None] + shared_mass
+        )
         observed += np.array([profile[m] for m in MIXES])[None, :, None]
-        remaining = draw(size=(count, 3, 64)) * draw_scale[None, :, None] + shared_mass
+        remaining = (
+            draw(size=(count, 3, 64), **draw_parameters) * draw_scale[None, :, None] + shared_mass
+        )
         remaining += np.array([profile[m] for m in MIXES])[None, :, None]
         # The fixed and sequential designs share these exact complete paired blocks.
         # Therefore sequential final success is pathwise a subset of fixed success.

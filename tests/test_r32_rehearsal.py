@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from research.bl_ppo.exports import digest, export_json
 from research.bl_residual import analyze
@@ -173,3 +174,33 @@ def test_tiny_statistics_preserve_paired_subset_and_equality_cp_invariance() -> 
     assert first["threshold"] == second["threshold"]
     assert first["conditional_mean"] == second["conditional_mean"]
     assert first["conditional_se"] == second["conditional_se"]
+
+
+def test_heavy_tail_draws_use_frozen_df_for_both_paired_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    protocol = statistics.load_protocol()
+    frozen_df = protocol["synthetic_sensitivity_model"]["heavy_tail_df"]
+    assert frozen_df == 5
+    generator_factory = np.random.default_rng
+    calls = []
+
+    class ObservedGenerator:
+        def __init__(self, seed: int) -> None:
+            self.generator = generator_factory(seed)
+
+        def standard_t(self, df: float, *, size: tuple[int, ...]) -> np.ndarray:
+            calls.append((df, size))
+            return self.generator.standard_t(df, size=size)
+
+        def standard_normal(self, size: tuple[int, ...]) -> np.ndarray:
+            return self.generator.standard_normal(size)
+
+    monkeypatch.setattr(np.random, "default_rng", ObservedGenerator)
+    result = statistics.run_frozen_unit("effect_40_heavy_tail", trials=200)
+    assert calls == [(frozen_df, (200, 3, 64)), (frozen_df, (200, 3, 64))]
+    assert result["unit"]["trials"] == 200
+    assert result["decision"]["verdict"] == "RETAIN_FIXED_DESIGN"
+    fixed = result["complete_contract_power"]["fixed"]["rate"]
+    sequential = result["complete_contract_power"]["futility_64_128"]["rate"]
+    assert 0.0 <= sequential <= fixed <= 1.0
