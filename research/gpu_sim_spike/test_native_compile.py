@@ -51,6 +51,41 @@ def test_compile_builds_all_extensions_without_kernel_calls(tmp_path, monkeypatc
         native.run(tmp_path / "output/native-compile.json", PIN)
 
 
+def test_a100_repair_mode_compiles_only_architecture_80(tmp_path, monkeypatch):
+    import torch
+    from torch.utils import cpp_extension
+
+    compiled = tmp_path / "compiler-cache"
+    compiled.mkdir()
+    calls = []
+    monkeypatch.setattr(torch.version, "cuda", "12.6")
+
+    def fake_load(**kwargs):
+        path = compiled / f"{kwargs['name']}.so"
+        path.write_bytes(kwargs["name"].encode())
+        calls.append(kwargs)
+        return SimpleNamespace(__file__=str(path))
+
+    monkeypatch.setattr(cpp_extension, "load", fake_load)
+    monkeypatch.setattr(native.subprocess, "check_output", lambda *a, **kw: "nvcc test")
+    monkeypatch.setenv(native.T4A_ARCH_MODE_ENV, native.T4A_A100_ARCH_MODE)
+    monkeypatch.setenv(native.T4A_BINARY_ENV, "1")
+    report = native.run(tmp_path / "output/native-compile.json", PIN)
+    assert report["architecture_mode"] == native.T4A_A100_ARCH_MODE
+    assert report["architectures"] == native.T4A_A100_ARCHES
+    assert len(calls) == 5
+
+
+def test_a100_repair_mode_refuses_nonexporting_compile(tmp_path, monkeypatch):
+    import torch
+
+    monkeypatch.setattr(torch.version, "cuda", "12.6")
+    monkeypatch.setenv(native.T4A_ARCH_MODE_ENV, native.T4A_A100_ARCH_MODE)
+    monkeypatch.delenv(native.T4A_BINARY_ENV, raising=False)
+    with pytest.raises(ValueError, match="immutable binary exports"):
+        native.run(tmp_path / "output/native-compile.json", PIN)
+
+
 def test_t4a_opt_in_exports_every_loaded_binary_with_immutable_sidecars(tmp_path, monkeypatch):
     import torch
     from torch.utils import cpp_extension
@@ -196,29 +231,100 @@ def test_a100_compile_gate_accepts_verified_same_pin_proof(tmp_path, monkeypatch
     native.require_for_a100_canary(manifest)
 
 
-def test_t4a_compiler_exemption_requires_the_exact_adopted_amendment(tmp_path, monkeypatch):
+def test_t4a_compiler_repair_exemption_requires_exact_authorities_and_architecture(
+    tmp_path, monkeypatch
+):
     _path, _receipt, manifest = _proof(tmp_path, monkeypatch)
     names = [f"native-binaries/{spec['name']}.so" for spec in native.inventory(native.ROOT)[1]]
     manifest.update(
         {
             "script": f"{native.PACKAGE}/native_compile.sh",
             "device": "cpu",
-            "env": {native.T4A_BINARY_ENV: "1"},
-            "requirements": {"gpu": "A100", "allowed_gpus": ["A100"], "est_minutes": 5},
-            "timeout_minutes": 10,
-            "scientific_admission": {"amendment_sha256": native.T4A_COMPILE_AMENDMENT_SHA256},
+            "env": {
+                native.T4A_BINARY_ENV: "1",
+                native.T4A_ARCH_MODE_ENV: native.T4A_A100_ARCH_MODE,
+                "TORCH_CUDA_ARCH_LIST": native.T4A_A100_ARCHES,
+            },
+            "requirements": {"gpu": "A100", "allowed_gpus": ["A100"], "est_minutes": 15},
+            "timeout_minutes": 30,
+            "job_id": f"t4a-native-compile-a100-{PIN[:12]}-repair01",
+            "resume_exemption": {"kind": "short-canary", "timeout_minutes": 30},
+            "scientific_admission": {
+                "amendment_sha256": native.T4A_COMPILE_AMENDMENT_SHA256,
+                "compile_repair_sha256": native.T4A_COMPILE_REPAIR_SHA256,
+            },
             "inputs": [
                 {
                     "sha256": native.T4A_COMPILE_AMENDMENT_SHA256,
-                    "dest": "inputs/authority/t4a-compile-amendment.md",
-                }
+                    "dest": "inputs/authority/JUDGMENT_T4A_COMPILE_AMENDMENT.md",
+                },
+                {
+                    "sha256": native.T4A_COMPILE_REPAIR_SHA256,
+                    "dest": "inputs/authority/t4a-compile-repair.md",
+                },
             ],
             "required_exports": ["native-compile.json", *names],
         }
     )
     manifest.pop("native_cuda_compile")
     native.require_for_a100_canary(manifest)
-    manifest["scientific_admission"]["amendment_sha256"] = "0" * 64
+    manifest["env"][native.T4A_ARCH_MODE_ENV] = "wrong-mode"
+    with pytest.raises(ValueError, match="requires native CUDA compile PASS"):
+        native.require_for_a100_canary(manifest)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda manifest: manifest["inputs"].pop(),
+        lambda manifest: manifest["inputs"].pop(0),
+        lambda manifest: manifest["scientific_admission"].__setitem__(
+            "compile_repair_sha256", "0" * 64
+        ),
+        lambda manifest: manifest["scientific_admission"].__setitem__("amendment_sha256", "0" * 64),
+        lambda manifest: manifest["env"].__setitem__("TORCH_CUDA_ARCH_LIST", native.ARCHES),
+        lambda manifest: manifest.__setitem__("job_id", "t4a-native-compile-a100-wrong-repair01"),
+        lambda manifest: manifest["resume_exemption"].__setitem__("timeout_minutes", 10),
+        lambda manifest: manifest["required_exports"].pop(),
+    ],
+)
+def test_t4a_compiler_repair_exemption_refuses_missing_or_mismatched_binding(
+    tmp_path, monkeypatch, mutation
+):
+    _path, _receipt, manifest = _proof(tmp_path, monkeypatch)
+    names = [f"native-binaries/{spec['name']}.so" for spec in native.inventory(native.ROOT)[1]]
+    manifest.update(
+        {
+            "script": f"{native.PACKAGE}/native_compile.sh",
+            "device": "cpu",
+            "env": {
+                native.T4A_BINARY_ENV: "1",
+                native.T4A_ARCH_MODE_ENV: native.T4A_A100_ARCH_MODE,
+                "TORCH_CUDA_ARCH_LIST": native.T4A_A100_ARCHES,
+            },
+            "requirements": {"gpu": "A100", "allowed_gpus": ["A100"], "est_minutes": 15},
+            "timeout_minutes": 30,
+            "job_id": f"t4a-native-compile-a100-{PIN[:12]}-repair01",
+            "resume_exemption": {"kind": "short-canary", "timeout_minutes": 30},
+            "scientific_admission": {
+                "amendment_sha256": native.T4A_COMPILE_AMENDMENT_SHA256,
+                "compile_repair_sha256": native.T4A_COMPILE_REPAIR_SHA256,
+            },
+            "inputs": [
+                {
+                    "sha256": native.T4A_COMPILE_AMENDMENT_SHA256,
+                    "dest": "inputs/authority/JUDGMENT_T4A_COMPILE_AMENDMENT.md",
+                },
+                {
+                    "sha256": native.T4A_COMPILE_REPAIR_SHA256,
+                    "dest": "inputs/authority/t4a-compile-repair.md",
+                },
+            ],
+            "required_exports": ["native-compile.json", *names],
+        }
+    )
+    manifest.pop("native_cuda_compile")
+    mutation(manifest)
     with pytest.raises(ValueError, match="requires native CUDA compile PASS"):
         native.require_for_a100_canary(manifest)
 
@@ -239,6 +345,108 @@ def test_binding_refuses_tampered_binary_sidecar(tmp_path, monkeypatch):
     payload = path.parent / "exports" / first
     payload.with_name(payload.name + ".sha256").write_text("0" * 64 + "  wrong.so\n")
     with pytest.raises(ValueError, match="binary sidecars"):
+        native.binding(path, PIN)
+
+
+def test_binding_refuses_architecture_mode_and_architecture_mismatch(tmp_path, monkeypatch):
+    path, receipt, _manifest = _binary_proof(tmp_path, monkeypatch)
+    report = path.parent / "exports/native-compile.json"
+    body = json.loads(report.read_text())
+    body["architecture_mode"] = native.T4A_A100_ARCH_MODE
+    report.write_text(json.dumps(body))
+    _reseal_report(path, receipt, report)
+    with pytest.raises(ValueError, match="architectures"):
+        native.binding(path, PIN)
+
+
+def test_binding_refuses_a100_repair_report_without_all_binaries(tmp_path, monkeypatch):
+    path, receipt, _manifest = _proof(tmp_path, monkeypatch)
+    report = path.parent / "exports/native-compile.json"
+    body = json.loads(report.read_text())
+    body["architecture_mode"] = native.T4A_A100_ARCH_MODE
+    body["architectures"] = native.T4A_A100_ARCHES
+    report.write_text(json.dumps(body))
+    report.with_name(report.name + ".sha256").write_text(
+        f"{native.digest(report)}  {report.name}\n"
+    )
+    receipt["exports"] = [
+        {"path": report.name, "size": report.stat().st_size, "sha256": native.digest(report)}
+    ]
+    receipt["terminal"]["exports"] = receipt["exports"]
+    saved = path.parent / "manifest.json"
+    manifest = json.loads(saved.read_text())
+    manifest["env"] = {
+        native.T4A_ARCH_MODE_ENV: native.T4A_A100_ARCH_MODE,
+        "TORCH_CUDA_ARCH_LIST": native.T4A_A100_ARCHES,
+    }
+    manifest["requirements"] = {
+        "gpu": "A100",
+        "allowed_gpus": ["A100"],
+        "min_vcpu": 12,
+        "est_minutes": 15,
+    }
+    saved.write_text(json.dumps(manifest))
+    receipt["manifest_sha256"] = native.digest(saved)
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="repair binary inventory"):
+        native.binding(path, PIN)
+
+
+def _reseal_report(path: Path, receipt: dict, report: Path) -> None:
+    report.with_name(report.name + ".sha256").write_text(
+        f"{native.digest(report)}  {report.name}\n"
+    )
+    receipt["exports"][0] = {
+        "path": report.name,
+        "size": report.stat().st_size,
+        "sha256": native.digest(report),
+    }
+    receipt["terminal"]["exports"] = receipt["exports"]
+    path.write_text(json.dumps(receipt))
+
+
+def test_binding_refuses_repair_manifest_architecture_mode_mismatch(tmp_path, monkeypatch):
+    path, receipt, _manifest = _binary_proof(tmp_path, monkeypatch)
+    report = path.parent / "exports/native-compile.json"
+    body = json.loads(report.read_text())
+    body["architecture_mode"] = native.T4A_A100_ARCH_MODE
+    body["architectures"] = native.T4A_A100_ARCHES
+    report.write_text(json.dumps(body))
+    _reseal_report(path, receipt, report)
+    saved = path.parent / "manifest.json"
+    manifest = json.loads(saved.read_text())
+    manifest["env"] = {native.T4A_ARCH_MODE_ENV: "wrong-mode"}
+    saved.write_text(json.dumps(manifest))
+    receipt["manifest_sha256"] = native.digest(saved)
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="architecture mode"):
+        native.binding(path, PIN)
+
+
+def test_binding_refuses_repair_report_with_non_a100_manifest(tmp_path, monkeypatch):
+    path, receipt, _manifest = _binary_proof(tmp_path, monkeypatch)
+    report = path.parent / "exports/native-compile.json"
+    body = json.loads(report.read_text())
+    body["architecture_mode"] = native.T4A_A100_ARCH_MODE
+    body["architectures"] = native.T4A_A100_ARCHES
+    report.write_text(json.dumps(body))
+    _reseal_report(path, receipt, report)
+    saved = path.parent / "manifest.json"
+    manifest = json.loads(saved.read_text())
+    manifest["env"] = {
+        native.T4A_ARCH_MODE_ENV: native.T4A_A100_ARCH_MODE,
+        "TORCH_CUDA_ARCH_LIST": native.T4A_A100_ARCHES,
+    }
+    manifest["requirements"] = {
+        "gpu": "L4",
+        "allowed_gpus": ["L4"],
+        "min_vcpu": 12,
+        "est_minutes": 15,
+    }
+    saved.write_text(json.dumps(manifest))
+    receipt["manifest_sha256"] = native.digest(saved)
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="A100 scope"):
         native.binding(path, PIN)
 
 

@@ -57,13 +57,16 @@ def _report_rows(
     hashes, specs = native_compile.inventory(
         native_compile.ROOT, commit if pinned_sources else None
     )
+    try:
+        _report_mode, _architectures = native_compile.report_architectures(report)
+    except ValueError as exc:
+        raise RuntimeError("T4A native report source/toolchain/commit identity differs") from exc
     if (
         report.get("schema") != native_compile.SCHEMA
         or report.get("status") != "PASS"
         or report.get("commit") != commit
         or report.get("source_sha256") != hashes
         or report.get("extensions") != specs
-        or report.get("architectures") != native_compile.ARCHES
         or report.get("kernels_launched") is not False
         or not isinstance(report.get("torch"), str)
         or not isinstance(report.get("cuda"), str)
@@ -101,7 +104,11 @@ def private_upload_inputs(proof: dict[str, Any], commit: str) -> list[dict[str, 
         raise RuntimeError("T4A native compile receipt binding differs")
     receipt = Path(proof["path"])
     report = receipt.parent / "exports/native-compile.json"
-    rows = _report_rows(json.loads(report.read_text()), commit, pinned_sources=True)
+    parsed_report = json.loads(report.read_text())
+    rows = _report_rows(parsed_report, commit, pinned_sources=True)
+    report_mode, _architectures = native_compile.report_architectures(parsed_report)
+    if report_mode != native_compile.T4A_A100_ARCH_MODE:
+        raise RuntimeError("T4A native compile report is not the A100 8.0 repair build")
     output = [
         {
             "path": str(report),
@@ -127,6 +134,7 @@ def runtime_environment(report_sha256: str) -> dict[str, str]:
     """Return the fixed environment pointers consumed by the T4A shell entrypoint."""
     return {
         native_compile.T4A_BINARY_ENV: "1",
+        native_compile.T4A_ARCH_MODE_ENV: native_compile.T4A_A100_ARCH_MODE,
         REPORT_ENV: REPORT_DEST,
         REPORT_SHA_ENV: _require_hex(report_sha256, "report hash"),
     }
@@ -166,6 +174,9 @@ def preload_from_environment(commit: str) -> dict[str, str]:
         raise RuntimeError("T4A native report hash differs")
     report = json.loads(report_path.read_text())
     rows = _report_rows(report, commit, pinned_sources=False)
+    report_mode, _architectures = native_compile.report_architectures(report)
+    if os.environ.get(native_compile.T4A_ARCH_MODE_ENV, "") != (report_mode or ""):
+        raise RuntimeError("T4A native runtime architecture mode differs from compile receipt")
     import torch
 
     if report.get("torch") != torch.__version__ or report.get("cuda") != torch.version.cuda:

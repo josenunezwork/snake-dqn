@@ -66,6 +66,8 @@ BINDINGS = (
 )
 COMPILE_AMENDMENT = ARTIFACTS / "exp/fable-20261024/JUDGMENT_T4A_COMPILE_AMENDMENT.md"
 COMPILE_AMENDMENT_SHA256 = "1eac049440eaad214400493037c88b7098abbde530be0125ea15b30363c1a57f"
+COMPILE_REPAIR = ARTIFACTS / "exp/astra-20261024/JUDGMENT_T4A_COMPILE_REPAIR.md"
+COMPILE_REPAIR_SHA256 = "6900219f9313b1c37ca8c0e98c4bf5e786805fa2614b35308e229d5b4ae9b5a4"
 DISPATCH_RULING = ARTIFACTS / "exp/fable-20261024/JUDGMENT_T4A_DISPATCH.md"
 DISPATCH_RULING_SHA256 = "d333e186c53d9be8de5f73aebeb21bb788361be9e8fd64d6f7cac7ab8a4afd34"
 REVIEW02_RULING = ARTIFACTS / "exp/fable-20261024/JUDGMENT_T4A_REVIEW02.md"
@@ -80,14 +82,15 @@ BINDINGS += (
     (REVIEW02_RULING, REVIEW02_RULING_SHA256),
     (RESUME_RULING, RESUME_RULING_SHA256),
     (REVIEW03_RULING, REVIEW03_RULING_SHA256),
+    (COMPILE_REPAIR, COMPILE_REPAIR_SHA256),
 )
 PROTOCOL = ROOT / PACKAGE / "T4A_PROTOCOL_20261024.md"
 PROTOCOL_SHA256 = "b2e55b1f640a4de8872c3feefdc51d74311d19e87cc58bdba9f8510e17db71bf"
 LEDGER_DEST = "inputs/verified-ledger.json"
 CANARY_LEDGER_DEST = "canary-inputs/verified-ledger.json"
-# The ruling freezes a 120 minute base series and owner 2x effective timeout:
-# compiler 5/10, canary 10/20, main 105/210, per adopted sibling amendment.
-COMPILER = {"est_minutes": 5, "timeout_minutes": 10}
+# Astra's prospective repair supersedes only the compiler and series envelopes.
+# Owner 2x is applied once; the earlier failed allocation remains charged separately.
+COMPILER = {"est_minutes": 15, "timeout_minutes": 30}
 CANARY = {"est_minutes": 10, "timeout_minutes": 20}
 MAIN = {"est_minutes": 105, "timeout_minutes": 210}
 PRODUCER_SECONDS = {"canary": 12 * 60, "main": 100 * 60}
@@ -97,18 +100,49 @@ MAX_MANUAL_ATTEMPTS = 3
 MECHANICAL_FAILURE_CLASSES = {"RPC_EXEC_POLL_TIMEOUT"}
 MECHANICAL_ERROR_MARKERS = ("timeout", "transport", "interrupted", "transfer")
 AMENDMENT_SCHEMA = "gpu-sim-spike-t4a-operational-amendment/v1"
+FAILED_COMPILE_RECEIPT = (
+    ARTIFACTS
+    / "exp/t4a-dev-01-20261024/fix-review03-00ef53cb-01/pin-2f81ba100d9d"
+    / "packet/native-compile-output/output/receipt.json"
+)
+FAILED_COMPILE_SHA256 = "67226436a9b3070d90d04e610cb7cf68a178f8148a4378f51480d7769f5b8e0d"
+FAILED_COMPILE_SECONDS = 556.536422375
+
+
+def series_history() -> dict[str, Any]:
+    """Carry the immutable failed attempt without resetting scientific retries."""
+    return {
+        "compile_repair_number": 1,
+        "max_compile_repairs": 1,
+        "failed_compile": {
+            "job_id": "t4a-native-compile-a100-2f81ba100d9d-01",
+            "receipt_path": str(FAILED_COMPILE_RECEIPT),
+            "receipt_sha256": FAILED_COMPILE_SHA256,
+            "elapsed_seconds": FAILED_COMPILE_SECONDS,
+            "status": "INCOMPLETE",
+            "stop_verified": True,
+        },
+        "forward_base_minutes": 130,
+        "forward_effective_minutes": 260,
+        "including_original_reservation_base_minutes": 135,
+        "including_original_reservation_effective_minutes": 270,
+        "actual_plus_remaining_effective_minutes": FAILED_COMPILE_SECONDS / 60 + 260,
+        "second_compile_failure": "INCOMPLETE; stop and return for disposition; no retry",
+        "manual_scientific_attempts_max": MAX_MANUAL_ATTEMPTS,
+    }
 
 
 def _wall_compatibility(envelope: dict[str, int]) -> dict[str, Any]:
     """Required broker fields, derived only from the binding wall timeout."""
     unit_cap = envelope["timeout_minutes"] * RATE_UNITS_PER_HOUR / 60.0
     return {
-        "unit_cap": unit_cap,
+        "unit_cap": unit_cap + CLEANUP_RESERVE_UNITS,
         "rate_units_per_hour": RATE_UNITS_PER_HOUR,
         "reserve_units": CLEANUP_RESERVE_UNITS,
         "other_assignments": {},
         "classification": "wall-derived compatibility field; not a science budget or unit ceiling",
-        "derivation": "effective timeout_minutes * pre-priced rate_units_per_hour / 60",
+        "derivation": "effective timeout_minutes * pre-priced rate_units_per_hour / 60 "
+        "+ cleanup reserve; cannot bind before wall guard",
     }
 
 
@@ -160,36 +194,44 @@ def scientific_admission() -> dict[str, Any]:
         "study": "T4A-DEV-01",
         "ruling_sha256": DISPATCH_RULING_SHA256,
         "amendment_sha256": COMPILE_AMENDMENT_SHA256,
+        "compile_repair_sha256": COMPILE_REPAIR_SHA256,
         "review02_ruling_sha256": REVIEW02_RULING_SHA256,
         "resume_ruling_sha256": RESUME_RULING_SHA256,
         "review03_ruling_sha256": REVIEW03_RULING_SHA256,
-        "scope": "separate same-pin A100 compile; Astra review-04 ACCEPT required before dispatch",
+        "scope": "one fresh same-pin A100 compile repair; independent new-pin packet ACCEPT "
+        "required before dispatch",
     }
 
 
 def native_compile_template(commit: str, packet: Path) -> dict[str, Any]:
     """Prepare the adopted bounded A100 compile-only prerequisite."""
     value = native_compile_pack.manifest(commit, packet / "native-compile-output")
-    value["job_id"] = f"t4a-native-compile-a100-{commit[:12]}-01"
+    value["job_id"] = f"t4a-native-compile-a100-{commit[:12]}-repair01"
     value["requirements"] = {
         "gpu": "A100",
         "allowed_gpus": ["A100"],
         "min_vcpu": 12,
-        "est_minutes": 5,
+        "est_minutes": COMPILER["est_minutes"],
     }
-    value["timeout_minutes"] = 10
+    value["timeout_minutes"] = COMPILER["timeout_minutes"]
     value["compile_envelope"] = {
-        "base": {"timeout_minutes": 5},
-        "effective": {"timeout_minutes": 10},
-        "series_base_minutes": 120,
-        "series_effective_minutes": 240,
-        "estimate_basis": "adopted Fable pre-data compile split; not measured on this pin",
+        "base": {"timeout_minutes": 15},
+        "effective": {"timeout_minutes": 30},
+        "series_base_minutes": 130,
+        "series_effective_minutes": 260,
+        "estimate_basis": "conservative 15-minute projection, not measured full-build time; "
+        "roughly 4.5 min before compile and 3.8 min for first three extensions; "
+        "two extensions and final export unmeasured; no single-arch speedup assumed",
+        "series_history": series_history(),
     }
     value["budget"] = _wall_compatibility(COMPILER)
     value["env"].update(
         NUMBA_NUM_THREADS="1",
         VECLIB_MAXIMUM_THREADS="1",
         T4A_NATIVE_BINARIES="1",
+        T4A_NATIVE_ARCH_MODE="a100-8.0",
+        TORCH_CUDA_ARCH_LIST="8.0",
+        MAX_JOBS="2",
         CUBLAS_WORKSPACE_CONFIG=":4096:8",
     )
     value["required_exports"] += [
@@ -198,17 +240,17 @@ def native_compile_template(commit: str, packet: Path) -> dict[str, Any]:
     value["max_export_bytes"] = 256 * 1024**2
     value["resume_exemption"] = {
         "kind": "short-canary",
-        "reason": "Adopted Fable same-pin compile only; no kernels, matrix or outcomes",
-        "timeout_minutes": 10,
+        "reason": "Astra one bounded compile repair; no kernels, matrix or outcomes",
+        "timeout_minutes": 30,
     }
     value["scientific_admission"] = scientific_admission()
-    value["t4a_operational_split"] = {"proposed": False, "amendment": _amendment(COMPILE_AMENDMENT)}
+    value["t4a_operational_split"] = {"proposed": False, "amendment": _amendment(COMPILE_REPAIR)}
     value["inputs"] += _bindings()
     value["inputs"].append(
         {
-            "path": str(COMPILE_AMENDMENT),
-            "sha256": COMPILE_AMENDMENT_SHA256,
-            "dest": "inputs/authority/t4a-compile-amendment.md",
+            "path": str(COMPILE_REPAIR),
+            "sha256": COMPILE_REPAIR_SHA256,
+            "dest": "inputs/authority/t4a-compile-repair.md",
         }
     )
     return value
@@ -217,9 +259,9 @@ def native_compile_template(commit: str, packet: Path) -> dict[str, Any]:
 def _amendment(path: Path) -> dict[str, Any]:
     """Accept the actual immutable adopted Markdown, never a synthetic approval."""
     path = path.resolve(strict=True)
-    if sha256_file(path) != COMPILE_AMENDMENT_SHA256:
-        raise ManifestRefused("T4A amendment bytes differ from the adopted Fable ruling")
-    return {"path": str(path), "sha256": COMPILE_AMENDMENT_SHA256}
+    if sha256_file(path) != COMPILE_REPAIR_SHA256:
+        raise ManifestRefused("T4A amendment bytes differ from the adopted Astra repair ruling")
+    return {"path": str(path), "sha256": COMPILE_REPAIR_SHA256}
 
 
 def preflight_binding(path: Path, commit: str) -> dict[str, Any]:
@@ -576,8 +618,9 @@ def manifest(
             "protocol": {"path": str(PROTOCOL), "sha256": sha256_file(PROTOCOL)},
             "canary": CANARY,
             "main": MAIN,
-            "series_base_minutes": 120,
-            "series_effective_minutes": 240,
+            "series_base_minutes": 130,
+            "series_effective_minutes": 260,
+            "series_history": series_history(),
             "producer_deadline_seconds": PRODUCER_SECONDS[lane],
             "allocation": list(t4a_units.allocation(canary=canary)),
             "matrix": {
@@ -588,7 +631,7 @@ def manifest(
                 "padded_forward_rows": 1024,
             },
             "compiler": COMPILER,
-            "operational_amendment": _amendment(COMPILE_AMENDMENT),
+            "operational_amendment": _amendment(COMPILE_REPAIR),
             "compile_proof": "same-pin separate A100 compile receipt and exact binaries required",
             "attempt": attempt,
             "remaining_main_units": list(remaining),
@@ -614,7 +657,7 @@ def manifest(
         result["canary"] = {"receipt": binding}
         if binding.get("operational_amendment"):
             result["t4a_envelope"]["canary"] = {"est_minutes": 10, "timeout_minutes": 20}
-            result["t4a_envelope"]["compiler"] = {"est_minutes": 5, "timeout_minutes": 10}
+            result["t4a_envelope"]["compiler"] = COMPILER
             result["t4a_envelope"]["operational_amendment"] = binding["operational_amendment"]
     if canary:
         result["env"].update(SNAKE_COLAB_CANARY="1", SNAKE_COLAB_CANARY_PACKAGE=PACKAGE)
@@ -633,7 +676,7 @@ def manifest(
     )
     if binding is not None:
         _bind_native_inputs(result, compile_proof)
-        approved = _amendment(COMPILE_AMENDMENT)
+        approved = _amendment(COMPILE_REPAIR)
         result["inputs"].append(
             {
                 "path": approved["path"],

@@ -314,7 +314,8 @@ def _synthetic_a100_compile_receipt(root: Path, *, commit: str, repo: Path) -> P
         "commit": commit,
         "source_sha256": hashes,
         "extensions": specs,
-        "architectures": native_compile.ARCHES,
+        "architectures": "8.0",
+        "architecture_mode": "a100-8.0",
         "kernels_launched": False,
         "torch": "OFFLINE_FIXTURE",
         "cuda": "12.6",
@@ -449,12 +450,12 @@ def test_attempt2_resume_keeps_verified_unit_and_passes_unchanged_cli_dry_run(
             "path": str(receipt.resolve()),
             "sha256": _sha256(receipt),
             "native_cuda_compile": {"receipt": proof},
-            "operational_amendment": t4a_pack._amendment(t4a_pack.COMPILE_AMENDMENT),
+            "operational_amendment": t4a_pack._amendment(t4a_pack.COMPILE_REPAIR),
         },
     )
     probe["native_cuda_compile"] = {"receipt": proof}
     probe["inputs"].append(native_row)
-    amendment = t4a_pack._amendment(t4a_pack.COMPILE_AMENDMENT)
+    amendment = t4a_pack._amendment(t4a_pack.COMPILE_REPAIR)
     probe["inputs"].append(
         {
             "path": amendment["path"],
@@ -601,7 +602,7 @@ def test_attempt2_a100_chain_uses_real_compile_binding_and_shell_dry_runs(
     t4a_pack._write(packet / "t4a-canary-attempt-02.json", canary)
     compile_receipt = _synthetic_a100_compile_receipt(tmp_path, commit=commit, repo=repo)
     compiled_path = t4a_pack.bind_compile(
-        packet, compile_receipt, t4a_pack.COMPILE_AMENDMENT, attempt=2
+        packet, compile_receipt, t4a_pack.COMPILE_REPAIR, attempt=2
     )
     compiled = json.loads(compiled_path.read_text())
     assert compiled["requirements"] == {

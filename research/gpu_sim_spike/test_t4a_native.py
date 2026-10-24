@@ -53,6 +53,10 @@ def _report(commit: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tup
 def test_runtime_environment_is_explicit_and_hash_bound() -> None:
     digest = "a" * 64
     assert t4a_native.runtime_environment(digest)[t4a_native.REPORT_ENV] == t4a_native.REPORT_DEST
+    assert (
+        t4a_native.runtime_environment(digest)[native_compile.T4A_ARCH_MODE_ENV]
+        == native_compile.T4A_A100_ARCH_MODE
+    )
     with pytest.raises(RuntimeError):
         t4a_native.runtime_environment("bad")
 
@@ -107,4 +111,16 @@ def test_preload_refuses_tampered_runtime_binary_before_import(tmp_path, monkeyp
     monkeypatch.setenv(t4a_native.REPORT_ENV, t4a_native.REPORT_DEST)
     monkeypatch.setenv(t4a_native.REPORT_SHA_ENV, hashlib.sha256(path.read_bytes()).hexdigest())
     with pytest.raises(RuntimeError, match="binary differs"):
+        t4a_native.preload_from_environment(commit)
+
+
+def test_runtime_refuses_architecture_mode_different_from_report(tmp_path, monkeypatch) -> None:
+    commit = "a" * 40
+    path, _report_body = _report(commit, tmp_path, monkeypatch)
+    monkeypatch.setenv("COLAB_INPUT_DIR", str(tmp_path))
+    monkeypatch.setenv(native_compile.T4A_BINARY_ENV, "1")
+    monkeypatch.setenv(native_compile.T4A_ARCH_MODE_ENV, native_compile.T4A_A100_ARCH_MODE)
+    monkeypatch.setenv(t4a_native.REPORT_ENV, t4a_native.REPORT_DEST)
+    monkeypatch.setenv(t4a_native.REPORT_SHA_ENV, hashlib.sha256(path.read_bytes()).hexdigest())
+    with pytest.raises(RuntimeError, match="architecture mode differs"):
         t4a_native.preload_from_environment(commit)

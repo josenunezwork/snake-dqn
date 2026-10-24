@@ -25,8 +25,8 @@ def test_t4a_allocation_is_one_atomic_replay_matrix_per_roster() -> None:
 def test_effective_timeout_is_the_only_unit_cap_derivation() -> None:
     canary = t4a_pack._wall_compatibility(t4a_pack.CANARY)
     main = t4a_pack._wall_compatibility(t4a_pack.MAIN)
-    assert canary["unit_cap"] == pytest.approx(10 / 3)
-    assert main["unit_cap"] == 35.0
+    assert canary["unit_cap"] == pytest.approx(10 / 3 + t4a_pack.CLEANUP_RESERVE_UNITS)
+    assert main["unit_cap"] == 35.0 + t4a_pack.CLEANUP_RESERVE_UNITS
     assert (
         canary["classification"]
         == "wall-derived compatibility field; not a science budget or unit ceiling"
@@ -34,8 +34,12 @@ def test_effective_timeout_is_the_only_unit_cap_derivation() -> None:
     assert (
         canary["unit_cap"]
         == t4a_pack.CANARY["timeout_minutes"] * canary["rate_units_per_hour"] / 60
+        + t4a_pack.CLEANUP_RESERVE_UNITS
     )
-    assert main["unit_cap"] == t4a_pack.MAIN["timeout_minutes"] * main["rate_units_per_hour"] / 60
+    assert main["unit_cap"] == (
+        t4a_pack.MAIN["timeout_minutes"] * main["rate_units_per_hour"] / 60
+        + t4a_pack.CLEANUP_RESERVE_UNITS
+    )
 
 
 def test_ruling_envelope_and_entrypoint_are_fixed() -> None:
@@ -43,7 +47,7 @@ def test_ruling_envelope_and_entrypoint_are_fixed() -> None:
     assert t4a_pack.MAIN == {"est_minutes": 105, "timeout_minutes": 210}
     assert (
         sum(e["timeout_minutes"] for e in (t4a_pack.COMPILER, t4a_pack.CANARY, t4a_pack.MAIN))
-        == 240
+        == 260
     )
     script = (Path(__file__).parent / "t4a_bench.sh").read_text()
     assert "T4A_BENCH_DEVICE" in script
@@ -174,9 +178,9 @@ def test_compile_template_adopts_a100_amendment_and_wall_envelope(tmp_path, monk
         "gpu": "A100",
         "allowed_gpus": ["A100"],
         "min_vcpu": 12,
-        "est_minutes": 5,
+        "est_minutes": 15,
     }
-    assert value["timeout_minutes"] == 10
+    assert value["timeout_minutes"] == 30
     assert value["budget"]["rate_units_per_hour"] == 10.0
     assert value["env"]["T4A_NATIVE_BINARIES"] == "1"
     assert value["env"]["NUMBA_NUM_THREADS"] == value["env"]["VECLIB_MAXIMUM_THREADS"] == "1"
@@ -190,8 +194,8 @@ def test_amendment_refuses_missing_or_foreign_bytes(tmp_path) -> None:
     foreign.write_text("Synthetic approvals cannot replace the adopted bytes")
     with pytest.raises(ManifestRefused):
         t4a_pack._amendment(foreign)
-    approved = t4a_pack._amendment(t4a_pack.COMPILE_AMENDMENT)
-    assert approved["sha256"] == t4a_pack.COMPILE_AMENDMENT_SHA256
+    approved = t4a_pack._amendment(t4a_pack.COMPILE_REPAIR)
+    assert approved["sha256"] == t4a_pack.COMPILE_REPAIR_SHA256
 
 
 def test_compile_binding_preserves_original_metadata_and_draft(tmp_path, monkeypatch) -> None:
@@ -214,7 +218,7 @@ def test_compile_binding_preserves_original_metadata_and_draft(tmp_path, monkeyp
     original = tmp_path / "t4a-canary-attempt-02.json"
     original.write_text(json.dumps(draft))
     before = original.read_bytes()
-    amendment = t4a_pack.COMPILE_AMENDMENT
+    amendment = t4a_pack.COMPILE_REPAIR
     monkeypatch.setattr(t4a_pack, "_bind_native_inputs", lambda *a: None)
     monkeypatch.setattr(
         t4a_pack.native_compile, "binding", lambda *a: {"path": "receipt", "sha256": "a" * 64}
@@ -235,6 +239,8 @@ def test_actual_native_input_adapter_binds_report_binaries_and_runtime_env(tmp_p
 
     staging = tmp_path / "staging"
     report_path, body = _report(COMMIT, staging, monkeypatch)
+    body.update(architecture_mode=native_compile.T4A_A100_ARCH_MODE, architectures="8.0")
+    report_path.write_text(json.dumps(body))
     receipt = tmp_path / "compile/receipt.json"
     exports = receipt.parent / "exports"
     exports.mkdir(parents=True)
@@ -257,3 +263,30 @@ def test_actual_native_input_adapter_binds_report_binaries_and_runtime_env(tmp_p
     }
     for row in value["inputs"]:
         assert hashlib.sha256(Path(row["path"]).read_bytes()).hexdigest() == row["sha256"]
+
+
+def test_repair_preserves_failed_debit_and_all_authority_inputs(tmp_path) -> None:
+    value = t4a_pack.native_compile_template(COMMIT, tmp_path)
+    assert value["job_id"] == f"t4a-native-compile-a100-{COMMIT[:12]}-repair01"
+    assert value["output_dir"] == str(tmp_path / "native-compile-output/output")
+    assert value["env"]["T4A_NATIVE_ARCH_MODE"] == "a100-8.0"
+    assert value["env"]["TORCH_CUDA_ARCH_LIST"] == "8.0"
+    assert value["env"]["MAX_JOBS"] == "2"
+    assert value["resume_exemption"]["timeout_minutes"] == 30
+    assert value["scientific_admission"]["compile_repair_sha256"] == t4a_pack.COMPILE_REPAIR_SHA256
+    assert {digest for _, digest in t4a_pack.BINDINGS}.issubset(
+        {row["sha256"] for row in value["inputs"]}
+    )
+    history = value["compile_envelope"]["series_history"]
+    assert history["failed_compile"]["elapsed_seconds"] == 556.536422375
+    assert history["max_compile_repairs"] == history["compile_repair_number"] == 1
+    assert history["actual_plus_remaining_effective_minutes"] == pytest.approx(269.27560703958333)
+    assert history["including_original_reservation_effective_minutes"] == 270
+    assert history["including_original_reservation_base_minutes"] == 135
+    assert history["manual_scientific_attempts_max"] == 3
+    assert "not measured full-build" in value["compile_envelope"]["estimate_basis"]
+    for envelope in (t4a_pack.COMPILER, t4a_pack.CANARY, t4a_pack.MAIN):
+        budget = t4a_pack._wall_compatibility(envelope)
+        assert budget["unit_cap"] * 60 / budget["rate_units_per_hour"] > envelope["timeout_minutes"]
+    with pytest.raises(ManifestRefused):
+        t4a_pack._amendment(t4a_pack.COMPILE_AMENDMENT)

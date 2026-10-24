@@ -20,13 +20,37 @@ from typing import Any
 PACKAGE = "research/gpu_sim_spike"
 ROOT = Path(__file__).resolve().parents[2]
 ARCHES = "8.0;8.9"
+T4A_A100_ARCH_MODE = "a100-8.0"
+T4A_A100_ARCHES = "8.0"
 SCHEMA = "gpu-native-compile/v1"
 T4A_BINARY_ENV = "T4A_NATIVE_BINARIES"
+T4A_ARCH_MODE_ENV = "T4A_NATIVE_ARCH_MODE"
 T4A_COMPILE_AMENDMENT_SHA256 = "1eac049440eaad214400493037c88b7098abbde530be0125ea15b30363c1a57f"
+T4A_COMPILE_REPAIR_SHA256 = "6900219f9313b1c37ca8c0e98c4bf5e786805fa2614b35308e229d5b4ae9b5a4"
 
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def architectures_for_mode(mode: object) -> str:
+    """Return the frozen CUDA architecture list for one explicit T4A mode."""
+    if mode in (None, ""):
+        return ARCHES
+    if mode == T4A_A100_ARCH_MODE:
+        return T4A_A100_ARCHES
+    raise ValueError("unknown T4A native architecture mode")
+
+
+def report_architectures(report: dict[str, Any]) -> tuple[str | None, str]:
+    """Validate a report's architecture declaration without broadening old reports."""
+    mode = report.get("architecture_mode")
+    if mode is not None and not isinstance(mode, str):
+        raise ValueError("native compile architecture mode is malformed")
+    architectures = architectures_for_mode(mode)
+    if report.get("architectures") != architectures:
+        raise ValueError("native compile architectures differ")
+    return mode, architectures
 
 
 def _publish_binary(path: Path, source: Path) -> None:
@@ -149,7 +173,12 @@ def run(output: Path, commit: str) -> dict[str, Any]:
         raise ValueError("native compile requires fresh output and build directories")
     if torch.version.cuda is None:
         raise ValueError("native compile requires CUDA PyTorch and nvcc")
-    os.environ["TORCH_CUDA_ARCH_LIST"] = ARCHES
+    mode = os.environ.get(T4A_ARCH_MODE_ENV)
+    architectures = architectures_for_mode(mode)
+    export_binaries = os.environ.get(T4A_BINARY_ENV) == "1"
+    if mode == T4A_A100_ARCH_MODE and not export_binaries:
+        raise ValueError("T4A A100 architecture mode requires immutable binary exports")
+    os.environ["TORCH_CUDA_ARCH_LIST"] = architectures
     os.environ["MAX_JOBS"] = "2"
     hashes, specs = inventory(ROOT)
     build = output.parent.parent / "native-compile.build"
@@ -157,9 +186,8 @@ def run(output: Path, commit: str) -> dict[str, Any]:
     os.environ["TORCH_EXTENSIONS_DIR"] = str(build)
     began = time.monotonic()
     binary_rows: list[dict[str, str | int]] = []
-    export_binaries = os.environ.get(T4A_BINARY_ENV) == "1"
     for spec in specs:
-        print(f"Compiling {spec['name']} targets={ARCHES}", flush=True)
+        print(f"Compiling {spec['name']} targets={architectures}", flush=True)
         extension = load(
             **{key: value for key, value in spec.items() if key != "sources"},
             sources=[str(ROOT / name) for name in spec["sources"]],
@@ -182,7 +210,7 @@ def run(output: Path, commit: str) -> dict[str, Any]:
         "schema": SCHEMA,
         "status": "PASS",
         "commit": commit,
-        "architectures": ARCHES,
+        "architectures": architectures,
         "source_sha256": hashes,
         "extensions": specs,
         "torch": torch.__version__,
@@ -191,6 +219,8 @@ def run(output: Path, commit: str) -> dict[str, Any]:
         "elapsed_seconds": time.monotonic() - began,
         "kernels_launched": False,
     }
+    if mode:
+        result["architecture_mode"] = mode
     if export_binaries:
         result["binaries"] = binary_rows
     from research.gpu_sim_spike.sparse_units import publish_json
@@ -251,17 +281,36 @@ def binding(path: Path, commit: str, repo: Path = ROOT) -> dict[str, str]:
     _verify(report_path)
     report = json.loads(report_path.read_text())
     hashes, specs = inventory(repo, commit)
+    try:
+        report_mode, report_arches = report_architectures(report)
+    except ValueError as exc:
+        raise ValueError("native compile source/flags/architectures/PASS differs") from exc
+    if manifest.get("env", {}).get(T4A_ARCH_MODE_ENV, "") != (report_mode or ""):
+        raise ValueError("native compile manifest architecture mode differs")
+    if (
+        report_mode == T4A_A100_ARCH_MODE
+        and manifest.get("env", {}).get("TORCH_CUDA_ARCH_LIST") != report_arches
+    ):
+        raise ValueError("native compile manifest architectures differ")
+    if report_mode == T4A_A100_ARCH_MODE and manifest.get("requirements", {}) != {
+        "gpu": "A100",
+        "allowed_gpus": ["A100"],
+        "min_vcpu": 12,
+        "est_minutes": 15,
+    }:
+        raise ValueError("native compile repair A100 scope differs")
     if (
         report.get("schema") != SCHEMA
         or report.get("status") != "PASS"
         or report.get("commit") != commit
         or report.get("source_sha256") != hashes
         or report.get("extensions") != specs
-        or report.get("architectures") != ARCHES
         or report.get("kernels_launched") is not False
     ):
         raise ValueError("native compile source/flags/architectures/PASS differs")
     binaries = report.get("binaries")
+    if report_mode == T4A_A100_ARCH_MODE and binaries is None:
+        raise ValueError("native compile repair binary inventory is required")
     if binaries is not None:
         if not isinstance(binaries, list) or len(binaries) != len(specs):
             raise ValueError("native compile binary inventory differs")
@@ -320,23 +369,49 @@ def require_for_a100_canary(manifest: dict[str, Any], repo: Path = ROOT) -> None
         and str(manifest.get("script", "")).startswith(PACKAGE + "/")
     ):
         return
-    # The T4A amendment permits exactly its A100 compile-only prerequisite to
-    # remain a probe.  It cannot be generalized into a canary bypass.
+    # The repair ruling permits exactly its A100 compile-only prerequisite to
+    # remain a probe. It cannot be generalized into a canary bypass.
     admission = manifest.get("scientific_admission")
+    commit = manifest.get("commit")
+    repair_input = {
+        "sha256": T4A_COMPILE_REPAIR_SHA256,
+        "dest": "inputs/authority/t4a-compile-repair.md",
+    }
+    amendment_input = {
+        "sha256": T4A_COMPILE_AMENDMENT_SHA256,
+        "dest": "inputs/authority/JUDGMENT_T4A_COMPILE_AMENDMENT.md",
+    }
+    requirements = manifest.get("requirements", {})
+    environment = manifest.get("env", {})
     if (
         manifest.get("script") == f"{PACKAGE}/native_compile.sh"
         and manifest.get("device") == "cpu"
-        and manifest.get("env", {}).get(T4A_BINARY_ENV) == "1"
-        and manifest.get("requirements", {}).get("gpu") == "A100"
-        and manifest.get("requirements", {}).get("allowed_gpus") == ["A100"]
-        and manifest.get("requirements", {}).get("est_minutes") == 5
-        and manifest.get("timeout_minutes") == 10
+        and environment.get(T4A_BINARY_ENV) == "1"
+        and environment.get(T4A_ARCH_MODE_ENV) == T4A_A100_ARCH_MODE
+        and environment.get("TORCH_CUDA_ARCH_LIST") == T4A_A100_ARCHES
+        and requirements.get("gpu") == "A100"
+        and requirements.get("allowed_gpus") == ["A100"]
+        and requirements.get("est_minutes") == 15
+        and manifest.get("timeout_minutes") == 30
+        and isinstance(commit, str)
+        and len(commit) == 40
+        and manifest.get("job_id") == f"t4a-native-compile-a100-{commit[:12]}-repair01"
+        and isinstance(manifest.get("resume_exemption"), dict)
+        and manifest["resume_exemption"].get("kind") == "short-canary"
+        and manifest["resume_exemption"].get("timeout_minutes") == 30
         and isinstance(admission, dict)
         and admission.get("amendment_sha256") == T4A_COMPILE_AMENDMENT_SHA256
+        and admission.get("compile_repair_sha256") == T4A_COMPILE_REPAIR_SHA256
         and any(
             isinstance(row, dict)
-            and row.get("sha256") == T4A_COMPILE_AMENDMENT_SHA256
-            and row.get("dest") == "inputs/authority/t4a-compile-amendment.md"
+            and row.get("sha256") == repair_input["sha256"]
+            and row.get("dest") == repair_input["dest"]
+            for row in manifest.get("inputs", [])
+        )
+        and any(
+            isinstance(row, dict)
+            and row.get("sha256") == amendment_input["sha256"]
+            and row.get("dest") == amendment_input["dest"]
             for row in manifest.get("inputs", [])
         )
         and set(manifest.get("required_exports", []))
