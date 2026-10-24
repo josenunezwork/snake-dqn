@@ -340,20 +340,21 @@ def test_metrics_use_full_world_steps_and_observation_union() -> None:
 
 
 def _publish_complete_analysis_exports(
-    tmp_path: Path, commit: str, trace_path: str | None = None
+    tmp_path: Path, commit: str, trace_path: str | None = None, include_traces: bool = True
 ) -> Path:
-    """Create a complete smoke union with trace bytes independent of the analyzer."""
+    """Create a complete smoke union with optional trace bytes independent of the analyzer."""
     root = tmp_path / "exports"
     namespace, allocation = units.namespace(commit, True), units.allocation(True)
     for unit_id in allocation:
         relative = f"a1-prof-traces/{unit_id}-trace.json.gz"
-        trace = root / relative
-        trace.parent.mkdir(parents=True, exist_ok=True)
         payload = gzip.compress(b'{"traceEvents": []}', mtime=0)
-        digest = hashlib.sha256(payload).hexdigest()
-        units._atomic_create(trace, payload)
-        units._atomic_create(Path(str(trace) + ".sha256"), f"{digest}  {trace.name}\n".encode())
-        units._atomic_create(Path(str(trace) + ".complete"), b"complete\n")
+        trace = root / relative
+        if include_traces:
+            trace.parent.mkdir(parents=True, exist_ok=True)
+            digest = hashlib.sha256(payload).hexdigest()
+            units._atomic_create(trace, payload)
+            units._atomic_create(Path(str(trace) + ".sha256"), f"{digest}  {trace.name}\n".encode())
+            units._atomic_create(Path(str(trace) + ".complete"), b"complete\n")
         _, mix, size = unit_id.split("-")
         stages = {stage: {"kernel_count": 0} for stage in prof.STAGES}
         content = {
@@ -363,24 +364,36 @@ def _publish_complete_analysis_exports(
             "memory": {},
             "peak_memory": {},
             "profiler_ticks": [{"stages": stages}],
-            "chrome_traces": [
-                {
-                    "path": trace_path or relative,
-                    "bytes": len(payload),
-                    "uncompressed_bytes": len(gzip.decompress(payload)),
-                    "sha256": digest,
-                }
-            ],
+            "chrome_traces": (
+                [
+                    {
+                        "path": trace_path or relative,
+                        "bytes": len(payload),
+                        "uncompressed_bytes": len(gzip.decompress(payload)),
+                        "sha256": digest,
+                    }
+                ]
+                if include_traces
+                else []
+            ),
         }
         units.publish_unit(root, namespace, allocation, unit_id, content)
     return root
 
 
-def test_mac_aggregator_requires_complete_trace_identity(tmp_path) -> None:
+def test_mac_aggregator_accepts_complete_trace_identity(tmp_path) -> None:
     commit = "b" * 40
     exports = _publish_complete_analysis_exports(tmp_path, commit)
     result = analyze.aggregate([exports], commit, smoke=True)
     assert len(result["cells"]) == 3
+
+
+def test_mac_aggregator_accepts_complete_units_without_optional_traces(tmp_path) -> None:
+    commit = "d" * 40
+    exports = _publish_complete_analysis_exports(tmp_path, commit, include_traces=False)
+    result = analyze.aggregate([exports], commit, smoke=True)
+    assert len(result["cells"]) == 3
+    assert all(cell["chrome_traces"] == [] for cell in result["cells"])
 
 
 @pytest.mark.parametrize("failure", ("missing", "hash", "foreign"))

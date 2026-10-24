@@ -236,6 +236,7 @@ def manifest(
             "A1_PROF_LEDGER_PATH": CANARY_LEDGER_DEST if canary else LEDGER_DEST,
             "A1_PROF_SECONDS": str(seconds),
             "A1_PROF_CANARY": "1" if canary else "0",
+            "A1_PROF_EXPORT_CHROME_TRACES": "0",
             "GPU_SIM_VECTOR_FLOOD": "dense",
             "PYTORCH_ALLOC_CONF": "expandable_segments:True",
             "OMP_NUM_THREADS": "1",
@@ -263,7 +264,7 @@ def manifest(
             "other_assignments": {},
         },
         "lease_seconds": 600,
-        "max_export_bytes": 512 * 1024**2,
+        "max_export_bytes": 64 * 1024**2,
         "required_exports": ["a1-prof.json"],
         "source_paths": _source_paths(),
         "resume": {
@@ -303,6 +304,9 @@ def manifest(
                 "ticks_per_repeat": 1,
             },
             "outcome_free": True,
+            "chrome_trace_export": (
+                "optional; disabled by default; reduced kernel summaries required"
+            ),
             "analysis": "Mac-side only; remote outputs are sealed measurement payloads",
         },
     }
