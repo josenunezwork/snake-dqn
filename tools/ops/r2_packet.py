@@ -249,15 +249,32 @@ def prepare(artifact: Path, broker: Path, host: Path = HOST) -> dict[str, Any]:
 
 
 def _main_manifest(artifact: Path, broker: Path, pin: str, receipt: Path) -> Path:
-    """Prepare (once) the canary-bound main through the broker's frozen packer."""
+    """Prepare (once) the canary-bound main through the broker's frozen packer.
+
+    Only the main manifest is built.  ``r2_pack.prepare`` would also regenerate
+    the already executed canary manifest, whose recorded local path for the
+    public-input catalog depends on the checkout that packed it (identical
+    bytes/destination, different absolute path) and so cannot be re-derived
+    from the broker byte-for-byte.  The same packer functions, source-pin and
+    preflight checks, supervisor validation and create-only write are used.
+    """
     path = artifact / "packet/r2-main.json"
     if not path.exists():
         frozen(
             broker,
             "import json; from pathlib import Path; "
-            "from research.gpu_sim_spike.r2_pack import prepare; "
-            "print(json.dumps(prepare(Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3]), "
-            "canary_receipt=Path(sys.argv[4]), validate=True)))",
+            "from research.gpu_sim_spike import r2_pack as p; "
+            "from research.colab_cli.supervisor import validate; "
+            "packet, commit = Path(sys.argv[1]), sys.argv[2]; "
+            "p.require_source_pin(commit); "
+            "pre = p.preflight_binding(Path(sys.argv[3]), commit); "
+            "m = p.manifest(commit=commit, output_dir=packet / 'main-output', "
+            "ledger=packet / 'verified-ledger.json', "
+            "canary_ledger=packet / 'canary-ledger/verified-ledger.json', canary=False, "
+            "preflight=pre, canary_receipt=Path(sys.argv[4])); "
+            "validate(m, repo=p.ROOT); "
+            "p._write(packet / 'r2-main.json', json.dumps(m, indent=2, sort_keys=True) + '\\n'); "
+            "print(json.dumps({'main': str(packet / 'r2-main.json')}))",
             str(artifact / "packet"),
             pin,
             str(artifact / "mac-preflight/preflight.json"),

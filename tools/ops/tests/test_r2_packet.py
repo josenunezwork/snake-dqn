@@ -46,9 +46,7 @@ def test_attempt_two_stays_inside_the_two_unit_canary_allowance(prior):
     assert timeout >= 2 * job["requirements"]["est_minutes"]  # qualified 2x rule
     assert timeout >= 420 / 60 + 3  # unchanged producer deadline still fits
     assert job["job_id"] == "gpu-r2-canary-e66a701fd439-02"
-    assert set(job["canary_attempt"]["changed_fields"]) >= _changed(FIRST, job) - {
-        "canary_attempt"
-    }
+    assert set(job["canary_attempt"]["changed_fields"]) >= _changed(FIRST, job) - {"canary_attempt"}
     assert job["env"] == FIRST["env"] and job["inputs"] == FIRST["inputs"]
     assert job["native_cuda_compile"] == FIRST["native_cuda_compile"]
 
@@ -78,3 +76,12 @@ def test_real_attempt_one_is_a_released_prework_kernel_creation_failure():
     assert proof["workload_gpu_seconds"] == 0
     assert proof["observed_balance_drop_units"] == 0
     assert proof["charged_units"] == pytest.approx(receipt["elapsed_seconds"] * 10 / 3600)
+
+
+def test_main_preparation_never_regenerates_the_executed_canary(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(r2_packet, "frozen", lambda broker, code, *args: calls.append(code))
+    r2_packet._main_manifest(tmp_path, tmp_path, "e" * 40, tmp_path / "receipt.json")
+    (code,) = calls
+    assert "prepare(" not in code and "r2-canary" not in code
+    assert "r2-main.json" in code and "canary=False" in code and "validate(m" in code
