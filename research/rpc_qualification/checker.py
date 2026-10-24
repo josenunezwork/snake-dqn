@@ -18,6 +18,8 @@ from typing import Any
 from research.bl_labels.exports import _verify, publish_json
 from research.bl_labels.l4_faults_v2 import classify_session, load_injection_manifest
 
+from .admission import ARTIFACT_ROOT, require_review
+
 SCHEMA = "rpc-qualification-profile/v2"
 PUBLICATION_SCHEMA = "rpc-qualification-ledger-publication/v1"
 VERDICT_SCHEMA = "rpc-qualification-verdict/v2"
@@ -798,20 +800,22 @@ def _check_injection(plan_path: Path, job: dict[str, Any]) -> dict[str, Any]:
     if not injected_indices <= excluded or v2["unrealized_injections"]:
         raise ValueError("deliberate drops differ from the manifest-identified exclusions")
     elapsed = _finite(receipt.get("elapsed_seconds"), "injection elapsed")
+    if elapsed < 0:
+        raise ValueError("negative injection elapsed")
     if (
-        receipt.get("status") != "PASS"
-        or receipt.get("stop_verified") is not True
-        or elapsed > manifest["timeout_minutes"] * 60
+        elapsed > manifest["timeout_minutes"] * 60
         or elapsed * manifest["budget"]["rate_units_per_hour"] / 3600
         > manifest["budget"]["unit_cap"]
     ):
         faults.append(
             {
-                "source": "injection_operational_failure",
+                "source": "v2:C3",
                 "record": {
-                    "status": receipt.get("status"),
-                    "stop_verified": receipt.get("stop_verified"),
+                    "class": "C3",
+                    "detail": "injection supervisor session envelope breached",
                     "elapsed_seconds": elapsed,
+                    "timeout_minutes": manifest["timeout_minutes"],
+                    "budget": manifest["budget"],
                 },
             }
         )
@@ -860,6 +864,16 @@ def _verify_remote_publication(plan_path: Path, publication: dict[str, Any]) -> 
 
 def verdict(plan_path: Path, publication_path: Path, out: Path) -> dict[str, Any]:
     plan, jobs = _profile(plan_path)
+    package = plan.get("source_commit")
+    if not isinstance(package, str) or len(package) != 40:
+        raise ValueError("qualification plan lacks its reviewed package commit")
+    # The sanctioned post-wave ledger commit moves HEAD, never the frozen
+    # package identity. Recheck all ACCEPT source/helper/authority bindings and
+    # this actual input plan before consuming the operational look.
+    repo = _path(plan_path.parent, plan.get("repo"), "repository")
+    review = require_review(repo=repo, package_commit=package)
+    if _sha(plan_path) != review.get("artifact_sha256", {}).get("plan"):
+        raise ValueError("input qualification plan differs from reviewer ACCEPT")
     publication = _read(publication_path)
     if publication.get("schema") != PUBLICATION_SCHEMA or publication.get("plan_sha256") != _sha(
         plan_path
@@ -874,12 +888,7 @@ def verdict(plan_path: Path, publication_path: Path, out: Path) -> dict[str, Any
         fake_path = _path(plan_path.parent, fake.get("path"), "fake CLI proof")
         if _sha(fake_path) != fake.get("sha256"):
             raise ValueError("fake-CLI proof differs from plan binding")
-        package = plan.get("source_commit")
-        if not isinstance(package, str) or len(package) != 40:
-            raise ValueError("qualification plan lacks its reviewed package commit")
-        validate_fake_proof(
-            fake_path, _path(plan_path.parent, plan.get("repo"), "repository"), package
-        )
+        validate_fake_proof(fake_path, repo, package)
     except (ValueError, OSError) as error:
         fake_error = str(error)
     expected = {job["job_id"] for job in jobs}
@@ -933,7 +942,28 @@ def verdict(plan_path: Path, publication_path: Path, out: Path) -> dict[str, Any
             }
 
     def dispatched(job: dict[str, Any]) -> bool:
-        return _job_paths(plan_path, job)[0].is_file()
+        paths = list(_job_paths(plan_path, job))
+        paths.extend(
+            _path(plan_path.parent, job[key], key)
+            for key in ("state_dir", "ledger", "dispatch_record")
+            if key in job
+        )
+        # The ops reservation survives loss of a manifest, state or export.
+        # Never use the prepared job folder/template as dispatch evidence.
+        ops = ARTIFACT_ROOT / "ops"
+        paths.extend(
+            (
+                ops / "dispatch" / job["job_id"],
+                ops / "manifests" / (job["job_id"] + ".json"),
+                ops / "logs" / (job["job_id"] + ".log"),
+            )
+        )
+        sealed = publication["ledgers"][job["job_id"]]
+        return (
+            any(path.exists() for path in paths)
+            or bool(sealed.get("evidence"))
+            or (sealed.get("status") != "MISSING")
+        )
 
     # Attempt 2 (judgment §4 step 4): the CPU loop series is optional and
     # all-or-none; L4 loops and the injection proof are required.

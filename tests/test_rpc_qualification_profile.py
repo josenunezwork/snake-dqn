@@ -46,3 +46,18 @@ def test_profile_cannot_enter_as_generic_family_or_resume_exemption(tmp_path: Pa
             }
         }
     )
+
+
+@pytest.mark.parametrize("wave_name", ["l4", "injection", "cpu"])
+def test_wave_refuses_head_movement_before_any_review_or_dispatch(tmp_path, monkeypatch, wave_name):
+    from research.bl_labels.exports import publish_json
+    from research.rpc_qualification import admission, manifests
+
+    plan = tmp_path / "plan.json"
+    publish_json(plan, {"source_commit": "a" * 40})
+    monkeypatch.setattr(manifests, "git", lambda *_args: "b" * 40)
+    monkeypatch.setattr(
+        admission, "require_review", lambda **_kwargs: pytest.fail("HEAD check must run first")
+    )
+    with pytest.raises(ValueError, match="source changed since pack preparation"):
+        manifests.wave(plan, wave_name, tmp_path / "acceptance.json")

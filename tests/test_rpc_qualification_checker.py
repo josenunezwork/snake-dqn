@@ -4,22 +4,31 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
 from research.bl_labels.exports import publish_json
-from research.rpc_qualification import checker
+from research.rpc_qualification import admission, checker
 
 
 @pytest.fixture(autouse=True)
-def _remote_publication(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
+def _remote_publication(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest, tmp_path: Path
+) -> None:
     """Keep the unit test offline; production fetches and reads origin itself."""
     monkeypatch.setattr(
         checker,
         "_remote_json",
         lambda plan, _relative: json.loads((plan.parent / "remote.json").read_text()),
     )
+    monkeypatch.setattr(
+        checker,
+        "require_review",
+        lambda *, repo, package_commit: {"artifact_sha256": {"plan": _sha(repo / "plan.json")}},
+    )
+    monkeypatch.setattr(checker, "ARTIFACT_ROOT", tmp_path / "artifacts")
     # Source-map validation has its own synthetic proof cases.  These fixtures
     # intentionally use an isolated temporary plan repository.
     if request.node.name != "test_fake_proof_refuses_a_stale_or_partial_current_source_map":
@@ -599,8 +608,7 @@ def test_mandatory_injection_fault_fails_l4_while_optional_cpu_loops_stay_not_ru
     plan, jobs = _plan(tmp_path)
     for job in jobs:
         if job["mode"] == "loop" and job["platform"] == "cpu":
-            for suffix in ("", ".sha256", ".complete"):
-                Path(job["manifest"] + suffix).unlink(missing_ok=True)
+            shutil.rmtree(job["output_dir"])
     original = checker._check_injection
 
     def counted_injection(plan_path: Path, job: dict) -> dict:
@@ -659,3 +667,190 @@ def test_fake_proof_refuses_a_stale_or_partial_current_source_map(
     monkeypatch.setattr(checker, "fake_proof_source_inventory", lambda _repo: expected)
     with pytest.raises(ValueError, match="source map is incomplete or stale"):
         checker.validate_fake_proof(proof, tmp_path, "0" * 40)
+
+
+def _replace_json(path: Path, value: dict) -> None:
+    """Replace only owned synthetic immutable triplets to model changed evidence."""
+    for suffix in ("", ".sha256", ".complete"):
+        Path(str(path) + suffix).unlink()
+    publish_json(path, value)
+
+
+@pytest.mark.parametrize("faulty", [False, True])
+def test_optional_cpu_manifest_loss_preserves_retained_receipt(tmp_path: Path, faulty: bool):
+    plan, jobs = _plan(tmp_path)
+    cpu = [j for j in jobs if j["mode"] == "loop" and j["platform"] == "cpu"]
+    if faulty:
+        _rewrite_receipt(cpu[0], lambda r: r["cli_calls"][0].update(elapsed_seconds=13))
+    for job in cpu:
+        for suffix in ("", ".sha256", ".complete"):
+            Path(job["manifest"] + suffix).unlink()
+    result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
+    assert result["platforms"]["cpu"]["status"] == ("FAIL" if faulty else "EVIDENCE_MISSING")
+    assert result["attempt_status"] == ("FAIL" if faulty else "EVIDENCE_MISSING")
+    assert result["platforms"]["l4"]["status"] == result["attempt_status"]
+    assert result["attempt_counted_faults"] == int(faulty)
+    assert len(result["platforms"]["cpu"]["sessions"]) == 3
+    if faulty:
+        assert result["attempt_faults"][0]["source"] == "v2:C1"
+
+
+@pytest.mark.parametrize("signal", ["state_dir", "dispatch", "receipt", "runtime", "publication"])
+def test_optional_cpu_durable_evidence_blocks_not_run(tmp_path: Path, monkeypatch, signal):
+    plan, jobs = _plan(tmp_path)
+    cpu = [j for j in jobs if j["mode"] == "loop" and j["platform"] == "cpu"]
+    publication = _published(plan, tmp_path) if signal == "publication" else None
+    for job in cpu:
+        shutil.rmtree(job["output_dir"])
+    job = cpu[0]
+    value = json.loads(plan.read_text())
+    if signal == "state_dir":
+        path = tmp_path / "retained-state"
+        path.mkdir()
+        value["jobs"][0]["state_dir"] = str(path)
+    elif signal == "dispatch":
+        (checker.ARTIFACT_ROOT / "ops/dispatch" / job["job_id"]).mkdir(parents=True)
+    elif signal in {"receipt", "runtime"}:
+        path = tmp_path / ("retained-" + signal + ".json")
+        path.write_text("{}")
+        value["jobs"][0][signal] = str(path)
+    if signal != "publication":
+        _replace_json(plan, value)
+        publication = _published(plan, tmp_path)
+    result = checker.verdict(plan, publication, tmp_path / "verdict.json")
+    assert result["platforms"]["cpu"]["status"] == "EVIDENCE_MISSING"
+    assert result["attempt_status"] == "EVIDENCE_MISSING"
+    assert result["attempt_counted_faults"] == 0
+
+
+def test_injection_child_only_exit_is_nonqualifying_without_counted_fault(tmp_path: Path):
+    plan, jobs = _plan(tmp_path)
+    job = next(j for j in jobs if j["mode"] == "injection")
+
+    def child_exit(receipt):
+        receipt.update(status="INCOMPLETE", failure_class="CHILD_NONZERO_EXIT")
+        receipt["terminal"]["returncode"] = 1
+
+    _rewrite_receipt(job, child_exit)
+    result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
+    injection = result["injection"]
+    assert injection["v2"]["session_failures"][0]["kind"] == "NON_TRANSPORT"
+    assert set(injection["v2"]["counted_by_class"].values()) == {0}
+    assert injection["status"] == "FAIL"
+    assert injection["faults"] == []
+    assert result["attempt_counted_faults"] == 0
+    assert result["attempt_status"] == result["platforms"]["l4"]["status"] == "EVIDENCE_MISSING"
+    assert result["attempt_nonqualifying"] == [injection]
+    assert result["platforms"]["l4"]["nonqualifying"] == [injection]
+
+
+@pytest.mark.parametrize("failure", ["wall", "units", "release", "cleanup"])
+def test_injection_real_envelope_and_release_failures_still_count(tmp_path: Path, failure):
+    plan, jobs = _plan(tmp_path)
+    job = next(j for j in jobs if j["mode"] == "injection")
+    if failure == "units":
+        # Isolate debit enforcement while remaining within the wall envelope.
+        manifest = Path(job["manifest"])
+        value = json.loads(manifest.read_text())
+        value["budget"]["rate_units_per_hour"] = 0.8
+        _replace_json(manifest, value)
+
+    def fail(receipt):
+        if failure in {"wall", "units"}:
+            receipt["elapsed_seconds"] = 1801 if failure == "wall" else 1000
+            receipt["manifest_sha256"] = _sha(Path(job["manifest"]))
+        elif failure == "release":
+            receipt["stop_verified"] = False
+        else:
+            receipt["cleanup_error"] = "verified cleanup failed"
+
+    _rewrite_receipt(job, fail)
+    result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
+    assert result["attempt_status"] == "FAIL"
+    assert result["attempt_counted_faults"] > 0
+    assert all(f["source"] == "v2:C3" for f in result["attempt_faults"])
+
+
+def _final_review(plan: Path, monkeypatch) -> dict:
+    """Use real ACCEPT artifact verification with isolated package-source validation."""
+    pack = plan.parent
+    trace = {"test": "binding"}
+    publish_json(pack / "DIFFERENTIAL_TRACE.json", trace)
+    fake = pack / "fake.json"
+    _replace_json(
+        fake,
+        {
+            "differential_trace": trace,
+            "differential_trace_sha256": _sha(pack / "DIFFERENTIAL_TRACE.json"),
+        },
+    )
+    value = json.loads(plan.read_text())
+    value.update(transport_pin=admission.TRANSPORT_PIN, transport_tree=admission.TRANSPORT_TREE)
+    value["fake_proof"]["sha256"] = _sha(fake)
+    _replace_json(plan, value)
+    (pack / "GUARDED_OPERATOR_COMMANDS_V4.sh").write_text("# reviewed helper\n")
+    authority = pack / "ruling.md"
+    authority.write_text("ratified review04\n")
+    monkeypatch.setattr(admission, "PACK_ROOT", pack)
+    monkeypatch.setattr(admission, "PROOF_RELATIVE", "fake.json")
+    monkeypatch.setattr(admission, "AUTHORITY_FILES", {"review04": (authority, _sha(authority))})
+    review_path = pack / "accept.json"
+    monkeypatch.setattr(admission, "REVIEW_PATH", review_path)
+    package = value["source_commit"]
+    checked = []
+
+    def sources(review, repo, package_commit):
+        assert package_commit == package  # never HEAD after ledger publication
+        checked.append(package_commit)
+
+    monkeypatch.setattr(admission, "verify_review_sources", sources)
+    monkeypatch.setattr(
+        admission, "git_commit", lambda _repo: pytest.fail("must pass frozen commit")
+    )
+    review = {
+        "schema": "l4-requal-02-review/v1",
+        "verdict": "ACCEPT",
+        "transport_pin": admission.TRANSPORT_PIN,
+        "package_commit": package,
+        "source_sha256": {},
+        **admission.review_artifact_bindings(pack, package),
+    }
+    review_path.write_text(json.dumps(review))
+    monkeypatch.setattr(checker, "require_review", admission.require_review)
+    return {"review_path": review_path, "checked": checked, "package": package}
+
+
+@pytest.mark.parametrize("changed", ["absent", "helper", "authority", "redirected_plan"])
+def test_final_verdict_refuses_binding_changes_before_one_look(
+    tmp_path: Path, monkeypatch, changed
+):
+    plan, _jobs = _plan(tmp_path)
+    context = _final_review(plan, monkeypatch)
+    if changed == "absent":
+        context["review_path"].unlink()
+    elif changed == "helper":
+        (tmp_path / "GUARDED_OPERATOR_COMMANDS_V4.sh").write_text("changed\n")
+    elif changed == "authority":
+        (tmp_path / "ruling.md").write_text("changed\n")
+    else:
+        value = json.loads(plan.read_text())
+        for job in value["jobs"]:
+            if job["mode"] == "loop" and job["platform"] == "cpu":
+                for key in ("manifest", "output_dir", "runtime"):
+                    job[key] = str(tmp_path / "absent" / job["job_id"] / key)
+        replacement = tmp_path / "replacement.json"
+        publish_json(replacement, value)
+        plan = replacement
+    publication = _published(plan, tmp_path)
+    with pytest.raises(ValueError, match="ACCEPT|authority bytes"):
+        checker.verdict(plan, publication, tmp_path / "verdict.json")
+    assert not (tmp_path / "verdict-look-started.json").exists()
+    assert not (tmp_path / "verdict.json").exists()
+
+
+def test_final_verdict_uses_frozen_commit_after_ledger_publication(tmp_path: Path, monkeypatch):
+    plan, _jobs = _plan(tmp_path)
+    context = _final_review(plan, monkeypatch)
+    result = checker.verdict(plan, _published(plan, tmp_path), tmp_path / "verdict.json")
+    assert result["attempt_status"] == "PASS"
+    assert context["checked"] == [context["package"]]

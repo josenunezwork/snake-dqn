@@ -88,7 +88,7 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
     if sha(HOLD_RESOLUTION) != HOLD_RESOLUTION_SHA256:
         raise ValueError("hold-resolution authority differs from the frozen ruling")
     if any(sha(path) != digest for path, digest in AUTHORITY_FILES.values()):
-        raise ValueError("review-03 authority differs from the ratified ruling")
+        raise ValueError("review authority differs from the ratified ruling")
     if bank_digest(bank) != BANK_SHA256:
         raise ValueError("foreign frozen F1 bank")
     load_bank(bank)
@@ -286,6 +286,7 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
                 "template": str(template),
                 "manifest": str(folder / "manifest.json"),
                 "state_dir": str(folder / "state"),
+                "dispatch_record": str(ARTIFACTS / "ops/dispatch" / name),
                 "output_dir": str(output),
                 "receipt": str(output / "receipt.json"),
                 "runtime": str(output / "exports/runtime-result.json"),
@@ -346,6 +347,10 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
     (out / "DISPATCH.txt").write_text("\n".join(commands) + "\n")
     publication = out / "publication.json"
     post = [
+        "# REVIEW04: only after EVERY selected wave is terminal, before the one look.",
+        "# Exactly one ledger-only commit+push is permitted on this branch.",
+        "# HEAD must not move between prerequisite and any subsequent wave.",
+        "# Source, helper, plan and proof bytes stay frozen through publication.",
         shlex.join(
             [
                 str(REPO.parent / "snake-dqn/venv/bin/python"),
@@ -375,7 +380,7 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
                 "-m",
                 "Publish RPC qualification hash ledger before one look",
                 "-m",
-                "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+                "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>",
             ]
         ),
         f"git push origin HEAD:{PUBLICATION_BRANCH}",
