@@ -1,0 +1,51 @@
+{
+  "allocations": 0,
+  "artifacts": {
+    "CODEX_V_ADMISSION_REGRESSION.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/CODEX_V_ADMISSION_REGRESSION.json",
+      "sha256": "b45e077e8341e0844126722611b4aa5d79c0fff1d631e582b4a00f96b898b444"
+    },
+    "CODEX_V_ADMISSION_REVIEW.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/CODEX_V_ADMISSION_REVIEW.json",
+      "sha256": "19b07e15f560a0183f0ef91adc533122281a372383172f219680d571aef40a6b"
+    },
+    "OPERATOR_ADMISSION.draft.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/OPERATOR_ADMISSION.draft.json",
+      "sha256": "9edfedd39ad60d2f69c1d40f5e2e5ba757a3f85a16f2b3112921b635134e5d0f"
+    },
+    "OPERATOR_ADMISSION.template.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/OPERATOR_ADMISSION.template.json",
+      "sha256": "02b122425ca7092076920ab818f0744f39922c9f79de5b1f874bb4a793803dac"
+    },
+    "PREPARATION.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/PREPARATION.json",
+      "sha256": "5ae17186666c59c0e76413286c00d7805f2f402cec454857dcea98bb14ceb611"
+    },
+    "PREPARATION_ACCOUNTING.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/PREPARATION_ACCOUNTING.json",
+      "sha256": "d05ea867a8a4a761a5b2e132445aea5c446ee17cf0f255b3e17876c2e82815bd"
+    },
+    "v8-split-main.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/v8-split-main.json",
+      "sha256": "e3cc191d7d12059dfbaf98c552b31a3f15f13a0f3996af8ee0677238cdf7a5a9"
+    }
+  },
+  "editable_inputs": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/operator-fill",
+  "final_admission_written": false,
+  "independent_reviewer": "/root/codex_v",
+  "live_account_queries": 0,
+  "operator_runbook": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/V8_SPLIT_ADMISSION_HANDOFF_20261024.md",
+  "required_main_reservation": {
+    "units": 20,
+    "wall_minutes": 120
+  },
+  "runtime_commit": "669405e2bef629f7f69bc951cf49486d8b0a87bf",
+  "schema": "v8-main-admission-preparation-handoff/v1",
+  "status": "PREPARED_OFFLINE_ACCEPTED_DRAFT_INCOMPLETE_ADMISSION",
+  "unresolved_historical_authority": [
+    "Original sealed T0",
+    "Original sealed spendable limit",
+    "Complete Q2/Q4/global expenditure and outstanding reservations",
+    "Exact charged split-canary intervals; conservative packet shortfall"
+  ]
+}
