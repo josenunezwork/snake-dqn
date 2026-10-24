@@ -1,0 +1,2465 @@
+{
+ "acceptance": "acceptance-1792762502",
+ "arms": {
+  "cpu": {
+   "cleanup_error": null,
+   "cli_calls": [
+    {
+     "attempt": 1,
+     "command": "version",
+     "elapsed_seconds": 0.22095470898784697,
+     "status": "completed",
+     "timeout_seconds": 119.99999695899896
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.4302744580199942,
+     "status": "completed",
+     "timeout_seconds": 119.99996400001692
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.4413659169804305,
+     "status": "completed",
+     "timeout_seconds": 119.99999837495852
+    },
+    {
+     "attempt": 1,
+     "command": "new",
+     "elapsed_seconds": 3.134933333029039,
+     "status": "completed",
+     "timeout_seconds": 179.999997832987
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 3.4843309160205536,
+     "request_id": "710a3beeaa39478091d34164567dd001",
+     "request_sha256": "371c8c45e8e1b0593cd8ce1f4442f08964e9d9c60d27fc57383f07fcc8cc1516",
+     "status": "completed",
+     "timeout_seconds": 29.999596041976474
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.1228423749562353,
+     "request_id": "710a3beeaa39478091d34164567dd001",
+     "request_sha256": "371c8c45e8e1b0593cd8ce1f4442f08964e9d9c60d27fc57383f07fcc8cc1516",
+     "status": "completed",
+     "timeout_seconds": 25.646808958030306
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.604239292035345,
+     "status": "completed",
+     "timeout_seconds": 119.99999808397843
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.42977633397094905,
+     "status": "failed",
+     "timeout_seconds": 99.99999787501292
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.3210336249903776,
+     "request_id": "9f68bc1bb2794662996e1ecafdb8c06c",
+     "request_sha256": "97dd9616977b6206d2e4f65da760b746cbd1f112bd2167c847e888aa43c25c24",
+     "status": "completed",
+     "timeout_seconds": 29.99999941699207
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.3797448340337723,
+     "request_id": "9f68bc1bb2794662996e1ecafdb8c06c",
+     "request_sha256": "97dd9616977b6206d2e4f65da760b746cbd1f112bd2167c847e888aa43c25c24",
+     "status": "completed",
+     "timeout_seconds": 29.999973208992742
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.2607772089540958,
+     "request_id": "b232839d3ef843b2b5eaab6d0f904681",
+     "request_sha256": "4cf9c32e95ded4b6c0836ba4889e25f3311fea6de81553e524d569d2843423bb",
+     "status": "completed",
+     "timeout_seconds": 29.99999579199357
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.8564063329831697,
+     "request_id": "b232839d3ef843b2b5eaab6d0f904681",
+     "request_sha256": "4cf9c32e95ded4b6c0836ba4889e25f3311fea6de81553e524d569d2843423bb",
+     "status": "completed",
+     "timeout_seconds": 29.999987124989275
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.6318864169879816,
+     "status": "completed",
+     "timeout_seconds": 119.99999762501102
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.4619131670333445,
+     "status": "completed",
+     "timeout_seconds": 119.99999795801705
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.4539853340247646,
+     "status": "completed",
+     "timeout_seconds": 119.99998591700569
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.4411674580187537,
+     "status": "completed",
+     "timeout_seconds": 119.99999758403283
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.7186897919746116,
+     "status": "completed",
+     "timeout_seconds": 119.99998958397191
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.45472020900342613,
+     "status": "completed",
+     "timeout_seconds": 119.99999787501292
+    },
+    {
+     "attempt": 1,
+     "command": "whoami",
+     "elapsed_seconds": 0.5844975829822943,
+     "status": "completed",
+     "timeout_seconds": 119.99998937500641
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.6214742080192082,
+     "status": "completed",
+     "timeout_seconds": 119.9999968749471
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9288215829874389,
+     "request_id": "57895cdbf4ae41c2b1a7364284c3f3da",
+     "request_sha256": "6992bf4e2a47f6534decf30a73a670ab9c89cbe81c1c897c1f95ad52055bf30e",
+     "status": "completed",
+     "timeout_seconds": 29.999998749990482
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.0201381670194678,
+     "request_id": "57895cdbf4ae41c2b1a7364284c3f3da",
+     "request_sha256": "6992bf4e2a47f6534decf30a73a670ab9c89cbe81c1c897c1f95ad52055bf30e",
+     "status": "completed",
+     "timeout_seconds": 29.99999595794361
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.43252500001108274,
+     "status": "completed",
+     "timeout_seconds": 119.99999841704266
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.0174825419671834,
+     "request_id": "db862c80e7684700ad854360e72d0136",
+     "request_sha256": "31b765dfaf8f28ef05e1aa0f4a9f98e3d331d9b2a1ea42bc7cabcc005a152451",
+     "status": "completed",
+     "timeout_seconds": 29.999998582992703
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.616958542028442,
+     "status": "completed",
+     "timeout_seconds": 99.99999791703885
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.8329244169872254,
+     "request_id": "db862c80e7684700ad854360e72d0136",
+     "request_sha256": "31b765dfaf8f28ef05e1aa0f4a9f98e3d331d9b2a1ea42bc7cabcc005a152451",
+     "status": "completed",
+     "timeout_seconds": 29.99998616700759
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.843663125007879,
+     "request_id": "97ff231e2392488587388aa53ffbf555",
+     "request_sha256": "9e1f2b0211f5fcea4c0617b87db780d2fb7c1e0a0088208930f425c1521bde06",
+     "status": "completed",
+     "timeout_seconds": 29.999998666986357
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.0672970839659683,
+     "request_id": "97ff231e2392488587388aa53ffbf555",
+     "request_sha256": "9e1f2b0211f5fcea4c0617b87db780d2fb7c1e0a0088208930f425c1521bde06",
+     "status": "completed",
+     "timeout_seconds": 29.999988750030752
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.4361354580032639,
+     "status": "completed",
+     "timeout_seconds": 119.99999745801324
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.0311642910237424,
+     "request_id": "4978365bb619465d8262d06e7bfda9cb",
+     "request_sha256": "9951dd7f0d00271a23f622e4699c7b1c5094483b367a79b9a649a4893b6e1f64",
+     "status": "completed",
+     "timeout_seconds": 29.99999833398033
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.118425082997419,
+     "request_id": "4978365bb619465d8262d06e7bfda9cb",
+     "request_sha256": "9951dd7f0d00271a23f622e4699c7b1c5094483b367a79b9a649a4893b6e1f64",
+     "status": "completed",
+     "timeout_seconds": 29.999989333038684
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.8947544579859823,
+     "request_id": "11dd6fde2727477abe67f65d612b1a0f",
+     "request_sha256": "10ff9fa66ec9244b0a3ac86d948cad334fa4c314b0a3270ee88625db9dc77bac",
+     "status": "completed",
+     "timeout_seconds": 29.9999983329908
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 4.380623665987514,
+     "request_id": "11dd6fde2727477abe67f65d612b1a0f",
+     "request_sha256": "10ff9fa66ec9244b0a3ac86d948cad334fa4c314b0a3270ee88625db9dc77bac",
+     "status": "completed",
+     "timeout_seconds": 29.999985917005688
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.8956330830114894,
+     "request_id": "1646b727affe444ca7c84c00219b59fb",
+     "request_sha256": "4cf9c32e95ded4b6c0836ba4889e25f3311fea6de81553e524d569d2843423bb",
+     "status": "completed",
+     "timeout_seconds": 29.999997540959157
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.0738688749843277,
+     "request_id": "1646b727affe444ca7c84c00219b59fb",
+     "request_sha256": "4cf9c32e95ded4b6c0836ba4889e25f3311fea6de81553e524d569d2843423bb",
+     "status": "completed",
+     "timeout_seconds": 29.99998833303107
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.6256528330268338,
+     "status": "completed",
+     "timeout_seconds": 119.99999733298318
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.245327582990285,
+     "request_id": "571ebe94f7e4439dab504b0424e0e99e",
+     "request_sha256": "7166cebe1332be88ef282ffd8ec8860204c5a037eed6e062dd148977faa274a0",
+     "status": "completed",
+     "timeout_seconds": 29.999998624960426
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.0904649169533513,
+     "request_id": "571ebe94f7e4439dab504b0424e0e99e",
+     "request_sha256": "7166cebe1332be88ef282ffd8ec8860204c5a037eed6e062dd148977faa274a0",
+     "status": "completed",
+     "timeout_seconds": 29.999988666037098
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.2120665420079604,
+     "request_id": "4b2815e2219b437ca9008570ba76239e",
+     "request_sha256": "350ec17d1913f7cff9142451c164dd2c83331c6631094fe9c75f0653304bdb42",
+     "status": "completed",
+     "timeout_seconds": 29.999998582992703
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 4.911963541992009,
+     "request_id": "4b2815e2219b437ca9008570ba76239e",
+     "request_sha256": "350ec17d1913f7cff9142451c164dd2c83331c6631094fe9c75f0653304bdb42",
+     "status": "completed",
+     "timeout_seconds": 29.999988582974765
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 2.7676184159936383,
+     "status": "completed",
+     "timeout_seconds": 119.9999982920126
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9945798750268295,
+     "request_id": "ba792047d2874a4eb39470939307b387",
+     "request_sha256": "719ae6f947f86d92c8a20c48288b06b29951f579809d574c062228eba4fcbca3",
+     "status": "completed",
+     "timeout_seconds": 29.99999854201451
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.6478072499739937,
+     "status": "completed",
+     "timeout_seconds": 99.99999229097739
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.053479583002627,
+     "request_id": "ba792047d2874a4eb39470939307b387",
+     "request_sha256": "719ae6f947f86d92c8a20c48288b06b29951f579809d574c062228eba4fcbca3",
+     "status": "completed",
+     "timeout_seconds": 29.999975665996317
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.3014839170500636,
+     "request_id": "1de83c00137647c98120b257b1b3d27b",
+     "request_sha256": "4fe011040f1051e1a6648d2293ababb27cd71b1c401f19681e6c52f5defad3dd",
+     "status": "completed",
+     "timeout_seconds": 29.999998249986675
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9863480419735424,
+     "request_id": "1de83c00137647c98120b257b1b3d27b",
+     "request_sha256": "4fe011040f1051e1a6648d2293ababb27cd71b1c401f19681e6c52f5defad3dd",
+     "status": "completed",
+     "timeout_seconds": 29.99999799998477
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.4667378750164062,
+     "request_id": "1de83c00137647c98120b257b1b3d27b",
+     "request_sha256": "4fe011040f1051e1a6648d2293ababb27cd71b1c401f19681e6c52f5defad3dd",
+     "status": "completed",
+     "timeout_seconds": 29.999989458010532
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.1694131250260398,
+     "request_id": "1de83c00137647c98120b257b1b3d27b",
+     "request_sha256": "4fe011040f1051e1a6648d2293ababb27cd71b1c401f19681e6c52f5defad3dd",
+     "status": "completed",
+     "timeout_seconds": 29.999990375014022
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.2132724589901045,
+     "request_id": "6c428fc465034ba1b919e18c43e9250b",
+     "request_sha256": "81bc808dba7ad501c8a0d68b85af5e1e22de05ed381f408aaa6eb0be435a6845",
+     "status": "completed",
+     "timeout_seconds": 29.999997916980647
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.3202534589800052,
+     "request_id": "6c428fc465034ba1b919e18c43e9250b",
+     "request_sha256": "81bc808dba7ad501c8a0d68b85af5e1e22de05ed381f408aaa6eb0be435a6845",
+     "status": "completed",
+     "timeout_seconds": 29.999988582974765
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.6078459589625709,
+     "status": "completed",
+     "timeout_seconds": 119.99999837501673
+    },
+    {
+     "attempt": 1,
+     "command": "url",
+     "elapsed_seconds": 0.2497445410117507,
+     "status": "completed",
+     "timeout_seconds": 119.99999804102117
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.41244420799193904,
+     "status": "completed",
+     "timeout_seconds": 119.99999849998858
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.1078124169725925,
+     "request_id": "114a4e9b6256490baca074033388b386",
+     "request_sha256": "ae3f2f6dfe0a3bafe086d8f7226cc1d99ccf8711ba72f6233225ffc53813e53a",
+     "status": "completed",
+     "timeout_seconds": 29.999998834042344
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.047147750039585,
+     "request_id": "114a4e9b6256490baca074033388b386",
+     "request_sha256": "ae3f2f6dfe0a3bafe086d8f7226cc1d99ccf8711ba72f6233225ffc53813e53a",
+     "status": "completed",
+     "timeout_seconds": 29.999991709017195
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.45318633294664323,
+     "status": "completed",
+     "timeout_seconds": 119.99999766697874
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.4384631250286475,
+     "status": "completed",
+     "timeout_seconds": 119.99999745900277
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.3613754580146633,
+     "request_id": "2505268ab0db4a10934e0f37d4f5ca5b",
+     "request_sha256": "6d8eca481a42966ea38a065c55325f0685e35388250a8b75047e98624dfe1533",
+     "status": "completed",
+     "timeout_seconds": 29.999998749990482
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.1330672500189394,
+     "request_id": "2505268ab0db4a10934e0f37d4f5ca5b",
+     "request_sha256": "6d8eca481a42966ea38a065c55325f0685e35388250a8b75047e98624dfe1533",
+     "status": "completed",
+     "timeout_seconds": 29.99998633301584
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9580024580354802,
+     "request_id": "2505268ab0db4a10934e0f37d4f5ca5b",
+     "request_sha256": "6d8eca481a42966ea38a065c55325f0685e35388250a8b75047e98624dfe1533",
+     "status": "completed",
+     "timeout_seconds": 29.99998816702282
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.6663046250469051,
+     "status": "completed",
+     "timeout_seconds": 99.99999199999729
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.304585792007856,
+     "request_id": "2505268ab0db4a10934e0f37d4f5ca5b",
+     "request_sha256": "6d8eca481a42966ea38a065c55325f0685e35388250a8b75047e98624dfe1533",
+     "status": "completed",
+     "timeout_seconds": 29.999990374955814
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.006420541962143,
+     "request_id": "2505268ab0db4a10934e0f37d4f5ca5b",
+     "request_sha256": "6d8eca481a42966ea38a065c55325f0685e35388250a8b75047e98624dfe1533",
+     "status": "completed",
+     "timeout_seconds": 29.99998795799911
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.0598992920131423,
+     "request_id": "2505268ab0db4a10934e0f37d4f5ca5b",
+     "request_sha256": "6d8eca481a42966ea38a065c55325f0685e35388250a8b75047e98624dfe1533",
+     "status": "completed",
+     "timeout_seconds": 29.999992083001416
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.46778804098721594,
+     "status": "completed",
+     "timeout_seconds": 99.99999258300522
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9780037919990718,
+     "request_id": "2505268ab0db4a10934e0f37d4f5ca5b",
+     "request_sha256": "6d8eca481a42966ea38a065c55325f0685e35388250a8b75047e98624dfe1533",
+     "status": "completed",
+     "timeout_seconds": 29.99998920800863
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9542079159873538,
+     "request_id": "2505268ab0db4a10934e0f37d4f5ca5b",
+     "request_sha256": "6d8eca481a42966ea38a065c55325f0685e35388250a8b75047e98624dfe1533",
+     "status": "completed",
+     "timeout_seconds": 29.999987666029483
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.3149267910048366,
+     "request_id": "2505268ab0db4a10934e0f37d4f5ca5b",
+     "request_sha256": "6d8eca481a42966ea38a065c55325f0685e35388250a8b75047e98624dfe1533",
+     "status": "completed",
+     "timeout_seconds": 29.999986791983247
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9987940839491785,
+     "request_id": "2505268ab0db4a10934e0f37d4f5ca5b",
+     "request_sha256": "6d8eca481a42966ea38a065c55325f0685e35388250a8b75047e98624dfe1533",
+     "status": "completed",
+     "timeout_seconds": 29.99998991697794
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9700494999997318,
+     "request_id": "dbf112d187b94e559de4a3ec5250e3f6",
+     "request_sha256": "799bad7378e885ddf2648e0801af6b5aed42214299134ddf18c31350b88e88fb",
+     "status": "completed",
+     "timeout_seconds": 29.99980225006584
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.5979348749970086,
+     "status": "completed",
+     "timeout_seconds": 99.99999187502544
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9449456250295043,
+     "request_id": "dbf112d187b94e559de4a3ec5250e3f6",
+     "request_sha256": "799bad7378e885ddf2648e0801af6b5aed42214299134ddf18c31350b88e88fb",
+     "status": "completed",
+     "timeout_seconds": 28.243525792029686
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9523994170012884,
+     "request_id": "5a1a5f3b4abc4bd3b7829ed8d644289b",
+     "request_sha256": "4cf9c32e95ded4b6c0836ba4889e25f3311fea6de81553e524d569d2843423bb",
+     "status": "completed",
+     "timeout_seconds": 29.99999962502625
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.909418040944729,
+     "request_id": "5a1a5f3b4abc4bd3b7829ed8d644289b",
+     "request_sha256": "4cf9c32e95ded4b6c0836ba4889e25f3311fea6de81553e524d569d2843423bb",
+     "status": "completed",
+     "timeout_seconds": 29.999988582974765
+    },
+    {
+     "attempt": 1,
+     "command": "download",
+     "elapsed_seconds": 0.5876817919779569,
+     "status": "completed",
+     "timeout_seconds": 119.99999749998096
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.3017522500013001,
+     "request_id": "dea4a4ec9e0641bda1274602676f6d1b",
+     "request_sha256": "098a74a8b3b7c6ca06fe8c02f29be299397274e937af61a6e6290427726ed71b",
+     "status": "completed",
+     "timeout_seconds": 29.999834084010217
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.1068113339715637,
+     "request_id": "dea4a4ec9e0641bda1274602676f6d1b",
+     "request_sha256": "098a74a8b3b7c6ca06fe8c02f29be299397274e937af61a6e6290427726ed71b",
+     "status": "completed",
+     "timeout_seconds": 27.621873833995778
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.029312625003513,
+     "request_id": "42086dc61cd541a192fc2689b3f61518",
+     "request_sha256": "ae3f2f6dfe0a3bafe086d8f7226cc1d99ccf8711ba72f6233225ffc53813e53a",
+     "status": "completed",
+     "timeout_seconds": 29.999998249986675
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.0496743340045214,
+     "request_id": "42086dc61cd541a192fc2689b3f61518",
+     "request_sha256": "ae3f2f6dfe0a3bafe086d8f7226cc1d99ccf8711ba72f6233225ffc53813e53a",
+     "status": "completed",
+     "timeout_seconds": 29.99998537497595
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.4213838329887949,
+     "status": "completed",
+     "timeout_seconds": 119.99999487499008
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.4437542909872718,
+     "status": "completed",
+     "timeout_seconds": 119.99999754194869
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.9187160420115106,
+     "request_id": "9180bbe5f69b4161a654c766fa282581",
+     "request_sha256": "ae3f2f6dfe0a3bafe086d8f7226cc1d99ccf8711ba72f6233225ffc53813e53a",
+     "status": "completed",
+     "timeout_seconds": 29.999995833961293
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.207621540990658,
+     "request_id": "9180bbe5f69b4161a654c766fa282581",
+     "request_sha256": "ae3f2f6dfe0a3bafe086d8f7226cc1d99ccf8711ba72f6233225ffc53813e53a",
+     "status": "completed",
+     "timeout_seconds": 29.99998820904875
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.44278116698842496,
+     "status": "completed",
+     "timeout_seconds": 119.99999729194678
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.42396858299616724,
+     "status": "completed",
+     "timeout_seconds": 119.99999733298318
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.423272458021529,
+     "status": "completed",
+     "timeout_seconds": 119.9999980420107
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.0446369160199538,
+     "request_id": "c6415bf576c24f73921d8e438e0cdd8c",
+     "request_sha256": "ae3f2f6dfe0a3bafe086d8f7226cc1d99ccf8711ba72f6233225ffc53813e53a",
+     "status": "completed",
+     "timeout_seconds": 29.999998792016413
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.6249668339733034,
+     "status": "completed",
+     "timeout_seconds": 99.99999616597779
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.056876959046349,
+     "request_id": "c6415bf576c24f73921d8e438e0cdd8c",
+     "request_sha256": "ae3f2f6dfe0a3bafe086d8f7226cc1d99ccf8711ba72f6233225ffc53813e53a",
+     "status": "completed",
+     "timeout_seconds": 29.999991624965332
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.6633494169800542,
+     "status": "completed",
+     "timeout_seconds": 119.9999978330452
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.4235849160468206,
+     "status": "completed",
+     "timeout_seconds": 119.99999475001823
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9202195829711854,
+     "request_id": "ed370fcfc3af40ccac79adfc95cdc03f",
+     "request_sha256": "fdacea2bd8c52c415b72fbc92f7dd954376518db8cdbc347f4016270bf704fe1",
+     "status": "completed",
+     "timeout_seconds": 29.999998665996827
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.077265041996725,
+     "request_id": "ed370fcfc3af40ccac79adfc95cdc03f",
+     "request_sha256": "fdacea2bd8c52c415b72fbc92f7dd954376518db8cdbc347f4016270bf704fe1",
+     "status": "completed",
+     "timeout_seconds": 29.999988791998476
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.0872706670197658,
+     "request_id": "030ebdb4455943f98f80e3a44e524f72",
+     "request_sha256": "4cf9c32e95ded4b6c0836ba4889e25f3311fea6de81553e524d569d2843423bb",
+     "status": "completed",
+     "timeout_seconds": 29.999999584048055
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.250095167022664,
+     "request_id": "030ebdb4455943f98f80e3a44e524f72",
+     "request_sha256": "4cf9c32e95ded4b6c0836ba4889e25f3311fea6de81553e524d569d2843423bb",
+     "status": "completed",
+     "timeout_seconds": 29.999990957963746
+    },
+    {
+     "attempt": 1,
+     "command": "download",
+     "elapsed_seconds": 0.4336017500027083,
+     "status": "completed",
+     "timeout_seconds": 119.99999429198215
+    },
+    {
+     "attempt": 1,
+     "command": "download",
+     "elapsed_seconds": 0.6098089999868535,
+     "status": "completed",
+     "timeout_seconds": 119.9999961250578
+    },
+    {
+     "attempt": 1,
+     "command": "download",
+     "elapsed_seconds": 0.4027269159560092,
+     "status": "completed",
+     "timeout_seconds": 119.99999554199167
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.4328859999659471,
+     "status": "completed",
+     "timeout_seconds": 119.99999787501292
+    },
+    {
+     "attempt": 1,
+     "command": "download",
+     "elapsed_seconds": 0.6166912909829989,
+     "status": "failed",
+     "timeout_seconds": 119.99999825004488
+    },
+    {
+     "attempt": 1,
+     "command": "download",
+     "elapsed_seconds": 0.6087679160409607,
+     "status": "completed",
+     "timeout_seconds": 119.9999939170084
+    },
+    {
+     "attempt": 1,
+     "command": "download",
+     "elapsed_seconds": 0.6007056669914164,
+     "status": "failed",
+     "timeout_seconds": 119.99999687500531
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.42481374996714294,
+     "status": "completed",
+     "timeout_seconds": 119.99999862501863
+    },
+    {
+     "attempt": 1,
+     "command": "download",
+     "elapsed_seconds": 0.6040716249844991,
+     "status": "completed",
+     "timeout_seconds": 119.99999795900658
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.060717416985426,
+     "request_id": "b77a51c5fc5f4c3291b350c7a53485c5",
+     "request_sha256": "ae3f2f6dfe0a3bafe086d8f7226cc1d99ccf8711ba72f6233225ffc53813e53a",
+     "status": "completed",
+     "timeout_seconds": 29.999997832986992
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.3128150830161758,
+     "request_id": "b77a51c5fc5f4c3291b350c7a53485c5",
+     "request_sha256": "ae3f2f6dfe0a3bafe086d8f7226cc1d99ccf8711ba72f6233225ffc53813e53a",
+     "status": "completed",
+     "timeout_seconds": 29.999987540999427
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.4208252920070663,
+     "status": "completed",
+     "timeout_seconds": 119.99999754101736
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.4023159579955973,
+     "status": "completed",
+     "timeout_seconds": 119.99999729200499
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.4254388330155052,
+     "status": "completed",
+     "timeout_seconds": 119.99999824998667
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.084181374986656,
+     "request_id": "4e57d17c027249daacc0dea08cbeb245",
+     "request_sha256": "ae3f2f6dfe0a3bafe086d8f7226cc1d99ccf8711ba72f6233225ffc53813e53a",
+     "status": "completed",
+     "timeout_seconds": 29.99999887496233
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.1019552910001948,
+     "request_id": "4e57d17c027249daacc0dea08cbeb245",
+     "request_sha256": "ae3f2f6dfe0a3bafe086d8f7226cc1d99ccf8711ba72f6233225ffc53813e53a",
+     "status": "completed",
+     "timeout_seconds": 29.999989584030118
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.4449138749623671,
+     "status": "completed",
+     "timeout_seconds": 119.99999683396891
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.6321901669725776,
+     "status": "completed",
+     "timeout_seconds": 119.99999416602077
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.1124897499685176,
+     "request_id": "4314b76c4edb4df8b290e03f46fd1dac",
+     "request_sha256": "fa0217c50a4fd6d31667c1068bcacee5f0fba86aadbb151a14290500216f3f18",
+     "status": "completed",
+     "timeout_seconds": 29.999998125014827
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.1344258330063894,
+     "request_id": "4314b76c4edb4df8b290e03f46fd1dac",
+     "request_sha256": "fa0217c50a4fd6d31667c1068bcacee5f0fba86aadbb151a14290500216f3f18",
+     "status": "completed",
+     "timeout_seconds": 29.999990957963746
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.4327503750100732,
+     "status": "completed",
+     "timeout_seconds": 119.99999512499198
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.4351630409946665,
+     "status": "completed",
+     "timeout_seconds": 119.99999783397652
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.127986291947309,
+     "request_id": "9ba4414c6b1f48a2836f29e7f9dbfaa0",
+     "request_sha256": "6a1d3577b125bd06e67f9829b901cc5a64a64e87c3ddedef1b2329903dfdc181",
+     "status": "completed",
+     "timeout_seconds": 29.9999983329908
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.0867208329727873,
+     "request_id": "9ba4414c6b1f48a2836f29e7f9dbfaa0",
+     "request_sha256": "6a1d3577b125bd06e67f9829b901cc5a64a64e87c3ddedef1b2329903dfdc181",
+     "status": "completed",
+     "timeout_seconds": 29.999987166025676
+    },
+    {
+     "attempt": 1,
+     "command": "download",
+     "elapsed_seconds": 0.42042524996213615,
+     "status": "completed",
+     "timeout_seconds": 119.99999941600254
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.6168032080167904,
+     "status": "completed",
+     "timeout_seconds": 99.99999433400808
+    },
+    {
+     "attempt": 1,
+     "command": "download",
+     "elapsed_seconds": 0.4104762920178473,
+     "status": "completed",
+     "timeout_seconds": 119.99999579100404
+    },
+    {
+     "attempt": 1,
+     "command": "download",
+     "elapsed_seconds": 0.416760082996916,
+     "status": "completed",
+     "timeout_seconds": 119.99999562499579
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.0701762909884565,
+     "request_id": "80e63263908a40b09261e9614243c719",
+     "request_sha256": "6a1d3577b125bd06e67f9829b901cc5a64a64e87c3ddedef1b2329903dfdc181",
+     "status": "completed",
+     "timeout_seconds": 29.999996124999598
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 5.0386019999859855,
+     "request_id": "80e63263908a40b09261e9614243c719",
+     "request_sha256": "6a1d3577b125bd06e67f9829b901cc5a64a64e87c3ddedef1b2329903dfdc181",
+     "status": "completed",
+     "timeout_seconds": 29.999991916993167
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.6498831250355579,
+     "status": "completed",
+     "timeout_seconds": 99.99999208300142
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.6017706660204567,
+     "status": "completed",
+     "timeout_seconds": 99.99999708397081
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 30.008734499977436,
+     "failure_class": "CONTROL_RPC_TIMEOUT",
+     "request_id": "fb4bf23ab36742608faa4053e5542267",
+     "request_sha256": "6a1d3577b125bd06e67f9829b901cc5a64a64e87c3ddedef1b2329903dfdc181",
+     "status": "failed",
+     "timeout_seconds": 29.999993374978658
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.1155503750196658,
+     "request_id": "fb4bf23ab36742608faa4053e5542267",
+     "request_sha256": "6a1d3577b125bd06e67f9829b901cc5a64a64e87c3ddedef1b2329903dfdc181",
+     "status": "completed",
+     "timeout_seconds": 29.999992957978975
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9289455419639125,
+     "request_id": "fb4bf23ab36742608faa4053e5542267",
+     "request_sha256": "6a1d3577b125bd06e67f9829b901cc5a64a64e87c3ddedef1b2329903dfdc181",
+     "status": "completed",
+     "timeout_seconds": 29.999987290997524
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9255668750265613,
+     "request_id": "fa5ca8a900c84a149e66a89059a2637c",
+     "request_sha256": "5d192f864dcfb35a8dfd6dd5e62b7a7393097cfb693920624925bc2517bde445",
+     "status": "completed",
+     "timeout_seconds": 29.999997749982867
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 0.9556735829683021,
+     "request_id": "fa5ca8a900c84a149e66a89059a2637c",
+     "request_sha256": "5d192f864dcfb35a8dfd6dd5e62b7a7393097cfb693920624925bc2517bde445",
+     "status": "completed",
+     "timeout_seconds": 29.999988082970958
+    },
+    {
+     "attempt": 1,
+     "command": "download",
+     "elapsed_seconds": 0.4123205830110237,
+     "status": "completed",
+     "timeout_seconds": 119.99999824998667
+    },
+    {
+     "attempt": 1,
+     "command": "stop",
+     "elapsed_seconds": 0.6542546250275336,
+     "status": "completed",
+     "timeout_seconds": 74.99999820801895
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.4238700839923695,
+     "status": "completed",
+     "timeout_seconds": 59.99999616702553
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.43478058296022937,
+     "status": "completed",
+     "timeout_seconds": 119.9999975420069
+    }
+   ],
+   "contents_transfers": [
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.6040325420326553,
+     "remote": "/content/snake-cli-1e71c87398a64d9da610330159cd85bc-release.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.42943399999057874,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/lease-heartbeat.json",
+     "status": "failed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.4323261249810457,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/bootstrap.sh",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.616739958000835,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.4359034999506548,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/source.py",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.6253850000211969,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/inputs/acceptance_probe.py",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 2.7674222919740714,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/inputs/acceptance_probe.sh",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.6470775000052527,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.6656151250354014,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.467344457982108,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.5972680830163881,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "download",
+     "elapsed_seconds": 0.5874695419915952,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc-fault/output/acceptance-corrupt.bin",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.6245535829802975,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "download",
+     "elapsed_seconds": 0.43326720799086615,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/output/client-job.bin",
+     "status": "completed"
+    },
+    {
+     "direction": "download",
+     "elapsed_seconds": 0.6096241250052117,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/output/client-job.bin.sha256",
+     "status": "completed"
+    },
+    {
+     "direction": "download",
+     "elapsed_seconds": 0.4025053749792278,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/output/client-job.bin.complete",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.43271033302880824,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/acceptance-transfer-done",
+     "status": "completed"
+    },
+    {
+     "direction": "download",
+     "elapsed_seconds": 0.616425457992591,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/client-start.json",
+     "status": "failed"
+    },
+    {
+     "direction": "download",
+     "elapsed_seconds": 0.608347291010432,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/client-start.json",
+     "status": "completed"
+    },
+    {
+     "direction": "download",
+     "elapsed_seconds": 0.6003858330077492,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/client-finished.json",
+     "status": "failed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.424593832984101,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/client-release.json",
+     "status": "completed"
+    },
+    {
+     "direction": "download",
+     "elapsed_seconds": 0.6037272079847753,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/client-finished.json",
+     "status": "completed"
+    },
+    {
+     "direction": "download",
+     "elapsed_seconds": 0.4202954169595614,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/output/execution.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.6161573340068571,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "download",
+     "elapsed_seconds": 0.4103025000076741,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/output/execution.json.sha256",
+     "status": "completed"
+    },
+    {
+     "direction": "download",
+     "elapsed_seconds": 0.416560500045307,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/output/execution.json.complete",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.6491403330001049,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.6014020000002347,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "download",
+     "elapsed_seconds": 0.4120963750174269,
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/.snake-export-batch-acda583e30e340ccb909ad24e400e77e.zip",
+     "status": "completed"
+    }
+   ],
+   "error": null,
+   "failure_class": null,
+   "job_id": "acceptance-1792762502-cpu",
+   "source_receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/control-rpc-stall-requalification-20261023/requalify-p6wss65b/acceptance-1792762502/outputs/cpu/receipt.json",
+   "source_receipt_sha256": "c4528d37a249bd0688d778f5a464c9678d4edbc08515857fb74f56749325e26d",
+   "status": "PASS",
+   "stop_verified": true,
+   "transfers": [
+    {
+     "direction": "upload",
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/bootstrap.sh",
+     "status": "verified"
+    },
+    {
+     "direction": "upload",
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/source.py",
+     "status": "verified"
+    },
+    {
+     "direction": "upload",
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/inputs/acceptance_probe.py",
+     "status": "verified"
+    },
+    {
+     "direction": "upload",
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/inputs/acceptance_probe.sh",
+     "status": "verified"
+    },
+    {
+     "direction": "download",
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc-fault/output/acceptance-corrupt.bin",
+     "status": "failed"
+    },
+    {
+     "direction": "download",
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/output/client-job.bin",
+     "status": "verified"
+    },
+    {
+     "direction": "download",
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/output/execution.json",
+     "status": "verified"
+    },
+    {
+     "direction": "download",
+     "remote": "/content/snake-cli/1e71c87398a64d9da610330159cd85bc/.snake-export-batch-acda583e30e340ccb909ad24e400e77e.zip",
+     "status": "verified"
+    }
+   ]
+  },
+  "l4": {
+   "cleanup_error": null,
+   "cli_calls": [
+    {
+     "attempt": 1,
+     "command": "version",
+     "elapsed_seconds": 0.2282012919895351,
+     "status": "completed",
+     "timeout_seconds": 119.99999787501292
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.6386944170226343,
+     "status": "completed",
+     "timeout_seconds": 119.99999625002965
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.7589623330277391,
+     "status": "completed",
+     "timeout_seconds": 119.99999824998667
+    },
+    {
+     "attempt": 1,
+     "command": "new",
+     "elapsed_seconds": 3.2129362499690615,
+     "status": "completed",
+     "timeout_seconds": 179.99999816698255
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.252118584001437,
+     "request_id": "cca2051907d84acebbb11fb9e9bf5d3b",
+     "request_sha256": "371c8c45e8e1b0593cd8ce1f4442f08964e9d9c60d27fc57383f07fcc8cc1516",
+     "status": "completed",
+     "timeout_seconds": 29.999537000025157
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.8395238749799319,
+     "request_id": "cca2051907d84acebbb11fb9e9bf5d3b",
+     "request_sha256": "371c8c45e8e1b0593cd8ce1f4442f08964e9d9c60d27fc57383f07fcc8cc1516",
+     "status": "completed",
+     "timeout_seconds": 26.552332249993924
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 1.0410320839728229,
+     "status": "completed",
+     "timeout_seconds": 119.9999985829927
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 1.0107097500003874,
+     "status": "failed",
+     "timeout_seconds": 59.99999699997716
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.5196703749825247,
+     "request_id": "1ecbed3c4dd74aa29a9b33c034828e4f",
+     "request_sha256": "47617291082471717f55f73e8955ee7b1bb5328c2d133fe9c90995f8b140ca04",
+     "status": "completed",
+     "timeout_seconds": 29.99999962496804
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.8046942920191213,
+     "request_id": "1ecbed3c4dd74aa29a9b33c034828e4f",
+     "request_sha256": "47617291082471717f55f73e8955ee7b1bb5328c2d133fe9c90995f8b140ca04",
+     "status": "completed",
+     "timeout_seconds": 29.999979084008373
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3208379590068944,
+     "request_id": "965b771cf3f742c5a3e7d5f84d22cea9",
+     "request_sha256": "599cdd3c9059a73feede281f2583d638fcfcdf3145c4baf4e7909aaaef0023af",
+     "status": "completed",
+     "timeout_seconds": 29.999994250014424
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.365596583986189,
+     "request_id": "965b771cf3f742c5a3e7d5f84d22cea9",
+     "request_sha256": "599cdd3c9059a73feede281f2583d638fcfcdf3145c4baf4e7909aaaef0023af",
+     "status": "completed",
+     "timeout_seconds": 29.999992457975168
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.6040520830429159,
+     "status": "completed",
+     "timeout_seconds": 119.99999862501863
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.43380770896328613,
+     "status": "completed",
+     "timeout_seconds": 119.99999758298509
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.4381785829900764,
+     "status": "completed",
+     "timeout_seconds": 119.99998675001552
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.6191167919896543,
+     "status": "completed",
+     "timeout_seconds": 119.99999724997906
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.43147462501656264,
+     "status": "completed",
+     "timeout_seconds": 119.99999199999729
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.4687517919810489,
+     "status": "completed",
+     "timeout_seconds": 119.99999783298699
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3480700419750065,
+     "request_id": "e26d5c7b9cb244a6987e8c3828068919",
+     "request_sha256": "0240c8a81920a98b4be310f38e4628d30d32f03ed14128c82b09ef3d62d6609b",
+     "status": "completed",
+     "timeout_seconds": 29.999997542006895
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3019342920160852,
+     "request_id": "e26d5c7b9cb244a6987e8c3828068919",
+     "request_sha256": "0240c8a81920a98b4be310f38e4628d30d32f03ed14128c82b09ef3d62d6609b",
+     "status": "completed",
+     "timeout_seconds": 29.999989499978255
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 1.043192709039431,
+     "status": "completed",
+     "timeout_seconds": 59.99999383400427
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 1.0166598749929108,
+     "status": "completed",
+     "timeout_seconds": 119.99999833398033
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.286257416999433,
+     "request_id": "dd53409c5c8d43b484dda4a0096adf91",
+     "request_sha256": "e53ed6f5c318e2277c53eda8301346f0415a23cc3bb714d5e3a4befdec624e08",
+     "status": "completed",
+     "timeout_seconds": 29.999998415994924
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.8592071669991128,
+     "request_id": "dd53409c5c8d43b484dda4a0096adf91",
+     "request_sha256": "e53ed6f5c318e2277c53eda8301346f0415a23cc3bb714d5e3a4befdec624e08",
+     "status": "completed",
+     "timeout_seconds": 29.99999654199928
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.320461333030835,
+     "request_id": "13f82cb9e4424ebe893495a9b1c5228f",
+     "request_sha256": "c1f49d7ff8a0d4d92df2d9e2df09ee71d93fd3b6991c2383e9e05da245042d3f",
+     "status": "completed",
+     "timeout_seconds": 29.999998583982233
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.315574749954976,
+     "request_id": "13f82cb9e4424ebe893495a9b1c5228f",
+     "request_sha256": "c1f49d7ff8a0d4d92df2d9e2df09ee71d93fd3b6991c2383e9e05da245042d3f",
+     "status": "completed",
+     "timeout_seconds": 29.99999124999158
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.284566791029647,
+     "request_id": "bef4744bddaf426fae6f6c714459130d",
+     "request_sha256": "599cdd3c9059a73feede281f2583d638fcfcdf3145c4baf4e7909aaaef0023af",
+     "status": "completed",
+     "timeout_seconds": 29.99999820900848
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.8503019160125405,
+     "request_id": "bef4744bddaf426fae6f6c714459130d",
+     "request_sha256": "599cdd3c9059a73feede281f2583d638fcfcdf3145c4baf4e7909aaaef0023af",
+     "status": "completed",
+     "timeout_seconds": 29.999990292009898
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 1.0122407089802437,
+     "status": "completed",
+     "timeout_seconds": 119.9999949579942
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3580311670084484,
+     "request_id": "0c6339dd24a04767844a0716100cab5a",
+     "request_sha256": "1fe1cf7674284664ed388a55ce33d73fbdcdc3cf30cdaf01a9be52ee72060530",
+     "status": "completed",
+     "timeout_seconds": 29.999998250044882
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.314423749980051,
+     "request_id": "0c6339dd24a04767844a0716100cab5a",
+     "request_sha256": "1fe1cf7674284664ed388a55ce33d73fbdcdc3cf30cdaf01a9be52ee72060530",
+     "status": "completed",
+     "timeout_seconds": 29.999992666998878
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3303342910367064,
+     "request_id": "4b0aceec1b65430db6e668d4a7771353",
+     "request_sha256": "1cb54b27eba61e9937c26438b9b65a8032644b4f59cedd2f46089f14745aeee6",
+     "status": "completed",
+     "timeout_seconds": 29.99999762501102
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.9117321249796078,
+     "request_id": "4b0aceec1b65430db6e668d4a7771353",
+     "request_sha256": "1cb54b27eba61e9937c26438b9b65a8032644b4f59cedd2f46089f14745aeee6",
+     "status": "completed",
+     "timeout_seconds": 29.999985291971825
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 1.0072491669561714,
+     "status": "completed",
+     "timeout_seconds": 119.99999666697113
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 1.0491687079775147,
+     "status": "completed",
+     "timeout_seconds": 59.99999633297557
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.838038333982695,
+     "request_id": "ae7574c1963246108ca82e853f00d71b",
+     "request_sha256": "5ec6ee83bde0131b2c95e0b9bc9819a1ee351295095bad68641c2e3380db7c93",
+     "status": "completed",
+     "timeout_seconds": 29.999997749982867
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.1473832089686766,
+     "request_id": "ae7574c1963246108ca82e853f00d71b",
+     "request_sha256": "5ec6ee83bde0131b2c95e0b9bc9819a1ee351295095bad68641c2e3380db7c93",
+     "status": "completed",
+     "timeout_seconds": 29.999971374985762
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.1258224170305766,
+     "request_id": "d82885756f434ef9aa8b98474896c95a",
+     "request_sha256": "6977348cc1da50709d719aab338083d6419c7059030f45a757fcef483abc750d",
+     "status": "completed",
+     "timeout_seconds": 29.9999978330452
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3518432079581544,
+     "request_id": "d82885756f434ef9aa8b98474896c95a",
+     "request_sha256": "6977348cc1da50709d719aab338083d6419c7059030f45a757fcef483abc750d",
+     "status": "completed",
+     "timeout_seconds": 29.99998833303107
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 1.0115984579897486,
+     "status": "completed",
+     "timeout_seconds": 119.99999837495852
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.838046166987624,
+     "request_id": "cc8ce3b1485348d8b44cd15e8c1a1f38",
+     "request_sha256": "0c835cb06577ab77d86d43ac08835a4fe9f9fce747c456ed4bf1e9b7a7d8c259",
+     "status": "completed",
+     "timeout_seconds": 29.999997541017365
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.868571208033245,
+     "request_id": "cc8ce3b1485348d8b44cd15e8c1a1f38",
+     "request_sha256": "0c835cb06577ab77d86d43ac08835a4fe9f9fce747c456ed4bf1e9b7a7d8c259",
+     "status": "completed",
+     "timeout_seconds": 29.999993584002368
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.9499209590139799,
+     "request_id": "2dba71e4eddf45298a2096c3659d3907",
+     "request_sha256": "930b728ba6a30dcbc98beadfefd65c83f9fc61693624044b9684a2d3289108b1",
+     "status": "completed",
+     "timeout_seconds": 29.999998125014827
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.5037656659842469,
+     "request_id": "2dba71e4eddf45298a2096c3659d3907",
+     "request_sha256": "930b728ba6a30dcbc98beadfefd65c83f9fc61693624044b9684a2d3289108b1",
+     "status": "completed",
+     "timeout_seconds": 29.999993707984686
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.9706556249875575,
+     "request_id": "2dba71e4eddf45298a2096c3659d3907",
+     "request_sha256": "930b728ba6a30dcbc98beadfefd65c83f9fc61693624044b9684a2d3289108b1",
+     "status": "completed",
+     "timeout_seconds": 29.999988208001014
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3829025410232134,
+     "request_id": "2dba71e4eddf45298a2096c3659d3907",
+     "request_sha256": "930b728ba6a30dcbc98beadfefd65c83f9fc61693624044b9684a2d3289108b1",
+     "status": "completed",
+     "timeout_seconds": 29.999988915980794
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.9914867919869721,
+     "status": "completed",
+     "timeout_seconds": 59.99999741703505
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.1790084579843096,
+     "request_id": "f38f82b6a15246f3b7e8a9f7d6683abf",
+     "request_sha256": "599cdd3c9059a73feede281f2583d638fcfcdf3145c4baf4e7909aaaef0023af",
+     "status": "completed",
+     "timeout_seconds": 29.999998125014827
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.875287666975055,
+     "request_id": "f38f82b6a15246f3b7e8a9f7d6683abf",
+     "request_sha256": "599cdd3c9059a73feede281f2583d638fcfcdf3145c4baf4e7909aaaef0023af",
+     "status": "completed",
+     "timeout_seconds": 29.99997699999949
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.382634792011231,
+     "request_id": "8a658a7016ca4942888d791f021da322",
+     "request_sha256": "ff3c4231b42a9a892afbfafc60cd93d3b6c47b3f8fe3582b273bdd883be5edd6",
+     "status": "completed",
+     "timeout_seconds": 29.999998249986675
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3525297499727458,
+     "request_id": "8a658a7016ca4942888d791f021da322",
+     "request_sha256": "ff3c4231b42a9a892afbfafc60cd93d3b6c47b3f8fe3582b273bdd883be5edd6",
+     "status": "completed",
+     "timeout_seconds": 29.999989500036463
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3277865420095623,
+     "request_id": "01bab35032fb4cb692bdba0b215ac0e8",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.99999816599302
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3964912919909693,
+     "request_id": "01bab35032fb4cb692bdba0b215ac0e8",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999989665986504
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.621908875007648,
+     "status": "completed",
+     "timeout_seconds": 119.99999758298509
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.40275958296842873,
+     "status": "completed",
+     "timeout_seconds": 119.99999766703695
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 3.099278125038836,
+     "status": "completed",
+     "timeout_seconds": 59.999995499965735
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 14.419753541995306,
+     "request_id": "1f91df004dc24083b1d55a61f2b2f7bb",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999997250037268
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 1.5862050839932635,
+     "status": "completed",
+     "timeout_seconds": 59.9999944170122
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 30.01305816700915,
+     "failure_class": "CONTROL_RPC_TIMEOUT",
+     "request_id": "1f91df004dc24083b1d55a61f2b2f7bb",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "failed",
+     "timeout_seconds": 29.999986624985468
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.338153916003648,
+     "request_id": "1f91df004dc24083b1d55a61f2b2f7bb",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999998457962647
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.45684337499551475,
+     "status": "completed",
+     "timeout_seconds": 119.99999479198596
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.41675074998056516,
+     "status": "completed",
+     "timeout_seconds": 119.99999716697494
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3680725839803927,
+     "request_id": "11c7dcafc2cd48fba7a51f110f5b3d89",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999997916980647
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.5443899169913493,
+     "status": "completed",
+     "timeout_seconds": 59.99999454204226
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 18.34416387497913,
+     "request_id": "11c7dcafc2cd48fba7a51f110f5b3d89",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999983375018928
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.633264500007499,
+     "status": "completed",
+     "timeout_seconds": 119.99999737500912
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.47118141700048,
+     "status": "completed",
+     "timeout_seconds": 119.99999791703885
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 13.90745587501442,
+     "request_id": "a1a13b80ebec4c9fa1f9f947d7a8c586",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999998667044565
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 14.418642624979839,
+     "request_id": "a1a13b80ebec4c9fa1f9f947d7a8c586",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.99999762501102
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.4836466669803485,
+     "status": "completed",
+     "timeout_seconds": 119.9999975420069
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.41752183402422816,
+     "status": "completed",
+     "timeout_seconds": 119.99999724997906
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 38.42243929201504,
+     "status": "completed",
+     "timeout_seconds": 59.9999944170122
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 3.6707792920060456,
+     "request_id": "fd3cd7f777b64a1ea2217f21fc48caac",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.99999566603219
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3773961249971762,
+     "request_id": "fd3cd7f777b64a1ea2217f21fc48caac",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999994415964466
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.44769579102285206,
+     "status": "completed",
+     "timeout_seconds": 119.99999766703695
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.6303168750018813,
+     "status": "completed",
+     "timeout_seconds": 119.99999737500912
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3474257500492968,
+     "request_id": "502667fe7e234e7f988ba500467e9131",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999994666024577
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3137367499875836,
+     "request_id": "502667fe7e234e7f988ba500467e9131",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999987290997524
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.4240347080049105,
+     "status": "completed",
+     "timeout_seconds": 119.99999787495472
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.6243004170246422,
+     "status": "completed",
+     "timeout_seconds": 119.99999783298699
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 1.0339165829936974,
+     "status": "completed",
+     "timeout_seconds": 59.99999199999729
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.312270707974676,
+     "request_id": "0d2d95e4d11c41a39b589183f46cd456",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999996667029336
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.4589105420163833,
+     "request_id": "0d2d95e4d11c41a39b589183f46cd456",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999988249968737
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.635429167014081,
+     "status": "completed",
+     "timeout_seconds": 119.99999558296986
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.4218534579849802,
+     "status": "completed",
+     "timeout_seconds": 119.99999591702363
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3305618750164285,
+     "request_id": "27915a13f1e94d909163d3eb65fb009d",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999998292012606
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.8148342909989879,
+     "request_id": "27915a13f1e94d909163d3eb65fb009d",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.99999658303568
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.45112258300650865,
+     "status": "completed",
+     "timeout_seconds": 119.99999808397843
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.43143104104092345,
+     "status": "completed",
+     "timeout_seconds": 119.99999733403092
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 1.001959250017535,
+     "status": "completed",
+     "timeout_seconds": 59.99999762495281
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.4141316250315867,
+     "request_id": "7ea28119cbde447e85ed3b2edb94a64a",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.99999616696732
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.8955166660016403,
+     "request_id": "7ea28119cbde447e85ed3b2edb94a64a",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999987834016792
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.4368585829506628,
+     "status": "completed",
+     "timeout_seconds": 119.99999749998096
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.410843042016495,
+     "status": "completed",
+     "timeout_seconds": 119.99999699997716
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.399519375001546,
+     "request_id": "7e9f1d97b9274a6e8deecd8bd88e9c95",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999997332983185
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3600929170497693,
+     "request_id": "7e9f1d97b9274a6e8deecd8bd88e9c95",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.99999087501783
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.47101041703717783,
+     "status": "completed",
+     "timeout_seconds": 119.9999975420069
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.42791358300019056,
+     "status": "completed",
+     "timeout_seconds": 119.99999254196882
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 0.5500927080283873,
+     "status": "completed",
+     "timeout_seconds": 59.99999029102037
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 3.4698692919919267,
+     "request_id": "24da71484e50461d8edf7da42810de9a",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999991708027665
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.817265999969095,
+     "request_id": "24da71484e50461d8edf7da42810de9a",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999997749982867
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.462381582998205,
+     "status": "completed",
+     "timeout_seconds": 119.9999977920088
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.39974037499632686,
+     "status": "completed",
+     "timeout_seconds": 119.99999708397081
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.4007281250087544,
+     "request_id": "3acb82feb517472eb0e0f7ffffd10731",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999996041995473
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.8420114169712178,
+     "request_id": "3acb82feb517472eb0e0f7ffffd10731",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999989249976352
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.44619920797413215,
+     "status": "completed",
+     "timeout_seconds": 119.99999766703695
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.4380220000166446,
+     "status": "completed",
+     "timeout_seconds": 119.99999791698065
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 1.0293215829879045,
+     "status": "completed",
+     "timeout_seconds": 59.99999745900277
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 14.405958499992266,
+     "request_id": "5641aa41a39846698cf52d0d9d7a55ee",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999995874997694
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 14.38604520802619,
+     "request_id": "5641aa41a39846698cf52d0d9d7a55ee",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.99999654199928
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.6118589999969117,
+     "status": "completed",
+     "timeout_seconds": 119.99999758397462
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.3962256670347415,
+     "status": "completed",
+     "timeout_seconds": 119.99999770801514
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 2.3877477909554727,
+     "request_id": "3ac41f36174541cfb28819209325512f",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999998334038537
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 1.8831526249996386,
+     "request_id": "3ac41f36174541cfb28819209325512f",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "completed",
+     "timeout_seconds": 29.999988541007042
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.43911554204532877,
+     "status": "completed",
+     "timeout_seconds": 119.99999629199738
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.6029791659675539,
+     "status": "completed",
+     "timeout_seconds": 119.99999774998287
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 31.53622104198439,
+     "status": "completed",
+     "timeout_seconds": 59.999995707999915
+    },
+    {
+     "attempt": 1,
+     "command": "exec",
+     "elapsed_seconds": 30.0062095419853,
+     "failure_class": "CONTROL_RPC_TIMEOUT",
+     "request_id": "954d47ea5c2747e0a109e9017ca8d81d",
+     "request_sha256": "215cd22cf01f5c19ad5853eece74397239ea3fafa1783d810eb204b7c9d386d9",
+     "status": "failed",
+     "timeout_seconds": 29.999997709004674
+    },
+    {
+     "attempt": 1,
+     "command": "upload",
+     "elapsed_seconds": 22.45265458303038,
+     "status": "completed",
+     "timeout_seconds": 59.99999741697684
+    },
+    {
+     "attempt": 1,
+     "command": "stop",
+     "elapsed_seconds": 0.8950351249659434,
+     "status": "completed",
+     "timeout_seconds": 74.99999533302616
+    },
+    {
+     "attempt": 1,
+     "command": "sessions",
+     "elapsed_seconds": 0.41048616700572893,
+     "status": "completed",
+     "timeout_seconds": 59.99999774998287
+    },
+    {
+     "attempt": 1,
+     "command": "usage",
+     "elapsed_seconds": 0.6400084579945542,
+     "status": "completed",
+     "timeout_seconds": 119.99999712500721
+    }
+   ],
+   "contents_transfers": [
+    {
+     "direction": "upload",
+     "elapsed_seconds": 1.0408713750075549,
+     "remote": "/content/snake-cli-1864980be8074cf9a1fddbc284091ff6-release.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 1.009197207982652,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "failed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 1.0425426669535227,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 1.0164992499630898,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/bootstrap.sh",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 1.011875208991114,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/source.py",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 1.0069476250209846,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/inputs/acceptance_probe.py",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 1.0487804160220549,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 1.011369707994163,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/inputs/acceptance_probe.sh",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.9912733340170234,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 3.0988166670431383,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 1.5855641670059413,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.5437453329795972,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 38.421849915990606,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 1.03328249999322,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 1.0017382910009474,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 0.5493952079559676,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 1.0290781250223517,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 31.535751416988205,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    },
+    {
+     "direction": "upload",
+     "elapsed_seconds": 22.450107707991265,
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/lease-heartbeat.json",
+     "status": "completed"
+    }
+   ],
+   "error": "GuardError('read helper operation budget exhausted')",
+   "failure_class": "SUPERVISOR",
+   "job_id": "acceptance-1792762502-l4",
+   "source_receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/control-rpc-stall-requalification-20261023/requalify-p6wss65b/acceptance-1792762502/outputs/l4/receipt.json",
+   "source_receipt_sha256": "78fae4b656429f034c1a95d41bb6a9bc8614acd963b3230f5044169bb31ee20b",
+   "status": "INCOMPLETE",
+   "stop_verified": true,
+   "transfers": [
+    {
+     "direction": "upload",
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/bootstrap.sh",
+     "status": "verified"
+    },
+    {
+     "direction": "upload",
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/source.py",
+     "status": "verified"
+    },
+    {
+     "direction": "upload",
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/inputs/acceptance_probe.py",
+     "status": "verified"
+    },
+    {
+     "direction": "upload",
+     "remote": "/content/snake-cli/1864980be8074cf9a1fddbc284091ff6/inputs/acceptance_probe.sh",
+     "status": "verified"
+    }
+   ]
+  }
+ },
+ "schema": "l4-label-faults-v2-sanity-fixture/v1"
+}

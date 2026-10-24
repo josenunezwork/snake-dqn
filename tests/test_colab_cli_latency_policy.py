@@ -16,9 +16,10 @@ from research.colab_cli.failures import ClassifiedFailure, FailureClass
 
 
 @pytest.mark.parametrize("cap", ["deadline", "priced_deadline", "explicit"])
-def test_telemetry_recovery_stops_after_three_short_attempts_without_extending_caps(
+def test_telemetry_recovery_stops_after_four_bounded_attempts_inside_first_cap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: str
 ) -> None:
+    """v2 recovery (JUDGMENT_L4_FAULT_DEFINITION §4): <= 4 attempts, <= 150 s, first cap wins."""
     now = [0.0]
     cli = supervisor.CLI("fake", tmp_path / "config", "owned")
     if cap != "explicit":
@@ -44,15 +45,19 @@ def test_telemetry_recovery_stops_after_three_short_attempts_without_extending_c
     monkeypatch.setattr(supervisor.subprocess, "run", invoke)
     monkeypatch.setattr(cli_guard, "kernel_idle", idle)
     monkeypatch.setattr(policy, "poll_delay", lambda _attempt: 2.0)
-    with pytest.raises(ClassifiedFailure, match="control exec timed out") as raised:
+    with pytest.raises(
+        ClassifiedFailure, match="deadline reached during telemetry recovery"
+    ) as raised:
         cli.poll_rpc("result=True", **({"timeout": 150} if cap == "explicit" else {}))
     assert raised.value.failure_class is FailureClass.CONTROL_RPC_TIMEOUT
-    assert calls == [30, 30, 30]
-    assert probes == [30, 30]
-    # The fixed three-attempt envelope stops at 94s; it neither borrows the
-    # remaining 56s nor allows retries to extend the frozen first cap.
-    assert now[0] == 94
+    # Every exec stays at its 30 s bound; the last is narrowed by the first cap.
+    assert calls == [30, 30, 30, 30, 22]
+    assert probes == [30, 30, 30, 24]
+    assert now[0] == 150  # Never beyond the frozen first cap.
     assert cli.exec_uncertain  # Exhaustion never clears uncertain kernel state.
+    summary = cli.call_records[-1]
+    assert summary["command"] == "recovery" and summary["status"] == "failed"
+    assert summary["attempts"] == policy.RECOVERY_ATTEMPTS == 4
 
 
 def test_telemetry_attempt_does_not_shorten_independent_heartbeat_budget(

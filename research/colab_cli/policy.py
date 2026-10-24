@@ -23,6 +23,12 @@ WARMUP_SECONDS = 300.0
 WARMUP_PROBE_SECONDS = 30.0
 WARMUP_INTERVAL_SECONDS = 5.0
 MAX_REQUEST_POLLS = 300
+# l4-label-faults/v2 (JUDGMENT_L4_FAULT_DEFINITION_20261024 §4): after an
+# uncertain exec, at most four bounded idle-proof/re-issue attempts under the
+# same request ID, all inside a 150-second per-request recovery ceiling that is
+# itself narrowed by the operation, session and priced caps (first cap wins).
+RECOVERY_ATTEMPTS = 4
+RECOVERY_SECONDS = 150.0
 ATTEMPTS = 3
 BACKOFF_SECONDS = (2.0, 5.0)
 READ_COMMANDS = frozenset({"version", "whoami", "sessions", "usage", "url"})
@@ -62,6 +68,22 @@ def transient_error(exc: BaseException) -> bool:
                 "timeout",
             )
         )
+    )
+
+
+def recovery_probe_retryable(exc: BaseException) -> bool:
+    """An idle-proof GET that failed by transport or by exhausting its own bound.
+
+    Its helper budget exhaustion is a slow read, not proof of state, so another
+    bounded probe may follow inside the recovery ceiling. Auth, quota, malformed
+    state and kernel errors still fail immediately.
+    """
+    if transient_error(exc):
+        return True
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in ("read helper operation budget exhausted", "timed out", "timeoutexpired")
     )
 
 

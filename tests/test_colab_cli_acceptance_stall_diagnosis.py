@@ -11,8 +11,10 @@ from typing import Any
 
 import pytest
 
+from research.bl_labels.f1_analyze import transport_faults
+from research.bl_labels.l4_faults_v2 import classify_session
 from research.colab_cli import cli_guard, policy, supervisor
-from research.rpc_qualification.checker import _raw_faults
+from research.colab_cli.failures import ClassifiedFailure, FailureClass
 
 FIXTURE = json.loads(
     (Path(__file__).parent / "fixtures/colab_control_faults_acceptance_1792762502.json").read_text()
@@ -35,15 +37,15 @@ def test_receipt_census_preserves_recovered_and_terminal_l4_timeouts() -> None:
     assert sum(FIXTURE["cpu_cli_counts"].values()) == 136
     assert FIXTURE["cpu_cli_counts"]["exec"] == 73
     receipt = {**FIXTURE["receipt"], "cli_calls": calls}
-    faults = _raw_faults(receipt)
-    # The pre-runtime upload failure is preserved too; this test grants no
-    # unregistered carve-out. The helper refusal counts as a terminal fault.
-    assert [(row["source"], row.get("index")) for row in faults] == [
-        ("cli_calls", 7),
-        ("cli_calls", 58),
-        ("cli_calls", 117),
-        ("terminal", None),
-    ]
+    # Frozen F1/C1.3 census (historical rule): every failed call counts.
+    assert [calls.index(row) for row in transport_faults(receipt)] == [7, 58, 117]
+    # l4-label-faults/v2 (prospective): still FAIL -- 117 is C2, the end is C3,
+    # 58 is benign-recovered. Recovery never deletes the recorded fault.
+    v2 = classify_session(receipt)
+    assert v2["verdict"] == "FAIL"
+    assert ("C2", 117) in [(row["class"], row.get("index")) for row in v2["counted"]]
+    assert any(row["class"] == "C3" for row in v2["counted"])
+    assert 58 in [row["first_failure_index"] for row in v2["recovered"]]
     for index in (58, 117):
         assert calls[index]["failure_class"] == "CONTROL_RPC_TIMEOUT"
         assert calls[index]["elapsed_seconds"] > calls[index]["timeout_seconds"]
@@ -74,19 +76,20 @@ def test_fast_read_helpers_at_observed_counts_have_independent_deadlines(
 
 
 @pytest.mark.parametrize("cap,cap_seconds", [("deadline", 1755.0), ("priced_deadline", 1800.0)])
-def test_l4_exec_timeout_then_guard_elapsed_budget_exhaustion_keeps_fence(
+def test_l4_exec_timeout_then_stalled_helpers_retry_inside_ceiling_and_keep_fence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: str, cap_seconds: float
 ) -> None:
-    """Replay call 117 followed by a stalled GET, with no cap or retry change.
+    """Replay call 117 followed by stalled GETs under the v2 recovery fix.
 
-    The receipt omits helper timing; a full 30s helper timeout is a deterministic
-    reproduction of the code path, not a measured historical helper duration.
+    Before the fix one exhausted 30 s helper ended the session (GuardError).
+    Now each helper exhaustion is a bounded failed probe; up to four attempts
+    run inside the 150 s ceiling, the first cap is unchanged, no exec is
+    re-issued without idle proof, and exhaustion is an explicit C2.
     """
     row = FIXTURE["cli_calls"][117]
     now = [0.0]
     cli = supervisor.CLI("fake", tmp_path / "config", "owned")
     cli.call_records = copy.deepcopy(FIXTURE["cli_calls"][:117])
-    # Historical wall cap reserves 45s for cleanup; the priced cap is 1,800s.
     setattr(cli, cap, cap_seconds)
     exec_calls = []
     helper_calls = []
@@ -105,19 +108,19 @@ def test_l4_exec_timeout_then_guard_elapsed_budget_exhaustion_keeps_fence(
 
     monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
     monkeypatch.setattr(supervisor.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+    monkeypatch.setattr(cli_guard.time, "monotonic", lambda: now[0])
     monkeypatch.setattr(cli, "_call_once", execute)
     monkeypatch.setattr(cli_guard, "_run_helper", read)
-    with pytest.raises(
-        cli_guard.GuardError, match="read helper operation budget exhausted"
-    ) as raised:
+    with pytest.raises(ClassifiedFailure) as raised:
         cli.poll_rpc("result=True")
-    assert "TimeoutExpired" in str(raised.value.__cause__)
-    assert exec_calls == [30]
-    assert helper_calls == [30]
-    assert now[0] == pytest.approx(row["elapsed_seconds"] + 30)
+    assert raised.value.failure_class is FailureClass.CONTROL_RPC_TIMEOUT
+    assert exec_calls == [30]  # No mutation replay without independent idle proof.
+    assert 1 < len(helper_calls) <= policy.RECOVERY_ATTEMPTS
+    assert now[0] <= row["elapsed_seconds"] + policy.RECOVERY_SECONDS + 1e-6
     assert getattr(cli, cap) == cap_seconds
     assert cli.exec_uncertain
-    assert cli.call_records[-1]["failure_class"] == "CONTROL_RPC_TIMEOUT"
     with pytest.raises(supervisor.Refused, match="previous exec uncertain/busy"):
         cli.rpc("result=True")
-    assert len(exec_calls) == 1  # No mutation replay without independent idle proof.
+    receipt = {**FIXTURE["receipt"], "cli_calls": cli.call_records}
+    result = classify_session(receipt)
+    assert ("C2", 117) in [(r["class"], r.get("index")) for r in result["counted"]]

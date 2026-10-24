@@ -568,7 +568,9 @@ def test_cpu_failure_writes_final_result_and_does_not_spend_l4(
     class Observer:
         records: dict[str, dict[str, object]] = {}
 
-        def __init__(self, _oauth_python: str, profile: str = "final-only") -> None:
+        def __init__(
+            self, _oauth_python: str, profile: str = "final-only", injections: object = None
+        ) -> None:
             self.records = {}
 
         def _record(self, name: str, **evidence: object) -> None:
@@ -610,7 +612,9 @@ def test_expected_l4_watchdog_refusal_records_or_rejects_provider_rate_calibrati
     monkeypatch.setattr(supervisor, "REPO", repo)
 
     class Observer:
-        def __init__(self, _oauth_python: str, profile: str = "final-only") -> None:
+        def __init__(
+            self, _oauth_python: str, profile: str = "final-only", injections: object = None
+        ) -> None:
             self.records: dict[str, dict[str, object]] = {}
 
         def _record(self, name: str, **evidence: object) -> None:

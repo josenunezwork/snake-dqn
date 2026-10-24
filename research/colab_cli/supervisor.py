@@ -414,6 +414,13 @@ class CLI:
                         "timeout_seconds": remaining,
                         "status": status,
                         "elapsed_seconds": time.monotonic() - started,
+                        # v2 attributes transfer faults by remote, independent
+                        # of the concurrent heartbeat's append ordering.
+                        **(
+                            {"remote": args[-1] if args[0] == "upload" else args[-2]}
+                            if args[0] in {"upload", "download"} and len(args) >= 3
+                            else {}
+                        ),
                         **(
                             {"failure_class": failure_class, "error": failure_detail}
                             if failure_class
@@ -700,64 +707,108 @@ class CLI:
         Faults remain recorded even when recovered. Attempts, probes, polls and
         jitter borrow from one operation budget and the first session cap.
         """
-        from research.colab_cli.cli_guard import kernel_idle
+        from research.colab_cli import cli_guard
         from research.colab_cli.failures import ClassifiedFailure, FailureClass
 
         request_id = uuid.uuid4().hex
+        request_sha256 = hashlib.sha256(code.encode()).hexdigest()
         deadline = time.monotonic() + self.remaining_seconds(timeout)
-        for attempt in range(policy.ATTEMPTS):
-            remaining = deadline - time.monotonic()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ClassifiedFailure(
+                FailureClass.CONTROL_RPC_TIMEOUT, "deadline reached during telemetry recovery"
+            )
+        try:
+            return self.rpc(code, remaining, completion_grace=0, request_id=request_id)
+        except (Refused, ClassifiedFailure, OSError, subprocess.SubprocessError) as exc:
+            if not self.exec_uncertain or not policy.transient_error(exc):
+                raise
+            first_error: BaseException = exc
+        # l4-label-faults/v2 recovery (the one mechanical fix): at most
+        # RECOVERY_ATTEMPTS bounded idle-proof/re-issue attempts under the same
+        # request identity, inside RECOVERY_SECONDS from the first failure and
+        # the operation/session/priced caps (first wins). No bound is widened,
+        # the busy fence is cleared only by independent idle proof, and every
+        # probe plus one summary is recorded; the original fault stays recorded.
+        recovery_started = time.monotonic()
+        ceiling = min(deadline, recovery_started + policy.RECOVERY_SECONDS)
+        attempts = 0
+        outcome = "kernel remains busy/unknown after telemetry hiccup"
+
+        def summary(status: str) -> None:
+            elapsed = time.monotonic() - recovery_started
+            self.call_records.append(
+                {
+                    "attempt": attempts,
+                    "attempts": attempts,
+                    "command": "recovery",
+                    "elapsed_seconds": elapsed,
+                    "recovery_seconds": elapsed,
+                    "request_id": request_id,
+                    "request_sha256": request_sha256,
+                    "status": status,
+                    "timeout_seconds": policy.RECOVERY_SECONDS,
+                    **({} if status == "completed" else {"failure_class": "CONTROL_RPC_TIMEOUT"}),
+                }
+            )
+
+        while attempts < policy.RECOVERY_ATTEMPTS:
+            remaining = ceiling - time.monotonic()
             if remaining <= 0:
-                raise ClassifiedFailure(
-                    FailureClass.CONTROL_RPC_TIMEOUT, "deadline reached during telemetry recovery"
-                )
+                outcome = "deadline reached during telemetry recovery"
+                break
+            attempts += 1
+            probe_bound = min(policy.RPC_SECONDS, remaining)
+            probe_started = time.monotonic()
+            record: dict[str, Any] = {
+                "attempt": attempts,
+                "command": "kernel_idle",
+                "request_id": request_id,
+                "request_sha256": request_sha256,
+                "timeout_seconds": probe_bound,
+            }
+            idle = False
             try:
-                return self.rpc(code, remaining, completion_grace=0, request_id=request_id)
-            except (Refused, ClassifiedFailure, OSError, subprocess.SubprocessError) as exc:
-                if (
-                    not self.exec_uncertain
-                    or attempt == policy.ATTEMPTS - 1
-                    or not policy.transient_error(exc)
-                ):
+                idle = cli_guard.kernel_idle(
+                    self.oauth_python, self.config, self.session, timeout=probe_bound
+                )
+                record.update(status="completed", idle=idle)
+            except Exception as probe_exc:
+                record.update(status="failed", error=redact(repr(probe_exc)))
+                if not policy.recovery_probe_retryable(probe_exc):
+                    record["elapsed_seconds"] = time.monotonic() - probe_started
+                    self.call_records.append(record)
+                    summary("failed")
                     raise
-                idle = False
-                for probe in range(policy.ATTEMPTS):
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise ClassifiedFailure(
-                            FailureClass.CONTROL_RPC_TIMEOUT,
-                            "deadline reached during telemetry recovery",
-                        ) from exc
-                    try:
-                        idle = kernel_idle(
-                            self.oauth_python,
-                            self.config,
-                            self.session,
-                            timeout=min(policy.RPC_SECONDS, remaining),
-                        )
-                    except Exception as probe_exc:
-                        if not policy.transient_error(probe_exc):
-                            raise
-                    if idle:
-                        break
-                    delay = min(policy.poll_delay(probe), max(0, deadline - time.monotonic()))
-                    if delay:
-                        time.sleep(delay)
-                if not idle:
-                    raise ClassifiedFailure(
-                        FailureClass.CONTROL_RPC_TIMEOUT,
-                        "kernel remains busy/unknown after telemetry hiccup",
-                    ) from exc
-                delay = min(policy.poll_delay(attempt), max(0, deadline - time.monotonic()))
-                if delay:
-                    time.sleep(delay)
-                if deadline <= time.monotonic():
-                    raise ClassifiedFailure(
-                        FailureClass.CONTROL_RPC_TIMEOUT,
-                        "deadline reached during telemetry recovery",
-                    ) from exc
-                self.exec_uncertain = False
-        raise Refused("telemetry recovery exhausted")
+            record["elapsed_seconds"] = time.monotonic() - probe_started
+            self.call_records.append(record)
+            delay = min(policy.poll_delay(attempts - 1), max(0.0, ceiling - time.monotonic()))
+            if delay:
+                time.sleep(delay)
+            if not idle:
+                continue
+            remaining = ceiling - time.monotonic()
+            if remaining <= 0:
+                outcome = "deadline reached during telemetry recovery"
+                break
+            self.exec_uncertain = False
+            try:
+                value = self.rpc(code, remaining, completion_grace=0, request_id=request_id)
+            except (Refused, ClassifiedFailure, OSError, subprocess.SubprocessError) as exc:
+                if not self.exec_uncertain or not policy.transient_error(exc):
+                    summary("failed")
+                    raise
+                continue
+            summary("completed")
+            return value
+        else:
+            outcome = (
+                "deadline reached during telemetry recovery"
+                if ceiling - time.monotonic() <= 0
+                else "kernel remains busy/unknown after telemetry hiccup"
+            )
+        summary("failed")
+        raise ClassifiedFailure(FailureClass.CONTROL_RPC_TIMEOUT, outcome) from first_error
 
 
 def stop_verified(cli: CLI, endpoint: str) -> None:

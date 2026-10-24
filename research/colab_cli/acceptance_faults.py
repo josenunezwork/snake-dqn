@@ -79,8 +79,15 @@ print(json.dumps({'kernel_id':state.kernel_id,'endpoint':state.endpoint,'url':st
 class AcceptanceObserver:
     """Exercise account/kernel fault boundaries without a second allocation."""
 
-    def __init__(self, oauth_python: str, profile: str = "final-only") -> None:
+    def __init__(
+        self,
+        oauth_python: str,
+        profile: str = "final-only",
+        injections: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
         self.records: dict[str, dict[str, Any]] = {}
+        # Pre-dispatch v2 injection manifests by job ID (identity of deliberate faults).
+        self.injections = injections or {}
         if profile not in {"final-only", "full-state"}:
             raise ValueError(f"unknown acceptance profile: {profile}")
         self.profile = profile
@@ -117,7 +124,7 @@ class AcceptanceObserver:
         if stage == "ready":
             self._url_no_second_allocation(cli)
             self._state(context)
-            self._silence_then_bounded_rpc(cli)
+            self._silence_then_bounded_rpc(cli, manifest.get("job_id"))
             self._corrupt_export_rejection(cli, context["root"], output)
             self._busy_transfer_and_client_loss(context)
             return
@@ -370,12 +377,24 @@ class AcceptanceObserver:
             raise supervisor.Refused("url changed assignment identity or count")
         self._record("url-no-second-allocation", sessions_before=before, sessions_after=after)
 
-    def _silence_then_bounded_rpc(self, cli: supervisor.CLI) -> None:
+    def _silence_then_bounded_rpc(self, cli: supervisor.CLI, job_id: str | None = None) -> None:
+        from research.colab_cli.injection_manifest import SILENCE_CODE
+
         started = time.monotonic()
+        planned = [
+            entry
+            for entry in self.injections.get(job_id or "", {}).get("entries", [])
+            if entry.get("injection_id") == "silence-timeout"
+        ]
         # The runtime child is an independently supervised subprocess. This
         # bounded kernel call creates an actual >60-second execution silence;
         # its explicit timeout is evidence that no unbounded wait is hidden.
-        value = cli.rpc("import time\ntime.sleep(65)\nresult={'after_silence':True}", timeout=120)
+        # Its request ID is the pre-dispatch v2 injection identity when planned.
+        value = cli.rpc(
+            SILENCE_CODE,
+            timeout=120,
+            request_id=planned[0]["request_id"] if planned else None,
+        )
         self._record(
             "silence-timeout",
             silence_seconds=time.monotonic() - started,

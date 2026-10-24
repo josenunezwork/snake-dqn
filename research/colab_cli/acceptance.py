@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from research.colab_cli import supervisor
+from research.colab_cli import injection_manifest, supervisor
 from research.colab_cli.acceptance_faults import AcceptanceObserver
 
 MAX_UNITS = 4.0
@@ -313,10 +313,21 @@ def build_plan(
         )
         target = manifests / f"{name}.json"
         atomic_json(target, payload)
+        # l4-label-faults/v2 §2.3: deliberate faults are excluded only by this
+        # create-only identity record, written before any dispatch.
+        injections = manifests / f"{name}.injection.json"
+        injections_sha256 = injection_manifest.write(
+            injections,
+            payload["job_id"],
+            injection_manifest.acceptance_entries(gpu),
+            purpose=f"final-only acceptance {gpu} arm deliberate faults",
+        )
         jobs.append(
             {
                 "name": name,
                 "manifest": str(target),
+                "injection_manifest": str(injections),
+                "injection_manifest_sha256": injections_sha256,
                 "priced_rate_units_per_hour": rate,
                 "expected_units": payload["budget"]["unit_cap"],
             }
@@ -378,7 +389,16 @@ def execute(
         raise ValueError("execution requires the exact reviewed acceptance token")
     profile = plan["profile"]
     verify_plan_sources(plan, supervisor.REPO)
-    observer = AcceptanceObserver(oauth_python, profile=profile)
+    observer = AcceptanceObserver(
+        oauth_python,
+        profile=profile,
+        injections={
+            json.loads(Path(job["manifest"]).read_text())["job_id"]: injection_manifest.load(
+                Path(job["injection_manifest"]), job["injection_manifest_sha256"]
+            )
+            for job in plan["jobs"]
+        },
+    )
     results: list[dict[str, Any]] = []
     run_dir = Path(plan["jobs"][0]["manifest"]).parent.parent
     for job in plan["jobs"]:
