@@ -1,0 +1,268 @@
+{
+  "branch_at_review": "t34-f0-nice-interim-20261023",
+  "created_utc": "2026-10-24T02:26:37.813509+00:00",
+  "d256_dispatch_may_proceed": false,
+  "dispatch_disposition": "HOLD at reviewed operational pin; repair conditions 1 and 2 and independently verify a new published pin before normal ledger continuation.",
+  "findings": [
+    {
+      "conditions": [
+        2,
+        3
+      ],
+      "id": "F1",
+      "impact": "The required versioned interim receipt identity and honest presence statement are missing; legacy or mismatched-policy evidence can authorize recovery.",
+      "locations": [
+        "research/bl_labels/slowdown_resume.py:26",
+        "research/bl_labels/slowdown_resume.py:179",
+        "research/bl_labels/slowdown_resume.py:265",
+        "research/bl_labels/NICE_INTERIM_HANDOFF_20261023.md:21"
+      ],
+      "observed": "record_host_check accepts a live qualifying nice-15 Codex fixture but publishes bl-labels-f0-slowdown-host-check/v1 with no_sol_codex=true and no ruling SHA or operational pin. resume_policy accepts a sealed legacy-unbound receipt and receipts containing a foreign ruling_sha256 or operational_pin. Foreign schema itself is refused.",
+      "required_change": "Use an explicit interim schema and truthfully named observations, bind the ruling SHA and operational pin, and validate those bindings during recovery while retaining old receipts unchanged.",
+      "severity": "HIGH",
+      "title": "Interim recovery receipts retain the old unbound schema and accept foreign policy/pin"
+    },
+    {
+      "conditions": [
+        1,
+        3
+      ],
+      "id": "F2",
+      "impact": "The launcher permits simultaneous or unbounded test/tool compute; assigning nice 15 alone cannot establish condition 1.",
+      "locations": [
+        "tools/ops/agent_nice.sh:3",
+        "tools/ops/agent_nice.sh:19",
+        "research/bl_labels/NICE_INTERIM_HANDOFF_20261023.md:59"
+      ],
+      "observed": "A real child executed through agent_nice.sh while the independent runner held ops/factory-companions/test-slot.lock. The complete 22-line launcher unconditionally execs argv and contains no elapsed timeout, watchdog, cleanup, review/classification or protected-window test admission. The prepared full-supervisor route remains activation-HOLD and is not an active interim substitute.",
+      "required_change": "Provide a usable interim reviewed serial-test route with a common host lock, an elapsed bound of 120 seconds including cleanup, and the registered restrictions/protected-window withholding. Advice/editing clients may continue under their separate light-work route.",
+      "severity": "HIGH",
+      "title": "The active interim tool route has no shared serial test lock or 120-second timeout/cleanup"
+    },
+    {
+      "conditions": [
+        1,
+        3
+      ],
+      "id": "F3",
+      "impact": "Numerical local tools can start with the wrong device or incomplete OpenMP limits before import.",
+      "locations": [
+        "tools/ops/agent_nice.sh:9"
+      ],
+      "observed": "Real launcher probes retain SNAKE_DQN_DEVICE=mps and OMP_THREAD_LIMIT=8 from the caller. The script exports neither required override. Its five existing numerical thread environment limits do pass, as does nice inheritance.",
+      "required_change": "Ensure all numerical tests/tools enter with SNAKE_DQN_DEVICE=cpu and all six required thread variables equal to one before imports, plus Torch intra/inter-op limits for Torch tests. The independent review runner supplied these itself; that does not qualify the product launcher.",
+      "severity": "HIGH",
+      "title": "Effective launch settings omit CPU-only execution and OMP_THREAD_LIMIT"
+    }
+  ],
+  "fixture_and_log_sha256": {
+    "health-correction/junit.xml": "f028013d5e3c11850f97c2541904819764a27047991442531c0b36c28cc3fc48",
+    "health-correction/pytest.log": "d8723ee001feaaf2086b9ce1b811b05cd7fcaa5a6810308b70293e0529ba97f7",
+    "health-correction/run.json": "b5fc6f3a0810c0c1c8a3ea5fe241e4a8dc02cf59ba6c70b3de01376ed40ca239",
+    "junit.xml": "8b0b013a8989c0196d031b627e7647750fdbab0d5ec8568854fa50837be71337",
+    "publish_verdict.py": "ed56cde8b22eadb923b87b0c80471a5e2d609b255edde388f7d98e61dd90191d",
+    "pytest.log": "4aad582782d903f7a2b8cbd6786a2398a93daa6088fcd8e0558f4db89ad38268",
+    "run.json": "42c6c30064fce8418956a8426776a113754aed1433d1f525676895b309613aca",
+    "run_health_correction.py": "58956400202a1b4074b0ae524bbfb57706257b8db4fb2e6eedcf0c244246f011",
+    "run_review.py": "d1c775308cc097ea450eccdb204b385b4c1b17ea619f6a4698428adc170d26d1",
+    "test_focused.py": "1aa29799b402d034da2908defa4b56747fb6d5432511b06ee378604be88a63ef",
+    "test_health_corrected.py": "17aae769b4e87861822fd1157a02d495fe1c4bc176e076b1e0ca83faf16f4164"
+  },
+  "initial_and_prepublication_dirty_state": "clean",
+  "invariance": {
+    "accounting": "Entire mac_driver AST outside the priority predicate unchanged; d256_resume.py and exports.py byte-identical to qualified operational baseline. Nominal width x elapsed charges, cumulative charges, wall cap 57600, namespace/allocation, prior attempts, verified-ledger skip, caps and registered stop rules preserved. No companion-time discount.",
+    "byte_identical_to_operational_baseline": [
+      "research/bl_labels/slowdown_guard.py",
+      "research/bl_labels/slowdown_state.py",
+      "research/bl_labels/d256_resume.py",
+      "research/bl_labels/frozen_factory.py",
+      "research/bl_labels/d256_w12.py",
+      "research/bl_labels/w12_runtime.py",
+      "research/bl_labels/exports.py",
+      "research/bl_labels/RUN_D256_RESUME.sh"
+    ],
+    "exports_byte_identical_to_science_pin": true,
+    "frozen_science_tree": "/Users/josenunez/Projects/ml/snake-dqn-d256-resume-science.noindex",
+    "frozen_tree_clean_detached_exact_pin": true,
+    "legacy_accounting_fixture": "Existing targeted bounded original-driver clock-tolerance test passes.",
+    "mac_driver_ast_except_exclusive_guard_identical": true,
+    "operational_baseline": "5dfd4a74cb7d304cc7b48a4f4fa0947c76f3c867",
+    "science_tree_diff_against_61900af2": "empty; full tracked worktree diff and clean/untracked status checked",
+    "slowdown_resume_ast_except_record_host_check_identical": true
+  },
+  "not_done": [
+    "No product-code edits",
+    "No production host-check receipt",
+    "No factory or D256 dispatch",
+    "No activation of full companion supervisor",
+    "No science outcomes, labels or held-out payloads read",
+    "No long calibration, training, evaluation or whole-suite test",
+    "No serving/release changes",
+    "No process signaling except bounded reviewer-owned subprocess cleanup if required; no timeout occurred",
+    "No tmux sessions, checkpoints, serving pins, existing hash-bound evidence or verified units modified"
+  ],
+  "operational_pin": "4b46454d509c4b9f40166437d6aa952013fa45e2",
+  "passed_obligations": {
+    "descendants": "Foreign root nice 15 with numerical child nice 14 refused independently at runtime and host-check; owned descendant exclusions retained. Foreign accepted roots are not adopted as factory ownership.",
+    "desktop_helpers": "Four ChatGPT/Codex desktop roots at nice 0 accepted at both runtime and host-check.",
+    "foreign_priority_runtime_and_startup_host_check": "30 fixtures: five relevant command forms x nice 14/15/19 x runtime/host-check. nice 15/19 accepted and host-check resume succeeds without full supervisor; nice 14 refused.",
+    "foreign_schema": "Foreign host-check schema refused, although old-schema policy/pin mismatches are incorrectly accepted.",
+    "host_health": "Corrected five-case fixture passes nominal health and battery/lid/thermal/disk refusals with reason-specific assertions.",
+    "real_numerical_children": "Two real Python children importing NumPy inherit nice 15 and 19 through agent_nice.sh and observe all five existing thread environment limits as one.",
+    "startup_runtime_wiring": "run() retains startup _exclusive_factory_guard(set()) and runtime _exclusive_factory_guard(set(active)); priority matrix exercises their shared predicate and the host-check caller.",
+    "timing_preemption": "Existing targeted fixture passes: owned child stopped before shared lease release on timing-arm preemption.",
+    "unknown_unreadable": "8 fixtures: missing, unknown, out-of-range and failing ps observations refused at runtime and host-check; no unsafe host receipt published.",
+    "worker_priority": "Worker fixture verifies setpriority(PRIO_PROCESS,0,10) and rejection before science if observed nice is not 10. _worker AST unchanged from baseline. No real factory workers launched or reprioritized."
+  },
+  "publication": {
+    "artifact_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/CODEX_V_FACTORY_INTERIM_20261023.json",
+    "completion_marker_last": true,
+    "mode": "create-only; no replacement of prior verdicts",
+    "operator_handoff": "FAIL: D256 at this pin is not cleared under the binding interim ruling. Findings are operational only; preserve science, ledger, baselines, units and cumulative charges. Repair and re-verify a new operational pin before lawful continuation. This verification does not launch anything.",
+    "repo_copy": "research/bl_labels/CODEX_V_FACTORY_INTERIM_20261023.json"
+  },
+  "reused_evidence": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-f0/research/bl_labels/CODEX_V_SLOWDOWN_GUARD_20261023.json",
+    "scope": "Repaired 4xW median/1.30 guard, first-hour baseline/replay exclusions, fresh-window rearming, frozen baseline persistence, trip escalation, and determinism evidence reused under ruling condition 3. This is historical passing evidence with currently verified source identity; no new gameplay/calibration or full-suite rerun claimed.",
+    "sha256": "e823ff7dda855d63d7faee5ace4373a09ea0fa8208aec787aef977c5b1923a31",
+    "source_hashes_match_for": [
+      "research/bl_labels/slowdown_guard.py",
+      "research/bl_labels/slowdown_state.py",
+      "research/bl_labels/d256_resume.py",
+      "research/bl_labels/w12_runtime.py",
+      "research/bl_labels/fixtures/d256_slowdown_timestamps.json",
+      "research/bl_labels/test_slowdown_guard.py",
+      "research/bl_labels/test_slowdown_state.py",
+      "research/bl_labels/test_mac_integration.py"
+    ],
+    "status": "PASS_IMPLEMENTATION_LIGHT_VERIFICATION"
+  },
+  "reviewed_source_sha256": {
+    "research/bl_labels/NICE_INTERIM_HANDOFF_20261023.md": "ad30884b53c1d3d7f5c7fa9d4cbbde9bdf1ae5da65ca87d7f8ec1479c95f5c98",
+    "research/bl_labels/d256_resume.py": "6414b52b94c2bfd62fb2b537663b58c8e822115531865220efdaac6f58ab96c6",
+    "research/bl_labels/exports.py": "fb98467718f25c57cfacd395b3d5208d3f5e91c1eb47e070293f9fb5702cba1d",
+    "research/bl_labels/frozen_factory.py": "b226aaf5abc9e23e106e39216f417c25f40b4d7bd424c1ebc2d49ee94e3f5e68",
+    "research/bl_labels/mac_driver.py": "de81ed74393f97be9744797d276b737f067225a1a7bce92928575014480efe4f",
+    "research/bl_labels/slowdown_guard.py": "e92cdc8c75366c16d37452553cf57b4206cc77ab587bc0ffa73387b9ee4c0791",
+    "research/bl_labels/slowdown_resume.py": "ced342320eb981dde6d9fe1fca59f8468e6f590a8e3165e8a470a2f756b3d360",
+    "research/bl_labels/slowdown_state.py": "234c78e638880e54aead5c606f1e225719600d94b982cf83867eb5973340936a",
+    "research/bl_labels/w12_runtime.py": "89c2de0f0d3a741f4962005d65e98fee6629037ae745a40b26f631f71ff85772",
+    "research/compute/factory_companion_qualification.py": "fb4cf49fae30adc07ecff44de2145a847071a7da5bba1f8798e84f9e6545cd79",
+    "tools/ops/agent_nice.sh": "15e1bb6ed909a453ed0d1de720ff958de2a3370b679a3efc4521f14a90965bef"
+  },
+  "reviewer": "Independent focused Codex-V verification; no implementation role or product-code edits",
+  "ruling": {
+    "conditions": [
+      1,
+      2,
+      3
+    ],
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_FACTORY_CONCURRENCY_INTERIM_20261023.md",
+    "sha256": "ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd"
+  },
+  "schema": "bl-labels-f0-factory-interim-codex-v/v1",
+  "science_pin": "61900af28932e47e22e332840fc4406559adb062",
+  "tests": {
+    "diff_check": "git diff --check passed before publication",
+    "effective_distinct_checks_after_correction": {
+      "failed": 8,
+      "passed": 58,
+      "skipped": 0,
+      "total": 66
+    },
+    "fixture_correction_run": {
+      "command": [
+        "/Users/josenunez/Projects/ml/snake-dqn-f0/tools/ops/agent_nice.sh",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-o",
+        "addopts=",
+        "-p",
+        "no:xdist",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "research.compute.factory_companion_pytest",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/factory-interim-codex-v-20261023-YDKvJ1/test_health_corrected.py",
+        "--junitxml=/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/factory-interim-codex-v-20261023-YDKvJ1/health-correction/junit.xml"
+      ],
+      "elapsed_seconds": 0.7889766249572858,
+      "environment": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "exit_code": 0,
+      "failed": 0,
+      "failed_nodes": [],
+      "lock_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/factory-companions/test-slot.lock",
+      "passed": 5,
+      "runner_nice": 15,
+      "skipped": 0,
+      "timeout": false,
+      "total": 5
+    },
+    "fixture_error": "One initial nominal-health fixture supplied CPU_Speed_Limit without thermal/performance levels. Its fail-closed result was correct product behavior. It is excluded from product findings; only the five health cases were rerun with complete pmset data and reason-specific checks. Initial evidence retained.",
+    "initial_run": {
+      "command": [
+        "/Users/josenunez/Projects/ml/snake-dqn-f0/tools/ops/agent_nice.sh",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-o",
+        "addopts=",
+        "-p",
+        "no:xdist",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "research.compute.factory_companion_pytest",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/factory-interim-codex-v-20261023-YDKvJ1/test_focused.py",
+        "research/bl_labels/test_mac_integration.py::test_timing_preemption_stops_owned_child_before_lease_release",
+        "research/bl_labels/test_companion_identity.py::test_science_reference_remains_detached_clean_and_exactly_frozen",
+        "research/bl_labels/test_d256_resume.py::test_legacy_clock_tolerance_requires_original_driver_and_is_bounded",
+        "--junitxml=/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/factory-interim-codex-v-20261023-YDKvJ1/junit.xml"
+      ],
+      "elapsed_seconds": 2.533513500005938,
+      "environment": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "exit_code": 1,
+      "failed": 9,
+      "failed_nodes": [
+        "test_host_receipt_must_identify_interim_policy_and_pin",
+        "test_foreign_host_receipt_refused[legacy-unbound]",
+        "test_foreign_host_receipt_refused[foreign-policy]",
+        "test_foreign_host_receipt_refused[foreign-pin]",
+        "test_launcher_establishes_all_required_settings[SNAKE_DQN_DEVICE-cpu]",
+        "test_launcher_establishes_all_required_settings[OMP_THREAD_LIMIT-1]",
+        "test_launcher_respects_shared_test_lock",
+        "test_launcher_has_120_second_bound_and_cleanup",
+        "test_host_health_checks_still_fail_closed[None]"
+      ],
+      "lock_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/factory-companions/test-slot.lock",
+      "passed": 57,
+      "runner_nice": 15,
+      "skipped": 0,
+      "timeout": false,
+      "total": 66
+    },
+    "limits": "One reviewed serial command under host-wide shared test lock; CPU-only and all six thread caps plus verified Torch intra/inter-op one via existing plugin; 110-second wait plus at most 5 seconds cleanup. Initial run 2.53 seconds, fixture-only correction 0.79 seconds. Both complete before timeout; no continuous compute or automatic retries.",
+    "syntax": "/bin/bash -n tools/ops/agent_nice.sh passed"
+  },
+  "verdict": "FAIL",
+  "worktree": "/Users/josenunez/Projects/ml/snake-dqn-f0"
+}
