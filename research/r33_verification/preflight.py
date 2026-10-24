@@ -81,7 +81,9 @@ def source_inventory(commit: str) -> dict[str, Any]:
         files = {
             member.name: {
                 "sha256": hashlib.sha256(stream.extractfile(member).read()).hexdigest(),
-                "mode": member.mode,
+                # git-archive's tar umask may add group write; data extraction
+                # deliberately clears that bit. Bind the portable Git file mode.
+                "mode": member.mode & 0o755,
             }
             for member in stream.getmembers()
             if member.isfile()
