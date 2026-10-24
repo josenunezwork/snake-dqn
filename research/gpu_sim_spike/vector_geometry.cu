@@ -18,23 +18,24 @@ constexpr int kThreads = 256;
 // operation and, in particular, never creates an FMA.  ``--fmad=false`` is a
 // second (build-time) guard; these wrappers make that contract visible in the
 // kernel itself.
-__device__ __forceinline__ double dadd(double lhs, double rhs) {
+// Project-specific names avoid CUDA headers' dadd/dsub/dmul overload aliases.
+__device__ __forceinline__ double vector_rn_add(double lhs, double rhs) {
   return __dadd_rn(lhs, rhs);
 }
 
-__device__ __forceinline__ double dsub(double lhs, double rhs) {
+__device__ __forceinline__ double vector_rn_sub(double lhs, double rhs) {
   return __dsub_rn(lhs, rhs);
 }
 
-__device__ __forceinline__ double dmul(double lhs, double rhs) {
+__device__ __forceinline__ double vector_rn_mul(double lhs, double rhs) {
   return __dmul_rn(lhs, rhs);
 }
 
-__device__ __forceinline__ double ddiv(double lhs, double rhs) {
+__device__ __forceinline__ double vector_rn_div(double lhs, double rhs) {
   return __ddiv_rn(lhs, rhs);
 }
 
-__device__ __forceinline__ double dsqrt(double value) {
+__device__ __forceinline__ double vector_rn_sqrt(double value) {
   return __dsqrt_rn(value);
 }
 
@@ -42,7 +43,7 @@ __device__ __forceinline__ double distance_from_squared(long long squared) {
   // All feature coordinates are integer pixels.  Form the squared distance in
   // integer arithmetic, exactly as the CPU reference does, before its one
   // correctly-rounded binary64 square root.
-  return dsqrt(static_cast<double>(squared));
+  return vector_rn_sqrt(static_cast<double>(squared));
 }
 
 __global__ void indexed_body_view_kernel(
@@ -136,7 +137,7 @@ __global__ void indexed_features58_kernel(
   const int cardx[4] = {0, 1, 0, -1}, cardy[4] = {-1, 0, 1, 0};
   f[d] = 1.0F;
   const int logical = max(1, static_cast<int>(length[self_index]));
-  f[4] = __double2float_rn(fmin(1.0, ddiv(static_cast<double>(logical),
+  f[4] = __double2float_rn(fmin(1.0, vector_rn_div(static_cast<double>(logical),
                                             static_cast<double>(max_length))));
   const int max_dim = max(grid_w, grid_h) * ss;
   const long long width_px = static_cast<long long>(grid_w) * ss;
@@ -155,18 +156,18 @@ __global__ void indexed_features58_kernel(
   // Mirrors Vector61Featurizer.expected_per_sector exactly: the denominator is
   // a separately rounded Python float division before the count division.
   const double expected_per_sector = fmax(
-      1.0, ddiv(static_cast<double>(food_capacity), static_cast<double>(sectors)));
+      1.0, vector_rn_div(static_cast<double>(food_capacity), static_cast<double>(sectors)));
   for (int sec = 0; sec < sectors; ++sec) {
     f[8 + sec] = __double2float_rn(fmin(
-        1.0, ddiv(static_cast<double>(food_counts[sec]), expected_per_sector)));
+        1.0, vector_rn_div(static_cast<double>(food_counts[sec]), expected_per_sector)));
   }
   if (best_food >= 0) {
     const int dx = static_cast<int>(food[(static_cast<int64_t>(env) * foods + best_food) * 2]) * ss - hx;
     const int dy = static_cast<int>(food[(static_cast<int64_t>(env) * foods + best_food) * 2 + 1]) * ss - hy;
-    f[5] = __double2float_rn(ddiv(static_cast<double>(dx), static_cast<double>(max_dim)));
-    f[6] = __double2float_rn(ddiv(static_cast<double>(dy), static_cast<double>(max_dim)));
+    f[5] = __double2float_rn(vector_rn_div(static_cast<double>(dx), static_cast<double>(max_dim)));
+    f[6] = __double2float_rn(vector_rn_div(static_cast<double>(dy), static_cast<double>(max_dim)));
     f[7] = __double2float_rn(fmin(
-        1.0, ddiv(distance_from_squared(best_food_d2), diag)));
+        1.0, vector_rn_div(distance_from_squared(best_food_d2), diag)));
   } else f[7] = 1.0F;
   const double maxd = static_cast<double>(danger_distance * ss);
   double danger[16] = {}; int count[16] = {};
@@ -192,7 +193,7 @@ __global__ void indexed_features58_kernel(
       const double dist = distance_from_squared(d2);
       if (dist <= maxd) {
         const int sec = static_cast<int>(lut[(dx / ss + rx) * (2 * ry + 1) + dy / ss + ry]);
-        const double val = dmul(fmax(0.0, dsub(1.0, ddiv(dist, maxd))), 1.5);
+        const double val = vector_rn_mul(fmax(0.0, vector_rn_sub(1.0, vector_rn_div(dist, maxd))), 1.5);
         danger[sec] = fmax(danger[sec], val);
         if (val > 0.0) ++count[sec];
       }
@@ -223,7 +224,7 @@ __global__ void indexed_features58_kernel(
           static_cast<long long>(dx) * dx + static_cast<long long>(dy) * dy);
       if (dist <= maxd) {
         const int sec = static_cast<int>(lut[(dx / ss + rx) * (2 * ry + 1) + dy / ss + ry]);
-        const double val = dmul(fmax(0.0, dsub(1.0, ddiv(dist, maxd))), 2.0);
+        const double val = vector_rn_mul(fmax(0.0, vector_rn_sub(1.0, vector_rn_div(dist, maxd))), 2.0);
         danger[sec] = fmax(danger[sec], val);
         if (val > 0.0) ++count[sec];
       }
@@ -231,15 +232,15 @@ __global__ void indexed_features58_kernel(
   }
   for (int sec = 0; sec < sectors; ++sec) {
     if (count[sec] > 1) {
-      const double bonus = dmul(fmin(1.0, ddiv(static_cast<double>(count[sec]), 5.0)), .2);
-      danger[sec] = fmin(2.0, dadd(danger[sec], bonus));
+      const double bonus = vector_rn_mul(fmin(1.0, vector_rn_div(static_cast<double>(count[sec]), 5.0)), .2);
+      danger[sec] = fmin(2.0, vector_rn_add(danger[sec], bonus));
     }
     f[24 + sec] = __double2float_rn(fmin(1.0, danger[sec]));
   }
-  f[40] = __double2float_rn(ddiv(static_cast<double>(hx), static_cast<double>(width_px)));
-  f[41] = __double2float_rn(ddiv(static_cast<double>(width_px - hx), static_cast<double>(width_px)));
-  f[42] = __double2float_rn(ddiv(static_cast<double>(hy), static_cast<double>(height_px)));
-  f[43] = __double2float_rn(ddiv(static_cast<double>(height_px - hy), static_cast<double>(height_px)));
+  f[40] = __double2float_rn(vector_rn_div(static_cast<double>(hx), static_cast<double>(width_px)));
+  f[41] = __double2float_rn(vector_rn_div(static_cast<double>(width_px - hx), static_cast<double>(width_px)));
+  f[42] = __double2float_rn(vector_rn_div(static_cast<double>(hy), static_cast<double>(height_px)));
+  f[43] = __double2float_rn(vector_rn_div(static_cast<double>(height_px - hy), static_cast<double>(height_px)));
   int first = -1, second = -1; double firstd = INFINITY, secondd = INFINITY;
   for (int o = 0; o < slots; ++o) if (o != self && alive[static_cast<int64_t>(env)*slots+o]) {
     const int64_t oi = static_cast<int64_t>(env) * slots + o;
@@ -258,9 +259,9 @@ __global__ void indexed_features58_kernel(
     const int ring = static_cast<int>((head_ptr[oi] + cap) % cap);
     const int64_t bi = (oi * cap + ring) * 2;
     const int ex = static_cast<int>(bodies[bi]) * ss, ey = static_cast<int>(bodies[bi + 1]) * ss;
-    f[44] = __double2float_rn(ddiv(static_cast<double>(ex - hx), static_cast<double>(max_dim)));
-    f[45] = __double2float_rn(ddiv(static_cast<double>(ey - hy), static_cast<double>(max_dim)));
-    f[46] = __double2float_rn(ddiv(fmin(2.0, ddiv(static_cast<double>(max(1, static_cast<int>(length[oi]))),
+    f[44] = __double2float_rn(vector_rn_div(static_cast<double>(ex - hx), static_cast<double>(max_dim)));
+    f[45] = __double2float_rn(vector_rn_div(static_cast<double>(ey - hy), static_cast<double>(max_dim)));
+    f[46] = __double2float_rn(vector_rn_div(fmin(2.0, vector_rn_div(static_cast<double>(max(1, static_cast<int>(length[oi]))),
                                            static_cast<double>(logical))), 2.0));
     f[47] = cardx[static_cast<int>(direction[oi])];
     f[48] = cardy[static_cast<int>(direction[oi])];
@@ -278,16 +279,16 @@ __global__ void indexed_features58_kernel(
     const int64_t oi = static_cast<int64_t>(env) * slots + second;
     const int ring = (head_ptr[oi] + cap) % cap;
     const int64_t bi = (oi * cap + ring) * 2;
-    f[50] = __double2float_rn(ddiv(static_cast<double>(static_cast<int>(bodies[bi]) * ss - hx),
+    f[50] = __double2float_rn(vector_rn_div(static_cast<double>(static_cast<int>(bodies[bi]) * ss - hx),
                                    static_cast<double>(max_dim)));
-    f[51] = __double2float_rn(ddiv(static_cast<double>(static_cast<int>(bodies[bi + 1]) * ss - hy),
+    f[51] = __double2float_rn(vector_rn_div(static_cast<double>(static_cast<int>(bodies[bi + 1]) * ss - hy),
                                    static_cast<double>(max_dim)));
-    f[52] = __double2float_rn(ddiv(fmin(2.0, ddiv(static_cast<double>(max(1, static_cast<int>(length[oi]))),
+    f[52] = __double2float_rn(vector_rn_div(fmin(2.0, vector_rn_div(static_cast<double>(max(1, static_cast<int>(length[oi]))),
                                            static_cast<double>(logical))), 2.0));
   }
   for (int a = 0; a < 3; ++a) {
     f[54 + a] = action_hit[a] ? 1.0F : __double2float_rn(
-        action_near[a] < 3 * ss ? fmin(.95, dsub(1.0, ddiv(action_near[a], 3.0 * ss))) : 0.0);
+        action_near[a] < 3 * ss ? fmin(.95, vector_rn_sub(1.0, vector_rn_div(action_near[a], 3.0 * ss))) : 0.0);
   }
   f[57]=length[self_index]>=min_boost;
 }

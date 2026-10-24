@@ -249,7 +249,15 @@ def test_sparse_pack_canary_and_main_do_not_require_profiler_pass(
     monkeypatch.setattr(sparse_pack, "_preflight_binding", lambda path, commit: {})
     monkeypatch.setattr(sparse_pack, "manifest", lambda **kwargs: {"canary": kwargs["canary"]})
     monkeypatch.setattr(sparse_pack, "_a1_v4_exports_binding", lambda path: {"version": 4})
-    base = ["pack", "--commit", COMMIT, "--artifact-dir", str(tmp_path)]
+    base = [
+        "pack",
+        "--commit",
+        COMMIT,
+        "--artifact-dir",
+        str(tmp_path),
+        "--native-compile-receipt",
+        str(tmp_path / "native-compile/output/receipt.json"),
+    ]
     if bind_exports:
         base += ["--a1-prof-v4-exports", str(tmp_path / "recovered-exports")]
     monkeypatch.setattr(sys, "argv", base)
@@ -352,3 +360,41 @@ def test_exactness_fixture_must_be_verified_and_preflight_bound(tmp_path, monkey
     fixture.write_bytes(b"tampered")
     with pytest.raises(ValueError, match="checksum"):
         sparse_pack.manifest(**kwargs, preflight={"exactness_fixture_sha256": digest})
+
+
+def test_generated_canary_helper_preserves_custom_or_allocation_retry_compile_receipt(tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+
+    repo = tmp_path / "repo"
+    (repo / "venv/bin").mkdir(parents=True)
+    (repo / "tools/ops").mkdir(parents=True)
+    python = repo / "venv/bin/python"
+    python.write_text(
+        '#!/bin/sh\nif [ "$1" = - ]; then exec ' + sys.executable + ' "$@"; fi\n'
+        'printf "%s\\n" "$@" >> "$ARG_LOG"\n'
+    )
+    python.chmod(0o755)
+    dispatch = repo / "tools/ops/dispatch.sh"
+    dispatch.write_text("#!/bin/sh\nexit 0\n")
+    dispatch.chmod(0o755)
+    script = tmp_path / "dispatch.sh"
+    script.write_text(
+        sparse_pack._canary_script(tmp_path, COMMIT, tmp_path / "pf", 10).replace(
+            f"REPO={sparse_pack.ROOT}", f"REPO={repo}"
+        )
+    )
+    custom = tmp_path / "custom/receipt.json"
+    (tmp_path / "sparse-bench-canary.json").write_text(
+        json.dumps({"native_cuda_compile": {"receipt": {"path": str(custom)}}})
+    )
+    env = dict(os.environ, ARG_LOG=str(tmp_path / "args"))
+    env.pop("NATIVE_COMPILE_RECEIPT", None)
+    subprocess.run(["bash", str(script)], env=env, check=True)
+    assert str(custom) in (tmp_path / "args").read_text().splitlines()
+    retry = tmp_path / "native-compile/output-retry-1/receipt.json"
+    env["NATIVE_COMPILE_RECEIPT"] = str(retry)
+    subprocess.run(["bash", str(script)], env=env, check=True)
+    assert str(retry) in (tmp_path / "args").read_text().splitlines()

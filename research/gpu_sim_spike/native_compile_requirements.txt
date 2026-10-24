@@ -1,0 +1,2 @@
+# bootstrap pins CUDA torch==2.9.1 and numpy==1.26.4, as in production.
+ninja>=1.11,<2

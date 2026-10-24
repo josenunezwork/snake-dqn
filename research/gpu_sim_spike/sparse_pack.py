@@ -183,6 +183,7 @@ def manifest(
     canary_receipt: Path | None = None,
     rate: float = 10.0,
     exactness_fixture: Path | None = None,
+    native_compile_receipt: Path | None = None,
 ) -> dict[str, Any]:
     _require_commit(commit)
     if not 0 < rate <= 10:
@@ -282,6 +283,12 @@ def manifest(
         },
         "mac_preflight": preflight,
     }
+    if native_compile_receipt is not None:
+        from research.gpu_sim_spike.native_compile import binding
+
+        value["native_cuda_compile"] = {"receipt": binding(native_compile_receipt, commit, ROOT)}
+    else:
+        value["native_cuda_compile"] = {"required": "same-pin compile-only PASS with verified stop"}
     if exactness_fixture is not None:
         fixture = exactness_fixture.resolve(strict=True)
         sparse_units._verify(fixture)
@@ -348,8 +355,18 @@ PY="$REPO/venv/bin/python"
 [[ -x "$PY" ]] || PY={PRIMARY_PY}
 export PATH="$(dirname "$PY"):$PATH"
 cd "$REPO"
+COMPILE_RECEIPT="${{NATIVE_COMPILE_RECEIPT:-$ART/native-compile/output/receipt.json}}"
+if [[ -z "${{NATIVE_COMPILE_RECEIPT:-}}" && -f "$ART/sparse-bench-canary.json" ]]; then
+  COMPILE_RECEIPT=$("$PY" - "$ART/sparse-bench-canary.json" <<'PY_RECEIPT'
+import json, sys
+with open(sys.argv[1]) as stream:
+    print(json.load(stream)["native_cuda_compile"]["receipt"]["path"])
+PY_RECEIPT
+  )
+fi
 "$PY" -m research.gpu_sim_spike.sparse_pack \\
   --commit "$PIN" --artifact-dir "$ART" {binding} \\
+  --native-compile-receipt "$COMPILE_RECEIPT" \\
   --preflight {shlex.quote(str(preflight.resolve()))} \\
   --rate-units-per-hour {rate} --validate
 exec "$REPO/tools/ops/dispatch.sh" sparse-bench-a100-canary-{commit[:8]} \\
@@ -382,9 +399,19 @@ export PATH="$(dirname "$PY"):$PATH"
 SPARSE_RECEIPT="$ART/canary-output/receipt.json"
 [[ -f "$SPARSE_RECEIPT" ]] || {{ echo "missing sparse canary receipt" >&2; exit 1; }}
 cd "$REPO"
+COMPILE_RECEIPT="${{NATIVE_COMPILE_RECEIPT:-$ART/native-compile/output/receipt.json}}"
+if [[ -z "${{NATIVE_COMPILE_RECEIPT:-}}" && -f "$ART/sparse-bench-canary.json" ]]; then
+  COMPILE_RECEIPT=$("$PY" - "$ART/sparse-bench-canary.json" <<'PY_RECEIPT'
+import json, sys
+with open(sys.argv[1]) as stream:
+    print(json.load(stream)["native_cuda_compile"]["receipt"]["path"])
+PY_RECEIPT
+  )
+fi
 "$PY" -m research.gpu_sim_spike.sparse_pack \\
   --commit "$PIN" --artifact-dir "$ART" --canary-receipt "$SPARSE_RECEIPT" \\
   {binding} \\
+  --native-compile-receipt "$COMPILE_RECEIPT" \\
   --preflight {shlex.quote(str(preflight.resolve()))} \\
   --rate-units-per-hour {rate} --validate
 exec "$REPO/tools/ops/dispatch.sh" sparse-bench-a100-main-{commit[:8]} \\
@@ -399,6 +426,7 @@ def main() -> None:
     parser.add_argument("--artifact-dir", type=Path, default=DEFAULT_ARTIFACT_DIR)
     parser.add_argument("--preflight", type=Path)
     parser.add_argument("--canary-receipt", type=Path)
+    parser.add_argument("--native-compile-receipt", type=Path)
     parser.add_argument("--a1-prof-v4-exports", type=Path)
     parser.add_argument("--exactness-fixture", type=Path)
     parser.add_argument("--rate-units-per-hour", type=float, default=10.0)
@@ -434,6 +462,7 @@ def main() -> None:
         preflight=preflight,
         rate=args.rate_units_per_hour,
         exactness_fixture=args.exactness_fixture,
+        native_compile_receipt=args.native_compile_receipt,
     )
     if a1_v4 is not None:
         canary["a1_prof_v4_recovered_exports"] = a1_v4
@@ -447,13 +476,16 @@ def main() -> None:
         canary_receipt=args.canary_receipt,
         rate=args.rate_units_per_hour,
         exactness_fixture=args.exactness_fixture,
+        native_compile_receipt=args.native_compile_receipt,
     )
     if a1_v4 is not None:
         main_job["a1_prof_v4_recovered_exports"] = a1_v4
     if args.validate:
         from research.colab_cli.supervisor import validate
+        from research.gpu_sim_spike.native_compile import require_for_a100_canary
         from tools.ops.dispatch import require_resume_policy
 
+        require_for_a100_canary(canary, ROOT)
         if args.canary_receipt is None:
             validate(canary, repo=ROOT)
         require_resume_policy(main_job)
@@ -461,7 +493,12 @@ def main() -> None:
             validate(main_job, repo=ROOT)
     for path, data in (
         (
-            art / "sparse-bench-canary.json",
+            art
+            / (
+                "sparse-bench-canary.json"
+                if args.native_compile_receipt
+                else "sparse-bench-canary-pending-compile.json"
+            ),
             canary,
         ),
         (
@@ -469,7 +506,11 @@ def main() -> None:
             / (
                 "sparse-bench-main.json"
                 if args.canary_receipt
-                else "sparse-bench-main-template.json"
+                else (
+                    "sparse-bench-main-template.json"
+                    if args.native_compile_receipt
+                    else "sparse-bench-main-pending-compile.json"
+                )
             ),
             main_job,
         ),

@@ -476,6 +476,21 @@ def dispatch(args: argparse.Namespace) -> str:
     if not isinstance(value, dict):
         raise Refused("manifest must be an object")
     require_resume_policy(value)
+    if (
+        (
+            value.get("requirements", {}).get("gpu") == "A100"
+            or "A100" in value.get("requirements", {}).get("allowed_gpus", [])
+        )
+        and value.get("canary", {}).get("mode") == "probe"
+        and str(value.get("script", "")).startswith("research/gpu_sim_spike/")
+    ):
+        sys.path.insert(0, str(HERE.parents[1]))
+        from research.gpu_sim_spike.native_compile import require_for_a100_canary
+
+        try:
+            require_for_a100_canary(value, broker)
+        except (ValueError, OSError, KeyError) as exc:
+            raise Refused(f"native CUDA compile gate: {exc}") from exc
     if value.get("scientific_admission") is False:
         raise Refused("manifest scientific_admission=false")
     if not isinstance(value.get("budget", {}).get("other_assignments", {}), dict):
