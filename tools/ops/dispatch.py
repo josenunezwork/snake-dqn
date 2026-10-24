@@ -28,13 +28,14 @@ HERE = Path(__file__).resolve().parent
 EXACT_ERROR = "AccountingError('assignment endpoints changed during allocation')"
 BLOCK = re.compile(r"^\s*(?:BLOCK|HOLD)\b|RUNTIME BLOCKED|do not run this|PREPARED_NOT_DISPATCHED")
 NICE_FLOOR = 15
+P1_ATTEMPT2_RULING = "55b13197d9d92f8eeb1c895180f01993ca11908f51c74a60d9a67065a0550d13"
 
 
 class Refused(ValueError):
     """The wrapper cannot prove that the next operational step is allowed."""
 
 
-def persistent_shell(command_text: str) -> str:
+def persistent_shell(command_text: str, *, p1_window: dict | None = None) -> str:
     """Return a tmux command whose long-lived shell has an effective nice floor.
 
     Tmux first invokes its own command shell.  Its shell immediately execs this
@@ -42,6 +43,33 @@ def persistent_shell(command_text: str) -> str:
     the supplied command.  This prevents a normal-priority wrapper from waiting
     around a low-priority supervisor or agent child.
     """
+    if p1_window is not None:
+        # The prospective P1 ruling overrides the ordinary nice-15 policy only
+        # for this explicitly reviewed maintenance window. Never try to raise
+        # an inherited low priority: refuse before starting the supervisor.
+        registration = shlex.join(
+            [
+                sys.executable,
+                "-m",
+                "research.bl_ppo.p1_attempt2_window",
+                "register-control",
+                "--arm-path",
+                p1_window["arm_path"],
+                "--owner-token",
+                p1_window["owner_token"],
+                "--root-record",
+                p1_window["root_record"],
+                "--evidence",
+                p1_window["registration_evidence"],
+            ]
+        )
+        quiet = (
+            "set -euo pipefail; "
+            'test "$(/bin/ps -o nice= -p "$$" | tr -d " ")" = 0 || '
+            '{ echo "HOLD: P1 control root requires absolute nice 0" >&2; exit 2; }; '
+            f'{registration} --root-pid "$$"; set +e; {command_text}'
+        )
+        return "exec " + shlex.join(["/bin/bash", "-c", quiet, "p1_attempt2_control"])
     floor = f"""current_nice=$(/bin/ps -o nice= -p \"$$\")
 if ! [[ \"$current_nice\" =~ ^[[:space:]]*-?[0-9]+[[:space:]]*$ ]]; then
   echo \"REFUSE: cannot read persistent shell scheduling nice value\" >&2
@@ -152,9 +180,26 @@ def start(
         f">> {shlex.quote(str(log))} 2>&1; rc=$?; "
         f'printf "EXIT=%s\\n" "$rc" >> {shlex.quote(str(log))}; exit "$rc"'
     )
+    value = read_json(manifest)
+    p1_window = None
+    if value.get("p1_attempt2", {}).get("ruling_sha256") == P1_ATTEMPT2_RULING:
+        p1_window = value.get("p1_attempt2_control_window")
+        required = ("arm_path", "owner_token", "root_record", "registration_evidence")
+        if not isinstance(p1_window, dict) or any(
+            not isinstance(p1_window.get(key), str) or not p1_window[key].strip()
+            for key in required
+        ):
+            raise Refused("P1 attempt-2 requires its reviewed owned control window")
     try:
         command(
-            ["tmux", "new-session", "-d", "-s", f"job-{name}", persistent_shell(body)],
+            [
+                "tmux",
+                "new-session",
+                "-d",
+                "-s",
+                f"job-{name}",
+                persistent_shell(body, p1_window=p1_window),
+            ],
             deadline=deadline,
         )
     except (OSError, TimeoutError, subprocess.SubprocessError):
@@ -191,6 +236,11 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
     if rows and "No active sessions found on server." in result.stdout:
         raise Refused("contradictory account sessions output")
     sessions = {endpoint: hardware.strip() for _, endpoint, hardware in rows}
+    if (
+        sessions
+        and read_json(manifest).get("p1_attempt2", {}).get("ruling_sha256") == P1_ATTEMPT2_RULING
+    ):
+        raise Refused("P1 attempt-2 requires zero other assignments immediately before allocation")
     if len(sessions) != len(rows):
         raise Refused("duplicate endpoint in account sessions output")
     records: dict[str, dict[str, Any]] = {}
@@ -330,7 +380,18 @@ def require_resume_policy(manifest: dict[str, Any]) -> None:
     phase = env.get("BL_P1_MODE") if isinstance(env, dict) else None
     ruled = manifest.get("p1_finalisation_ruling_sha256") == ruling
     maximum = {"y3-source": 1, "y3-replacement": 1, "qual-1m": 0}.get(phase)
-    if ruled and maximum is not None:
+    attempt2 = manifest.get("p1_attempt2", {})
+    if ruled and phase == "y3-source" and attempt2.get("ruling_sha256") == P1_ATTEMPT2_RULING:
+        if (
+            type(retries) is not int
+            or retries != 2
+            or attempt2.get("canary_attempts") != 1
+            or attempt2.get("repair_attempts") != 1
+            or attempt2.get("canary_retries") != 0
+            or attempt2.get("further_repair_retries") != 0
+        ):
+            raise Refused("P1 attempt-2 requires wrapper maximum 2 and no further research retries")
+    elif ruled and maximum is not None:
         if type(retries) is not int or retries != maximum:
             raise Refused(f"resume.max_outcome_blind_retries must be the ruled integer {maximum}")
     elif type(retries) is not int or retries != 2:
@@ -477,6 +538,14 @@ def dispatch(args: argparse.Namespace) -> str:
                 digest = hashlib.sha256(value["job_id"].encode()).hexdigest()[:8]
                 retry_id = f'{value["job_id"][:47]}-{digest}-retry-1'
             retry = dict(value, output_dir=f"{output}-retry-1", job_id=retry_id)
+            if value.get("p1_attempt2", {}).get("ruling_sha256") == P1_ATTEMPT2_RULING:
+                window = dict(value["p1_attempt2_control_window"])
+                for field in ("root_record", "registration_evidence"):
+                    path = Path(window[field])
+                    window[field] = str(
+                        path.with_name(path.stem + "-allocation-retry-1" + path.suffix)
+                    )
+                retry["p1_attempt2_control_window"] = window
             expected = retry
             manifest = ops / "manifests" / f"{name}-retry-1.json"
             if Path(retry["output_dir"]).exists():
