@@ -519,3 +519,28 @@ def test_identity_compare_mismatch_emits_replay_audit(tmp_path: Path) -> None:
     assert result["verdict"] == "MISMATCH"
     assert result["mismatch"] and all(n.startswith("watch6-007") for n in result["mismatch"])
     assert "research.bl_labels.replay_audit" in result["replay_audit_command"]
+
+
+def test_importer_default_classifier_is_the_real_v2_module() -> None:
+    """The stubbed import tests above bind to the shared l4-label-faults/v2 classifier."""
+    classify = li._default_classifier()
+    call = {
+        "command": "version",
+        "status": "completed",
+        "elapsed_seconds": 0.1,
+        "timeout_seconds": 30.0,
+    }
+    ok = {
+        "job_id": "j",
+        "status": "PASS",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "failure_class": None,
+        "cli_calls": [call],
+    }
+    result = classify(ok, injection_manifest=None)
+    assert result["schema"] == "l4-label-faults/v2" and result["verdict"] == "PASS"
+    bad = classify(
+        {**ok, "status": "INCOMPLETE", "failure_class": "SUPERVISOR"}, injection_manifest=None
+    )
+    assert bad["verdict"] == "FAIL" and bad["counted_by_class"]["C3"] == 1
