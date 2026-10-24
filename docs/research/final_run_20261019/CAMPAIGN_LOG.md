@@ -264,6 +264,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-24 PT | **I0S verdict: STOP_SPEED** (valid, gating 3/3 verified, no INVALID) | A100 attempt 1 ran 35.0 min, charged 5.83 u (settled rev 6; O1 restored rev 7). Integrated engine I-arm E1024: frozen 1,433 steps/s (tick median 0.709 s), mixed 1,655 (0.615 s), scripted 2,233 (0.443 s) vs bar 2,000/0.512 s → frozen+mixed fail, scripted passes. Descriptive tick medians show a ~0.10–0.13 s floor even at E6 (frozen/mixed/scripted E6 0.130/0.116/0.096 s), i.e. large fixed per-tick cost. REDUCTION.json final (ledger cd2b2f9e…, 12 units). Engineering-only; no training/label/serving consequence. I0 closed STOP_SPEED. |
 
+| 2026-10-24 PT | D1024 cap projection | **ON_TRACK** (metadata-only; bl-labels-f0-speed/D1024_CAP_PROJECTION_20261024.json sha 3302d37b…ecd1). Cap 144,000 s cumulative Mac wall (round-24 JUDGMENT_PLACEMENT_MAC:114). At 06:25 PT: 4.15 h used, 124/2,160 parents (all slow Watch6; gate parents ~12× faster). Projected total 13.3 h (pessimistic 16.0, extreme 21.5) → finish ~15:30 PT 10-24. Advisor B's '70 h' was a mis-multiplication. W12 switch would need a ruling + resume-tool change for ~2–3 h saving; not pursued (would require a new resume of the live runner). Real INSUFFICIENT risk is rescue-life support (≥960 cumulative), unknowable without outcomes. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
