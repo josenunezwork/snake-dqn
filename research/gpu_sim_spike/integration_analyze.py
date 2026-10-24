@@ -169,6 +169,16 @@ def aggregate(
     native = []
     for root in map(Path, exports):
         try:
+            failure = root / "integration-failure.json"
+            if failure.exists():
+                units._verify(failure)
+                recorded = json.loads(failure.read_text())
+                if (
+                    recorded.get("commit") != commit
+                    or recorded.get("source_sha256") != source_hashes()
+                ):
+                    raise ValueError("foreign I0 failure marker")
+                invalid |= recorded.get("status") == "INVALID"
             path = root / "native-parity.json"
             units._verify(path)
             report = json.loads(path.read_text())

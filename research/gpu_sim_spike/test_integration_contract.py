@@ -186,3 +186,41 @@ def test_adversarial_incomplete_or_forged_cells_refused(damage):
             "nan"
         )
     assert not analyze.valid_cell("cell-frozen-e1024", value)
+
+
+def test_run_preserves_combined_parity_invalid_before_missing_coverage(tmp_path, monkeypatch):
+    import argparse
+
+    from research.gpu_sim_spike import integration_bench as bench
+    from research.gpu_sim_spike import integration_parity as parity
+
+    ledger = tmp_path / "inputs/ledger.json"
+    cells, ns = units.allocation(smoke=True), units.namespace(PIN, smoke=True)
+    units.publish_json(ledger, units.empty_ledger(ns, cells))
+    monkeypatch.setattr(bench, "source_commit", lambda: PIN)
+
+    def native_report(path, **kwargs):
+        value = native()
+        value.update(status="PREFLIGHT", native_cuda_executed=False)
+        units.publish_json(path, value)
+        return value
+
+    monkeypatch.setattr(bench.integration_native, "run", native_report)
+    monkeypatch.setattr(parity, "cpu_discrepancy_register", lambda *args: {"status": "DIAGNOSTIC"})
+
+    def mismatch(*args, **kwargs):
+        raise parity.IntegrationParityError("injected reward/state mismatch")
+
+    monkeypatch.setattr(bench, "measure", mismatch)
+    output = tmp_path / "out"
+    args = argparse.Namespace(
+        device="cpu",
+        seconds=30,
+        smoke=True,
+        canary=False,
+        ledger=ledger,
+        output_dir=output,
+        checkpoint=tmp_path / "unused",
+    )
+    assert bench.run(args)["status"] == "INVALID"
+    assert analyze.aggregate([output], PIN, smoke=True)["verdict"] == "INVALID"

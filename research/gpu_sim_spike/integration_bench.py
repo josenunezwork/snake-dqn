@@ -293,7 +293,7 @@ def measure(
 
         proof = integration_parity.prove(cases, device)
         if not (proof.get("frozen_device_identity") and proof.get("cpu_geometry_carry")):
-            raise RuntimeError("combined I0 parity proof failed")
+            raise integration_parity.IntegrationParityError("combined I0 parity proof failed")
         arms = {name: {"plain_seconds": [], "digests": [], "stages": []} for name in ARMS}
         for case in cases.values():
             for _ in range(warmups):
@@ -315,7 +315,9 @@ def measure(
                 timer = IntegrationTiming(device)
                 event, event_digest = _tick(cases[name], device, timer)
                 if arms[name]["digests"][repeat] != event_digest:
-                    raise RuntimeError("plain and diagnostic tick state differs")
+                    raise integration_parity.IntegrationParityError(
+                        "plain and diagnostic tick state differs"
+                    )
                 attribution = timer.result()
                 stages = (
                     attribution["exclusive_cuda_elapsed_seconds"]
@@ -476,6 +478,28 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 ),
                 flush=True,
             )
+    except integration_parity.IntegrationParityError as exc:
+        units.build_ledger(
+            output,
+            output / "verified-ledger.json",
+            commit=commit,
+            smoke=args.smoke,
+            canary=args.canary,
+        )
+        result = {
+            "schema": "gpu-sim-spike-i0-bench/v1",
+            "status": "INVALID",
+            "reason": str(exc),
+            "failure_class": "COMBINED_PARITY_MISMATCH",
+            "commit": commit,
+            "source_sha256": source_hashes(),
+            "completed_units": completed,
+            "skipped_units": skipped_units,
+        }
+        units.publish_json(output / "integration-failure.json", result)
+        units.publish_json(output / "integration-bench.json", result)
+        stop_heartbeat.set()
+        return result
     except TimeoutError as exc:
         result = {
             "schema": "gpu-sim-spike-i0-bench/v1",
