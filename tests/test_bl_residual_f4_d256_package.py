@@ -172,6 +172,94 @@ def test_stage_d1024_refuses_unpublished_fit_phase_before_checkpoint_or_labels(
         package.stage_d1024(tmp_path / "pack", publication, tmp_path / "out")
 
 
+def _staging_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Path]:
+    """Bind metadata-only sources; never deserialize a fitted checkpoint."""
+    from research.bl_ppo.exports import digest, export_bytes, export_json
+    from research.bl_residual import job, protocol
+
+    inputs = tmp_path / "pack/inputs"
+    inputs.mkdir(parents=True)
+    for name in ("b8.pth", "F4_REGISTRATION.md", "judgment.json", "life-allocation.json"):
+        (inputs / name).write_bytes(b"{}\n")
+    prior = {
+        "namespace": "fixture",
+        "allocation": "fixture-allocation",
+        "recipe_sha256": "fixture-recipe",
+        "series_id": "fixture-series",
+        "reserve_allocation_sha256": "fixture-reserve",
+        "input_hashes": {p.name: digest(p) for p in inputs.iterdir()},
+    }
+    export_json(inputs / "control.json", prior)
+    checkpoint = tmp_path / "pack/d256-output-l4-01/exports/fit/fit-0000.pth"
+    export_bytes(checkpoint, b"opaque synthetic checkpoint; do not deserialize")
+    publication = tmp_path / package.FIT_PUBLICATION_PATH
+    export_json(publication, {"fixture": True})
+    monkeypatch.setattr(package, "require_window_closed", lambda: None)
+    monkeypatch.setattr(
+        package.subprocess, "check_output", lambda *_args, **_kwargs: publication.read_bytes()
+    )
+    monkeypatch.setattr(protocol, "read_ledger", lambda *_: {0: {"sha256": digest(checkpoint)}})
+    monkeypatch.setattr(
+        job, "write_stage_fit_receipt", lambda *args: export_json(args[-1], {"fixture": True})
+    )
+    monkeypatch.setattr(job, "_validate_staging", lambda *_: None)
+    return inputs.parent, publication
+
+
+def test_stage_d1024_exports_byte_identical_metadata_for_mac_reader(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from research.bl_labels import mac_gates
+    from research.bl_ppo.exports import verify_export
+
+    pack, publication = _staging_fixture(monkeypatch, tmp_path)
+    output = tmp_path / "staging-03/inputs"
+    checked = []
+
+    def readiness(stage: str, control: Path, inputs: Path) -> None:
+        assert stage == "d1024"
+        assert control == inputs / "control.json"
+        for name in ("life-allocation.json", "judgment.json"):
+            assert mac_gates._read(inputs / name) == {}
+        mac_gates._verify(inputs / "F4_REGISTRATION.md")
+        checked.append(inputs)
+
+    monkeypatch.setattr(mac_gates, "_future_readiness", readiness)
+    package.stage_d1024(pack, publication, output)
+    assert checked == [output]
+    for name in ("b8.pth", "F4_REGISTRATION.md", "judgment.json", "life-allocation.json"):
+        assert (output / name).read_bytes() == (pack / "inputs" / name).read_bytes()
+        assert verify_export(output / name) == mac_gates._verify(output / name)
+    with pytest.raises(FileExistsError):
+        package.stage_d1024(pack, publication, output)
+
+
+@pytest.mark.parametrize("fault", ["changed-payload", "missing-binding", "symlink"])
+def test_stage_d1024_refuses_unverified_metadata_before_creating_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fault: str
+) -> None:
+    from research.bl_ppo.exports import export_json
+
+    pack, publication = _staging_fixture(monkeypatch, tmp_path)
+    source = pack / "inputs/judgment.json"
+    if fault == "changed-payload":
+        source.write_text('{"changed": true}\n')
+    elif fault == "symlink":
+        source.unlink()
+        source.symlink_to(pack / "inputs/life-allocation.json")
+    else:
+        control = pack / "inputs/control.json"
+        value = json.loads(control.read_text())
+        del value["input_hashes"]["judgment.json"]
+        for suffix in ("", ".sha256", ".complete"):
+            Path(str(control) + suffix).unlink()
+        export_json(control, value)
+    output = tmp_path / "staging-03/inputs"
+    with pytest.raises(ValueError, match="source differs from sealed control"):
+        package.stage_d1024(pack, publication, output)
+    assert not output.exists()
+
+
 def test_canary_covers_main_transport_and_caps_leave_series_headroom(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
