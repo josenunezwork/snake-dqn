@@ -258,6 +258,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-24 PT | I0 path ruling | **REPLACE_I0R_WITH_I0S** (Claude stand-in judge; JUDGMENT_I0R_PATH_20261024.md sha ed679b6e…2969). I0R withdrawn: qualified canary matcher refuses non-empty resume ledger, and no E1024 cell (~1.6–1.9 ks each) fits a 1,440 s window. I0S = one empty-ledger A100 attempt at the frozen 5,400 s producer deadline; est 110 / timeout 220 min / cap 37 u, reservation 42 u/250 min, ceiling 66 u; verdict order INVALID > STOP_SPEED > INCOMPLETE > PASS_SPEED; ≤1 zero-unit mechanical retry; latest dispatch 2026-10-26 20:00 UTC. HOLD until Claude implementer build + fresh Claude-V stand-in review (blocking R3: timed-out run still delivers completed cells). |
 
+| 2026-10-24 PT | I0S first-wave budget | **ADMIT_I0S_ON_INTEGRATION_PRIORITY** (Claude stand-in judge; JUDGMENT_I0S_FIRST_WAVE_BUDGET_20261024.md sha dfc00a4d…4c5b). 3.38 u first-wave shortfall = booking gap (I0 envelope raised 24→66 u without re-checking first-wave); round-36 ranks integration first. While I0S outstanding, O1's first-wave mirror hold booked junior at 44.62 u/288 min (not 48); no ceiling, reservation or science change; restore-o1 after settlement; old I0 24 u hold zeroed after attempt-1 admission. Name clash: 'O1' here = round-36 A100 retention acceptance lane (live, 0 spend), not the finished 10-20 'O1 harvest-branch census'. Needs implementer amendment + Claude-V stand-in ACCEPT before admit. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
