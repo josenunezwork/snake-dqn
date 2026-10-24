@@ -194,6 +194,10 @@ and diagnosis_path. The canonical fence is created before outcomes open and cann
 be moved by choosing another result filename. Missing/foreign identity refuses.
 Keep remote diagnostics sealed until this entrypoint's allowed look.
 
+Scientific mains use resume-by-default. Both synthetic and exact-input native
+canaries use the explicit 20-minute `short-canary` exemption; their synthetic
+units cannot enter scientific completion ledgers.
+
 Namespace+frozen-index complete units export atomically with SHA and marker last.
 `resume --input-dir ORIGINAL --prior VERIFIED-OUTPUT --output NEW-INPUT/verified-ledger.json`
 constructs the ledger from path/size/hash, never unit outcomes. It can recover a
