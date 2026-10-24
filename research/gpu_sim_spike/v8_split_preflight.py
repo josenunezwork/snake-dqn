@@ -55,6 +55,29 @@ def preflight(root: Path, commit: str) -> dict:
         }
     )
     started = time.perf_counter()
+    # Exercise the same adversarial oracle inputs on the Mac before any packet
+    # can reach the native A100 gate (which deliberately selects CUDA tests).
+    with (root / "cpu-parity.log").open("x") as stream:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-o",
+                "addopts=",
+                "-p",
+                "no:xdist",
+                "research/gpu_sim_spike/test_v8_split_parity.py::"
+                "test_cpu_v8_independent_diagnostics_masks_order_and_planes",
+            ],
+            cwd=v8_split_pack.ROOT,
+            env=env,
+            stdout=stream,
+            stderr=subprocess.STDOUT,
+            timeout=120,
+            check=True,
+        )
     log = root / "entrypoint.log"
     with log.open("x") as stream:
         child = subprocess.Popen(
