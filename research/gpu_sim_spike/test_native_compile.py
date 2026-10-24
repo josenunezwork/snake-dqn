@@ -104,10 +104,10 @@ def _proof(tmp_path, monkeypatch):
         "failure_class": None,
         "terminal": {"returncode": 0, "job_id": "compile"},
         "exports": [
-            {"path": p.name, "size": p.stat().st_size, "sha256": native.digest(p)}
-            for p in exports.iterdir()
+            {"path": p.name, "size": p.stat().st_size, "sha256": native.digest(p)} for p in [report]
         ],
     }
+    receipt["terminal"]["exports"] = receipt["exports"]
     path = output / "receipt.json"
     path.write_text(json.dumps(receipt))
     manifest = {
@@ -125,7 +125,10 @@ def test_a100_compile_gate_accepts_verified_same_pin_proof(tmp_path, monkeypatch
     native.require_for_a100_canary(manifest)
 
 
-@pytest.mark.parametrize("failure", ["missing", "pin", "stop", "terminal", "hash", "payload"])
+@pytest.mark.parametrize(
+    "failure",
+    ["missing", "pin", "stop", "terminal", "hash", "payload", "sidecar", "marker", "inventory"],
+)
 def test_a100_compile_gate_refuses_missing_stale_or_tampered_proof(tmp_path, monkeypatch, failure):
     path, receipt, manifest = _proof(tmp_path, monkeypatch)
     if failure == "missing":
@@ -142,6 +145,12 @@ def test_a100_compile_gate_refuses_missing_stale_or_tampered_proof(tmp_path, mon
         manifest["native_cuda_compile"]["receipt"]["sha256"] = "0" * 64
     elif failure == "payload":
         (path.parent / "exports/native-compile.json").write_text("{}")
+    elif failure in {"sidecar", "marker"}:
+        suffix = ".sha256" if failure == "sidecar" else ".complete"
+        (path.parent / ("exports/native-compile.json" + suffix)).write_text("tampered\n")
+    elif failure == "inventory":
+        receipt["exports"].append(dict(receipt["exports"][0]))
+        path.write_text(json.dumps(receipt))
     with pytest.raises(ValueError):
         native.require_for_a100_canary(manifest)
 

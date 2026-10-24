@@ -171,8 +171,10 @@ raise SystemExit(1)
             path = account / f"active-{record['session']}.json"
             path.write_text(json.dumps(record))
 
-    def invoke(name="lane", *, capture=True):
+    def invoke(name="lane", *, capture=True, dry_run=False):
         argv = [str(SCRIPT), name, str(manifest), "--broker", str(broker), "--cwd", str(broker)]
+        if dry_run:
+            argv.append("--dry-run")
         if capture:
             return subprocess.run(argv, env=env, text=True, capture_output=True, timeout=10)
         return subprocess.Popen(
@@ -200,6 +202,31 @@ raise SystemExit(1)
     for log in logs:
         wait_for(lambda: "EXIT=" in log.read_text() or env.get("TMUX_FAIL"))
     assert not (home / "real-colab-called").exists()
+
+
+@pytest.mark.parametrize("invalid", [False, True])
+def test_dry_run_validates_without_reservation_or_allocation(fixture, invalid):
+    f = fixture
+    before = {p: p.read_bytes() for p in f["ops"].rglob("*") if p.is_file()}
+    if invalid:
+        f["env"]["VALIDATE_FAIL"] = "1"
+    result = f["invoke"](dry_run=True)
+    assert result.returncode == (1 if invalid else 0), result.stderr
+    if not invalid:
+        assert "PASS_DRY_RUN" in result.stdout
+    trace = [json.loads(row) for row in (f["tmp"] / "trace").read_text().splitlines()]
+    assert [row["action"] for row in trace] == ["validate"]
+    assert {p: p.read_bytes() for p in f["ops"].rglob("*") if p.is_file()} == before
+    assert not (f["ops"] / "dispatch").exists()
+    assert not (f["tmp"] / "output").exists()
+
+
+def test_dry_run_refuses_used_dispatch_name(fixture):
+    f = fixture
+    (f["ops"] / "dispatch/lane").mkdir(parents=True)
+    result = f["invoke"](dry_run=True)
+    assert result.returncode == 1 and "identity already used" in result.stderr
+    assert not (f["tmp"] / "trace").exists()
 
 
 def runs(f):
