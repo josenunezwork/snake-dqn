@@ -1,0 +1,127 @@
+{
+  "account_root": "/Users/josenunez/.config/colab-cli/snake",
+  "adapter_review": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/small-bench-sprint-20261024/CODEX_V_ADAPTER_REVIEW.json",
+  "admission_pointer": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-budget-20261024-02/OPERATOR_ADMISSION.current.json",
+  "admissions_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-budget-20261024-02/small-bench-admissions",
+  "allocation_wait_minutes": 10,
+  "bindings": [
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_SMALL_BENCH_ADMISSION_20261024.md",
+      "sha256": "1441a0b81600eb5f55fa85336c72e491cac7ee82203daa4ab66c8a331b84ca86"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-budget-20261024-02/v8-split-main.json",
+      "sha256": "f1266d454d9064292e09470f9de6b73de8bb4d25c8edd1340a2a8062b391e722"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-budget-20261024-02/PREPARATION.json",
+      "sha256": "8fb58948465e6f1556607e95b6b9c07f4fed5a2e556c81e747a91a3ef139148d"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-budget-20261024-02/CODEX_V_LIGHT.json",
+      "sha256": "ae6a1d65883b62a45396f0583042f3013f23e80ec2e63b3092292d0440ea9249"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-budget-20261024-02/CODEX_V_ADMISSION_REVIEW.json",
+      "sha256": "5725022cc99c18636e4e86283ec25b586ce2b25a01c30961e357b0d847ac4805"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-v8-metadata-qualified-02.noindex/research/t34_exit_b8/PUBLIC_INPUTS.json",
+      "sha256": "736f7b4e7730f760b8b81db00772d14abcf84c74b261a8dc7630732fdd383a10"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-metadata-20261024-02/metadata-main.tar",
+      "sha256": "770fd1daa01a0100d1e84551d1d34c483ba615234b5fe976824256e6b636f315"
+    }
+  ],
+  "campaign_log": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/docs/research/final_run_20261019/CAMPAIGN_LOG.md",
+  "cap": {
+    "units": 20,
+    "wall_minutes": 120
+  },
+  "colab": "/Users/josenunez/.local/bin/colab",
+  "cwd": "/Users/josenunez/Projects/ml/snake-dqn-v8-metadata-qualified-02.noindex",
+  "deadline_utc": "2026-10-26T01:00:00+00:00",
+  "dispatch_command": [
+    "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/ops/dispatch.sh",
+    "gpu-v8-split-main-669405e2bef6-budget-02",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-budget-20261024-02/v8-split-main.json",
+    "--broker",
+    "/Users/josenunez/Projects/ml/snake-dqn-v8-metadata-qualified-02.noindex",
+    "--cwd",
+    "/Users/josenunez/Projects/ml/snake-dqn-v8-metadata-qualified-02.noindex",
+    "--state-dir",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-budget-20261024-02/state-main",
+    "--dispatch-txt",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-budget-20261024-02/DISPATCH.txt",
+    "--small-bench-config",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/small-bench-sprint-20261024/v8-config-release-tail-02.json"
+  ],
+  "dispatch_cwd": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8",
+  "dispatch_pythonpath": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8",
+  "job_id": "gpu-v8-split-main-669405e2bef6-budget-02",
+  "manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-budget-20261024-02/v8-split-main.json",
+    "sha256": "f1266d454d9064292e09470f9de6b73de8bb4d25c8edd1340a2a8062b391e722"
+  },
+  "offline_acceptance": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-budget-20261024-02/CODEX_V_LIGHT.json",
+    "sha256": "ae6a1d65883b62a45396f0583042f3013f23e80ec2e63b3092292d0440ea9249"
+  },
+  "offline_check": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "-m",
+    "tools.v8_small_bench",
+    "offline"
+  ],
+  "outside_tail": {
+    "units": 5,
+    "wall_minutes": 30
+  },
+  "outside_tail_basis": "Known-endpoint cleanup: 1173s stop verification + 600s broker lock + 2s poll - 45s main lead <=30min at10u/h. This alone forces packet HOLD; unknown allocation-identity recovery is not claimed universally bounded by this tail.",
+  "outside_tail_source": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-v8-metadata-qualified-02.noindex/research/colab_cli/supervisor.py",
+    "sha256": "263eeecc556ae02057d87c351e7c83b9fb3175f55f8b1d823982bf53c564e853"
+  },
+  "packet_ceiling": {
+    "units": 25,
+    "wall_minutes": 150
+  },
+  "packet_id": "V8_SPLIT_INITIAL_MAIN_20261024",
+  "previous_releases": [
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-metadata-20261024-02/canary-output/receipt.json",
+      "sha256": "57339dc463486a947ca23301e1d4ac13bf21b6089fcd69844c1581dfe1fae288"
+    }
+  ],
+  "purpose": "timing",
+  "register": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/small-bench-sprint-20261024/register.jsonl",
+  "reservation_id": "small-bench-v8-split-initial-669405e2-budget02",
+  "reservation_lock": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/sprint-reservations.lock",
+  "ruling": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_SMALL_BENCH_ADMISSION_20261024.md",
+    "sha256": "1441a0b81600eb5f55fa85336c72e491cac7ee82203daa4ab66c8a331b84ca86"
+  },
+  "schema": "small-bench-package/v1",
+  "scopes": [
+    "packet",
+    "v8",
+    "q2",
+    "q4",
+    "global"
+  ],
+  "watch_globs": [
+    {
+      "pattern": "active-*.json",
+      "root": "/Users/josenunez/.config/colab-cli/snake"
+    },
+    {
+      "pattern": "pending-*.json",
+      "root": "/Users/josenunez/.config/colab-cli/snake"
+    },
+    {
+      "pattern": "*.json",
+      "root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/manifests"
+    }
+  ]
+}

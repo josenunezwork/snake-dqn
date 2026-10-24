@@ -1,0 +1,49 @@
+{
+  "allocations": 0,
+  "caps_unchanged": {
+    "main_minutes": 120,
+    "main_units": 20,
+    "packet_minutes": 150,
+    "packet_units": 25
+  },
+  "checks": [
+    "make PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python lint: PASS",
+    "Black/isort/flake8 all 8 changed Python files: PASS",
+    "bash -n tools/v8-small-bench.sh tools/ops/dispatch.sh: PASS",
+    "git diff --check: PASS",
+    "actual preserved offline package validation + upload checker + qualified wrapper dry-run: PASS allocations=0 source_files=577 archive_bytes=1943906",
+    "config matches frozen descriptor: PASS",
+    "static huge-balance reservation test: EXPECTED_HOLD insufficient scope packet; standing register unchanged revision0"
+  ],
+  "current_v8_disposition": "HOLD_INSUFFICIENT_PACKET_HEADROOM",
+  "dispatches": 0,
+  "independent_review": "One Codex-V review session; exact final create-only review artifact copied separately after independent acceptance",
+  "main_reservations_written": 0,
+  "metadata_sha256": "770fd1daa01a0100d1e84551d1d34c483ba615234b5fe976824256e6b636f315",
+  "outside_tail": {
+    "coverage": "Known-endpoint cleanup only; unknown-identity recovery not universally bounded",
+    "units": 5,
+    "wall_minutes": 30
+  },
+  "prior_packet_spent": {
+    "units": 4.349792018866962,
+    "wall_minutes": 26.098752113201773
+  },
+  "provider_queries": 0,
+  "runtime_pin": "669405e2bef629f7f69bc951cf49486d8b0a87bf",
+  "status": "ROOT_VERIFIED_NOT_DISPATCHED",
+  "tests": [
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q tests/test_small_bench_cli.py tests/test_small_bench_operator.py tests/test_small_bench_register.py tests/test_ops_dispatch.py tests/test_receipt_dispatch.py",
+      "note": "Before final self-contained financial row snapshot; ops/receipt code unchanged afterward",
+      "passed": 138,
+      "seconds": 45.87
+    },
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q tests/test_small_bench_cli.py tests/test_small_bench_operator.py tests/test_small_bench_register.py",
+      "note": "Final adapter/register/guard snapshot",
+      "passed": 54,
+      "seconds": 0.69
+    }
+  ]
+}

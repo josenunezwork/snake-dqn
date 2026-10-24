@@ -1064,3 +1064,89 @@ No frozen source was changed to repair that result. All 49 prior amended-package
 files are unchanged. Root commands/results: sibling preparation-evidence
 `VERIFICATION.json`. Live C/reconstruction and OPERATOR_ADMISSION remain absent;
 no provider queries, allocation, dispatch, completion or release occurred.
+
+
+### 2026-10-24 — Small benchmark fast-path adapter prepared; no dispatch
+
+Binding Astra `ADOPT_SMALL_BENCH_FAST_PATH`,
+`big-lever/exp/JUDGMENT_SMALL_BENCH_ADMISSION_20261024.md`, SHA256
+`1441a0b81600eb5f55fa85336c72e491cac7ee82203daa4ab66c8a331b84ca86`,
+prospectively replaces the five-file reconstruction/new-C/per-dispatch live-review
+requirements for approved outcome-free A100 engineering packets <=25 units.
+The ruling is copied verbatim at `tools/SMALL_BENCH_RULING_20261024.md`; operational
+guide and reusable schema are `tools/SMALL_BENCH_ADMISSION.md`.
+
+The one standing register is
+`big-lever/exp/small-bench-sprint-20261024/register.jsonl`, initial revision 0,
+row SHA256 `39c6c085ecdf0a8d3dd5131f50cfee781c39e96de2f0c792891b5ab5136273dc`.
+It carries 34.37323680115673 conservative historical units /
+248.28103845695148 aggregate minutes by unique operational attempts, including
+the ruling's six V8 charges (7.487434554633607 u / 44.92460732780164 min) and
+split-canary subset (4.349792018866962 u / 26.098752113201773 min).
+All historical debit is retained as a settlement hold pending the batch audit.
+I0/Q3/Q5/Q6/O1 retain 24/96/240/384/48-unit required-work holds; active external
+assignment caps are additionally carried. Global 1100 u / 7200 aggregate minutes
+is an inherited ceiling, not a new balance-derived C or recovered historical seal.
+Q2/Q4 overlap attribution is conservative; one physical attempt counts once globally.
+
+The V8 sibling entrypoint `tools/v8-small-bench.sh` reuses the accepted
+`gpu-v8-main-budget-20261024-02` package's exact offline acceptance, current-pin
+native canary, source/export/reducer/discrepancy/resume and upload validations.
+All original package/helper/runtime/broker bytes remain intact. The optional
+local ops flag routes the supervisor's CLI through an additive host refusal gate
+which checks capture age at the actual allocation request; original qualified
+CLI arguments/OAuth2/hooks and the lease/watchdog/export/stop path are preserved.
+No native canary is repeated for this local admission change.
+
+Main remains 120 min / 20 u and packet 150 min / 25 u, with estimate 50 min,
+included reserve 20 min / 10/3 u, producer deadline 5400 s, runtime
+`669405e2bef629f7f69bc951cf49486d8b0a87bf` and metadata
+`770fd1daa01a0100d1e84551d1d34c483ba615234b5fe976824256e6b636f315`.
+No cells, R/G/GV comparisons, inputs, main ledger, science or stops change.
+T0 stays 2026-10-24T01:00:00Z; default main deadline October 26 01:00 UTC,
+with 130 minutes reserved for main plus bounded wrapper wait.
+
+The operator admission transaction captures usage/sessions, refuses unknown or
+pending allocation, unrecorded financial delta, uncalibrated ownership/rates,
+competing A100, insufficient parent/live balance, overdue audit or stale deadline,
+then reserves once under the shared account reservation lock and publishes an
+immutable OPERATOR_ADMISSION trio. A refresh retains its reservation ID and earlier
+evidence. The asynchronous BATCH_AUDIT record starts pending the first admission;
+Codex-V must close an explicit register prefix within 24 hours and before gross
+new full-cap reservations would exceed 100 u. Failures count; refreshes do not.
+No per-dispatch financial ACCEPT or new policy ruling is required.
+
+Prepared only: offline check and governed dry-run passed with zero allocations;
+no live usage/sessions query, reservation for the pending main, dispatch, retry,
+completion, training, labels or serving/release action was performed. The one
+independent Codex-V adapter review and its exact implementation/test bindings
+are recorded separately in the standing register artifact directory.
+
+Independent adapter review found the prepared zero outside-cap release tail
+unsupported by the frozen supervisor. The initial zero-tail config is preserved;
+current sibling `small-bench-sprint-20261024/v8-config-release-tail-02.json` binds
+30 minutes / 5 units for ordinary known-endpoint cleanup (1173s stop verification
++ 600s account lock + 2s polling - 45s in-cap lead). Unknown-identity recovery is
+not claimed universally covered by this bound. This alone produces real
+**HOLD_INSUFFICIENT_PACKET_HEADROOM**: 4.349792018866962 historical packet units
++ 20 main + 5 outside tail exceeds25; 26.098752113201773 historical minutes
++120 main+30 tail exceeds150. Main+wrapper minimum130 minutes becomes160 with
+this tail. No cap increase, new funding request, live admission or dispatch was
+made. Independent acceptance of safe local enforcement does not certify the
+pending run affordable/dispatchable. Existing offline package acceptance and
+all immutable evidence remain valid for unchanged bytes.
+
+One independent Codex-V local-adapter review session closed **ACCEPT**,
+`small-bench-sprint-20261024/CODEX_V_ADAPTER_REVIEW.json` SHA256
+`03903917549dcf8c12d8ba16c20a0770b71b9f8418e417ca1e096fed1d9c2721`,
+binding the exact local implementation and corrected sibling config SHA256
+`16d3a75f6b9abe4520b073fda1a204d275cf880514ab8c82d02d50fb94414ccb`.
+Independent final combined suite:140 passed in44.59s; actual preserved offline
+acceptance/upload check/qualified dry-run passed,577 source files,1943906-byte
+source archive,zero allocations. Independent two-process reservation race yielded
+one admission and one refusal,one row/hold. Reviewer acceptance covers safe
+enforcement, not live finances: V8 remains HOLD_INSUFFICIENT_PACKET_HEADROOM,
+register remains revision0,main reservations0,OPERATOR_ADMISSION pointer absent.
+The reviewer-owned artifact trio and initialization/config/audit-plan/root-check
+snapshots are committed at `tools/small_bench_evidence_20261024/`.
+No provider query,dispatch,runtime mutation,retry,completion or release occurred.

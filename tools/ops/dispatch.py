@@ -424,6 +424,7 @@ def start(
     *,
     control_nice0: bool = False,
     control_admission: Path | None = None,
+    small_bench_config: Path | None = None,
 ) -> None:
     """Submit one shell command with preserved argument boundaries and exit evidence."""
     log.touch(exist_ok=False)
@@ -437,6 +438,11 @@ def start(
         "run",
         str(manifest),
     ]
+    if small_bench_config is not None:
+        # A host-only CLI front door checks capture age at the actual `new`
+        # request. The qualified broker/runtime and original manifest stay intact.
+        guard = HERE.parent / "small_bench_cli.py"
+        launcher[launcher.index("--colab") + 1] = str(guard)
     if control_nice0:
         if control_admission is None:
             raise Refused("missing create-only Colab control admission")
@@ -454,6 +460,8 @@ def start(
             *launcher,
         ]
     environment_items = ["env", f"HOME={Path.home()}", f'PATH={os.environ["PATH"]}']
+    if small_bench_config is not None:
+        environment_items.append(f"SNAKE_SMALL_BENCH_CONFIG={small_bench_config}")
     if control_nice0:
         environment_items = [
             "env",
@@ -998,6 +1006,17 @@ def dispatch(args: argparse.Namespace) -> str:
             raise Refused(f"{dispatch_txt} has BLOCK/HOLD instructions: {blocked}")
     original_bytes = manifest.read_bytes()
     value = json.loads(original_bytes)
+    small_config = getattr(args, "small_bench_config", None)
+    if small_config is not None:
+        from tools.small_bench_operator import configuration
+
+        admitted = configuration(small_config)
+        if (
+            admitted["job_id"] != args.name
+            or admitted["manifest"]["sha256"] != hashlib.sha256(original_bytes).hexdigest()
+            or Path(admitted["cwd"]).resolve() != broker
+        ):
+            raise Refused("small benchmark package identity differs")
     if not isinstance(value, dict):
         raise Refused("manifest must be an object")
     require_resume_policy(value)
@@ -1111,6 +1130,7 @@ def dispatch(args: argparse.Namespace) -> str:
                 deadline,
                 control_nice0=control_nice0,
                 control_admission=control_admission,
+                **({"small_bench_config": small_config} if small_config is not None else {}),
             )
             outcome = wait_allocation(Path(output), log, deadline, poll)
             if attempt == 1 and outcome == "retry":
@@ -1185,6 +1205,7 @@ def main() -> int:
     parser.add_argument("--retention-acceptance", type=Path)
     parser.add_argument("--boundary-admission", type=Path)
     parser.add_argument("--review-token")
+    parser.add_argument("--small-bench-config", type=Path)
     parser.add_argument(
         "--dry-run", action="store_true", help="validate without reserving or allocating"
     )

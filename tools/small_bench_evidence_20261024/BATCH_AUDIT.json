@@ -1,0 +1,18 @@
+{
+  "due": "24h from first unaudited admission; before cumulative gross full reservations exceed 100u",
+  "initial_revision": 0,
+  "initial_row_hash": "39c6c085ecdf0a8d3dd5131f50cfee781c39e96de2f0c792891b5ab5136273dc",
+  "no_audit_yet": true,
+  "register": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/small-bench-sprint-20261024/register.jsonl",
+  "required": [
+    "source provenance",
+    "historical completeness",
+    "nested accounting",
+    "settlement",
+    "duplicates",
+    "explicit prefix revision and hash"
+  ],
+  "reset_policy": "Only completed independent ACCEPT of explicit prefix closes batch; no day/package reset",
+  "reviewer": "Codex-V independent financial batch audit",
+  "status": "PENDING_FIRST_ADMISSION"
+}

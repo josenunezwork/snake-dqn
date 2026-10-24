@@ -1,0 +1,200 @@
+{
+  "allocations": 0,
+  "baseline_commit": "91f4e4e23f83514ca35a319308f3ef0743456ec9",
+  "batch_audit_plan": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/small_bench_evidence_20261024/BATCH_AUDIT.json",
+    "sha256": "7f1eb0efe65ed1fb1e0fa1de7dc22b6633abb2e66aa9d33b7f45b4ea0bbc6179"
+  },
+  "binding_ruling": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/JUDGMENT_SMALL_BENCH_ADMISSION_20261024.md",
+    "sha256": "1441a0b81600eb5f55fa85336c72e491cac7ee82203daa4ab66c8a331b84ca86"
+  },
+  "config": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/small-bench-sprint-20261024/v8-config-release-tail-02.json",
+    "sha256": "16d3a75f6b9abe4520b073fda1a204d275cf880514ab8c82d02d50fb94414ccb"
+  },
+  "config_sha256": "16d3a75f6b9abe4520b073fda1a204d275cf880514ab8c82d02d50fb94414ccb",
+  "current_package_disposition": {
+    "inherited_packet_spend": {
+      "units": 4.349792018866962,
+      "wall_minutes": 26.098752113201773
+    },
+    "main_cap": {
+      "units": 20,
+      "wall_minutes": 120
+    },
+    "outside_tail": {
+      "units": 5,
+      "wall_minutes": 30
+    },
+    "packet_ceiling": {
+      "units": 25,
+      "wall_minutes": 150
+    },
+    "reason": "Historical packet charge plus full main plus conservative release liability exceeds packet ceiling. Offline acceptance is of correct enforcement, not dispatch readiness.",
+    "status": "HOLD_INSUFFICIENT_PACKET_HEADROOM"
+  },
+  "dispatches": 0,
+  "implementation": [
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/small_bench_register.py",
+      "sha256": "eeb8e87cfeeb0f73579e84b469b9e8e17b38d75403180df0efd14c58d661af35"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/small_bench_operator.py",
+      "sha256": "d73dc876e126b3b2df6e504c783fe44b93abb35312bb5a2319ed156525742108"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/small_bench_cli.py",
+      "sha256": "87482ceb05fdc4c99a6fdb04577dbfde0c8c5c09e42251f2a12269ba5e6205e3"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/v8_small_bench.py",
+      "sha256": "5e2a1b90c4618a120b0efe8533ae1e26f128e532b6e2c070bc1db9a6bba8733d"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/v8-small-bench.sh",
+      "sha256": "93d0cd0bb6e707749f7d2aa0ab24b37d29c21364c8cc99674e4ab4d349e3097c"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/ops/dispatch.py",
+      "sha256": "8a1ed63451c4082b6cad2e2a6a8aff9b17d02bc071df75d8714f1684bcea4626"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/ops/dispatch.sh",
+      "sha256": "4678d42469033d23f5178ce36b0b3c62d6e4488d211bd76afaa6b67bcf31f931"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/ops/qualification.py",
+      "sha256": "caa24b7ab75d4e3c09af029e92e49c73521c1ae76d70f9e063dd0c2fdb9a6d38"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/ops/control_imports.py",
+      "sha256": "eca9ec8ad195625f105d71b8800722fbdab95877bf6327fe849e0ffb2aaad2b4"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tests/test_small_bench_register.py",
+      "sha256": "077ba891be7303a2f075bcb5517f2cf65b744ca3767641c3f07639a115461d5e"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tests/test_small_bench_operator.py",
+      "sha256": "0eac2d557f2cadfe6dc69741a3bca55f1cd258284f606f2a0164c4a4b4ea135c"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tests/test_small_bench_cli.py",
+      "sha256": "1879f88e2728128dd75e4009ddaa994073d49b582d16fed2e3ac8f7cbf32f3ad"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tests/test_ops_dispatch.py",
+      "sha256": "0f264c1b863bb7e79a886e734a6d96db5e531cb5a9bf894f1eab4bfa958f6295"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tests/test_receipt_dispatch.py",
+      "sha256": "6062fd5d26b20d593373970227ca55ee96a1b144517a42a4b096156699d6b227"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/SMALL_BENCH_ADMISSION.md",
+      "sha256": "d6a1466c4c1d1b6d97f9be91209652cd402ae316bfee3229f390e9cd5b115df4"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/SMALL_BENCH_RULING_20261024.md",
+      "sha256": "1441a0b81600eb5f55fa85336c72e491cac7ee82203daa4ab66c8a331b84ca86"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/small-bench-sprint-20261024/v8-config-release-tail-02.json",
+      "sha256": "16d3a75f6b9abe4520b073fda1a204d275cf880514ab8c82d02d50fb94414ccb"
+    }
+  ],
+  "initial_register_evidence": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-gpu-v8/tools/small_bench_evidence_20261024/REGISTER_INITIAL.jsonl",
+    "sha256": "2142f266e28e0d79f98138fbfd40349c630b9350c6c9a79be32147e3b924fae1"
+  },
+  "native_canaries": 0,
+  "product_files_edited_by_reviewer": [],
+  "provider_queries": 0,
+  "remaining_findings": [],
+  "required_adverse_cases_reviewed": [
+    "stale/future capture and same-ID refresh",
+    "failed refresh pointer invalidation",
+    "insufficient scope and live funds",
+    "concurrent/double reservation",
+    "unknown/pending/competing allocation",
+    "expired deadline and full-duration-plus-wait requirement",
+    "wrong package/session/output/retry identities",
+    "24-hour audit and 100-unit cumulative gross threshold",
+    "changed input/capture/source refusal",
+    "settlement debt retention and reconciliation",
+    "full concurrent assignment cap coverage"
+  ],
+  "residual_risks": [
+    "No live usage/sessions, live affordability, allocation, dispatch, or native canary was performed by this reviewer.",
+    "Detailed historical provenance, settlement and completeness remain for the asynchronous independent batch audit; this review did not replace that audit.",
+    "Thirty-minute tail bounds the ordinary known-endpoint cleanup path only; unknown-identity recovery is not universally certified by that bound. Current packet refuses admission regardless.",
+    "Material changes to any bound implementation/config/input/rule/cap/qualification invalidate affected acceptance. Live refresh alone does not require reviewer restart."
+  ],
+  "resolved_findings": [
+    {
+      "issue": "Release-only settlement could drop unpaid debit.",
+      "resolution": "Conservative debt retained by default; receipt/export/disappearance evidence bound; provider settlement needed for reduction; later evidence-gated reconciliation preserves remaining exposure.",
+      "severity": "P1"
+    },
+    {
+      "issue": "Zero outside-cap release tail was not supported by the unchanged supervisor.",
+      "resolution": "Sibling config conservatively carries known-endpoint 30-minute/5-unit tail, with unknown-identity caveat. This produces a mandatory real packet HOLD rather than spending beyond caps.",
+      "severity": "P1"
+    },
+    {
+      "issue": "Allocation front door initially rejected the existing exact mechanical allocation retry.",
+      "resolution": "Recognizes only deterministic existing retry identity backed by exact stopped accounting failure and exited original shell; other identities refuse.",
+      "severity": "P2"
+    },
+    {
+      "issue": "Concurrent owned assignment caps were not reconciled to financial commitments.",
+      "resolution": "Positive finite caps and external financial coverage enforced; shared financial and broker locks fence capture/reservation.",
+      "severity": "P1"
+    },
+    {
+      "issue": "Debt reconciliation and proven no-allocation failure closure were missing.",
+      "resolution": "Evidence-gated reconcile avoids double charging and cannot remove remaining runtime coverage; only narrowly proven pinned UPLOAD_CAP pre-allocation failure can close without a released endpoint.",
+      "severity": "P2"
+    },
+    {
+      "issue": "Admission row lacked directly reviewable scope/account balances and raw capture revalidation.",
+      "resolution": "Financial-before snapshot records scope balances, holds, account deductions and cap-plus-tail; current admission rebinds usage/sessions and completed capture record.",
+      "severity": "P2"
+    },
+    {
+      "issue": "A failed fresh capture could leave an older admission pointer usable.",
+      "resolution": "Locked refresh invalidates and fsyncs only the mutable pointer before capture; immutable evidence and full reservation survive; regression proves failed refresh cannot dispatch old pointer.",
+      "severity": "P1"
+    }
+  ],
+  "review_session_count": 1,
+  "reviewed_utc": "2026-10-24T11:18:31.029812+00:00",
+  "reviewer": "Codex-V independent read-only reviewer /root/codex_v",
+  "schema": "small-bench-independent-adapter-review/v1",
+  "scope": "Offline local admission adapter delta and safe refusal enforcement only; not live accounting acceptance or permission to dispatch.",
+  "status": "ACCEPT",
+  "verification": [
+    {
+      "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q tests/test_ops_dispatch.py tests/test_receipt_dispatch.py tests/test_small_bench_register.py tests/test_small_bench_operator.py tests/test_small_bench_cli.py",
+      "result": "140 passed in 44.59s on exact final source closure."
+    },
+    {
+      "command": "bash tools/v8-small-bench.sh offline",
+      "result": "PASS_OFFLINE_REUSED_ACCEPTANCE; qualified wrapper PASS_DRY_RUN; allocations=0; 577 source files; source archive 1943906 bytes. Reused path unchanged by final pointer invalidation."
+    },
+    {
+      "command": "Independent two-process simultaneous locked reservation smoke in temporary directory",
+      "result": "Exactly one admitted and one refused shared account lock; exactly one new row/reservation."
+    },
+    {
+      "command": "Independent frozen-config equality and enormous synthetic balance reservation check",
+      "result": "Config exactly equals configuration(); EXPECTED_HOLD insufficient scope packet; register remains original revision 0, no reservation, no current admission pointer."
+    },
+    {
+      "command": "git diff --check; independent baseline dispatch comparison; verbatim ruling comparison",
+      "result": "PASS. Root dispatch baseline before optional delta matched accepted host dispatch bytes; ruling copy matches binding source."
+    }
+  ]
+}

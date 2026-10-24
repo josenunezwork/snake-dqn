@@ -1,0 +1,12 @@
+{
+  "allocations": 0,
+  "command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q tests/test_small_bench_cli.py tests/test_small_bench_operator.py tests/test_small_bench_register.py",
+  "config_sha256": "16d3a75f6b9abe4520b073fda1a204d275cf880514ab8c82d02d50fb94414ccb",
+  "dispatches": 0,
+  "lint": "Black/isort/flake8 passed for final two changed files; other closure unchanged",
+  "passed": 55,
+  "provider_queries": 0,
+  "reason": "A failed fresh capture or later admission refusal invalidates only the mutable current pointer before checking; prior immutable evidence and existing reservation remain intact.",
+  "seconds": 0.73,
+  "status": "ROOT_VERIFIED_FINAL_REFRESH_REFUSAL"
+}
