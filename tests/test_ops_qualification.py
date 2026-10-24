@@ -285,10 +285,11 @@ def test_lane_cpu_fault_preserves_registry_after_raw_harness_pass(broker, tmp_pa
     from research.colab_cli import cli_guard, policy
     from research.rpc_qualification import admission as lane_admission
     from research.rpc_qualification import checker
+    from tests.test_colab_cli_evidence_differential import _differential_trace
 
     # Exercise the real proof validator at execute's selected path. Build an
-    # isolated current-source package, using the frozen trace evidence as fixture
-    # data; no generated proof (or provider) is needed to generate the next proof.
+    # isolated current-source package. Generate the current fake-clock trace;
+    # retain the frozen CPU evidence fixture. No provider or new proof is needed.
     source = OPS.parents[1]
     for relative in checker.fake_proof_source_inventory(source):
         destination = broker / relative
@@ -299,7 +300,14 @@ def test_lane_cpu_fault_preserves_registry_after_raw_harness_pass(broker, tmp_pa
     proof = json.loads(
         (source / "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_07.json").read_text()
     )
+    trace_root = tmp_path / "current-proof-trace"
+    trace_root.mkdir()
+    trace = _differential_trace(trace_root)
+    trace_bytes = (json.dumps(trace, indent=2, sort_keys=True) + "\n").encode()
     proof.update(
+        supplemental_tests=list(checker.SUPPLEMENTAL_PROOF_TESTS),
+        differential_trace=trace,
+        differential_trace_sha256=hashlib.sha256(trace_bytes).hexdigest(),
         source_commit=git(broker, "rev-parse", "HEAD"),
         source_sha256=checker.fake_proof_source_inventory(broker),
         transport_tree=qualification.tree(broker),
