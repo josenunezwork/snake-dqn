@@ -848,3 +848,6 @@ The first failed fixture exposed and fixed Darwin caffeinate's same-PID utility
 exec; its evidence remains alongside the passing fixture. All fixture payloads
 were inert local stubs with a synthetic qualification witness: zero provider
 calls, no factory, no scientific payload, and no transport/overlap qualification.
+
+
+Round-27 speed repair equiv-02: round-27 speed equivalence phase ledger 02. Ledger `research/bl_labels/ledger/ROUND27_SPEED_EQUIV_PHASES_02.json`, SHA256 `2d2e5ea4486e4cb8eb0c501c09b26906e9222f41aae99482e1c7c4afdf003541`. equiv-01 retained unchanged.
