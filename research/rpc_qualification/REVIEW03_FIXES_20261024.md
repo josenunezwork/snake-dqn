@@ -13,6 +13,9 @@ pack/proof bytes remain immutable; pack -05 receives only a sibling marker.
   the realized injection ID, failure type, direction, remote suffix and frozen
   parent-event count. Other failures, including the same suffix without the
   realized injection identity, still count as C6.
+  The observer follows the actual digest-rejection cause instead of mistaking
+  the export wrapper's generic "hash mismatch or transfer failure" text for
+  a realized corruption injection.
 - B2: the existing single bounded end-of-session census also observes only the
   SHA256 and byte size of `client-start.json` and `client-finished.json`. Local
   download identities/digests are retained until that census. The producer
@@ -40,6 +43,9 @@ the create-only output `FAKE_CLI_PROOF_20261024_V2_06.json`. Pack preparation
 uses `research.rpc_qualification.manifests prepare` and fresh destination
 `big-lever/round-24/rpc-qualification-06`. Exact identities, verification logs,
 and the V3 helper live in the frozen external pack and implementation handoff.
+The subprocess fake routes the census separately from its deliberately hung
+client simulator. The dispatch-warmup test's outer bound allows setup outside
+the unchanged production allocation window; production caps are unchanged.
 
 After review-04 ACCEPT, freeze this branch until attempt 2 settles. The operator
 must establish that the ruler is terminal before the prerequisite, and that

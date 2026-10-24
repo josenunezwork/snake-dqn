@@ -89,6 +89,8 @@ def review_source_inventory(repo: Path, package_commit: str | None = None) -> di
         "tests/test_rpc_qualification_probe_policy.py",
         "tests/test_rpc_qualification_checker.py",
         "tests/fixtures/make_l4_faults_v2_fixture.py",
+        "tests/fixtures/fake_colab.py",
+        "tests/test_colab_cli_dispatch_warmup.py",
     }
     paths = [
         path

@@ -45,6 +45,8 @@ FAKE_PROOF_TESTS = (
     "tests/test_ops_qualification.py",
 )
 FAKE_PROOF_EXTRA_SOURCES = (
+    "tests/fixtures/fake_colab.py",
+    "tests/test_colab_cli_dispatch_warmup.py",
     "research/bl_labels/l4_faults_v2.py",
     "research/rpc_qualification/broker.py",
     "research/rpc_qualification/checker.py",

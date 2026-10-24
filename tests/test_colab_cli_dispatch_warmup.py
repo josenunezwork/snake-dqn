@@ -285,7 +285,9 @@ def test_dispatch_recovers_missing_kernel_metadata_before_first_upload(tmp_path:
         env=env,
         text=True,
         capture_output=True,
-        timeout=20,
+        # The outer wrapper also includes validation before its separate
+        # 20-second allocation allowance, plus warmup and rate calibration.
+        timeout=60,
     )
     assert result.returncode == 0, result.stderr
     assert "allocation=success" in result.stdout

@@ -325,6 +325,16 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         code = code.replace("threading.Thread(target=worker, daemon=True).start()", "worker()")
     count = int(state.setdefault("exec_count", {}).get(session, 0))
     state["exec_count"][session] = count + 1
+    if "SNAKE_MARKER_CENSUS" in code:
+        # This read contains both client-marker names but is not the detached
+        # client-loss subject. Map filesystem access, preserving remote keys.
+        code = code.replace("path = Path(name)", "path = _fake_remote(name)")
+        exec(
+            compile(code, "<fake-marker-census>", "exec"),
+            {"_fake_remote": lambda name: _remote(session, name)},
+        )
+        _save(state)
+        return
     if MODE in {"busy_exec", "poll_hiccup"} and count == 0:
         # A zero exit with no nonce is the ambiguous/busy-kernel case.
         print("kernel is busy; command accepted")
@@ -892,7 +902,11 @@ def main(argv: list[str]) -> int:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     if result == 0 and "exec" in argv and "-f" in argv:
         code = Path(argv[argv.index("-f") + 1]).read_text()
-        if "client-start.json" in code and "client-finished.json" in code:
+        if (
+            "SNAKE_MARKER_CENSUS" not in code
+            and "client-start.json" in code
+            and "client-finished.json" in code
+        ):
             time.sleep(300)  # Kernel state remains durable after this CLI dies.
     return result
 

@@ -6,6 +6,8 @@ import contextlib
 import hashlib
 import io
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -113,6 +115,54 @@ def test_census_observes_only_client_marker_digest_and_size(tmp_path):
         "size": marker.stat().st_size,
     }
     assert "opaque" not in output.getvalue()
+
+
+def test_fake_cli_routes_marker_census_without_client_loss_sleep(tmp_path, monkeypatch):
+    """The real subprocess fake must handle census as a read, preserving keys."""
+    remote_root = tmp_path / "remote"
+    for key, value in {
+        "FAKE_COLAB_STATE": tmp_path / "state.json",
+        "FAKE_COLAB_LOG": tmp_path / "calls.jsonl",
+        "FAKE_COLAB_REMOTE": remote_root,
+        "FAKE_COLAB_MODE": "normal",
+    }.items():
+        monkeypatch.setenv(key, str(value))
+    monkeypatch.delenv("FAKE_COLAB_FAULT_PLAN", raising=False)
+    remotes = tuple(
+        "/content/client/" + name for name in ("client-start.json", "client-finished.json")
+    )
+    expected = {}
+    for remote in remotes:
+        target = remote_root / "census-session" / remote.lstrip("/")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"PRIVATE_MARKER_BYTES")
+        expected[remote] = {
+            "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+            "size": target.stat().st_size,
+        }
+    code = tmp_path / "census.py"
+    code.write_text(supervisor.marker_census_code("a" * 32, "CENSUS", client_files=remotes))
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parent / "fixtures/fake_colab.py"),
+            "--auth",
+            "oauth2",
+            "--config",
+            str(tmp_path / "config.json"),
+            "exec",
+            "-s",
+            "census-session",
+            "-f",
+            str(code),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=True,
+    )
+    assert "PRIVATE_MARKER_BYTES" not in result.stdout
+    assert json.loads(result.stdout.removeprefix("CENSUS"))["client_files"] == expected
 
 
 def test_census_digest_binds_exact_completed_marker_download(tmp_path):
