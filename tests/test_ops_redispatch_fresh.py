@@ -201,6 +201,34 @@ def test_saved_manifest_tamper_is_refused(package: Path) -> None:
         fresh.prepare(package, broker=fresh.ROOT)
 
 
+@pytest.mark.parametrize(
+    "terminal",
+    ["ReadTimeout: timed out", "GuardError: kernel creation returned malformed kernel identity"],
+)
+def test_source_excerpt_cannot_impersonate_terminal_exception(package: Path, terminal: str) -> None:
+    detail = (
+        "colab exec failed (1): source traceback\n"
+        f'| raise GuardError("{fresh.KERNEL_ERROR}") |\n{terminal}\n'
+    )
+    error = repr(RuntimeError(detail)).replace("RuntimeError(", "Refused(", 1)
+    change_receipt(package, "error", error)
+    path = package / "canary-output/warmup-measurement.json"
+    warmup = fresh.load(path)
+    warmup["error"] = error
+    write(path, warmup)
+    with pytest.raises(fresh.Refused, match="kernel-creation failure"):
+        fresh.prepare(package, broker=fresh.ROOT)
+
+
+def test_multiline_rich_terminal_guard_is_accepted() -> None:
+    detail = (
+        f'colab exec failed (1): | raise GuardError("{fresh.KERNEL_ERROR}") |\n'
+        f"GuardError: {fresh.KERNEL_ERROR}\n"
+    )
+    assert fresh.is_kernel_creation_failure("Refused(" + repr(detail) + ")")
+    assert not fresh.is_kernel_creation_failure("RuntimeError(" + repr(detail) + ")")
+
+
 @pytest.mark.parametrize("field,value", [("attempts", 2), ("status", "PASS"), ("error", "other")])
 def test_warmup_must_prove_first_probe_failure(package: Path, field: str, value: Any) -> None:
     path = package / "canary-output/warmup-measurement.json"

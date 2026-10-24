@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -30,6 +31,31 @@ KERNEL_ERROR = "kernel creation already attempted; refusing uncertain retry"
 
 class Refused(ValueError):
     """Evidence does not prove the narrow pre-work failure required here."""
+
+
+def is_kernel_creation_failure(error: Any) -> bool:
+    """Match the terminal exception, never a message in a Rich source excerpt."""
+    if not isinstance(error, str):
+        return False
+    try:
+        call = ast.parse(error, mode="eval").body
+        if (
+            not isinstance(call, ast.Call)
+            or not isinstance(call.func, ast.Name)
+            or call.func.id != "Refused"
+            or len(call.args) != 1
+            or call.keywords
+        ):
+            return False
+        detail = ast.literal_eval(call.args[0])
+    except (ValueError, SyntaxError):
+        return False
+    return (
+        isinstance(detail, str)
+        and detail.startswith("colab exec failed (1): ")
+        and re.search(r"(?:\n|: )GuardError: " + re.escape(KERNEL_ERROR) + r"\s*\Z", detail)
+        is not None
+    )
 
 
 def digest(path: Path) -> str:
@@ -111,8 +137,7 @@ def verify_failure(package: Path, source: Path) -> dict[str, Any]:
     if (
         receipt.get("status") != "INCOMPLETE"
         or receipt.get("failure_class") != "SUPERVISOR"
-        or not isinstance(receipt.get("error"), str)
-        or KERNEL_ERROR not in receipt["error"]
+        or not is_kernel_creation_failure(receipt.get("error"))
         or receipt.get("stop_verified") is not True
         or "cleanup_error" not in receipt
         or receipt["cleanup_error"] is not None
