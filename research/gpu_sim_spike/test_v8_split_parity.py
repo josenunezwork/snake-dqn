@@ -13,9 +13,10 @@ import torch
 
 from research.gpu_sim_spike import v8_split_bench as split
 from research.gpu_sim_spike.device_sim import DeviceSim
-from research.gpu_sim_spike.test_v8_indexed import _assert_v8_fields, _cuda_canary_reference
+from research.gpu_sim_spike.test_v8_indexed import _cuda_canary_reference
 from research.gpu_sim_spike.test_vector_geometry import _canonical, _world
 from research.gpu_sim_spike.vector_geometry import IndexedVectorRuntime
+from src.simd_env.v8_nb import V8Result
 from src.simd_env.v8_nb import v8_decide as cpu_v8
 from src.simd_env.v8_nb import v8_feature_planes
 from src.simd_env.vector61_featurizer import Vector61Params
@@ -115,10 +116,8 @@ def test_cuda_frozen_kernels_and_geometry_selected_duplicate_stale_reset(monkeyp
     assert count >= 4
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="A100 native admission only")
-@pytest.mark.parametrize("variant", ["wrap-overlap", "dead-boost", "tail-release"])
-def test_cuda_v8_independent_cpu_diagnostics_masks_order_planes_and_native_execution(
-    monkeypatch, variant: str
+def _check_v8_independent_cpu_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, variant: str, device: str
 ) -> None:
     from research.gpu_sim_spike import v8_indexed
     from research.gpu_sim_spike.v8_device import v8_decide
@@ -129,13 +128,21 @@ def test_cuda_v8_independent_cpu_diagnostics_masks_order_planes_and_native_execu
         source.alive[0, 1] = False
     elif variant == "tail-release":
         source.length[0, 0] = source.seg_count[0, 0] + 1
-    sim = DeviceSim.from_reference(source, device="cuda")
+    sim = DeviceSim.from_reference(source, device=device)
     rows = np.array([[0, 1], [0, 0], [0, 0], [0, 2]], dtype=np.int64)
     q = np.array(
         [[1.0] * 6, [0, 1, 0, 0, 9, 0], [0.7, 0.4, 0.6, 0.8, 0.2, 0.5], [0] * 6], np.float32
     )
     mask = np.array([[True] * 6, [True, False, True, True, False, True], [False] * 6, [True] * 6])
-    expected = cpu_v8(source, rows, q, mask, features=True)
+    # The independent CPU rule accepts live decision rows only. Keep dead
+    # bodies populated in the world, and keep duplicate live rows in caller
+    # order. DeviceSim.step ignores actions for dead slots; their unconsumed
+    # decision diagnostics have no CPU-oracle contract.
+    live = source.alive[rows[:, 0], rows[:, 1]]
+    assert live.tolist() == (
+        [False, True, True, False] if variant == "dead-boost" else [True, True, True, False]
+    )
+    expected = cpu_v8(source, rows[live], q[live], mask[live], features=True)
     calls = 0
     original = v8_indexed.construct
 
@@ -151,18 +158,38 @@ def test_cuda_v8_independent_cpu_diagnostics_masks_order_planes_and_native_execu
         with split._arm(arm):
             outputs[arm] = v8_decide(
                 sim,
-                torch.as_tensor(rows, device="cuda"),
-                torch.as_tensor(q, device="cuda"),
-                torch.as_tensor(mask, device="cuda"),
+                torch.as_tensor(rows, device=device),
+                torch.as_tensor(q, device=device),
+                torch.as_tensor(mask, device=device),
                 features=True,
             )
-        _assert_v8_fields(outputs[arm], expected)
+        for name in V8Result.__dataclass_fields__:
+            actual = getattr(outputs[arm], name).detach().cpu().numpy()[live]
+            want = getattr(expected, name)
+            assert actual.shape == want.shape, name
+            assert actual.dtype == want.dtype, name
+            assert actual.tobytes() == want.tobytes(), name
         assert (
-            split.legacy._bytes(outputs[arm].feature_planes())
+            outputs[arm].feature_planes().detach().cpu().numpy()[live].tobytes()
             == v8_feature_planes(expected).tobytes()
         )
         assert split.inventory(sim) == before
-    assert calls > 0
+    assert calls > 0 if device == "cuda" else calls == 0
+
+
+@pytest.mark.parametrize("variant", ["wrap-overlap", "dead-boost", "tail-release"])
+def test_cpu_v8_independent_diagnostics_masks_order_and_planes(
+    monkeypatch: pytest.MonkeyPatch, variant: str
+) -> None:
+    _check_v8_independent_cpu_diagnostics(monkeypatch, variant, "cpu")
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="A100 native admission only")
+@pytest.mark.parametrize("variant", ["wrap-overlap", "dead-boost", "tail-release"])
+def test_cuda_v8_independent_cpu_diagnostics_masks_order_planes_and_native_execution(
+    monkeypatch: pytest.MonkeyPatch, variant: str
+) -> None:
+    _check_v8_independent_cpu_diagnostics(monkeypatch, variant, "cuda")
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="A100 native admission only")
