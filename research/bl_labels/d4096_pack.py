@@ -36,6 +36,10 @@ def create(original: Path, pack: Path, judgment: Path, binding: Path) -> dict:
     control_path = original / "d4096-control.json"
     _verify(control_path)
     raw = control_path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != (
+        "c3fe9861cd177de57644175d487746f028024d1596fbeda1fdc57250a0a28207"
+    ):
+        raise ValueError("original D4096 control bytes differ from pack-01")
     control = json.loads(raw)
     expected = copy.deepcopy(control)
     if (

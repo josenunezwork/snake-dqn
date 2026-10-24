@@ -45,6 +45,10 @@ def _validate_inputs(
     old_factory_root: Path | None,
     f4_control: Path,
     f4_inputs: Path,
+    *,
+    sealed_readiness: Path | None = None,
+    projection_receipt: Path | None = None,
+    owner_w12_ok: bool = False,
 ) -> tuple[dict, int, list[str], bool]:
     value = mac_gates._read(control)
     gate = value.get("mac_gate")
@@ -62,9 +66,14 @@ def _validate_inputs(
     if os.environ.get("F0_COMMIT", pin) != pin:
         raise ValueError("F0_COMMIT differs from the sealed D1024 speed pin")
     os.environ.update(F0_COMMIT=pin, F1_COMMIT=pin)
-    mac_gates._future_readiness(stage, f4_control, f4_inputs)
+    if stage == "d4096":
+        mac_gates._d4096_sealed_bindings(value, sealed_readiness, projection_receipt)
+    else:
+        mac_gates._future_readiness(stage, f4_control, f4_inputs)
     speed = mac_gates._read(speed_receipt)
     old_fallback = speed.get("status") == "FAIL"
+    if stage == "d4096" and not old_fallback:
+        raise ValueError("D4096 requires the admitted OLD collector; NEW is not re-qualified")
     if old_fallback:
         if old_factory_root is None:
             raise ValueError("T-EQ FAIL requires explicit --old-factory-root; HOLD")
@@ -82,10 +91,15 @@ def _validate_inputs(
             speed_receipt, legacy_pin, pin, expected_bank_sha=mac_gates.F1_BANK_SHA256
         )
     workers, flags = _calibration_workers(calibration_receipt, legacy_pin)
-    if old_fallback:
+    if old_fallback and stage == "d1024":
         # The speed candidate is rejected; execution returns to the historical
         # factory at W6 even if the independent width calibration passed.
         workers, flags = 6, []
+    if stage == "d4096":
+        if workers != 12 or not owner_w12_ok:
+            workers, flags = 6, []
+        elif mac_gates._read(calibration_receipt).get("schema") != w12_admission.SCHEMA:
+            raise ValueError("D4096 W12 requires w12-admission-01 PASS plus owner flag")
     calibration = mac_gates._read(calibration_receipt)
     if calibration.get("schema") == w12_admission.SCHEMA:
         # The admission record deliberately has only the ruled operational
@@ -129,13 +143,13 @@ def _check_paths(
             raise ValueError("OLD factory root is not clean detached frozen 61900af2")
 
 
-def _prepare_science_root(control_path: Path, stage: str) -> None:
+def _prepare_science_root(control_path: Path, stage: str, *, sealed_path: bool = False) -> None:
     """Separate the immutable science pin from the current operational wrapper."""
     control = mac_gates._read(control_path)
     gate = control.get("mac_gate")
     if not isinstance(gate, dict) or gate.get("stage") != stage or gate.get("status") != "HOLD":
         raise ValueError(f"{stage.upper()} control must be an unmodified sealed HOLD")
-    if stage == "d4096":
+    if stage == "d4096" and not sealed_path:
         raise ValueError(
             "D4096 remains HOLD pending its registered R6 funding/projection admission"
         )
@@ -171,8 +185,11 @@ def main() -> None:
     parser.add_argument("--b8", type=Path, required=True)
     parser.add_argument("--frp3", type=Path, required=True)
     parser.add_argument("--old-factory-root", type=Path)
-    parser.add_argument("--f4-control", type=Path, required=True)
-    parser.add_argument("--f4-inputs", type=Path, required=True)
+    parser.add_argument("--f4-control", type=Path)
+    parser.add_argument("--f4-inputs", type=Path)
+    parser.add_argument("--sealed-readiness", type=Path)
+    parser.add_argument("--projection-receipt", type=Path)
+    parser.add_argument("--owner-w12-ok", action="store_true")
     parser.add_argument(
         "--delegation-dir",
         type=Path,
@@ -180,11 +197,17 @@ def main() -> None:
     )
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
+    if args.stage == "d1024" and (args.f4_control is None or args.f4_inputs is None):
+        parser.error("D1024 requires --f4-control and --f4-inputs")
     if args.delegation_dir is not None and args.stage != "d4096":
         parser.error("--delegation-dir is admitted only for the D4096 stage")
     os.environ.update(mac_driver.THREAD_ENV)
     os.environ["SNAKE_DQN_DEVICE"] = "cpu"
-    _prepare_science_root(args.control, args.stage)
+    if args.stage == "d4096":
+        mac_gates._d4096_sealed_bindings(
+            mac_gates._read(args.control), args.sealed_readiness, args.projection_receipt
+        )
+    _prepare_science_root(args.control, args.stage, sealed_path=args.stage == "d4096")
     control, workers, flags, old_fallback = _validate_inputs(
         args.stage,
         args.control,
@@ -195,6 +218,9 @@ def main() -> None:
         args.old_factory_root,
         args.f4_control,
         args.f4_inputs,
+        sealed_readiness=args.sealed_readiness,
+        projection_receipt=args.projection_receipt,
+        owner_w12_ok=args.owner_w12_ok,
     )
     control["_control_parent"] = str(args.control.parent.resolve())
     _check_paths(control, args.ledger, args.output, args.state_dir, args.old_factory_root)
@@ -234,6 +260,8 @@ def main() -> None:
             f4_control=args.f4_control,
             f4_inputs=args.f4_inputs,
             old_factory_root=args.old_factory_root if old_fallback else None,
+            sealed_readiness=args.sealed_readiness,
+            projection_receipt=args.projection_receipt,
         )
     command = [
         sys.executable,

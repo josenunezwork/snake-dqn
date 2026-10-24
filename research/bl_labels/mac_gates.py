@@ -392,6 +392,8 @@ def admit_future(
     f4_control: Path,
     f4_inputs: Path,
     old_factory_root: Path | None = None,
+    sealed_readiness: Path | None = None,
+    projection_receipt: Path | None = None,
 ) -> dict:
     """Bind a future stage to the new pin, T-EQ and frozen calibration receipt."""
     original = _read(control_path)
@@ -406,10 +408,15 @@ def admit_future(
         }
     ):
         raise ValueError("future control is not a sealed D1024/D4096 HOLD")
+    sealed = None
     if gate["stage"] == "d4096":
-        raise ValueError(
-            "D4096 remains HOLD pending its registered R6 funding/projection admission"
-        )
+        sealed = _d4096_sealed_bindings(original, sealed_readiness, projection_receipt)
+        from .d4096_pack import PACK
+
+        if control_path.resolve() != (PACK / "d4096-control.json").resolve():
+            raise ValueError("D4096 sealed admission requires the canonical rebinding pack")
+        if old_factory_root is None:
+            raise ValueError("sealed D4096 requires the OLD collector for the whole tranche")
     pin = _future_source_pin(original)
     legacy_pin = gate.get("w12_calibration_source_commit")
     runner_pin = gate.get("w12_calibration_runner_commit")
@@ -448,7 +455,7 @@ def admit_future(
     expected_audit = future_seed_audit(original["allocation"], prior_allocation_rows=prior)
     if _read(audit_path) != expected_audit:
         raise ValueError("future seed audit differs from sealed allocation; HOLD")
-    readiness = _future_readiness(gate["stage"], f4_control, f4_inputs)
+    readiness = _future_readiness(gate["stage"], f4_control, f4_inputs) if sealed is None else {}
     value = copy.deepcopy(original)
     value["mac_gate"] = {
         **gate,
@@ -477,8 +484,45 @@ def admit_future(
             collector_source_commit=legacy_pin,
             collector_root=str(old_factory_root.resolve()),
         )
+    if sealed is not None:
+        value["mac_gate"]["bindings"]["sealed_collection"] = sealed
     publish_json(out, value)
     return value
+
+
+def _d4096_sealed_bindings(control: dict, readiness: Path | None, projection: Path | None) -> dict:
+    """Admit only the exact ruled OLD rebinding behind sealed metadata gates."""
+    from . import d4096_pack, d4096_sealed
+
+    if readiness is None or projection is None:
+        raise ValueError("D4096 remains HOLD pending sealed readiness/projection receipts")
+    gate = control.get("mac_gate", {})
+    allocation_sha = hashlib.sha256(
+        json.dumps(control.get("allocation"), sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if (
+        control.get("source_commit") != d4096_pack.SCIENCE
+        or gate.get("source_commit") != d4096_pack.SCIENCE
+        or gate.get("stage") != "d4096"
+        or gate.get("deadline_seconds") != 468000
+        or allocation_sha != d4096_pack.ALLOCATION_SHA
+        or control.get("namespace") != f"f0-hindsight-labels-{d4096_pack.OLD_SCIENCE}-mac-d4096"
+    ):
+        raise ValueError("D4096 sealed path requires the exact ruled OLD rebinding")
+    original_path = d4096_pack.ORIGINAL / "d4096-control.json"
+    if _verify(original_path) != "c3fe9861cd177de57644175d487746f028024d1596fbeda1fdc57250a0a28207":
+        raise ValueError("D4096 original pack control hash differs")
+    expected = _read(original_path)
+    expected["source_commit"] = expected["mac_gate"]["source_commit"] = d4096_pack.SCIENCE
+    if control != expected:
+        raise ValueError("D4096 rebinding changes an unruled control field")
+    d4096_sealed.validate_readiness(readiness)
+    d4096_sealed.validate_projection(projection, readiness)
+    return {
+        "readiness": {"path": str(readiness.resolve()), "sha256": _verify(readiness)},
+        "projection": {"path": str(projection.resolve()), "sha256": _verify(projection)},
+        "judgment_sha256": d4096_pack.JUDGMENT_SHA,
+    }
 
 
 def _require_future_admission(control: dict) -> None:
@@ -547,17 +591,33 @@ def _require_future_admission(control: dict) -> None:
 
     prior = d256_allocation(f"f0-hindsight-labels-{legacy_pin}-mac-d256")
     if original["mac_gate"]["stage"] == "d4096":
+        from .d4096_pack import PACK
+
+        if original_path.resolve() != (PACK / "d4096-control.json").resolve():
+            raise ValueError("D4096 admission original is outside the canonical rebinding pack")
         prior_control = _read(original_path.with_name("d1024-control.json"))
         prior = [*prior, *prior_control["allocation"]]
     if _read(Path(audit["path"])) != future_seed_audit(
         original["allocation"], prior_allocation_rows=prior
     ):
         raise ValueError("future seed audit differs after admission")
-    readiness_now = _future_readiness(
-        original["mac_gate"]["stage"],
-        Path(readiness.get("control_path", "")),
-        Path(readiness.get("inputs_path", "")),
-    )
+    sealed = None
+    if original["mac_gate"]["stage"] == "d4096":
+        candidate = bindings.get("sealed_collection", {})
+        sealed = _d4096_sealed_bindings(
+            original,
+            Path(candidate.get("readiness", {}).get("path", "")),
+            Path(candidate.get("projection", {}).get("path", "")),
+        )
+        if sealed != candidate or speed.get("status") != "FAIL_OLD_FALLBACK":
+            raise ValueError("D4096 sealed collection binding differs")
+        readiness_now = {}
+    else:
+        readiness_now = _future_readiness(
+            original["mac_gate"]["stage"],
+            Path(readiness.get("control_path", "")),
+            Path(readiness.get("inputs_path", "")),
+        )
     if readiness != readiness_now:
         raise ValueError("D1024 registered predecessor readiness changed after admission")
     original_gate = original["mac_gate"]
@@ -577,6 +637,8 @@ def _require_future_admission(control: dict) -> None:
         **collector,
     }
     expected = copy.deepcopy(original)
+    if sealed is not None:
+        expected_gate["bindings"]["sealed_collection"] = sealed
     expected["mac_gate"] = expected_gate
     if control != expected:
         raise ValueError("future admitted control differs from sealed admission")
@@ -611,7 +673,13 @@ def ledger_units(attempts: list[Path]) -> list[dict]:
 
 
 def publish_ledger(
-    pack: Path, attempts: list[Path], out: Path, *, control: dict | None = None
+    pack: Path,
+    attempts: list[Path],
+    out: Path,
+    *,
+    control: dict | None = None,
+    sealed_resume: bool = False,
+    funding_receipt: Path | None = None,
 ) -> dict:
     """Publish only verified wrappers/path/size/hash; do not calculate any outcome.
 
@@ -621,6 +689,20 @@ def publish_ledger(
     from .mac_driver import _verify_resume_metadata
 
     control = _read(pack / "control.json") if control is None else control
+    if control.get("mac_gate", {}).get("stage") == "d4096" or control.get("namespace", "").endswith(
+        "-mac-d4096"
+    ):
+        from . import d4096_sealed
+
+        d4096_sealed.require_not_discarded(pack / "d4096-not-run-by-rule.json")
+        if sealed_resume:
+            import re
+
+            relative = out.resolve().relative_to(pack.resolve())
+            if not re.fullmatch(r"d4096-resume-\d{2,}/verified-ledger\.json", str(relative)):
+                raise ValueError("sealed D4096 resume union must stay in its private resume path")
+        else:
+            d4096_sealed.require_funding_receipt(funding_receipt)
     namespace, allocation = control["namespace"], control["allocation"]
     value = empty_ledger(namespace, allocation)
     value["units"] = ledger_units(attempts)
