@@ -1,0 +1,69 @@
+{
+  "allocations": 0,
+  "changes": [
+    "Compare the native compile receipt to its payload-only export inventory; verify the terminal inventory, payload hash and size, checksum sidecar and marker.",
+    "Add side-effect-free dispatch validation and bind the installed Mac wrappers to create-only light acceptance records.",
+    "Preserve and validate original V8 package, review, source, manifest, canary export trios and reducer; diagnose missing operator admission separately."
+  ],
+  "lanes": [
+    {
+      "dispatch_command": "bash /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/dispatch-canary.sh",
+      "dry_run_command": "bash /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/dispatch-canary.sh --dry-run",
+      "dry_run_exit": 0,
+      "final_dry_run_log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/RECEIPT_FIX_DRY_RUN.log",
+      "final_dry_run_log_sha256": "16320a3d807a6054c9562e7d0d47fc65ee11e1d11ea7de8caeb8d52e0097e5b1",
+      "helper_script": "#!/usr/bin/env bash\nset -euo pipefail\nexec /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -I /Users/josenunez/Projects/ml/snake-dqn-gpufix/tools/ops/receipt_dispatch.py sparse \"$@\"\n",
+      "helper_sha256": "db938569a3556070a4aab2fa984261a88b9fd59258d98796842c385b50e27d27",
+      "lane": "sparse",
+      "live_ready": "LIVE_BROKER_ACCOUNTING_CHECKED_AT_DISPATCH",
+      "packet_unchanged_during_dry_run": true,
+      "preserved_original": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/dispatch-canary.before-receipt-fix.sh",
+      "preserved_original_sha256": "c665ee83cfa0c00a903007303e552479a0abb1f1488362ffcb9591a6435cf3ea",
+      "receipt_binding_ready": true,
+      "review": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/CODEX_V_RECEIPT_FIX.json"
+    },
+    {
+      "dispatch_command": "bash /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/dispatch-main.sh",
+      "dry_run_command": "bash /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/dispatch-main.sh --dry-run",
+      "dry_run_exit": 0,
+      "final_dry_run_log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/RECEIPT_FIX_DRY_RUN.log",
+      "final_dry_run_log_sha256": "7da307cf11197ff13506fe7cd809a208a8dc3a3984b3e3f03ae58de4e756dd54",
+      "helper_script": "#!/usr/bin/env bash\nset -euo pipefail\nexec /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -I /Users/josenunez/Projects/ml/snake-dqn-gpufix/tools/ops/receipt_dispatch.py v8 \"$@\"\n",
+      "helper_sha256": "0412bca46b814f9803ba02fd69a6d2e1d62bb2b7827e312651f269c789164fe4",
+      "lane": "v8",
+      "live_ready": "NOT_READY_MISSING_OPERATOR_ADMISSION",
+      "packet_unchanged_during_dry_run": true,
+      "preserved_original": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/dispatch-main.before-receipt-fix.sh",
+      "preserved_original_sha256": "8b72065dd8041bbfded8656575d145ff7f040aad978ee487646cae222d922301",
+      "receipt_binding_ready": true,
+      "review": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-main-amended-20261024-01/CODEX_V_RECEIPT_FIX.json"
+    }
+  ],
+  "preserved": [
+    "Frozen qualified brokers",
+    "Runtime pins and uploaded sources",
+    "Original manifests and receipts",
+    "Original prepared/reviewed V8 source and tests",
+    "Original helper bytes as siblings",
+    "Existing budget and admission gates"
+  ],
+  "review_status": "ACCEPT",
+  "reviewer": "/root/codex_v_light",
+  "schema": "receipt-dispatch-fix-handoff/v1",
+  "tests": {
+    "broader_supervisor_and_repair": {
+      "elapsed_seconds": 648.32,
+      "failed": 1,
+      "failure": "test_cold_first_call_is_warmed_before_any_upload_and_staging_clock[True] expected warmup_seconds 135; observed 135.96300000000022",
+      "focused_rerun": "Both cold-start cases passed: 2 passed, 76 deselected in 17.87s",
+      "passed": 82,
+      "supervisor_source_changed": false
+    },
+    "cold_first_call_reproduction": "2 passed, 76 deselected",
+    "lint": "PASS",
+    "native_dispatch_exemption": 105,
+    "repair_boundaries": 5,
+    "saved_original_v8_amendment": 47
+  },
+  "v8_limitation": "Original canary binding passes unchanged. Original error is missing OPERATOR_ADMISSION.json in admission(), not missing canary markers. Offline dry-run passes; live dispatch remains NOT_READY pending the original independently reviewed accounting record."
+}
