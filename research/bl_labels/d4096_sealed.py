@@ -13,6 +13,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from .d4096_design import collection_disclosure
 from .exports import _verify, publish_json
 
 JUDGMENT_SHA256 = "ccf1e0cd8d60a2019c983ab2714d58663ca42e2a228a0ddf78c16216c2ef83fb"
@@ -30,8 +31,13 @@ CANONICAL_PACK = Path(
 )
 
 
+def _present(path: Path) -> bool:
+    """Treat dangling symlinks as present evidence, never as permission to create."""
+    return path.exists() or path.is_symlink()
+
+
 def _fresh_receipt(path: Path) -> None:
-    if any(Path(str(path) + suffix).exists() for suffix in ("", ".sha256", ".complete")):
+    if any(_present(Path(str(path) + suffix)) for suffix in ("", ".sha256", ".complete")):
         raise FileExistsError("sealed D4096 receipt is create-only")
 
 
@@ -192,6 +198,7 @@ def seal_readiness(
         raise ValueError("D1024 W6 throughput binds another terminal")
     result = {
         "schema": READINESS_SCHEMA,
+        **collection_disclosure(actual_execution_placement={"d4096": "NOT_STARTED"}),
         "judgment_sha256": JUDGMENT_SHA256,
         "d1024_terminal": terminal_binding,
         "factory_exited": factory_exited,
@@ -272,6 +279,9 @@ def seal_mac_h_projection(
         raise ValueError("HOLD: D4096 Mac-h projection exceeds 130 h")
     result = {
         "schema": PROJECTION_SCHEMA,
+        **collection_disclosure(
+            actual_execution_placement={"d4096": "NOT_STARTED", "wall_time_inputs": "Mac"}
+        ),
         "judgment_sha256": JUDGMENT_SHA256,
         "readiness": {"path": str(readiness.resolve()), "sha256": _verify(readiness)},
         "d256_terminal": d256_binding,
@@ -336,6 +346,28 @@ def _stop_label(label: object, stage: object, unrecoverable: object) -> str:
     return str(label)
 
 
+def _receipt_stop(value: dict[str, Any], unrecoverable: object) -> tuple[str, str]:
+    """Infer stage from the receipt schema and apply the explicit-route rule."""
+    schema = value.get("schema")
+    if schema == "bl-residual-fit-fault/v1":
+        from research.bl_residual.protocol import NAMESPACE
+
+        label = (
+            value.get("kind")
+            if value.get("dose") == 1024 and value.get("namespace") == NAMESPACE
+            else None
+        )
+        stage = "d1024-fit"
+    elif schema in {
+        "bl-residual-funding-look/v1",
+        "bl-labels-d4096-unrecoverable-ra-hold/v1",
+    }:
+        label, stage = value.get("verdict"), "r-a"
+    else:
+        label, stage = None, None
+    return _stop_label(label, stage, unrecoverable), stage
+
+
 def seal_not_run_by_rule(
     output: Path,
     readiness: Path,
@@ -357,23 +389,15 @@ def seal_not_run_by_rule(
         label = _stop_label(terminal_label, terminal_stage, unrecoverable)
     else:
         value, terminal_binding = _metadata(terminal)
-        label = None
-    if terminal is not None and value.get("schema") == "bl-residual-fit-fault/v1":
-        from research.bl_residual.protocol import NAMESPACE
-
-        label = (
-            value.get("kind")
-            if value.get("dose") == 1024 and value.get("namespace") == NAMESPACE
-            else None
-        )
-    elif terminal is not None and value.get("schema") == "bl-residual-funding-look/v1":
-        label = value.get("verdict")
-    elif terminal is not None and value.get("schema") == "bl-labels-d4096-unrecoverable-ra-hold/v1":
-        label = value.get("verdict")
-    if label not in _DISCARD_LABELS:
-        raise ValueError("discard seal needs a terminal D1024/R-A stop label or receipt")
+        label, inferred_stage = _receipt_stop(value, unrecoverable)
+        if terminal_stage is not None and terminal_stage != inferred_stage:
+            raise ValueError("discard terminal stage differs from its receipt")
+        terminal_stage = inferred_stage
     result = {
         "schema": DISCARD_SCHEMA,
+        **collection_disclosure(
+            actual_execution_placement="See bound collection attempts; discarded by rule"
+        ),
         "judgment_sha256": JUDGMENT_SHA256,
         "readiness": {"path": str(readiness.resolve()), "sha256": _verify(readiness)},
         "terminal": terminal_binding,
@@ -388,8 +412,8 @@ def seal_not_run_by_rule(
 def require_not_discarded(path: Path | None) -> None:
     """Raise if a valid B6 seal exists; malformed candidate seals also HOLD."""
     canonical = CANONICAL_PACK / "d4096-not-run-by-rule.json"
-    if path is None or path.resolve() != canonical.resolve():
-        if any(Path(str(canonical) + suffix).exists() for suffix in ("", ".sha256", ".complete")):
+    if path is None or path != canonical:
+        if any(_present(Path(str(canonical) + suffix)) for suffix in ("", ".sha256", ".complete")):
             require_not_discarded(canonical)
         if path is None:
             return
@@ -398,10 +422,12 @@ def require_not_discarded(path: Path | None) -> None:
         path.with_name(path.name + ".sha256"),
         path.with_name(path.name + ".complete"),
     ]
-    if not path.exists():
-        if any(item.exists() for item in companions[1:]):
+    if not _present(path):
+        if any(_present(item) for item in companions[1:]):
             raise ValueError("D4096 discard seal is partial; HOLD")
         return
+    if any(item.is_symlink() for item in companions):
+        raise ValueError("D4096 discard seal contains a symlink; HOLD")
     value, _ = _metadata(path)
     if value.get("schema") != DISCARD_SCHEMA or value.get("judgment_sha256") != JUDGMENT_SHA256:
         raise ValueError("D4096 discard seal is malformed; HOLD")
@@ -412,11 +438,8 @@ def require_not_discarded(path: Path | None) -> None:
         )
         raise ValueError("NOT_RUN_BY_RULE: D4096 has a sealed discard receipt")
     terminal = _bound_metadata(value.get("terminal"))
-    if terminal.get("schema") == "bl-residual-fit-fault/v1":
-        label = terminal.get("kind")
-    else:
-        label = terminal.get("verdict")
-    if value.get("terminal_label") != label or label not in _DISCARD_LABELS:
+    label, stage = _receipt_stop(terminal, value.get("unrecoverable"))
+    if value.get("terminal_label") != label or value.get("terminal_stage") != stage:
         raise ValueError("D4096 discard seal is malformed; HOLD")
     raise ValueError("NOT_RUN_BY_RULE: D4096 has a sealed discard receipt")
 
@@ -486,6 +509,7 @@ def seal_i3_mac_projection(
             raise ValueError("I3 collection wall metadata differs from the pre-dispatch B2 seal")
     result = {
         "schema": MAC_PROJECTION_SCHEMA,
+        **collection_disclosure(actual_execution_placement={"wall_time_inputs": "Mac"}),
         "judgment_sha256": JUDGMENT_SHA256,
         "placement": "mac",
         "verdict": "PASS",
@@ -509,8 +533,71 @@ def seal_i3_mac_projection(
     return result
 
 
+def _release_l4_accounting(
+    ledger: Path | None, inventory: Path | None, *, series_id: str, no_l4_attempts: bool
+) -> dict[str, Any]:
+    """Compare charges with a separately sealed, operator-complete attempt inventory.
+
+    The inventory lists every supervisor receipt, including setup/identity/failure
+    attempts, whether or not any labels were imported. Completeness of that list
+    remains an explicit operator attestation, as with B1's fit-job inventory.
+    """
+    from research.bl_residual.collection_receipts import l4_accounting
+    from research.bl_residual.protocol import F4_REGISTRATION_SHA
+
+    if ledger is None and inventory is None and no_l4_attempts is True:
+        return {"status": "ABSENT_NO_L4_ATTEMPTS_ATTESTED", "ledger": None, "inventory": None}
+    if ledger is None or inventory is None or no_l4_attempts:
+        raise ValueError(
+            "release needs L4 ledger and complete attempt inventory, or no-L4 attestation"
+        )
+    charges, ledger_binding = _metadata(ledger)
+    attempts, inventory_binding = _metadata(inventory)
+    accounting = l4_accounting(charges, series_id)
+    if (
+        attempts.get("schema") != "bl-labels-d4096-l4-attempt-inventory/v1"
+        or attempts.get("series_id") != series_id
+        or attempts.get("registration_sha256") != F4_REGISTRATION_SHA
+        or attempts.get("dose") != 4096
+        or attempts.get("all_attempts_listed") is not True
+        or not isinstance(attempts.get("attempts"), list)
+    ):
+        raise ValueError("release requires a complete D4096 L4 attempt inventory")
+    digests = []
+    for row in attempts["attempts"]:
+        binding = row.get("receipt") if isinstance(row, dict) else None
+        if not isinstance(binding, dict) or set(binding) != {"path", "sha256"}:
+            raise ValueError("L4 attempt receipt binding is malformed")
+        path = Path(binding["path"])
+        raw = path.read_bytes()
+        receipt = json.loads(raw)
+        digest = hashlib.sha256(raw).hexdigest()
+        if not path.is_absolute() or digest != binding["sha256"] or not isinstance(receipt, dict):
+            raise ValueError("L4 attempt receipt binding differs")
+        digests.append(digest)
+    if len(digests) != len(set(digests)) or set(digests) != {
+        row["receipt_sha256"] for row in accounting["attempts"]
+    }:
+        raise ValueError("L4 accounting omits or duplicates an inventoried attempt")
+    return {
+        "status": "BOUND_COMPLETE_INVENTORY",
+        "ledger": ledger_binding,
+        "inventory": inventory_binding,
+        "attempt_count": len(digests),
+        "charged_units": accounting["charged_units"],
+    }
+
+
 def seal_collection_release(
-    output: Path, ledger: Path, funding_receipt: Path, *, pack: Path, code_commit: str
+    output: Path,
+    ledger: Path,
+    funding_receipt: Path,
+    *,
+    pack: Path,
+    code_commit: str,
+    l4_ledger: Path | None = None,
+    l4_attempt_inventory: Path | None = None,
+    no_l4_attempts: bool = False,
 ) -> dict[str, Any]:
     """Release exactly one complete funded union to I3, after canonical B6 checks."""
     from . import d4096_final, d4096_resume, mac_driver
@@ -519,12 +606,22 @@ def seal_collection_release(
     require_not_discarded(pack / "d4096-not-run-by-rule.json")
     funding = require_funding_receipt(funding_receipt)
     commit = d4096_final.require_pinned_source(code_commit)
+    l4_binding = _release_l4_accounting(
+        l4_ledger,
+        l4_attempt_inventory,
+        series_id=funding["series_id"],
+        no_l4_attempts=no_l4_attempts,
+    )
     control = d4096_resume.original_control(pack)
     attempts, elapsed = d4096_resume.attempt_chain(pack, control, final=True)
     value, binding = _metadata(ledger)
     if value.get("attempt_exports") is not None:
         d4096_resume.verify_union(ledger, control, attempts)
     else:
+        if no_l4_attempts or l4_binding.get("attempt_count", 0) == 0:
+            raise ValueError(
+                "mixed-platform union release requires nonempty L4 accounting and inventory"
+            )
         closed, _ = _metadata(ledger.parent / "union-close.json")
         if (
             closed.get("schema") != "bl-labels-f0-union-close/v1"
@@ -542,6 +639,11 @@ def seal_collection_release(
         raise ValueError("D4096 release cannot open an incomplete union for fitting")
     result = {
         "schema": "bl-labels-d4096-collection-disposition/v1",
+        **collection_disclosure(
+            actual_execution_placement=(
+                "Mac" if value.get("attempt_exports") is not None else "Mac + Colab L4 CPU"
+            )
+        ),
         "disposition": "RELEASED",
         "judgment_sha256": JUDGMENT_SHA256,
         **{
@@ -553,6 +655,7 @@ def seal_collection_release(
                 "recipe_sha256",
             )
         },
+        "l4_accounting": l4_binding,
         "collection_ledger_sha256": binding["sha256"],
         "funding_receipt_sha256": _verify(funding_receipt),
         "collection_ledger": binding,
@@ -599,6 +702,9 @@ def main() -> None:
     release.add_argument("--funding-receipt", type=Path, required=True)
     release.add_argument("--pack", type=Path, default=CANONICAL_PACK)
     release.add_argument("--code-commit", required=True)
+    release.add_argument("--l4-ledger", type=Path)
+    release.add_argument("--l4-attempt-inventory", type=Path)
+    release.add_argument("--no-l4-attempts", action="store_true")
     discard = commands.add_parser("seal-not-run")
     discard.add_argument("--out", type=Path, required=True)
     discard.add_argument("--readiness", type=Path, required=True)
@@ -633,6 +739,9 @@ def main() -> None:
             args.funding_receipt,
             pack=args.pack,
             code_commit=args.code_commit,
+            l4_ledger=args.l4_ledger,
+            l4_attempt_inventory=args.l4_attempt_inventory,
+            no_l4_attempts=args.no_l4_attempts,
         )
     else:
         result = seal_not_run_by_rule(

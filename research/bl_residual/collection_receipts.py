@@ -14,6 +14,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from research.bl_labels.d4096_design import collection_disclosure
 from research.bl_ppo.exports import export_json, verify_export
 from research.bl_residual.protocol import (
     F4_REGISTRATION_SHA,
@@ -312,6 +313,12 @@ def write_projection_receipt(
     b2, b2_sha = read_metadata(mac_projection)
     validate_mac_projection(b2, collections)
     tail, tail_sha = read_metadata(l4_ledger) if l4_ledger is not None else (None, None)
+    tail_accounting = l4_accounting(tail, first["series_id"])
+    actual_execution_placement = {
+        "source_collections": [{"platform": "mac", "doses": [256, 1024]}],
+        "l4_ledger_status": "BOUND" if l4_ledger is not None else "ABSENT",
+        "l4_accounted_attempt_count": len(tail_accounting["attempts"]),
+    }
     value = {
         "schema": PROJECTION_SCHEMA,
         "series_id": first["series_id"],
@@ -330,9 +337,10 @@ def write_projection_receipt(
         ],
         "projected_units": 0,
         "verdict": "PASS",
-        "l4_tail_accounting": l4_accounting(tail, first["series_id"]),
+        "l4_tail_accounting": tail_accounting,
         "l4_tail_accounting_sha256": tail_sha,
         "metadata_only": True,
+        **collection_disclosure(actual_execution_placement=actual_execution_placement),
     }
     export_json(output, value)
     return value

@@ -332,3 +332,164 @@ def test_alternate_l4_union_entrypoint_cannot_bypass_pending_funding(tmp_path):
             tmp_path / "out",
         )
     assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("unrecoverable", [False, True])
+def test_receipt_hold_requires_explicit_unrecoverable(tmp_path, monkeypatch, unrecoverable):
+    readiness, _, _ = _ready(tmp_path)
+    monkeypatch.setattr(sealed, "CANONICAL_PACK", tmp_path)
+    terminal = tmp_path / "hold.json"
+    publish_json(terminal, {"schema": "bl-residual-funding-look/v1", "verdict": "HOLD"})
+    out = tmp_path / "d4096-not-run-by-rule.json"
+    if not unrecoverable:
+        with pytest.raises(ValueError, match="explicitly unrecoverable"):
+            sealed.seal_not_run_by_rule(out, readiness, terminal)
+        assert not out.exists()
+    else:
+        value = sealed.seal_not_run_by_rule(out, readiness, terminal, unrecoverable=True)
+        assert value["terminal_stage"] == "r-a"
+        with pytest.raises(ValueError, match="NOT_RUN_BY_RULE"):
+            sealed.require_not_discarded(out)
+
+
+def test_reader_refuses_legacy_recoverable_receipt_hold(tmp_path, monkeypatch):
+    readiness, _, _ = _ready(tmp_path)
+    monkeypatch.setattr(sealed, "CANONICAL_PACK", tmp_path)
+    terminal = tmp_path / "hold.json"
+    publish_json(terminal, {"schema": "bl-residual-funding-look/v1", "verdict": "HOLD"})
+    out = tmp_path / "d4096-not-run-by-rule.json"
+    publish_json(
+        out,
+        {
+            "schema": sealed.DISCARD_SCHEMA,
+            "judgment_sha256": sealed.JUDGMENT_SHA256,
+            "readiness": {"path": str(readiness), "sha256": _verify(readiness)},
+            "terminal": {"path": str(terminal), "sha256": _verify(terminal)},
+            "terminal_label": "HOLD",
+            "terminal_stage": "r-a",
+            "unrecoverable": False,
+        },
+    )
+    with pytest.raises(ValueError, match="explicitly unrecoverable"):
+        sealed.require_not_discarded(out)
+
+
+def test_receipt_stage_must_match_schema_on_write_and_read(tmp_path, monkeypatch):
+    readiness, _, _ = _ready(tmp_path)
+    monkeypatch.setattr(sealed, "CANONICAL_PACK", tmp_path)
+    terminal = tmp_path / "stop.json"
+    publish_json(terminal, {"schema": "bl-residual-funding-look/v1", "verdict": "STOP_FUNDING"})
+    out = tmp_path / "d4096-not-run-by-rule.json"
+    with pytest.raises(ValueError, match="stage differs"):
+        sealed.seal_not_run_by_rule(out, readiness, terminal, terminal_stage="d1024-fit")
+    publish_json(
+        out,
+        {
+            "schema": sealed.DISCARD_SCHEMA,
+            "judgment_sha256": sealed.JUDGMENT_SHA256,
+            "readiness": {"path": str(readiness), "sha256": _verify(readiness)},
+            "terminal": {"path": str(terminal), "sha256": _verify(terminal)},
+            "terminal_label": "STOP_FUNDING",
+            "terminal_stage": "d1024-fit",
+            "unrecoverable": False,
+        },
+    )
+    with pytest.raises(ValueError, match="malformed"):
+        sealed.require_not_discarded(out)
+
+
+@pytest.mark.parametrize("suffix", ["", ".sha256", ".complete"])
+def test_dangling_discard_symlink_is_present_for_canonical_explicit_and_create_only(
+    tmp_path, monkeypatch, suffix
+):
+    monkeypatch.setattr(sealed, "CANONICAL_PACK", tmp_path)
+    out = tmp_path / "d4096-not-run-by-rule.json"
+    dangling = Path(str(out) + suffix)
+    dangling.symlink_to(tmp_path / "missing-target")
+    assert not dangling.exists() and dangling.is_symlink()
+    for candidate in (None, out, tmp_path / "alternate-discard.json", tmp_path / "missing-target"):
+        with pytest.raises(ValueError, match="HOLD"):
+            sealed.require_not_discarded(candidate)
+    with pytest.raises(FileExistsError, match="create-only"):
+        sealed._fresh_receipt(out)
+    assert dangling.is_symlink() and not (tmp_path / "missing-target").exists()
+
+
+def test_prospective_disclosure_keeps_actual_placement_separate(tmp_path):
+    from research.bl_labels.d4096_design import COLLECTION_DESIGN, OWNER_DECISION_SHA256
+
+    readiness, d1024, _ = _ready(tmp_path)
+    d256 = _terminal(tmp_path / "d256.json", 7200, stage="d256")
+    b2 = sealed.seal_mac_h_projection(tmp_path / "b2.json", readiness, d256, d1024)
+    for receipt in (sealed.validate_readiness(readiness), b2):
+        assert receipt["collection_design"] == COLLECTION_DESIGN
+        assert receipt["owner_decision"]["sha256"] == OWNER_DECISION_SHA256
+        assert receipt["actual_execution_placement"]["d4096"] == "NOT_STARTED"
+
+
+def test_release_l4_inventory_refuses_omitted_failed_setup_and_identity_attempts(tmp_path):
+    from research.bl_residual.protocol import F4_REGISTRATION_SHA, NAMESPACE
+
+    receipts = []
+    for name in ("completed", "failed", "setup", "identity"):
+        path = tmp_path / f"{name}-receipt.json"
+        path.write_text(json.dumps({"job_id": name, "status": name}))
+        receipts.append(
+            {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+        )
+    identity = {"series_id": NAMESPACE, "registration_sha256": F4_REGISTRATION_SHA, "dose": 4096}
+    inventory = tmp_path / "inventory.json"
+    publish_json(
+        inventory,
+        {
+            **identity,
+            "schema": "bl-labels-d4096-l4-attempt-inventory/v1",
+            "all_attempts_listed": True,
+            "attempts": [{"receipt": row} for row in receipts],
+        },
+    )
+    for omitted in (1, 2, 3):
+        charges = tmp_path / f"charges-missing-{omitted}.json"
+        publish_json(
+            charges,
+            {
+                **identity,
+                "schema": "bl-residual-d4096-l4-accounting/v1",
+                "attempts": [
+                    {"receipt_sha256": row["sha256"], "charged_units": 1}
+                    for i, row in enumerate(receipts)
+                    if i != omitted
+                ],
+            },
+        )
+        with pytest.raises(ValueError, match="omits"):
+            sealed._release_l4_accounting(
+                charges, inventory, series_id=NAMESPACE, no_l4_attempts=False
+            )
+    charges = tmp_path / "charges-complete.json"
+    publish_json(
+        charges,
+        {
+            **identity,
+            "schema": "bl-residual-d4096-l4-accounting/v1",
+            "attempts": [{"receipt_sha256": row["sha256"], "charged_units": 1} for row in receipts],
+        },
+    )
+    result = sealed._release_l4_accounting(
+        charges, inventory, series_id=NAMESPACE, no_l4_attempts=False
+    )
+    assert result["attempt_count"] == 4 and result["charged_units"] == 4
+    assert result["inventory"]["sha256"] == _verify(inventory)
+    Path(receipts[1]["path"]).write_text("changed")
+    with pytest.raises((ValueError, json.JSONDecodeError)):
+        sealed._release_l4_accounting(charges, inventory, series_id=NAMESPACE, no_l4_attempts=False)
+
+
+def test_absent_l4_ledger_requires_explicit_no_attempts_attestation():
+    with pytest.raises(ValueError, match="no-L4 attestation"):
+        sealed._release_l4_accounting(None, None, series_id="fixture", no_l4_attempts=False)
+    assert sealed._release_l4_accounting(None, None, series_id="fixture", no_l4_attempts=True) == {
+        "status": "ABSENT_NO_L4_ATTEMPTS_ATTESTED",
+        "ledger": None,
+        "inventory": None,
+    }

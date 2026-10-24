@@ -11,6 +11,11 @@ from pathlib import Path
 
 import pytest
 
+from research.bl_labels.d4096_design import (
+    COLLECTION_DESIGN,
+    OWNER_DECISION_PATH,
+    OWNER_DECISION_SHA256,
+)
 from research.bl_ppo.exports import digest, export_json, verify_export
 from research.bl_residual import collection_receipts as receipts
 from research.bl_residual import job
@@ -728,6 +733,22 @@ def test_i1_b2_schema_fixture() -> None:
     receipts.validate_mac_projection(value, collections)
 
 
+def test_projection_discloses_mixed_platform_design_and_observed_placement(tmp_path: Path) -> None:
+    _, _, output = projection_fixture(tmp_path)
+    projection = json.loads(output.read_text())
+
+    assert projection["collection_design"] == COLLECTION_DESIGN
+    assert projection["owner_decision"] == {
+        "path": OWNER_DECISION_PATH,
+        "sha256": OWNER_DECISION_SHA256,
+    }
+    assert projection["actual_execution_placement"] == {
+        "source_collections": [{"platform": "mac", "doses": [256, 1024]}],
+        "l4_ledger_status": "ABSENT",
+        "l4_accounted_attempt_count": 0,
+    }
+
+
 def test_l4_tail_units_are_separate_and_bound(tmp_path: Path) -> None:
     control = staging(tmp_path)
     l4 = {
@@ -738,6 +759,19 @@ def test_l4_tail_units_are_separate_and_bound(tmp_path: Path) -> None:
         "attempts": [{"receipt_sha256": "c" * 64, "charged_units": 700}],
     }
     path = sealed(tmp_path / "l4.json", l4)
+    bound_projection = tmp_path / "bound-l4-projection.json"
+    receipts.write_projection_receipt(
+        tmp_path / control["stage_receipts"]["D256_COLLECTION"],
+        tmp_path / control["stage_receipts"]["D1024_COLLECTION"],
+        tmp_path / control["stage_receipts"]["D4096_MAC_PROJECTION"],
+        bound_projection,
+        l4_ledger=path,
+    )
+    assert json.loads(bound_projection.read_text())["actual_execution_placement"] == {
+        "source_collections": [{"platform": "mac", "doses": [256, 1024]}],
+        "l4_ledger_status": "BOUND",
+        "l4_accounted_attempt_count": 1,
+    }
     control["stage_receipts"]["D4096_L4_ACCOUNTING"] = path.name
     control["input_hashes"][path.name] = digest(path)
     replace_bound(
@@ -753,6 +787,11 @@ def test_l4_tail_units_are_separate_and_bound(tmp_path: Path) -> None:
     projection = json.loads((tmp_path / control["stage_receipts"]["D4096_PROJECTION"]).read_text())
     assert projection["projected_units"] == 0
     assert projection["l4_tail_accounting"]["charged_units"] == 700
+    assert projection["actual_execution_placement"] == {
+        "source_collections": [{"platform": "mac", "doses": [256, 1024]}],
+        "l4_ledger_status": "ABSENT",
+        "l4_accounted_attempt_count": 0,
+    }
     control["stage_receipts"].pop("D4096_L4_ACCOUNTING")
     with pytest.raises(ValueError, match="L4"):
         job._validate_staging(tmp_path, control, [4096], RECIPE, set())

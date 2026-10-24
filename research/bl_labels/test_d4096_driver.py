@@ -69,6 +69,12 @@ def test_d4096_attempt_seals_pending_and_exposure_before_three_hours(tmp_path, m
         state_dir=state,
     )
     start = mac_gates._read(state / result["start_receipt"])
+    from research.bl_labels.d4096_design import COLLECTION_DESIGN, OWNER_DECISION_SHA256
+
+    for receipt in (start, result):
+        assert receipt["collection_design"] == COLLECTION_DESIGN
+        assert receipt["owner_decision"]["sha256"] == OWNER_DECISION_SHA256
+        assert receipt["actual_execution_placement"] == "Mac"
     assert start["funding_state"] == "PENDING_SEALED"
     assert start["judgment_sha256"] == d4096_pack.JUDGMENT_SHA
     assert result["w12_sanity_checked"] is False

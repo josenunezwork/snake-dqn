@@ -8,6 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from .d4096_design import collection_disclosure
 from .exports import _verify, _write_once, publish_json
 
 ART = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts")
@@ -94,6 +95,7 @@ def create(original: Path, pack: Path, judgment: Path, binding: Path) -> dict:
         _write_once(Path(str(path) + ".complete"), b"complete\n")
     value = {
         "schema": "bl-labels-f0-d4096-source-rebinding/v1",
+        **collection_disclosure(actual_execution_placement={"d4096": "NOT_STARTED"}),
         "status": "PREPARED_NOT_DISPATCHED",
         "judgment_sha256": JUDGMENT_SHA,
         "package": str(pack.resolve()),

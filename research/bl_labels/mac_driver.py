@@ -669,6 +669,8 @@ def run(
         from .l4_delegation import MacDelegationGate
 
         delegation_gate = MacDelegationGate(delegation_dir, namespace, allocation)
+    from .d4096_design import collection_disclosure
+
     attempt_id = uuid.uuid4().hex
     factory_tracker: PersistenceTracker | None = None
     if control.get("mac_gate", {}).get("stage") in {"d256", "d1024", "d4096"}:
@@ -879,6 +881,7 @@ def run(
                 "platform_attestation": platform_attestation(),
                 **(
                     {
+                        **collection_disclosure(actual_execution_placement="Mac"),
                         "funding_state": "PENDING_SEALED",
                         "judgment_sha256": (
                             "ccf1e0cd8d60a2019c983ab2714d58663ca42e2a228a0ddf78c16216c2ef83fb"
@@ -1339,7 +1342,14 @@ def run(
     result = {
         "schema": "bl-labels-f0-mac-driver/v1",
         "status": status,
-        **({"life_boundary_drained": life_boundary_drained} if is_d4096 else {}),
+        **(
+            {
+                "life_boundary_drained": life_boundary_drained,
+                **collection_disclosure(actual_execution_placement="Mac"),
+            }
+            if is_d4096
+            else {}
+        ),
         "namespace": namespace,
         "workers": workers,
         "owner_w12_ok": owner_w12_ok,
