@@ -85,3 +85,19 @@ def test_main_preparation_never_regenerates_the_executed_canary(tmp_path, monkey
     (code,) = calls
     assert "prepare(" not in code and "r2-canary" not in code
     assert "r2-main.json" in code and "canary=False" in code and "validate(m" in code
+
+
+def test_r6_family_uses_its_own_names_producer_key_and_main_builder(tmp_path, monkeypatch):
+    from tools.ops import r6_packet
+
+    monkeypatch.setattr(r2_packet, "FAMILY", r6_packet.R6)
+    first = copy.deepcopy(FIRST)
+    first["job_id"] = "gpu-r6-canary-da09cba17c64-01"
+    first["env"] = {"R6_BENCH_SECONDS": "360"}
+    job = r2_packet.attempt_manifest(first, 0.05, Path("/o"))
+    assert job["job_id"].endswith("-02") and job["timeout_minutes"] >= 360 / 60 + 3
+    calls = []
+    monkeypatch.setattr(r2_packet, "frozen", lambda broker, code, *args: calls.append(code))
+    r2_packet._main_manifest(tmp_path, tmp_path, "d" * 40, tmp_path / "receipt.json")
+    assert len(calls) == 1 and "r6_pack import prepare_main" in calls[0]
+    assert "r2" not in calls[0] and "r6-canary" not in calls[0]

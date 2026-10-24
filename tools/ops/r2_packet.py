@@ -20,6 +20,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,27 @@ PY = BASE / "snake-dqn/venv/bin/python"
 PACKAGE = "research/gpu_sim_spike"
 CANARY_CAP_UNITS = 2.0  # ruling step 4 / R2 protocol: whole canary allowance
 MAX_CANARY_ATTEMPTS = 2
+
+
+@dataclass(frozen=True)
+class Family:
+    """One packet family served by this companion (R2 by default; R6 via r6_packet.py)."""
+
+    tag: str
+    artifact: Path
+    broker: Path
+    producer_key: str
+    tool: str
+
+
+R2 = Family(
+    "r2",
+    ARTIFACT,
+    BROKER,
+    "R2_BENCH_SECONDS",
+    "r2_packet.py",
+)
+FAMILY = R2
 
 
 def _suffix(attempt: int) -> str:
@@ -50,13 +72,13 @@ def attempt_manifest(
     deadline (``R2_BENCH_SECONDS``) is unchanged.
     """
     if attempt != 2:
-        raise ValueError("R2 canary allows exactly one fresh attempt (attempt 2)")
+        raise ValueError("the canary allows exactly one fresh attempt (attempt 2)")
     if not math.isfinite(prior_units) or prior_units < 0:
         raise ValueError("prior canary charge must be finite and nonnegative")
     rate = float(first["budget"]["rate_units_per_hour"])
     cap = math.floor((CANARY_CAP_UNITS - prior_units) * 100) / 100
     timeout = math.floor(cap * 60 / rate * 10) / 10
-    producer_minutes = int(first["env"]["R2_BENCH_SECONDS"]) / 60
+    producer_minutes = int(first["env"][FAMILY.producer_key]) / 60
     if cap <= 0 or timeout < producer_minutes + 3:
         raise ValueError("remaining canary allowance cannot fit the unchanged producer deadline")
     job = copy.deepcopy(first)
@@ -92,7 +114,7 @@ def prior_failure(artifact: Path) -> dict[str, Any]:
     from tools.ops.redispatch_fresh import verify_failure
 
     packet = artifact / "packet"
-    proof = verify_failure(packet, packet / "r2-canary-compiled.json")
+    proof = verify_failure(packet, packet / f"{FAMILY.tag}-canary-compiled.json")
     receipt = json.loads((packet / "canary-output/receipt.json").read_text())
     before = receipt.get("usage_before", {}).get("balance")
     after = receipt.get("usage_after", {}).get("balance")
@@ -167,10 +189,10 @@ def controls(artifact: Path, broker: Path) -> tuple[dict[str, Any], str]:
     sys.path.insert(0, str(ROOT))
     from tools.ops.qualification import OPS, check
 
-    job = _verified(artifact / "packet/r2-canary.json")
+    job = _verified(artifact / f"packet/{FAMILY.tag}-canary.json")
     pin = job["commit"]
     if git(broker, "rev-parse", "HEAD") != pin:
-        raise ValueError("broker checkout is not at the R2 runtime pin")
+        raise ValueError(f"broker checkout is not at the {FAMILY.tag} runtime pin")
     check(broker, OPS / "colab-cli-qualified.json")
     check(broker, OPS / "colab-cli-qualified.json", ref=pin)
     return job, pin
@@ -215,7 +237,7 @@ def prepare(artifact: Path, broker: Path, host: Path = HOST) -> dict[str, Any]:
         pin,
         str(compile_root),
     )
-    job["job_id"] += "-r2"
+    job["job_id"] += f"-{FAMILY.tag}"
     path = compile_root / "native-compile.json"
     if path.exists():
         if _verified(path) != job:
@@ -230,7 +252,7 @@ def prepare(artifact: Path, broker: Path, host: Path = HOST) -> dict[str, Any]:
             [
                 str(PY),
                 "-I",
-                str(host / "tools/ops/r2_packet.py"),
+                str(host / "tools/ops" / FAMILY.tool),
                 lane,
                 "--artifact-dir",
                 str(artifact),
@@ -258,8 +280,21 @@ def _main_manifest(artifact: Path, broker: Path, pin: str, receipt: Path) -> Pat
     from the broker byte-for-byte.  The same packer functions, source-pin and
     preflight checks, supervisor validation and create-only write are used.
     """
-    path = artifact / "packet/r2-main.json"
-    if not path.exists():
+    path = artifact / f"packet/{FAMILY.tag}-main.json"
+    if not path.exists() and FAMILY.tag != "r2":
+        # Families other than R2 expose the same main-only builder in their packer.
+        frozen(
+            broker,
+            "import json; from pathlib import Path; "
+            f"from research.gpu_sim_spike.{FAMILY.tag}_pack import prepare_main; "
+            "print(json.dumps({'main': str(prepare_main(Path(sys.argv[1]), sys.argv[2], "
+            "Path(sys.argv[3]), Path(sys.argv[4])))}))",
+            str(artifact / "packet"),
+            pin,
+            str(artifact / "mac-preflight/preflight.json"),
+            str(receipt),
+        )
+    elif not path.exists():
         frozen(
             broker,
             "import json; from pathlib import Path; "
@@ -297,8 +332,8 @@ def run(
     original, pin = controls(artifact, broker)
     accounting = None
     name = {
-        "canary": f"gpu-r2-canary-{pin[:8]}",
-        "main": f"gpu-r2-main-{pin[:8]}",
+        "canary": f"gpu-{FAMILY.tag}-canary-{pin[:8]}",
+        "main": f"gpu-{FAMILY.tag}-main-{pin[:8]}",
     }.get(lane)
     if lane == "compile":
         if receipt is not None:
@@ -309,7 +344,7 @@ def run(
             raise ValueError("compiler identity differs")
         name = job["job_id"]
     elif lane == "canary":
-        path = artifact / f"packet/r2-canary-compiled{_suffix(attempt)}.json"
+        path = artifact / f"packet/{FAMILY.tag}-canary-compiled{_suffix(attempt)}.json"
         receipt = receipt or Path(
             os.environ.get("NATIVE_COMPILE_RECEIPT")
             or artifact / "packet/native-compile/output/receipt.json"
@@ -335,7 +370,7 @@ def run(
         if attempt > 1:
             # Same compile receipt binding as attempt 1; identical content otherwise
             # except fresh identity and the remaining canary allowance.
-            first = _verified(artifact / "packet/r2-canary-compiled.json")
+            first = _verified(artifact / f"packet/{FAMILY.tag}-canary-compiled.json")
             if first["native_cuda_compile"] != job["native_cuda_compile"]:
                 raise ValueError("attempt 2 must bind attempt 1's native compile receipt")
             accounting = prior_failure(artifact)
@@ -399,8 +434,8 @@ def run(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("prepare", "compile", "canary", "main"))
-    parser.add_argument("--artifact-dir", type=Path, default=ARTIFACT)
-    parser.add_argument("--broker", type=Path, default=BROKER)
+    parser.add_argument("--artifact-dir", type=Path, default=FAMILY.artifact)
+    parser.add_argument("--broker", type=Path, default=FAMILY.broker)
     parser.add_argument("--host", type=Path, default=HOST)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--receipt", type=Path)
