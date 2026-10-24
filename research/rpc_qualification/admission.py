@@ -15,8 +15,8 @@ FAULT_AUTHORITY_SHA256 = "fe8579c2aec5489ea25149b5d88036cb22daad0faa5310913231f3
 FAULT_DEFINITION = "l4-label-faults/v2"
 WORKER_PIN = "2af48cd0b98a2063f46871cf4d320a5541b789af"
 # Rebound to the v2 recovery-fix commit (judgment §4 step 1c); a18bf6b4 was attempt 1.
-TRANSPORT_PIN = "2eb8bc3688a94fccaaafab27431e3a0d2d40d261"
-TRANSPORT_TREE = "045674f73933177ac2b799e64ec3fec80cd4fcfd"
+TRANSPORT_PIN = "411b5890c3f9e2822192e943bc02c3460183d3ec"
+TRANSPORT_TREE = "364c5d4b3276102f6ca907dfadcf28774854d076"
 # The independent reviewer's create-only ACCEPT lives outside the repository so
 # recording it never moves the pack's pinned source commit.
 REVIEW_PATH = Path(
