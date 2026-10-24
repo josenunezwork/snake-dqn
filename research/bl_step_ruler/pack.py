@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
+import math
 import subprocess
+import tarfile
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +39,13 @@ JUDGMENT = Path(
     "JUDGMENT_GPU_LABEL_PATH_20261024.md"
 )
 JUDGMENT_SHA256 = "ef488af238e1f60818dc5baea9fbc17001ea9fe09c1590867f3ce00cc08f4c00"
+RULER_PIN = "6ee41cdf372ed3daa80da4f05a0cdc44ddcaab7d"
+COMPLETION_RULING = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/"
+    "fable-20261024/JUDGMENT_STEP_M1_COMPLETION.md"
+)
+COMPLETION_RULING_SHA256 = "1d0d4a98d12a0109077b4f2870b413e740e3667acc013b7896669082a936e5dd"
+L4_RATE = 2.0
 ROUND0_EXCLUDED = "t34-round0-study-01"
 SAVED_SNAKES = Path("/Users/josenunez/Projects/ml/snake-dqn/saved_snakes")
 ARTIFACTS = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts")
@@ -160,6 +170,9 @@ def apply_stage(manifest: dict[str, Any], stage: str) -> None:
 def probe_control(control: Path, ledger: Path, out_control: Path, out_ledger: Path) -> None:
     """Runtime: excluded probe namespace, first parent per stream at horizon 3."""
     value = json.loads(control.read_text())
+    if value.get("completion_ruling_sha256") == COMPLETION_RULING_SHA256:
+        ledger = ledger.with_name("probe-ledger.json")
+        job.verify_unit(ledger)
     if job.load_ledger(ledger, value["namespace"], value["allocation"]):
         raise ValueError("step-ruler probe requires the original uploaded ledger to be empty")
     seen: set[str] = set()
@@ -243,6 +256,92 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def check_collector_closure() -> dict[str, Any]:
+    """Refuse any collector/ticks import drift from the original ruler pin."""
+    from tools.ops.import_preflight import import_closure, module_path
+
+    modules, _ = import_closure(
+        ROOT, ["research.bl_step_ruler.job", "research.bl_step_ruler.ticks"]
+    )
+    paths = sorted({module_path(ROOT, name).relative_to(ROOT).as_posix() for name in modules})
+    archive = subprocess.check_output(
+        ["git", "archive", RULER_PIN, "--", *paths], cwd=ROOT, timeout=60
+    )
+    with tarfile.open(fileobj=io.BytesIO(archive)) as stream:
+        for path in paths:
+            reference = stream.extractfile(path)
+            if reference is None or reference.read() != (ROOT / path).read_bytes():
+                raise ValueError(f"collector/ticks closure differs from ruler pin: {path}")
+    return {"pin": RULER_PIN, "files": len(paths), "status": "PASS"}
+
+
+def completion_options(
+    attempt: int, runtime_type: str, timeout_minutes: float | None, unit_guard: float | None
+) -> bool:
+    """Validate prospective completion envelopes before creating any artifacts."""
+    if runtime_type not in {"cpu", "l4"}:
+        raise ValueError("runtime_type must be cpu or l4")
+    amended = runtime_type != "cpu" or timeout_minutes is not None or unit_guard is not None
+    if not amended:
+        return False
+    if attempt not in (2, 3):
+        raise ValueError("runtime/envelope amendments are completion-attempt only")
+    timeout = 260 if timeout_minutes is None else timeout_minutes
+    guard = 12 if unit_guard is None else unit_guard
+    if not math.isfinite(timeout) or not 10 < timeout <= 260:
+        raise ValueError("completion timeout must be finite, above 10 and at most 260 minutes")
+    if not math.isfinite(guard) or not 0 < guard <= 12:
+        raise ValueError("completion unit guard must be finite and within (0, 12]")
+    rate = L4_RATE if runtime_type == "l4" else CPU_RATE
+    if timeout * rate / 60 > guard:
+        raise ValueError("completion unit guard does not cover the whole-session timeout")
+    return True
+
+
+def apply_completion(
+    manifest: dict[str, Any], runtime_type: str, timeout_minutes: float, unit_guard: float
+) -> None:
+    """Bind the completion's own envelope; science still executes on CPU."""
+    if runtime_type == "l4":
+        manifest["requirements"].update(gpu="L4", allowed_gpus=["L4"], min_vcpu=12)
+        manifest["budget"]["rate_units_per_hour"] = L4_RATE
+    manifest["timeout_minutes"] = timeout_minutes
+    manifest["requirements"]["est_minutes"] = min(130, timeout_minutes / 2)
+    manifest["budget"].update(unit_cap=unit_guard, reserve_units=unit_guard / 5)
+    manifest["env"]["F0_SESSION_SECONDS"] = str(int(timeout_minutes * 60))
+    manifest["step_ruler"].pop("series_effective_units")
+    manifest["step_ruler"].pop("series_guard_units")
+    manifest["step_ruler"]["stages"]["main"].update(
+        base_minutes=timeout_minutes / 2,
+        effective_minutes=timeout_minutes,
+        base_units=unit_guard / 2,
+        effective_units=unit_guard,
+        base_reserve_units=unit_guard / 10,
+        effective_reserve_units=unit_guard / 5,
+    )
+    manifest["step_ruler"].update(
+        runtime_type=runtime_type,
+        completion_ruling=str(COMPLETION_RULING),
+        completion_ruling_sha256=COMPLETION_RULING_SHA256,
+        admission_note=f"Completion amendment sha256:{COMPLETION_RULING_SHA256}",
+        completion_envelope={
+            "base_minutes": timeout_minutes / 2,
+            "effective_minutes": timeout_minutes,
+            "effective_units": unit_guard,
+            "owner_multiplier": 2,
+            "scope": "OWN_ATTEMPT_NOT_SHARED",
+        },
+        completion_unit_guard=unit_guard,
+        attempt_policy=(
+            "One original plus at most two manual outcome-blind completions; "
+            "attempts 2 and 3 each have their own 130/260-minute envelope. "
+            "Verified stop and missing units required. No automatic retry."
+        ),
+        worker_policy="nproc (L4 minimum 12), capped by pending parents; one thread per worker",
+        rate_use=("DESCRIPTIVE_ONLY_PLATFORM_CHANGED" if runtime_type == "l4" else "CPU"),
+    )
+
+
 def make_main(
     commit: str, output_dir: Path, inputs: list[dict[str, Any]], archive_sha: str, ns: str
 ) -> dict[str, Any]:
@@ -324,6 +423,16 @@ def make_probe(main: dict[str, Any], output_dir: Path, ns: str) -> dict[str, Any
     probe["job_id"] = main["job_id"].replace("bl-step-ruler-main-", "bl-step-ruler-probe-")
     probe["output_dir"] = str(output_dir)
     apply_stage(probe, "transport_probe")
+    if main["step_ruler"].get("runtime_type") == "l4":
+        # Same 10/20-minute envelope, priced at the L4 family's 2 u/h ceiling.
+        cap = L4_RATE * probe["timeout_minutes"] / 60
+        probe["budget"].update(unit_cap=cap, reserve_units=cap * 0.2)
+        probe["step_ruler"]["stages"]["transport_probe"].update(
+            base_units=cap / 2,
+            effective_units=cap,
+            base_reserve_units=cap * 0.1,
+            effective_reserve_units=cap * 0.2,
+        )
     probe["env"].update(
         STEP_RULER_TRANSPORT_PROBE="1",
         STEP_RULER_SELF_CHECK_SEED=str(self_check_seed(ns)),
@@ -350,6 +459,9 @@ def prepare(
     *,
     ledger: Path | None = None,
     attempt: int = 1,
+    runtime_type: str = "cpu",
+    timeout_minutes: float | None = None,
+    unit_guard: float | None = None,
 ) -> dict[str, Path]:
     """Create-only pack. Never dispatches, allocates or touches the Mac factory.
 
@@ -359,24 +471,53 @@ def prepare(
     """
     if attempt not in (1, 2, 3) or (attempt == 1) != (ledger is None):
         raise ValueError("attempt 1 uses an empty ledger; attempts 2-3 need a verified ledger")
+    amended = completion_options(attempt, runtime_type, timeout_minutes, unit_guard)
     require_source_pin(commit)
     if _sha(JUDGMENT) != JUDGMENT_SHA256:
         raise ValueError("authority judgment bytes differ")
+    if amended and _sha(COMPLETION_RULING) != COMPLETION_RULING_SHA256:
+        raise ValueError("completion ruling bytes differ")
+    closure = check_collector_closure()
     artifact_dir = artifact_dir.resolve()
     output_dir = output_dir.resolve()
     if artifact_dir.exists():
         raise FileExistsError(artifact_dir)
     if output_dir.exists() or output_dir.with_name(output_dir.name + "-probe").exists():
         raise FileExistsError(output_dir)
-    ns = namespace(commit)
+    ns = namespace(RULER_PIN if ledger is not None else commit)
     rows = materialize_gate_plans(allocation(ns))
     seeds = [int(row["seed"]) for row in rows] + [self_check_seed(ns)]
     if len(seeds) != len(set(seeds)):
         raise ValueError("internal dev seed collision")
-    audit = seed_audit(ns, seeds)
+    if ledger is None:
+        audit = seed_audit(ns, seeds)
+    else:
+        job.verify_unit(ledger)
+        done = job.load_ledger(ledger, ns, rows)
+        if not done or len(done) == len(rows):
+            raise ValueError("a completion attempt needs some, but not all, parents verified")
+        audit = {
+            "schema": "bl-step-ruler-resume-allocation/v1",
+            "namespace": ns,
+            "seeds": seeds,
+            "allocation_sha256": job.allocation_sha256(rows),
+            "verified_ledger_sha256": _sha(ledger),
+            "original_seed_audit": "original frozen allocation; no new seeds or seed scan",
+            "excluded_unopened": [ROUND0_EXCLUDED],
+            "outcome_blind": True,
+        }
     source = artifact_dir / "inputs"
     publish_json(source / "SEED_AUDIT.json", audit)
     control = {"schema": job.CONTROL_SCHEMA, "namespace": ns, "allocation": rows}
+    if amended:
+        control.update(
+            runtime_type=runtime_type,
+            runtime_commit=commit,
+            attempt=attempt,
+            collector_pin=RULER_PIN,
+            completion_ruling_sha256=COMPLETION_RULING_SHA256,
+        )
+        publish_json(source / "probe-ledger.json", job.empty_ledger(ns, rows))
     publish_json(source / "control.json", control)
     if ledger is None:
         publish_json(source / "verified-ledger.json", job.empty_ledger(ns, rows))
@@ -398,7 +539,10 @@ def prepare(
         import_check(ROOT, commit, source_paths(), REQUIREMENTS, list(RUNTIME_ROOTS)),
     )
     local = []
-    for name in ("control.json", "verified-ledger.json", "SEED_AUDIT.json"):
+    names = ["control.json", "verified-ledger.json", "SEED_AUDIT.json"]
+    if amended:
+        names.append("probe-ledger.json")
+    for name in names:
         for suffix in ("", ".sha256", ".complete"):
             local.append(input_row(source / (name + suffix), f"inputs/{name}{suffix}"))
     local.append(input_row(ROOT / PROTOCOL, "inputs/PROTOCOL.md"))
@@ -424,6 +568,14 @@ def prepare(
     main = make_main(commit, output_dir, inputs, archive_sha, ns)
     main["job_id"] += f"-a{attempt}"
     main["step_ruler"]["attempt"] = attempt
+    if amended:
+        apply_completion(
+            main,
+            runtime_type,
+            260 if timeout_minutes is None else timeout_minutes,
+            12 if unit_guard is None else unit_guard,
+        )
+        main["step_ruler"]["collector_closure"] = closure
     main["env"].update(
         BL_PUBLIC_INPUTS="1", BL_PUBLIC_INPUT_ALIASES=converted["env"]["BL_PUBLIC_INPUT_ALIASES"]
     )
@@ -469,6 +621,9 @@ def main() -> None:
     p.add_argument("--frp3", type=Path, required=True)
     p.add_argument("--ledger", type=Path, help="Mac-verified ledger (completion attempts only)")
     p.add_argument("--attempt", type=int, default=1)
+    p.add_argument("--runtime-type", choices=("cpu", "l4"), default="cpu")
+    p.add_argument("--timeout-minutes", type=float, help="effective completion envelope (max 260)")
+    p.add_argument("--unit-guard", type=float, help="completion runaway guard (max 12 units)")
     b = sub.add_parser("bind")
     b.add_argument("--template", type=Path, required=True)
     b.add_argument("--receipt", type=Path, required=True)
@@ -493,6 +648,9 @@ def main() -> None:
             args.frp3,
             ledger=args.ledger,
             attempt=args.attempt,
+            runtime_type=args.runtime_type,
+            timeout_minutes=args.timeout_minutes,
+            unit_guard=args.unit_guard,
         )
         print(json.dumps({key: str(value) for key, value in paths.items()}, indent=2))
     elif args.command == "bind":

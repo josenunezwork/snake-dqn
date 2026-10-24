@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
+import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -479,3 +481,170 @@ def test_prepare_attempt_rules_refuse_before_any_side_effect(tmp_path):
     with pytest.raises(ValueError):
         pack.prepare(*args, ledger=tmp_path / "ledger.json", attempt=4)
     assert not (tmp_path / "pack").exists()
+
+
+def test_cpu_default_manifest_matches_original_bytes(monkeypatch):
+    """Freeze the old pack implementation independently, including defaults."""
+    old = types.ModuleType("research.bl_step_ruler._original_pack")
+    old.__file__ = str(pack.ROOT / "research/bl_step_ruler/pack.py")
+    old.__package__ = "research.bl_step_ruler"
+    source = subprocess.check_output(
+        ["git", "show", f"{pack.RULER_PIN}:research/bl_step_ruler/pack.py"], cwd=pack.ROOT
+    )
+    exec(compile(source, old.__file__, "exec"), old.__dict__)
+    # Only the package digest necessarily changes when pack.py changes.
+    monkeypatch.setattr(job, "source_sha256", lambda root=None: "f" * 64)
+    args = (COMMIT, Path("/tmp/ruler-out"), [], "0" * 64, pack.namespace(COMMIT))
+    before = old.make_main(*args)
+    after = pack.make_main(*args)
+    assert json.dumps(before, sort_keys=True) == json.dumps(after, sort_keys=True)
+    before_probe = old.make_probe(before, Path("/tmp/ruler-probe"), args[-1])
+    after_probe = pack.make_probe(after, Path("/tmp/ruler-probe"), args[-1])
+    assert json.dumps(before_probe, sort_keys=True) == json.dumps(after_probe, sort_keys=True)
+    assert pack.completion_options(1, "cpu", None, None) is False
+
+
+def test_l4_completion_and_same_family_probe():
+    main = pack.make_main(COMMIT, Path("/tmp/ruler-out"), [], "0" * 64, "ns-dev")
+    pack.apply_completion(main, "l4", 260, 12)
+    assert main["requirements"] == {
+        "gpu": "L4",
+        "allowed_gpus": ["L4"],
+        "min_vcpu": 12,
+        "est_minutes": 130,
+    }
+    assert main["timeout_minutes"] == 260
+    assert main["env"]["F0_SESSION_SECONDS"] == "15600"
+    assert main["env"]["SNAKE_DQN_DEVICE"] == "cpu"
+    assert "STEP_RULER_WORKERS" not in main["env"]  # job defaults to nproc
+    assert all(main["env"][key] == "1" for key in job.THREAD_ENV)
+    assert main["budget"] == {
+        "unit_cap": 12,
+        "reserve_units": 2.4,
+        "rate_units_per_hour": 2.0,
+        "other_assignments": {},
+    }
+    assert main["step_ruler"]["completion_ruling_sha256"] == pack.COMPLETION_RULING_SHA256
+    assert main["step_ruler"]["completion_envelope"]["scope"] == "OWN_ATTEMPT_NOT_SHARED"
+    probe = pack.make_probe(main, Path("/tmp/ruler-probe"), "ns-dev")
+    assert probe["timeout_minutes"] == 20
+    assert probe["requirements"]["est_minutes"] == 10
+    assert probe["requirements"]["gpu"] == "L4"
+    assert probe["budget"]["unit_cap"] == pytest.approx(2 / 3)
+    assert probe["inputs"] == main["inputs"]
+    assert probe["resume_exemption"]["timeout_minutes"] == 20
+    assert main["timeout_minutes"] == 260  # independent probe envelope
+
+
+@pytest.mark.parametrize(
+    "attempt,runtime,timeout,guard",
+    [
+        (1, "l4", None, None),
+        (2, "cuda", 260, 12),
+        (2, "l4", 261, 12),
+        (2, "l4", float("nan"), 12),
+        (2, "l4", 260, float("inf")),
+        (2, "l4", 260, 0),
+        (2, "l4", 260, 13),
+        (2, "l4", 260, 8),
+        (2, "l4", 10, 12),
+    ],
+)
+def test_bad_completion_options_refuse_before_artifacts(tmp_path, attempt, runtime, timeout, guard):
+    with pytest.raises(ValueError):
+        pack.prepare(
+            COMMIT,
+            tmp_path / "pack",
+            tmp_path / "out",
+            Path("b8"),
+            Path("frp3"),
+            attempt=attempt,
+            ledger=Path("ledger") if attempt > 1 else None,
+            runtime_type=runtime,
+            timeout_minutes=timeout,
+            unit_guard=guard,
+        )
+    assert not (tmp_path / "pack").exists()
+
+
+def test_completion_probe_uses_uploaded_empty_ledger(tmp_path):
+    control = _control()
+    control["completion_ruling_sha256"] = pack.COMPLETION_RULING_SHA256
+    control["runtime_type"] = "l4"
+    publish_json(tmp_path / "control.json", control)
+    ledger = job.empty_ledger("ns-dev", control["allocation"])
+    row = {"id": "watch6-000", "path": "units/watch6-000.json", "sha256": "0" * 64, "size": 1}
+    publish_json(tmp_path / "verified-ledger.json", {**ledger, "units": [row]})
+    publish_json(tmp_path / "probe-ledger.json", ledger)
+    pack.probe_control(
+        tmp_path / "control.json",
+        tmp_path / "verified-ledger.json",
+        tmp_path / "probe/control.json",
+        tmp_path / "probe/ledger.json",
+    )
+    derived = json.loads((tmp_path / "probe/control.json").read_text())
+    assert len(derived["allocation"]) == 4
+    assert derived["runtime_type"] == "l4"
+    assert all(row["horizon"] == 3 for row in derived["allocation"])
+    assert (
+        job.load_ledger(tmp_path / "probe/ledger.json", derived["namespace"], derived["allocation"])
+        == set()
+    )
+
+
+def test_collector_closure_pin_and_drift_refusal(tmp_path, monkeypatch):
+    record = pack.check_collector_closure()
+    assert record["status"] == "PASS" and record["files"] >= 200
+    from tools.ops import import_preflight
+
+    path = "research/bl_step_ruler/ticks.py"
+    target = tmp_path / path
+    target.parent.mkdir(parents=True)
+    target.write_text("# drift\n")
+    original_root = pack.ROOT
+    monkeypatch.setattr(pack, "ROOT", tmp_path)
+    monkeypatch.setattr(import_preflight, "import_closure", lambda *args: (["ticks"], []))
+    monkeypatch.setattr(import_preflight, "module_path", lambda *args: target)
+    actual_check_output = subprocess.check_output
+    monkeypatch.setattr(
+        subprocess,
+        "check_output",
+        lambda argv, **kwargs: actual_check_output(argv, **{**kwargs, "cwd": original_root}),
+    )
+    with pytest.raises(ValueError, match="closure differs"):
+        pack.check_collector_closure()
+
+
+def test_platform_changed_rates_are_descriptive_counts_still_pool(tmp_path):
+    ns = pack.namespace(pack.RULER_PIN)
+    control = _control(ns)
+    control.update(runtime_type="l4", runtime_commit=COMMIT)
+    exports = tmp_path / "exports"
+    for index, pin in enumerate((pack.RULER_PIN, COMMIT)):
+        item = control["allocation"][index]
+        publish_json(
+            exports / "units" / f"{item['allocation_id']}.json",
+            {
+                "schema": job.UNIT_SCHEMA,
+                "namespace": ns,
+                **item,
+                "status": "COMPLETE",
+                "world_steps": 100 * (index + 1),
+                "tick_counters": {
+                    "ticks": {"play": 100 * (index + 1), "replay": 0, "branch": 0},
+                    "restores": {"play": 0, "replay": 0, "branch": 0},
+                },
+                "elapsed_seconds": 10,
+                "work_counters": {"roots": 0},
+                "provenance": {"platform": "x86", "code_sha": pin},
+            },
+        )
+    ledger = tmp_path / "verified-ledger.json"
+    job.build_ledger(control, [exports], ledger)
+    dev = analyze.dev_units(control, ledger)
+    assert dev["per_stream"]["watch6"]["mean_world_steps_per_parent"] == 150
+    assert dev["x86_worker_world_steps_per_second"] == 10
+    changed = next(row for row in dev["rates_by_runtime_commit"] if row["code_sha"] == COMMIT)
+    assert changed["worker_world_steps_per_second"] == 20
+    assert changed["rate_use"] == "DESCRIPTIVE_ONLY_PLATFORM_CHANGED"
+    assert changed["runtime_type"] == "l4"

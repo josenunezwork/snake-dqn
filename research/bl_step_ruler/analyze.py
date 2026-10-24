@@ -46,6 +46,7 @@ MIN_UNITS = 6
 PRIMARY_WIDTH = 6
 L4_PROXY_VCPU = 12
 L4_SLOTS = 3
+RULER_PIN = "6ee41cdf372ed3daa80da4f05a0cdc44ddcaab7d"
 _PARENT = re.compile(r"-(watch6|gate-frozen|gate-mixed|gate-scripted)-\d+$")
 
 
@@ -120,15 +121,43 @@ def dev_units(control: dict[str, Any], ledger: Path) -> dict[str, Any]:
             "roots_per_parent": statistics.fmean(u["work_counters"]["roots"] for u in chosen),
         }
     complete = [u for u in units if u["status"] == "COMPLETE"]
-    worker_seconds = sum(u["elapsed_seconds"] for u in complete)
+    # Completion counters still enter k_s above. Only the original CPU-runtime
+    # attempt supplies timing to the L4 PROXY (completion ruling, section 2.3).
+    frozen_series = control["namespace"] == f"bl-step-ruler-{RULER_PIN}-dev"
+    proxy_units = [
+        u for u in complete if not frozen_series or u["provenance"].get("code_sha") == RULER_PIN
+    ]
+    worker_seconds = sum(u["elapsed_seconds"] for u in proxy_units)
+    rates = []
+    for pin in sorted({u["provenance"].get("code_sha") or "unknown" for u in complete}):
+        chosen = [u for u in complete if (u["provenance"].get("code_sha") or "unknown") == pin]
+        seconds = sum(u["elapsed_seconds"] for u in chosen)
+        rates.append(
+            {
+                "code_sha": pin,
+                "runtime_type": (
+                    "cpu" if pin == RULER_PIN else control.get("runtime_type", "unspecified")
+                ),
+                "complete_units": len(chosen),
+                "worker_world_steps_per_second": (
+                    sum(u["world_steps"] for u in chosen) / seconds if seconds else None
+                ),
+                "rate_use": (
+                    "DESCRIPTIVE_ONLY_PLATFORM_CHANGED"
+                    if frozen_series and pin != RULER_PIN
+                    else "L4_PROXY_INPUT"
+                ),
+            }
+        )
     return {
         "verified_units": len(units),
         "complete_units": len(complete),
         "missing_units": sorted(set(by_id) - ids),
         "per_stream": per_stream,
         "x86_worker_world_steps_per_second": (
-            sum(u["world_steps"] for u in complete) / worker_seconds if worker_seconds else None
+            sum(u["world_steps"] for u in proxy_units) / worker_seconds if worker_seconds else None
         ),
+        "rates_by_runtime_commit": rates,
         "x86_platforms": sorted({u["provenance"]["platform"] for u in complete}),
     }
 
