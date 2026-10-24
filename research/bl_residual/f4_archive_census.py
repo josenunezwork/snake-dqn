@@ -10,7 +10,9 @@ the single table that ``funding.main`` passes to ``heldout.evaluate`` for both
 D256 and D1024 (``funding.evaluate`` requires one identical table and receipt).
 It reuses ``f4_d256_package._table`` for the row schema. It computes no metric,
 prints no outcome, and is not a registered look; the receipt holds identities
-and counts only. The table never leaves the Mac.
+and counts only. The table never leaves the Mac. It refuses to open any row
+until both the D256 and D1024 fit-phase ledgers are published (held-out
+outcomes are loaded only after the final checkpoints are immutable).
 """
 
 from __future__ import annotations
@@ -33,6 +35,26 @@ SCHEMA = "bl-residual-natural-archive/v2"
 PUBLICATION_PATH = "research/bl_residual/ledger/F4_R_A_ARCHIVE_CENSUS_20261024.json"
 TABLE = "archive-table.npz"
 RECEIPT = "census.json"
+
+
+def require_frozen_fits(d256_pack_inputs: Path, d1024_pack_inputs: Path) -> None:
+    """Open no reserve row until both fits are immutable and published (data.py).
+
+    Reads only the published fit-phase ledgers (path/size/hash) against each
+    pack's sealed control identity; never deserializes a checkpoint.
+    """
+    from research.bl_residual.protocol import read_ledger
+
+    for inputs, publication, index in (
+        (d256_pack_inputs, d256.FIT_PUBLICATION_PATH, 0),
+        (d1024_pack_inputs, d1024.FIT_PUBLICATION_PATH, d1024.INDEX),
+    ):
+        d1024.require_publication(d1024.ROOT / publication, publication, None)
+        verify_export(inputs / "control.json")
+        control = json.loads((inputs / "control.json").read_text())
+        units = read_ledger(d1024.ROOT / publication, control["namespace"], control["allocation"])
+        if set(units) != {index}:
+            raise ValueError(f"HOLD: fit not frozen and published before the census: {publication}")
 
 
 def _bound_allocation(pack_inputs: Path) -> dict[str, Any]:
@@ -123,6 +145,7 @@ def _census(
     d1024.require_publication(d1024_ledger, d1024.D1024_UNION_PATH, d1024_union_sha)
     if output.exists():
         raise FileExistsError(output)
+    require_frozen_fits(d256_pack_inputs, d1024_pack_inputs)
     left = archive_identity(_bound_allocation(d256_pack_inputs))
     right = archive_identity(_bound_allocation(d1024_pack_inputs))
     if left != right:

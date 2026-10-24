@@ -245,8 +245,13 @@ PY
     ;;
   census)
     need D1024_UNION_SHA
-    pin=${CENSUS_PIN:-${PIN:?HOLD: set CENSUS_PIN or PIN}}
-    dispatch_mac bl-f4-r-a-census-01 "$pin" -m research.bl_residual.f4_archive_census \
+    need CENSUS_PIN
+    # The census opens reserve rows only after both fits are immutable and published.
+    git -C "$SOURCE" fetch origin
+    for path in "$FIT_PHASE" "$D1024_UNION_PUB"; do
+      git -C "$SOURCE" cat-file -e "$CENSUS_PIN:$path"
+    done
+    dispatch_mac bl-f4-r-a-census-01 "$CENSUS_PIN" -m research.bl_residual.f4_archive_census \
       --out "$CENSUS" --d256-ledger "$D256_UNION" --d1024-ledger "$D1024_UNION" \
       --d1024-union-sha256 "$D1024_UNION_SHA" --d256-pack-inputs "$D256_PACK/inputs" \
       --d1024-pack-inputs "$PACK/inputs"

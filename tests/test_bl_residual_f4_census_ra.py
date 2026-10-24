@@ -52,7 +52,41 @@ def packs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, world: dict) -> dict:
         commit="HEAD",
         preflight_receipt=tmp_path / "preflight.json",
     )
-    return {"d256": d256_pack, "d1024": tmp_path / "d1024-pack", "ledgers": ledgers}
+    packs = {"d256": d256_pack, "d1024": tmp_path / "d1024-pack", "ledgers": ledgers}
+    packs["repo"] = _publish_fits(monkeypatch, tmp_path, packs)
+    return packs
+
+
+def _publish_fits(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, packs: dict) -> Path:
+    """Synthetic immutable fits and their published fit-phase ledgers in a fake repo."""
+    from research.bl_residual import f4_d256_package as d256
+    from research.bl_residual.protocol import build_ledger
+
+    repo = tmp_path / "repo"
+    (repo / "research/bl_residual").mkdir(parents=True)
+    (repo / "research/bl_residual/F4_REGISTRATION.md").write_bytes(
+        (fx.ROOT / "research/bl_residual/F4_REGISTRATION.md").read_bytes()
+    )
+    monkeypatch.setattr(package, "ROOT", repo)
+    for pack, dose, run in (
+        (packs["d256"], 256, "d256-output-l4-01"),
+        (packs["d1024"], 1024, package.MAIN_OUTPUT),
+    ):
+        control = json.loads((pack / "inputs/control.json").read_text())
+        fit = pack / run / "exports/fit"
+        export_json(
+            fit / "allocation.json",
+            {"namespace": control["namespace"], "allocation": control["allocation"]},
+        )
+        _checkpoint(fit / f"fit-{(256, 1024).index(dose):04d}.pth", control, dose)
+        publication = d256.FIT_PUBLICATION_PATH if dose == 256 else package.FIT_PUBLICATION_PATH
+        build_ledger([fit], repo / publication, control["namespace"], control["allocation"])
+
+    def origin(argv: list[str], **_kwargs) -> bytes:
+        return (repo / argv[-1].split(":", 1)[1]).read_bytes()
+
+    monkeypatch.setattr(package.subprocess, "check_output", origin)
+    return repo
 
 
 def _census(packs: dict, out: Path) -> dict:
@@ -173,6 +207,20 @@ def test_census_holds_when_allocations_disagree_on_the_archive(
         _census(packs, tmp_path / "census")
 
 
+def test_census_refuses_before_label_io_until_d1024_fit_is_published(
+    monkeypatch: pytest.MonkeyPatch, packs: dict, tmp_path: Path
+) -> None:
+    from research.bl_residual import f4_d256_package as d256
+
+    publication = packs["repo"] / package.FIT_PUBLICATION_PATH
+    for suffix in ("", ".sha256", ".complete"):
+        Path(str(publication) + suffix).unlink()
+    monkeypatch.setattr(d256, "_life_catalog", lambda *_: pytest.fail("labels opened"))
+    with pytest.raises(FileNotFoundError):
+        _census(packs, tmp_path / "census")
+    assert not (tmp_path / "census").exists()
+
+
 def _checkpoint(path: Path, control: dict, dose: int) -> str:
     return export_torch(
         path,
@@ -192,41 +240,15 @@ def _checkpoint(path: Path, control: dict, dose: int) -> str:
 
 
 @pytest.fixture()
-def ra_world(monkeypatch: pytest.MonkeyPatch, packs: dict, tmp_path: Path) -> dict:
-    """Synthetic published fits and census inside a fake repository root."""
-    from research.bl_residual import f4_d256_package as d256
-    from research.bl_residual.protocol import build_ledger
-
-    repo = tmp_path / "repo"
-    (repo / "research/bl_residual").mkdir(parents=True)
-    (repo / "research/bl_residual/F4_REGISTRATION.md").write_bytes(
-        (fx.ROOT / "research/bl_residual/F4_REGISTRATION.md").read_bytes()
-    )
-    monkeypatch.setattr(package, "ROOT", repo)
-    for pack, dose, run in (
-        (packs["d256"], 256, "d256-output-l4-01"),
-        (packs["d1024"], 1024, package.MAIN_OUTPUT),
-    ):
-        control = json.loads((pack / "inputs/control.json").read_text())
-        fit = pack / run / "exports/fit"
-        export_json(
-            fit / "allocation.json",
-            {"namespace": control["namespace"], "allocation": control["allocation"]},
-        )
-        _checkpoint(fit / f"fit-{(256, 1024).index(dose):04d}.pth", control, dose)
-        publication = d256.FIT_PUBLICATION_PATH if dose == 256 else package.FIT_PUBLICATION_PATH
-        build_ledger([fit], repo / publication, control["namespace"], control["allocation"])
+def ra_world(packs: dict, tmp_path: Path) -> dict:
+    """Published fits (from ``packs``) plus a published census in the fake repo."""
     census_dir = tmp_path / "census"
     _census(packs, census_dir)
     export_bytes(
-        repo / census_tool.PUBLICATION_PATH, (census_dir / census_tool.RECEIPT).read_bytes()
+        packs["repo"] / census_tool.PUBLICATION_PATH,
+        (census_dir / census_tool.RECEIPT).read_bytes(),
     )
-
-    def origin(argv: list[str], **_kwargs) -> bytes:
-        return (repo / argv[-1].split(":", 1)[1]).read_bytes()
-
-    monkeypatch.setattr(package.subprocess, "check_output", origin)
-    return {"census": census_dir, **packs, "repo": repo}
+    return {"census": census_dir, **packs}
 
 
 def _prepare(ra_world: dict, tmp_path: Path) -> dict:
