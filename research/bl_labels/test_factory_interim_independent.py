@@ -174,10 +174,13 @@ def test_honest_receipt_binds_ruling_and_exact_operational_pin(tmp_path, monkeyp
     assert receipt["no_disallowed_competing_compute"] is True
     assert receipt["serial_test_lane_stopped"] is True
     assert sr.resume_policy(6, tmp_path) == (6, [])
-    before = path.read_bytes()
+    triplet = [path, Path(str(path) + ".sha256"), Path(str(path) + ".complete")]
+    before = [part.read_bytes() for part in triplet]
+    assert sr.record_host_check(tmp_path, checked_epoch=2001) == path
+    assert [part.read_bytes() for part in triplet] == before
     with pytest.raises(FileExistsError):
-        sr.record_host_check(tmp_path, checked_epoch=2001)
-    assert path.read_bytes() == before
+        publish_json(path, {**receipt, "operational_pin": "0" * 40})
+    assert [part.read_bytes() for part in triplet] == before
 
 
 @pytest.mark.parametrize(
