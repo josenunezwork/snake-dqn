@@ -1,0 +1,15 @@
+{
+  "schema": "r33-process-fixture-table/v1",
+  "policy": "factory-concurrency-interim-20261023",
+  "consumers": ["startup", "runtime", "recovery"],
+  "cases": [
+    {"id":"quoted-app-path","rows":[[501,1,"15","'/Applications/ChatGPT.app/Contents/MacOS/codex' app-server"]],"expected":"ALLOW_PRESENCE_EXCEPTION"},
+    {"id":"desktop-helper","rows":[[502,1,"15","/Applications/ChatGPT.app/Contents/Frameworks/Codex Helper"]],"expected":"ALLOW_PRESENCE_EXCEPTION"},
+    {"id":"busy-descendant","rows":[[510,1,"15","codex exec task"],[511,510,"14","python research/study/train.py"]],"expected":"BLOCK"},
+    {"id":"pid-reuse","rows":[[520,1,"14","pytest research/r33_verification/test_process_harness.py"]],"expected":"BLOCK"},
+    {"id":"reparented-worker","rows":[[530,1,"15","codex exec task"],[531,1,"14","python -m pytest tests/test_example.py"]],"expected":"BLOCK"},
+    {"id":"unknown-priority","rows":[[540,1,"unreadable","python research/study/train.py"]],"expected":"BLOCK"},
+    {"id":"stale-ownership","rows":[[550,1,"15","python research/study/train.py"]],"expected":"ALLOW_PRESENCE_EXCEPTION"}
+  ],
+  "limits": "Read-only synthetic coverage of the current finite interim boundary; no native ownership qualification."
+}
