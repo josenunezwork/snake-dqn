@@ -30,6 +30,21 @@ ADMISSION_DIR = Path(
 )
 
 
+# Non-executing module resolution in the exact interpreter/site environment.
+# -I plus the explicit broker path mirrors the scrubbed launch's -m sys.path.
+IMPORT_PROBE_PROGRAM = """import importlib.machinery as m,json,sys
+root=sys.argv[1]
+sys.path.insert(0,root)
+r=m.PathFinder.find_spec('research',sys.path)
+p=list(r.submodule_search_locations or ()) if r else []
+c=m.PathFinder.find_spec('research.colab_cli',p) if p else None
+q=list(c.submodule_search_locations or ()) if c else []
+s=m.PathFinder.find_spec('research.colab_cli.supervisor',q) if q else None
+print(json.dumps({'research_origin':r.origin if r else 'missing',
+'cli_origin':c.origin if c else None,'supervisor_origin':s.origin if s else None}))
+"""
+
+
 class IdentitySensorError(RuntimeError):
     """A live process which must be checked lacks a required native observation."""
 
@@ -369,6 +384,21 @@ def native_cwd(pid: int) -> str:
     return str(Path(paths[0]).resolve())
 
 
+def _import_resolution_matches(record: AdmissionRecord) -> bool:
+    observed = json.loads(
+        subprocess.check_output(
+            [record.interpreter, "-I", "-c", IMPORT_PROBE_PROGRAM, record.import_root],
+            text=True,
+            timeout=5,
+        )
+    )
+    return observed == {
+        "research_origin": None,
+        "cli_origin": str(Path(record.import_root) / "research/colab_cli/__init__.py"),
+        "supervisor_origin": str(Path(record.import_root) / "research/colab_cli/supervisor.py"),
+    }
+
+
 def _source_matches(record: AdmissionRecord, cwd: str) -> bool:
     """Check that the actual import root exposes the pinned supervisor bytes."""
     qualification_path = Path(record.qualification_record)
@@ -416,6 +446,8 @@ def _source_matches(record: AdmissionRecord, cwd: str) -> bool:
         or parent.origin is not None
         or list(parent.submodule_search_locations or ()) != [str(root / "research")]
     ):
+        return False
+    if not _import_resolution_matches(record):
         return False
     source = root / "research" / "colab_cli" / "supervisor.py"
     if not source.is_file():
@@ -928,6 +960,13 @@ def annotate(
             executable = str(Path(str(row["executable"])).resolve())
             role: str | None = None
             if (
+                parent.role in {"bootstrap", "launch_verifier"}
+                and _matches_executable(executable, record.interpreter, record.interpreter_native)
+                and normalize_interpreter(argv, record.interpreter, record.interpreter_native)
+                == (record.interpreter, "-I", "-c", IMPORT_PROBE_PROGRAM, record.import_root)
+            ):
+                role = "import_probe"
+            elif (
                 parent.role == "supervisor"
                 and executable == record.executable == "/usr/bin/caffeinate"
                 and argv == record.argv
