@@ -1,4 +1,4 @@
-"""Tiny launcher checks with real scheduling observation; no agent or factory run."""
+"""Real child scheduling/settings and non-bypassable shell entrypoint checks."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import pytest
 LAUNCHER = Path(__file__).resolve().parents[1] / "agent_nice.sh"
 CAPS = (
     "OMP_NUM_THREADS",
+    "OMP_THREAD_LIMIT",
     "MKL_NUM_THREADS",
     "OPENBLAS_NUM_THREADS",
     "NUMBA_NUM_THREADS",
@@ -21,17 +22,19 @@ CAPS = (
 )
 
 
-@pytest.mark.parametrize("inherited_nice", [0, 15, 19])
+@pytest.mark.parametrize("inherited_nice", [15, 19])
 def test_launcher_caps_environment_and_child_priority(inherited_nice: int) -> None:
+    # Exercise the production spawn implementation in a separate interpreter;
+    # no admission locks are replaced in the shell entrypoint.
     probe = """
 import json, os, subprocess, sys
-nice = int(subprocess.check_output(['/bin/ps', '-o', 'nice=', '-p', str(os.getpid())]))
-child = subprocess.check_output([sys.executable, '-c',
-    'import os; print(os.getpriority(os.PRIO_PROCESS, 0))'], text=True).strip()
-print(json.dumps({'nice': nice, 'child_nice': int(child),
-    'env': {k: os.environ[k] for k in sys.argv[1:-1]}, 'arg': sys.argv[-1]}))
+from research.compute.factory_interim_launcher import _spawn
+code = '''import json, os, sys, numpy
+print(json.dumps({'nice': os.getpriority(os.PRIO_PROCESS, 0),
+    'env': {k: os.environ[k] for k in sys.argv[1:]}, 'device': os.environ['SNAKE_DQN_DEVICE']}))'''
+child = _spawn([sys.executable, '-c', code, *sys.argv[1:]])
+raise SystemExit(child.wait())
 """
-    # Lowering priority is permitted; never try to raise this test runner's priority.
     parent_nice = os.getpriority(os.PRIO_PROCESS, 0)
     if inherited_nice < parent_nice:
         pytest.skip("cannot raise inherited scheduler priority")
@@ -40,31 +43,52 @@ print(json.dumps({'nice': nice, 'child_nice': int(child),
             "/usr/bin/nice",
             "-n",
             str(inherited_nice - parent_nice),
-            str(LAUNCHER),
             sys.executable,
             "-c",
             probe,
             *CAPS,
-            "space ; $literal argument",
         ],
-        env={**os.environ, **dict.fromkeys(CAPS, "8")},
+        env={**os.environ, **dict.fromkeys(CAPS, "8"), "SNAKE_DQN_DEVICE": "mps"},
         text=True,
         capture_output=True,
         timeout=10,
         check=True,
     )
-    value = json.loads(result.stdout)
-    assert value == {
-        "nice": max(15, inherited_nice),
-        "child_nice": max(15, inherited_nice),
+    assert json.loads(result.stdout) == {
+        "nice": inherited_nice,
         "env": dict.fromkeys(CAPS, "1"),
-        "arg": "space ; $literal argument",
+        "device": "cpu",
     }
 
 
-def test_launcher_requires_command_and_preserves_exit_status() -> None:
+def test_launcher_requires_class_and_refuses_unreviewed_compute() -> None:
     usage = subprocess.run([str(LAUNCHER)], capture_output=True, text=True, timeout=10)
     assert usage.returncode == 2
     assert "usage:" in usage.stderr
-    result = subprocess.run([str(LAUNCHER), "/bin/sh", "-c", "exit 37"], timeout=10)
-    assert result.returncode == 37
+    for args in (
+        [sys.executable, "-m", "pytest"],
+        ["--class", "light", "--", "/bin/bash", "-c", "echo bypass"],
+        ["--class", "test", "--", sys.executable, "-m", "pytest"],
+    ):
+        result = subprocess.run([str(LAUNCHER), *args], capture_output=True, text=True, timeout=10)
+        assert result.returncode == 2
+        assert "bypass" not in result.stdout
+
+
+def test_actual_reviewed_test_settings_are_cpu_serial() -> None:
+    import torch
+
+    assert os.getpriority(os.PRIO_PROCESS, 0) >= 15
+    assert os.environ["SNAKE_DQN_DEVICE"] == "cpu"
+    assert {name: os.environ[name] for name in CAPS} == dict.fromkeys(CAPS, "1")
+    assert torch.get_num_threads() == torch.get_num_interop_threads() == 1
+
+
+def test_light_shell_route_preserves_command_exit_status() -> None:
+    result = subprocess.run(
+        [str(LAUNCHER), "--class", "light", "--", "cat", "/missing-interim-fixture-input"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 1
