@@ -84,6 +84,7 @@ def instrument(sim: Any, timer: IntegrationTiming):
             (DeviceVectorRuntime, "prepare", "vector61_carry"),
             (DeviceVectorRuntime, "observe_step", "vector61_carry"),
             (DeviceVectorRuntime, "features", "vector61_other"),
+            (IndexedVectorRuntime, "features", "vector61_other"),
         ):
             stack.enter_context(patch.object(cls, method, wrap(getattr(cls, method), stage)))
         yield
@@ -291,9 +292,12 @@ def measure(
     try:
         from research.gpu_sim_spike import integration_parity
 
-        proof = integration_parity.prove(cases, device)
+        try:
+            proof = integration_parity.prove(cases, device)
+        except (ValueError, engine.IntegrationEngineError) as exc:
+            raise integration_parity.IntegrationParityError(str(exc)) from exc
         if not (proof.get("frozen_device_identity") and proof.get("cpu_geometry_carry")):
-            raise RuntimeError("combined I0 parity proof failed")
+            raise integration_parity.IntegrationParityError("combined I0 parity proof failed")
         arms = {name: {"plain_seconds": [], "digests": [], "stages": []} for name in ARMS}
         for case in cases.values():
             for _ in range(warmups):
@@ -308,6 +312,11 @@ def measure(
                 plain, digest = _tick(cases[name], device)
                 arms[name]["plain_seconds"].append(plain)
                 arms[name]["digests"].append(digest)
+        for name in ARMS:
+            if len(set(arms[name]["digests"])) != 1:
+                raise integration_parity.IntegrationParityError(
+                    "nondeterministic restored plain tick: " + name
+                )
         # Diagnostic ticks begin only after every plain scored repeat. They
         # cannot perturb cache/allocator state before a later scored sample.
         for repeat, order in enumerate(orders):
@@ -315,7 +324,9 @@ def measure(
                 timer = IntegrationTiming(device)
                 event, event_digest = _tick(cases[name], device, timer)
                 if arms[name]["digests"][repeat] != event_digest:
-                    raise RuntimeError("plain and diagnostic tick state differs")
+                    raise integration_parity.IntegrationParityError(
+                        "plain and diagnostic tick state differs"
+                    )
                 attribution = timer.result()
                 stages = (
                     attribution["exclusive_cuda_elapsed_seconds"]
@@ -333,6 +344,14 @@ def measure(
         continuous = (
             _continuous(cases, device, deadline) if continuous_ticks else {"status": "NOT_REQUIRED"}
         )
+        if continuous_ticks:
+            for name in ARMS:
+                finals = [item["final_digest"] for item in continuous["arms"][name]["repeats"]]
+                if len(set(finals)) != 1:
+                    raise integration_parity.IntegrationParityError(
+                        "nondeterministic continuous block: " + name
+                    )
+
         return {
             "mix": mix,
             "worlds": worlds,
@@ -476,6 +495,28 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 ),
                 flush=True,
             )
+    except integration_parity.IntegrationParityError as exc:
+        units.build_ledger(
+            output,
+            output / "verified-ledger.json",
+            commit=commit,
+            smoke=args.smoke,
+            canary=args.canary,
+        )
+        result = {
+            "schema": "gpu-sim-spike-i0-bench/v1",
+            "status": "INVALID",
+            "reason": str(exc),
+            "failure_class": "COMBINED_PARITY_MISMATCH",
+            "commit": commit,
+            "source_sha256": source_hashes(),
+            "completed_units": completed,
+            "skipped_units": skipped_units,
+        }
+        units.publish_json(output / "integration-failure.json", result)
+        units.publish_json(output / "integration-bench.json", result)
+        stop_heartbeat.set()
+        return result
     except TimeoutError as exc:
         result = {
             "schema": "gpu-sim-spike-i0-bench/v1",

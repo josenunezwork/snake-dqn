@@ -242,6 +242,7 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 2026-10-24 01:20 PT | **Round-27 T-EQ = FAIL** (sealed; equiv-02 receipt; phase ledger ROUND27_SPEED_EQUIV_PHASES_02.json sha 2d2e5ea4…, local = origin before analysis). The only unallowlisted difference is the session payload bl-labels-f0-session/v1:beq-gate-scripted-00. It differs across every pair, including NEW-W1 vs NEW-W6 and OLD-W1 vs OLD/NEW-W6, while all life (label) payloads and the F1 comparison are identical, which suggests nondeterministic session metadata rather than a label change. Per the registration, **D1024 uses the OLD W6 fallback** (d1024-check-old / d1024-old). An allowlist correction for future use would need a judge ruling. MOVE2 main fe404912 running on the A100; Astra is ruling on the V8 split main (49.23 min vs the 48 min cap); Sol f4publish is preparing fit publication. |
 | 2026-10-24 01:21 PT | F4 D256 fit PUBLISHED and VERIFIED (local == origin; Sol f4publish 053b4c71; publish 6deb9846). There is NO D256-only registered look: joint R-A follows the D1024 fit and archive census. D1024 inputs were staged (d1024-metadata-staging-02), but the D1024 OLD W6 check (3c5fc403) refused: 'F0 export lacks complete sidecars' (life-allocation/judgment/registration staged without sidecars); Sol d1024stage is fixing it (staging-03). Renicer restarted, lowering only Colab/agent processes to absolute 15, which the persistence ruling allows; the upload diagnosis showed priority was not the cause. Colab nice-0 overlap is implemented (ff5a6cd2) but PREPARED_NOT_QUALIFIED_FOR_OVERLAP (needs transport acceptance and an authorized overlap canary). Astra V8 split main: APPROVE_ONE_BOUNDED_MAIN_CAP_AMENDMENT (50 min estimate; 120 min / 20 u main; 144 min / 24 u total); Sol v8mainamend is regenerating the main. |
 | 2026-10-24 01:22 PT | **GPU sprint: MOVE2 main PASS** (fe404912; frozen-device identity, 28 fields byte-identical every repeat; native parity PASS). Full simulator step (policy excluded) E1024: frozen 0.86 → 0.03 s (**27.9×**), mixed 28.1×, scripted 28.2×; E256 ~11.9×; E64 ~6.3×. Respawn occupancy 0.758 → 0.00007 s and collision 0.082 → 0.0006 s. **Combined projection (not yet measured):** scripted E1024 ≈ V8 1.18 s − 0.85 s old movement + 0.03 s ≈ 0.36 s/tick (~2,800 world-steps/s, past the 0.512 s bar); frozen/mixed add opponent v8. Next per round-36 JUDGMENT: combined all-roster integration benchmark (FLOOD exactness + MOVE + V8 geometry). |
+| 2026-10-24 01:47 PT | **D1024 RUNNING on the Mac** (bl-f0-d1024-old-eq02-rebind-01): registered OLD W6 fallback after T-EQ FAIL; fresh control package bl-labels-f0-speed/d1024-old-w6-equiv-02-pack-01 (control sha 9952387d…37f7), where ONLY source_commit was rebound to the published speed pin 111c4781 (operator-approved mechanical rebinding; namespace, 2,160 allocation rows/seeds, caps, calibration and OLD W6 collector preserved); operational pin 587ff73e; check CHECKED (W6, deadline 144,000 s); staging-03 inputs with sidecars. GPU: sparse L4 compile proof PASS (b7dfa1fc). Sparse canary and amended V8 main helpers refused on receipt-layout mismatches (Sol helperfix, now with mandatory dry-runs against real receipts). Integration package I0 built (6210d17d / runtime 968f0276; MOVE2 + retained geometry + ordinary v8 + static flood; Codex-V 25/25); its canary is gated on a missing compile proof (Sol gpuintcompile). |
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -919,3 +920,51 @@ account checks remain mandatory. No continuation is authorized by this
 amendment; mechanical/cap failure preserves verified units and reports
 INCOMPLETE. This preparation does not authorize labels, training, integrated
 speed claims, CPU closed-loop qualification or release/serving changes.
+
+## 2026-10-24 — D1024 approved equiv-02 binding; OLD W6 prepared only
+
+Owner chat relayed Operator Claude's explicit YES to a fresh D1024 control package
+binding repaired round-27 speed pin `111c47818a097c57451386ef4f8a7009616f8f77`,
+with the exact original namespace/allocation/seeds/caps/calibration and OLD W6
+collector. Reason: the published sealed equiv-02 T-EQ FAIL binds `111c4781`, while
+original control `bf8ac97d` cannot admit it. No T-EQ status or allowlist changed.
+
+Fresh package: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0-speed/d1024-old-w6-equiv-02-pack-01`.
+Control SHA256 `9952387d0f493c7b0b62f1a210b1ed7e859031640c0022d9d43e200c51d337f7`.
+Only `source_commit` and `mac_gate.source_commit` changed. Original namespace
+`f0-hindsight-labels-bf8ac97dc66d1b4515e4c5510db3ad5886fa695d-mac-d1024`,
+2,160 materialized parents and their indices/seeds/plans/folds, 144,000-second
+(40 h) cap, W6, calibration source `61900af2` and runner `2a0821a9` are unchanged.
+Seed audit and empty verified ledger triplets are byte-identical. All 24 original
+`d1024-d4096-pack-01` files were inventoried before and verified unchanged after.
+The fresh HOLD manifest records the sealed FAIL/OLD fallback explicitly.
+
+Bound published ledger `research/bl_labels/ledger/ROUND27_SPEED_EQUIV_PHASES_02.json`,
+SHA256 `2d2e5ea4486e4cb8eb0c501c09b26906e9222f41aae99482e1c7c4afdf003541`,
+was checked byte-identical to origin/main; receipt is `equiv-02/receipt.json`.
+F4 uses only `big-lever/exp/f4/d1024-metadata-staging-03/inputs`, control SHA256
+`ac4b3d89fedc90e7d169316ca2fc85349c80b04b22fd5e9dc35401e48c4f498c`.
+Provenance: `research/bl_labels/ledger/D1024_OLD_W6_EQUIV02_BINDING_20261024.json`.
+
+Operational deviation: `3c5fc403` predates the rebound speed pin and fails the
+operational-descendant guard. The real check at `111c4781` then exposed the
+previously unreached `mac_gates.LEGACY_FACTORY_COMMIT` AttributeError. Published
+fix `587ff73ecdb9ebb25a104c3e45450ceb851c0358` changes only that reference to
+`frozen_factory.OLD_PIN` and adds four regression cases. Use that operational pin;
+science remains frozen `111c4781`, collector remains OLD `61900af2` at W6.
+The package's create-only `d1024-operational-erratum.json` supersedes its initial
+operational-pin recommendation; committed copy is
+`research/bl_labels/ledger/D1024_OLD_W6_OPERATIONAL_20261024.json`.
+
+Real launcher check at clean detached `587ff73e`: CHECKED, W6, 144000 seconds.
+Offline admission/revalidation and real `mac_driver --check` also pass with OLD
+collector and 2,160 pending parents; verification-only evidence is outside the
+production package. Its admitted-control/state/output paths remain absent.
+122 existing targeted tests plus four new cases, lint, shell syntax and diff
+checks pass. Independent Codex-V light and exact env/dispatch forms are recorded
+in `research/bl_labels/D1024_OLD_W6_EQUIV02_HANDOFF_20261024.md` and its linked
+review receipt. **PREPARED_CHECKED_NOT_DISPATCHED.** No factory/held-out/reserve/
+gameplay outcome look, no live job/session change, no serving/released-checkpoint
+change; D4096 remains HOLD. Operator runs the check first, waits for CHECKED and
+EXIT=0 plus lock release, then may dispatch collection using the distinct fresh
+name. This entry does not claim execution or completion of D1024.
