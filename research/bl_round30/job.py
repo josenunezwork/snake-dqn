@@ -24,7 +24,7 @@ from research.bl_round30.protocol import (
     require_series,
     require_successor_gate,
 )
-from src.model.ego2s_network import ARCH, load_ego2s_checkpoint, spec_for
+from src.model.ego2s_network import ARCH, Ego2sNet, load_ego2s_checkpoint, spec_for
 
 
 def preflight_inputs(input_dir: Path, *, mode: str, commit: str | None = None) -> dict:
@@ -125,6 +125,32 @@ def _checkpoint(base: Any, parameters: torch.Tensor, state: dict) -> dict:
         "parameters": parameters.detach().cpu(),
         "execution_dtype": "float32",
     }
+
+
+def reloaded_canary_actions(endpoint: dict, table: dict, device: str) -> list[int]:
+    """Execute a real fp32 fused-policy decision, attributable to this package.
+
+    The qualified CUDA observer records the actual six-action argmax. This is
+    synthetic consumer evidence only; Mac rowwise decisions remain authoritative.
+    """
+    model = Ego2sNet(**endpoint["config"])
+    model.load_state_dict(endpoint["state_dict"], strict=True)
+    model = model.to(device).eval()
+    mask = torch.as_tensor(table["action_mask"][:1], dtype=torch.bool, device=device)
+    fallback = torch.zeros_like(mask)
+    fallback[:, :3] = True
+    mask = torch.where(mask.any(dim=1, keepdim=True), mask, fallback)
+    with torch.no_grad():
+        q = model(
+            *[
+                torch.as_tensor(table[key][:1], device=device)
+                for key in ("local", "global", "scalars")
+            ]
+        )
+        if q.shape != (1, 6) or not torch.isfinite(q).all():
+            raise ValueError("nonfinite/foreign canary fused Q output")
+        actions = q.masked_fill(~mask, -torch.inf).argmax(dim=1)
+    return actions.cpu().tolist()
 
 
 def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dict:
@@ -260,8 +286,16 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
                 "heldout_outcomes_opened": False,
             }
             export_torch(output / "unit-0000.pth", unit, max_payload_bytes=120 * 1024**2)
+        canary_actions = None
+        if synthetic and not skipped:
+            # Reload the actual immutable export before choosing on its target device.
+            verify_export(output / "unit-0000.pth")
+            saved = torch.load(output / "unit-0000.pth", map_location="cpu", weights_only=False)
+            canary_actions = reloaded_canary_actions(saved["endpoints"]["adam"], table, device)
         receipt = {
             "schema": "r30-worker-receipt/v1",
+            "synthetic_fused_action_device": device if canary_actions is not None else None,
+            "synthetic_fused_actions": canary_actions,
             "namespace": control["namespace"],
             "allocation": allocation,
             "source_commit": control["commit"],
