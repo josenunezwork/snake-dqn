@@ -10,6 +10,7 @@ from pathlib import Path
 
 from research.bl_ppo.exports import digest, export_json, verify_export
 from research.bl_round30.protocol import B8_SHA, CAPS, JUDGMENT_SHA, NAMESPACE, require_series
+from research.metadata_archive import bundle_inputs
 from tools.ops.qualification import OPS, check
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,7 +33,41 @@ SOURCE_PATHS = [
     "research/bl_ppo/__init__.py",
     "research/bl_ppo/exports.py",
     "research/colab_cli",
+    "research/metadata_archive.py",
+    "research/t34_exit_b8/PUBLIC_INPUTS.json",
 ]
+MAX_LOCAL_INPUT_BYTES = 1_000_000
+
+
+def transport_inputs(destination: Path, archive: Path) -> list[dict]:
+    """Use registered HTTPS assets for large files and one verified metadata tar.
+
+    Preserve destinations and every original sidecar. Private/unknown large
+    inputs refuse preparation; this helper never publishes scientific inputs.
+    The unchanged supervisor verifies URL sizes/hashes on Mac and runtime.
+    """
+    catalog = json.loads((ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json").read_text())
+    assets = {(row["sha256"], row["size_bytes"]): row for row in catalog["assets"]}
+    inventory = []
+    for path in sorted(destination.iterdir()):
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("unsafe R30 input type")
+        checksum, size = digest(path), path.stat().st_size
+        row = {"dest": path.name, "sha256": checksum}
+        if size > MAX_LOCAL_INPUT_BYTES:
+            asset = assets.get((checksum, size))
+            if asset is None:
+                raise ValueError(f"input over 1 MB needs a registered public URL: {path.name}")
+            row.update(url=asset["url"], size_bytes=size)
+        else:
+            row["path"] = str(path.resolve())
+        inventory.append(row)
+    result = bundle_inputs(inventory, archive)
+    if any(
+        "path" in row and Path(row["path"]).stat().st_size > MAX_LOCAL_INPUT_BYTES for row in result
+    ):
+        raise ValueError("R30 metadata archive exceeds 1 MB local upload bound")
+    return result
 
 
 def make_pack(
@@ -84,7 +119,11 @@ def make_pack(
 
         verify_export(preflight_receipt)
         preflight = json.loads(preflight_receipt.read_text())
-        if (
+        if inputs is None and preflight.get("schema") == "r30-packaging-preflight/v1":
+            from research.bl_round30.packaging_check import check_receipt
+
+            check_receipt(preflight, commit)
+        elif (
             preflight.get("schema") != "r30-mac-preflight/v1"
             or preflight.get("status") != "PASS"
             or preflight.get("source_commit") != commit
@@ -168,11 +207,8 @@ def make_pack(
                 if source.is_file():
                     shutil.copyfile(source, destination / source.name)
         shutil.copyfile(series, destination / "series.json")
-    inventory = [
-        {"path": str(p.resolve()), "dest": p.name, "sha256": digest(p)}
-        for p in sorted(destination.iterdir())
-        if p.is_file()
-    ]
+    inventory = transport_inputs(destination, output / "metadata.tar")
+    metadata = next(row for row in inventory if row["dest"] == "metadata.tar")
     manifest = {
         "job_id": f"r30-{stage}-{'canary' if synthetic else 'main'}-{commit[:8]}",
         "commit": commit,
@@ -192,6 +228,7 @@ def make_pack(
             "R30_DEVICE": "cuda",
             "R30_MODE": "canary" if synthetic else stage,
             "COLAB_CLI_REQUIREMENTS": "research/bl_round30/requirements.txt",
+            "METADATA_ARCHIVE_SHA256": metadata["sha256"],
         },
         "required_exports": ["receipt.json", "allocation.json", "unit-0000.pth"],
         "budget": {
