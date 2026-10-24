@@ -438,6 +438,7 @@ def manifest(
         "job_id": f"gpu-t4a-dev-01-{lane}-{commit[:12]}-{attempt:02d}",
         "commit": commit,
         "script": SCRIPT,
+        "device": "cuda",
         "claim": "T4A-DEV-01 excluded batch-invariance premise evidence only; "
         "no label, hero, evaluation, release or serving claim.",
         "env": {
