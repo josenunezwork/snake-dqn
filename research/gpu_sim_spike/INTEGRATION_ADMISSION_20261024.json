@@ -1,0 +1,115 @@
+{
+  "component_source_sha256": {
+    "device_sim.py": "c6a955156cc0db2d6b750845729e09fbf4d49684ca25e33c600ac40e2058148d",
+    "flood_cuda.cpp": "b4f247dd2cdab558daa27a127c9df1b356b05d5ed03761a81516a42d3cc2b151",
+    "flood_cuda.cu": "7faca38e79965aa43cd540e7e510529e6ef4105f6998ebfab583d8730d0d520d",
+    "flood_cuda.py": "8c2a8b727e2eefebd28bb677066a59e473d1fe3a614c8e8b51784965abb3e7cf",
+    "move_cuda.cpp": "04d3dbd04ee2816b9628e8ea1a28dad8c5c0f763f705193f43d832b5891cb581",
+    "move_cuda.cu": "d1ccedf9713d12b9da2a300e7bf22fb66fbe2520e2cae089a1f3d429f8348eeb",
+    "move_cuda.py": "fc6cbc7cae3cca9ecef51eb32f3e2a5bc21859c5b8c8cca97b028b9b044e579d",
+    "v8_device.py": "939342cc99821b067d3a5c950e680d76b6cf0c4a5e96f4819584f8306bf8b6df",
+    "v8_indexed.cu": "c75ad8f2824ea96bbcd11a92ba88e85809339a20e6c474a448f1f14e49cefbc3",
+    "v8_indexed.py": "06b349a401b9c8624bc75a9b0af372e327d29511cb9e753868c85b0dbb4d4239",
+    "vector_device.py": "0f1c816d20f41d0834f4f3b2daa0edc6179c6f245f0e003f4ef6e9c429912a66",
+    "vector_geometry.cpp": "c3161ad62ffaf9f78752ef269546e06bf6ab715067219b10a5e01b8508026e4f",
+    "vector_geometry.cu": "fc9ac495e1a917ae2ec56dc8eb47766e4186337134bb32deb8cd8ee567813dc9",
+    "vector_geometry.py": "a6b26f5a24f5d1bba91b54c594827c4dc0b00fe9695eb9626811a828750d0689"
+  },
+  "cpu_closed_loop_identity": "NOT_ESTABLISHED",
+  "cpu_engine_exactness": "NOT_ESTABLISHED",
+  "evidence_scope": "saved hash-verified receipts; no live account query or dispatch",
+  "flood_variant": "static",
+  "geometry_pin": "85180521e87ffc3ddc79296bfb09dcd2c89fdc62",
+  "geometry_status": "PROVISIONALLY_RETAINED",
+  "indexed_v8_enabled": false,
+  "move_admitted": true,
+  "move_claim": "BENCHMARK_ONLY_FROZEN_DEVICE_IDENTITY",
+  "move_export_inventory": [
+    {
+      "path": "cpu-discrepancies.json",
+      "sha256": "1c84849aaaa4ed361e98916f9b8843dcc825c64c9d4f3f27d86e69b68ede455b",
+      "size": 114992
+    },
+    {
+      "path": "discrepancy-register.json",
+      "sha256": "674ddc065a9f3ff4c0a82b4b0cb51528991c632926637b294417529236bc847e",
+      "size": 115082
+    },
+    {
+      "path": "native-parity.json",
+      "sha256": "969b24e8e31bbb42d8fd4332cbe851b832f1328c06f8851209609060b72e5d16",
+      "size": 15162
+    },
+    {
+      "path": "move2-units/cell-frozen-e64.json",
+      "sha256": "c899f1a199882536f9ead0cfed5ab1f8d15876a7f42e4f30ab5543e36b496a5a",
+      "size": 41220
+    },
+    {
+      "path": "move2-units/cell-scripted-e64.json",
+      "sha256": "59e525a33c1ce28f017fe6468ad7cbc3cf801746fb5144760be28ff0e172475f",
+      "size": 41228
+    },
+    {
+      "path": "move2-units/cell-mixed-e64.json",
+      "sha256": "626d84f2224f51f63db43417c986626fa385d17037c77fe06cf75e5f3ad5eafb",
+      "size": 41218
+    },
+    {
+      "path": "move2-units/cell-scripted-e256.json",
+      "sha256": "277fecd7d29a7d5534f4399e88e48c8b374f801fa170e0c697b99bb336e6f74b",
+      "size": 41391
+    },
+    {
+      "path": "move2-units/cell-frozen-e256.json",
+      "sha256": "e3501664fe6b3e9ca3cf4c2d13c3fddb8f45849f1591732386bd1c575b54145d",
+      "size": 41390
+    },
+    {
+      "path": "move2-units/cell-mixed-e256.json",
+      "sha256": "ee72fec721925781b15b7b91af216df0dc8ac6a8ce248f291b3a0cc2014c014c",
+      "size": 41383
+    },
+    {
+      "path": "move2-units/cell-scripted-e1024.json",
+      "sha256": "3c0df5ec22c4f48ec910cb087f4815c60373c2b08e2ec49f4a80b9b36490a141",
+      "size": 41475
+    },
+    {
+      "path": "move2-units/cell-frozen-e1024.json",
+      "sha256": "9fe7949e16c360d61700a784a421de402a3c79a1dc522a66c2856e402bb59ce1",
+      "size": 41472
+    },
+    {
+      "path": "move2-bench.json",
+      "sha256": "03b86d0bd80deff5227e42c68d56273ae6c864f158a0c5436564c6ca30f8ce95",
+      "size": 2764
+    },
+    {
+      "path": "move2-units/cell-mixed-e1024.json",
+      "sha256": "98dab03cf2b664d2005866170da00be3f362741abe43e70e3ddb0435e93fba17",
+      "size": 41468
+    },
+    {
+      "path": "verified-ledger.json",
+      "sha256": "3242696593e200ff33c8a7929b356ae1212e6dcaeef06a80f5e1e561378b378a",
+      "size": 2294
+    }
+  ],
+  "move_manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-move2-metadata-20261024-02/main-output/manifest.json",
+    "sha256": "10b4f54f7efaaeb6bfe986bf16ea7a20450b06e60885a39128ea130260c5f92a",
+    "size": 5345
+  },
+  "move_pin": "fe404912436fe2f3f01db78f4a1778fa176ac056",
+  "move_receipt": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-move2-metadata-20261024-02/main-output/receipt.json",
+    "sha256": "472f7f96e2251e598a3e6b53c7f0097ee98373373823f2f25516e66e3700be3e",
+    "size": 68046
+  },
+  "schema": "gpu-sim-spike-i0-admission/v1",
+  "sparse_flood_pin": "b7dfa1fc35321a388813122b3acfe033d1367782",
+  "sparse_flood_status": "NOT_ADMITTED_NO_TERMINAL_CANARY",
+  "v8_selection": "PENDING",
+  "v8_split_pin": "669405e2bef629f7f69bc951cf49486d8b0a87bf"
+}

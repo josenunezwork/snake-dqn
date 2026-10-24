@@ -1,0 +1,4 @@
+# I0 uses the already-qualified cu126 bootstrap's torch/numpy pins.  Do not
+# introduce a numerical dependency variant into an exactness package.
+-r requirements.txt
+pytest>=9.0.0,<10.0.0
