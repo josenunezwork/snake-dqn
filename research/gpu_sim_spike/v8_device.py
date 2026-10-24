@@ -16,7 +16,7 @@ from typing import Any
 
 import torch
 
-from research.gpu_sim_spike import flood_cuda, v8_indexed
+from research.gpu_sim_spike import flood_cuda, r2_cache, v8_indexed
 from src.core.mechanics_constants import HEADON_SIZE_RATIO
 
 _DX = (0, 1, 0, -1)
@@ -25,6 +25,13 @@ _CAP_MIN, _CAP_MAX, _AREA_MAX = 32, 160, 4096
 _LANDING_UNKNOWN, _LANDING_NO_BOOST = -1, -2
 _KEPT, _VETOED, _NO_SPACIOUS = 0, 1, 2
 _R_KEPT, _R_V2, _R_SAME_DIR, _R_LANDING_V2, _R_LANDING_NONE = range(5)
+
+
+def _deltas(device: torch.device, r2: bool) -> tuple[torch.Tensor, torch.Tensor]:
+    """Cardinal x/y tables: pinned per-call host copies, or R2 cached device copies."""
+    if r2:
+        return r2_cache.const(_DX, torch.long, device), r2_cache.const(_DY, torch.long, device)
+    return torch.as_tensor(_DX, device=device), torch.as_tensor(_DY, device=device)
 
 
 def _host_scalar_safe(value: torch.Tensor) -> bool:
@@ -98,6 +105,17 @@ def _body_cells(sim: Any, env: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor
     valid = sim.alive[env[:, None], slots][..., None] & (
         k < sim.seg_count[env[:, None], slots][..., None]
     )
+    return cells, valid
+
+
+def _own_cells(
+    sim: Any, env: torch.Tensor, slot: torch.Tensor, span: int
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """R2 L1: one slot's first ``span`` head-to-tail cells per row (no other slots)."""
+    k = torch.arange(span, device=env.device)[None, :]
+    ring = (sim.head_ptr[env, slot][:, None] - k) % sim.cap
+    cells = sim.bodies[env[:, None], slot[:, None], ring]
+    valid = sim.alive[env, slot][:, None] & (k < sim.seg_count[env, slot][:, None])
     return cells, valid
 
 
@@ -192,17 +210,24 @@ def _post_body(
     action: torch.Tensor,
     old_cells: torch.Tensor,
     old_valid: torch.Tensor,
+    span: int | None = None,
+    r2: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Exact v5 post-move ring view for each row/action, in head-to-tail order."""
-    a, cap = action.shape[1], sim.cap
+    """Exact v5 post-move ring view for each row/action, in head-to-tail order.
+
+    ``span`` (R2 L1) limits the view to the first logical offsets; it must cover
+    ``seg_count + 2`` so every valid post-move entry is retained.
+    """
+    a, cap = action.shape[1], (sim.cap if span is None else span)
     length = sim.length[env, slot][:, None].expand(-1, a)
     count = sim.seg_count[env, slot][:, None].expand(-1, a)
     bf = sim.boost_frames[env, slot][:, None].expand(-1, a)
     heading = sim.direction[env, slot][:, None]
     rel = action.remainder(3)
     hd = (heading + rel - 1) % 4
-    dx = torch.as_tensor(_DX, device=env.device)[hd]
-    dy = torch.as_tensor(_DY, device=env.device)[hd]
+    table_x, table_y = _deltas(env.device, r2)
+    dx = table_x[hd]
+    dy = table_y[hd]
     boosted = (action >= 3) & (length >= int(sim.cfg.min_boost_length))
     ln = torch.minimum(count + 1, length)
     ln = torch.where(boosted, torch.minimum(ln + 1, length), ln)
@@ -351,7 +376,26 @@ def v8_decide(
         )
     h, w = int(sim.grid_h), int(sim.grid_w)
     native_indexed = device.type == "cuda" and v8_indexed.enabled()
-    if native_indexed:
+    # R2 applies only to the ordinary (non-indexed) route used by the I0 engine.
+    r2 = r2_cache.enabled(sim) and not native_indexed
+    span = r2_cache.window(sim) if r2 else sim.cap
+    if r2:
+        # L2: one per-slot occupancy count plane per simulator state serves the
+        # hero and every opponent call; L1: only the own slot's live window.
+        all_occ = r2_cache.all_occupancy(sim)[env]
+        other_occ = r2_cache.other_occupancy(sim, env, slot)
+        own_cells, own_valid = _own_cells(sim, env, slot, span)
+        if r2_cache.debug(sim):
+            ref_cells, ref_valid = _body_cells(sim, env)
+            rows_n = torch.arange(n, device=device)
+            r2_cache.check("v8 all_occ", all_occ, _paint(ref_cells, ref_valid, h, w))
+            ref_other = ref_valid & (
+                torch.arange(sim.S, device=device)[None, :, None] != slot[:, None, None]
+            )
+            r2_cache.check("v8 other_occ", other_occ, _paint(ref_cells, ref_other, h, w))
+            r2_cache.check("v8 own cells", own_cells, ref_cells[rows_n, slot][:, :span])
+            r2_cache.check("v8 own valid", own_valid, ref_valid[rows_n, slot][:, :span])
+    elif native_indexed:
         # Direct native ring reads eliminate the repeated selected-world body
         # materializations.  Keep all later flood/ranking semantics in this
         # module, with the old path retained as the CPU/default CUDA oracle.
@@ -377,9 +421,8 @@ def v8_decide(
     direction = sim.direction[env, slot]
     rel3 = torch.arange(3, device=device)[None]
     hd3 = (direction[:, None] + rel3 - 1) % 4
-    delta3 = torch.stack(
-        (torch.as_tensor(_DX, device=device)[hd3], torch.as_tensor(_DY, device=device)[hd3]), -1
-    )
+    table_x, table_y = _deltas(device, r2)
+    delta3 = torch.stack((table_x[hd3], table_y[hd3]), -1)
     starts = heads[:, None] + delta3
     length = sim.length[env, slot]
     cap = (2 * length).clamp(_CAP_MIN, _CAP_MAX)
@@ -403,7 +446,7 @@ def v8_decide(
         torch._assert_async(indexed_boosted.eq(boosted).all(), "v8 indexed boost mismatch")
     else:
         post_cells, post_valid, lpost, boosted = _post_body(
-            sim, env, slot, actions6, own_cells, own_valid
+            sim, env, slot, actions6, own_cells, own_valid, span if r2 else None, r2
         )
         head_pos = post_cells[:, :, 0]
         first_pos = post_cells[:, :, 1]
@@ -413,8 +456,8 @@ def v8_decide(
     # keeps that cell blocked and reports landing area zero.
     if not native_indexed:
         post_tail_occ = _paint(
-            post_cells[:, :, 1:].reshape(n * 6, sim.cap - 1, 2),
-            post_valid[:, :, 1:].reshape(n * 6, sim.cap - 1),
+            post_cells[:, :, 1:].reshape(n * 6, span - 1, 2),
+            post_valid[:, :, 1:].reshape(n * 6, span - 1),
             h,
             w,
         ).reshape(n, 6, h, w)
@@ -459,7 +502,7 @@ def v8_decide(
     if native_indexed:
         release = indexed_release
     else:
-        i = torch.arange(sim.cap, device=device)[None, None, :]
+        i = torch.arange(span, device=device)[None, None, :]
         rel_values = (lpost[:, :, None] - i + 1).clamp_min(0)
         release = torch.zeros((n, 6, h * w), dtype=torch.long, device=device)
         px, py = post_cells[..., 0], post_cells[..., 1]
@@ -519,9 +562,10 @@ def v8_decide(
     ol = sim.length[env]
     oa = sim.alive[env] & opp & (sim.seg_count[env] > 0)
     od3 = (od[:, :, None] + torch.arange(3, device=device)[None, None, :] - 1) % 4
-    odelta = torch.stack(
-        (torch.as_tensor(_DX, device=device)[od3], torch.as_tensor(_DY, device=device)[od3]), -1
-    )
+    if not r2:
+        # Pinned path: fresh per-call host tables, exactly as at the I0 pin.
+        table_x, table_y = _deltas(device, r2)
+    odelta = torch.stack((table_x[od3], table_y[od3]), -1)
     reach1, reach2 = oh[:, :, None] + odelta, oh[:, :, None] + 2 * odelta
     reach = torch.cat((oh[:, :, None], reach1, reach2), 2)
     rvalid = torch.cat(

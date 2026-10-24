@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from research.gpu_sim_spike import r2_cache
 from research.gpu_sim_spike.stage_timing import StageTiming
 from src.core.mechanics_constants import HEADON_SIZE_RATIO, corpse_food_cap
 from src.core.reward_events import PHI_LENGTH_DIVISOR
@@ -194,6 +195,8 @@ class DeviceSim:
             setattr(
                 out, key, value.clone() if isinstance(value, torch.Tensor) else copy.copy(value)
             )
+        # R2 mode follows the clone; its cache never does (fresh generation).
+        r2_cache.inherit(out, self)
         return out
 
     def copy_env_to_reference(self, reference: Any, env: int = 0) -> None:
@@ -304,6 +307,7 @@ class DeviceSim:
             if isinstance(value, torch.Tensor) and value.ndim and value.shape[0] == old_e:
                 setattr(out, key, value.repeat_interleave(repeats, dim=0))
         out.E = old_e * repeats
+        r2_cache.bump(out)
         return out
 
     def heads(self) -> torch.Tensor:
@@ -524,8 +528,10 @@ class DeviceSim:
         self._compact_food()
 
     def _maintain_food(self) -> None:
+        r2_cache.bump(self)
         with self.stage("food"):
             self._maintain_food_impl()
+        r2_cache.bump(self)
 
     def _maintain_food_impl(self) -> None:
         """Refill needy worlds while consuming exactly the old fixed RNG budget."""
@@ -634,12 +640,14 @@ class DeviceSim:
         return rect & ((x.float() - cx).square() + (y.float() - cy).square() < radius * radius)
 
     def _respawn(self) -> None:
+        r2_cache.bump(self)
         if self.move_backend == "indexed" and self.device.type != "meta":
             from research.gpu_sim_spike.move_cuda import respawn
 
             respawn(self)
-            return
-        self._respawn_reference()
+        else:
+            self._respawn_reference()
+        r2_cache.bump(self)
 
     def _respawn_reference(self) -> None:
         dead = ~self.alive
@@ -705,12 +713,14 @@ class DeviceSim:
         """
         if self._prepared:
             return
+        r2_cache.bump(self)
         self.frame += 1
         self._maintain_food()
         if self.allow_respawn:
             with self.stage("movement"):
                 self._respawn()
         self._prepared = True
+        r2_cache.bump(self)
 
     def _collision_flags_reference(
         self, head0: torch.Tensor, traversed: torch.Tensor, traversed_valid: torch.Tensor
@@ -850,6 +860,7 @@ class DeviceSim:
         if actions.device != self.device:
             raise ValueError("actions must be on the DeviceSim device")
         actions = actions.long().clamp(0, 5)
+        r2_cache.bump(self)
         self.prepare()
         movement_stage = self.stage("movement")
         movement_stage.__enter__()
@@ -861,7 +872,11 @@ class DeviceSim:
             )
         ) % 4
         self.direction = torch.where(self.alive, new_dir, self.direction)
-        cardinal = torch.tensor(_CARDINAL, dtype=torch.long, device=self.device)
+        cardinal = (
+            r2_cache.const(_CARDINAL, torch.long, self.device)
+            if r2_cache.enabled(self)
+            else torch.tensor(_CARDINAL, dtype=torch.long, device=self.device)
+        )
         delta = cardinal[self.direction]
         head0 = self.heads()
         move1 = self.alive
@@ -1009,3 +1024,4 @@ class DeviceSim:
         self._last_transition_valid = acted
         self._prepared = False
         reward_stage.__exit__(None, None, None)
+        r2_cache.bump(self)

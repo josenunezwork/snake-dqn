@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 import torch
 
+from research.gpu_sim_spike import r2_cache
 from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
 
 BodyView = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
@@ -138,14 +139,20 @@ class IndexedVectorRuntime(DeviceVectorRuntime):
         reuse stale geometry after the simulator moves or respawns a snake.
         """
         self._check()
+        native = (
+            self.device is not None
+            and self.device.type == "cuda"
+            and os.environ.get("GPU_SIM_VECTOR_GEOMETRY", "torch") == "native"
+        )
         self._geometry_sim = sim
-        self._geometry_body_view = self._indexed_body_view(sim)
+        if r2_cache.enabled(sim):
+            # R2: native features read the rings directly and free space uses
+            # the shared per-state occupancy, so the full-capacity native view
+            # is never read there.  Other routes take one live-window view.
+            self._geometry_body_view = None if native else self._body_view(sim)
+        else:
+            self._geometry_body_view = self._indexed_body_view(sim)
         try:
-            native = (
-                self.device is not None
-                and self.device.type == "cuda"
-                and os.environ.get("GPU_SIM_VECTOR_GEOMETRY", "torch") == "native"
-            )
             if native:
                 if rows is None:
                     er = (

@@ -7,6 +7,7 @@ from typing import Any
 
 import torch
 
+from research.gpu_sim_spike import r2_cache
 from src.evaluation.anchors import SCRIPTED_ANCHOR_VERSION
 
 
@@ -40,8 +41,14 @@ def choose_anchor(
         rank = table[frame, count - 1]
         chosen = ((safe.cumsum(1) - 1 == rank[:, None]) & safe).long().argmax(1)
     elif kind == "greedy_food":
-        direction = (sim.direction[:, slot, None] + torch.tensor((-1, 0, 1), device=device)) % 4
-        cardinal = torch.tensor(((0, -1), (1, 0), (0, 1), (-1, 0)), device=device)
+        r2 = r2_cache.enabled(sim)
+        if r2:
+            turns = r2_cache.const((-1, 0, 1), torch.long, device)
+            cardinal = r2_cache.const(((0, -1), (1, 0), (0, 1), (-1, 0)), torch.long, device)
+        else:
+            turns = torch.tensor((-1, 0, 1), device=device)
+            cardinal = torch.tensor(((0, -1), (1, 0), (0, 1), (-1, 0)), device=device)
+        direction = (sim.direction[:, slot, None] + turns) % 4
         candidate = sim.heads()[:, slot, None] + cardinal[direction]
         distance = (candidate[:, :, None] - sim.food_cells[:, None]).square().sum(-1)
         distance = distance.masked_fill(~sim.food_present[:, None], torch.iinfo(torch.long).max)
@@ -50,7 +57,11 @@ def choose_anchor(
             sim.food_present.any(1, keepdim=True), nearest, torch.zeros_like(nearest)
         )
         # Integer distance dominates priority; straight precedes left/right.
-        priority = torch.tensor((1, 0, 2), device=device)
+        priority = (
+            r2_cache.const((1, 0, 2), torch.long, device)
+            if r2
+            else torch.tensor((1, 0, 2), device=device)
+        )
         score = nearest.clamp_max(torch.iinfo(torch.long).max // 8) * 4 + priority
         chosen = score.masked_fill(~safe, torch.iinfo(torch.long).max).argmin(1)
     else:

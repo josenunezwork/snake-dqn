@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from research.gpu_sim_spike import flood_cuda
+from research.gpu_sim_spike import flood_cuda, r2_cache
 
 if TYPE_CHECKING:
     from research.gpu_sim_spike.device_sim import DeviceSim
@@ -51,8 +51,58 @@ def _rows(sim: "DeviceSim", rows: torch.Tensor | None) -> torch.Tensor:
     return rows.to(dtype=torch.long)
 
 
+def _cardinal(sim: "DeviceSim") -> torch.Tensor:
+    """Cardinal table: pinned per-call host copy, or the R2 cached device copy."""
+    if r2_cache.enabled(sim):
+        return r2_cache.const(_CARDINAL, torch.long, sim.device)
+    return torch.tensor(_CARDINAL, dtype=torch.long, device=sim.device)
+
+
+def _float_constant(sim: "DeviceSim", value: float) -> torch.Tensor:
+    if r2_cache.enabled(sim):
+        return r2_cache.const(value, torch.float64, sim.device)
+    return torch.tensor(value, dtype=torch.float64, device=sim.device)
+
+
+def _ttl_window(sim: "DeviceSim", span: int) -> torch.Tensor:
+    """R2 L1: the same TTL maps from the first ``span`` logical ring offsets.
+
+    The pinned map visits physical slots; offset ``k`` of a slot is its logical
+    age, so iterating ``k < span`` instead visits every live entry exactly once
+    (``span`` covers ``seg_count``) and skips only zero-valued padding.
+    """
+    E, S, H, W = sim.E, sim.S, sim.grid_h, sim.grid_w
+    cells, active = r2_cache.ring_view(sim, span)
+    k = torch.arange(span, device=sim.device)[None, None, :]
+    ttl = (sim.length[..., None] - k).clamp_min(0)
+    x, y = cells[..., 0], cells[..., 1]
+    valid = active & (x >= 0) & (x < W) & (y >= 0) & (y < H)
+    flat_index = y.clamp(0, H - 1) * W + x.clamp(0, W - 1)
+    result = torch.zeros((E, S, H * W), dtype=torch.long, device=sim.device)
+    result.scatter_reduce_(
+        2,
+        flat_index,
+        torch.where(valid, ttl, torch.zeros_like(ttl)),
+        reduce="amax",
+        include_self=True,
+    )
+    return result.reshape(E, S, H, W)
+
+
 def _ttl_by_owner(sim: "DeviceSim") -> torch.Tensor:
     """Return ``(E,S,H,W)`` TTL maps, following the reference ring convention."""
+    if r2_cache.enabled(sim):
+        return r2_cache.memo(
+            sim,
+            "ego_ttl",
+            lambda: _ttl_window(sim, r2_cache.window(sim)),
+            reference=lambda: _ttl_pinned(sim),
+        )
+    return _ttl_pinned(sim)
+
+
+def _ttl_pinned(sim: "DeviceSim") -> torch.Tensor:
+    """The pinned physical-slot TTL scan over the full ring capacity."""
     E, S, H, W = sim.E, sim.S, sim.grid_h, sim.grid_w
     slots = torch.arange(sim.cap, device=sim.device)[None, None, :]
     offset = (sim.head_ptr[..., None] - slots) % sim.cap
@@ -76,7 +126,13 @@ def _ttl_by_owner(sim: "DeviceSim") -> torch.Tensor:
 
 
 def _crop_coordinates(
-    heads: torch.Tensor, direction: torch.Tensor, *, size: int, head_row: int, head_col: int
+    heads: torch.Tensor,
+    direction: torch.Tensor,
+    *,
+    size: int,
+    head_row: int,
+    head_col: int,
+    cardinal: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     rr, cc = torch.meshgrid(
         torch.arange(size, device=heads.device),
@@ -84,7 +140,8 @@ def _crop_coordinates(
         indexing="ij",
     )
     ahead, right = head_row - rr, cc - head_col
-    cardinal = torch.tensor(_CARDINAL, dtype=torch.long, device=heads.device)
+    if cardinal is None:
+        cardinal = torch.tensor(_CARDINAL, dtype=torch.long, device=heads.device)
     forward = cardinal[direction]
     rightward = torch.stack((-forward[:, 1], forward[:, 0]), dim=1)
     x = (
@@ -157,7 +214,7 @@ def _component_sizes(sim: "DeviceSim", rows: torch.Tensor, ttl: torch.Tensor) ->
             rows.contiguous(),
         )
     env, snake = rows[:, 0], rows[:, 1]
-    cardinal = torch.tensor(_CARDINAL, dtype=torch.long, device=sim.device)
+    cardinal = _cardinal(sim)
     heads, direction = sim.heads()[env, snake], sim.direction[env, snake]
     rel = torch.arange(3, device=sim.device)[None, :] - 1
     move = cardinal[(direction[:, None] + rel) % 4]
@@ -219,7 +276,14 @@ def build_observation(
     H, W, S = sim.grid_h, sim.grid_w, sim.S
     alive = sim.alive[env, snake]
     heads, direction = sim.heads()[env, snake], sim.direction[env, snake]
-    x, y = _crop_coordinates(heads, direction, size=31, head_row=23, head_col=15)
+    x, y = _crop_coordinates(
+        heads,
+        direction,
+        size=31,
+        head_row=23,
+        head_col=15,
+        cardinal=_cardinal(sim) if r2_cache.enabled(sim) else None,
+    )
     inside = (x >= 0) & (x < W) & (y >= 0) & (y < H)
     ttl = _ttl_by_owner(sim)
     owner_ttl = ttl[env]
@@ -237,7 +301,7 @@ def build_observation(
     enemy = torch.where(inside, enemy, torch.zeros_like(enemy))
     local[:, 0] = own.clamp(0, 255).to(torch.uint8)
     local[:, 1] = enemy.clamp(0, 255).to(torch.uint8)
-    cardinal = torch.tensor(_CARDINAL, dtype=torch.long, device=sim.device)
+    cardinal = _cardinal(sim)
     # Enemy-head channel exactly mirrors the reference's k == 0 / length ratio encoding.
     all_heads = sim.heads()[env]
     for other in range(S):
@@ -327,9 +391,7 @@ def build_observation(
     # The reference scalar producer evaluates transcendental terms in float64
     # and only then stores them as float32.
     L64 = sim.length[env, snake].double()
-    scalar[:, 0] = torch.log1p(L64) / torch.log(
-        torch.tensor(4097.0, dtype=torch.float64, device=sim.device)
-    )
+    scalar[:, 0] = torch.log1p(L64) / torch.log(_float_constant(sim, 4097.0))
     scalar[:, 1] = L / 1000.0
     scalar[:, 2] = (sim.length[env, snake] - sim.seg_count[env, snake]).float() / 16.0
     scalar[:, 3] = (sim.length[env, snake] >= sim.cfg.min_boost_length).float()
@@ -387,7 +449,7 @@ def build_observation(
     region = _component_sizes(sim, rows, ttl).float()
     scalar[:, 23:26] = (region / L[:, None].clamp_min(1)).clamp(max=4) / 4
     scalar[:, 26:29] = torch.log1p(region.double()) / torch.log(
-        torch.tensor(float(H * W + 1), dtype=torch.float64, device=sim.device)
+        _float_constant(sim, float(H * W + 1))
     )
     scalar[:, 29] = n_enemy.float() / max(S - 1, 1)
     local = torch.where(alive[:, None, None, None], local, torch.zeros_like(local))

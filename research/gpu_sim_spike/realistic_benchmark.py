@@ -17,6 +17,8 @@ from typing import Any, Iterable
 
 import torch
 
+from research.gpu_sim_spike import r2_cache
+
 MIXES = ("long-scripted", "long-frozen", "long-mixed")
 L4_FLOOR = 20_000
 
@@ -111,6 +113,9 @@ def _resident_reset(destination: Any, template: Any) -> None:
     # food/respawn preparation on the next timed tick.
     if hasattr(destination, "_prepared") and hasattr(template, "_prepared"):
         destination._prepared = template._prepared
+    # A restore is a state mutation: invalidate R2 per-state caches (no-op for
+    # pinned-mode objects, which are never registered).
+    r2_cache.bump(destination)
 
 
 def _p95(values: list[float]) -> float:
