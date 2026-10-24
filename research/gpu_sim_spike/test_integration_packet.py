@@ -172,3 +172,12 @@ def test_i0_refuses_main_without_both_independent_dependencies(tmp_path, monkeyp
             canary=False,
             preflight={},
         )
+
+
+def test_shell_device_argument_is_unambiguous_to_qualified_broker(monkeypatch):
+    from research.colab_cli import canary
+
+    monkeypatch.setattr(
+        canary, "_entrypoint", lambda manifest, repo: (pack.ROOT / pack.SCRIPT).read_text()
+    )
+    assert canary.job_device({"env": {"INTEGRATION_BENCH_DEVICE": "cuda"}}, pack.ROOT) == "cuda"
