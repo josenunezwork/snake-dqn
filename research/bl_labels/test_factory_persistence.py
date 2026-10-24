@@ -119,13 +119,13 @@ def native(monkeypatch):
     )
 
 
-def test_reparent_exec_relevance_and_low_priority_parent_high_priority_child(monkeypatch):
+def test_reparent_relevance_and_low_priority_parent_high_priority_research_child(monkeypatch):
     native(monkeypatch)
     tracker = fp.PersistenceTracker("tree")
     for index in range(7):
-        command = "123 1 15 codex exec task\n124 123 14 python -c opaque\n"
+        command = "123 1 15 codex exec task\n124 123 14 python -m research.x\n"
         if index > 1:
-            command = "123 1 15 /bin/sh\n124 1 14 /usr/bin/native-tool\n"
+            command = "123 1 15 /bin/sh\n124 1 14 python research/x.py\n"
         rows = fp.process_rows(lambda _: command, tracker.known)
         if index < 6:
             tracker.observe(rows, index * 5, set())
@@ -323,18 +323,22 @@ def test_confirmed_lookup_disappearance_is_absence(monkeypatch):
     assert any(r["decision"] == "clear_absent" for r in tracker.records)
 
 
-def test_vanished_root_does_not_hide_live_captured_child(monkeypatch):
+def test_vanished_root_does_not_hide_live_research_child(monkeypatch):
     calls = []
 
     def identity(pid):
         calls.append(pid)
         if pid == 123:
             raise ProcessLookupError("gone")
-        return {"birth": "child", "executable": "/usr/bin/opaque", "birth_precision": "native tick"}
+        return {
+            "birth": "child",
+            "executable": "/usr/bin/python3",
+            "birth_precision": "native tick",
+        }
 
     monkeypatch.setattr(fp, "_native_identity", identity)
     monkeypatch.setattr(fp, "_confirmed_absent", lambda pid: pid == 123)
-    table = "123 1 15 codex exec task\n124 123 14 /usr/bin/opaque\n"
+    table = "123 1 15 codex exec task\n124 123 14 python -m research.x\n"
     rows = fp.process_rows(lambda _: table, {})
     assert calls == [123, 124]
     assert {r["pid"] for r in rows if r["relevant"]} == {124}
