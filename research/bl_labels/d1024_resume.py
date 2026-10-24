@@ -52,8 +52,13 @@ def original_control(pack: Path) -> dict:
     return value
 
 
-def attempt_chain(pack: Path, control: dict) -> tuple[list[Path], float]:
-    """Verify all starts, terminals and exports, including zero-unit attempts."""
+def attempt_chain(pack: Path, control: dict, *, final: bool = False) -> tuple[list[Path], float]:
+    """Verify all starts, terminals and exports, including zero-unit attempts.
+
+    ``final`` is used only by the post-collection union publisher: the last
+    attempt must then be the driver's COMPLETE terminal and every earlier one
+    an operational PREEMPTED terminal. The default continuation path is unchanged.
+    """
     state = pack / "d1024-state-mac-01"
     starts = sorted(state.glob("attempt-*.start.json"), key=lambda p: p.stat().st_mtime_ns)
     if not starts:
@@ -98,7 +103,9 @@ def attempt_chain(pack: Path, control: dict) -> tuple[list[Path], float]:
         names.append(terminal_path.name)
         if (
             terminal.get("schema") != "bl-labels-f0-mac-driver/v1"
-            or terminal.get("status") != "PREEMPTED"
+            or terminal.get("status")
+            != ("COMPLETE" if final and index == len(starts) else "PREEMPTED")
+            or (final and index == len(starts) and terminal.get("pending_parents") != [])
             or terminal.get("invalid_reason") is not None
             or list(output.glob("INVALID*.json*"))
             or terminal.get("namespace") != control["namespace"]
@@ -139,7 +146,7 @@ def attempt_chain(pack: Path, control: dict) -> tuple[list[Path], float]:
         raise ValueError("orphan D1024 terminal receipt; HOLD")
     if set(pack.glob("d1024-output-mac-*")) != set(attempts):
         raise ValueError("uncharged or foreign D1024 output directory; HOLD")
-    if elapsed_total >= CAP:
+    if elapsed_total > CAP or (not final and elapsed_total >= CAP):
         raise ValueError("prior D1024 attempts exhausted the frozen wall cap; HOLD")
     return attempts, elapsed_total
 

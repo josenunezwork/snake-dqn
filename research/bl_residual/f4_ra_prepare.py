@@ -1,0 +1,212 @@
+"""Prepare (never run) the single joint Look R-A command for ``funding.main``.
+
+Registration R5/R6.3: Look R-A reads the immutable D256 and D1024 fused
+checkpoints jointly, once, on the Mac, after D1024 is frozen and after the
+natural-archive census is frozen and hashed. With no published F2 disposition
+the F2-strikes branch applies, so no ``--f2-receipt`` is passed.
+
+This preparer verifies, without deserializing any checkpoint or opening any
+table row, that every phase is published (local == origin/main) and that the
+checkpoint bytes are the published fit units. It then derives the canonical
+``bl-residual-r-a-lock/v1`` identity exactly as ``funding.main`` will (from
+``heldout.preflight_look``'s six fields) and writes a create-only command
+packet. It never creates the lock: ``funding.main`` creates it exclusively, and
+refuses before any table opens if its own preflight identities differ.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shlex
+from pathlib import Path
+from typing import Any
+
+from research.bl_ppo.exports import digest, export_json, verify_export
+from research.bl_residual import f4_archive_census as census_tool
+from research.bl_residual import f4_d256_package as d256
+from research.bl_residual import f4_d1024_package as d1024
+from research.bl_residual.data import DOSES
+from research.bl_residual.protocol import canonical_sha, read_ledger
+
+PACKET_SCHEMA = "bl-residual-r-a-command-packet/v1"
+PYTHON = "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python"
+THREAD_ENV = [
+    "OMP_NUM_THREADS=1",
+    "OMP_THREAD_LIMIT=1",
+    "MKL_NUM_THREADS=1",
+    "OPENBLAS_NUM_THREADS=1",
+    "NUMBA_NUM_THREADS=1",
+    "VECLIB_MAXIMUM_THREADS=1",
+    "SNAKE_DQN_DEVICE=cpu",
+]
+
+
+def _published_unit(publication: str, inputs: Path, checkpoint: Path, dose: int) -> str:
+    """The checkpoint bytes must be the published, verified fit-phase unit."""
+    d1024.require_publication(d1024.ROOT / publication, publication, None)
+    control = json.loads((inputs / "control.json").read_text())
+    units = read_ledger(d1024.ROOT / publication, control["namespace"], control["allocation"])
+    index = DOSES.index(dose)
+    sha = verify_export(checkpoint)
+    if set(units) != {index} or units[index]["sha256"] != sha or control.get("doses") != [dose]:
+        raise ValueError(f"HOLD: D{dose} checkpoint is not its published fit unit")
+    return sha
+
+
+def identity(
+    dose: int, checkpoint_sha: str, control: Path, allocation: Path, receipt: Path
+) -> dict[str, Any]:
+    """The six ``heldout.preflight_look`` fields, from bytes and sealed metadata."""
+    verify_export(control)
+    verify_export(allocation)
+    return {
+        "dose": dose,
+        "checkpoint_sha256": checkpoint_sha,
+        "control_sha256": digest(control),
+        "allocation_sha256": digest(allocation),
+        "archive_receipt_sha256": digest(receipt),
+        "registration_sha256": digest(d1024.ROOT / "research/bl_residual/F4_REGISTRATION.md"),
+    }
+
+
+def prepare(
+    *,
+    d256_pack: Path,
+    d1024_pack: Path,
+    census_dir: Path,
+    funding_out: Path,
+    packet_out: Path,
+    pin: str,
+) -> dict[str, Any]:
+    d256.require_window_closed()
+    if packet_out.exists() or funding_out.exists():
+        raise FileExistsError("R-A packet and funding output are create-only")
+    d256_inputs, d1024_inputs = d256_pack / "inputs", d1024_pack / "inputs"
+    d256_checkpoint = d256_pack / "d256-output-l4-01/exports/fit/fit-0000.pth"
+    d1024_checkpoint = d1024_pack / f"{d1024.MAIN_OUTPUT}/exports/fit/fit-{d1024.INDEX:04d}.pth"
+    receipt = census_dir / census_tool.RECEIPT
+    table = census_dir / census_tool.TABLE
+    left_sha = _published_unit(d256.FIT_PUBLICATION_PATH, d256_inputs, d256_checkpoint, 256)
+    right_sha = _published_unit(d1024.FIT_PUBLICATION_PATH, d1024_inputs, d1024_checkpoint, 1024)
+    d1024.require_publication(
+        d1024.ROOT / census_tool.PUBLICATION_PATH, census_tool.PUBLICATION_PATH, None
+    )
+    if (d1024.ROOT / census_tool.PUBLICATION_PATH).read_bytes() != receipt.read_bytes():
+        raise ValueError("HOLD: local census differs from the published census")
+    verify_export(receipt)
+    value = json.loads(receipt.read_text())
+    if (
+        value.get("schema") != census_tool.SCHEMA
+        or value.get("complete") is not True
+        or value.get("table_sha256") != verify_export(table)
+    ):
+        raise ValueError("HOLD: census receipt does not bind its frozen table")
+    for inputs in (d256_inputs, d1024_inputs):
+        if census_tool.archive_identity(census_tool._bound_allocation(inputs))[
+            "eligible_life_ids"
+        ] != value.get("eligible_life_ids"):
+            raise ValueError("HOLD: census eligibility differs from a fit allocation")
+    if digest(d256_inputs / "judgment.json") != digest(d1024_inputs / "judgment.json"):
+        raise ValueError("HOLD: D256/D1024 approvals differ")
+    left = identity(
+        256, left_sha, d256_inputs / "control.json", d256_inputs / "life-allocation.json", receipt
+    )
+    right = identity(
+        1024,
+        right_sha,
+        d1024_inputs / "control.json",
+        d1024_inputs / "life-allocation.json",
+        receipt,
+    )
+    allocation = d256_inputs / "life-allocation.json"
+    lock = {
+        "schema": "bl-residual-r-a-lock/v1",
+        "lock_root": str(allocation.parent.resolve()),
+        "d256": left,
+        "d1024": right,
+    }
+    lock_path = allocation.parent / f"F4_R_A_{canonical_sha(lock)}.lock.json"
+    existing = sorted(allocation.parent.glob("F4_R_A_*.lock.json"))
+    if existing:
+        raise ValueError(f"HOLD: an R-A lock already exists (once-only look): {existing}")
+    argv = [
+        PYTHON,
+        "-m",
+        "research.bl_residual.funding",
+        "--d256-checkpoint",
+        str(d256_checkpoint),
+        "--d256-table",
+        str(table),
+        "--d256-allocation",
+        str(allocation),
+        "--d256-control",
+        str(d256_inputs / "control.json"),
+        "--d1024-checkpoint",
+        str(d1024_checkpoint),
+        "--d1024-table",
+        str(table),
+        "--d1024-allocation",
+        str(d1024_inputs / "life-allocation.json"),
+        "--d1024-control",
+        str(d1024_inputs / "control.json"),
+        "--archive-receipt",
+        str(receipt),
+        "--approval",
+        str(d256_inputs / "judgment.json"),
+        "--b8",
+        str(d256_inputs / "b8.pth"),
+        "--look-lock",
+        str(lock_path),
+        "--out",
+        str(funding_out),
+    ]
+    packet = {
+        "schema": PACKET_SCHEMA,
+        "status": "PREPARED_NOT_RUN",
+        "source_pin": pin,
+        "lock": lock,
+        "lock_path": str(lock_path),
+        "funding_output": str(funding_out),
+        "f2_branch": "UNPUBLISHED_APPLY_STRIKES_BRANCH",
+        "f2_receipt": None,
+        "env": THREAD_ENV,
+        "argv": argv,
+        "shell": shlex.join(["/usr/bin/env", *THREAD_ENV, *argv]),
+        "inputs": {
+            "d256_checkpoint_sha256": left_sha,
+            "d1024_checkpoint_sha256": right_sha,
+            "census_sha256": digest(receipt),
+            "table_sha256": value["table_sha256"],
+        },
+        "outcome_reporting": "none",
+    }
+    export_json(packet_out, packet)
+    return {"packet": str(packet_out), "sha256": digest(packet_out), "lock_path": str(lock_path)}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--d256-pack", type=Path, default=d1024.D256_PACK)
+    parser.add_argument("--d1024-pack", type=Path, required=True)
+    parser.add_argument("--census-dir", type=Path, required=True)
+    parser.add_argument("--funding-out", type=Path, required=True)
+    parser.add_argument("--packet-out", type=Path, required=True)
+    parser.add_argument("--pin", required=True)
+    args = parser.parse_args()
+    print(
+        json.dumps(
+            prepare(
+                d256_pack=args.d256_pack,
+                d1024_pack=args.d1024_pack,
+                census_dir=args.census_dir,
+                funding_out=args.funding_out,
+                packet_out=args.packet_out,
+                pin=args.pin,
+            )
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()
