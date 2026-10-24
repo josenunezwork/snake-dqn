@@ -968,3 +968,15 @@ gameplay outcome look, no live job/session change, no serving/released-checkpoin
 change; D4096 remains HOLD. Operator runs the check first, waits for CHECKED and
 EXIT=0 plus lock release, then may dispatch collection using the distinct fresh
 name. This entry does not claim execution or completion of D1024.
+
+
+### 2026-10-24 — V8 amended-main accounting preparation; no dispatch
+
+| Event | Authority and disposition |
+|---|---|
+| Required admission sequence 1–6 prepared and independently checked | Binding Astra SHA256 `f8c1386dc6b82c3cd0f0b74a491b18433d78da48cd3fb28472f16c3a68db22b4`; cap-only supersession remains the immutable sibling `tools/V8_SPLIT_MAIN_CAP_AMENDMENT_20261024.md` and the earlier entry above. Runtime `669405e2bef629f7f69bc951cf49486d8b0a87bf`, metadata archive `770fd1daa01a0100d1e84551d1d34c483ba615234b5fe976824256e6b636f315`, all nine cells and science are unchanged. Initial main 50-minute estimate / 120-minute / 20-unit cap; packet 144 minutes / 24 units, included reserve unchanged. No original receipt, amendment, source pin, archive or preparation record was edited. |
+| Source-bound accounting draft and finalization tooling | `tools/v8_split_admission.py`, its tests and `tools/V8_SPLIT_ADMISSION_HANDOFF_20261024.md` add local admission evidence only. New sibling accounting records preserve all V8-series attempts, failed-allocation charges and source references. The original V8 216-minute / 36-unit envelope is not reset by the route ruling's later "remaining" wording. |
+| Admission remains incomplete pending historical authority and live operator checks | The reused retention reconciliation draft has no original sealed T0/spendable-limit record or complete reservation ledger. Conservative split-canary charges also leave less than the full main cap within the amended packet. Unknown authority and unproved exact charges stay explicit blockers; the finalizer refuses them. The operator must recover original authority, reconcile history and liabilities, then obtain fresh usage/sessions/rate evidence and an independent acceptance of the exact live accounting body before create-only finalization. No dispatch, live account query, clock restart, cap reduction, cell trimming, retry or release was performed. |
+
+The exact review artifacts, offline verification evidence and copy-paste operator
+commands are linked from `tools/V8_SPLIT_ADMISSION_HANDOFF_20261024.md`.
