@@ -1,0 +1,13 @@
+{
+  "schema": "gpu-label-path-ready-queue-addendum/v1",
+  "authority_sha256": "d0041e5413a6456fd338865465e33ef7bbfc06227631f0739621ccc788e3f10c",
+  "authority_section": "2.2",
+  "queue": [
+    {"id": "R6", "status": "DONE"},
+    {"id": "T4A-DEV-01", "status": "BUILD_PENDING_QUALIFICATION", "protocol": "research/gpu_sim_spike/T4A_PROTOCOL_20261024.md"},
+    {"id": "S0", "requires": "ruler S0_ADMITTED without W12_BELOW_4", "status": "NOT_BUILT"}
+  ],
+  "operator_gate": "independent frozen-packet Codex-V ACCEPT; native same-pin canary; main admission; A100 yields for attempt-2 L4 waves",
+  "exact_engine_program": "PARKED_NO_CONSUMER",
+  "authorization": "T4A only; no label, evaluation, production, F4 or release authority"
+}
