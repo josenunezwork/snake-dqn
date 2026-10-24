@@ -8,9 +8,11 @@ import pytest
 import torch
 
 import research.bl_residual.heldout as heldout
+from research.bl_ppo.exports import export_json
+from research.bl_residual import funding
 from research.bl_residual.data import allocate_lives, world_fold
 from research.bl_residual.fit import FitRecipe, _ordinary_growth_loss, _preference_loss
-from research.bl_residual.funding import evaluate
+from research.bl_residual.protocol import canonical_sha
 
 
 def _look(dose: int, checkpoint: str, retention: float, *, harm: int = 0) -> dict:
@@ -33,6 +35,7 @@ def _look(dose: int, checkpoint: str, retention: float, *, harm: int = 0) -> dic
         "recipe_sha256": "r" * 64,
         "allocation_sha256": "a" * 64,
         "reserve_allocation_sha256": "z" * 64,
+        "reserve_life_ids": sorted(row["life_id"] for row in lives),
         "checkpoint_sha256": checkpoint,
         "archive_receipt_sha256": "c" * 64,
         "natural_archive_complete": True,
@@ -42,6 +45,18 @@ def _look(dose: int, checkpoint: str, retention: float, *, harm: int = 0) -> dic
             "harmful_override_count_natural": harm,
         },
     }
+
+
+def evaluate(left: dict, right: dict, receipt: dict) -> dict:
+    identity = {
+        "series_id": left["namespace"],
+        "reserve_ancestry_sha256": "z" * 64,
+        "reserve_life_ids": left["reserve_life_ids"],
+        "reserve_allocation_sha256": canonical_sha(left["reserve_life_ids"]),
+    }
+    return funding.evaluate(
+        left, right, receipt, reserve_identity=identity, f2_timing_eligible=True
+    )
 
 
 def test_joint_funding_uses_harm_only_not_d1024_retention_floor() -> None:
@@ -182,7 +197,7 @@ def test_foreign_ra_claim_refuses_before_any_npz_open(
         heldout.np, "load", lambda *_args, **_kwargs: pytest.fail("opened outcomes")
     )
     claim = tmp_path / "foreign.lock.json"
-    claim.write_text('{"schema":"bl-residual-r-a-lock/v1"}')
+    export_json(claim, {"schema": "bl-residual-r-a-lock/v1"})
     with pytest.raises(ValueError, match="does not bind"):
         heldout.evaluate(
             tmp_path / "checkpoint",

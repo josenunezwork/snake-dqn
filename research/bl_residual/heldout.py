@@ -106,15 +106,10 @@ def evaluate(
         if joint_claim_path is None or not joint_claim_path.exists():
             raise ValueError("D256/D1024 R-A outcomes may be opened only by the joint funding look")
         claim = json.loads(joint_claim_path.read_text())
-        if claim.get("schema") != "bl-residual-r-a-lock/v1" or preflight not in (
-            claim.get("d256"),
-            claim.get("d1024"),
-        ):
-            raise ValueError("R-A claim does not bind this immutable fit")
-        if str(joint_claim_path.parent.resolve()) != claim.get("lock_root"):
-            raise ValueError("R-A claim is outside its frozen lock root")
-        if joint_claim_path.name != f"F4_R_A_{canonical_sha(claim)}.lock.json":
-            raise ValueError("R-A claim path is not canonical")
+        from research.bl_residual import ra_guard
+
+        verify_export(joint_claim_path)
+        ra_guard.validate_claim(claim, joint_claim_path, preflight)
     candidate_sha = preflight["checkpoint_sha256"]
     blob = torch.load(checkpoint, map_location="cpu", weights_only=False)
     registration = Path(__file__).with_name("F4_REGISTRATION.md")

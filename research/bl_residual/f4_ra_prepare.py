@@ -7,11 +7,11 @@ the F2-strikes branch applies, so no ``--f2-receipt`` is passed.
 
 This preparer verifies, without deserializing any checkpoint or opening any
 table row, that every phase is published (local == origin/main) and that the
-checkpoint bytes are the published fit units. It then derives the canonical
-``bl-residual-r-a-lock/v1`` identity exactly as ``funding.main`` will (from
-``heldout.preflight_look``'s six fields) and writes a create-only command
-packet. It never creates the lock: ``funding.main`` creates it exclusively, and
-refuses before any table opens if its own preflight identities differ.
+checkpoint bytes are the published fit units. It derives one authoritative
+claim path from the frozen series/reserve, seals
+all invocation and input identities, and binds the earliest D4096 start and F2
+publication commit/time. Only ``funding.main`` atomically claims the look, after
+rechecking the packet and timing. Preparation never opens held-out outcomes.
 """
 
 from __future__ import annotations
@@ -27,10 +27,11 @@ from research.bl_residual import f2
 from research.bl_residual import f4_archive_census as census_tool
 from research.bl_residual import f4_d256_package as d256
 from research.bl_residual import f4_d1024_package as d1024
+from research.bl_residual import ra_guard
 from research.bl_residual.data import DOSES
-from research.bl_residual.protocol import canonical_sha, read_ledger
+from research.bl_residual.protocol import read_ledger
 
-PACKET_SCHEMA = "bl-residual-r-a-command-packet/v1"
+PACKET_SCHEMA = "bl-residual-r-a-command-packet/v2"
 PYTHON = "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python"
 THREAD_ENV = [
     "OMP_NUM_THREADS=1",
@@ -82,8 +83,8 @@ def lock_search_roots() -> list[Path]:
 def existing_ra_locks(*roots: Path) -> list[str]:
     """Any R-A lock for F4, not only the canonical path of the current inputs.
 
-    funding.main refuses only its own canonical lock; a rerun with changed inputs
-    would mint a second one. This preparer and the printed command refuse both.
+    Preserve historical v1 locks as spent looks too. New v2 claims additionally
+    have a fixed authoritative series/reserve path enforced in funding.main.
     """
     found: set[str] = set()
     for root in roots:
@@ -108,6 +109,8 @@ def command(packet_path: Path, source: Path, pin: str) -> str:
         or not (source / "tools/ops/dispatch.sh").is_file()
     ):
         raise ValueError("HOLD: packet is not the prepared R-A command at RA_PIN")
+    if packet.get("source_identity") != ra_guard.source_identity(pin):
+        raise ValueError("HOLD: R-A source identity differs from packet")
     lock_root = Path(packet["lock"]["lock_root"])
     existing = existing_ra_locks(lock_root, *lock_search_roots())
     if existing or Path(packet["lock_path"]).exists():
@@ -133,8 +136,16 @@ def prepare(
     packet_out: Path,
     pin: str,
     f2_receipt: Path | None = None,
+    d4096_start_receipt: Path | None = None,
 ) -> dict[str, Any]:
     d256.require_window_closed()
+    source = ra_guard.source_identity(pin)
+    d256_pack, d1024_pack, census_dir = (
+        path.resolve() for path in (d256_pack, d1024_pack, census_dir)
+    )
+    funding_out, packet_out = funding_out.resolve(), packet_out.resolve()
+    f2_receipt = f2_receipt.resolve() if f2_receipt is not None else None
+    d4096_start_receipt = d4096_start_receipt.resolve() if d4096_start_receipt is not None else None
     if packet_out.exists() or funding_out.exists():
         raise FileExistsError("R-A packet and funding output are create-only")
     d256_inputs, d1024_inputs = d256_pack / "inputs", d1024_pack / "inputs"
@@ -175,15 +186,16 @@ def prepare(
         receipt,
     )
     allocation = d256_inputs / "life-allocation.json"
-    lock = {
-        "schema": "bl-residual-r-a-lock/v1",
-        "lock_root": str(allocation.parent.resolve()),
-        "d256": left,
-        "d1024": right,
-    }
-    lock_path = allocation.parent / f"F4_R_A_{canonical_sha(lock)}.lock.json"
+    reserve = ra_guard.reserve_identity(
+        d256_inputs / "control.json",
+        d1024_inputs / "control.json",
+        allocation,
+        d1024_inputs / "life-allocation.json",
+    )
+    lock = ra_guard.lock_identity(reserve, left, right)
+    lock_path = ra_guard.claim_path(reserve)
     existing = existing_ra_locks(allocation.parent, *lock_search_roots())
-    if existing:
+    if existing or lock_path.exists():
         raise ValueError(f"HOLD: an R-A lock already exists (once-only look): {existing}")
     if funding_out.parent.exists() and any(funding_out.parent.iterdir()):
         raise ValueError("HOLD: R-A output directory is not empty (once-only look)")
@@ -191,10 +203,15 @@ def prepare(
     # Keep the exact returned identity in the sealed packet; funding.main repeats
     # this verification and refuses any command-line receipt that differs.
     f2_binding = f2.verify_published_receipt(f2_receipt) if f2_receipt is not None else None
+    timing = ra_guard.timing_identity(
+        d4096_start_receipt, ra_guard.publication_evidence(f2_binding)
+    )
     argv = [
         PYTHON,
         "-m",
         "research.bl_residual.funding",
+        "--source-pin",
+        pin,
         "--d256-checkpoint",
         str(d256_checkpoint),
         "--d256-table",
@@ -226,10 +243,22 @@ def prepare(
     ]
     if f2_receipt is not None:
         argv.extend(("--f2-receipt", str(f2_receipt)))
+    if d4096_start_receipt is not None:
+        argv.extend(("--d4096-start-receipt", str(d4096_start_receipt)))
+    invocation = dict(zip(argv[3::2], argv[4::2]))
+    input_identities = {
+        option: {"path": path, "sha256": digest(Path(path))}
+        for option, path in invocation.items()
+        if option not in ("--out", "--look-lock", "--command-packet", "--source-pin")
+    }
     packet = {
         "schema": PACKET_SCHEMA,
         "status": "PREPARED_NOT_RUN",
         "source_pin": pin,
+        "source_identity": source,
+        "invocation": invocation,
+        "input_identities": input_identities,
+        "timing": timing,
         "lock": lock,
         "lock_path": str(lock_path),
         "funding_output": str(funding_out),
@@ -264,6 +293,7 @@ def main() -> None:
     parser.add_argument("--funding-out", type=Path)
     parser.add_argument("--packet-out", type=Path)
     parser.add_argument("--f2-receipt", type=Path)
+    parser.add_argument("--d4096-start-receipt", type=Path)
     parser.add_argument("--pin", required=True)
     args = parser.parse_args()
     if args.print_command:
@@ -283,6 +313,7 @@ def main() -> None:
                 packet_out=args.packet_out,
                 pin=args.pin,
                 f2_receipt=args.f2_receipt,
+                d4096_start_receipt=args.d4096_start_receipt,
             )
         )
     )

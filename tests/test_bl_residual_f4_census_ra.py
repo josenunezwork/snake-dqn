@@ -20,10 +20,9 @@ from research.bl_ppo.exports import digest, export_bytes, export_json, export_to
 from research.bl_residual import f4_archive_census as census_tool
 from research.bl_residual import f4_d1024_package as package
 from research.bl_residual import f4_ra_prepare as ra
-from research.bl_residual import funding
+from research.bl_residual import funding, ra_guard
 from research.bl_residual.data import world_fold
 from research.bl_residual.fit import FitRecipe
-from research.bl_residual.protocol import canonical_sha
 from tests import f4_d1024_fixtures as fx
 
 
@@ -152,10 +151,11 @@ def test_census_passes_the_real_heldout_ancestry_and_receipt_gates(
     torch.save({"meta": {"dose": dose}}, checkpoint)
     preflight = {"dose": dose, "checkpoint_sha256": digest(checkpoint)}
     monkeypatch.setattr(heldout, "preflight_look", lambda *_: preflight)
-    claim = {"schema": "bl-residual-r-a-lock/v1", "lock_root": str(tmp_path.resolve())}
-    claim[f"d{dose}"] = preflight
-    lock = tmp_path / f"F4_R_A_{canonical_sha(claim)}.lock.json"
-    lock.write_text(json.dumps(claim))
+    monkeypatch.setattr(ra_guard, "CLAIM_ROOT", tmp_path / "claims")
+    reserve = {"series_id": "synthetic", "reserve_allocation_sha256": "a" * 64}
+    claim = ra_guard.lock_identity(reserve, preflight, preflight)
+    lock = ra_guard.claim_path(reserve)
+    export_json(lock, claim)
     monkeypatch.setattr(heldout, "B8_SHA", digest(inputs / "b8.pth"))
     monkeypatch.setattr(heldout, "load_ego2s_checkpoint", lambda *_: object())
 
@@ -245,6 +245,10 @@ def _checkpoint(path: Path, control: dict, dose: int) -> str:
 def ra_world(monkeypatch: pytest.MonkeyPatch, packs: dict, tmp_path: Path) -> dict:
     """Published fits (from ``packs``) plus a published census in the fake repo."""
     monkeypatch.setattr(ra, "lock_search_roots", lambda: [tmp_path / "f4-tree"])
+    monkeypatch.setattr(ra_guard, "CLAIM_ROOT", tmp_path / "authoritative-claims")
+    monkeypatch.setattr(ra_guard, "D4096_CONTROL", tmp_path / "canonical-d4096/control.json")
+    monkeypatch.setattr(ra_guard, "source_identity", lambda pin: {"synthetic-source": pin})
+    monkeypatch.setattr(ra_guard, "now_epoch", lambda: ra_guard.CUTOFF + 60)
     census_dir = tmp_path / "census"
     _census(packs, census_dir)
     export_bytes(
@@ -297,13 +301,14 @@ def test_ra_packet_lock_equals_funding_main_preflight_identity(
         arg("--approval"),
         arg("--archive-receipt"),
     )
-    lock = {
-        "schema": "bl-residual-r-a-lock/v1",
-        "lock_root": str(arg("--d256-allocation").parent.resolve()),
-        "d256": left,
-        "d1024": right,
-    }
-    expected = arg("--d256-allocation").parent / f"F4_R_A_{canonical_sha(lock)}.lock.json"
+    reserve = ra_guard.reserve_identity(
+        arg("--d256-control"),
+        arg("--d1024-control"),
+        arg("--d256-allocation"),
+        arg("--d1024-allocation"),
+    )
+    lock = ra_guard.lock_identity(reserve, left, right)
+    expected = ra_guard.claim_path(reserve)
     assert packet["lock"] == lock
     assert arg("--look-lock") == expected == Path(result["lock_path"])
     assert arg("--d256-table") == arg("--d1024-table")
@@ -328,6 +333,15 @@ def test_ra_prepare_binds_only_the_verified_f2_receipt(
         return binding
 
     monkeypatch.setattr(ra.f2, "verify_published_receipt", verified)
+    export_json(receipt, {"synthetic": True})
+    monkeypatch.setattr(
+        ra_guard,
+        "publication_evidence",
+        lambda _: {
+            "commit": "a" * 40,
+            "committer_epoch": ra_guard.CUTOFF - 1,
+        },
+    )
     ra.prepare(
         d256_pack=ra_world["d256"],
         d1024_pack=ra_world["d1024"],
@@ -345,155 +359,327 @@ def test_ra_prepare_binds_only_the_verified_f2_receipt(
     assert Path(argv[argv.index("--f2-receipt") + 1]) == receipt
 
 
+def _packet(tmp_path: Path) -> dict:
+    return json.loads((tmp_path / "r-a/packet.json").read_text())
+
+
+def _invoke(monkeypatch: pytest.MonkeyPatch, packet: dict, **changes: str) -> None:
+    argv = packet["argv"][3:].copy()
+    for name, value in changes.items():
+        option = "--" + name.replace("_", "-")
+        if option in argv:
+            argv[argv.index(option) + 1] = value
+        else:
+            argv.extend((option, value))
+    monkeypatch.setattr(sys, "argv", ["funding.py", *argv])
+    funding.main()
+
+
 def test_funding_refuses_a_receipt_different_from_the_sealed_packet_before_preflight(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path
 ) -> None:
-    expected = {"sha256": "a" * 64}
-    packet = tmp_path / "packet.json"
-    export_json(
-        packet,
-        {
-            "schema": ra.PACKET_SCHEMA,
-            "status": "PREPARED_NOT_RUN",
-            "f2_receipt": expected,
-        },
-    )
+    _prepare(ra_world, tmp_path)
     receipt = tmp_path / "other-f2.json"
     actual = export_json(receipt, {"synthetic": "other"})
-    monkeypatch.setattr(
-        funding.f2, "verify_published_receipt", lambda _: {"sha256": actual["sha256"]}
-    )
-    monkeypatch.setattr(
-        funding, "preflight_look", lambda *_: pytest.fail("preflight must remain closed")
-    )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "funding.py",
-            "--d256-checkpoint",
-            str(tmp_path / "d256.pth"),
-            "--d1024-checkpoint",
-            str(tmp_path / "d1024.pth"),
-            "--d256-table",
-            str(tmp_path / "table.npz"),
-            "--d1024-table",
-            str(tmp_path / "table.npz"),
-            "--d256-allocation",
-            str(tmp_path / "d256-allocation.json"),
-            "--d1024-allocation",
-            str(tmp_path / "d1024-allocation.json"),
-            "--d256-control",
-            str(tmp_path / "d256-control.json"),
-            "--d1024-control",
-            str(tmp_path / "d1024-control.json"),
-            "--archive-receipt",
-            str(tmp_path / "archive.json"),
-            "--approval",
-            str(tmp_path / "approval.json"),
-            "--b8",
-            str(tmp_path / "b8.pth"),
-            "--look-lock",
-            str(tmp_path / "F4_R_A_lock.json"),
-            "--command-packet",
-            str(packet),
-            "--f2-receipt",
-            str(receipt),
-            "--out",
-            str(tmp_path / "out.json"),
-        ],
-    )
+    monkeypatch.setattr(funding.f2, "verify_published_receipt", lambda _: actual)
+    monkeypatch.setattr(funding, "preflight_look", lambda *_: pytest.fail("preflight opened"))
     with pytest.raises(ValueError, match="F2 binding differs"):
-        funding.main()
+        _invoke(monkeypatch, _packet(tmp_path), f2_receipt=str(receipt))
 
 
-def test_funding_uses_f2_bytes_loaded_before_heldout_look(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def _f2_packet(
+    monkeypatch: pytest.MonkeyPatch,
+    ra_world: dict,
+    tmp_path: Path,
+    *,
+    publication_epoch: float | None = None,
+    started_epoch: float | None = None,
+) -> dict:
     receipt = tmp_path / "f2-disposition.json"
-    original = {
+    value = {
         "schema": "bl-residual-f2-disposition/v1",
         "volume_struck": False,
         "published": True,
         "source_sha256": "a" * 64,
-        "published_ref": "input-ledger-commit",
+        "published_ref": "a" * 40,
     }
-    exported = export_json(receipt, original)
-    binding = {"sha256": exported["sha256"]}
-    packet = tmp_path / "packet.json"
-    export_json(
-        packet,
-        {"schema": ra.PACKET_SCHEMA, "status": "PREPARED_NOT_RUN", "f2_receipt": binding},
-    )
-    d256_allocation = tmp_path / "d256-allocation.json"
-    left, right = {"dose": 256}, {"dose": 1024}
-    lock = {
-        "schema": "bl-residual-r-a-lock/v1",
-        "lock_root": str(tmp_path.resolve()),
-        "d256": left,
-        "d1024": right,
-    }
-    seen: list[dict] = []
-    calls = 0
-
+    exported = export_json(receipt, value)
+    binding = {"path": str(receipt), "sha256": exported["sha256"], "publication_ref": "b" * 40}
     monkeypatch.setattr(funding.f2, "verify_published_receipt", lambda _: binding)
     monkeypatch.setattr(
-        funding,
-        "preflight_look",
-        lambda checkpoint, *_: left if Path(checkpoint).name == "d256.pth" else right,
+        ra_guard,
+        "publication_evidence",
+        lambda _: {
+            "commit": "b" * 40,
+            "committer_epoch": (
+                ra_guard.CUTOFF - 1 if publication_epoch is None else publication_epoch
+            ),
+            "ref": "origin/main",
+            "receipt_sha256": binding["sha256"],
+        },
     )
+    start = None
+    if started_epoch is not None:
+        from tests.test_bl_residual_ra_timing import _authoritative
+
+        start = _authoritative(ra_guard.D4096_CONTROL.parent, monkeypatch, started_epoch)
+    ra.prepare(
+        d256_pack=ra_world["d256"],
+        d1024_pack=ra_world["d1024"],
+        census_dir=ra_world["census"],
+        funding_out=tmp_path / "r-a/funding-look.json",
+        packet_out=tmp_path / "r-a/packet.json",
+        pin="e" * 40,
+        f2_receipt=receipt,
+        d4096_start_receipt=start,
+    )
+    return value
+
+
+def test_funding_uses_f2_bytes_loaded_before_heldout_look(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path
+) -> None:
+    original = _f2_packet(monkeypatch, ra_world, tmp_path)
+    packet = _packet(tmp_path)
+    seen = []
+    calls = []
 
     def heldout(*_args: object, **_kwargs: object) -> dict:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            receipt.write_text('{"substituted":true}\n')
+        calls.append(_kwargs)
+        Path(packet["f2_receipt"]["path"]).write_text('{"substituted":true}')
         return {"synthetic": "look"}
 
     monkeypatch.setattr(funding, "evaluate_heldout", heldout)
     monkeypatch.setattr(
-        funding, "evaluate", lambda _left, _right, f2_value: seen.append(f2_value) or {}
+        funding, "evaluate", lambda _l, _r, value, **kw: seen.append((value, kw)) or {}
     )
+    _invoke(monkeypatch, packet)
+    assert len(calls) == 2 and seen[0][0] == original
+    assert seen[0][1]["f2_timing_eligible"] is True
+    assert Path(packet["lock_path"]).exists()
+
+
+@pytest.mark.parametrize("change", ["relocation", "output", "lock", "source", "input"])
+def test_funding_refuses_stale_or_relocated_command_before_any_look(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path, change: str
+) -> None:
+    import shutil
+
+    _prepare(ra_world, tmp_path)
+    packet = _packet(tmp_path)
     monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "funding.py",
-            "--d256-checkpoint",
-            str(tmp_path / "d256.pth"),
-            "--d1024-checkpoint",
-            str(tmp_path / "d1024.pth"),
-            "--d256-table",
-            str(tmp_path / "table.npz"),
-            "--d1024-table",
-            str(tmp_path / "table.npz"),
-            "--d256-allocation",
-            str(d256_allocation),
-            "--d1024-allocation",
-            str(tmp_path / "d1024-allocation.json"),
-            "--d256-control",
-            str(tmp_path / "d256-control.json"),
-            "--d1024-control",
-            str(tmp_path / "d1024-control.json"),
-            "--archive-receipt",
-            str(tmp_path / "archive.json"),
-            "--approval",
-            str(tmp_path / "approval.json"),
-            "--b8",
-            str(tmp_path / "b8.pth"),
-            "--look-lock",
-            str(tmp_path / f"F4_R_A_{canonical_sha(lock)}.lock.json"),
-            "--command-packet",
-            str(packet),
-            "--f2-receipt",
-            str(receipt),
-            "--out",
-            str(tmp_path / "out.json"),
-        ],
+        funding, "evaluate_heldout", lambda *_a, **_kw: pytest.fail("held-out opened")
     )
-    funding.main()
-    assert calls == 2
-    assert seen == [original]
+    changes = {}
+    if change == "relocation":
+        source = ra_world["d256"] / "inputs/life-allocation.json"
+        target = tmp_path / "relocated/life-allocation.json"
+        target.parent.mkdir()
+        for suffix in ("", ".sha256", ".complete"):
+            shutil.copyfile(str(source) + suffix, str(target) + suffix)
+        changes["d256_allocation"] = str(target)
+    elif change == "output":
+        changes["out"] = str(tmp_path / "other.json")
+    elif change == "lock":
+        changes["look_lock"] = str(tmp_path / "other.lock.json")
+    elif change == "source":
+        changes["source_pin"] = "f" * 40
+    else:
+        table = ra_world["census"] / census_tool.TABLE
+        table.chmod(0o600)
+        table.write_bytes(b"changed input")
+    with pytest.raises(ValueError, match="invocation|identities"):
+        _invoke(monkeypatch, packet, **changes)
+    assert not Path(packet["lock_path"]).exists()
+
+
+def test_funding_competing_invocation_gets_one_claim_and_two_callbacks(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path
+) -> None:
+    _prepare(ra_world, tmp_path)
+    packet = _packet(tmp_path)
+    calls = []
+
+    def heldout(*_a, **_kw):
+        calls.append(_kw)
+        if len(calls) == 1:
+            # Invoke again while the first command owns its atomic claim and has
+            # no output yet: the competitor must not enter either held-out look.
+            with pytest.raises(FileExistsError):
+                _invoke(monkeypatch, packet)
+        return {}
+
+    monkeypatch.setattr(funding, "evaluate_heldout", heldout)
+    monkeypatch.setattr(funding, "evaluate", lambda *_a, **_kw: {})
+    _invoke(monkeypatch, packet)
+    assert len(calls) == 2
+
+
+def test_post_ra_f2_replacement_cannot_open_another_look(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path
+) -> None:
+    _prepare(ra_world, tmp_path)
+    packet = _packet(tmp_path)
+    calls = []
+    monkeypatch.setattr(funding, "evaluate_heldout", lambda *_a, **_kw: calls.append(1) or {})
+    monkeypatch.setattr(funding, "evaluate", lambda *_a, **_kw: {})
+    _invoke(monkeypatch, packet)
+    # A fresh packet/output, even with a subsequently published F2, cannot
+    # replace the already spent series/reserve claim.
+    with pytest.raises(ValueError, match="once-only"):
+        ra.prepare(
+            d256_pack=ra_world["d256"],
+            d1024_pack=ra_world["d1024"],
+            census_dir=ra_world["census"],
+            funding_out=tmp_path / "replacement/out.json",
+            packet_out=tmp_path / "replacement/packet.json",
+            pin="e" * 40,
+        )
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("publication_offset,eligible", [(-1, True), (0, False), (1, False)])
+def test_funding_rechecks_cutoff_before_claim(
+    monkeypatch: pytest.MonkeyPatch,
+    ra_world: dict,
+    tmp_path: Path,
+    publication_offset: int,
+    eligible: bool,
+) -> None:
+    _f2_packet(
+        monkeypatch,
+        ra_world,
+        tmp_path,
+        publication_epoch=ra_guard.CUTOFF + publication_offset,
+        started_epoch=ra_guard.START_DEADLINE,
+    )
+    from tests.test_bl_residual_funding_consumer import _funding_look
+
+    packet = _packet(tmp_path)
+
+    def heldout(checkpoint: Path, *_a, **kw):
+        dose = 256 if "d256" in str(checkpoint) else 1024
+        return _funding_look(
+            dose=dose,
+            checkpoint_sha256=digest(checkpoint),
+            identity=packet["lock"]["reserve"],
+            allocation=kw["allocation_path"],
+            retained_rows=1,
+        )
+
+    monkeypatch.setattr(funding, "evaluate_heldout", heldout)
+    _invoke(monkeypatch, packet)
+    result = json.loads(Path(packet["funding_output"]).read_text())
+    # Both checkpoints retain equally: only a timely F2 non-strike can fund.
+    assert result["verdict"] == ("PASS" if eligible else "STOP_FUNDING")
+
+    claim = json.loads(Path(packet["lock_path"]).read_text())
+    assert claim["f2_timing_eligible"] is eligible
+    assert claim["timing"]["branch"] == "WAIT_FOR_F2_OR_CUTOFF"
+
+
+def test_funding_waits_without_claim_and_refuses_changed_timing_evidence(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path
+) -> None:
+    _f2_packet(
+        monkeypatch,
+        ra_world,
+        tmp_path,
+        publication_epoch=ra_guard.CUTOFF - 1,
+        started_epoch=ra_guard.START_DEADLINE,
+    )
+    packet = _packet(tmp_path)
+    monkeypatch.setattr(ra_guard, "now_epoch", lambda: ra_guard.CUTOFF - 2)
+    monkeypatch.setattr(
+        funding, "evaluate_heldout", lambda *_a, **_kw: pytest.fail("heldout opened")
+    )
+    with pytest.raises(ValueError, match="waits"):
+        _invoke(monkeypatch, packet)
+    assert not Path(packet["lock_path"]).exists()
+    monkeypatch.setattr(ra_guard, "now_epoch", lambda: ra_guard.CUTOFF + 60)
+    monkeypatch.setattr(
+        ra_guard,
+        "publication_evidence",
+        lambda _: {"commit": "c" * 40, "committer_epoch": ra_guard.CUTOFF + 1},
+    )
+    with pytest.raises(ValueError, match="timing evidence"):
+        _invoke(monkeypatch, packet)
+    assert not Path(packet["lock_path"]).exists()
+
+
+def test_two_prepared_packets_share_one_authoritative_reserve_claim(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path
+) -> None:
+    _prepare(ra_world, tmp_path)
+    second = tmp_path / "second"
+    ra.prepare(
+        d256_pack=ra_world["d256"],
+        d1024_pack=ra_world["d1024"],
+        census_dir=ra_world["census"],
+        funding_out=second / "funding.json",
+        packet_out=second / "packet.json",
+        pin="e" * 40,
+    )
+    packet2 = json.loads((second / "packet.json").read_text())
+    assert packet2["lock_path"] == _packet(tmp_path)["lock_path"]
+    calls = []
+    monkeypatch.setattr(funding, "evaluate_heldout", lambda *_a, **_kw: calls.append(1) or {})
+    monkeypatch.setattr(funding, "evaluate", lambda *_a, **_kw: {})
+    _invoke(monkeypatch, _packet(tmp_path))
+    with pytest.raises(FileExistsError):
+        _invoke(monkeypatch, packet2)
+    assert len(calls) == 2
+
+
+def test_full_funding_entrypoint_passes_unchanged_i3_consumer(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path
+) -> None:
+    from research.bl_residual import job
+    from research.bl_residual.protocol import B8_SHA
+    from tests import test_bl_residual_collection_receipts as i3
+    from tests.test_bl_residual_funding_consumer import _funding_look
+
+    _prepare(ra_world, tmp_path)
+    packet = _packet(tmp_path)
+    identity = packet["lock"]["reserve"]
+    before = {
+        path: path.read_bytes()
+        for pack in (ra_world["d256"], ra_world["d1024"])
+        for path in (pack / "inputs/control.json", pack / "inputs/life-allocation.json")
+    }
+
+    def heldout(checkpoint: Path, *_a, **kw):
+        dose = 256 if "d256" in str(checkpoint) else 1024
+        look = _funding_look(
+            dose=dose,
+            checkpoint_sha256=digest(checkpoint),
+            identity=identity,
+            allocation=kw["allocation_path"],
+            retained_rows=1 if dose == 1024 else 0,
+        )
+        if dose == 256:
+            for row in look["metrics"]["life_retention"]:
+                row.update(retained_rows=0, retention=0.0)
+        return look
+
+    monkeypatch.setattr(funding, "evaluate_heldout", heldout)
+    _invoke(monkeypatch, packet)
+    result = json.loads(Path(packet["funding_output"]).read_text())
+    assert result["verdict"] == "PASS"
+    monkeypatch.setattr(i3, "SERIES", identity["series_id"])
+    monkeypatch.setattr(i3, "RESERVE", identity["reserve_allocation_sha256"])
+    monkeypatch.setattr(job, "B8_SHA", B8_SHA)
+    fit_hashes = {dose: packet["lock"][f"d{dose}"]["checkpoint_sha256"] for dose in (256, 1024)}
+    original_stage_fit = i3.stage_fit
+    monkeypatch.setattr(
+        i3, "stage_fit", lambda dose: {**original_stage_fit(dose), "fit_sha256": fit_hashes[dose]}
+    )
+    staging = tmp_path / "i3-staging"
+    control = i3.staging(staging)
+    i3.replace_bound(staging, control, "D4096_FUNDING", result)
+    i3.assert_dependent_seals(staging, control)
+    job._validate_staging(staging, control, [4096], i3.RECIPE, set())
+    assert all(path.read_bytes() == payload for path, payload in before.items())
 
 
 def test_ra_prepare_holds_on_existing_lock_or_unpublished_census(

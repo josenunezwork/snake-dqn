@@ -12,11 +12,10 @@ from typing import Any
 
 import numpy as np
 
-from research.bl_ppo.exports import export_json, verify_export
-from research.bl_residual import f2
+from research.bl_ppo.exports import digest, export_json, verify_export
+from research.bl_residual import f2, ra_guard
 from research.bl_residual.heldout import evaluate as evaluate_heldout
 from research.bl_residual.heldout import preflight_look
-from research.bl_residual.protocol import canonical_sha
 
 
 def _canonical(value: Any) -> bytes:
@@ -69,7 +68,14 @@ def _cluster_bootstrap(
     return float(np.quantile(samples, 0.10, method="linear"))
 
 
-def evaluate(d256: dict[str, Any], d1024: dict[str, Any], f2: dict[str, Any]) -> dict[str, Any]:
+def evaluate(
+    d256: dict[str, Any],
+    d1024: dict[str, Any],
+    f2: dict[str, Any],
+    *,
+    reserve_identity: dict[str, Any],
+    f2_timing_eligible: bool = False,
+) -> dict[str, Any]:
     """Evaluate the registered funding branch from immutable reserve-look records."""
     for expected, look in ((256, d256), (1024, d1024)):
         if look.get("schema") != "bl-residual-heldout/v2" or look.get("dose") != expected:
@@ -89,9 +95,16 @@ def evaluate(d256: dict[str, Any], d1024: dict[str, Any], f2: dict[str, Any]) ->
         or d256["checkpoint_sha256"] == d1024["checkpoint_sha256"]
     ):
         raise ValueError("joint look identities are not the same F4 series")
+    if any(
+        look["namespace"] != reserve_identity["series_id"]
+        or look["reserve_allocation_sha256"] != reserve_identity["reserve_ancestry_sha256"]
+        or look.get("reserve_life_ids") != reserve_identity["reserve_life_ids"]
+        for look in (d256, d1024)
+    ):
+        raise ValueError("held-out ancestry differs from the verified frozen control reserve")
     left = {row["life_id"]: row for row in _life_records(d256)}
     right = {row["life_id"]: row for row in _life_records(d1024)}
-    if set(left) != set(right):
+    if set(left) != set(right) or sorted(left) != reserve_identity["reserve_life_ids"]:
         raise ValueError("D256/D1024 reserve lives differ")
     delta = []
     for life in sorted(left):
@@ -110,7 +123,8 @@ def evaluate(d256: dict[str, Any], d1024: dict[str, Any], f2: dict[str, Any]) ->
     lb90 = _cluster_bootstrap(delta)
     source_sha = f2.get("source_sha256")
     published_nonstrike = (
-        f2.get("schema") == "bl-residual-f2-disposition/v1"
+        f2_timing_eligible
+        and f2.get("schema") == "bl-residual-f2-disposition/v1"
         and f2.get("volume_struck") is False
         and f2.get("published") is True
         and isinstance(source_sha, str)
@@ -129,7 +143,8 @@ def evaluate(d256: dict[str, Any], d1024: dict[str, Any], f2: dict[str, Any]) ->
         "schema": "bl-residual-funding-look/v1",
         "series_id": d256["namespace"],
         "registration_sha256": d256.get("registration_sha256"),
-        "reserve_allocation_sha256": d256["reserve_allocation_sha256"],
+        "reserve_allocation_sha256": reserve_identity["reserve_allocation_sha256"],
+        "reserve_ancestry_sha256": reserve_identity["reserve_ancestry_sha256"],
         "recipe_sha256": d256["recipe_sha256"],
         "d256_fit_sha256": d256["checkpoint_sha256"],
         "d1024_fit_sha256": d1024["checkpoint_sha256"],
@@ -151,6 +166,8 @@ def evaluate(d256: dict[str, Any], d1024: dict[str, Any], f2: dict[str, Any]) ->
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source-pin", required=True)
+    parser.add_argument("--d4096-start-receipt", type=Path)
     parser.add_argument("--d256", type=Path)
     parser.add_argument("--d1024", type=Path)
     parser.add_argument("--d256-checkpoint", type=Path)
@@ -207,14 +224,42 @@ def main() -> None:
         # binding after independently verifying publication.
         verify_export(args.command_packet)
         packet = json.loads(args.command_packet.read_text())
-        if (
-            packet.get("schema") != "bl-residual-r-a-command-packet/v1"
-            or packet.get("status") != "PREPARED_NOT_RUN"
-        ):
+        from research.bl_residual.f4_ra_prepare import (
+            PACKET_SCHEMA,
+            existing_ra_locks,
+            lock_search_roots,
+        )
+
+        if packet.get("schema") != PACKET_SCHEMA or packet.get("status") != "PREPARED_NOT_RUN":
             raise ValueError("R-A command packet is not a sealed prepared packet")
         if packet.get("f2_receipt") != f2_binding:
             raise ValueError("R-A command packet F2 binding differs from --f2-receipt")
-        # The lock is canonical input identity, not an arbitrary output pathname.
+        invocation = {
+            "--" + name.replace("_", "-"): str(value)
+            for name, value in vars(args).items()
+            if value is not None
+        }
+        if invocation != packet.get("invocation") or args.d256 or args.d1024:
+            raise ValueError("R-A invocation differs from the sealed command packet")
+        if packet.get("source_pin") != args.source_pin or packet.get(
+            "source_identity"
+        ) != ra_guard.source_identity(args.source_pin):
+            raise ValueError("R-A source pin differs from the sealed command packet")
+        expected_inputs = {
+            option: {"path": path, "sha256": digest(Path(path))}
+            for option, path in invocation.items()
+            if option not in ("--out", "--look-lock", "--command-packet", "--source-pin")
+        }
+        if expected_inputs != packet.get("input_identities"):
+            raise ValueError("R-A input identities differ from the sealed command packet")
+        timing = ra_guard.timing_identity(
+            args.d4096_start_receipt, ra_guard.publication_evidence(f2_binding)
+        )
+        if timing != packet.get("timing"):
+            raise ValueError("R-A timing evidence differs from the sealed command packet")
+        reserve = ra_guard.reserve_identity(
+            args.d256_control, args.d1024_control, args.d256_allocation, args.d1024_allocation
+        )
         left = preflight_look(
             args.d256_checkpoint,
             args.d256_allocation,
@@ -229,20 +274,37 @@ def main() -> None:
             args.approval,
             args.archive_receipt,
         )
-        lock = {
-            "schema": "bl-residual-r-a-lock/v1",
-            "lock_root": str(args.d256_allocation.parent.resolve()),
-            "d256": left,
-            "d1024": right,
+        lock = ra_guard.lock_identity(reserve, left, right)
+        expected_lock = ra_guard.claim_path(reserve)
+        if (
+            packet.get("lock") != lock
+            or args.look_lock != expected_lock
+            or packet.get("lock_path") != str(expected_lock)
+            or packet.get("funding_output") != str(args.out)
+        ):
+            raise ValueError("R-A lock/output differs from the sealed command packet")
+        legacy = existing_ra_locks(args.d256_allocation.parent, *lock_search_roots())
+        if legacy:
+            raise FileExistsError(f"R-A already opened (once-only look): {legacy}")
+        # Check eligibility immediately before the atomic claim. A failed/partial
+        # claimed look stays spent, including a competing invocation or later F2.
+        if (
+            ra_guard.timing_identity(
+                args.d4096_start_receipt, ra_guard.publication_evidence(f2_binding)
+            )
+            != timing
+        ):
+            raise ValueError("R-A timing evidence changed before the claim")
+        claimed_epoch = ra_guard.now_epoch()
+        eligible = ra_guard.timing_eligible(timing, at=claimed_epoch)
+        claim = {
+            **lock,
+            "claimed_epoch": claimed_epoch,
+            "command_packet_sha256": digest(args.command_packet),
+            "timing": timing,
+            "f2_timing_eligible": eligible,
         }
-        lock_digest = canonical_sha(lock)
-        expected_lock = args.d256_allocation.parent / f"F4_R_A_{lock_digest}.lock.json"
-        if args.look_lock != expected_lock:
-            raise ValueError("R-A lock path must be the canonical allocation-bound identity path")
-        if expected_lock.exists():
-            raise FileExistsError("R-A already opened for this canonical lock")
-        with expected_lock.open("x") as stream:
-            stream.write(json.dumps(lock, sort_keys=True) + "\n")
+        export_json(expected_lock, claim)
         d256 = evaluate_heldout(
             args.d256_checkpoint,
             args.b8,
@@ -267,7 +329,14 @@ def main() -> None:
         raise ValueError("provide a complete joint R-A input set")
     export_json(
         args.out,
-        evaluate(d256, d1024, f2_value),
+        {
+            **evaluate(
+                d256, d1024, f2_value, reserve_identity=reserve, f2_timing_eligible=eligible
+            ),
+            "r_a_claim_sha256": digest(expected_lock),
+            "r_a_claimed_epoch": claimed_epoch,
+            "timing": timing,
+        },
     )
 
 
