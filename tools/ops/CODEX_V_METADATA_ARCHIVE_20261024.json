@@ -1,0 +1,250 @@
+{
+  "created_at_utc": "2026-10-24T07:35:23.570049+00:00",
+  "evidence": {
+    "final_qualified_tests": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/metadata-archive-20261024-01/final-qualified-tests.log",
+      "sha256": "bdf6d4b90e7326d3e2fc76af390ffa301bcf5f0fb9bc126c8dc5bb172bc1911e",
+      "size_bytes": 1238
+    },
+    "final_verification": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/metadata-archive-20261024-01/FINAL_VERIFICATION.json",
+      "sha256": "da90ab516c402d0d9c1853eae6581214682f0a0187dcec3f9276463caf398170",
+      "size_bytes": 5273
+    },
+    "move2_reprepare_log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/metadata-archive-20261024-01/move2-reprepare.log",
+      "sha256": "29256dcbbd01b65ec8a1e99583baaba2dd15c60c08f6f80c94b060bbd00b754e",
+      "size_bytes": 210
+    },
+    "pins": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/metadata-archive-20261024-01/pins02.json",
+      "sha256": "83613f9aa2e1e25c286694a12ac2f0d3c3018810c91b0c29b2523bfe2d9b075d",
+      "size_bytes": 2548
+    },
+    "reprepare": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/metadata-archive-20261024-01/REPREPARE_VERIFICATION.json",
+      "sha256": "ad6a763981ae5b5ce925ea594b6281d554326c07cede32edc3c01ec816bce36b",
+      "size_bytes": 507
+    },
+    "v8_reprepare_log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/metadata-archive-20261024-01/v8-reprepare.log",
+      "sha256": "bfe6926a5f8c039c9f5b13f55674c44be89a9a6d2cab45233a053bdd62679a76",
+      "size_bytes": 183
+    }
+  },
+  "families": {
+    "f4": {
+      "archive": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/d256-metadata-pack-02/inputs/metadata.tar",
+        "sha256": "a58c3c4c318e672a1bf8089ebef70d653aa49c38e56a427a211ac5403f66cf03",
+        "size_bytes": 1300480
+      },
+      "archive_members": 14,
+      "base_pin": "c2c82ff240a28247dd9b18608831eecea6d94205",
+      "canary_validate": "PASS",
+      "compile_guard": null,
+      "helper_git_blob": "bc12c5fd7dff4e770516680c5f34ba01908dd97e",
+      "independent_pin_inventory_hash_audit": "PASS",
+      "main_template": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/d256-metadata-pack-02/main-template.json",
+        "sha256": "17bff2782aeb9c856646be34cffc8799ed1e04c5725fa6d9680752b9f9b491aa",
+        "size_bytes": 2438
+      },
+      "main_validate": "EXPECTED_HOLD: dispatch requires a SHA-bound family canary receipt",
+      "manifest": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/d256-metadata-pack-02/canary.json",
+        "sha256": "692f97d902f480ba7e4168cc8bf24a90c566a3cb1693a67639e4baea41d76183",
+        "size_bytes": 2642
+      },
+      "pin": "6313fe8fce990915ef1c3702ff1687169513b624",
+      "qualified_transport_tree": "d0d92bdb572b770284a1fea6152417ffa5f06bea",
+      "repo": "/Users/josenunez/Projects/ml/snake-dqn-f4-metadata-qualified-02.noindex",
+      "staged_after": 5,
+      "staged_before": 18,
+      "transport_changed_from_base": false,
+      "verification": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/d256-metadata-verification-02/verification.json",
+        "sha256": "8861da60817d46458e6605362aa31f02338367dc53e092cd38ca30a4c98232bb",
+        "size_bytes": 3077
+      },
+      "vm_files_independently_rehashed": 16
+    },
+    "move2": {
+      "archive": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-move2-metadata-20261024-02/metadata-canary.tar",
+        "sha256": "fbba8784a4afc370ead43cb94dc95b6bd13d1847a5658b0746db8831b9dc28f2",
+        "size_bytes": 266240
+      },
+      "archive_members": 9,
+      "base_pin": "97a61d97fbbdfb3e790bf95ecb1f76d0325ee021",
+      "canary_validate": "PASS",
+      "compile_guard": null,
+      "helper_git_blob": "bc12c5fd7dff4e770516680c5f34ba01908dd97e",
+      "independent_pin_inventory_hash_audit": "PASS",
+      "main_template": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-move2-metadata-20261024-02/move2-main-template.json",
+        "sha256": "5929b0887613abbbba33624a6690c5956e5c0fd9862e397a713c3f87a905d28b",
+        "size_bytes": 5275
+      },
+      "main_validate": "EXPECTED_HOLD: dispatch requires a SHA-bound family canary receipt",
+      "manifest": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-move2-metadata-20261024-02/move2-canary.json",
+        "sha256": "6dd6a4d0e0fca908fa851704d83011b7b4e5ec440d0ed74d8b966b3ff75465ee",
+        "size_bytes": 5331
+      },
+      "pin": "fe404912436fe2f3f01db78f4a1778fa176ac056",
+      "qualified_transport_tree": "d0d92bdb572b770284a1fea6152417ffa5f06bea",
+      "repo": "/Users/josenunez/Projects/ml/snake-dqn-move2-metadata-qualified-02.noindex",
+      "staged_after": 4,
+      "staged_before": 12,
+      "transport_changed_from_base": false,
+      "verification": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-move2-metadata-20261024-02/archive-verification/verification.json",
+        "sha256": "1517b02b3d63e032a4e3347608093bf89209023a29e1e029b82008fe293f21f5",
+        "size_bytes": 2433
+      },
+      "vm_files_independently_rehashed": 10
+    },
+    "sparse": {
+      "archive": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/staging/metadata-canary.tar",
+        "sha256": "725bfc832d7cdd04b00dfd0a27e97c9bfae6390fddac10cf674ae307c1488744",
+        "size_bytes": 30720
+      },
+      "archive_members": 7,
+      "base_pin": "14f76fef53eccc7fd23c37643a8d78d97a8d6691",
+      "canary_validate": "PASS",
+      "compile_guard": "EXPECTED_HOLD: A100 canary requires native CUDA compile PASS receipt",
+      "helper_git_blob": "bc12c5fd7dff4e770516680c5f34ba01908dd97e",
+      "independent_pin_inventory_hash_audit": "PASS",
+      "main_template": null,
+      "main_validate": null,
+      "manifest": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/packet/sparse-bench-canary-pending-compile.json",
+        "sha256": "b91e28ce7ac63bf38d55ac353dd78ba7f967ec889898bdee152b66ad8454ddb7",
+        "size_bytes": 35601
+      },
+      "pin": "b7dfa1fc35321a388813122b3acfe033d1367782",
+      "qualified_transport_tree": "d0d92bdb572b770284a1fea6152417ffa5f06bea",
+      "repo": "/Users/josenunez/Projects/ml/snake-dqn-sparse-metadata-qualified-02.noindex",
+      "staged_after": 4,
+      "staged_before": 10,
+      "transport_changed_from_base": false,
+      "verification": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-sparse-metadata-20261024-02/archive-verification/verification.json",
+        "sha256": "04c1d1173f88be58d5fdc6a99d6c4ae8316b206255a831531c88ee16d417472b",
+        "size_bytes": 2233
+      },
+      "vm_files_independently_rehashed": 8
+    },
+    "v8": {
+      "archive": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-metadata-20261024-02/metadata-canary.tar",
+        "sha256": "770fd1daa01a0100d1e84551d1d34c483ba615234b5fe976824256e6b636f315",
+        "size_bytes": 163840
+      },
+      "archive_members": 10,
+      "base_pin": "18e3c2e2021dbcb953087323b8fc0788785cd242",
+      "canary_validate": "PASS",
+      "compile_guard": null,
+      "helper_git_blob": "bc12c5fd7dff4e770516680c5f34ba01908dd97e",
+      "independent_pin_inventory_hash_audit": "PASS",
+      "main_template": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-metadata-20261024-02/v8-split-main-template.json",
+        "sha256": "ae2070abbccaced79e0aa45f2f4e4215162a4fd0540ee82831d0d98c3d9b123e",
+        "size_bytes": 14815
+      },
+      "main_validate": "EXPECTED_HOLD: dispatch requires a SHA-bound family canary receipt",
+      "manifest": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-metadata-20261024-02/v8-split-canary.json",
+        "sha256": "5507d79af30a101d03310d3ac325bc71f269d003480b8956a5cf92ec97b2c81c",
+        "size_bytes": 14969
+      },
+      "pin": "669405e2bef629f7f69bc951cf49486d8b0a87bf",
+      "qualified_transport_tree": "d0d92bdb572b770284a1fea6152417ffa5f06bea",
+      "repo": "/Users/josenunez/Projects/ml/snake-dqn-v8-metadata-qualified-02.noindex",
+      "staged_after": 4,
+      "staged_before": 13,
+      "transport_changed_from_base": false,
+      "verification": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-metadata-20261024-02/archive-verification/verification.json",
+        "sha256": "a2ea631e2d4a817bdeaeb97cb01792c2c3a6bbe87553138061973a2b6a515647",
+        "size_bytes": 2548
+      },
+      "vm_files_independently_rehashed": 11
+    }
+  },
+  "findings": [],
+  "independence": {
+    "colab_calls_by_reviewer": 0,
+    "paid_dispatches_by_reviewer": 0,
+    "product_or_test_files_edited": false,
+    "reviewer_writes": "This create-only receipt and its SHA/complete sidecars only.",
+    "tests_launched_by_reviewer": false
+  },
+  "residual_risks": [
+    "No new native GPU canary, paid runtime dispatch, observed upload-latency improvement, fit result, strict gate, serving qualification, or release was established by this preparation or review.",
+    "F4, V8, and MOVE2 main manifests require fresh same-pin family canary PASS/release receipts; sparse requires same-pin compiler PASS/release before its A100 canary is bound.",
+    "Reduced file-control call exposure does not eliminate stalls on bootstrap, source, or archive verification calls.",
+    "The no-transport-change conclusion applies to the reviewed package commits and frozen qualified family trees. Concurrent upstream transport work on the integration branch was preserved and is outside these operational pins."
+  ],
+  "resolved_findings": [
+    {
+      "issue": "Dispatch re-preparation initially collided with an existing create-only archive.",
+      "resolution": "Package builders opt into verified immutable reuse; deterministic rebuild digest must match and complete export triple must verify. Final repeated preparation succeeded without changing packet bytes.",
+      "severity": "P1"
+    },
+    {
+      "issue": "Public catalog selection initially used source basename instead of transport destination.",
+      "resolution": "Destination public-inputs.json remains direct; uppercase-source regression added, all four source pins refreshed, and superseded 01 artifacts preserved.",
+      "severity": "P1"
+    },
+    {
+      "issue": "MOVE2 generated dispatch expected an absent local venv interpreter.",
+      "resolution": "Standard ignored link to primary environment created and exact preparation prefix replay passed.",
+      "severity": "P1"
+    },
+    {
+      "issue": "Sparse Mac preflight could omit a retained direct fixture larger than 2 MiB.",
+      "resolution": "Preflight stages retained local rows returned by bundle_inputs before invoking unchanged runtime path.",
+      "severity": "P2"
+    },
+    {
+      "issue": "V8 frozen source allowlist initially omitted the shared source-list extension needed to ship the verifier.",
+      "resolution": "Reviewed one-line shared source-list change is allowed; final source inventory includes research/metadata_archive.py.",
+      "severity": "P2"
+    }
+  ],
+  "review_receipt_original_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/metadata-archive-review-20261024-01/CODEX_V_LIGHT_REVIEW.json",
+  "reviewer": "Codex-V LIGHT independent read-only reviewer (/root/codex_v)",
+  "schema": "snake-dqn-codex-v-light-review/v1",
+  "scope": "Package-level verified metadata archives for F4 D256, V8 split, MOVE2, and sparse canary; qualified transport and scientific runtime source unchanged from each family base.",
+  "status": "PASS_PREPARED_ONLY",
+  "test_evidence": {
+    "execution_owner": "Coordinator /root",
+    "final_qualified_regression": {
+      "exit_code_reported_by_coordinator": 0,
+      "passed": 203,
+      "seconds": 443.4
+    },
+    "focused_package_regression_reported_by_coordinator": {
+      "passed": 66
+    },
+    "numerical_threads": 1,
+    "priority": 15,
+    "reviewer_independent_pytest_execution": false
+  },
+  "verified": [
+    "Read UPLOAD_CAP_DIAGNOSIS.md fully and inspected actual implementation/frozen-source diffs and runtime entrypoints.",
+    "Outer archive SHA, exact internal manifest/member set, per-file size/SHA, path/link/conflict refusal, original export sidecars, and completion-marker-last publication inspected in research/metadata_archive.py:70,93,187.",
+    "Verified archive reuse rebuilds deterministic bytes and refuses incomplete or changed artifacts; original creation remains create-only.",
+    "All four final clean frozen checkouts retain qualified transport tree d0d92bdb572b770284a1fea6152417ffa5f06bea and are ancestors of origin/main. Every base-to-pin research/colab_cli diff is empty.",
+    "All final archive members, bound manifest/verification hashes, and reconstructed VM input files were independently rehashed at nice 15 with stdlib-only single-process checks.",
+    "F4 final VM tree independently matches all 16 original d256-pack-02 input hashes. FitRecipe, registration, protocol, and job source show no base-to-pin change.",
+    "GPU public-inputs.json remains a direct row despite uppercase PUBLIC_INPUTS.json source; it is absent from metadata tar members. Helper source path is present in each GPU manifest, including slim sparse inventory.",
+    "Saved real archive CLI/unchanged ledger-reader admission and supervisor.validate reports pass for all four final packages; main templates and sparse native-compile prerequisite remain intentionally held.",
+    "Generated V8 and MOVE2 dispatch preparation prefixes were inspected and coordinator replay evidence shows PASS with 86 and 84 artifact files respectively unchanged; broker exec was omitted.",
+    "MOVE2 generated interpreter path now resolves through the standard ignored venv symlink to the primary project environment; frozen checkout remains clean.",
+    "Sparse compile-first dispatch and create-only same-pin compile receipt binding inspected in packet/repack_gpu_upload.py and research/gpu_sim_spike/native_compile.py:133,187."
+  ]
+}
