@@ -3,6 +3,7 @@
 NAMESPACE = "r33-linux-contract-pilot"
 ALLOCATION = "allocation-0001"
 RULING_SHA256 = "7db57b262f1bfa4ae70597772d79e2904f8d6a885ea530c54178d869911cf07a"
+INTERIM_RULING_SHA256 = "ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd"
 SOURCE_PATHS = [
     "research/r33_verification",
     "research/colab_cli",
