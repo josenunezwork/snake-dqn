@@ -305,7 +305,7 @@ def test_real_producer_to_checker_matrix(
     elif case == "missing-markers":
         receipt["marker_census"] = None
     elif case == "corrupt-markers":
-        marker = next(iter(receipt["marker_census"].values()))
+        marker = next(iter(receipt["marker_census"]["markers"].values()))
         marker["done_corrupt"] = True
     elif case == "151s":
         summary = next(row for row in receipt["cli_calls"] if row.get("command") == "recovery")
