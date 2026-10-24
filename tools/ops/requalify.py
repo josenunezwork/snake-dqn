@@ -10,7 +10,6 @@ import os
 import subprocess
 import sys
 import tempfile
-from contextlib import nullcontext
 from pathlib import Path
 from types import ModuleType
 
@@ -98,20 +97,13 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
     # An interrupted/failed execution stays consumed. Another call must plan afresh.
     with saved.with_name("ops-execute-started.json").open("x") as stream:
         json.dump({"review_sha256": hashlib.sha256(raw).hexdigest()}, stream)
-    if registry.name == "l4-label-lane-qualified.json":
-        from research.rpc_qualification.probe_policy import hardened_probe_policy
-
-        probe_policy = hardened_probe_policy()
-    else:
-        probe_policy = nullcontext()
-    with probe_policy:
-        result_code = acceptance.execute(
-            prepared,
-            state_dir=Path(review["state_dir"]),
-            colab=review["colab"],
-            review_token=token,
-            oauth_python=oauth_python,
-        )
+    result_code = acceptance.execute(
+        prepared,
+        state_dir=Path(review["state_dir"]),
+        colab=review["colab"],
+        review_token=token,
+        oauth_python=oauth_python,
+    )
     result_path = saved.with_name("acceptance-result.json")
     result = json.loads(result_path.read_text())
     if result_code != 0:

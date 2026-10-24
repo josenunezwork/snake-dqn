@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import signal
 import subprocess
 import tempfile
@@ -23,6 +24,7 @@ from research.colab_cli import policy, supervisor
 from research.colab_cli.transfers import (
     CONTENTS_ATTEMPTS,
     _contents_call,
+    record_verified_downloads,
     upload_contents,
     upload_file,
 )
@@ -335,7 +337,9 @@ class AcceptanceObserver:
             if delay:
                 time.sleep(delay)
         # Official CLI 0.7.4 exposes whoami even though its terse help omits it.
-        cli.call("whoami")
+        identity = cli.call("whoami")
+        if identity.strip():
+            cli._parsed_read("whoami", identity)
         self._record("fresh-oauth-refresh", refreshed_in_memory=True, usage=cli.usage())
 
     def _accounted_assignments(self, cli: supervisor.CLI, arm: str) -> None:
@@ -371,10 +375,12 @@ class AcceptanceObserver:
 
     def _url_no_second_allocation(self, cli: supervisor.CLI) -> None:
         before = cli.sessions(timeout=policy.READ_SECONDS)
-        cli.call("url", "-s", cli.session, timeout=policy.READ_SECONDS)
+        url = cli.call("url", "-s", cli.session, timeout=policy.READ_SECONDS)
         after = cli.sessions(timeout=policy.READ_SECONDS)
         if before != after or list(after.values()).count(cli.session) != 1:
             raise supervisor.Refused("url changed assignment identity or count")
+        if re.search(r"https?://\S+", url):
+            cli._parsed_read("url", url)
         self._record("url-no-second-allocation", sessions_before=before, sessions_after=after)
 
     def _silence_then_bounded_rpc(self, cli: supervisor.CLI, job_id: str | None = None) -> None:
@@ -390,11 +396,20 @@ class AcceptanceObserver:
         # bounded kernel call creates an actual >60-second execution silence;
         # its explicit timeout is evidence that no unbounded wait is hidden.
         # Its request ID is the pre-dispatch v2 injection identity when planned.
-        value = cli.rpc(
-            SILENCE_CODE,
-            timeout=120,
-            request_id=planned[0]["request_id"] if planned else None,
-        )
+        try:
+            value = cli.rpc(
+                SILENCE_CODE,
+                timeout=120,
+                request_id=planned[0]["request_id"] if planned else None,
+            )
+        finally:
+            for row in cli.call_records:
+                if (
+                    planned
+                    and row.get("request_id") == planned[0]["request_id"]
+                    and row.get("failure_class") == "CONTROL_RPC_TIMEOUT"
+                ):
+                    row["failure_type"] = "CONTROL_RPC_TIMEOUT"
         self._record(
             "silence-timeout",
             silence_seconds=time.monotonic() - started,
@@ -618,6 +633,7 @@ class AcceptanceObserver:
                 except supervisor.Refused as exc:
                     if "not found" not in str(exc).lower() and "404" not in str(exc):
                         raise
+                    self._tag_observed_absence(cli, root + "/client-finished.json")
                 else:
                     raise supervisor.Refused(
                         "kernel became idle before the client-loss observation"
@@ -655,6 +671,7 @@ class AcceptanceObserver:
         reconnected.transfer_records = cli.transfer_records
         reconnected.contents_transfers = cli.contents_transfers
         reconnected.call_records = cli.call_records
+        reconnected._evidence_operations = cli._evidence_operations
         reconnected._lease_stop = cli._lease_stop
         reconnected._lease_thread = cli._lease_thread
         context["cli"] = reconnected
@@ -700,6 +717,35 @@ class AcceptanceObserver:
         )
 
     @staticmethod
+    def _tag_observed_absence(cli: supervisor.CLI, remote: str) -> None:
+        """Record only a realized 404, never infer an error from a planned path."""
+        selectors = {
+            "/client-start.json": "client-loss-start-absent",
+            "/client-finished.json": "client-loss-finished-absent",
+            "/output/lease-checkpoint.pkl.sha256": "watchdog-checkpoint-marker-absent",
+            "/output/lease-checkpoint.pkl": "watchdog-checkpoint-absent",
+        }
+        for row in reversed(cli.call_records):
+            if row.get("command") != "download" or row.get("remote") != remote:
+                continue
+            error = str(row.get("error", "")).lower()
+            # A path or traceback can itself contain "404". Only a terminal
+            # status-bearing absence is evidence; a 5xx never realizes it.
+            terminal = re.findall(r"(?:^|\n)(?:cli_guard: )?guarderror: ([^\n]+)", error)
+            if terminal:
+                error = terminal[-1]
+            absent = re.search(
+                r"\b(?:http(?:error)?|status(?: code)?)[ :=]*404\b|"
+                r"\b404\s+(?:client error:\s*)?not found\b|^not found\b",
+                error,
+            ) and not re.search(r"\b(?:http|status)[ :=]*5\d\d\b|\b5\d\d service", error)
+            if row.get("status") != "completed" and absent:
+                for suffix, ident in selectors.items():
+                    if remote.endswith(suffix):
+                        row.update(failure_type="NOT_FOUND", realized_selector_id=ident)
+            break
+
+    @staticmethod
     def _wait_file(
         cli: supervisor.CLI,
         remote: str,
@@ -732,6 +778,8 @@ class AcceptanceObserver:
                         f"{phase}: remote file {remote!r} failed after "
                         f"{time.monotonic() - started:.3f}s: {exc}; refusing exec resubmission"
                     ) from exc
+                if missing:
+                    AcceptanceObserver._tag_observed_absence(cli, remote)
                 time.sleep(min(2, max(0, deadline - time.monotonic())))
         raise supervisor.Refused(
             f"{phase}: remote file {remote!r} not observed after "
@@ -763,6 +811,19 @@ class AcceptanceObserver:
         except supervisor.Refused as exc:
             if "hash mismatch" not in str(exc):
                 raise
+            for parent in reversed(cli.transfer_records):
+                if parent.get("remote") == fault_root + "/output/" + name:
+                    parent.update(
+                        failure_type="HASH_MISMATCH",
+                        realized_selector_id="corrupt-export-rejection",
+                    )
+                    for row in cli.call_records:
+                        if row.get("parent_transfer_id") == parent.get("transfer_id"):
+                            row.update(
+                                failure_type="HASH_MISMATCH",
+                                realized_selector_id="corrupt-export-rejection",
+                            )
+                    break
             # Remove the isolated synthetic fixture after rejection.
             cli.rpc(
                 "from pathlib import Path\n"
@@ -862,6 +923,13 @@ class AcceptanceObserver:
             "result=True"
         )
         renewal_finished = time.monotonic()
+        # The designed release makes the backend unavailable. Observe once
+        # after its final kernel request, before entering the no-renewal wait.
+        # Evidence collection never changes the watchdog or cleanup decision.
+        try:
+            cli.collect_marker_census()
+        except BaseException:
+            pass
         # RPC latency gives an interval, not an exact local expiry timestamp.
         # Collect immediately so slow acknowledgements cannot skip the remote
         # 15s checkpoint window. The disappearance deadline uses the EARLIEST
@@ -881,6 +949,7 @@ class AcceptanceObserver:
             marker = Path(temp) / "checkpoint.sha256"
             local = Path(temp) / "checkpoint.pkl"
             while time.monotonic() < checkpoint_deadline:
+                first_call = len(cli.call_records)
                 try:
                     cli.call(
                         "download",
@@ -907,10 +976,26 @@ class AcceptanceObserver:
                     )
                     if supervisor.sha256(local) != candidate:
                         raise supervisor.Refused("watchdog checkpoint hash mismatch")
+                    record_verified_downloads(
+                        cli,
+                        first_call=first_call,
+                        remote=context["root"] + "/output/lease-checkpoint.pkl",
+                        digest=candidate,
+                        remotes={
+                            context["root"] + "/output/lease-checkpoint.pkl" + suffix
+                            for suffix in ("", ".sha256")
+                        },
+                    )
                     checkpoint_hash = candidate
                     break
                 except (supervisor.Refused, OSError, subprocess.SubprocessError) as exc:
                     missing = "404" in str(exc) or "not found" in str(exc).lower()
+                    if missing:
+                        for suffix in (
+                            "/output/lease-checkpoint.pkl.sha256",
+                            "/output/lease-checkpoint.pkl",
+                        ):
+                            self._tag_observed_absence(cli, context["root"] + suffix)
                     if not missing and not policy.transient_error(exc):
                         raise
                     last_checkpoint_error = supervisor.redact(repr(exc))
@@ -958,6 +1043,8 @@ class AcceptanceObserver:
             raise supervisor.Refused("assignment disappeared before lease expiry; cause unproven")
         self._record(
             "mac-loss-watchdog-unassign",
+            job_id=context["manifest"]["job_id"],
+            planned_event_id="mac-loss-watchdog-unassign",
             lease_seconds=lease,
             lease_expiry_uncertainty_seconds=renewal_finished - renewal_started,
             endpoint=endpoint,

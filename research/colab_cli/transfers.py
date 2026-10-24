@@ -8,9 +8,12 @@ to the runtime.
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import functools
 import hashlib
 import inspect
+import itertools
 import json
 import math
 import os
@@ -18,7 +21,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Iterator, Protocol
 
 from research.colab_cli import policy
 
@@ -32,6 +35,127 @@ CONTENTS_ATTEMPTS = 3
 UPLOAD_TOTAL_TIMEOUT_SECONDS = 5 * 60
 TRANSFER_MIN_TIMEOUT_SECONDS = 300
 TRANSFER_BYTES_PER_SECOND = 512 * 1024
+
+
+# Evidence identities use independent counters, never the jitter/request RNG.
+_TRANSFER_IDS = itertools.count(1)
+_PARENT_TRANSFER: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "parent_transfer", default=None
+)
+_CHILD_TRANSFER: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "child_transfer", default=None
+)
+
+
+def transfer_evidence(command: str) -> dict[str, Any]:
+    """Metadata for this physical transfer; control PUTs carry no C6 claim."""
+    parent, child = _PARENT_TRANSFER.get(), _CHILD_TRANSFER.get()
+    if command not in {"upload", "download"}:
+        return {}
+    if parent is None or child is None:
+        if command == "upload":
+            return {"transfer_role": "control", "transfer_plane": "control"}
+        return {"transfer_role": "consumed"}
+    return {
+        "transfer_role": "consumed",
+        "parent_transfer_id": parent["transfer_id"],
+        "transfer_id": child["transfer_id"],
+        "transfer_attempt": child["attempts"],
+    }
+
+
+def record_verified_downloads(
+    cli: _CLI, *, first_call: int, remote: str, digest: str, remotes: set[str]
+) -> None:
+    """Bind an already hash-checked data/sidecar pair to its observed calls.
+
+    Used only after the acceptance observer's existing remote-sidecar versus
+    Mac-payload check. This performs no transfer, hashing or new decision.
+    """
+    rows = [
+        row
+        for row in cli.call_records[first_call:]
+        if row.get("command") == "download"
+        and row.get("remote") in remotes
+        and row.get("status") == "completed"
+    ]
+    if not rows:
+        return
+    parent_id = f"transfer-{next(_TRANSFER_IDS)}"
+    children = []
+    for row in rows:
+        child_id = f"contents-{next(_TRANSFER_IDS)}"
+        row.update(
+            parent_transfer_id=parent_id,
+            transfer_id=child_id,
+            transfer_attempt=1,
+            verified_sha256=digest,
+        )
+        children.append(
+            {
+                "transfer_id": child_id,
+                "parent_transfer_id": parent_id,
+                "remote": row["remote"],
+                "attempts": 1,
+                "status": "completed",
+                "verified_sha256": digest,
+                "started_monotonic": row["started_monotonic"],
+                "finished_monotonic": row["finished_monotonic"],
+            }
+        )
+    cli.transfer_records.append(
+        {
+            "transfer_id": parent_id,
+            "direction": "download",
+            "remote": remote,
+            "status": "verified",
+            "sha256": digest,
+            "verified_sha256": digest,
+            "verification_kind": "observed-checkpoint-sidecar",
+            "children": children,
+            "started_monotonic": rows[0]["started_monotonic"],
+            "finished_monotonic": rows[-1]["finished_monotonic"],
+            "elapsed_seconds": rows[-1]["finished_monotonic"] - rows[0]["started_monotonic"],
+        }
+    )
+
+
+@contextlib.contextmanager
+def consumed_metadata(cli: _CLI, remote: str, digest: str) -> Iterator[None]:
+    """Bind metadata children to an export whose existing checks all passed.
+
+    The caller marks verified only after its ordinary digest/sidecar/marker
+    checks and publication. This adds no readback or verification decision.
+    """
+    started = time.monotonic()
+    record = {
+        "transfer_id": f"transfer-{next(_TRANSFER_IDS)}",
+        "direction": "download",
+        "remote": remote,
+        "started_monotonic": started,
+        "status": "failed",
+        "children": [],
+        "verification_kind": "export-triplet",
+    }
+    token = _PARENT_TRANSFER.set(record)
+    try:
+        yield
+        record.update(status="verified", sha256=digest, verified_sha256=digest)
+    finally:
+        _PARENT_TRANSFER.reset(token)
+        finished = time.monotonic()
+        record.update(finished_monotonic=finished, elapsed_seconds=finished - started)
+        for child in record["children"]:
+            if record["status"] == "verified":
+                child["verified_sha256"] = digest
+        for call in getattr(cli, "call_records", []):
+            if (
+                call.get("parent_transfer_id") == record["transfer_id"]
+                and record["status"] == "verified"
+            ):
+                call["verified_sha256"] = digest
+        if hasattr(cli, "transfer_records"):
+            cli.transfer_records.append(record)
 
 
 class TransferError(RuntimeError):
@@ -89,24 +213,40 @@ def _observed_transfer(direction: str) -> Callable:
             )
             started = time.monotonic()
             record = {
+                "transfer_id": f"transfer-{next(_TRANSFER_IDS)}",
+                "started_monotonic": started,
+                "children": [],
                 "direction": direction,
                 "remote": remote,
                 "size_bytes": size,
                 "call_site": call_site,
                 "status": "failed",
             }
+            token = _PARENT_TRANSFER.set(record)
             try:
                 result = function(cli, *args, **kwargs)
-                record.update(status="verified", sha256=result)
+                record.update(status="verified", sha256=result, verified_sha256=result)
                 return result
             except Exception as exc:
                 raise TransferError(f"{direction} {remote} called at {call_site}: {exc}") from exc
             finally:
-                elapsed = max(time.monotonic() - started, 1e-9)
+                _PARENT_TRANSFER.reset(token)
+                finished = time.monotonic()
+                elapsed = max(finished - started, 1e-9)
                 record.update(
+                    finished_monotonic=finished,
                     elapsed_seconds=elapsed,
                     bytes_per_second=size / elapsed if record["status"] == "verified" else None,
                 )
+                for child in record["children"]:
+                    if record["status"] == "verified":
+                        child["verified_sha256"] = record["sha256"]
+                for call in getattr(cli, "call_records", []):
+                    if (
+                        call.get("parent_transfer_id") == record["transfer_id"]
+                        and record["status"] == "verified"
+                    ):
+                        call["verified_sha256"] = record["sha256"]
                 if hasattr(cli, "transfer_records"):
                     cli.transfer_records.append(record)
 
@@ -152,11 +292,29 @@ def _contents_call(
     come through this helper.
     """
     failure: BaseException | None = None
+    parent = _PARENT_TRANSFER.get()
+    child = {
+        "transfer_id": f"contents-{next(_TRANSFER_IDS)}",
+        "parent_transfer_id": parent["transfer_id"] if parent else None,
+        "remote": args[-1] if args[0] == "upload" else args[-2],
+        "direction": args[0],
+        "attempts": 0,
+        "status": "failed",
+        "calls": [],
+    }
+    if parent is not None:
+        parent["children"].append(child)
     for attempt in range(CONTENTS_ATTEMPTS):
         if renew:
             renew()
+        started = time.monotonic()
+        child["attempts"] = attempt + 1
+        child.setdefault("started_monotonic", started)
+        token = _CHILD_TRANSFER.set(child)
+        outcome = "failed"
         try:
             cli.call(*args, timeout=_bounded_timeout(timeout, deadline, f"{args[0]} {args[-1]}"))
+            outcome = "completed"
         except Exception as exc:
             failure = exc
             if not _is_retryable_contents_error(exc):
@@ -168,11 +326,27 @@ def _contents_call(
                 if delay:
                     time.sleep(delay)
         else:
+            _CHILD_TRANSFER.set(None)
             # Renewal is a separate mutating RPC.  Never mistake its failure
             # for a failed idempotent ContentsClient write and retry the write.
             if renew:
                 renew()
             return
+        finally:
+            _CHILD_TRANSFER.reset(token)
+            finished = time.monotonic()
+            child.update(finished_monotonic=finished, status=outcome)
+            child["elapsed_seconds"] = finished - child["started_monotonic"]
+            child["calls"].append(
+                {
+                    "attempt": attempt + 1,
+                    "started_monotonic": started,
+                    "finished_monotonic": finished,
+                    "elapsed_seconds": finished - started,
+                    "timeout_seconds": timeout,
+                    "status": outcome,
+                }
+            )
     assert failure is not None
     raise TransferError("ContentsClient transient retry budget exhausted") from failure
 

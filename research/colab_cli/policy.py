@@ -78,12 +78,14 @@ def recovery_probe_retryable(exc: BaseException) -> bool:
     bounded probe may follow inside the recovery ceiling. Auth, quota, malformed
     state and kernel errors still fail immediately.
     """
-    if transient_error(exc):
+    if isinstance(exc, (ConnectionError, TimeoutError, subprocess.TimeoutExpired)):
         return True
     message = str(exc).lower()
-    return any(
-        marker in message
-        for marker in ("read helper operation budget exhausted", "timed out", "timeoutexpired")
+    terminal = re.findall(r"(?:^|\n)(?:cli_guard: )?guarderror: ([^\n]+)", message)
+    if terminal:
+        message = terminal[-1]
+    return transient_error(RuntimeError(message)) or (
+        message == "read helper operation budget exhausted"
     )
 
 

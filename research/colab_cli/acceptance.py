@@ -467,6 +467,10 @@ def execute(
         finally:
             if output.exists():
                 observer.write(output)
+                if results and results[-1]["job"] == job["name"]:
+                    observer_path = output / "acceptance-observer.json"
+                    results[-1]["acceptance_observer"] = str(observer_path)
+                    results[-1]["acceptance_observer_sha256"] = sha256_file(observer_path)
         # A CPU admission/transport failure is not a reason to spend an L4
         # allocation. The watchdog fault is expected only after CPU passed.
         if job["name"] == "cpu" and results[-1]["status"] != "PASS":

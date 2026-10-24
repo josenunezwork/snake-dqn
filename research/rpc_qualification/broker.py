@@ -347,9 +347,7 @@ class QualificationBroker(supervisor.Broker):
 
         self.observer = observe
         try:
-            from .probe_policy import hardened_probe_policy
-
-            with _exact_profile_canary_adapter(), hardened_probe_policy():
+            with _exact_profile_canary_adapter():
                 super().run(validated, retained)
         finally:
             self.observer = original

@@ -12,6 +12,7 @@ import base64
 import contextlib
 import fcntl
 import hashlib
+import itertools
 import json
 import math
 import os
@@ -29,6 +30,7 @@ from research.colab_cli import policy
 
 ACCOUNT_ROOT = Path.home() / ".config/colab-cli/snake"
 REPO = Path(__file__).resolve().parents[2]
+_EVIDENCE_OPERATIONS = itertools.count(1)
 OAUTH_PYTHON = str(Path.home() / ".venvs/colab-cli/bin/python")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 RATE_CALIBRATION_INTERVAL_SECONDS = 5.0
@@ -298,6 +300,10 @@ class CLI:
         self.transfer_records: list[dict[str, Any]] = []
         self.contents_transfers: list[dict[str, Any]] = []
         self.call_records: list[dict[str, Any]] = []
+        # A reconnect can share the receipt while creating a fresh CLI object.
+        self._evidence_operations = _EVIDENCE_OPERATIONS
+        self.marker_census: dict[str, Any] | None = None
+        self.marker_census_attempted = False
         self.verified_exports: dict[str, dict[str, Any]] = {}
         self.warmup_seconds = 0.0
         self._lease_stop = threading.Event()
@@ -377,6 +383,8 @@ class CLI:
 
     def call(self, *args: str, timeout: float = policy.READ_SECONDS) -> str:
         """Retry read-only commands within one budget; mutations get one dispatch."""
+        operation_id = f"{self.session}:call:{next(self._evidence_operations)}"
+        argument_sha256 = hashlib.sha256(json.dumps(args).encode()).hexdigest()
         deadline = time.monotonic() + timeout
         attempts = policy.ATTEMPTS if args[0] in policy.READ_COMMANDS else 1
         for attempt in range(attempts):
@@ -387,11 +395,18 @@ class CLI:
             status = "failed"
             failure_class = None
             failure_detail = None
+            response_sha256 = None
             try:
                 result = self._call_once(*args, timeout=remaining)
                 status = "completed"
+                response_sha256 = hashlib.sha256(result.encode()).hexdigest()
                 return result
             except (Refused, OSError, subprocess.SubprocessError) as exc:
+                failure_detail = redact(str(exc))[-2000:]
+                if args[0] != "exec":
+                    from research.colab_cli.failures import classify_exception
+
+                    failure_class = classify_exception(exc).value
                 if args[0] == "exec":
                     from research.colab_cli.failures import FailureClass, control_timeout
 
@@ -407,27 +422,36 @@ class CLI:
                 if delay:
                     time.sleep(delay)
             finally:
-                self.call_records.append(
-                    {
-                        "command": args[0],
-                        "attempt": attempt + 1,
-                        "timeout_seconds": remaining,
-                        "status": status,
-                        "elapsed_seconds": time.monotonic() - started,
-                        # v2 attributes transfer faults by remote, independent
-                        # of the concurrent heartbeat's append ordering.
-                        **(
-                            {"remote": args[-1] if args[0] == "upload" else args[-2]}
-                            if args[0] in {"upload", "download"} and len(args) >= 3
-                            else {}
-                        ),
-                        **(
-                            {"failure_class": failure_class, "error": failure_detail}
-                            if failure_class
-                            else {}
-                        ),
-                    }
-                )
+                finished = time.monotonic()
+                from research.colab_cli.transfers import transfer_evidence
+
+                record = {
+                    "operation_id": operation_id,
+                    "attempt_id": f"{operation_id}:attempt:{attempt + 1}",
+                    "argument_sha256": argument_sha256,
+                    "started_monotonic": started,
+                    "finished_monotonic": finished,
+                    "response_sha256": response_sha256,
+                    **transfer_evidence(args[0]),
+                    "command": args[0],
+                    "attempt": attempt + 1,
+                    "timeout_seconds": remaining,
+                    "status": status,
+                    "elapsed_seconds": finished - started,
+                    # v2 attributes transfer faults by remote, independent
+                    # of the concurrent heartbeat's append ordering.
+                    **(
+                        {"remote": args[-1] if args[0] == "upload" else args[-2]}
+                        if args[0] in {"upload", "download"} and len(args) >= 3
+                        else {}
+                    ),
+                    **(
+                        {"failure_class": failure_class, "error": failure_detail}
+                        if failure_class
+                        else {}
+                    ),
+                }
+                self.call_records.append(record)
         raise Refused("read retry budget exhausted")
 
     def _call_once(self, *args: str, timeout: float) -> str:
@@ -510,6 +534,7 @@ class CLI:
         rows = re.findall(r"^\[([^\]]+)\]\s+(\S+)\s+\| Hardware:", output, re.M)
         if not rows and "No active sessions found on server." not in output:
             raise Refused("unrecognized account sessions output")
+        self._parsed_read("sessions", output)
         return {endpoint: name for name, endpoint in rows}
 
     def usage(self, timeout: float = policy.READ_SECONDS) -> dict[str, float]:
@@ -524,7 +549,16 @@ class CLI:
             if not match:
                 raise Refused("unrecognized account usage output")
             result[key] = float(match[1])
+        self._parsed_read("usage", output)
         return result
+
+    def _parsed_read(self, command: str, output: str) -> None:
+        """Attach parse evidence to the matching operation without storing output."""
+        digest = hashlib.sha256(output.encode()).hexdigest()
+        for record in reversed(self.call_records):
+            if record["command"] == command and record.get("response_sha256") == digest:
+                record["parse_success"] = True
+                break
 
     def rpc(
         self,
@@ -582,6 +616,21 @@ class CLI:
                             "kernel completion not acknowledged (busy/error/timeout)",
                         )
                     reply = json.loads(matches[-1])
+                    for record in reversed(self.call_records):
+                        if record["command"] == "exec":
+                            record.update(
+                                reply_kind=(
+                                    "error"
+                                    if not reply.get("ok")
+                                    else "pending" if reply.get("pending") else "final"
+                                ),
+                                returned_request_id=reply.get("request_id"),
+                                returned_request_sha256=reply.get("sha256"),
+                                reply_sha256=hashlib.sha256(
+                                    json.dumps(reply, sort_keys=True).encode()
+                                ).hexdigest(),
+                            )
+                            break
                 except BaseException as exc:
                     self.exec_uncertain = True
                     if isinstance(exc, subprocess.TimeoutExpired):
@@ -613,6 +662,52 @@ class CLI:
             FailureClass.CONTROL_RPC_TIMEOUT,
             "request started without durable completion before operation deadline",
         )
+
+    def collect_marker_census(self) -> dict[str, Any]:
+        """One bounded read-only listing, outside the durable request protocol.
+
+        This direct observation creates no request marker of its own. Never
+        clear a busy fence or recover/retry the observation: missing evidence
+        must not change cleanup or release decisions.
+        """
+        if self.marker_census_attempted:
+            if self.marker_census is None:
+                raise Refused("marker census was already attempted without evidence")
+            return self.marker_census
+        self.marker_census_attempted = True
+        if self.exec_uncertain:
+            raise Refused("marker census unavailable while kernel fence is set")
+        namespace = hashlib.sha256(self.session.encode()).hexdigest()[:32]
+        nonce = "SNAKE_MARKER_CENSUS_" + namespace
+        code = marker_census_code(namespace, nonce)
+        with tempfile.NamedTemporaryFile("w", suffix=".py") as handle:
+            handle.write(code)
+            handle.flush()
+            bound = self.remaining_seconds(policy.RPC_SECONDS)
+            try:
+                output = self.call(
+                    "exec",
+                    "-s",
+                    self.session,
+                    "-f",
+                    handle.name,
+                    "--timeout",
+                    str(bound),
+                    timeout=bound,
+                )
+                matches = re.findall(re.escape(nonce) + r"(\{[^\n]*\})", output)
+                if not matches:
+                    raise Refused("marker census response missing")
+                value = json.loads(matches[-1])
+                if not isinstance(value, dict):
+                    raise Refused("marker census response malformed")
+                self.marker_census = value
+                return value
+            finally:
+                for record in reversed(self.call_records):
+                    if record["command"] == "exec":
+                        record["evidence_role"] = "marker_census"
+                        break
 
     def wait_runtime_ready(self, output: Path) -> None:
         """Bound cold-start latency before credentials, uploads or their clock.
@@ -901,7 +996,12 @@ def collect_exports(
 
 def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit: int) -> None:
     """Download immutable data + digest + marker, verify, publish atomically."""
-    from research.colab_cli.transfers import TransferError, _contents_call, download_file
+    from research.colab_cli.transfers import (
+        TransferError,
+        _contents_call,
+        consumed_metadata,
+        download_file,
+    )
 
     rel = safe_relative(entry["path"])
     size = entry["size"]
@@ -929,24 +1029,25 @@ def export_file(cli: CLI, root: str, entry: dict[str, Any], output: Path, limit:
             )
         except TransferError as exc:
             raise Refused(f"download hash mismatch or transfer failure: {exc}") from exc
-        for suffix, local in ((".sha256", sidecar), (".complete", marker)):
-            _contents_call(
-                cli,
-                ("download", "-s", cli.session, root + "/output/" + rel + suffix, str(local)),
-                policy.READ_SECONDS,
-                cli.renew,
-                deadline=time.monotonic() + policy.READ_SECONDS,
-            )
-        if data.stat().st_size != size or sha256(data) != digest:
-            raise Refused("download hash mismatch; temporary export rejected")
-        if sidecar.stat().st_size > 1024 or sidecar.read_text().split()[0] != digest:
-            raise Refused("download digest sidecar mismatch")
-        if marker.stat().st_size > 4096:
-            raise Refused("invalid completion marker")
-        # Marker is published last, so interrupted publication is never acknowledged.
-        os.replace(data, target)
-        os.replace(sidecar, Path(str(target) + ".sha256"))
-        os.replace(marker, Path(str(target) + ".complete"))
+        with consumed_metadata(cli, root + "/output/" + rel, digest):
+            for suffix, local in ((".sha256", sidecar), (".complete", marker)):
+                _contents_call(
+                    cli,
+                    ("download", "-s", cli.session, root + "/output/" + rel + suffix, str(local)),
+                    policy.READ_SECONDS,
+                    cli.renew,
+                    deadline=time.monotonic() + policy.READ_SECONDS,
+                )
+            if data.stat().st_size != size or sha256(data) != digest:
+                raise Refused("download hash mismatch; temporary export rejected")
+            if sidecar.stat().st_size > 1024 or sidecar.read_text().split()[0] != digest:
+                raise Refused("download digest sidecar mismatch")
+            if marker.stat().st_size > 4096:
+                raise Refused("invalid completion marker")
+            # Marker is published last, so interrupted publication is never acknowledged.
+            os.replace(data, target)
+            os.replace(sidecar, Path(str(target) + ".sha256"))
+            os.replace(marker, Path(str(target) + ".complete"))
 
 
 class Broker:
@@ -1069,6 +1170,7 @@ class Broker:
                     version = cli.call("version")
                     if not re.search(r"\b0\.7\.4\b", version):
                         raise Refused("qualified CLI version must be 0.7.4")
+                    cli._parsed_read("version", version)
                     from research.colab_cli.release import mint_release_credential
 
                     cli.release_credential = mint_release_credential(
@@ -1200,7 +1302,12 @@ class Broker:
                         if not endpoint:
                             cleanup = cleanup or "ALLOCATION_UNRESOLVED: retained pending record"
                     keep = bool(retained is not None and not error)
+                    marker_census_error = None
                     if endpoint and not keep:
+                        try:
+                            cli.collect_marker_census()
+                        except BaseException as census_exc:
+                            marker_census_error = redact(repr(census_exc))
                         try:
                             with (
                                 contextlib.nullcontext()
@@ -1258,6 +1365,8 @@ class Broker:
                         "transfers": cli.transfer_records,
                         "contents_transfers": cli.contents_transfers,
                         "cli_calls": cli.call_records,
+                        "marker_census": cli.marker_census,
+                        "marker_census_error": marker_census_error,
                         "error": error,
                         "failure_class": failure_class,
                         "cleanup_error": cleanup,
@@ -2029,6 +2138,32 @@ def main() -> None:
             Broker(args.state_dir, args.colab).run(json.loads(args.manifest.read_text()))
     except (Refused, ValueError, KeyError, OSError, subprocess.SubprocessError) as exc:
         parser.exit(1, f"{exc}\n")
+
+
+def marker_census_code(namespace: str, nonce: str) -> str:
+    """Generate bounded metadata-only observation; never export reply payloads."""
+    return (
+        "# SNAKE_MARKER_CENSUS\nimport itertools,json,time\nfrom pathlib import Path\n"
+        f"root = Path('/content/.snake-rpc-{namespace}')\n"
+        "rows = {}\nsize = 0\ndeadline = time.monotonic()+20\n"
+        "paths = sorted(itertools.islice(root.iterdir(),10001)) if root.is_dir() else []\n"
+        "if len(paths) > 10000: raise RuntimeError('marker census size bound')\n"
+        "for path in paths:\n"
+        "    if path.suffix not in {'.started', '.done'}: continue\n"
+        "    size += path.stat().st_size\n"
+        "    if size > 8388608 or time.monotonic() > deadline:\n"
+        "        raise RuntimeError('marker census read bound')\n"
+        "    row = rows.setdefault(path.stem, {'started': 0, 'done': 0})\n"
+        "    kind = path.suffix[1:]\n"
+        "    row[kind] += 1\n"
+        "    try:\n"
+        "        value = json.loads(path.read_text())\n"
+        "        row[kind + '_request_id'] = value.get('request_id')\n"
+        "        row[kind + '_sha256'] = value.get('sha256')\n"
+        "    except Exception:\n"
+        "        row[kind + '_corrupt'] = True\n"
+        f"print({nonce!r} + json.dumps(rows, sort_keys=True))\n"
+    )
 
 
 if __name__ == "__main__":
