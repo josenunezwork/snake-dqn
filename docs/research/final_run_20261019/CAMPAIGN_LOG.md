@@ -304,6 +304,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 
 | 2026-10-24 PT | **Owner: remove Colab budgets** | Owner: 'remove budget im fine with using all colab credits in 1 week if even possible.' Standing rule in STATUS.md/AGENTS.md: no unit budgets/ceilings; per-job timeouts stay as runaway guards; pre-registered science caps (e.g. F4 fit caps) stay unless a pre-data judge amends. Sprint register ceilings to be set non-binding by a delta. Advisor asked for highest-value uses of ~1,000 u in a week. |
 
+| 2026-10-24 PT | **Register uncapped** | Claude-V stand-in ACCEPT (big-lever/exp/CLAUDE_V_STANDIN_REGISTER_UNCAP_REVIEW.json 6dba07b9…aaef) of f979f049 (raise-only ceiling_raise row; audit gate warn-not-block; live-balance check kept). Operator appended rev 12 (row e6e7b596…01de7): all 9 sprint scopes (global, packet, q2, q4, v8, first_wave, i0, q5_identity, r2) → 100,000 u / 600,000 min per owner rule 38b075ac; spend/holds/settlements/timeouts/science caps unchanged. verify OK; i0s project FITS. i0s attempt configs need `i0s_attempt reconfig` before reuse. |
+
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
