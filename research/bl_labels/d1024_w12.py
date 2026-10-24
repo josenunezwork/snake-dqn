@@ -190,6 +190,7 @@ def main() -> None:
     parser.add_argument("--sealed-readiness", type=Path)
     parser.add_argument("--projection-receipt", type=Path)
     parser.add_argument("--owner-w12-ok", action="store_true")
+    parser.add_argument("--funding-receipt", type=Path)
     parser.add_argument(
         "--delegation-dir",
         type=Path,
@@ -204,9 +205,30 @@ def main() -> None:
     os.environ.update(mac_driver.THREAD_ENV)
     os.environ["SNAKE_DQN_DEVICE"] = "cpu"
     if args.stage == "d4096":
-        mac_gates._d4096_sealed_bindings(
-            mac_gates._read(args.control), args.sealed_readiness, args.projection_receipt
-        )
+        from . import d4096_sealed
+
+        try:
+            d4096_sealed.require_not_discarded(args.control.parent / "d4096-not-run-by-rule.json")
+            if args.delegation_dir is not None:
+                d4096_sealed.require_funding_receipt(args.funding_receipt)
+            mac_gates._d4096_sealed_bindings(
+                mac_gates._read(args.control), args.sealed_readiness, args.projection_receipt
+            )
+        except (ValueError, OSError) as error:
+            if not args.check:
+                raise
+            print(
+                json.dumps(
+                    {
+                        "status": "HOLD",
+                        "stage": "d4096",
+                        "reason": str(error),
+                        "factory_started": False,
+                        "judgment_sha256": d4096_sealed.JUDGMENT_SHA256,
+                    }
+                )
+            )
+            raise SystemExit(2) from error
     _prepare_science_root(args.control, args.stage, sealed_path=args.stage == "d4096")
     control, workers, flags, old_fallback = _validate_inputs(
         args.stage,
@@ -285,6 +307,7 @@ def main() -> None:
         str(deadline),
         *flags,
         *(["--delegation-dir", str(args.delegation_dir)] if args.delegation_dir else []),
+        *(["--funding-receipt", str(args.funding_receipt)] if args.funding_receipt else []),
     ]
     subprocess.run([*command, "--check"], check=True)
     print(

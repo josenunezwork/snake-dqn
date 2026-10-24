@@ -1,0 +1,297 @@
+"""Metadata-only adversarial tests for the D4096 early-collection seals."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+
+from research.bl_labels import d4096_sealed as sealed
+from research.bl_labels import w12_runtime
+from research.bl_labels.exports import _verify, publish_json
+
+PIN = "1" * 40
+
+
+def _terminal(path: Path, elapsed: float, *, status: str = "COMPLETE", stage="d1024") -> Path:
+    from research.bl_labels.frozen_factory import OLD_PIN
+
+    publish_json(
+        path,
+        {
+            "schema": "bl-labels-f0-mac-driver/v1",
+            "status": status,
+            "cumulative_elapsed_seconds": elapsed,
+            "workers": 6,
+            "collector_source_commit": OLD_PIN,
+            "namespace": f"fixture-mac-{stage}",
+        },
+    )
+    return path
+
+
+def _fit_receipt(root: Path, job_id: str) -> Path:
+    directory = root / job_id
+    directory.mkdir()
+    manifest = directory / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "job_id": job_id,
+                "commit": PIN,
+                "script": "research/bl_residual/f4_d256_colab.sh",
+                "env": {"F4_DOSE": "1024", "F4_MODE": "canary" if "canary" in job_id else "main"},
+            },
+            sort_keys=True,
+        )
+    )
+    receipt = directory / "receipt.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "job_id": job_id,
+                "commit": PIN,
+                "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                "status": "PASS",
+                "stop_verified": True,
+            },
+            sort_keys=True,
+        )
+    )
+    return receipt
+
+
+def _ready(tmp_path: Path) -> tuple[Path, Path, Path]:
+    from research.bl_labels.frozen_factory import OLD_PIN
+
+    control = tmp_path / "d1024-control.json"
+    allocation = [{"allocation_id": "p0", "stream": "watch6"}]
+    publish_json(
+        control,
+        {
+            "namespace": "fixture-mac-d1024",
+            "source_commit": PIN,
+            "allocation": allocation,
+            "mac_gate": {"stage": "d1024"},
+        },
+    )
+    start = tmp_path / "attempt-01.start.json"
+    publish_json(start, {"namespace": "fixture-mac-d1024", "source_commit": PIN, "workers": 6})
+    d1024 = tmp_path / "attempt-01.terminal.json"
+    publish_json(
+        d1024,
+        {
+            "schema": "bl-labels-f0-mac-driver/v1",
+            "status": "COMPLETE",
+            "workers": 6,
+            "namespace": "fixture-mac-d1024",
+            "collector_source_commit": OLD_PIN,
+            "w12_calibration_source_commit": OLD_PIN,
+            "cumulative_elapsed_seconds": 3600,
+            "start_receipt": start.name,
+            "start_sha256": _verify(start),
+            "attempts_ledger": [d1024.name],
+            "completed_parents": ["p0"],
+            "slowdown_state_by_stream": {"watch6": {"width_wall_seconds": {"6": 3600}}},
+        },
+    )
+    throughput = tmp_path / "d1024-w6.json"
+    w12_runtime.seal_d1024_old_w6_throughput(control, [d1024], throughput)
+    canary = _fit_receipt(tmp_path, "f4-d1024-canary-01")
+    main = _fit_receipt(tmp_path, "f4-d1024-main-01")
+    readiness = tmp_path / "readiness.json"
+    sealed.seal_readiness(
+        readiness,
+        d1024,
+        {"f4-d1024-canary-01": canary, "f4-d1024-main-01": main},
+        throughput,
+        factory_exited=True,
+        mac_lease_released=True,
+        all_fit_jobs_listed=True,
+    )
+    return readiness, d1024, throughput
+
+
+def test_metadata_only_readiness_and_fixed1024_projection(tmp_path) -> None:
+    readiness, d1024, _ = _ready(tmp_path)
+    d256 = _terminal(tmp_path / "d256-terminal.json", 7200, stage="d256")
+    projection = tmp_path / "projection.json"
+    value = sealed.seal_mac_h_projection(projection, readiness, d256, d1024)
+    assert value["projected_mac_hours"] == pytest.approx(10.8)
+    assert sealed.validate_projection(projection, readiness)["verdict"] == "PASS"
+
+
+def test_readiness_refuses_implicit_operator_attestation(tmp_path) -> None:
+    d1024 = _terminal(tmp_path / "d1024.json", 1)
+    throughput = tmp_path / "throughput.json"
+    publish_json(
+        throughput,
+        {
+            "schema": "bl-labels-f0-d1024-old-w6-throughput/v1",
+            "stage": "d1024",
+            "workers": 6,
+            "source_commit": PIN,
+            "d1024_terminal": {"path": str(d1024.resolve()), "sha256": _verify(d1024)},
+            "streams": {"watch6": {"completed_parents": 1, "elapsed_seconds": 1}},
+        },
+    )
+    fit = tmp_path / "fit.json"
+    publish_json(fit, {"status": "HOLD"})
+    with pytest.raises(ValueError, match="explicit"):
+        sealed.seal_readiness(
+            tmp_path / "readiness.json",
+            d1024,
+            {"main": fit},
+            throughput,
+            factory_exited=False,
+            mac_lease_released=True,
+            all_fit_jobs_listed=True,
+        )
+
+
+def test_projection_refuses_a_d1024_terminal_not_bound_by_readiness(tmp_path) -> None:
+    readiness, _d1024, _ = _ready(tmp_path)
+    d256 = _terminal(tmp_path / "d256.json", 1, stage="d256")
+    other = _terminal(tmp_path / "other-d1024.json", 1)
+    with pytest.raises(ValueError, match="differs"):
+        sealed.seal_mac_h_projection(tmp_path / "projection.json", readiness, d256, other)
+
+
+def test_discard_seal_blocks_funding_and_malformed_discard_holds(tmp_path, monkeypatch) -> None:
+    readiness, _d1024, _ = _ready(tmp_path)
+    stop = tmp_path / "ra-stop.json"
+    publish_json(stop, {"schema": "bl-residual-funding-look/v1", "verdict": "STOP_FUNDING"})
+    monkeypatch.setattr(sealed, "CANONICAL_PACK", tmp_path)
+    discard = tmp_path / "d4096-not-run-by-rule.json"
+    sealed.seal_not_run_by_rule(discard, readiness, stop)
+    with pytest.raises(ValueError, match="NOT_RUN_BY_RULE"):
+        sealed.require_not_discarded(discard)
+    monkeypatch.setattr(sealed, "CANONICAL_PACK", tmp_path / "other")
+    bad = tmp_path / "bad.json"
+    publish_json(bad, {"schema": sealed.DISCARD_SCHEMA})
+    with pytest.raises(ValueError, match="malformed"):
+        sealed.require_not_discarded(bad)
+
+
+def test_funding_requires_a_pass_receipt(tmp_path) -> None:
+    no = tmp_path / "no.json"
+    publish_json(no, {"schema": "bl-residual-funding-look/v1", "verdict": "STOP_FUNDING"})
+    with pytest.raises(ValueError, match="STOP_FUNDING"):
+        sealed.require_funding_receipt(None)
+    with pytest.raises(ValueError, match="STOP_FUNDING"):
+        sealed.require_funding_receipt(no)
+    from dataclasses import asdict
+
+    from research.bl_residual.fit import FitRecipe
+    from research.bl_residual.protocol import F4_REGISTRATION_SHA, NAMESPACE, canonical_sha
+
+    digest = "a" * 64
+    yes = tmp_path / "yes.json"
+    publish_json(
+        yes,
+        {
+            "schema": "bl-residual-funding-look/v1",
+            "verdict": "PASS",
+            "series_id": NAMESPACE,
+            "registration_sha256": F4_REGISTRATION_SHA,
+            "recipe_sha256": canonical_sha(asdict(FitRecipe())),
+            "doses": [256, 1024],
+            "reserve_allocation_sha256": digest,
+            "d256_fit_sha256": digest,
+            "d1024_fit_sha256": digest,
+            "inputs": {"d256_checkpoint_sha256": digest, "d1024_checkpoint_sha256": digest},
+        },
+    )
+    assert sealed.require_funding_receipt(yes)["verdict"] == "PASS"
+
+
+def test_projection_above_130_hours_never_publishes(tmp_path):
+    readiness, d1024, _ = _ready(tmp_path)
+    d256 = _terminal(tmp_path / "d256.json", 130 * 3600, stage="d256")
+    out = tmp_path / "too-expensive.json"
+    with pytest.raises(ValueError, match="exceeds 130"):
+        sealed.seal_mac_h_projection(out, readiness, d256, d1024)
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("label,stage", [("INSUFFICIENT", "d1024-fit"), ("INVALID", "r-a")])
+def test_stop_labels_without_existing_receipt_are_bound_create_only(
+    tmp_path, monkeypatch, label, stage
+):
+    readiness, _, _ = _ready(tmp_path)
+    monkeypatch.setattr(sealed, "CANONICAL_PACK", tmp_path)
+    out = tmp_path / "d4096-not-run-by-rule.json"
+    sealed.seal_not_run_by_rule(out, readiness, terminal_label=label, terminal_stage=stage)
+    with pytest.raises(ValueError, match="NOT_RUN_BY_RULE"):
+        sealed.require_not_discarded(out)
+    with pytest.raises(FileExistsError):
+        sealed.seal_not_run_by_rule(out, readiness, terminal_label=label, terminal_stage=stage)
+
+
+def test_recoverable_hold_and_partial_seal_refuse(tmp_path, monkeypatch):
+    readiness, _, _ = _ready(tmp_path)
+    monkeypatch.setattr(sealed, "CANONICAL_PACK", tmp_path)
+    out = tmp_path / "d4096-not-run-by-rule.json"
+    with pytest.raises(ValueError, match="explicitly unrecoverable"):
+        sealed.seal_not_run_by_rule(out, readiness, terminal_label="HOLD", terminal_stage="r-a")
+    Path(str(out) + ".sha256").write_text("partial")
+    with pytest.raises(ValueError, match="partial"):
+        sealed.require_not_discarded(out)
+
+
+def test_fit_and_public_union_refuse_discard_before_payloads(tmp_path, monkeypatch):
+    from research.bl_labels import d4096_final, d4096_resume, mac_gates
+    from research.bl_residual import job
+
+    readiness, d1024, _ = _ready(tmp_path)
+    d256 = _terminal(tmp_path / "d256.json", 7200, stage="d256")
+    projection = tmp_path / "projection.json"
+    sealed.seal_mac_h_projection(projection, readiness, d256, d1024)
+    monkeypatch.setattr(sealed, "CANONICAL_PACK", tmp_path)
+    out = tmp_path / "d4096-not-run-by-rule.json"
+    sealed.seal_not_run_by_rule(
+        out, readiness, terminal_label="INSUFFICIENT", terminal_stage="d1024-fit"
+    )
+    monkeypatch.setattr(job, "D4096_DISCARD_SEAL", out)
+    with pytest.raises(ValueError, match="NOT_RUN_BY_RULE"):
+        job._validate_staging(
+            tmp_path, {"synthetic": False, "stage_receipts": {}}, [4096], "a" * 64, set()
+        )
+    control = {
+        "namespace": "fixture-mac-d4096",
+        "allocation": [],
+        "mac_gate": {
+            "stage": "d4096",
+            "bindings": {
+                "sealed_collection": {
+                    "readiness": {"path": str(readiness)},
+                    "projection": {"path": str(projection)},
+                }
+            },
+        },
+    }
+    monkeypatch.setattr(d4096_final, "require_pinned_source", lambda _: "a" * 40)
+    monkeypatch.setattr(d4096_resume, "original_control", lambda _: control)
+    with pytest.raises(ValueError, match="NOT_RUN_BY_RULE"):
+        d4096_final.publish_final(
+            tmp_path, tmp_path / "final/ledger.json", "a" * 40, tmp_path / "funding"
+        )
+    with pytest.raises(ValueError, match="NOT_RUN_BY_RULE"):
+        mac_gates.publish_ledger(
+            tmp_path / "foreign-pack", [], tmp_path / "public/ledger.json", control=control
+        )
+    assert not (tmp_path / "final").exists()
+    assert not (tmp_path / "public").exists()
+
+
+def test_plain_supervisor_receipt_is_bound_and_active_job_refuses(tmp_path):
+    readiness, _, _ = _ready(tmp_path)
+    value = sealed.validate_readiness(readiness)
+    receipt = Path(value["d1024_fit_jobs"][0]["receipt"]["path"])
+    changed = json.loads(receipt.read_text())
+    changed["stop_verified"] = False
+    receipt.write_text(json.dumps(changed))
+    with pytest.raises(ValueError, match="terminal/HOLD"):
+        sealed.validate_readiness(readiness)

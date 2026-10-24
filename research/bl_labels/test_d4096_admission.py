@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+
 import pytest
 
 from research.bl_labels import d1024_w12, d4096_pack, mac_gates, w12_admission
@@ -110,3 +112,36 @@ def test_pack_create_only_and_judgment_identity(tmp_path):
     with pytest.raises(ValueError, match="judgment sha"):
         d4096_pack.create(tmp_path, tmp_path / "new", judgment, tmp_path / "binding")
     assert not (tmp_path / "new").exists()
+
+
+def test_unruled_control_fields_cannot_enter_sealed_path(tmp_path, monkeypatch):
+    """Even unchanged allocation/pins cannot authorize a different state/cap flow."""
+    from research.bl_labels import d4096_sealed
+
+    if not d4096_pack.PACK.is_dir():
+        pytest.skip("operator artifact pack is not installed")
+    value = mac_gates._read(d4096_pack.PACK / "d4096-control.json")
+    readiness, projection = tmp_path / "r", tmp_path / "p"
+    for path in (readiness, projection):
+        publish_json(path, {"metadata_fixture": True})
+    monkeypatch.setattr(d4096_sealed, "validate_readiness", lambda *_: {})
+    monkeypatch.setattr(d4096_sealed, "validate_projection", lambda *_: {})
+    assert (
+        mac_gates._d4096_sealed_bindings(value, readiness, projection)["judgment_sha256"]
+        == d4096_pack.JUDGMENT_SHA
+    )
+    altered = copy.deepcopy(value)
+    altered["mac_gate"]["state_dir_name"] = "new-state-to-reset-wall-cap"
+    with pytest.raises(ValueError, match="unruled control field"):
+        mac_gates._d4096_sealed_bindings(altered, readiness, projection)
+
+
+def test_general_union_entrypoint_refuses_pending_sealed_before_any_export(tmp_path):
+    control = {"namespace": "fixture-mac-d4096", "allocation": [], "mac_gate": {"stage": "d4096"}}
+    out = tmp_path / "public/verified-ledger.json"
+    with pytest.raises(ValueError, match="PASS funding"):
+        mac_gates.publish_ledger(tmp_path, [], out, control=control)
+    assert not out.parent.exists()
+    with pytest.raises(ValueError, match="private resume path"):
+        mac_gates.publish_ledger(tmp_path, [], out, control=control, sealed_resume=True)
+    assert not out.parent.exists()

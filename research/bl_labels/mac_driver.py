@@ -449,7 +449,41 @@ def _require_w12_authorization(
     """Return the sealed receipt digest; booleans alone never authorize W12."""
     if not owner_w12_ok or receipt is None:
         raise ValueError("W12 requires explicit owner approval and a sealed calibration receipt")
+    if control.get("mac_gate", {}).get("stage") == "d4096":
+        from . import w12_admission
+        from .exports import _verify
+
+        calibration = control["mac_gate"].get("bindings", {}).get("calibration", {})
+        if (
+            receipt.resolve() != w12_admission.ADMISSION_RECEIPT.resolve()
+            or calibration.get("path") != str(receipt.resolve())
+            or calibration.get("sha256") != _verify(receipt)
+            or calibration.get("status") != "PASS"
+        ):
+            raise ValueError("D4096 W12 requires its bound w12-admission-01 PASS receipt")
     return _verify_w12_calibration(receipt, expected_code_sha=_w12_calibration_source(control))
+
+
+def _require_d4096_operation(
+    control: dict[str, Any],
+    output: Path,
+    delegation_dir: Path | None,
+    funding_receipt: Path | None,
+) -> None:
+    """Recheck the sealed path before a lease or any export payload is opened."""
+    if control.get("mac_gate", {}).get("stage") != "d4096":
+        return
+    from . import d4096_resume, d4096_sealed, mac_gates
+
+    mac_gates.require_admission(control)
+    pack = Path(control["mac_gate"]["package_root"])
+    d4096_sealed.require_not_discarded(pack / "d4096-not-run-by-rule.json")
+    if delegation_dir is not None:
+        d4096_sealed.require_funding_receipt(funding_receipt)
+    attempts, _elapsed = d4096_resume.attempt_chain(pack, control)
+    expected_output = pack / f"d4096-output-mac-{len(attempts) + 1:02d}"
+    if output.resolve() != expected_output.resolve():
+        raise ValueError("D4096 output must be the next fresh charged attempt")
 
 
 def _width_change_allowed(control: dict[str, Any], prior_workers: int, workers: int) -> bool:
@@ -492,15 +526,25 @@ def _collector_fallback(control: dict[str, Any], workers: int) -> tuple[Path | N
     root, source = gate.get("collector_root"), gate.get("collector_source_commit")
     if root is None and source is None:
         return None, None
+    d4096_w12 = gate.get("stage") == "d4096" and workers == MAX_WORKERS
     if (
         gate.get("stage") not in RESUME_WIDTH_STAGES
-        or workers != DEFAULT_WORKERS
+        or (workers != DEFAULT_WORKERS and not d4096_w12)
         or not isinstance(root, str)
         or not root
         or not isinstance(source, str)
         or len(source) != 40
     ):
-        raise ValueError("frozen collector fallback requires admitted future-stage W6 bindings")
+        raise ValueError(
+            "frozen collector fallback requires admitted future-stage W6 "
+            "or sealed D4096 W12 bindings"
+        )
+    if gate.get("stage") == "d4096":
+        from . import frozen_factory
+
+        if source != frozen_factory.OLD_PIN:
+            raise ValueError("D4096 collector must remain OLD for the whole tranche")
+        frozen_factory._validate(Path(root), source)
     return Path(root), source
 
 
@@ -521,6 +565,7 @@ def run(
     started_monotonic: float | None = None,
     d256_frozen_root: Path | None = None,
     delegation_dir: Path | None = None,
+    funding_receipt: Path | None = None,
 ) -> dict[str, Any]:
     """Run admitted parents until complete, guard stop, or cooperative preemption.
 
@@ -529,6 +574,7 @@ def run(
     it, admission, outputs and the result are unchanged.
     """
     started = time.monotonic() if started_monotonic is None else started_monotonic
+    _require_d4096_operation(control, output, delegation_dir, funding_receipt)
     if state_dir is not None and workers in RESUME_WIDTHS:
         from .w12_runtime import resolve_resume_workers
 
@@ -603,6 +649,10 @@ def run(
     delegated_jobs: list[_Job] = []
     allocation_order = {item["allocation_id"]: index for index, item in enumerate(allocation)}
     if delegation_dir is not None:
+        if control.get("mac_gate", {}).get("stage") == "d4096":
+            from .d4096_sealed import require_funding_receipt
+
+            require_funding_receipt(funding_receipt)
         from .l4_delegation import MacDelegationGate
 
         delegation_gate = MacDelegationGate(delegation_dir, namespace, allocation)
@@ -640,6 +690,7 @@ def run(
     prior_rate_events: list[tuple[float, bool, int]] = []
     prior_sanity_elapsed = 0.0
     prior_sanity_counts: dict[str, int] = {}
+    prior_sanity_stream_elapsed: dict[str, float] = {}
     prior_sanity_checked = False
     prior_terminals: list[dict[str, Any]] = []
     from .slowdown_state import RULING_SHA256, build_guards, persist_baselines
@@ -735,6 +786,9 @@ def run(
             if start_workers == MAX_WORKERS:
                 prior_sanity_elapsed = terminal_value.get("w12_sanity_elapsed_seconds", 0.0)
                 prior_sanity_counts = dict(terminal_value.get("w12_sanity_completed_parents", {}))
+                prior_sanity_stream_elapsed = dict(
+                    terminal_value.get("w12_sanity_stream_elapsed_seconds", {})
+                )
                 prior_sanity_checked = terminal_value.get("w12_sanity_checked", False)
                 frozen_baseline = terminal_value.get("w12_sanity_w6_baseline")
                 if frozen_baseline is not None:
@@ -810,6 +864,16 @@ def run(
                     json.dumps(control, sort_keys=True, separators=(",", ":")).encode()
                 ).hexdigest(),
                 "platform_attestation": platform_attestation(),
+                **(
+                    {
+                        "funding_state": "PENDING_SEALED",
+                        "judgment_sha256": (
+                            "ccf1e0cd8d60a2019c983ab2714d58663ca42e2a228a0ddf78c16216c2ef83fb"
+                        ),
+                    }
+                    if control.get("mac_gate", {}).get("stage") == "d4096"
+                    else {}
+                ),
             },
         )
     output.mkdir(parents=True, exist_ok=True)
@@ -867,6 +931,26 @@ def run(
     last_clean_sample: float | None = None
     sanity_counts = dict(prior_sanity_counts)
     sanity_checked = prior_sanity_checked
+    is_d4096 = control.get("mac_gate", {}).get("stage") == "d4096"
+    sanity_exposure_start = (
+        {
+            stream: float(guard.snapshot(time.monotonic())["width_wall_seconds"].get("12", 0.0))
+            for stream, guard in slowdown_guards.items()
+        }
+        if is_d4096
+        else {}
+    )
+
+    def sanity_exposure(now: float) -> dict[str, float]:
+        return {
+            stream: prior_sanity_stream_elapsed.get(stream, 0.0)
+            + max(
+                0.0,
+                float(guard.snapshot(now)["width_wall_seconds"].get("12", 0.0))
+                - sanity_exposure_start[stream],
+            )
+            for stream, guard in slowdown_guards.items()
+        }
 
     def note_clean_sample() -> None:
         nonlocal last_clean_sample
@@ -890,13 +974,21 @@ def run(
         stop_event.set()
 
     def note_thermal() -> None:
-        nonlocal admission_workers, thermal_epoch_seen
+        nonlocal admission_workers, thermal_epoch_seen, preempted, stop_reason
         if thermal_epoch_seen:
             return
         thermal_epoch_seen = True
         thermal_trips.append(time.time())
         if workers == MAX_WORKERS:
             fall_back_to_w6("thermal")
+        elif control.get("mac_gate", {}).get("stage") == "d4096":
+            # D4096 permits only W6/W12. Preserve its width at this completed
+            # life boundary and leave any later restart to the sealed resume.
+            admission_workers = DEFAULT_WORKERS
+            stop_reason = "D4096 W6 thermal pause at life boundary"
+            telemetry.append({"event": "d4096_w6_thermal_preempt", "workers_next": 6})
+            preempted = True
+            stop_event.set()
         elif len(thermal_trips) % 3 == 0 and control.get("mac_gate", {}).get("stage") != "canary-b":
             admission_workers = max(1, admission_workers - 3)
         telemetry.append({"event": "thermal_pause", "workers_next": admission_workers})
@@ -1140,10 +1232,17 @@ def run(
                 from .w12_runtime import w12_sanity_decision
 
                 rates = sanity_baseline["rates_per_wall_hour"]
+                exposure = None
+                sanity_elapsed = W12_SANITY_SECONDS
+                if is_d4096:
+                    now = time.monotonic()
+                    exposure = sanity_exposure(now)
+                    sanity_elapsed = prior_sanity_elapsed + now - started
                 passed, _actual = w12_sanity_decision(
                     {stream: sanity_counts.get(stream, 0) for stream in rates},
-                    W12_SANITY_SECONDS,
+                    sanity_elapsed,
                     rates,
+                    stream_elapsed_seconds=exposure,
                 )
                 if not passed:
                     fall_back_to_w6("sanity")
@@ -1237,6 +1336,17 @@ def run(
         "w12_sanity_elapsed_seconds": prior_sanity_elapsed
         + (attempt_elapsed if workers == 12 else 0),
         "w12_sanity_completed_parents": sanity_counts,
+        **(
+            {
+                "w12_sanity_stream_elapsed_seconds": (
+                    sanity_exposure(time.monotonic())
+                    if workers == MAX_WORKERS
+                    else prior_sanity_stream_elapsed
+                )
+            }
+            if is_d4096
+            else {}
+        ),
         "w12_sanity_checked": sanity_checked,
         "w12_sanity_w6_baseline": sanity_baseline,
         "worker_hour_rates": "descriptive only; split by width; never compared with the F0 floor",
@@ -1331,9 +1441,15 @@ def main() -> None:
         type=Path,
         help="L4 split only: skip parents delegated in this create-only record directory",
     )
+    parser.add_argument(
+        "--funding-receipt",
+        type=Path,
+        help="required for D4096 L4 delegation after the independent PASS funding receipt",
+    )
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     control = json.loads(args.control.read_text())
+    _require_d4096_operation(control, args.output, args.delegation_dir, args.funding_receipt)
     if args.check:
         from .mac_gates import require_admission
 
@@ -1356,6 +1472,10 @@ def main() -> None:
             require_admission(control)
         _prepare_jobs(control, args.ledger)
         if args.delegation_dir is not None:
+            if control.get("mac_gate", {}).get("stage") == "d4096":
+                from .d4096_sealed import require_funding_receipt
+
+                require_funding_receipt(args.funding_receipt)
             from .l4_delegation import MacDelegationGate
 
             MacDelegationGate(args.delegation_dir, control["namespace"], control["allocation"])
@@ -1395,6 +1515,7 @@ def main() -> None:
                 started_monotonic=entry_started,
                 d256_frozen_root=args.d256_frozen_root,
                 **({"delegation_dir": args.delegation_dir} if args.delegation_dir else {}),
+                **({"funding_receipt": args.funding_receipt} if args.funding_receipt else {}),
             )
             result["mac_lease"] = lease.receipt
             publish_json(args.output / "runtime-result.json", result)

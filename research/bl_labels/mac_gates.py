@@ -486,6 +486,7 @@ def admit_future(
         )
     if sealed is not None:
         value["mac_gate"]["bindings"]["sealed_collection"] = sealed
+        value["operational_canary_rate"] = sealed["canary_b"]["rate_per_wall_hour"]
     publish_json(out, value)
     return value
 
@@ -518,10 +519,32 @@ def _d4096_sealed_bindings(control: dict, readiness: Path | None, projection: Pa
         raise ValueError("D4096 rebinding changes an unruled control field")
     d4096_sealed.validate_readiness(readiness)
     d4096_sealed.validate_projection(projection, readiness)
+    # The admitted D256 control carries the already-sealed operational rate.
+    # Read that metadata, never the rescue-bearing Canary-B look payload.
+    from . import frozen_factory, w12_calibration
+
+    canary_source = w12_calibration.PACK / "d256-admitted.json"
+    canary_control = _read(canary_source)
+    canary_gate = canary_control.get("mac_gate", {})
+    canary_rate = canary_control.get("operational_canary_rate")
+    if (
+        canary_control.get("source_commit") != frozen_factory.OLD_PIN
+        or canary_gate.get("stage") != "d256"
+        or canary_gate.get("status") != "APPROVED"
+        or type(canary_rate) not in (float, int)
+        or not math.isfinite(canary_rate)
+        or canary_rate <= 0
+    ):
+        raise ValueError("D4096 requires the admitted D256 Canary-B rate metadata")
     return {
         "readiness": {"path": str(readiness.resolve()), "sha256": _verify(readiness)},
         "projection": {"path": str(projection.resolve()), "sha256": _verify(projection)},
         "judgment_sha256": d4096_pack.JUDGMENT_SHA,
+        "canary_b": {
+            "path": str(canary_source.resolve()),
+            "sha256": _verify(canary_source),
+            "rate_per_wall_hour": canary_rate,
+        },
     }
 
 
@@ -639,6 +662,7 @@ def _require_future_admission(control: dict) -> None:
     expected = copy.deepcopy(original)
     if sealed is not None:
         expected_gate["bindings"]["sealed_collection"] = sealed
+        expected["operational_canary_rate"] = sealed["canary_b"]["rate_per_wall_hour"]
     expected["mac_gate"] = expected_gate
     if control != expected:
         raise ValueError("future admitted control differs from sealed admission")

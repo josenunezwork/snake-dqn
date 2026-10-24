@@ -53,6 +53,12 @@ def _require_d4096_collection_state(input_dir: Path, control: dict, requested: l
     """
     if control.get("synthetic") is True or 4096 not in requested:
         return
+    if any(
+        Path(str(D4096_DISCARD_SEAL) + suffix).exists()
+        or Path(str(D4096_DISCARD_SEAL) + suffix).is_symlink()
+        for suffix in ("", ".sha256", ".complete")
+    ):
+        raise ValueError("NOT_RUN_BY_RULE: canonical D4096 terminal discard seal present")
     stage = control.get("stage_receipts", {})
     if isinstance(stage, dict) and "D4096_DISCARD" in stage:
         raise ValueError("NOT_RUN_BY_RULE: D4096 discard binding present; terminal discard wins")
@@ -101,6 +107,13 @@ def _require_collection_release(
         or value.get("funding_receipt_sha256") != digest(input_dir / funding_name)
     ):
         raise ValueError("HOLD: foreign D4096 collection release binding")
+# B6 is deliberately a canonical package path, not an optional control field:
+# a discarded early D4096 collection must not be made fit-eligible by omitting
+# a binding from a later input control.
+D4096_DISCARD_SEAL = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0-speed/"
+    "d4096-old-equiv-02-pack-01/d4096-not-run-by-rule.json"
+)
 
 
 def synthetic_table(base: Any) -> dict[str, np.ndarray]:

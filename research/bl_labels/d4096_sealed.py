@@ -1,0 +1,532 @@
+"""Metadata-only seals for discardable, outcome-blind D4096 collection.
+
+This module intentionally accepts only receipts and terminal accounting.  It
+does not open a D4096 label, life export, ledger, or result payload.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+from pathlib import Path
+from typing import Any
+
+from .exports import _verify, publish_json
+
+JUDGMENT_SHA256 = "ccf1e0cd8d60a2019c983ab2714d58663ca42e2a228a0ddf78c16216c2ef83fb"
+READINESS_SCHEMA = "bl-labels-d4096-sealed-readiness/v1"
+PROJECTION_SCHEMA = "bl-labels-d4096-mac-h-projection/v1"
+DISCARD_SCHEMA = "d4096-not-run-by-rule/v1"
+FIXED1024_DENOMINATOR = 1024
+TARGET_SELECTED_COUNT = 3072
+MAC_H_MULTIPLIER = 1.2
+MAC_H_CAP = 130.0
+_DISCARD_LABELS = frozenset({"KILL_FIT", "INSUFFICIENT", "STOP_FUNDING", "INVALID", "HOLD"})
+CANONICAL_PACK = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0-speed/"
+    "d4096-old-equiv-02-pack-01"
+)
+
+
+def _fresh_receipt(path: Path) -> None:
+    if any(Path(str(path) + suffix).exists() for suffix in ("", ".sha256", ".complete")):
+        raise FileExistsError("sealed D4096 receipt is create-only")
+
+
+def _metadata(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Read an immutable JSON receipt and return its path/hash binding."""
+    sha = _verify(path)
+    try:
+        value = json.loads(path.read_text())
+    except json.JSONDecodeError as error:
+        raise ValueError("sealed metadata is not JSON") from error
+    if not isinstance(value, dict):
+        raise ValueError("sealed metadata must be an object")
+    return value, {"path": str(path.resolve()), "sha256": sha}
+
+
+def _bound_metadata(binding: Any) -> dict[str, Any]:
+    if not isinstance(binding, dict) or set(binding) != {"path", "sha256"}:
+        raise ValueError("sealed metadata binding is malformed")
+    path, sha = binding["path"], binding["sha256"]
+    if not isinstance(path, str) or not isinstance(sha, str) or len(sha) != 64:
+        raise ValueError("sealed metadata binding is malformed")
+    value, actual = _metadata(Path(path))
+    if actual["sha256"] != sha:
+        raise ValueError("sealed metadata binding hash differs")
+    return value
+
+
+def _terminal_wall(binding: Any, stage: str) -> float:
+    value = _bound_metadata(binding)
+    elapsed = value.get("cumulative_elapsed_seconds")
+    if (
+        value.get("schema") != "bl-labels-f0-mac-driver/v1"
+        or value.get("status") != "COMPLETE"
+        or isinstance(elapsed, bool)
+        or not isinstance(elapsed, (int, float))
+        or not math.isfinite(elapsed)
+        or elapsed <= 0
+        or not isinstance(value.get("namespace"), str)
+        or not value["namespace"].endswith(f"-mac-{stage.lower()}")
+    ):
+        raise ValueError(f"{stage} terminal metadata is not a clean completed wall receipt")
+    if stage == "D1024":
+        from .frozen_factory import OLD_PIN
+
+        if value.get("workers") != 6 or value.get("collector_source_commit") != OLD_PIN:
+            raise ValueError("D1024 terminal is not the admitted OLD W6 collector")
+    return float(elapsed)
+
+
+def _supervisor_binding(path: Path, job_id: str) -> dict[str, Any]:
+    """Hash plain supervisor terminal metadata and its bound manifest."""
+    raw, manifest_raw = path.read_bytes(), (path.parent / "manifest.json").read_bytes()
+    try:
+        receipt, manifest = json.loads(raw), json.loads(manifest_raw)
+    except json.JSONDecodeError as error:
+        raise ValueError("D1024 supervisor metadata is not JSON") from error
+    receipt_sha, manifest_sha = (
+        hashlib.sha256(raw).hexdigest(),
+        hashlib.sha256(manifest_raw).hexdigest(),
+    )
+    if not isinstance(receipt, dict) or not isinstance(manifest, dict):
+        raise ValueError("D1024 supervisor metadata must be objects")
+    state = (
+        "TERMINAL"
+        if receipt.get("status") == "PASS"
+        else "HOLD" if receipt.get("status") == "INCOMPLETE" else None
+    )
+    never_allocated = receipt.get("status") == "INCOMPLETE" and all(
+        key in receipt and receipt[key] is None
+        for key in ("generation", "session", "endpoint", "terminal")
+    )
+    mode = "canary" if job_id.startswith("f4-d1024-canary-") else "main"
+    if (
+        not job_id.startswith("f4-d1024-")
+        or state is None
+        or receipt.get("job_id") != job_id
+        or manifest.get("job_id") != job_id
+        or receipt.get("manifest_sha256") != manifest_sha
+        or (receipt.get("stop_verified") is not True and not never_allocated)
+        or manifest.get("script") != "research/bl_residual/f4_d256_colab.sh"
+        or manifest.get("env", {}).get("F4_DOSE") != "1024"
+        or manifest.get("env", {}).get("F4_MODE") != mode
+        or receipt.get("commit") != manifest.get("commit")
+        or not isinstance(manifest.get("commit"), str)
+        or len(manifest["commit"]) != 40
+    ):
+        raise ValueError("D1024 fit receipt is not a sealed terminal/HOLD supervisor receipt")
+    return {
+        "job_id": job_id,
+        "state": state,
+        "receipt": {"path": str(path.resolve()), "sha256": receipt_sha},
+        "manifest": {
+            "path": str((path.parent / "manifest.json").resolve()),
+            "sha256": manifest_sha,
+        },
+    }
+
+
+def _validate_w6_throughput(path: Path) -> dict[str, Any]:
+    from .w12_runtime import verify_d1024_old_w6_throughput
+
+    value = verify_d1024_old_w6_throughput(path)
+    if (
+        value.get("schema") != "bl-labels-f0-d1024-old-w6-throughput/v1"
+        or value.get("stage") != "d1024"
+        or value.get("workers") != 6
+        or not isinstance(value.get("source_commit"), str)
+        or len(value["source_commit"]) != 40
+    ):
+        raise ValueError("D1024 W6 throughput metadata identity differs")
+    _terminal_wall(value.get("d1024_terminal"), "D1024")
+    streams = value.get("streams")
+    if not isinstance(streams, dict) or not streams:
+        raise ValueError("D1024 W6 throughput stream inventory is missing")
+    for stream in streams:
+        # Reuse the producer's validation without writing another receipt.
+        if not isinstance(stream, str) or not stream:
+            raise ValueError("D1024 W6 throughput stream name is malformed")
+    return value
+
+
+def seal_readiness(
+    output: Path,
+    d1024_terminal: Path,
+    d1024_fit_receipts: dict[str, Path],
+    d1024_w6_metadata: Path,
+    *,
+    factory_exited: bool,
+    mac_lease_released: bool,
+    all_fit_jobs_listed: bool,
+) -> dict[str, Any]:
+    """Create the B1 metadata attestation after D1024 has stopped.
+
+    The terminal and every fit state are rehashed and copied as path/hash
+    bindings.  The caller attests only factory exit and lease release, facts
+    unavailable in the driver's terminal JSON after the lease context exits.
+    """
+    _fresh_receipt(output)
+    if not (factory_exited is True and mac_lease_released is True and all_fit_jobs_listed is True):
+        raise ValueError(
+            "B1 needs explicit factory-exited, lease-released, and complete-job attestations"
+        )
+    terminal, terminal_binding = _metadata(d1024_terminal)
+    if (
+        terminal.get("schema") != "bl-labels-f0-mac-driver/v1"
+        or terminal.get("status") != "COMPLETE"
+    ):
+        raise ValueError("D1024 factory is not terminal COMPLETE")
+    if not isinstance(d1024_fit_receipts, dict) or not d1024_fit_receipts:
+        raise ValueError("B1 needs every D1024 fit terminal/HOLD receipt")
+    jobs = []
+    for job_id, path in sorted(d1024_fit_receipts.items()):
+        if not isinstance(job_id, str) or not job_id:
+            raise ValueError("D1024 fit-job inventory is malformed")
+        jobs.append(_supervisor_binding(path, job_id))
+    ids = {job["job_id"] for job in jobs}
+    if not any("canary" in job_id for job_id in ids) or not any(
+        "canary" not in job_id for job_id in ids
+    ):
+        raise ValueError("B1 requires distinct D1024 canary and main fit receipts")
+    throughput = _validate_w6_throughput(d1024_w6_metadata)
+    if throughput["d1024_terminal"] != terminal_binding:
+        raise ValueError("D1024 W6 throughput binds another terminal")
+    result = {
+        "schema": READINESS_SCHEMA,
+        "judgment_sha256": JUDGMENT_SHA256,
+        "d1024_terminal": terminal_binding,
+        "factory_exited": factory_exited,
+        "mac_lease_released": mac_lease_released,
+        "all_fit_jobs_listed": all_fit_jobs_listed,
+        "d1024_fit_jobs": jobs,
+        "d1024_w6_metadata": {
+            "path": str(d1024_w6_metadata.resolve()),
+            "sha256": _verify(d1024_w6_metadata),
+        },
+    }
+    publish_json(output, result)
+    return result
+
+
+def validate_readiness(path: Path) -> dict[str, Any]:
+    """Fail closed unless B1's exact metadata bindings still verify."""
+    value, _ = _metadata(path)
+    if (
+        value.get("schema") != READINESS_SCHEMA
+        or value.get("judgment_sha256") != JUDGMENT_SHA256
+        or value.get("factory_exited") is not True
+        or value.get("mac_lease_released") is not True
+        or value.get("all_fit_jobs_listed") is not True
+    ):
+        raise ValueError("D4096 sealed readiness identity differs")
+    terminal = _bound_metadata(value.get("d1024_terminal"))
+    if (
+        terminal.get("schema") != "bl-labels-f0-mac-driver/v1"
+        or terminal.get("status") != "COMPLETE"
+    ):
+        raise ValueError("D1024 terminal metadata is not COMPLETE")
+    jobs = value.get("d1024_fit_jobs")
+    if not isinstance(jobs, list) or not jobs:
+        raise ValueError("D4096 sealed readiness has no D1024 fit jobs")
+    for job in jobs:
+        if not isinstance(job, dict) or set(job) != {"job_id", "state", "receipt", "manifest"}:
+            raise ValueError("D4096 fit-job binding is malformed")
+        receipt = job.get("receipt")
+        if not isinstance(receipt, dict) or not isinstance(receipt.get("path"), str):
+            raise ValueError("D1024 fit-job state binding differs")
+        if _supervisor_binding(Path(receipt["path"]), job.get("job_id", "")) != job:
+            raise ValueError("D1024 fit-job state binding differs")
+    ids = [job["job_id"] for job in jobs]
+    if (
+        len(ids) != len(set(ids))
+        or not any(job_id.startswith("f4-d1024-canary-") for job_id in ids)
+        or not any(not job_id.startswith("f4-d1024-canary-") for job_id in ids)
+    ):
+        raise ValueError("B1 requires distinct D1024 canary and main fit receipts")
+    w6_binding = value.get("d1024_w6_metadata")
+    if not isinstance(w6_binding, dict) or set(w6_binding) != {"path", "sha256"}:
+        raise ValueError("D1024 W6 throughput binding is malformed")
+    _bound_metadata(w6_binding)
+    throughput = _validate_w6_throughput(Path(w6_binding["path"]))
+    if throughput["d1024_terminal"] != value["d1024_terminal"]:
+        raise ValueError("D1024 W6 throughput binds another terminal")
+    return value
+
+
+def seal_mac_h_projection(
+    output: Path, readiness: Path, d256_terminal: Path, d1024_terminal: Path
+) -> dict[str, Any]:
+    """Create B2 from completed terminal metadata, using its frozen denominator."""
+    _fresh_receipt(output)
+    validate_readiness(readiness)
+    _d256, d256_binding = _metadata(d256_terminal)
+    _d1024, d1024_binding = _metadata(d1024_terminal)
+    d256_seconds = _terminal_wall(d256_binding, "D256")
+    d1024_seconds = _terminal_wall(d1024_binding, "D1024")
+    readiness_value = validate_readiness(readiness)
+    if d1024_binding != readiness_value["d1024_terminal"]:
+        raise ValueError("B2 D1024 terminal differs from the B1 readiness terminal")
+    projected = (
+        (d256_seconds + d1024_seconds)
+        / 3600
+        / FIXED1024_DENOMINATOR
+        * TARGET_SELECTED_COUNT
+        * MAC_H_MULTIPLIER
+    )
+    if projected > MAC_H_CAP:
+        raise ValueError("HOLD: D4096 Mac-h projection exceeds 130 h")
+    result = {
+        "schema": PROJECTION_SCHEMA,
+        "judgment_sha256": JUDGMENT_SHA256,
+        "readiness": {"path": str(readiness.resolve()), "sha256": _verify(readiness)},
+        "d256_terminal": d256_binding,
+        "d1024_terminal": d1024_binding,
+        "fixed1024_denominator": FIXED1024_DENOMINATOR,
+        "selected_count": TARGET_SELECTED_COUNT,
+        "multiplier": MAC_H_MULTIPLIER,
+        "d256_cumulative_wall_seconds": d256_seconds,
+        "d1024_cumulative_wall_seconds": d1024_seconds,
+        "projected_mac_hours": projected,
+        "verdict": "PASS",
+    }
+    publish_json(output, result)
+    return result
+
+
+def validate_projection(path: Path, readiness: Path | None = None) -> dict[str, Any]:
+    """Verify B2 and recompute the projection only from its bound terminals."""
+    value, _ = _metadata(path)
+    if value.get("schema") != PROJECTION_SCHEMA or value.get("judgment_sha256") != JUDGMENT_SHA256:
+        raise ValueError("D4096 Mac-h projection identity differs")
+    readiness_binding = value.get("readiness")
+    ready = _bound_metadata(readiness_binding)
+    if readiness is not None and (
+        readiness_binding.get("path") != str(readiness.resolve())
+        or readiness_binding.get("sha256") != _verify(readiness)
+    ):
+        raise ValueError("D4096 Mac-h projection binds another readiness receipt")
+    if ready.get("schema") != READINESS_SCHEMA:
+        raise ValueError("D4096 Mac-h projection readiness is foreign")
+    validate_readiness(Path(readiness_binding["path"]))
+    d256 = _terminal_wall(value.get("d256_terminal"), "D256")
+    d1024 = _terminal_wall(value.get("d1024_terminal"), "D1024")
+    if value.get("d1024_terminal") != ready.get("d1024_terminal"):
+        raise ValueError("B2 D1024 terminal differs from the B1 readiness terminal")
+    expected = (
+        (d256 + d1024) / 3600 / FIXED1024_DENOMINATOR * TARGET_SELECTED_COUNT * MAC_H_MULTIPLIER
+    )
+    if (
+        value.get("fixed1024_denominator") != FIXED1024_DENOMINATOR
+        or value.get("selected_count") != TARGET_SELECTED_COUNT
+        or value.get("multiplier") != MAC_H_MULTIPLIER
+        or value.get("d256_cumulative_wall_seconds") != d256
+        or value.get("d1024_cumulative_wall_seconds") != d1024
+        or value.get("verdict") != "PASS"
+        or value.get("projected_mac_hours") != expected
+        or expected > MAC_H_CAP
+    ):
+        raise ValueError("D4096 Mac-h projection does not satisfy the frozen rule")
+    return value
+
+
+def _stop_label(label: object, stage: object, unrecoverable: object) -> str:
+    allowed = {
+        "d1024-fit": {"KILL_FIT", "INSUFFICIENT"},
+        "r-a": {"STOP_FUNDING", "INVALID", "HOLD"},
+    }
+    if stage not in allowed or label not in allowed[stage]:
+        raise ValueError("discard seal needs a terminal D1024/R-A stop label or receipt")
+    if label == "HOLD" and unrecoverable is not True:
+        raise ValueError("R-A HOLD must be explicitly unrecoverable")
+    return str(label)
+
+
+def seal_not_run_by_rule(
+    output: Path,
+    readiness: Path,
+    terminal: Path | None = None,
+    *,
+    terminal_label: str | None = None,
+    terminal_stage: str | None = None,
+    unrecoverable: bool = False,
+) -> dict[str, Any]:
+    """Write B6's irreversible discard seal from a terminal label/receipt."""
+    if output.resolve() != (CANONICAL_PACK / "d4096-not-run-by-rule.json").resolve():
+        raise ValueError("discard seal must use the canonical D4096 pack path")
+    _fresh_receipt(output)
+    validate_readiness(readiness)
+    if (terminal is None) == (terminal_label is None):
+        raise ValueError("bind exactly one terminal receipt or explicit terminal label")
+    terminal_binding = None
+    if terminal is None:
+        label = _stop_label(terminal_label, terminal_stage, unrecoverable)
+    else:
+        value, terminal_binding = _metadata(terminal)
+        label = None
+    if terminal is not None and value.get("schema") == "bl-residual-fit-fault/v1":
+        from research.bl_residual.protocol import NAMESPACE
+
+        label = (
+            value.get("kind")
+            if value.get("dose") == 1024 and value.get("namespace") == NAMESPACE
+            else None
+        )
+    elif terminal is not None and value.get("schema") == "bl-residual-funding-look/v1":
+        label = value.get("verdict")
+    elif terminal is not None and value.get("schema") == "bl-labels-d4096-unrecoverable-ra-hold/v1":
+        label = value.get("verdict")
+    if label not in _DISCARD_LABELS:
+        raise ValueError("discard seal needs a terminal D1024/R-A stop label or receipt")
+    result = {
+        "schema": DISCARD_SCHEMA,
+        "judgment_sha256": JUDGMENT_SHA256,
+        "readiness": {"path": str(readiness.resolve()), "sha256": _verify(readiness)},
+        "terminal": terminal_binding,
+        "terminal_label": label,
+        "terminal_stage": terminal_stage,
+        "unrecoverable": unrecoverable,
+    }
+    publish_json(output, result)
+    return result
+
+
+def require_not_discarded(path: Path | None) -> None:
+    """Raise if a valid B6 seal exists; malformed candidate seals also HOLD."""
+    canonical = CANONICAL_PACK / "d4096-not-run-by-rule.json"
+    if path is None or path.resolve() != canonical.resolve():
+        if any(Path(str(canonical) + suffix).exists() for suffix in ("", ".sha256", ".complete")):
+            require_not_discarded(canonical)
+        if path is None:
+            return
+    companions = [
+        path,
+        path.with_name(path.name + ".sha256"),
+        path.with_name(path.name + ".complete"),
+    ]
+    if not path.exists():
+        if any(item.exists() for item in companions[1:]):
+            raise ValueError("D4096 discard seal is partial; HOLD")
+        return
+    value, _ = _metadata(path)
+    if value.get("schema") != DISCARD_SCHEMA or value.get("judgment_sha256") != JUDGMENT_SHA256:
+        raise ValueError("D4096 discard seal is malformed; HOLD")
+    validate_readiness(Path(value["readiness"]["path"]))
+    if value.get("terminal") is None:
+        _stop_label(
+            value.get("terminal_label"), value.get("terminal_stage"), value.get("unrecoverable")
+        )
+        raise ValueError("NOT_RUN_BY_RULE: D4096 has a sealed discard receipt")
+    terminal = _bound_metadata(value.get("terminal"))
+    if terminal.get("schema") == "bl-residual-fit-fault/v1":
+        label = terminal.get("kind")
+    else:
+        label = terminal.get("verdict")
+    if value.get("terminal_label") != label or label not in _DISCARD_LABELS:
+        raise ValueError("D4096 discard seal is malformed; HOLD")
+    raise ValueError("NOT_RUN_BY_RULE: D4096 has a sealed discard receipt")
+
+
+def require_funding_receipt(path: Path | None) -> dict[str, Any]:
+    """Require the later independent PASS before fitting or publishing D4096."""
+    if path is None:
+        raise ValueError("STOP_FUNDING: D4096 requires a PASS funding receipt")
+    value, _ = _metadata(path)
+    from dataclasses import asdict
+
+    from research.bl_residual.fit import FitRecipe
+    from research.bl_residual.protocol import F4_REGISTRATION_SHA, NAMESPACE, canonical_sha
+
+    inputs = value.get("inputs")
+    digests = (
+        value.get("reserve_allocation_sha256"),
+        value.get("d256_fit_sha256"),
+        value.get("d1024_fit_sha256"),
+    )
+    valid_digest = (
+        lambda item: isinstance(item, str)
+        and len(item) == 64
+        and all(char in "0123456789abcdef" for char in item)
+    )
+    if (
+        value.get("schema") != "bl-residual-funding-look/v1"
+        or value.get("verdict") != "PASS"
+        or value.get("series_id") != NAMESPACE
+        or value.get("registration_sha256") != F4_REGISTRATION_SHA
+        or value.get("recipe_sha256") != canonical_sha(asdict(FitRecipe()))
+        or value.get("doses") != [256, 1024]
+        or not all(valid_digest(item) for item in digests)
+        or not isinstance(inputs, dict)
+        or inputs.get("d256_checkpoint_sha256") != value.get("d256_fit_sha256")
+        or inputs.get("d1024_checkpoint_sha256") != value.get("d1024_fit_sha256")
+    ):
+        raise ValueError("STOP_FUNDING: D4096 requires a PASS funding receipt")
+    return value
+
+
+def _fit_receipts(values: list[str]) -> dict[str, Path]:
+    result: dict[str, Path] = {}
+    for value in values:
+        name, separator, path = value.partition("=")
+        if not separator or not name or name in result or not path:
+            raise ValueError("--fit-receipt must be JOB_ID=PATH with unique JOB_ID")
+        result[name] = Path(path)
+    return result
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    readiness = commands.add_parser("seal-readiness")
+    readiness.add_argument("--out", type=Path, required=True)
+    readiness.add_argument("--d1024-terminal", type=Path, required=True)
+    readiness.add_argument("--d1024-w6-metadata", type=Path, required=True)
+    readiness.add_argument("--fit-receipt", action="append", default=[])
+    readiness.add_argument("--factory-exited", action="store_true")
+    readiness.add_argument("--mac-lease-released", action="store_true")
+    readiness.add_argument("--all-fit-jobs-listed", action="store_true")
+    projection = commands.add_parser("seal-projection")
+    projection.add_argument("--out", type=Path, required=True)
+    projection.add_argument("--readiness", type=Path, required=True)
+    projection.add_argument("--d256-terminal", type=Path, required=True)
+    projection.add_argument("--d1024-terminal", type=Path, required=True)
+    discard = commands.add_parser("seal-not-run")
+    discard.add_argument("--out", type=Path, required=True)
+    discard.add_argument("--readiness", type=Path, required=True)
+    terminal_choice = discard.add_mutually_exclusive_group(required=True)
+    terminal_choice.add_argument("--terminal", type=Path)
+    terminal_choice.add_argument("--terminal-label", choices=sorted(_DISCARD_LABELS))
+    discard.add_argument("--terminal-stage", choices=("d1024-fit", "r-a"))
+    discard.add_argument("--unrecoverable", action="store_true")
+    args = parser.parse_args()
+    if args.command == "seal-readiness":
+        result = seal_readiness(
+            args.out,
+            args.d1024_terminal,
+            _fit_receipts(args.fit_receipt),
+            args.d1024_w6_metadata,
+            factory_exited=args.factory_exited,
+            mac_lease_released=args.mac_lease_released,
+            all_fit_jobs_listed=args.all_fit_jobs_listed,
+        )
+    elif args.command == "seal-projection":
+        result = seal_mac_h_projection(
+            args.out, args.readiness, args.d256_terminal, args.d1024_terminal
+        )
+    else:
+        result = seal_not_run_by_rule(
+            args.out,
+            args.readiness,
+            args.terminal,
+            terminal_label=args.terminal_label,
+            terminal_stage=args.terminal_stage,
+            unrecoverable=args.unrecoverable,
+        )
+    print(json.dumps(result, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
