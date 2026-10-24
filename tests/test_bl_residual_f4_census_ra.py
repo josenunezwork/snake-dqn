@@ -9,6 +9,7 @@ metric computed). The R-A lock is checked against the real
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,7 @@ from research.bl_ppo.exports import digest, export_bytes, export_json, export_to
 from research.bl_residual import f4_archive_census as census_tool
 from research.bl_residual import f4_d1024_package as package
 from research.bl_residual import f4_ra_prepare as ra
+from research.bl_residual import funding
 from research.bl_residual.data import world_fold
 from research.bl_residual.fit import FitRecipe
 from research.bl_residual.protocol import canonical_sha
@@ -272,6 +274,9 @@ def test_ra_packet_lock_equals_funding_main_preflight_identity(
     packet = json.loads((tmp_path / "r-a/packet.json").read_text())
     assert packet["status"] == "PREPARED_NOT_RUN" and packet["f2_receipt"] is None
     assert "--f2-receipt" not in packet["argv"]
+    assert Path(packet["argv"][packet["argv"].index("--command-packet") + 1]) == (
+        tmp_path / "r-a/packet.json"
+    )
     argv = packet["argv"]
 
     def arg(name: str) -> Path:
@@ -303,6 +308,100 @@ def test_ra_packet_lock_equals_funding_main_preflight_identity(
     assert arg("--look-lock") == expected == Path(result["lock_path"])
     assert arg("--d256-table") == arg("--d1024-table")
     assert not expected.exists()
+
+
+def test_ra_prepare_binds_only_the_verified_f2_receipt(
+    monkeypatch: pytest.MonkeyPatch, ra_world: dict, tmp_path: Path
+) -> None:
+    receipt = tmp_path / "f2-disposition.json"
+    binding = {
+        "path": str(receipt),
+        "sha256": "a" * 64,
+        "published_ref": "f2-input-ledger-commit",
+        "source_sha256": "b" * 64,
+        "publication_ref": "research/bl_residual/ledger/f2-result-20261024.json",
+    }
+    seen: list[Path] = []
+
+    def verified(path: Path) -> dict:
+        seen.append(path)
+        return binding
+
+    monkeypatch.setattr(ra.f2, "verify_published_receipt", verified)
+    ra.prepare(
+        d256_pack=ra_world["d256"],
+        d1024_pack=ra_world["d1024"],
+        census_dir=ra_world["census"],
+        funding_out=tmp_path / "r-a/funding-look.json",
+        packet_out=tmp_path / "r-a/packet.json",
+        pin="e" * 40,
+        f2_receipt=receipt,
+    )
+    packet = json.loads((tmp_path / "r-a/packet.json").read_text())
+    assert seen == [receipt]
+    assert packet["f2_branch"] == "VERIFIED_PUBLISHED_F2_RECEIPT"
+    assert packet["f2_receipt"] == binding
+    argv = packet["argv"]
+    assert Path(argv[argv.index("--f2-receipt") + 1]) == receipt
+
+
+def test_funding_refuses_a_receipt_different_from_the_sealed_packet_before_preflight(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    expected = {"sha256": "a" * 64}
+    packet = tmp_path / "packet.json"
+    export_json(
+        packet,
+        {
+            "schema": ra.PACKET_SCHEMA,
+            "status": "PREPARED_NOT_RUN",
+            "f2_receipt": expected,
+        },
+    )
+    receipt = tmp_path / "other-f2.json"
+    monkeypatch.setattr(funding.f2, "verify_published_receipt", lambda _: {"sha256": "b" * 64})
+    monkeypatch.setattr(
+        funding, "preflight_look", lambda *_: pytest.fail("preflight must remain closed")
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "funding.py",
+            "--d256-checkpoint",
+            str(tmp_path / "d256.pth"),
+            "--d1024-checkpoint",
+            str(tmp_path / "d1024.pth"),
+            "--d256-table",
+            str(tmp_path / "table.npz"),
+            "--d1024-table",
+            str(tmp_path / "table.npz"),
+            "--d256-allocation",
+            str(tmp_path / "d256-allocation.json"),
+            "--d1024-allocation",
+            str(tmp_path / "d1024-allocation.json"),
+            "--d256-control",
+            str(tmp_path / "d256-control.json"),
+            "--d1024-control",
+            str(tmp_path / "d1024-control.json"),
+            "--archive-receipt",
+            str(tmp_path / "archive.json"),
+            "--approval",
+            str(tmp_path / "approval.json"),
+            "--b8",
+            str(tmp_path / "b8.pth"),
+            "--look-lock",
+            str(tmp_path / "F4_R_A_lock.json"),
+            "--command-packet",
+            str(packet),
+            "--f2-receipt",
+            str(receipt),
+            "--out",
+            str(tmp_path / "out.json"),
+        ],
+    )
+    with pytest.raises(ValueError, match="F2 binding differs"):
+        funding.main()
 
 
 def test_ra_prepare_holds_on_existing_lock_or_unpublished_census(

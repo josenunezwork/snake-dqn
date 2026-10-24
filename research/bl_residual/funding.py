@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from research.bl_ppo.exports import export_json, verify_export
+from research.bl_residual import f2
 from research.bl_residual.heldout import evaluate as evaluate_heldout
 from research.bl_residual.heldout import preflight_look
 from research.bl_residual.protocol import canonical_sha
@@ -164,6 +165,7 @@ def main() -> None:
     parser.add_argument("--approval", type=Path)
     parser.add_argument("--b8", type=Path)
     parser.add_argument("--look-lock", type=Path)
+    parser.add_argument("--command-packet", type=Path)
     parser.add_argument("--f2-receipt", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
@@ -184,9 +186,23 @@ def main() -> None:
             args.approval,
             args.b8,
             args.look_lock,
+            args.command_packet,
         )
     )
     if joint:
+        # Refuse a receipt substitution before the R-A lock is created or any
+        # held-out table can be opened.  The preparer sealed exactly this
+        # binding after independently verifying publication.
+        verify_export(args.command_packet)
+        packet = json.loads(args.command_packet.read_text())
+        if (
+            packet.get("schema") != "bl-residual-r-a-command-packet/v1"
+            or packet.get("status") != "PREPARED_NOT_RUN"
+        ):
+            raise ValueError("R-A command packet is not a sealed prepared packet")
+        f2_binding = f2.verify_published_receipt(args.f2_receipt) if args.f2_receipt else None
+        if packet.get("f2_receipt") != f2_binding:
+            raise ValueError("R-A command packet F2 binding differs from --f2-receipt")
         # The lock is canonical input identity, not an arbitrary output pathname.
         left = preflight_look(
             args.d256_checkpoint,
@@ -240,12 +256,12 @@ def main() -> None:
         raise ValueError("provide a complete joint R-A input set")
     if args.f2_receipt:
         verify_export(args.f2_receipt)
-        f2 = json.loads(args.f2_receipt.read_text())
+        f2_value = json.loads(args.f2_receipt.read_text())
     else:
-        f2 = {}
+        f2_value = {}
     export_json(
         args.out,
-        evaluate(d256, d1024, f2),
+        evaluate(d256, d1024, f2_value),
     )
 
 

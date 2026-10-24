@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from research.bl_ppo.exports import digest, export_json, verify_export
+from research.bl_residual import f2
 from research.bl_residual import f4_archive_census as census_tool
 from research.bl_residual import f4_d256_package as d256
 from research.bl_residual import f4_d1024_package as d1024
@@ -131,6 +132,7 @@ def prepare(
     funding_out: Path,
     packet_out: Path,
     pin: str,
+    f2_receipt: Path | None = None,
 ) -> dict[str, Any]:
     d256.require_window_closed()
     if packet_out.exists() or funding_out.exists():
@@ -185,6 +187,10 @@ def prepare(
         raise ValueError(f"HOLD: an R-A lock already exists (once-only look): {existing}")
     if funding_out.parent.exists() and any(funding_out.parent.iterdir()):
         raise ValueError("HOLD: R-A output directory is not empty (once-only look)")
+    # This verifies the result-ledger publication before opening the receipt.
+    # Keep the exact returned identity in the sealed packet; funding.main repeats
+    # this verification and refuses any command-line receipt that differs.
+    f2_binding = f2.verify_published_receipt(f2_receipt) if f2_receipt is not None else None
     argv = [
         PYTHON,
         "-m",
@@ -213,9 +219,13 @@ def prepare(
         str(d256_inputs / "b8.pth"),
         "--look-lock",
         str(lock_path),
+        "--command-packet",
+        str(packet_out),
         "--out",
         str(funding_out),
     ]
+    if f2_receipt is not None:
+        argv.extend(("--f2-receipt", str(f2_receipt)))
     packet = {
         "schema": PACKET_SCHEMA,
         "status": "PREPARED_NOT_RUN",
@@ -223,8 +233,12 @@ def prepare(
         "lock": lock,
         "lock_path": str(lock_path),
         "funding_output": str(funding_out),
-        "f2_branch": "UNPUBLISHED_APPLY_STRIKES_BRANCH",
-        "f2_receipt": None,
+        "f2_branch": (
+            "UNPUBLISHED_APPLY_STRIKES_BRANCH"
+            if f2_binding is None
+            else "VERIFIED_PUBLISHED_F2_RECEIPT"
+        ),
+        "f2_receipt": f2_binding,
         "env": THREAD_ENV,
         "argv": argv,
         "shell": shlex.join(["/usr/bin/env", *THREAD_ENV, *argv]),
@@ -249,6 +263,7 @@ def main() -> None:
     parser.add_argument("--census-dir", type=Path)
     parser.add_argument("--funding-out", type=Path)
     parser.add_argument("--packet-out", type=Path)
+    parser.add_argument("--f2-receipt", type=Path)
     parser.add_argument("--pin", required=True)
     args = parser.parse_args()
     if args.print_command:
@@ -267,6 +282,7 @@ def main() -> None:
                 funding_out=args.funding_out,
                 packet_out=args.packet_out,
                 pin=args.pin,
+                f2_receipt=args.f2_receipt,
             )
         )
     )
