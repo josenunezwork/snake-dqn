@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from research.bl_labels import mac_driver, slowdown_resume, w12_runtime
 from research.bl_labels.exports import publish_json
+from research.bl_labels.factory_persistence import (
+    INTERIM_RULING_SHA256,
+    POLICY_ID,
+    RULING_SHA256,
+    PersistenceTracker,
+)
 
 _actual_operational_pin = slowdown_resume._operational_pin
 
@@ -19,6 +28,42 @@ def _isolated_test_slot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr(factory_interim_launcher, "TEST_SLOT_PATH", tmp_path / "test-slot.lock")
     monkeypatch.setattr(slowdown_resume, "_operational_pin", lambda: "1" * 40)
+    from research.bl_labels import factory_persistence
+
+    clock = [0.0]
+    monkeypatch.setattr(
+        factory_persistence,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: clock[0],
+            sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+        ),
+    )
+    monkeypatch.setattr(
+        factory_persistence,
+        "_native_identity",
+        lambda pid: {
+            "birth": f"fixture-{pid}",
+            "birth_precision": {"unit": "fixture"},
+            "executable": "/usr/bin/python3",
+        },
+    )
+
+
+def _persistent_guard(monkeypatch: pytest.MonkeyPatch, owned: set[int] | None = None) -> None:
+    """Exercise the debounce at 0,5,...30 seconds with native identity mocked."""
+    from research.bl_labels import factory_persistence
+
+    clock = [0.0]
+    monkeypatch.setattr(
+        factory_persistence,
+        "time",
+        SimpleNamespace(monotonic=lambda: clock[0], sleep=lambda _seconds: None),
+    )
+    tracker = PersistenceTracker("slowdown-guard-fixture")
+    for index in range(7):
+        clock[0] = index * 5.0
+        mac_driver._exclusive_factory_guard(owned or set(), tracker)
 
 
 def _attempt(
@@ -50,12 +95,31 @@ def _trip(stream: str, width: int, wall: float, epoch: float) -> dict[str, objec
 
 
 def _host_check(state: Path, epoch: float) -> None:
+    state.mkdir(parents=True, exist_ok=True)
+    telemetry = state / "slowdown-host-check-999.process.jsonl"
+    attempt_id = "synthetic-host-window"
+    rows = [
+        {
+            "policy_id": POLICY_ID,
+            "ruling_sha256": RULING_SHA256,
+            "interim_ruling_sha256": INTERIM_RULING_SHA256,
+            "attempt_id": attempt_id,
+            "sample_monotonic": index * 5.0,
+            "sample_sequence": index + 1,
+            "decision": "observation_complete",
+        }
+        for index in range(7)
+    ]
+    payload = b"".join(json.dumps(row, sort_keys=True).encode() + b"\n" for row in rows)
+    telemetry.write_bytes(payload)
     publish_json(
         state / "slowdown-host-check-999.json",
         {
             "schema": slowdown_resume.HOST_CHECK_SCHEMA,
-            "policy": slowdown_resume.INTERIM_POLICY,
-            "ruling_sha256": slowdown_resume.INTERIM_RULING_SHA256,
+            "policy": slowdown_resume.PERSISTENCE_POLICY,
+            "policy_id": POLICY_ID,
+            "ruling_sha256": RULING_SHA256,
+            "interim_ruling_sha256": INTERIM_RULING_SHA256,
             "operational_pin": slowdown_resume._operational_pin(),
             "for_trip_epoch": epoch,
             "checked_epoch": epoch + 1,
@@ -64,6 +128,20 @@ def _host_check(state: Path, epoch: float) -> None:
             "no_disallowed_competing_compute": True,
             "serial_test_lane_stopped": True,
             "host_health": {"ac_power": True, "lid_open": True},
+            "process_window": {
+                "policy_id": POLICY_ID,
+                "ruling_sha256": RULING_SHA256,
+                "interim_ruling_sha256": INTERIM_RULING_SHA256,
+                "attempt_id": attempt_id,
+                "window_start_monotonic": 0.0,
+                "window_end_monotonic": 30.0,
+                "observation_count": 7,
+                "final_pending": [],
+                "observation_errors": [],
+                "stop_reasons": [],
+                "telemetry_path": str(telemetry),
+                "telemetry_sha256": hashlib.sha256(payload).hexdigest(),
+            },
         },
     )
 
@@ -141,10 +219,10 @@ def test_process_checks_match_job_argv_only(
 
     monkeypatch.setattr(mac_driver, "_command_output", command_output)
     if blocked:
-        with pytest.raises(mac_driver.MacGuardError, match="concurrent compute pid 123"):
-            mac_driver._exclusive_factory_guard(set())
+        with pytest.raises(mac_driver.MacGuardError, match="persistent concurrent compute pid 123"):
+            _persistent_guard(monkeypatch)
     else:
-        mac_driver._exclusive_factory_guard(set())
+        mac_driver._exclusive_factory_guard(set(), PersistenceTracker("single-safe-observation"))
     _attempt(tmp_path, "one", workers=6, records=[_trip("watch6", 6, 100, 1000)])
     _attempt(tmp_path, "two", workers=6, records=[_trip("watch6", 6, 200, 2000)])
     calls = []
@@ -168,22 +246,26 @@ def test_process_checks_match_job_argv_only(
     if blocked:
         with pytest.raises(ValueError, match="host check found unsafe process observation; HOLD"):
             slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
-        assert not list(tmp_path.glob("slowdown-host-check-*"))
+        assert not (tmp_path / "slowdown-host-check-2001.json").exists()
     else:
         path = slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
         receipt = slowdown_resume._read_triplet(path)
         assert "no_sol_codex" not in receipt
         assert receipt["no_disallowed_competing_compute"] is True
         assert receipt["serial_test_lane_stopped"] is True
-        assert receipt["ruling_sha256"] == slowdown_resume.INTERIM_RULING_SHA256
+        assert receipt["ruling_sha256"] == RULING_SHA256
         assert receipt["operational_pin"] == slowdown_resume._operational_pin()
         assert receipt["pmset_therm"] == "CPU_Speed_Limit = 100\n"
         assert receipt["top_cpu_consumers"] == [
             " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex"
         ]
         assert slowdown_resume.resume_policy(6, tmp_path) == (6, [])
-    assert calls[-1] == ["/bin/ps", "-axo", "pid=,pcpu=,comm="]
-    assert process_calls == [["/bin/ps", "-A", "-o", "pid=,ppid=,nice=,args="]] * 2
+    if blocked:
+        assert not calls
+    else:
+        assert calls[-1] == ["/bin/ps", "-axo", "pid=,pcpu=,comm="]
+    assert process_calls
+    assert all(call == ["/bin/ps", "-A", "-o", "pid=,ppid=,nice=,args="] for call in process_calls)
 
 
 def test_w12_pair_uses_common_verified_24_hour_clean_return_rule(tmp_path: Path) -> None:
@@ -328,7 +410,7 @@ def test_host_check_refuses_running_serial_test_lane(
     with serial_test_slot():
         with pytest.raises(InterimLaunchError, match=".+"):
             slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
-    assert not list(tmp_path.glob("slowdown-host-check-*"))
+    assert not (tmp_path / "slowdown-host-check-2001.json").exists()
 
 
 def test_host_check_requires_actual_health_before_publishing(
@@ -341,9 +423,9 @@ def test_host_check_requires_actual_health_before_publishing(
         raise mac_driver.MacGuardError("refusing F0 admission on battery")
 
     monkeypatch.setattr(mac_driver, "_guard_snapshot", unsafe)
-    with pytest.raises(mac_driver.MacGuardError, match="battery"):
+    with pytest.raises(ValueError, match="battery"):
         slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
-    assert not list(tmp_path.glob("slowdown-host-check-*"))
+    assert not (tmp_path / "slowdown-host-check-2001.json").exists()
 
 
 @pytest.mark.parametrize("dirty", [" M research/bl_labels/slowdown_resume.py\n", "?? foreign.py\n"])
@@ -373,7 +455,7 @@ def test_foreign_agent_descendants_are_individually_priority_checked(
         lambda _: f"123 1 15 codex exec task\n124 123 {nice} {tool}\n",
     )
     if nice < 15:
-        with pytest.raises(mac_driver.MacGuardError, match="concurrent compute pid 124"):
-            mac_driver._exclusive_factory_guard(set())
+        with pytest.raises(mac_driver.MacGuardError, match="persistent concurrent compute pid 124"):
+            _persistent_guard(monkeypatch)
     else:
-        mac_driver._exclusive_factory_guard(set())
+        mac_driver._exclusive_factory_guard(set(), PersistenceTracker("safe-descendant"))
