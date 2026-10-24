@@ -853,7 +853,16 @@ def annotate(
         ):
             role = "launch_shell"
         elif executable != record.executable:
-            continue
+            # Darwin caffeinate forks its assertion helper and execs the utility
+            # in the original PID. Preserve that exact native birth across exec.
+            if (
+                _matches_executable(executable, record.interpreter, record.interpreter_native)
+                and argv == _expected_supervisor_argv(record)
+                and _supervisor_argv(argv, record)
+            ):
+                role = "supervisor"
+            else:
+                continue
         elif argv == record.argv and _supervisor_argv(argv, record):
             role = "supervisor"
         elif argv == record.argv and _wrapper_argv(argv, record):
@@ -919,6 +928,13 @@ def annotate(
             executable = str(Path(str(row["executable"])).resolve())
             role: str | None = None
             if (
+                parent.role == "supervisor"
+                and executable == record.executable == "/usr/bin/caffeinate"
+                and argv == record.argv
+                and _wrapper_argv(argv, record)
+            ):
+                role = "wrapper"
+            elif (
                 parent.role in {"bootstrap", "launch_verifier", "supervisor"}
                 and record.git_executable
                 and _matches_executable(executable, record.git_executable)
