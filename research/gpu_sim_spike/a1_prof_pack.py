@@ -119,6 +119,7 @@ def _source_paths() -> list[str]:
         "research/apex_safety_20260926",
         "research/b8_death_census_20261014",
         "research/fixed_search.py",
+        "research/metadata_archive.py",
         "requirements.txt",
         "pyproject.toml",
     ]

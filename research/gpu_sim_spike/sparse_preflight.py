@@ -15,6 +15,7 @@ from pathlib import Path
 
 from research.gpu_sim_spike import sparse_pack, sparse_units
 from research.gpu_sim_spike.make_manifests import checkpoint_inputs, git_head, sha256_file
+from research.metadata_archive import bundle_inputs
 
 
 def preflight(root: Path, commit: str, exactness_fixture: Path | None = None) -> dict:
@@ -30,13 +31,15 @@ def preflight(root: Path, commit: str, exactness_fixture: Path | None = None) ->
         target = inputs / row["dest"]
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(row["path"], target)
-    ledger = inputs / "inputs/verified-ledger.json"
+    metadata_source = root / "metadata-source"
+    ledger = metadata_source / "verified-ledger.json"
     sparse_units.publish_json(
         ledger,
         sparse_units.empty_ledger(
             sparse_units.namespace(commit, smoke=True), sparse_units.allocation(smoke=True)
         ),
     )
+    metadata_rows = sparse_pack._inputs(ledger, "inputs")
     env = dict(os.environ)
     env.update(
         {
@@ -62,10 +65,26 @@ def preflight(root: Path, commit: str, exactness_fixture: Path | None = None) ->
         }
     )
     if exactness_fixture is not None:
-        target = inputs / "exactness/failed-a100-state.npz"
+        target = metadata_source / "exactness/failed-a100-state.npz"
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(exactness_fixture, target)
+        metadata_rows.append(
+            {
+                "path": str(target),
+                "sha256": sha256_file(target),
+                "dest": "exactness/failed-a100-state.npz",
+            }
+        )
         env["SPARSE_EXACTNESS_FIXTURE"] = "exactness/failed-a100-state.npz"
+    metadata = bundle_inputs(metadata_rows, inputs / "metadata.tar")
+    env["METADATA_ARCHIVE_SHA256"] = next(
+        row["sha256"] for row in metadata if row["dest"] == "metadata.tar"
+    )
+    for row in metadata:
+        if row["dest"] != "metadata.tar" and "path" in row:
+            target = inputs / row["dest"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(row["path"], target)
     began = time.perf_counter()
     log = root / "entrypoint.log"
     with log.open("x") as stream:

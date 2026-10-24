@@ -1,4 +1,4 @@
-"""Light isolated bootstrap and pre-data evidence contracts; no gameplay."""
+"""Isolated bootstrap contracts and a tiny Mac OLD/NEW gameplay regression."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tarfile
 import time
 from pathlib import Path
 
@@ -23,14 +24,19 @@ def test_worker_isolates_science_and_keeps_callback_exports_distinct(tmp_path: P
 from research.bl_served_search.b2_engine import WatchDriver
 make_driver=lambda *args: WatchDriver()
 def collect_unit(item,b8,frp3,namespace):
- d=make_driver(); d.prepared_decision(); d.step(packet=object())
+ d=make_driver(); packet=d.prepared_decision(); d.step(packet=packet)
  base={'namespace':namespace,'allocation_id':item['allocation_id']}
  base['allocation']={k:v for k,v in item.items() if not callable(v)}
  item['publish_life'](dict(base,schema='bl-labels-f0-life/v1',life=0,rows=[]))
- d=WatchDriver(); d.life=1; d.prepared_decision(); d.step(0)
+ d=GateDriver(); d.life=1; d.prepared_decision(); d.step(0, object())
+ d.step(forced=0, packet=object())
+ WatchDriver().step(forced=0, packet=object())
  item['publish_life'](dict(base,schema='bl-labels-f0-session/v1',rows=[]))
  return dict(base,schema='bl-labels-f0-unit/v1',
              rows=[],timing_seconds={'play':1.})
+class GateDriver(WatchDriver):
+ def step(self,forced=None,packet=None):
+  return super().step(forced,packet)
 """,
         "research/bl_served_search/b2_engine.py": """
 from src.simd_env import ego2s_policy,ego_raster
@@ -100,7 +106,7 @@ def forward_q(*args): return None
         "natural_rasters": 2,
         "natural_forwards": 2,
         "forced_forwards": 0,
-        "forced_steps": 1,
+        "forced_steps": 3,
     }
     assert set(diagnostic["advisory"]) == {"0:0", "1:0"}
     paths = list((output / "payloads").glob("*.json"))
@@ -112,6 +118,96 @@ def forward_q(*args): return None
     }
     for path in paths:
         _verify(path)
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(sys.platform != "darwin", reason="Mac-local scientific regression")
+def test_worker_tiny_real_old_and_new_parent(tmp_path: Path) -> None:
+    """Exercise the real GateDriver super-call through the external bootstrap.
+
+    This is a functional regression on a separate two-frame test allocation,
+    never a T-EQ bank, timing result or equivalence admission.
+    """
+    root = Path(__file__).resolve().parents[2]
+    checkpoints = root.parent / "snake-dqn" / "saved_snakes"
+    b8 = checkpoints / "b8_s3_t7_20261016.pth"
+    frp3 = checkpoints / "frp3_m3_s12_u60000_20261005.pth"
+    if not b8.is_file() or not frp3.is_file():
+        pytest.skip("requires the owner's pinned Mac checkpoints")
+    old = tmp_path / "old"
+    old.mkdir()
+    archive = tmp_path / "old.tar"
+    with archive.open("wb") as stream:
+        subprocess.run(
+            ["git", "archive", eq.OLD_PIN, "research", "src", "configs", "web/backend"],
+            cwd=root,
+            stdout=stream,
+            check=True,
+        )
+    with tarfile.open(archive) as stream:
+        stream.extractall(old, filter="data")
+    # Scripted opponents avoid additional historical checkpoint dependencies.
+    from research.bl_labels.manifests import materialize_gate_plans
+
+    allocation = materialize_gate_plans(
+        [
+            dict(
+                allocation_id="speed-worker-regression",
+                seed=20261024,
+                stream="gate-scripted",
+                horizon=2,
+            )
+        ]
+    )
+    manifest = tmp_path / "manifest.json"
+    publish_json(manifest, dict(namespace="speed-worker-regression/v1", allocation=allocation))
+    new_pin = speed_run.git(root, "rev-parse", "HEAD")
+    payloads = []
+    for name, tree, pin in (("old", old, eq.OLD_PIN), ("new", root, new_pin)):
+        output = tmp_path / f"{name}-output"
+        launched = time.monotonic()
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(speed_run.WORKER),
+                "--worktree",
+                str(tree),
+                "--pin",
+                pin,
+                "--output",
+                str(output),
+                "--b8",
+                str(b8),
+                "--frp3",
+                str(frp3),
+                "--manifest",
+                str(manifest),
+                "--index",
+                "0",
+                "--deadline",
+                str(launched + 120),
+                "--launched",
+                str(launched),
+            ],
+            cwd=tree,
+            env={**os.environ, **speed_run.THREADS, "SNAKE_DQN_DEVICE": "cpu"},
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        diagnostic = json.loads((output / "diagnostic.json").read_text())
+        assert diagnostic["counts"]["living_decisions"] == 2
+        assert set(diagnostic["advisory"]) == {"0:0", "0:1"}
+        science = []
+        for path in sorted((output / "payloads").glob("*.json")):
+            _verify(path)
+            science.append(json.loads(path.read_text()))
+        unit = next(p for p in science if p["schema"] == "bl-labels-f0-unit/v1")
+        assert len(unit["audit_tape"]) == 2
+        payloads.append(science)
+    assert eq.compare_payloads(*payloads)["status"] == "PASS"
 
 
 def test_publication_gate_precedes_any_science_read(tmp_path: Path, monkeypatch) -> None:
