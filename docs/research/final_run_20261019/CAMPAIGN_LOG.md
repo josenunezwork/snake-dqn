@@ -1262,3 +1262,22 @@ Attempt-1 manifest `gpu-integration-i0s-20261024/attempt-01/integration-main.jso
 will refuse unless the O1 hold changes with evidence or a judge rules on it. Not reviewed, admitted
 or dispatched; 0 allocations, 0 register rows. Next: the Claude-V stand-in review (§4). Note:
 `gpu-integration-i0s-20261024/HANDOFF_I0S.md` (`504766ae…`).
+
+### 2026-10-24 — I0S amended: first-wave budget ruling step 1 + Claude-V review F1–F5
+
+Per `JUDGMENT_I0S_FIRST_WAVE_BUDGET_20261024.md` (`dfc00a4d…4c5b`) implementer step 1, the
+first-wave O1 mirror is now junior to I0S at 44.62 u / 288 min (account 0, full pair 48/288).
+Ceilings, the 42 u / 250 min reservation and the global O1 hold are unchanged. New operations:
+`restore-o1` (R-2), `retry-o1-reduce` (R-3, refused if it would go negative), and
+`release-old-i0-hold` (R-4, required before any attempt-2 admission). The Claude-V stand-in
+REJECT (`CLAUDE_V_STANDIN_I0S_REVIEW.json` `d2ad7fb1…`) is addressed:
+- F1: native-parity and discrepancy exports are non-mechanical, and INVALID is read in every
+  output of every attempt.
+- F2: the final reduction is pinned to `REDUCTION.json`, with an O_EXCL `REDUCTION.started`.
+- F3–F5: also fixed.
+
+`ADMISSION_PROJECTION_02.json` (`041ae696…`) shows FITS, with first_wave 42.00006 u / 337.3 min.
+On the unchanged attempt-1 manifest, config `-03` (`af2dc6bb…`) and `OFFLINE_PROOF_03.json`
+(`9e7f43f1…`) give canary.check and supervisor.validate ACCEPT and `PASS_DRY_RUN … allocations=0`.
+Addendum `HANDOFF_I0S_02.md` (`861c7628…`). Not re-reviewed, admitted or dispatched; 0 register
+rows.

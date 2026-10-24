@@ -23,7 +23,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import statistics
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -109,11 +111,40 @@ def frozen_validators() -> dict[str, Callable[..., Any]]:
     for module in (integration_analyze, integration_units):
         if not Path(module.__file__).resolve().is_relative_to(attempt_module.RUN):
             raise ValueError(f"{module.__name__} did not resolve from the qualified checkout")
+    from research.gpu_sim_spike.benchmark import source_hashes
+
     return {
         "valid_cell": integration_analyze.valid_cell,
         "native_valid": integration_analyze.native_valid,
         "units": integration_units,
+        "source_hashes": source_hashes,
     }
+
+
+def invalid_markers(output: Path, validators: dict[str, Callable[..., Any]]) -> list[str]:
+    """INVALID evidence in one output, whatever its attempt or scoring (review F1b/F4)."""
+    units, exports, found = validators["units"], Path(output) / "exports", []
+    failure = exports / "integration-failure.json"
+    if failure.exists():
+        try:
+            units._verify(failure)
+            body = json.loads(failure.read_text())
+            identity = (body.get("commit"), body.get("source_sha256"))
+            if identity != (PIN, validators["source_hashes"]()):
+                found.append(f"foreign I0 failure marker: {failure}")
+            if body.get("status") == "INVALID":
+                found.append(f"producer published integration-failure.json INVALID: {failure}")
+        except (OSError, ValueError) as exc:
+            found.append(f"failure marker unverifiable: {exc}")
+    native = exports / "native-parity.json"
+    if native.exists():
+        try:
+            units._verify(native)
+            if json.loads(native.read_text()).get("status") == "INVALID":
+                found.append(f"native parity INVALID: {native}")
+        except (OSError, ValueError) as exc:
+            found.append(f"native report unverifiable: {exc}")
+    return found
 
 
 def gate(row: dict[str, Any]) -> dict[str, Any]:
@@ -147,22 +178,12 @@ def evaluate_exports(
     units = validators["units"]
     invalid, incomplete = [], []
     ns, cells = units.namespace(PIN), units.allocation()
-    failure = exports / "integration-failure.json"
-    if failure.exists():
-        try:
-            units._verify(failure)
-            if json.loads(failure.read_text()).get("status") == "INVALID":
-                invalid.append("producer published integration-failure.json INVALID")
-        except (OSError, ValueError) as exc:
-            invalid.append(f"failure marker unverifiable: {exc}")
     native_ok = False
     native = exports / "native-parity.json"
     if native.exists():
         try:
             units._verify(native)
             report = json.loads(native.read_text())
-            if report.get("status") == "INVALID":
-                invalid.append("native parity INVALID")
             native_ok = bool(validators["native_valid"](report, PIN))
             if not native_ok:
                 incomplete.append("native report lacks executed A100 parity proof at this pin")
@@ -301,6 +322,9 @@ def final(
         for number, check in checks.items()
         for error in check["errors"]
     ]
+    for number, outputs in attempts.items():
+        for output in outputs:
+            invalid += [f"attempt {number}: {item}" for item in invalid_markers(output, validators)]
     selection = select_scored(attempts)
     cells = {unit: {"status": "MISSING"} for unit in GATING}
     cells.update({unit: {"status": "DESCRIPTIVE_NOT_RUN"} for unit in DESCRIPTIVE})
@@ -309,7 +333,11 @@ def final(
     if selection["scored"] is None:
         incomplete.append("no attempt reached a non-mechanical terminal status")
     else:
-        output = attempts[selection["scored"]][-1]
+        outputs = attempts[selection["scored"]]
+        producing = [item for item in outputs if attempt_module.exported_names(item)]
+        if len(producing) > 1:
+            invalid.append("producer exports in more than one allocation of the scored attempt")
+        output = producing[0] if producing else outputs[-1]
         result = evaluate_exports(output / "exports", work, validators)
         invalid += result["invalid"]
         incomplete += result["incomplete"]
@@ -344,6 +372,39 @@ def final(
     }
 
 
+def run_final(
+    packet: Path,
+    register_path: Path,
+    validators: dict[str, Callable[..., Any]] | None = None,
+) -> dict[str, Any]:
+    """The single final reduction (review F2): fixed output, packet-level O_EXCL marker.
+
+    The marker is created before any ledger rebuild or rate computation, so a crashed,
+    repeated or relocated run is refused; recovery after a crash needs a judge.
+    """
+    packet = Path(packet)
+    output, marker = packet / "REDUCTION.json", packet / "REDUCTION.started"
+    if output.exists() or marker.exists():
+        raise ValueError("the I0S reducer runs once; REDUCTION.started/REDUCTION.json exist")
+    attempts = {
+        number: attempt_module.attempt_outputs(number, packet)
+        for number in (1, 2)
+        if attempt_module.attempt_dir(number, packet).exists()
+    }
+    attempts = {number: outputs for number, outputs in attempts.items() if outputs}
+    rows = register.read(register_path)
+    require_settled(rows, attempts)  # a blinded refusal leaves no marker
+    descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w") as stream:
+        json.dump({"started_utc": datetime.now(timezone.utc).isoformat()}, stream)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    result = final(attempts, rows, packet / "REDUCTION-work", validators)
+    operator.publish_json(output, result)
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("integrity", "final"))
@@ -359,18 +420,16 @@ def main() -> None:
     attempts = {number: outputs for number, outputs in attempts.items() if outputs}
     if args.mode == "integrity":
         result = {number: integrity(outputs) for number, outputs in attempts.items()}
+        if args.output:
+            operator.publish_json(args.output, result)
     else:
-        if args.output is None:
-            parser.error("final reduction requires --output (create-only, runs once)")
-        existing = sorted(args.packet.glob("REDUCTION*.json"))
-        if args.output.exists() or existing:
-            raise SystemExit(f"reduction already published; the reducer runs once: {existing}")
-        work = args.output.parent / f"{args.output.stem}-work"
-        if work.exists():
-            raise SystemExit(f"reduction work directory already exists: {work}")
-        result = final(attempts, register.read(args.register), work)
-    if args.output:
-        operator.publish_json(args.output, result)
+        pinned = (args.packet / "REDUCTION.json").resolve()
+        if args.output is not None and args.output.resolve() != pinned:
+            raise SystemExit("final reduction publishes only <packet>/REDUCTION.json")
+        try:
+            result = run_final(args.packet, args.register)
+        except (ValueError, OSError) as exc:
+            raise SystemExit(f"REFUSED: {exc}") from exc
     print(json.dumps(result, indent=2, sort_keys=True, default=str))
 
 

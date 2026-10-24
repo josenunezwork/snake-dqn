@@ -33,6 +33,7 @@ HISTORY = [
     },
 ]
 SOURCE = [{"path": "/synthetic/source", "sha256": "0" * 64}]
+SYNTHETIC_SOURCES = {"synthetic.py": "0" * 64}
 
 
 def units_module() -> Any:
@@ -166,6 +167,16 @@ def receipt(output: Path, **fields: Any) -> dict[str, Any]:
     return value
 
 
+def native_invalid_mechanical(output: Path) -> Path:
+    """Reviewer F1 probe: native parity INVALID published, then a Mac RPC timeout, 0 cells."""
+    units = units_module()
+    exports = output / "exports"
+    exports.mkdir(parents=True)
+    units.publish_json(exports / "native-parity.json", {"status": "INVALID", "commit": i0s.PIN})
+    receipt(output, failure_class="RPC_EXEC_POLL_TIMEOUT")
+    return output
+
+
 def timeout_tree(
     output: Path,
     cells: dict[str, tuple[float, list[float] | None]],
@@ -190,7 +201,12 @@ def timeout_tree(
         units.publish_unit(exports, ns, allocation, unit, cell_row(unit, median, blocks))
     status = {"status": "INCOMPLETE", "reason": "I0 deadline during continuous block"}
     if failure:
-        status = {"status": "INVALID", "commit": i0s.PIN, "failure_class": failure}
+        status = {
+            "status": "INVALID",
+            "commit": i0s.PIN,
+            "source_sha256": SYNTHETIC_SOURCES,
+            "failure_class": failure,
+        }
         units.publish_json(exports / "integration-failure.json", status)
     units.publish_json(exports / "integration-bench.json", status)
     if complete_ledger:
@@ -267,6 +283,10 @@ def admit(
     rows = register.read(path)
     event = i0s.admission_event(rows, package(attempt, now, **kwargs), attempt, now, packet=packet)
     return register.append(path, event)
+
+
+def release_old_i0(path: Path) -> dict[str, Any]:
+    return register.append(path, i0s.release_old_i0_delta(register.read(path), SOURCE[0]))
 
 
 def settle(path: Path, attempt: int, charged: float = 18.4) -> dict[str, Any]:

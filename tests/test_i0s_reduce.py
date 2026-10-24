@@ -16,7 +16,7 @@ from tools import i0s_reduce as reduce
 ROOT = Path(__file__).resolve().parents[1]
 
 pytestmark = pytest.mark.skipif(
-    not (i0s.RULING.is_file() and i0s.ROUND36.is_file()),
+    not (i0s.RULING.is_file() and i0s.ROUND36.is_file() and i0s.BUDGET_RULING.is_file()),
     reason="I0S ruling or round-36 judgment absent on this machine",
 )
 
@@ -30,6 +30,7 @@ def validators(native: bool = True) -> dict:
         "valid_cell": integration_analyze.valid_cell,
         "native_valid": lambda report, commit: native and report.get("commit") == commit,
         "units": integration_units,
+        "source_hashes": lambda: tree.SYNTHETIC_SOURCES,
     }
 
 
@@ -57,6 +58,7 @@ def run(
     if second is not None:
         i0s.attempt_dir(2, packet).mkdir(parents=True)
         if attempt_one == "mechanical":
+            tree.release_old_i0(path)
             tree.admit(path, 2, packet)
         else:  # protocol breach: register it bypassing the predicate
             from tools import small_bench_register as register
@@ -237,10 +239,51 @@ def test_third_attempt_refused(tmp_path: Path) -> None:
         reduce.select_scored({1: [], 2: [], 3: []})
 
 
-def test_final_cli_runs_once(tmp_path: Path) -> None:
+def settled_packet(tmp_path: Path, cells: dict) -> tuple[Path, Path]:
+    path, packet = tmp_path / "r.jsonl", tmp_path / "packet"
+    tree.make_register(path)
+    tree.admit(path, 1, packet)
+    tree.timeout_tree(i0s.attempt_dir(1, packet) / "main-output", cells)
+    tree.settle(path, 1)
+    return path, packet
+
+
+def test_final_runs_once_with_marker(tmp_path: Path) -> None:
+    path, packet = settled_packet(tmp_path, {"cell-frozen-e1024": PASS})
+    result = reduce.run_final(packet, path, validators())
+    assert result["verdict"] == "INCOMPLETE"
+    assert (packet / "REDUCTION.started").is_file() and (packet / "REDUCTION.json").is_file()
+    with pytest.raises(ValueError, match="runs once"):
+        reduce.run_final(packet, path, validators())
+
+
+def test_crashed_final_cannot_be_repeated(tmp_path: Path) -> None:
+    path, packet = settled_packet(tmp_path, {"cell-frozen-e1024": PASS})
+    (packet / "REDUCTION.started").write_text("{}\n")  # a run that died mid-reduction
+    with pytest.raises(ValueError, match="runs once"):
+        reduce.run_final(packet, path, validators())
+    assert not (packet / "REDUCTION-work").exists()
+
+
+def test_blinded_refusal_leaves_no_marker(tmp_path: Path) -> None:
+    path, packet = tmp_path / "r.jsonl", tmp_path / "packet"
+    tree.make_register(path)
+    tree.admit(path, 1, packet)
+    tree.timeout_tree(i0s.attempt_dir(1, packet) / "main-output", {"cell-frozen-e1024": PASS})
+    with pytest.raises(ValueError, match="blinded"):
+        reduce.run_final(packet, path, validators())
+    assert not (packet / "REDUCTION.started").exists()
+
+
+@pytest.mark.parametrize("marker", ["REDUCTION.json", "REDUCTION.started", None])
+def test_final_cli_refuses_relocation_and_repeat(tmp_path: Path, marker: str | None) -> None:
     packet = tmp_path / "packet"
     packet.mkdir()
-    (packet / "REDUCTION.json").write_text("{}")
+    output = packet / "REDUCTION.json"
+    if marker:
+        (packet / marker).write_text("{}")
+    else:
+        output = tmp_path / "elsewhere" / "R1.json"
     env = dict(os.environ, PYTHONPATH=str(ROOT))
     run_ = subprocess.run(
         [
@@ -250,8 +293,10 @@ def test_final_cli_runs_once(tmp_path: Path) -> None:
             "final",
             "--packet",
             str(packet),
+            "--register",
+            str(tmp_path / "absent.jsonl"),
             "--output",
-            str(packet / "REDUCTION-2.json"),
+            str(output),
         ],
         cwd=ROOT,
         env=env,
@@ -259,7 +304,91 @@ def test_final_cli_runs_once(tmp_path: Path) -> None:
         text=True,
         timeout=120,
     )
-    assert run_.returncode != 0 and "runs once" in (run_.stdout + run_.stderr)
+    text = run_.stdout + run_.stderr
+    assert run_.returncode != 0
+    assert ("runs once" in text) if marker else ("only <packet>/REDUCTION.json" in text)
+    assert not (tmp_path / "elsewhere").exists()
+
+
+def test_reviewer_probe_native_invalid_attempt_is_not_mechanical_and_final_invalid(
+    tmp_path: Path,
+) -> None:
+    from tools import small_bench_register as register
+
+    path, packet = tmp_path / "r.jsonl", tmp_path / "packet"
+    tree.make_register(path)
+    tree.admit(path, 1, packet)
+    tree.native_invalid_mechanical(i0s.attempt_dir(1, packet) / "main-output")
+    tree.settle(path, 1)
+    tree.release_old_i0(path)
+    verdict = i0s.retry_predicate(register.read(path), packet, now=tree.NOW)
+    assert not verdict["eligible"]
+    assert verdict["attempt_1"]["mechanical_zero_unit"] is False
+    i0s.attempt_dir(2, packet).mkdir(parents=True)
+    with pytest.raises(i0s.Hold, match="retry predicate"):
+        tree.admit(path, 2, packet)
+    # Even if a retry were forced through, the attempt-1 INVALID decides the verdict.
+    rows = register.read(path)
+    register.append(path, register.reserve(rows, tree.package(2), i0s.reservation_id(2), tree.NOW))
+    tree.timeout_tree(
+        i0s.attempt_dir(2, packet) / "main-output",
+        {unit: PASS for unit in reduce.GATING},
+        job_id=i0s.job_id(2),
+    )
+    tree.settle(path, 2)
+    result = reduce.run_final(packet, path, validators())
+    assert result["verdict"] == "INVALID"
+    assert any("native parity INVALID" in reason for reason in result["invalid_reasons"])
+
+
+def test_valid_native_report_alone_makes_attempt_non_mechanical(tmp_path: Path) -> None:
+    output = tmp_path / "main-output"
+    tree.timeout_tree(output, {}, failure_class="RPC_EXEC_POLL_TIMEOUT")
+    value = i0s.classify_attempt([output])
+    assert value["mechanical_zero_unit"] is False and value["unit_exports"] == 0
+
+
+def test_invalid_in_allocation_retry_output_is_seen(tmp_path: Path) -> None:
+    path, packet = tmp_path / "r.jsonl", tmp_path / "packet"
+    tree.make_register(path)
+    tree.admit(path, 1, packet)
+    base = i0s.attempt_dir(1, packet) / "main-output"
+    tree.native_invalid_mechanical(base)
+    tree.timeout_tree(Path(f"{base}-retry-1"), {unit: PASS for unit in reduce.GATING})
+    tree.settle(path, 1)
+    result = reduce.run_final(packet, path, validators())
+    assert result["verdict"] == "INVALID"
+
+
+def test_scored_attempt_reduces_the_output_that_produced(tmp_path: Path) -> None:
+    path, packet = tmp_path / "r.jsonl", tmp_path / "packet"
+    tree.make_register(path)
+    tree.admit(path, 1, packet)
+    base = i0s.attempt_dir(1, packet) / "main-output"
+    tree.timeout_tree(base, {unit: PASS for unit in reduce.GATING})
+    tree.receipt(Path(f"{base}-retry-1"), failure_class="ACCOUNTING")  # no exports
+    tree.settle(path, 1)
+    result = reduce.run_final(packet, path, validators())
+    assert result["verdict"] == "PASS_SPEED"
+
+
+def test_foreign_failure_marker_is_invalid(tmp_path: Path) -> None:
+    from research.gpu_sim_spike import integration_units
+
+    path, packet = tmp_path / "r.jsonl", tmp_path / "packet"
+    tree.make_register(path)
+    tree.admit(path, 1, packet)
+    output = i0s.attempt_dir(1, packet) / "main-output"
+    tree.timeout_tree(output, {unit: PASS for unit in reduce.GATING})
+    integration_units.publish_json(
+        output / "exports/integration-failure.json",
+        {"status": "INCOMPLETE", "commit": "0" * 40, "source_sha256": {}},
+    )
+    tree.receipt(output)
+    tree.settle(path, 1)
+    result = reduce.run_final(packet, path, validators())
+    assert result["verdict"] == "INVALID"
+    assert any("foreign" in reason for reason in result["invalid_reasons"])
 
 
 @pytest.mark.skipif(not i0s.RUN.is_dir(), reason="qualified I0 checkout absent")

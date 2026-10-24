@@ -48,6 +48,8 @@ EXP = BASE / "snake-dqn-artifacts/big-lever/exp"
 OPS = BASE / "snake-dqn-artifacts/ops"
 RULING = EXP / "JUDGMENT_I0R_PATH_20261024.md"
 RULING_SHA = "ed679b6ebeee861e75900763c535cc6a68ea541ef92a9b06b8537be6bbfa2969"
+BUDGET_RULING = EXP / "JUDGMENT_I0S_FIRST_WAVE_BUDGET_20261024.md"
+BUDGET_RULING_SHA = "dfc00a4d1f55c7af755c328eae03ce505e41257f243c55f3888506321d8a4c5b"
 ROUND36 = BASE / "snake-dqn-artifacts/big-lever/round-36/JUDGMENT.md"
 ROUND36_SHA = "156c80b412064defd88281424e4c84e6a732d9cb8bc6e163561ef352ffb5fe3b"
 OLD = EXP / "gpu-integration-i0-20261024-03"
@@ -84,6 +86,15 @@ RESERVATION = {"units": UNIT_CAP + 5.0, "wall_minutes": TIMEOUT_MINUTES + 30.0} 
 I0_CEILING = {"units": 66.0, "wall_minutes": 396.0}
 FIRST_WAVE = {"units": 88.8, "wall_minutes": 648.0}
 RULING_HISTORY = {"units": 2.17994, "wall_minutes": 22.7094}
+# JUDGMENT_I0S_FIRST_WAVE_BUDGET R-1: O1's first-wave mirror is junior to I0S while an I0S
+# reservation is outstanding: 88.8 - 2.17994 - 42 = 44.620057 -> 44.62 u (rounded down);
+# 648 - 22.709 - 250 = 375.3 min > 288 -> 288 min. Global O1 hold and every cap unchanged.
+O1_MIRROR = {"units": 44.62, "wall_minutes": 288.0}
+O1_MIRROR_PREFIX = "first-wave-O1"
+OLD_I0_ATTESTATION = (
+    "I0 main protected work is now held by reservation i0s-968f0276-attempt-1; old 24/144 "
+    "envelope superseded by I0R §2."
+)
 I0_HISTORY_IDS = (
     "gpu-integration-i0-canary-968f02765f7c-01",
     "native-compile-l4-968f0276-integration03",
@@ -128,7 +139,14 @@ ALLOWED_DELTA = frozenset(
 MECHANICAL_FAILURE_CLASSES = frozenset(
     {"UPLOAD_CAP", "RPC_EXEC_POLL_TIMEOUT", "ACCOUNTING", "SUPERVISOR", "FOREIGN_GENERATION"}
 )
-PRODUCER_STATUS_FILES = ("integration-bench.json", "integration-failure.json")
+# Any of these exported means the producer ran (native setup publishes the first two
+# before any cell): the attempt is never mechanical (review F1a).
+PRODUCER_STATUS_FILES = (
+    "native-parity.json",
+    "discrepancy-register.json",
+    "integration-bench.json",
+    "integration-failure.json",
+)
 
 
 class Hold(ValueError):
@@ -412,7 +430,7 @@ def classify_attempt(outputs: list[Path]) -> dict[str, Any]:
     if units:
         reasons.append(f"{len(units)} unit export(s) present")
     if producer:
-        reasons.append(f"producer published a terminal status: {producer}")
+        reasons.append(f"producer published files: {producer}")
     if final.get("status") == "PASS":
         reasons.append("receipt status PASS")
     if final.get("failure_class") not in MECHANICAL_FAILURE_CLASSES:
@@ -484,10 +502,11 @@ def i0_history(rows: list[dict[str, Any]]) -> dict[str, float]:
 def scopes_delta(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Add the I0S envelope and round-36 first-wave parents to the sprint register.
 
-    First-wave (88.8 u / 648 min = I0 + R1 + O1 + first L4 hour) also carries O1's
-    existing protected hold, scoped to first_wave only so the account and the global
-    scope still count it once. R1 and the L4 hour have no register hold or charge
-    (optional/untriggered); the operator adds them with sources if they are admitted.
+    First-wave (88.8 u / 648 min = I0 + R1 + O1 + first L4 hour) also carries a mirror of
+    O1's protected hold, scoped to first_wave only (account_units 0) so the account and
+    the global scope still count O1 once. Per JUDGMENT_I0S_FIRST_WAVE_BUDGET R-1 the mirror
+    is junior to I0S: 44.62 u / 288 min while an I0S reservation is outstanding (R-2
+    restores the rest after settlement). R1 and the L4 hour stay unbooked (R-5).
     """
     current = register.state(rows)
     if not current["initialized"]:
@@ -499,12 +518,29 @@ def scopes_delta(rows: list[dict[str, Any]]) -> dict[str, Any]:
     o1 = current["holds"].get("O1")
     if o1 is None:
         raise Hold("register lacks the O1 protected hold")
+    full = dict(o1["pair"])
+    mirror = {
+        "units": min(
+            full["units"],
+            math.floor((FIRST_WAVE["units"] - history["units"] - RESERVATION["units"]) * 100 + 1e-9)
+            / 100,
+        ),
+        "wall_minutes": min(
+            full["wall_minutes"],
+            FIRST_WAVE["wall_minutes"] - history["wall_minutes"] - RESERVATION["wall_minutes"],
+        ),
+    }
+    if full == {"units": 48.0, "wall_minutes": 288.0} and mirror != O1_MIRROR:
+        raise Hold(f"junior O1 mirror {mirror} differs from the ruling's {O1_MIRROR}")
+    if min(mirror.values()) < 0:
+        raise Hold("first_wave cannot hold the I0S reservation even with O1 junior")
     return {
         "type": "delta",
         "id": "i0s-parent-scopes-20261024",
         "sources": [
             require(RULING, RULING_SHA, "I0S ruling"),
             require(ROUND36, ROUND36_SHA, "round-36 judgment (first wave)"),
+            require(BUDGET_RULING, BUDGET_RULING_SHA, "I0S first-wave budget ruling"),
         ],
         "scopes_add": {
             "i0": {"ceiling": dict(I0_CEILING), "spent": history},
@@ -512,12 +548,15 @@ def scopes_delta(rows: list[dict[str, Any]]) -> dict[str, Any]:
         },
         "holds_add": [
             {
-                "id": "first-wave-O1",
+                "id": O1_MIRROR_PREFIX,
                 "scopes": ["first_wave"],
-                "pair": dict(o1["pair"]),
+                "pair": mirror,
                 "account_units": 0,
                 "kind": "protected_required_work",
                 "mirrors": "O1 (global hold already counted on the account)",
+                "full_pair": full,
+                "junior_to": "I0S (round-36 §7: O1 does not displace integration)",
+                "ruling": {"path": str(BUDGET_RULING), "sha256": BUDGET_RULING_SHA},
             }
         ],
         "note": (
@@ -526,6 +565,169 @@ def scopes_delta(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "I0 protected hold (global, q4) is left in place (counted conservatively)."
         ),
     }
+
+
+def first_wave_state(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """first_wave spent, outstanding holds and the O1 mirror holds (ids first-wave-O1*)."""
+    current = register.state(rows)
+    if "first_wave" not in current["scopes"]:
+        raise Hold("register lacks first_wave; run register-scopes first")
+    scope = current["scopes"]["first_wave"]
+    held = {key: 0.0 for key in register.PAIR_KEYS}
+    for entry in current["outstanding"].values():
+        if "first_wave" in entry["scopes"]:
+            for key in register.PAIR_KEYS:
+                held[key] += entry["pair"][key]
+    mirrors = {
+        key: dict(value)
+        for key, value in current["holds"].items()
+        if key.startswith(O1_MIRROR_PREFIX)
+    }
+    if O1_MIRROR_PREFIX not in mirrors:
+        raise Hold("register lacks the first-wave O1 mirror hold")
+    return {
+        "state": current,
+        "ceiling": scope["ceiling"],
+        "spent": scope["spent"],
+        "held": held,
+        "mirrors": mirrors,
+        "mirror_total": {
+            key: sum(hold["pair"][key] for hold in mirrors.values()) for key in register.PAIR_KEYS
+        },
+        "full_pair": mirrors[O1_MIRROR_PREFIX].get("full_pair", O1_MIRROR),
+        "outstanding_i0s": [
+            rid
+            for rid, value in current["reservations"].items()
+            if rid.startswith("i0s-") and not value["settled"]
+        ],
+    }
+
+
+def require_settled(rows: list[dict[str, Any]], attempt: int) -> None:
+    entry = register.state(rows)["reservations"].get(reservation_id(attempt))
+    if entry is None or not entry["settled"]:
+        raise Hold(f"attempt {attempt} is not settled in the register")
+
+
+def restore_o1_delta(
+    rows: list[dict[str, Any]], attempt: int, settlement: dict[str, str]
+) -> dict[str, Any]:
+    """R-2: after settlement, add back O1 first-wave protection up to its full pair."""
+    require_settled(rows, attempt)
+    fw = first_wave_state(rows)
+    if fw["outstanding_i0s"]:
+        raise Hold(f"an I0S reservation is still outstanding: {fw['outstanding_i0s']}")
+    name = f"{O1_MIRROR_PREFIX}-restore" + ("" if attempt == 1 else f"-{attempt}")
+    if name in fw["mirrors"]:
+        raise Hold(f"O1 first-wave protection already restored after attempt {attempt}")
+    amount = {
+        key: min(
+            fw["full_pair"][key] - fw["mirror_total"][key],
+            fw["ceiling"][key] - fw["spent"][key] - fw["held"][key],
+        )
+        for key in register.PAIR_KEYS
+    }
+    if max(amount.values()) <= 1e-9:
+        raise Hold(f"nothing to restore (O1 already full or first_wave exhausted): {amount}")
+    amount = {key: max(0.0, value) for key, value in amount.items()}
+    return {
+        "type": "delta",
+        "id": f"i0s-restore-o1-after-attempt-{attempt}",
+        "sources": [
+            require(BUDGET_RULING, BUDGET_RULING_SHA, "I0S first-wave budget ruling"),
+            settlement,
+        ],
+        "holds_add": [
+            {
+                "id": name,
+                "scopes": ["first_wave"],
+                "pair": amount,
+                "account_units": 0,
+                "kind": "protected_required_work",
+                "restores": O1_MIRROR_PREFIX,
+            }
+        ],
+        "o1_short_in_first_wave": {
+            key: fw["full_pair"][key] - fw["mirror_total"][key] - amount[key]
+            for key in register.PAIR_KEYS
+        },
+        "note": "JUDGMENT_I0S_FIRST_WAVE_BUDGET R-2 restore from actual settlement.",
+    }
+
+
+def retry_o1_reduce_delta(
+    rows: list[dict[str, Any]], settlement: dict[str, str]
+) -> dict[str, Any] | None:
+    """R-3: before attempt-2 admission, shrink O1 mirrors so 42/250 fits; never below 0."""
+    require_settled(rows, 1)
+    fw = first_wave_state(rows)
+    if fw["outstanding_i0s"]:
+        raise Hold(f"an I0S reservation is still outstanding: {fw['outstanding_i0s']}")
+    others = {key: fw["held"][key] - fw["mirror_total"][key] for key in register.PAIR_KEYS}
+    target = {
+        key: fw["ceiling"][key] - fw["spent"][key] - others[key] - RESERVATION[key]
+        for key in register.PAIR_KEYS
+    }
+    if min(target.values()) < -1e-9:
+        raise Hold(f"retry would need a negative O1 first-wave hold {target}; first cap wins")
+    if all(fw["mirror_total"][key] <= target[key] + 1e-9 for key in register.PAIR_KEYS):
+        return None
+    replacements = []
+    remaining = {key: max(0.0, target[key]) for key in register.PAIR_KEYS}
+    # Shrink restores before the base mirror: keep the earliest protection.
+    order = sorted(fw["mirrors"], key=lambda key: (key == O1_MIRROR_PREFIX, key))
+    order.reverse()
+    for key in order:
+        hold = fw["mirrors"][key]
+        pair = {unit: min(hold["pair"][unit], remaining[unit]) for unit in register.PAIR_KEYS}
+        remaining = {unit: remaining[unit] - pair[unit] for unit in register.PAIR_KEYS}
+        if pair != hold["pair"]:
+            replacements.append(dict(hold, pair=pair, account_units=0))
+    return {
+        "type": "delta",
+        "id": "i0s-retry-o1-reduce",
+        "sources": [require(BUDGET_RULING, BUDGET_RULING_SHA, "I0S first-wave budget ruling")],
+        "holds_replace": replacements,
+        "settlement_evidence": [
+            settlement,
+            require(BUDGET_RULING, BUDGET_RULING_SHA, "I0S first-wave budget ruling"),
+        ],
+        "settlement_attestation": (
+            "JUDGMENT_I0S_FIRST_WAVE_BUDGET R-3: O1 first-wave mirror holds reduced to "
+            f"{target} so the I0S retry (42 u / 250 min) stays inside integration's row."
+        ),
+    }
+
+
+def release_old_i0_delta(rows: list[dict[str, Any]], admission: dict[str, str]) -> dict[str, Any]:
+    """R-4: release the pre-I0R I0 hold once attempt 1's reservation exists."""
+    current = register.state(rows)
+    if current["reservations"].get(reservation_id(1)) is None:
+        raise Hold("attempt 1 is not reserved; the old I0 hold still protects I0")
+    hold = current["holds"].get("I0")
+    if hold is None or hold["scopes"] != ["global", "q4"]:
+        raise Hold("register lacks the old I0 hold on global/q4")
+    if not (hold["pair"]["units"] or hold["pair"]["wall_minutes"] or hold["account_units"]):
+        raise Hold("old I0 hold already released")
+    return {
+        "type": "delta",
+        "id": "i0s-release-old-i0-hold",
+        "sources": [require(BUDGET_RULING, BUDGET_RULING_SHA, "I0S first-wave budget ruling")],
+        "holds_replace": [dict(hold, pair={"units": 0.0, "wall_minutes": 0.0}, account_units=0)],
+        "settlement_evidence": [
+            require(BUDGET_RULING, BUDGET_RULING_SHA, "I0S first-wave budget ruling"),
+            require(RULING, RULING_SHA, "I0S ruling (I0R path)"),
+            admission,
+        ],
+        "settlement_attestation": OLD_I0_ATTESTATION,
+    }
+
+
+def old_i0_released(rows: list[dict[str, Any]]) -> bool:
+    hold = register.state(rows)["holds"].get("I0")
+    return hold is None or not (
+        hold["pair"]["units"] or hold["pair"]["wall_minutes"] or hold["account_units"]
+    )
 
 
 def ruling_arithmetic(rows: list[dict[str, Any]], rid: str) -> dict[str, Any]:
@@ -581,6 +783,8 @@ def admission_event(
     if others:
         raise Hold(f"foreign I0S reservations present: {others}")
     if attempt == 2:
+        if not old_i0_released(rows):
+            raise Hold("release the old I0 hold (R-4) before any attempt-2 admission")
         if current["reservations"].get(rid) is None:
             verdict = retry_predicate(rows, packet, now=now, prepared=True)
             if not verdict["eligible"]:
@@ -683,8 +887,21 @@ def implementation() -> list[dict[str, str]]:
     ]
 
 
+def config_path(attempt: int, *, new: bool = False) -> Path:
+    """Latest create-only config version (``-NN`` siblings supersede the original)."""
+    folder = attempt_dir(attempt)
+    versions = [folder / "i0s-attempt-config.json"]
+    versions += sorted(folder.glob("i0s-attempt-config-[0-9][0-9].json"))
+    existing = [path for path in versions if path.exists()]
+    if not new:
+        if not existing:
+            raise Hold(f"attempt {attempt} has no config")
+        return existing[-1]
+    return folder / f"i0s-attempt-config-{len(existing) + 1:02d}.json"
+
+
 def load_config(attempt: int) -> tuple[dict[str, Any], Path]:
-    path = attempt_dir(attempt) / "i0s-attempt-config.json"
+    path = config_path(attempt)
     config = operator.verified(path)
     for source in config["bindings"]:
         operator.bound(source)
@@ -701,9 +918,18 @@ def load_config(attempt: int) -> tuple[dict[str, Any], Path]:
     return config, path
 
 
+def latest_review(base: Path) -> Path:
+    """Latest create-only review: ``<stem>_NN.json`` siblings supersede the original."""
+    versions = [base] + sorted(base.parent.glob(f"{base.stem}_[0-9][0-9].json"))
+    existing = [path for path in versions if path.exists()]
+    if not existing:
+        raise Hold("I0S requires the Claude-V stand-in review before admission")
+    return existing[-1]
+
+
 def require_review(config: dict[str, Any]) -> dict[str, Any]:
     """The Claude-V stand-in ACCEPT must bind attempt 1's manifest and this code."""
-    review = operator.verified(Path(config["review"]))
+    review = operator.verified(latest_review(Path(config["review"])))
     if review.get("verdict") != "ACCEPT":
         raise Hold("I0S requires the Claude-V stand-in ACCEPT before admission")
     first = binding(attempt_dir(1) / "integration-main.json")
@@ -848,10 +1074,7 @@ def project() -> dict[str, Any]:
 
 
 def register_scopes() -> dict[str, Any]:
-    with register.reservation_lock(RESERVATION_LOCK):
-        rows = register.read(REGISTER)
-        row = register.append(REGISTER, scopes_delta(rows))
-    return {"status": "RECORDED", "revision": row["revision"], "row_hash": row["row_hash"]}
+    return append_delta("register-scopes", scopes_delta(register.read(REGISTER)))
 
 
 def admit(attempt: int) -> dict[str, Any]:
@@ -977,7 +1200,12 @@ def conservative_charge(receipts: list[dict[str, Any]]) -> dict[str, float]:
         priced = elapsed / 3600 * RATE_CEILING
         before = (receipt.get("usage_before") or {}).get("balance")
         after = (receipt.get("usage_after") or {}).get("balance")
-        drop = before - after if isinstance(before, float) and isinstance(after, float) else 0.0
+        numbers = [
+            value
+            for value in (before, after)
+            if type(value) in (int, float) and math.isfinite(value)
+        ]
+        drop = before - after if len(numbers) == 2 else 0.0
         units += max(priced, drop)
         wall += elapsed / 60
     if units > RESERVATION["units"] + 1e-9 or wall > RESERVATION["wall_minutes"] + 1e-9:
@@ -1027,6 +1255,49 @@ def settle(attempt: int) -> dict[str, Any]:
     return {"status": "SETTLED", "record": str(record), "revision": row["revision"]}
 
 
+def reconfig(attempt: int) -> dict[str, Any]:
+    """New create-only config version binding the same manifest and the current code."""
+    folder = attempt_dir(attempt)
+    manifest = folder / "integration-main.json"
+    operator.verified(manifest)
+    old = operator.verified(config_path(attempt))
+    if old["manifest"] != binding(manifest):
+        raise Hold("published manifest changed; never re-bind a different manifest")
+    target = config_path(attempt, new=True)
+    value = attempt_config(attempt, manifest)
+    value["supersedes"] = binding(config_path(attempt))
+    operator.publish_json(target, value)
+    load_config(attempt)
+    return {"status": "RECONFIGURED", "config": binding(target), "allocations": 0}
+
+
+def append_delta(name: str, event: dict[str, Any] | None) -> dict[str, Any]:
+    """Publish the delta create-only as evidence, then append it under the lock."""
+    if event is None:
+        return {"status": "NO_CHANGE", "operation": name}
+    record = PACKET / "register-deltas" / f"{event['id']}.json"
+    with register.reservation_lock(RESERVATION_LOCK):
+        operator.publish_json(record, event)
+        row = register.append(REGISTER, event)
+    return {
+        "status": "RECORDED",
+        "operation": name,
+        "record": binding(record),
+        "revision": row["revision"],
+        "row_hash": row["row_hash"],
+    }
+
+
+def admission_record(attempt: int) -> dict[str, str]:
+    """Binding of the attempt's published OPERATOR_ADMISSION.json (verified sidecars)."""
+    pointer = attempt_dir(attempt) / "OPERATOR_ADMISSION.current.json"
+    reference = json.loads(pointer.read_text())
+    record = operator.verified(operator.bound(reference))
+    if record.get("reservation_id") != reservation_id(attempt):
+        raise Hold("admission record does not belong to this attempt")
+    return reference
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1040,6 +1311,10 @@ def main() -> None:
             "dispatch",
             "settle",
             "retry-predicate",
+            "reconfig",
+            "restore-o1",
+            "retry-o1-reduce",
+            "release-old-i0-hold",
         ),
     )
     parser.add_argument("--attempt", type=int, default=1)
@@ -1062,6 +1337,20 @@ def main() -> None:
             result = dispatch(args.attempt)
         elif args.operation == "settle":
             result = settle(args.attempt)
+        elif args.operation == "reconfig":
+            result = reconfig(args.attempt)
+        elif args.operation == "restore-o1":
+            settlement = binding(attempt_dir(args.attempt) / "SETTLEMENT.json")
+            event = restore_o1_delta(register.read(REGISTER), args.attempt, settlement)
+            result = append_delta("restore-o1", event)
+        elif args.operation == "retry-o1-reduce":
+            settlement = binding(attempt_dir(1) / "SETTLEMENT.json")
+            result = append_delta(
+                "retry-o1-reduce", retry_o1_reduce_delta(register.read(REGISTER), settlement)
+            )
+        elif args.operation == "release-old-i0-hold":
+            event = release_old_i0_delta(register.read(REGISTER), admission_record(1))
+            result = append_delta("release-old-i0-hold", event)
         else:
             result = retry_predicate(register.read(REGISTER))
     except (Hold, register.Refused, ValueError, OSError) as error:
