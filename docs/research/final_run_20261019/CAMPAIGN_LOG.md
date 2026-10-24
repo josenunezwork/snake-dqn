@@ -218,6 +218,7 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 2026-10-23 20:49 PT | GPU sprint: profiler v4 canary INCOMPLETE, because large .json.gz traces missed the telemetry-recovery deadline; the GPU work completed and 15 unit exports were recovered. The sparse chain was blocked because its helper needs a PASS v4 receipt. Lane V8 (pin 85180521): Mac CPU parity PASS (61 vector61 columns, v8 diagnostics, B8 planes, full sim tensors). Its A100 canary allocation FAILED (Colab kernel-creation uncertainty, 0 GPU time). Lane MOVE (pin 866fa48e) is INVALID under its own rule: byte-identical to the frozen device baseline, but reward/food-order/corpse-flag mismatches vs CPU GridBatchSim that pre-exist in the baseline (float32 vs float64 reward). Sol gpuunblock is running (small exports, decoupled sparse chain, fresh V8 namespace). Astra parity-standard ruling requested (JUDGMENT_GPU_PARITY_STANDARD_20261023.md). D256 -10 running (790 pending). |
 | 2026-10-23 20:50 PT | Astra AUTHORIZES ONE FINAL P1 REPAIR ATTEMPT (JUDGMENT_P1_REPAIR_ATTEMPT2_20261023.md). Conditions: a fresh -05 pack and exact-input canary; qualified transport, deadlines and inputs unchanged; the factory drained via the timing arm; supervisor/CLI at nice 0 and excluded from renicing through verified release. Charge 10.51 u; worst case 26.39 / 34.50 u. Another failure means STOP: P1 NOT_READY operationally (critic PASS stands). Sol p1pack05 is building the pack. The V8 canary allocation failure ended (0 GPU time). |
 | 2026-10-23 21:00 PT | D256 -10 PREEMPTED again on a 'process monitor fault' (4 parents). Monitor fix 3b216ed6 (Codex-V 391 cases; accepts empty/long/Unicode/zombie rows; nice 20 was already valid; the historical sensor cause is unknown). D256 -11 RUNNING on 3b216ed6 (789 pending). Astra ADMIT_MOVE_BENCHMARK_ONLY (JUDGMENT_GPU_PARITY_STANDARD_20261023.md): pure optimizations need frozen-device byte identity; CPU-exact components keep CPU parity; inherited reward/food/corpse deviations are diagnostic only and must be repaired or fully CPU-regenerated before authoritative use. The old MOVE result stays INVALID; Sol gpumove2 is building the fresh packet. |
+| 2026-10-23 21:08 PT | GPU sprint unblocked (6fc4608e; Codex-V LIGHT ACCEPT): traces off by default, exports ≤64 MiB; the sparse chain is decoupled from v4 PASS (pin 42c84584); V8 got a fresh -n03 namespace. Two A100 canaries DISPATCHED in parallel: sparse-bench-a100-canary-42c84584 and gpu-v8-indexed-canary-85180521-n03 (each 4 u / 24 min canary; 32 u / 192 min main after PASS). D256 -11 steady through both dispatches (9 parents, 780 pending). |
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -628,3 +629,70 @@ foreign process control, label look or serving action occurred. Owner notice and
 exact fresh verified-ledger continuation after verified stop are in
 `research/bl_labels/FACTORY_MONITOR_FIX_OPERATOR_20261023.md`; -10 was consumed
 externally, and -11 was the next unused dispatch reservation at publication.
+
+## P1 final repair -05 preparation held — 2026-10-23
+
+Prepared the fresh sibling `big-lever/exp/bl-p1/y3/source-repair-10-20261023-05`
+under Astra attempt-2 ruling SHA256
+`55b13197d9d92f8eeb1c895180f01993ca11908f51c74a60d9a67065a0550d13`.
+Operational amendment and exact conditional operator/line-check contract:
+`research/bl_ppo/P1_REPAIR_ATTEMPT2_OPERATIONAL_AMENDMENT_14.md` and
+`P1_E8_04_SOURCE_REPAIR_HANDOFF_14.md`. Original finalisation authority fields
+remain unchanged. One new canary and one final repair only; no further repair
+retry. Wrapper resume maximum 2 grants no extra scientific attempt.
+
+Executable remains `03e0af75c64538f53a6971e6fec5d9a173bc921b`, CLI tree remains
+`d0d92bdb572b770284a1fea6152417ffa5f06bea`. No CLI/runtime transport edit.
+New namespaces have tag `6f31cd3de308`, with the original source allocation and
+empty ledgers. The new 2,517,001-byte bundle SHA256 is
+`97b29ee24a324284b740b53d9fadf6d7b70044953f166715da6e3a927d1eacd1`;
+only four namespace JSONs and their four SHA sidecars change. Exact-pin real
+validate-only checks passed for repair/canary in 2.306169/2.290468 seconds,
+without actor steps, refit/gate calls or runtime output creation. Fresh offline
+forecast: residual 28 files/74,138 bytes; fallback 1,331,053 bytes; upload
+146.921532516 s <=150; doubled complete forecast 90.893766318 min <=200.
+Actual public-fetch measurement is still null, not inherited from -04.
+
+Create-only failure-accounting binds the unchanged raw -04 failed receipt and
+independent release proof. Conservative own/gross charge is 0.17 u, so charged
+is 10.51 u. Remaining liabilities 2.00+6.16+3.86+3.86=15.88; total26.39 and
+unallocated 8.11 under 34.50. Retain WARNING_UNEXPLAINED_DEBIT, no refunds, actual
+intervening debit reconciliation before each admission, and 13.88 liabilities
+after substituting the new canary's actual charge. This is local arithmetic,
+not current account inventory. The separate 1M invoice remains held.
+
+Status is HOLD, not READY_FOR_CLAUDE_CHECK or admission. The requested unchanged
+nine URLs/no restaging conflicts with ruling condition 2's new ninth bundle,
+mapping and full unauthenticated fetch requirement; clarification is pending.
+All eight origin URLs and selected folder 1yr71MQZgtRLlZ3DprqN147dDOwqprHm_
+are preserved. No Drive mutation or fetch occurred. A second operational HOLD
+is the real renicer exclusion/handover: prepared PID-tree exclusion source is
+not installed, and the existing daemon has no dynamic reload interface. No
+daemon/worker/tmux kill or priority action occurred. Claude must prove current
+cooperative factory drain, cleanup/lease release and blocked re-admission, and
+absolute nice 0 for the entire supervisor/CLI tree through verified release.
+Prepared scoped wrapper code preserves the generic nice 15 policy, separately
+registers exact allocation-recovery roots, refuses other account assignments
+under its allocation lock, and does not dispatch during preparation.
+
+Independent Codex-V review is recorded in a create-only sibling `_14` receipt;
+its HOLD cannot be used as a READY receipt. Final mapping/fetch review, fresh
+Claude per-stage checks, live zero-session/calibration/accounting evidence,
+canary/repair and all later-stage gates remain unperformed. No Colab operation,
+scientific outcome look, serving change or release action occurred; critic PASS
+stands, Y3 remains not PASS. Prior packs/receipts and unrelated changes remain.
+
+Preparation source is published through `6e54f936604b79d4e13b757c5f7ed96e5dba8bf4`.
+Independent create-only `P1_E8_04_SOURCE_REPAIR_CODEX_V_14_PREPARED.json` SHA256
+`281bdf18f39427777bb27937272910b4a92b05df8041db492412dc1149ec3ac9`
+reports no open code findings and HOLD_NOT_READY_FOR_CLAUDE_CHECK (H1–H3 above).
+Create-only verification sibling `_VERIFICATION_14.json`, SHA256
+`6cb92fcbda042140c0f5cc65602aabb5166ae825e5272a10f3e24bc2f28c4038`,
+records 113 focused/dispatch tests passed in 58.71 s, the identical complete
+9-test transport suite passed on the frozen qualified broker in 41.04 s, and
+style/shell/diff checks passed. The earlier broader snapshot was interrupted
+after 160 passes and two reproduced unchanged old-pin/current-main inventory
+refusals; it is not a full-suite qualification. No transport/test fixture was
+changed to hide that identity difference. Only the owned pytest child received
+one interrupt; no worker, daemon, tmux or provider action occurred. The independent
+HOLD receipt and all earlier artifacts remain immutable.
