@@ -97,3 +97,19 @@ def test_indexed_static_capped_matches_independent_fifo_at_boundaries() -> None:
         ]
     )
     assert torch.equal(got, expected)
+
+
+def test_free_space_final_cast_lookup_exhausts_integer_domain(monkeypatch):
+    """All capped ratios match the CPU double-division-then-float32 contract."""
+    import numpy as np
+
+    from research.gpu_sim_spike.test_vector_device import _params, _world
+    from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
+
+    runtime = DeviceVectorRuntime(_params())
+    runtime.bind(_world())
+    caps = torch.arange(32, 161).reshape(-1, 1)
+    counts = torch.arange(0, 162).reshape(1, 1, -1).expand(129, 1, -1)
+    actual = runtime._normalize_free(counts, caps).numpy()
+    expected = np.minimum(counts.numpy() / caps.numpy()[..., None], 1).astype(np.float32)
+    assert actual.tobytes() == expected.tobytes()

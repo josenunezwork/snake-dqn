@@ -39,7 +39,7 @@ def _sync(device: str) -> None:
         torch.cuda.synchronize()
 
 
-def _features_cpu_oracle(sim: Any, runtime: Any) -> np.ndarray:
+def _features_cpu_oracle(sim: Any, runtime: Any, *, with_memory: bool = False) -> Any:
     """Use the canonical CPU vector61 featurizer on the recorded DeviceSim state."""
     from src.simd_env.vector61_featurizer import Vector61Featurizer, Vector61Memory
 
@@ -64,12 +64,64 @@ def _features_cpu_oracle(sim: Any, runtime: Any) -> np.ndarray:
         np.unravel_index(np.arange(int(sim.E) * int(sim.S)), (int(sim.E), int(sim.S))), axis=1
     )
     memory = Vector61Memory(int(sim.E), int(sim.S))
-    # The corrected candidate stores CPU-exact pixel distances; the original
-    # dense comparator stores cells. Match the recorded carry in either mode.
-    scale = 1.0 if os.environ.get("GPU_SIM_VECTOR_FLOOD") == "static" else params.segment_size
-    memory.prev_dist[:] = runtime.prev_dist.detach().cpu().numpy() * scale
+    # Both repaired backends retain the CPU float64 pixel-distance carry.
+    memory.prev_dist[:] = runtime.prev_dist.detach().cpu().numpy()
     memory.prev_id[:] = runtime.prev_id.detach().cpu().numpy()
-    return Vector61Featurizer(params).featurize(reference, rows, memory, update_memory=False)
+    result = Vector61Featurizer(params).featurize(
+        reference, rows, memory, update_memory=with_memory
+    )
+    return (result, memory) if with_memory else result
+
+
+def column_mismatches(actual: torch.Tensor, expected: torch.Tensor) -> list[dict[str, Any]]:
+    """Compare float32 bits on the GPU and transfer one first record per column.
+
+    Includes signed zero and NaN payloads; no tolerance or float comparisons.
+    A passing column reports zero mismatches and a null first row.
+    """
+    if (
+        actual.dtype != torch.float32
+        or expected.dtype != torch.float32
+        or actual.shape != expected.shape
+    ):
+        raise ValueError("column comparison requires matching float32 matrices")
+    if actual.ndim != 2 or expected.device != actual.device:
+        raise ValueError("column comparison requires a shared device and two dimensions")
+    rows, width = actual.shape
+    if not rows:
+        return [
+            {"column": col, "mismatch_count": 0, "first_mismatch": None} for col in range(width)
+        ]
+    a, e = actual.contiguous().view(torch.int32), expected.contiguous().view(torch.int32)
+    different = a != e
+    row_ids = torch.arange(rows, device=actual.device)[:, None]
+    first = torch.where(different, row_ids, rows).amin(0)
+    counts = different.sum(0)
+    col_ids = torch.arange(width, device=actual.device)
+    first_safe = first.clamp(max=rows - 1)
+    records = (
+        torch.stack(
+            (counts, first, a[first_safe, col_ids].long(), e[first_safe, col_ids].long()), 1
+        )
+        .cpu()
+        .tolist()
+    )
+    return [
+        {
+            "column": col,
+            "mismatch_count": int(count),
+            "first_mismatch": (
+                None
+                if not count
+                else {
+                    "row": int(row),
+                    "actual_bits": int(abits) & 0xFFFFFFFF,
+                    "expected_bits": int(ebits) & 0xFFFFFFFF,
+                }
+            ),
+        }
+        for col, (count, row, abits, ebits) in enumerate(records)
+    ]
 
 
 def _byte_oracle(sim: Any, policy: Any) -> dict[str, Any]:
@@ -77,13 +129,8 @@ def _byte_oracle(sim: Any, policy: Any) -> dict[str, Any]:
     runtime = policy.vector_runtime
     if runtime is None:
         raise SparseTerminal("full-tick policy omitted vector61 runtime")
-    actual = (
-        runtime.features(sim, update_memory=False)
-        .detach()
-        .cpu()
-        .numpy()
-        .astype(np.float32, copy=False)
-    )
+    actual_device = runtime.features(sim, update_memory=False).detach()
+    actual = actual_device.cpu().numpy().astype(np.float32, copy=False)
     expected = _features_cpu_oracle(sim, runtime).astype(np.float32, copy=False)
     if actual.shape != expected.shape:
         return {
@@ -92,10 +139,15 @@ def _byte_oracle(sim: Any, policy: Any) -> dict[str, Any]:
             "actual_shape": list(actual.shape),
             "expected_shape": list(expected.shape),
         }
+    columns = column_mismatches(
+        actual_device, torch.as_tensor(expected, device=actual_device.device)
+    )
     equal = actual.tobytes() == expected.tobytes()
     mismatch = np.argwhere(actual.view(np.uint32) != expected.view(np.uint32))
     return {
         "match": bool(equal),
+        "column_mismatches": columns,
+        "comparison_device": str(actual_device.device),
         "actual_sha256": hashlib.sha256(actual.tobytes()).hexdigest(),
         "expected_sha256": hashlib.sha256(expected.tobytes()).hexdigest(),
         "rows": int(actual.shape[0]),
@@ -192,7 +244,7 @@ def _measure_backend(
                     current["recorded_fixture"] = _recorded_fixture(
                         output_dir, mix, worlds, sim, policy, current
                     )
-            if backend == "static" and not current["match"]:
+            if not current["match"]:
                 return {"backend": backend, "feature_oracle": current, "samples": samples}
             for _ in range(warmups):
                 with sim.stage("reset"):
@@ -305,11 +357,12 @@ def _cell(
                 repeat,
             )
             by_backend[backend].append(row)
-            # The dense port's known non-free-space float drift is recorded as
-            # baseline diagnosis. Static is a deliberately corrected candidate
-            # and must satisfy the full canonical 61-column CPU bytes.
-            if backend == "static" and not row["feature_oracle"]["match"]:
-                dense, static = _merge_backend("dense", by_backend["dense"]), (
+            # This declared repair requires CPU bytes from BOTH backends.
+            if not row["feature_oracle"]["match"]:
+                dense = (
+                    _merge_backend("dense", by_backend["dense"]) if by_backend["dense"] else None
+                )
+                static = (
                     _merge_backend("static", by_backend["static"]) if by_backend["static"] else None
                 )
                 return {
@@ -328,7 +381,8 @@ def _cell(
         "worlds": worlds,
         "dense": dense,
         "static": static,
-        "baseline_dense_cpu_diagnostic_only": not dense["feature_oracle"]["match"],
+        "baseline_dense_cpu_diagnostic_only": False,
+        "repaired_dense_full61_cpu_exact": True,
         "candidate_static_full61_cpu_exact": True,
         "speedup": speedup,
         "verdict": (

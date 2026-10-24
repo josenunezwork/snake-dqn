@@ -22,5 +22,10 @@ for name in champion_a5_freespace_20260621.pth best_apex_fs.pth best_apex_stage1
 args=(--device "${SPARSE_BENCH_DEVICE:-cuda}" --checkpoint "${checkpoint}" --output-dir "${output_root}" --ledger "${COLAB_INPUT_DIR}/${SPARSE_BENCH_LEDGER_PATH:-inputs/verified-ledger.json}" --seconds "${SPARSE_BENCH_SECONDS}")
 [[ "${SPARSE_BENCH_SMOKE:-0}" == 1 ]] && args+=(--smoke)
 [[ "${SPARSE_BENCH_CANARY:-0}" == 1 ]] && args+=(--canary)
+if [[ -n "${SPARSE_EXACTNESS_FIXTURE:-}" ]]; then
+  python -m research.gpu_sim_spike.vector_exactness_probe \
+    --fixture "${COLAB_INPUT_DIR}/${SPARSE_EXACTNESS_FIXTURE}" \
+    --device "${SPARSE_BENCH_DEVICE:-cuda}" --output "${output_root}/vector-exactness.json"
+fi
 python -m research.gpu_sim_spike.sparse_bench "${args[@]}"
 [[ -s "${output_root}/sparse-bench.json" && -s "${output_root}/sparse-bench.json.sha256" && -s "${output_root}/sparse-bench.json.complete" ]]

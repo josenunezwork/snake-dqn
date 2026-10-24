@@ -207,7 +207,7 @@ def test_cell_stops_for_any_full_feature_or_speed_failure(monkeypatch):
     )
 
 
-def test_smoke_does_not_apply_speed_rule_but_keeps_static_feature_rule(monkeypatch):
+def test_smoke_requires_repaired_dense_cpu_bytes_too(monkeypatch):
     values = iter(
         (
             {
@@ -226,7 +226,7 @@ def test_smoke_does_not_apply_speed_rule_but_keeps_static_feature_rule(monkeypat
     )
     monkeypatch.setattr(sparse_bench, "_measure_backend", lambda *a, **k: next(values))
     row = sparse_bench._cell(None, "scripted", 1, "cpu", 1, 0, 1, enforce_speed=False)
-    assert row["verdict"] == "PASS_CELL" and row["baseline_dense_cpu_diagnostic_only"] is True
+    assert row["verdict"] == "INVALID_FEATURE_MISMATCH"
 
 
 def test_later_feature_failure_preserves_immutable_recorded_state():
@@ -299,3 +299,56 @@ def test_generated_helpers_execute_without_profiler_receipt(tmp_path):
         result = subprocess.run(["bash", str(script)], env=env, capture_output=True)
         assert result.returncode == 0, result.stderr
     assert "--canary-receipt" in (tmp_path / "args").read_text()
+
+
+def test_column_report_compares_bits_including_signed_zero():
+    import numpy as np
+
+    actual = torch.tensor([[0.0, 1.0, -0.0], [1.0, 2.0, 0.0]])
+    expected = actual.clone()
+    expected[0, 1] = torch.as_tensor(np.nextafter(np.float32(1), np.float32(2)))
+    expected[0, 2] = 0.0
+    report = sparse_bench.column_mismatches(actual, expected)
+    assert report[0] == {"column": 0, "mismatch_count": 0, "first_mismatch": None}
+    assert report[1]["mismatch_count"] == 1
+    assert report[1]["first_mismatch"] == {
+        "row": 0,
+        "actual_bits": 1065353216,
+        "expected_bits": 1065353217,
+    }
+    assert report[2]["first_mismatch"]["actual_bits"] == 0x80000000
+
+
+def test_exactness_fixture_must_be_verified_and_preflight_bound(tmp_path, monkeypatch):
+    """A fresh manifest cannot substitute a fixture after Mac preflight."""
+    ledger = tmp_path / "verified-ledger.json"
+    canary = tmp_path / "canary/verified-ledger.json"
+    _ledger(ledger)
+    _ledger(canary, canary=True)
+    fixture = tmp_path / "failed-state.npz"
+    fixture.write_bytes(b"immutable fixture")
+    import hashlib
+
+    digest = hashlib.sha256(fixture.read_bytes()).hexdigest()
+    fixture.with_name(fixture.name + ".sha256").write_text(f"{digest}  {fixture.name}\n")
+    fixture.with_name(fixture.name + ".complete").write_text("complete\n")
+    monkeypatch.setattr(sparse_pack, "checkpoint_inputs", lambda: [])
+    monkeypatch.setattr(sparse_pack, "convert_public_checkpoints", lambda value, repo: value)
+    monkeypatch.setattr(sparse_pack, "assert_upload_budget", lambda value, repo: None)
+    kwargs = dict(
+        commit=COMMIT,
+        output_dir=tmp_path / "output",
+        ledger=ledger,
+        canary_ledger=canary,
+        canary=True,
+        exactness_fixture=fixture,
+    )
+    with pytest.raises(sparse_pack.ManifestRefused, match="preflight"):
+        sparse_pack.manifest(**kwargs, preflight={})
+    job = sparse_pack.manifest(**kwargs, preflight={"exactness_fixture_sha256": digest})
+    assert job["env"]["SPARSE_EXACTNESS_FIXTURE"] == "exactness/failed-a100-state.npz"
+    assert "vector-exactness.json" in job["required_exports"]
+    assert job["inputs"][-1]["sha256"] == digest
+    fixture.write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="checksum"):
+        sparse_pack.manifest(**kwargs, preflight={"exactness_fixture_sha256": digest})

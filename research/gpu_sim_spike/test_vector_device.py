@@ -126,7 +126,7 @@ def test_feature_row_chunks_match_one_block_and_flood_once(monkeypatch) -> None:
     assert torch.equal(chunked.prev_id, full.prev_id)
 
 
-def test_feature_chunks_match_frozen_pre_memory_oracle_on_shuffled_rows(monkeypatch) -> None:
+def test_feature_chunks_match_cpu_repair_on_shuffled_rows(monkeypatch) -> None:
     """Oracle-check shuffled unique rows across three feature blocks."""
     cfg = BatchSimConfig(
         num_envs=3,
@@ -158,17 +158,24 @@ def test_feature_chunks_match_frozen_pre_memory_oracle_on_shuffled_rows(monkeypa
     frozen.bind(sim)
     frozen.prev_dist[:] = 7.0
     frozen.prev_id[:] = 2
-    expected = frozen.features(sim, rows, update_memory=True, memory_mask=memory_mask)
+    frozen.prev_dist[:] = 0.7
+    frozen.features(sim, rows, update_memory=True, memory_mask=memory_mask)
 
     candidate = DeviceVectorRuntime(params)
     candidate.bind(sim)
     candidate.prev_dist[:] = 7.0
     candidate.prev_id[:] = 2
     monkeypatch.setattr(vector_device, "FEATURE_ROW_CHUNK", 3)
-    actual = candidate.features(sim, rows, update_memory=True, memory_mask=memory_mask)
+    from research.gpu_sim_spike.test_vector_geometry import _canonical
 
-    assert torch.equal(actual, expected)
-    assert torch.equal(candidate.prev_dist, frozen.prev_dist)
+    expected, memory = _canonical(sim, candidate, rows.numpy())
+    actual = candidate.features(sim, rows, update_memory=True, memory_mask=memory_mask)
+    assert actual.numpy().tobytes() == expected.tobytes()
+    for index, (env, slot) in enumerate(rows.tolist()):
+        if sim.alive[env, slot] and memory_mask[index]:
+            assert candidate.prev_dist[env, slot] == memory.prev_dist[env, slot]
+        else:
+            assert candidate.prev_dist[env, slot] == 7.0
     assert torch.equal(candidate.prev_id, frozen.prev_id)
 
 
@@ -234,7 +241,7 @@ def test_device_vector_columns_and_trend_carry_match_cpu_oracle_on_rotated_rings
     assert actual_second[0, 49] == expected_second[0, 49] == -1.0
 
 
-def test_from_reference_converts_cpu_pixel_trend_memory_to_device_cells() -> None:
+def test_from_reference_preserves_cpu_pixel_trend_memory() -> None:
     """A stationary enemy after a CPU carry must report trend zero, not closing."""
     sim = _world()
     ref = _reference(sim)
@@ -243,9 +250,10 @@ def test_from_reference_converts_cpu_pixel_trend_memory_to_device_cells() -> Non
     cpu_runtime.prepare(ref)
     cpu_runtime.observe_step(ref)
     # The CPU baseline is 20 pixels between (5,5) and (7,5); device rings use
-    # two cells.  This setup bridge must convert only that runtime scalar.
+    # two cells. The repaired bridge preserves CPU pixels and float64 bytes.
     assert cpu_runtime.memory.prev_dist[0, 0] == 20.0
     runtime = DeviceVectorRuntime.from_reference(cpu_runtime, sim)
-    assert runtime.prev_dist[0, 0] == 2.0
+    assert runtime.prev_dist[0, 0] == 20.0
+    assert runtime.prev_dist.dtype == torch.float64
     state = runtime.features(sim, update_memory=True).detach().numpy()
     assert state[0, 49] == 0.0

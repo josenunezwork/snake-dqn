@@ -89,7 +89,33 @@ def _preflight_binding(path: Path, commit: str) -> dict[str, Any]:
         or body.get("source_sha256") != source_hashes()
     ):
         raise ManifestRefused("sparse preflight runtime/source identity differs")
+    if "exactness_fixture_sha256" in value:
+        probe_binding = value.get("exactness_probe", {})
+        probe_path = Path(str(probe_binding.get("path", "")))
+        sparse_units._verify(probe_path)
+        probe = json.loads(probe_path.read_text())
+        records = probe.get("records", [])
+        if (
+            probe_binding.get("sha256") != sha256_file(probe_path)
+            or probe.get("status") != "PASS"
+            or probe.get("device") != "cpu"
+            or probe.get("commit") != commit
+            or probe.get("source_sha256") != source_hashes()
+            or probe.get("native_cuda_executed") is not False
+            or probe.get("fixture_sha256") != value["exactness_fixture_sha256"]
+            or len(records) != 4
+            or any(not row.get("match") for row in records)
+        ):
+            raise ManifestRefused("preflight exactness fixture/probe binding differs")
     return {
+        **(
+            {
+                "exactness_fixture_sha256": value["exactness_fixture_sha256"],
+                "exactness_probe": value["exactness_probe"],
+            }
+            if "exactness_fixture_sha256" in value
+            else {}
+        ),
         "path": str(path.resolve()),
         "sha256": sha256_file(path),
         "source_sha256": value["source_sha256"],
@@ -156,6 +182,7 @@ def manifest(
     preflight: dict[str, Any],
     canary_receipt: Path | None = None,
     rate: float = 10.0,
+    exactness_fixture: Path | None = None,
 ) -> dict[str, Any]:
     _require_commit(commit)
     if not 0 < rate <= 10:
@@ -255,6 +282,26 @@ def manifest(
         },
         "mac_preflight": preflight,
     }
+    if exactness_fixture is not None:
+        fixture = exactness_fixture.resolve(strict=True)
+        sparse_units._verify(fixture)
+        if preflight.get("exactness_fixture_sha256") != sha256_file(fixture):
+            raise ManifestRefused("exactness fixture must match the Mac preflight")
+        value["inputs"].append(
+            {
+                "path": str(fixture),
+                "sha256": sha256_file(fixture),
+                "dest": "exactness/failed-a100-state.npz",
+            }
+        )
+        value["env"]["SPARSE_EXACTNESS_FIXTURE"] = "exactness/failed-a100-state.npz"
+        value["required_exports"].append("vector-exactness.json")
+    value["sparse_bench"]["declared_cpu_repair"] = {
+        "baseline_pin": "42c84584d5edef40009ad7278cb912b7f8bd4a9a",
+        "scope": "all vector61 arithmetic, sectors, dead rows, pixel float64 trend carry",
+        "dense_is_repaired_baseline": True,
+        "both_backends_require_cpu_bytes": True,
+    }
     if canary:
         value["env"].update({"SNAKE_COLAB_CANARY": "1", "SNAKE_COLAB_CANARY_PACKAGE": PACKAGE})
         value["canary"] = {"schema": "colab-family-canary/v1", "mode": "probe", "family": SCRIPT}
@@ -280,11 +327,18 @@ bash "$ART/dispatch-main-after-canary.sh"
 
 
 def _canary_script(
-    artifact: Path, commit: str, preflight: Path, rate: float, exports: Path | None = None
+    artifact: Path,
+    commit: str,
+    preflight: Path,
+    rate: float,
+    exports: Path | None = None,
+    exactness_fixture: Path | None = None,
 ) -> str:
     binding = (
         "" if exports is None else " --a1-prof-v4-exports " + shlex.quote(str(exports.resolve()))
     )
+    if exactness_fixture is not None:
+        binding += " --exactness-fixture " + shlex.quote(str(exactness_fixture.resolve()))
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 REPO={ROOT}
@@ -305,11 +359,18 @@ exec "$REPO/tools/ops/dispatch.sh" sparse-bench-a100-canary-{commit[:8]} \\
 
 
 def _main_script(
-    artifact: Path, commit: str, preflight: Path, rate: float, exports: Path | None = None
+    artifact: Path,
+    commit: str,
+    preflight: Path,
+    rate: float,
+    exports: Path | None = None,
+    exactness_fixture: Path | None = None,
 ) -> str:
     binding = (
         "" if exports is None else " --a1-prof-v4-exports " + shlex.quote(str(exports.resolve()))
     )
+    if exactness_fixture is not None:
+        binding += " --exactness-fixture " + shlex.quote(str(exactness_fixture.resolve()))
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 REPO={ROOT}
@@ -339,6 +400,7 @@ def main() -> None:
     parser.add_argument("--preflight", type=Path)
     parser.add_argument("--canary-receipt", type=Path)
     parser.add_argument("--a1-prof-v4-exports", type=Path)
+    parser.add_argument("--exactness-fixture", type=Path)
     parser.add_argument("--rate-units-per-hour", type=float, default=10.0)
     parser.add_argument("--validate", action="store_true")
     args = parser.parse_args()
@@ -371,6 +433,7 @@ def main() -> None:
         canary=True,
         preflight=preflight,
         rate=args.rate_units_per_hour,
+        exactness_fixture=args.exactness_fixture,
     )
     if a1_v4 is not None:
         canary["a1_prof_v4_recovered_exports"] = a1_v4
@@ -383,6 +446,7 @@ def main() -> None:
         preflight=preflight,
         canary_receipt=args.canary_receipt,
         rate=args.rate_units_per_hour,
+        exactness_fixture=args.exactness_fixture,
     )
     if a1_v4 is not None:
         main_job["a1_prof_v4_recovered_exports"] = a1_v4
@@ -420,7 +484,12 @@ def main() -> None:
         write_once(handoff, _dispatch_text(art, commit))
     script = art / "dispatch-main-after-canary.sh"
     text = _main_script(
-        art, commit, preflight_path, args.rate_units_per_hour, args.a1_prof_v4_exports
+        art,
+        commit,
+        preflight_path,
+        args.rate_units_per_hour,
+        args.a1_prof_v4_exports,
+        args.exactness_fixture,
     )
     if not script.exists():
         write_once(script, text)
@@ -429,7 +498,12 @@ def main() -> None:
         raise ManifestRefused(f"immutable pack differs: {script}")
     canary_script = art / "dispatch-canary.sh"
     text = _canary_script(
-        art, commit, preflight_path, args.rate_units_per_hour, args.a1_prof_v4_exports
+        art,
+        commit,
+        preflight_path,
+        args.rate_units_per_hour,
+        args.a1_prof_v4_exports,
+        args.exactness_fixture,
     )
     if not canary_script.exists():
         write_once(canary_script, text)
