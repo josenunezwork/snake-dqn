@@ -41,6 +41,80 @@ def synthetic_inputs(root: Path) -> Path:
     return root
 
 
+def test_worker_accepts_supervisor_precreated_layout(tmp_path: Path) -> None:
+    root = tmp_path / "snake-cli" / "runtime-id"
+    root.mkdir(parents=True)
+    source = synthetic_inputs(root / "inputs")
+    (root / "repo").mkdir()
+    output = root / "output"
+    output.mkdir(mode=0o700)
+    (root / "lease.json").write_text('{"generation": "test"}\n')
+    (root / "state.json").write_text('{"status": "starting"}\n')
+    (root / "job.log").touch()
+
+    receipt = run(source, output, mode="canary", device="cpu")
+
+    assert receipt["done"] == 1
+    assert receipt["synthetic_fused_action_device"] == "cpu"
+    for name in ("allocation.json", "unit-0000.pth", "receipt.json"):
+        verify_export(output / name)
+    before = {path.name: path.read_bytes() for path in output.iterdir()}
+    with pytest.raises(FileExistsError, match="not empty"):
+        run(source, output, mode="canary", device="cpu")
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == before
+
+
+@pytest.mark.parametrize(
+    "existing",
+    [
+        "allocation.json",
+        "allocation.json.sha256",
+        "allocation.json.complete",
+        "unit-0000.pth",
+        "unit-0000.pth.complete",
+        "receipt.json",
+        "unrelated-file",
+    ],
+)
+def test_worker_refuses_preexisting_output_files(tmp_path: Path, existing: str) -> None:
+    source = synthetic_inputs(tmp_path / "inputs")
+    output = tmp_path / "output"
+    output.mkdir()
+    (output / existing).write_bytes(b"immutable evidence")
+
+    with pytest.raises(FileExistsError, match="not empty"):
+        run(source, output, mode="canary", device="cpu")
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == {
+        existing: b"immutable evidence"
+    }
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink", "broken-symlink", "directory"])
+def test_worker_refuses_output_path_collisions(tmp_path: Path, kind: str) -> None:
+    source = synthetic_inputs(tmp_path / "inputs")
+    output = tmp_path / "output"
+    target = tmp_path / "target"
+    if kind == "file":
+        output.write_bytes(b"immutable evidence")
+    elif kind in ("symlink", "broken-symlink"):
+        if kind == "symlink":
+            target.mkdir()
+        output.symlink_to(target, target_is_directory=True)
+    else:
+        (output / "existing-directory").mkdir(parents=True)
+
+    with pytest.raises(FileExistsError):
+        run(source, output, mode="canary", device="cpu")
+    if kind == "file":
+        assert output.read_bytes() == b"immutable evidence"
+    elif kind == "symlink":
+        assert output.is_symlink() and not list(target.iterdir())
+    elif kind == "broken-symlink":
+        assert output.is_symlink() and not target.exists()
+    else:
+        assert list(output.iterdir()) == [output / "existing-directory"]
+
+
 def test_real_entrypoint_three_tiny_units_and_exact_skip(tmp_path: Path) -> None:
     assert os.getpriority(os.PRIO_PROCESS, 0) >= 15
     source = synthetic_inputs(tmp_path / "inputs")

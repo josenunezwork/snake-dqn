@@ -211,9 +211,13 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
         if verify_export(previous) != unit["sha256"] or previous.stat().st_size != unit["size"]:
             raise ValueError("unverified skip")
         skipped = True
-    if output.exists():
-        raise FileExistsError("fresh output required")
-    output.mkdir(parents=True)
+    # The supervisor creates this empty directory before starting the worker.
+    # Accept that layout, but never follow a symlink or reuse attempt evidence.
+    if output.is_symlink():
+        raise FileExistsError(f"unsafe attempt output directory: {output}")
+    output.mkdir(parents=True, exist_ok=True)
+    if any(output.iterdir()):
+        raise FileExistsError(f"attempt output directory is not empty: {output}")
     export_json(
         output / "allocation.json",
         {
