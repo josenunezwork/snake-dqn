@@ -386,6 +386,7 @@ def test_optional_cpu_fault_closes_shared_attempt(
             {
                 "fake_proof": {"path": str(fake), "sha256": checker._sha(fake)},
                 "source_commit": "0" * 40,
+                "repo": str(tmp_path),
             }
         )
     )
@@ -400,7 +401,12 @@ def test_optional_cpu_fault_closes_shared_attempt(
         )
     )
 
-    monkeypatch.setattr(checker, "_profile", lambda _plan: ({}, jobs))
+    monkeypatch.setattr(checker, "_profile", lambda _plan: (json.loads(_plan.read_text()), jobs))
+    monkeypatch.setattr(
+        checker,
+        "require_review",
+        lambda **_kwargs: {"artifact_sha256": {"plan": checker._sha(plan)}},
+    )
     monkeypatch.setattr(checker, "_verify_remote_publication", lambda *_args: None)
     monkeypatch.setattr(checker, "validate_fake_proof", lambda *_args: {})
     monkeypatch.setattr(checker, "_sealed_evidence", lambda *_args: {})
