@@ -1153,3 +1153,67 @@ register remains revision0,main reservations0,OPERATOR_ADMISSION pointer absent.
 The reviewer-owned artifact trio and initialization/config/audit-plan/root-check
 snapshots are committed at `tools/small_bench_evidence_20261024/`.
 No provider query,dispatch,runtime mutation,retry,completion or release occurred.
+
+### 2026-10-24 ~04:45 PT — I0 unblock ruling applied: V8 closed, I0 main audited HOLD
+
+Binding ruling `snake-dqn-artifacts/big-lever/exp/JUDGMENT_I0_UNBLOCK_20261024.md`
+SHA256 `3dc6cb50ad36da031d189b70ab344441533109e9d99f1505cac17a81934830a7`:
+**WAIVE_V8_SELECTION_FOR_FROZEN_I0** and **CLOSED_UNNEEDED_FOR_I0** recorded here
+before any affected execution (Claude operator; Codex unavailable).
+
+V8 closure: immutable delta `small-bench-sprint-20261024/V8_CLOSURE_I0_20261024.json`
+SHA256 `c844865f67c827766caea5511554e190ad1c49a4ff13698aefc8e46ec651e68a`
+(type delta, status CLOSED_UNNEEDED_FOR_I0, no financial fields) appended with the
+ruling's exact generic `small_bench_operator delta` command after re-reading the
+register under the shared reservation lock (revision 0, no reservation, no admission
+pointer). Standing register now revision 1, row SHA256
+`5edad004f41d166cea5fa21de0b56701b5620b713c2c479c7a32c05ec47f3753`. No spend returned,
+no hold reduced; the six-attempt V8 charges remain. Operational closure only: not
+STOP_SPLIT/SELECT_G/SELECT_GV or any indexed-v8 finding; STOP_ROUTE and all old
+evidence preserved. The V8 split main is removed from the operator ready queue and
+`tools/v8_small_bench.py` now refuses admit/check/prepare/dispatch for the closed
+route. Do not run `v8-small-bench.sh admit` or `dispatch`.
+
+I0 amendment (host-only, runtime 968f0276, canary PASS_CANARY review SHA256
+`75e29939…`): new sibling adapter `tools/i0_small_bench.py` + `tools/i0-small-bench.sh`
+binds the waiver by hash as Mac-only evidence, keeps the tracked admission's
+`v8_selection: PENDING`, reuses the frozen runtime's own preflight/admission/canary
+binding and independent canary reducer (no globals patched), checks pin, flags,
+empty main ledger and exact upload inventory (metadata `350f4de1…`, identical to the
+canary), and that no I0 main has executed. Published create-only audit
+`gpu-integration-i0-main-waiver-20261024-01/I0_SIZING_CLEANUP_AUDIT.json`
+SHA256 `f833eedd6be9925d1f6d50b7de1970e64a32689ddb6584ec34fb8707159df20d`.
+
+Sizing: old frozen forecast reproduced exactly (5822.414110720054 s, 98 min). Revised
+estimator charges actual call counts (3 warmups + 3 plain + 3 diagnostic calls per
+arm per cell; continuity 1+3+3x33 = 103 calls per arm per E1024 roster, not
+plain+diagnostic pairs), the slowest roster's measured call (0.5575 s R+I at E64),
+linear E scaling above E64 and a one-call floor at E6 (the old method under-charged
+E6 and omitted warmups). Even the floor without per-cell overhead, progressing-state
+margin or export allowance is **61 min**; the full conservative estimate (native
+lower bound 172.05 s from the ordered canary log, post-native per-cell overhead
+scaled with E, 1.25 progressing margin, 64 MiB export allowance) is **120 min**.
+Both exceed the registered 60-minute estimate; the unchanged supervisor refuses
+(`timeout must include at least 2x measured estimate`); 120 min also exceeds the
+frozen 5400 s producer deadline. Cross-package A100 evidence (v8 geometry scripted
+baseline full tick 13.5x from E64 to E1024) supports near-linear scaling, so no
+sublinear relief was taken.
+
+Cleanup: the I0 broker is byte-identical to the audited V8 supervisor
+(`263eeecc…`), so the 30 min / 5 u known-endpoint outside-cap tail applies. I0
+history 2.18 u / 22.71 min (canary + L4 compile) + main 20 u / 120 min + tail
+= 27.18 u / 172.71 min > I0 24 u / 144 min and > the 25-unit fast-path scope;
+headroom for any tail is only 1.82 u / 1.29 min. No reduced enforceable tail exists
+in the qualified path.
+
+Disposition: **HOLD (sizing + cleanup)**. No admissible manifest or small-bench
+config was written; `i0-small-bench.sh admit|dispatch` refuse. Dry-run against the
+real canary receipt: all offline identity checks PASS; governed `dispatch.sh
+--dry-run` with the honest estimate REFUSED by supervisor validation; a
+mechanics-only throwaway copy at the registered template estimate passed
+(`PASS_DRY_RUN … allocations=0`), so sizing/cleanup are the only blockers. No
+caps raised, estimate relabelled, deadline changed, provider query, reservation or
+dispatch. Per the ruling, retain HOLD and at the governing deadline/cap close the
+uncompleted main as INCOMPLETE unless new prospective authority changes the frozen
+envelope or workload. The old `prepare-main-after-canary.sh` / `dispatch-main.sh`
+remain unusable.

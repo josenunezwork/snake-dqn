@@ -297,6 +297,31 @@ def prepare() -> dict[str, Any]:
     return {"status": "PREPARED_NOT_LIVE_ADMITTED", "config": str(CONFIG), "row": row}
 
 
+CLOSURE_ID = "v8-split-initial-main-closed-unneeded-for-i0-20261024"
+CLOSURE_RULING_SHA256 = "3dc6cb50ad36da031d189b70ab344441533109e9d99f1505cac17a81934830a7"
+
+
+def closed(path: Path | None = None) -> dict[str, Any] | None:
+    """Return the recorded CLOSED_UNNEEDED_FOR_I0 delta for this route, if any.
+
+    Astra's WAIVE_V8_SELECTION_FOR_FROZEN_I0 / CLOSE_V8_SPLIT_MAIN_UNNEEDED ruling
+    closes the pending V8 split initial main. The closure is an accounting row in
+    the one standing register; this adapter refuses every admission/dispatch
+    operation for the closed route. Reopening needs new prospective authority.
+    """
+    for row in register.read(path or SPRINT / "register.jsonl"):
+        route = row.get("closed_route") or {}
+        if (
+            row.get("type") == "delta"
+            and row.get("status") == "CLOSED_UNNEEDED_FOR_I0"
+            and route.get("packet_id") == "V8_SPLIT_INITIAL_MAIN_20261024"
+        ):
+            if row.get("ruling", {}).get("sha256") != CLOSURE_RULING_SHA256:
+                raise ValueError("V8 closure row binds an unexpected ruling")
+            return row
+    return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("prepare", "offline", "admit", "dispatch", "check"))
@@ -304,6 +329,13 @@ def main() -> None:
     args = parser.parse_args()
     if args.dry_run and args.operation != "dispatch":
         parser.error("--dry-run is supported only for dispatch; no live action performed")
+    closure = closed()
+    if closure is not None and args.operation != "offline":
+        raise SystemExit(
+            "REFUSE closed route: V8 split initial main is CLOSED_UNNEEDED_FOR_I0 "
+            f"(register revision {closure['revision']}, row {closure['row_hash']}); "
+            "no admit, check, prepare or dispatch"
+        )
     if args.operation == "prepare":
         result = prepare()
     elif args.operation == "offline":
