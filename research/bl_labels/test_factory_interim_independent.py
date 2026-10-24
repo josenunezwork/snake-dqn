@@ -156,15 +156,22 @@ def test_unknown_or_unreadable_priority_refused(tmp_path, monkeypatch, row, phas
     "child", ["python -c import_numpy", "/usr/bin/awk numeric_tool", "python -m pytest tests"]
 )
 @pytest.mark.parametrize("phase", ["runtime", "host-check"])
-def test_every_foreign_descendant_is_checked(tmp_path, monkeypatch, child, phase):
+def test_foreign_descendant_requires_research_or_agent_match(tmp_path, monkeypatch, child, phase):
     _pair(tmp_path)
     _host(monkeypatch, f"123 1 15 codex exec task\n124 123 19 /bin/sh helper\n125 124 14 {child}\n")
-    with pytest.raises((md.MacGuardError, ValueError)):
+
+    def check():
         (
             _persistent_guard(monkeypatch)
             if phase == "runtime"
             else sr.record_host_check(tmp_path, checked_epoch=2001)
         )
+
+    if child == "python -m pytest tests":
+        with pytest.raises((md.MacGuardError, ValueError)):
+            check()
+    else:
+        check()
 
 
 @pytest.mark.parametrize(

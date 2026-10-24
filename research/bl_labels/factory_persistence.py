@@ -96,13 +96,14 @@ def _confirmed_absent(pid: int) -> bool:
 
 
 def _seed(command: str, executable: str | None = None) -> str | None:
+    """Classify research interpreters by executable, retaining the agent matcher."""
     from .slowdown_resume import _sol_codex_job
 
     if _sol_codex_job(command):
         return "agent"
     words = command.split(None, 1)
     name = Path(executable or (words[0] if words else "")).name.lower()
-    if name.startswith(("python", "pytest")) and re.search(
+    if re.fullmatch(r"(?:python|pytest)(?:\d+(?:\.\d+)*)?", name) and re.search(
         r"(?:-m\s+(?:pytest|research\.)|(?:research|src/scripts)/|train_)", command
     ):
         return "research_python_or_pytest"
@@ -160,11 +161,11 @@ def _verified_tmux_server(row: dict[str, Any], read: Callable[[list[str]], str])
 def process_rows(
     read: Callable[[list[str]], str], known: dict[tuple[int, str], dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Read a full table, then native identity for each relevant live process.
+    """Read a full table, then verify executable relevance for each candidate.
 
-    A verified tmux server is excluded before descendant expansion. Every
-    pane/workload is still independently classified. No executable-name-only
-    supervisor exemption is used.
+    Every workload is independently classified; ancestry and retained argv
+    cannot make a generic tool relevant. A verified tmux server remains
+    excluded. No executable-name-only supervisor exemption is used.
     """
     # Two -w flags remove the display-width limit, including when stdout is
     # redirected. Only ASCII newlines delimit rows; Unicode separators are args.
@@ -208,7 +209,6 @@ def process_rows(
     relevant.update(pid for pid, _ in known if pid in rows)
     resolved: set[int] = set()
     excluded: set[int] = set()
-    non_roots: set[int] = set()
     while relevant - resolved:
         for pid in sorted(relevant - resolved):
             observation_timeout()
@@ -233,22 +233,10 @@ def process_rows(
             if Path(row["executable"]).name == "tmux":
                 if _verified_tmux_server(row, read):
                     excluded.add(pid)
-                    non_roots.add(pid)
                     continue
-            identity = (pid, row["birth"])
-            row["relevance_reason"] = (
-                known[identity]["relevance_reason"]
-                if identity in known
-                else _seed(row["argv"], row["executable"])
-            )
+            row["relevance_reason"] = _seed(row["argv"], row["executable"])
             if row["relevance_reason"] is None:
-                # A reused PID with generic argv must not inherit relevance.
-                if row["ppid"] not in relevant - non_roots:
-                    excluded.add(pid)
-                    non_roots.add(pid)
-                    continue
-                row["relevance_reason"] = "relevant_descendant"
-        relevant.update(pid for pid, row in rows.items() if row["ppid"] in relevant - non_roots)
+                excluded.add(pid)
     # Keep the full ancestry table for ownership without requiring native
     # reads of unrelated system processes (which may legitimately deny them).
     for pid, row in rows.items():

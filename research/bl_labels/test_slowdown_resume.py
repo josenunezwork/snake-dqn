@@ -447,9 +447,9 @@ def test_operational_receipt_pin_refuses_dirty_checkout(
         _actual_operational_pin()
 
 
-@pytest.mark.parametrize("tool", ['python -c "import numpy"', "/usr/bin/native-tool"])
+@pytest.mark.parametrize("tool", ["python -m research.x", "python research/x.py"])
 @pytest.mark.parametrize("nice", [14, 15, 19])
-def test_foreign_agent_descendants_are_individually_priority_checked(
+def test_foreign_research_descendants_are_individually_priority_checked(
     monkeypatch: pytest.MonkeyPatch, tool: str, nice: int
 ) -> None:
     monkeypatch.setattr(
