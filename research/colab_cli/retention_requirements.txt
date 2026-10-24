@@ -1,2 +1,0 @@
-# Bootstrap pins Torch 2.9.1/cu126 and NumPy 1.26.4 separately.
-ninja==1.13.0
