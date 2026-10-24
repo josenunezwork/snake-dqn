@@ -301,6 +301,7 @@ def test_l4_watchdog_requires_backend_disappearance_within_bound(
 
     class CLI:
         session = "acceptance-session"
+        call_records: list[dict] = []
 
         @staticmethod
         def stop_lease(*, wait: bool = False) -> None:
@@ -344,7 +345,7 @@ def test_l4_watchdog_requires_backend_disappearance_within_bound(
     observer._watchdog(
         {
             "cli": cli,
-            "manifest": {"lease_seconds": 180},
+            "manifest": {"lease_seconds": 180, "job_id": "test-watchdog"},
             "output": output,
             "root": "/content/acceptance",
             "generation": "g",
@@ -366,6 +367,7 @@ def test_l4_watchdog_rejects_question_mark_session_when_endpoint_remains(
 
     class CLI:
         session = "acceptance-session"
+        call_records: list[dict] = []
 
         @staticmethod
         def stop_lease(*, wait: bool = False) -> None:
@@ -407,7 +409,7 @@ def test_l4_watchdog_rejects_question_mark_session_when_endpoint_remains(
         observer._watchdog(
             {
                 "cli": CLI(),
-                "manifest": {"lease_seconds": 180},
+                "manifest": {"lease_seconds": 180, "job_id": "test-watchdog"},
                 "output": output,
                 "root": "/content/acceptance",
                 "generation": "g",
@@ -577,7 +579,9 @@ def test_cpu_failure_writes_final_result_and_does_not_spend_l4(
             self.records[name] = dict(evidence)
 
         def write(self, _output: Path) -> None:
-            return None
+            (_output / "acceptance-observer.json").write_text(
+                json.dumps({"profile": "final-only", "gates": self.records})
+            )
 
     class BrokenBroker:
         def __init__(self, _state: Path, _binary: str, observer: object) -> None:
@@ -621,7 +625,9 @@ def test_expected_l4_watchdog_refusal_records_or_rejects_provider_rate_calibrati
             self.records[name] = dict(evidence)
 
         def write(self, _output: Path) -> None:
-            return None
+            (_output / "acceptance-observer.json").write_text(
+                json.dumps({"profile": "final-only", "gates": self.records})
+            )
 
     class WatchdogBroker:
         def __init__(self, _state: Path, _binary: str, observer: Observer) -> None:

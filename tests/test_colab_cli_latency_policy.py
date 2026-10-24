@@ -120,6 +120,7 @@ def test_watchdog_collects_during_expiry_interval_and_recovers_status_reset(
     calls = []
 
     class CLI:
+        call_records: list[dict] = []
         session = "owned"
         accounting = SimpleNamespace(endpoint="owned-endpoint")
 
@@ -161,7 +162,7 @@ def test_watchdog_collects_during_expiry_interval_and_recovers_status_reset(
     observer._watchdog(
         {
             "cli": CLI(),
-            "manifest": {"lease_seconds": 180},
+            "manifest": {"lease_seconds": 180, "job_id": "test-watchdog"},
             "root": "/content/snake-cli/g",
             "generation": "g",
             "output": tmp_path,
@@ -187,6 +188,7 @@ def test_watchdog_slow_pre_expiry_read_cannot_consume_checkpoint_window(
     reads = []
 
     class CLI:
+        call_records: list[dict] = []
         session = "owned"
         accounting = SimpleNamespace(endpoint="owned-endpoint")
 
@@ -231,7 +233,7 @@ def test_watchdog_slow_pre_expiry_read_cannot_consume_checkpoint_window(
     observer._watchdog(
         {
             "cli": CLI(),
-            "manifest": {"lease_seconds": 180},
+            "manifest": {"lease_seconds": 180, "job_id": "test-watchdog"},
             "root": "/content/snake-cli/g",
             "generation": "g",
             "output": tmp_path,

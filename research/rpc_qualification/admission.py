@@ -15,8 +15,8 @@ FAULT_AUTHORITY_SHA256 = "fe8579c2aec5489ea25149b5d88036cb22daad0faa5310913231f3
 FAULT_DEFINITION = "l4-label-faults/v2"
 WORKER_PIN = "2af48cd0b98a2063f46871cf4d320a5541b789af"
 # Rebound to the v2 recovery-fix commit (judgment §4 step 1c); a18bf6b4 was attempt 1.
-TRANSPORT_PIN = "a6334f664e2b60d2cd1721ab2005ad7419e77202"
-TRANSPORT_TREE = "76f069ae7c2082b0c1e3bfac0b39f00cc6f0ffc6"
+TRANSPORT_PIN = "2eb8bc3688a94fccaaafab27431e3a0d2d40d261"
+TRANSPORT_TREE = "045674f73933177ac2b799e64ec3fec80cd4fcfd"
 # The independent reviewer's create-only ACCEPT lives outside the repository so
 # recording it never moves the pack's pinned source commit.
 REVIEW_PATH = Path(
@@ -51,6 +51,16 @@ def review_source_inventory(repo: Path, package_commit: str | None = None) -> di
         "tests/test_l4_faults_v2.py",
         "tests/test_l4_lane_admission.py",
         "tests/test_ops_qualification.py",
+        "tests/test_colab_cli_evidence.py",
+        "tests/test_colab_cli_evidence_differential.py",
+        "tests/test_colab_cli_acceptance.py",
+        "tests/test_colab_cli_latency_policy.py",
+        "tests/test_colab_cli_transfers.py",
+        "tests/test_rpc_qualification_matrix.py",
+        "tests/test_rpc_qualification_injection.py",
+        "tests/test_rpc_qualification_loop.py",
+        "tests/test_rpc_qualification_profile.py",
+        "tests/test_rpc_qualification_probe_policy.py",
         "tests/test_rpc_qualification_checker.py",
         "tests/fixtures/make_l4_faults_v2_fixture.py",
     }

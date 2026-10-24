@@ -90,7 +90,7 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
 
         require_review(repo=repo, package_commit=review["commit"])
         validate_fake_proof(
-            repo / "research/rpc_qualification/FAKE_CLI_PROOF_20261024.json",
+            repo / "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_05.json",
             repo,
             review["commit"],
         )

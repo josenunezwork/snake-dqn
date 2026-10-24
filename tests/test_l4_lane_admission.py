@@ -194,7 +194,7 @@ def _exec(status: str) -> dict[str, Any]:
 
 
 def test_pin_is_rebound_to_the_fix_commit() -> None:
-    assert admission.TRANSPORT_PIN == "a6334f664e2b60d2cd1721ab2005ad7419e77202"
+    assert admission.TRANSPORT_PIN == "2eb8bc3688a94fccaaafab27431e3a0d2d40d261"
     assert admission.FAULT_DEFINITION == "l4-label-faults/v2"
     assert admission.SCHEMA == "rpc-qualification-profile/v2"
 

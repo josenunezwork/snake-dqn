@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.util
+import json
 import os
 import subprocess
 import tempfile
@@ -20,6 +23,7 @@ THREADS = (
     "OPENBLAS_NUM_THREADS",
     "NUMBA_NUM_THREADS",
     "VECLIB_MAXIMUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
 )
 
 
@@ -54,17 +58,27 @@ def generate(out: Path) -> None:
     ]
     with tempfile.TemporaryDirectory(prefix="l4-fake-proof-") as temporary:
         report = Path(temporary) / "junit.xml"
-        subprocess.run(
-            [*command, f"--junitxml={report}"],
-            cwd=REPO,
-            check=True,
-            env={**os.environ, **{key: "1" for key in THREADS}, "PYTHONDONTWRITEBYTECODE": "1"},
-        )
+        # In-process pytest leaves exactly one slot for differential workers.
+        # Set the macOS guard before collection to avoid a third interpreter.
+        for key in THREADS:
+            os.environ[key] = "1"
+        os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+        spec = importlib.util.find_spec("torch")
+        if spec is not None and spec.origin:
+            os.environ["DYLD_LIBRARY_PATH"] = str(Path(spec.origin).parent / "lib")
+        trace = Path(temporary) / "differential-trace.json"
+        os.environ["SNAKE_COLAB_DIFFERENTIAL_TRACE"] = str(trace)
+        import pytest
+
+        result = pytest.main([*command[6:], f"--junitxml={report}"])
+        if result:
+            raise ValueError(f"fake-CLI tests failed: {result}")
         suites = ET.parse(report).getroot().findall("testsuite")
         counts = {
             key: sum(int(s.get(key, "0")) for s in suites)
             for key in ("tests", "failures", "errors", "skipped")
         }
+        trace_bytes = trace.read_bytes()
     if before != inventory():
         raise ValueError("source changed while fake-CLI tests ran")
     if not counts["tests"] or any(counts[key] for key in ("failures", "errors", "skipped")):
@@ -86,6 +100,9 @@ def generate(out: Path) -> None:
                 text=True,
                 timeout=30,
             ).strip(),
+            "execution": "pytest.main in-process; one differential child at a time",
+            "differential_trace_sha256": hashlib.sha256(trace_bytes).hexdigest(),
+            "differential_trace": json.loads(trace_bytes),
         },
     )
 

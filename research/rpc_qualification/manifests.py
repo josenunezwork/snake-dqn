@@ -42,6 +42,8 @@ DEFAULT_BANK = ARTIFACTS / "bl-labels-f0/f1-pack-09/f1-root-bank.json.xz"
 # lane result never de-qualifies the transport every other lane dispatches.
 LANE_REGISTRY = ARTIFACTS / "ops/l4-label-lane-qualified.json"
 PUBLICATION_BRANCH = "ops-l4-faults-v2-20261024"
+HOLD_RESOLUTION = ARTIFACTS / "big-lever/exp/fable-20261024/JUDGMENT_L4_V2_HOLD_RESOLUTION.md"
+HOLD_RESOLUTION_SHA256 = "adddd711494b8d855d70425e028d3606531d7b8527e4138ca8419baf217299ed"
 
 
 def git(*args: str) -> str:
@@ -81,6 +83,8 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
         raise ValueError("pack preparation requires clean committed source")
     if out.exists():
         raise ValueError("pack root must be fresh")
+    if sha(HOLD_RESOLUTION) != HOLD_RESOLUTION_SHA256:
+        raise ValueError("hold-resolution authority differs from the frozen ruling")
     if bank_digest(bank) != BANK_SHA256:
         raise ValueError("foreign frozen F1 bank")
     load_bank(bank)
@@ -88,7 +92,7 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
     transport = git("rev-parse", f"{commit}:research/colab_cli")
     if transport != git("rev-parse", f"{TRANSPORT_PIN}:research/colab_cli"):
         raise ValueError("pack transport tree differs from the v2 fix pin")
-    proof = REPO / "research/rpc_qualification/FAKE_CLI_PROOF_20261024.json"
+    proof = REPO / "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_05.json"
     from .checker import validate_fake_proof
 
     validate_fake_proof(proof, REPO, commit)
@@ -137,6 +141,7 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
         ]
         inputs += checkpoints
         from research.colab_cli import injection_manifest
+        from research.rpc_qualification.injection import locator_for_unit, unit_rpc_sha256
 
         from .loop import unit_id
 
@@ -148,13 +153,24 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
                 {
                     "injection_id": f"response-loss-{k + 1}",
                     "type": "post_send_response_loss",
+                    "failure_type": "post_send_response_loss",
                     "command": "exec",
-                    "request_id": hashlib.sha256(
-                        ("rpc-injection/" + unit_id(namespace, allocation, k)).encode()
-                    ).hexdigest()[:32],
+                    "request_id": request_id,
+                    "request_sha256": unit_rpc_sha256(
+                        locator=locator_for_unit(unit),
+                        namespace=namespace,
+                        allocation=allocation,
+                        index=k,
+                        unit_id=unit,
+                        request_id=request_id,
+                    ),
                     "max_calls": 1,
                 }
                 for k in range(3)
+                for unit in [unit_id(namespace, allocation, k)]
+                for request_id in [
+                    hashlib.sha256(("rpc-injection/" + unit).encode()).hexdigest()[:32]
+                ]
             ]
             if mode == "injection"
             else []
@@ -173,6 +189,11 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
             "bank_sha256": BANK_SHA256,
             "frozen_source_sha256": source["archive_sha256"],
             "mode": mode,
+            "injection_request_sha256": {
+                entry["request_id"]: entry["request_sha256"]
+                for entry in entries
+                if "request_sha256" in entry
+            },
             "platform": platform,
             "namespace": namespace,
             "allocation": allocation,
@@ -275,6 +296,7 @@ def prepare(out: Path, bank: Path = DEFAULT_BANK) -> Path:
         "schema": SCHEMA,
         "source_commit": commit,
         "transport_pin": TRANSPORT_PIN,
+        "hold_resolution": {"path": str(HOLD_RESOLUTION), "sha256": HOLD_RESOLUTION_SHA256},
         "bank_sha256": BANK_SHA256,
         "worker_pin": WORKER_PIN,
         "authority_sha256": AUTHORITY_SHA256,
@@ -375,6 +397,12 @@ def dry_run(plan_path: Path) -> dict[str, Any]:
 
     _verify(plan_path)
     plan = json.loads(plan_path.read_text())
+    if (
+        plan.get("hold_resolution")
+        != {"path": str(HOLD_RESOLUTION), "sha256": HOLD_RESOLUTION_SHA256}
+        or sha(HOLD_RESOLUTION) != HOLD_RESOLUTION_SHA256
+    ):
+        raise ValueError("pack hold-resolution authority differs")
     if git("rev-parse", "HEAD") != plan["source_commit"]:
         raise ValueError("source changed since pack preparation")
     if git("rev-parse", "HEAD:research/colab_cli") != plan["transport_tree"]:
@@ -405,10 +433,6 @@ def dry_run(plan_path: Path) -> dict[str, Any]:
             blockers.append(f"{job['job_id']}: {error}")
         if any(Path(job[key]).exists() for key in ("manifest", "state_dir", "output_dir")):
             raise ValueError("pack has already consumed a dispatch slot")
-    blockers.append(
-        "frozen transport lacks prospective operation/attempt identity, marker census, "
-        "durable reply/timing, verification correlation, and watchdog event evidence"
-    )
     try:
         require_review(repo=REPO, package_commit=plan["source_commit"])
     except (OSError, ValueError) as error:
@@ -423,6 +447,7 @@ def dry_run(plan_path: Path) -> dict[str, Any]:
         "blockers": blockers,
         "provider_calls": 0,
         "dispatches": 0,
+        "self_declared_blockers": [],
     }
 
 

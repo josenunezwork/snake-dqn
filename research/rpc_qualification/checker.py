@@ -36,6 +36,12 @@ FAKE_PROOF_TESTS = (
     "tests/test_rpc_qualification_injection.py",
     "tests/test_rpc_qualification_checker.py",
     "tests/test_l4_lane_admission.py",
+    "tests/test_colab_cli_acceptance.py",
+    "tests/test_colab_cli_latency_policy.py",
+    "tests/test_colab_cli_transfers.py",
+    "tests/test_rpc_qualification_loop.py",
+    "tests/test_rpc_qualification_profile.py",
+    "tests/test_ops_qualification.py",
 )
 FAKE_PROOF_EXTRA_SOURCES = (
     "research/bl_labels/l4_faults_v2.py",
