@@ -919,3 +919,51 @@ account checks remain mandatory. No continuation is authorized by this
 amendment; mechanical/cap failure preserves verified units and reports
 INCOMPLETE. This preparation does not authorize labels, training, integrated
 speed claims, CPU closed-loop qualification or release/serving changes.
+
+## 2026-10-24 — D1024 approved equiv-02 binding; OLD W6 prepared only
+
+Owner chat relayed Operator Claude's explicit YES to a fresh D1024 control package
+binding repaired round-27 speed pin `111c47818a097c57451386ef4f8a7009616f8f77`,
+with the exact original namespace/allocation/seeds/caps/calibration and OLD W6
+collector. Reason: the published sealed equiv-02 T-EQ FAIL binds `111c4781`, while
+original control `bf8ac97d` cannot admit it. No T-EQ status or allowlist changed.
+
+Fresh package: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/bl-labels-f0-speed/d1024-old-w6-equiv-02-pack-01`.
+Control SHA256 `9952387d0f493c7b0b62f1a210b1ed7e859031640c0022d9d43e200c51d337f7`.
+Only `source_commit` and `mac_gate.source_commit` changed. Original namespace
+`f0-hindsight-labels-bf8ac97dc66d1b4515e4c5510db3ad5886fa695d-mac-d1024`,
+2,160 materialized parents and their indices/seeds/plans/folds, 144,000-second
+(40 h) cap, W6, calibration source `61900af2` and runner `2a0821a9` are unchanged.
+Seed audit and empty verified ledger triplets are byte-identical. All 24 original
+`d1024-d4096-pack-01` files were inventoried before and verified unchanged after.
+The fresh HOLD manifest records the sealed FAIL/OLD fallback explicitly.
+
+Bound published ledger `research/bl_labels/ledger/ROUND27_SPEED_EQUIV_PHASES_02.json`,
+SHA256 `2d2e5ea4486e4cb8eb0c501c09b26906e9222f41aae99482e1c7c4afdf003541`,
+was checked byte-identical to origin/main; receipt is `equiv-02/receipt.json`.
+F4 uses only `big-lever/exp/f4/d1024-metadata-staging-03/inputs`, control SHA256
+`ac4b3d89fedc90e7d169316ca2fc85349c80b04b22fd5e9dc35401e48c4f498c`.
+Provenance: `research/bl_labels/ledger/D1024_OLD_W6_EQUIV02_BINDING_20261024.json`.
+
+Operational deviation: `3c5fc403` predates the rebound speed pin and fails the
+operational-descendant guard. The real check at `111c4781` then exposed the
+previously unreached `mac_gates.LEGACY_FACTORY_COMMIT` AttributeError. Published
+fix `587ff73ecdb9ebb25a104c3e45450ceb851c0358` changes only that reference to
+`frozen_factory.OLD_PIN` and adds four regression cases. Use that operational pin;
+science remains frozen `111c4781`, collector remains OLD `61900af2` at W6.
+The package's create-only `d1024-operational-erratum.json` supersedes its initial
+operational-pin recommendation; committed copy is
+`research/bl_labels/ledger/D1024_OLD_W6_OPERATIONAL_20261024.json`.
+
+Real launcher check at clean detached `587ff73e`: CHECKED, W6, 144000 seconds.
+Offline admission/revalidation and real `mac_driver --check` also pass with OLD
+collector and 2,160 pending parents; verification-only evidence is outside the
+production package. Its admitted-control/state/output paths remain absent.
+122 existing targeted tests plus four new cases, lint, shell syntax and diff
+checks pass. Independent Codex-V light and exact env/dispatch forms are recorded
+in `research/bl_labels/D1024_OLD_W6_EQUIV02_HANDOFF_20261024.md` and its linked
+review receipt. **PREPARED_CHECKED_NOT_DISPATCHED.** No factory/held-out/reserve/
+gameplay outcome look, no live job/session change, no serving/released-checkpoint
+change; D4096 remains HOLD. Operator runs the check first, waits for CHECKED and
+EXIT=0 plus lock release, then may dispatch collection using the distinct fresh
+name. This entry does not claim execution or completion of D1024.
