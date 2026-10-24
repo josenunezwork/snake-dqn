@@ -110,7 +110,29 @@ def build_world(root: Path) -> dict[str, Any]:
     catalog = [{k: v for k, v in life.items() if k != "path"} for life in tranches["d256"]]
     prior = allocate_lives(catalog)
     assert prior["doses"]["256"]["ready"]
-    return {"d256": tranches["d256"], "d1024": tranches["d1024"], "prior": prior}
+    catalog_path = root / "PUBLIC_INPUTS.json"
+    catalog_path.write_text(
+        json.dumps(
+            {
+                "schema": "t34-exit-b8-public-inputs/v1",
+                "status": "PUBLIC_RELEASE_VERIFIED_BY_OWNER_ADDENDUM",
+                "assets": [
+                    {
+                        "name": "B8_s3_final.pth",
+                        "url": "https://example.invalid/synthetic/B8_s3_final.pth",
+                        "size_bytes": len(FAKE_B8),
+                        "sha256": FAKE_B8_SHA,
+                    }
+                ],
+            }
+        )
+    )
+    return {
+        "d256": tranches["d256"],
+        "d1024": tranches["d1024"],
+        "prior": prior,
+        "public_inputs": catalog_path,
+    }
 
 
 def d256_control(inputs: Path) -> dict[str, Any]:
@@ -211,6 +233,7 @@ def patch_package(monkeypatch: Any, world: dict[str, Any], calls: dict[str, Any]
     monkeypatch.setattr(d256, "require_window_closed", lambda: None)
     monkeypatch.setattr(d256, "advisory_from_row", lambda _row: MASK.copy())
     monkeypatch.setattr(package, "B8_SHA", FAKE_B8_SHA)
+    monkeypatch.setattr(package, "PUBLIC_INPUTS", world["public_inputs"])
     monkeypatch.setattr(job, "B8_SHA", FAKE_B8_SHA)
     monkeypatch.setattr(
         package,

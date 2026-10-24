@@ -74,11 +74,21 @@ PREFLIGHT_FIXTURES = {
 # bl-f4-d256-metadata-fit-02 4.8. Supervisor wall: 428.9 + 336.0 + 676.4 s.
 PRIOR_SERIES_LIABILITY_UNITS = 7.2
 PRIOR_SERIES_WALL_SECONDS = 428.9102839999832 + 335.9559656250058 + 676.4081622079248
-# Measured on the paired D256 metadata canary (canary-output-l4-01): inputs
-# 17,534,811 bytes, transfer_seconds 72.63782974996138. The canary evidence bar
-# is transfer_seconds <= 150 (research/colab_cli/canary.py MAX_UPLOAD_SECONDS).
-D256_CANARY_UPLOAD_BYTES = 3244 + 14511 + 6562005 + 9654571 + 1300480
-D256_CANARY_TRANSFER_SECONDS = 72.63782974996138
+# Transport ruling JUDGMENT_D1024_FIT_TRANSPORT_20261024.md (sha 4beccde2...8618):
+# the training data and metadata.tar stay qualified private uploads; only b8.pth
+# moves to its existing owner-supplied public release URL (same bytes, same dest).
+PUBLIC_INPUTS = ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json"
+PUBLIC_INPUTS_STATUS = "PUBLIC_RELEASE_VERIFIED_BY_OWNER_ADDENDUM"
+B8_PUBLIC_ASSET = "B8_s3_final.pth"
+# Per-file upload model from the paired D256 canary receipt (ruling section 1):
+# fixed per-file RPC overhead plus 2.8 s per sequential 2 MiB chunk. It
+# reproduces the D256 canary (72.0 s modelled vs 72.6 s measured). The canary
+# evidence bar is transfer_seconds <= 150 (research/colab_cli/canary.py).
+CHUNK_BYTES = 2 * 1024**2
+CHUNK_SECONDS = 2.8
+MULTI_CHUNK_OVERHEAD_SECONDS = 16.0
+SINGLE_CHUNK_OVERHEAD_SECONDS = 4.0
+TRANSPORT_FILE_SECONDS = {"bootstrap.sh": 4.0, "source.py": 4.0}
 CANARY_UPLOAD_BAR_SECONDS = 150.0
 
 
@@ -299,19 +309,85 @@ def manifests(
     return main_template, canary_manifest
 
 
+def public_b8_row(path: Path) -> dict[str, Any]:
+    """Replace the staged b8.pth upload by its registered public URL, or refuse.
+
+    The staged bytes must equal the owner-released asset exactly (size and
+    SHA-256) and be B8 s3. Only this one input may become a URL.
+    """
+    catalog = json.loads(PUBLIC_INPUTS.read_text())
+    assets = [row for row in catalog.get("assets", []) if row.get("name") == B8_PUBLIC_ASSET]
+    if catalog.get("status") != PUBLIC_INPUTS_STATUS or len(assets) != 1:
+        raise ValueError("B8 public asset is not an owner-verified release")
+    asset = assets[0]
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("staged b8.pth is not a regular file")
+    checksum, size = digest(path), path.stat().st_size
+    if (
+        checksum != asset.get("sha256")
+        or size != asset.get("size_bytes")
+        or checksum != B8_SHA
+        or not str(asset.get("url", "")).startswith("https://")
+    ):
+        raise ValueError("staged b8.pth differs from the public B8 asset; refusing URL transport")
+    return {"dest": "b8.pth", "url": asset["url"], "sha256": checksum, "size_bytes": size}
+
+
+def transport_rows(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Exactly one row (b8.pth) becomes HTTPS; every other input stays an upload."""
+    rows = []
+    replaced = 0
+    for row in raw:
+        if row["dest"] == "b8.pth":
+            public = public_b8_row(Path(row["path"]))
+            if public["sha256"] != row["sha256"]:
+                raise ValueError("b8.pth changed while preparing transport")
+            rows.append(public)
+            replaced += 1
+        else:
+            rows.append(dict(row))
+    if replaced != 1:
+        raise ValueError("exactly one staged b8.pth input is required")
+    return rows
+
+
+def _row_seconds(size: int) -> tuple[int, float]:
+    chunks = max(1, -(-size // CHUNK_BYTES))
+    overhead = MULTI_CHUNK_OVERHEAD_SECONDS if chunks > 1 else SINGLE_CHUNK_OVERHEAD_SECONDS
+    return chunks, overhead + chunks * CHUNK_SECONDS
+
+
 def upload_projection(inventory: list[dict[str, Any]]) -> dict[str, Any]:
-    """Project canary transfer time from the measured paired D256 canary rate."""
-    total = sum(Path(row["path"]).stat().st_size for row in inventory if "path" in row)
-    rate = D256_CANARY_UPLOAD_BYTES / D256_CANARY_TRANSFER_SECONDS
-    seconds = total / rate
+    """Per-file canary transfer model over uploaded rows only (HTTPS rows excluded)."""
+    rows = [
+        {"dest": name, "kind": "transport", "seconds": seconds}
+        for name, seconds in TRANSPORT_FILE_SECONDS.items()
+    ]
+    for row in inventory:
+        if "path" not in row:
+            rows.append({"dest": row["dest"], "kind": "https", "seconds": 0.0})
+            continue
+        size = Path(row["path"]).stat().st_size
+        chunks, seconds = _row_seconds(size)
+        rows.append(
+            {
+                "dest": row["dest"],
+                "kind": "upload",
+                "bytes": size,
+                "chunks": chunks,
+                "seconds": seconds,
+            }
+        )
+    total = sum(row["seconds"] for row in rows)
     return {
-        "upload_bytes": total,
-        "measured_d256_canary_bytes_per_second": rate,
-        "projected_transfer_seconds": seconds,
+        "model": "per-file: 16 s multi-chunk / 4 s single-chunk + 2.8 s per 2 MiB chunk",
+        "rows": rows,
+        "upload_bytes": sum(row.get("bytes", 0) for row in rows),
+        "projected_transfer_seconds": total,
         "canary_transfer_bar_seconds": CANARY_UPLOAD_BAR_SECONDS,
         "status": (
-            "WITHIN_D256_MEASURED_RATE"
-            if seconds <= CANARY_UPLOAD_BAR_SECONDS
+            "WITHIN_CANARY_BAR"
+            if total <= CANARY_UPLOAD_BAR_SECONDS
             else "HOLD_PROJECTED_ABOVE_CANARY_UPLOAD_BAR"
         ),
     }
@@ -446,7 +522,9 @@ def _prepare(
     ]
     from research.metadata_archive import bundle_inputs
 
-    inventory = bundle_inputs(raw_inventory, inputs / "metadata.tar")
+    inventory = bundle_inputs(transport_rows(raw_inventory), inputs / "metadata.tar")
+    if [row["dest"] for row in inventory if "url" in row] != ["b8.pth"]:
+        raise ValueError("only b8.pth may use public HTTPS transport")
     main_template, canary_manifest = manifests(output, commit, inventory)
     export_json(output / "main-template.json", main_template)
     export_json(output / "canary.json", canary_manifest)

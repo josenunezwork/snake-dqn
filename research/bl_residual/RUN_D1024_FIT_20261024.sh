@@ -176,8 +176,8 @@ import sys
 
 projection = json.load(open(sys.argv[1]))["upload_projection"]
 print(json.dumps(projection, indent=2))
-if projection["status"] != "WITHIN_D256_MEASURED_RATE":
-    raise SystemExit("DECISION POINT: projected canary transfer exceeds the 150 s canary bar")
+if projection["status"] != "WITHIN_CANARY_BAR":
+    raise SystemExit("HOLD: projected canary transfer > 150 s; do not dispatch; return byte counts to a judge")
 PY
     ;;
   canary-dry-run|canary)

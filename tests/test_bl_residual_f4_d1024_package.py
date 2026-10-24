@@ -88,7 +88,7 @@ def test_prepare_publishes_first_and_writes_nested_bound_d1024_partition(
     preflight = json.loads((pack / "main-input-preflight.json").read_text())
     assert preflight["doses"] == [1024] and preflight["allocation"] == control["allocation"]
     projection = json.loads((pack / "pack.json").read_text())["upload_projection"]
-    assert projection["upload_bytes"] > 0 and projection["status"].startswith(("WITHIN", "HOLD"))
+    assert projection["status"] in ("WITHIN_CANARY_BAR", "HOLD_PROJECTED_ABOVE_CANARY_UPLOAD_BAR")
     assert calls["validated"] == [f"f4-d1024-canary-{'c' * 8}-01"]
 
 
@@ -297,13 +297,108 @@ def test_excluded_canary_dose_selects_producer_filename(monkeypatch: pytest.Monk
         f4_canary.canary_dose()
 
 
-def test_upload_projection_flags_the_canary_transfer_bar(tmp_path: Path) -> None:
-    small, large = tmp_path / "small", tmp_path / "large"
-    small.write_bytes(b"x" * 1000)
-    with large.open("wb") as stream:
-        stream.truncate(64 * 1024**2)
-    assert package.upload_projection([{"path": str(small)}])["status"].startswith("WITHIN")
-    assert package.upload_projection([{"path": str(large)}])["status"].startswith("HOLD")
+def _sparse(path: Path, size: int) -> Path:
+    with path.open("wb") as stream:
+        stream.truncate(size)
+    return path
+
+
+def test_per_file_model_reproduces_the_d256_canary_and_flags_the_bar(tmp_path: Path) -> None:
+    rows = [
+        {"dest": name, "path": str(_sparse(tmp_path / name, size))}
+        for name, size in (
+            ("b8.pth", 6562005),
+            ("train-256.npz", 9654571),
+            ("metadata.tar", 1300480),
+        )
+    ]
+    d256 = package.upload_projection(rows)
+    # D256 canary receipt b9d53c5c: transfer_seconds 72.6 (ruling: about 71 +/- 5).
+    assert d256["projected_transfer_seconds"] == pytest.approx(71, abs=5)
+    assert d256["status"] == "WITHIN_CANARY_BAR"
+    https = [{"dest": "b8.pth", "url": "https://x", "sha256": "a" * 64, "size_bytes": 6562005}]
+    assert package.upload_projection(https + rows[1:])["projected_transfer_seconds"] == (
+        pytest.approx(d256["projected_transfer_seconds"] - (16 + 4 * 2.8))
+    )
+    large = [{"dest": "train-1024.npz", "path": str(_sparse(tmp_path / "big", 140 * 1024**2))}]
+    assert package.upload_projection(large)["status"] == "HOLD_PROJECTED_ABOVE_CANARY_UPLOAD_BAR"
+
+
+REAL_B8 = Path("/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth")
+
+
+@pytest.mark.skipif(not REAL_B8.is_file(), reason="released B8 checkpoint not on this host")
+def test_public_b8_row_is_the_registered_release_asset() -> None:
+    catalog = json.loads(package.PUBLIC_INPUTS.read_text())
+    asset = next(row for row in catalog["assets"] if row["name"] == "B8_s3_final.pth")
+    row = package.public_b8_row(REAL_B8)
+    assert row == {
+        "dest": "b8.pth",
+        "url": asset["url"],
+        "sha256": asset["sha256"],
+        "size_bytes": asset["size_bytes"],
+    }
+    assert row["sha256"] == package.B8_SHA
+
+
+@pytest.mark.parametrize("fault", ["sha", "size", "status"])
+def test_public_b8_row_refuses_any_mismatch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, world: dict, fault: str
+) -> None:
+    monkeypatch.setattr(package, "B8_SHA", fx.FAKE_B8_SHA)
+    catalog = json.loads(world["public_inputs"].read_text())
+    staged = tmp_path / "b8.pth"
+    staged.write_bytes(fx.FAKE_B8)
+    if fault == "sha":
+        staged.write_bytes(fx.FAKE_B8[:-1] + b"X")
+    elif fault == "size":
+        catalog["assets"][0]["size_bytes"] += 1
+    else:
+        catalog["status"] = "UNVERIFIED"
+    path = tmp_path / "PUBLIC_INPUTS.json"
+    path.write_text(json.dumps(catalog))
+    monkeypatch.setattr(package, "PUBLIC_INPUTS", path)
+    with pytest.raises(ValueError):
+        package.public_b8_row(staged)
+
+
+def test_transport_rows_keep_training_data_private(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, world: dict
+) -> None:
+    monkeypatch.setattr(package, "B8_SHA", fx.FAKE_B8_SHA)
+    monkeypatch.setattr(package, "PUBLIC_INPUTS", world["public_inputs"])
+    b8 = tmp_path / "b8.pth"
+    b8.write_bytes(fx.FAKE_B8)
+    npz = _sparse(tmp_path / "train-1024.npz", 40 * 1024**2)
+    raw = [
+        {"path": str(b8), "dest": "b8.pth", "sha256": digest(b8)},
+        {"path": str(npz), "dest": "train-1024.npz", "sha256": digest(npz)},
+    ]
+    rows = package.transport_rows(raw)
+    assert "url" in rows[0] and rows[0]["dest"] == "b8.pth" and "path" not in rows[0]
+    assert rows[1] == raw[1]
+    with pytest.raises(ValueError, match="exactly one"):
+        package.transport_rows(raw[1:])
+
+
+def test_prepared_canary_and_main_share_inputs_and_transport(prepared: dict) -> None:
+    from research.colab_cli.canary import input_inventory
+
+    pack = prepared["pack"]
+    main = json.loads((pack / "main-template.json").read_text())
+    canary = json.loads((pack / "canary.json").read_text())
+    assert canary["inputs"] == main["inputs"]
+    assert input_inventory(canary) == input_inventory(main)
+    transport = {row["dest"]: row["transport"] for row in input_inventory(main)}
+    assert transport["b8.pth"] == "https"
+    assert transport["metadata.tar"] == "upload"
+    assert all(kind == "upload" for dest, kind in transport.items() if dest != "b8.pth")
+    assert any(dest == "train-1024.npz" or dest == "metadata.tar" for dest in transport)
+    for row in main["inputs"]:
+        if row["dest"].endswith(".npz"):
+            assert "url" not in row and "path" in row
+    projection = json.loads((pack / "pack.json").read_text())["upload_projection"]
+    assert {row["dest"]: row["kind"] for row in projection["rows"]}["b8.pth"] == "https"
 
 
 def test_seal_main_binds_only_the_d1024_main_template(
