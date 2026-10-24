@@ -32,7 +32,7 @@ def _data(n: int = 20) -> dict[str, np.ndarray]:
     }
 
 
-def test_cached_c0_refit_matches_a2_units_on_synthetic_data(tmp_path):
+def test_literal_c0_refit_matches_a2_units_byte_for_byte_on_synthetic_data(tmp_path):
     checkpoint = tmp_path / "b8.pth"
     save_ego2s_checkpoint(checkpoint, Ego2sNet(7, 60))
     data = _data()
@@ -43,16 +43,15 @@ def test_cached_c0_refit_matches_a2_units_on_synthetic_data(tmp_path):
         epochs=1,
         batch_size=2,
         doses=(25,),
-        seeds=(20261022,),
+        seeds=(20261022, 20261023),
     )[25]
-    expected = np.empty_like(actual)
-    for fold in range(5):
-        unit = fit_unit(data, str(checkpoint), "c0", "d300", 25, 20261022, fold, "cpu", 1, 2)
-        expected[unit["row_index"]] = unit["p_d300"]
-    # Frozen embeddings are cached in a different batch grouping from A2's
-    # repeated CNN forwards.  CPU convolution reduction order can therefore
-    # differ by a few float32 ulps while the fitted recipe is identical.
-    assert np.allclose(actual, expected, rtol=0.0, atol=2e-6)
+    expected = np.zeros_like(actual)
+    for seed in (20261022, 20261023):
+        for fold in range(5):
+            unit = fit_unit(data, str(checkpoint), "c0", "d300", 25, seed, fold, "cpu", 1, 2)
+            expected[unit["row_index"]] += unit["p_d300"]
+    expected /= 2
+    assert np.array_equal(actual, expected)
 
 
 def test_refuses_noncanonical_folds_before_any_fit(tmp_path):
