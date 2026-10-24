@@ -6,6 +6,54 @@ from typing import Any
 import torch
 
 _EXTENSION: Any = None
+_LAUNCH_DIAGNOSTICS = False
+_CAPTURE_LAUNCH_EVENTS = False
+_EVENT_POOL_SIZE = 256
+_EVENT_POOL: list[tuple[torch.cuda.Event, torch.cuda.Event]] = []
+_PENDING_LAUNCHES: list[tuple[str, int, torch.cuda.Event, torch.cuda.Event]] = []
+_EVENT_CURSOR = 0
+
+_FIFO_SCOPE = "gpu_sim.native.event.fifo"
+
+
+def set_launch_diagnostics(enabled: bool, reset: bool = False, capture_events: bool = True) -> None:
+    """Enable separate same-stream CUDA-event timing around native FIFO launches.
+
+    This is intentionally opt-in and used only by the A1-PROF diagnostic pass.
+    Plain timing ticks never create these events or NVTX ranges.  Callers must
+    drain the launch stream once before consuming :func:`get_launch_diagnostics`.
+    """
+    global _CAPTURE_LAUNCH_EVENTS, _LAUNCH_DIAGNOSTICS, _EVENT_CURSOR
+    if type(enabled) is not bool or type(reset) is not bool or type(capture_events) is not bool:
+        raise TypeError("launch diagnostics flags must be bool")
+    if reset:
+        _PENDING_LAUNCHES.clear()
+        _EVENT_CURSOR = 0
+    if enabled and capture_events and not _EVENT_POOL:
+        # Event allocation happens before the diagnostic tick.  A fixed pool
+        # makes accidental per-launch allocator work an explicit failure.
+        _EVENT_POOL.extend(
+            (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
+            for _ in range(_EVENT_POOL_SIZE)
+        )
+        # Force lazy CUDA-event handle allocation before the diagnostic tick.
+        # Re-recording the same events for launches is valid after this drain.
+        for start, end in _EVENT_POOL:
+            start.record()
+            end.record()
+        torch.cuda.synchronize()
+    _LAUNCH_DIAGNOSTICS = enabled
+    _CAPTURE_LAUNCH_EVENTS = enabled and capture_events
+
+
+def get_launch_diagnostics() -> list[dict[str, Any]]:
+    """Resolve FIFO launch events after the caller's single tick-end drain."""
+    rows = [
+        {"name": name, "count": 1, "elapsed_ms": start.elapsed_time(end), "stream": stream}
+        for name, stream, start, end in _PENDING_LAUNCHES
+    ]
+    _PENDING_LAUNCHES.clear()
+    return rows
 
 
 def append_fifo(
@@ -31,9 +79,43 @@ def append_fifo(
             extra_cflags=["-O3"],
             verbose=False,
         )
-    _EXTENSION.append_fifo(
-        tag, queue, count, cells.contiguous(), mask.contiguous(), accepted, old_food, cap, corpse
-    )
+    global _EVENT_CURSOR
+    # Materialize arguments before the launch event: any defensive contiguous
+    # clone is ordinary framework work, never falsely charged to FIFO.
+    contiguous_cells, contiguous_mask = cells.contiguous(), mask.contiguous()
+    start = end = None
+    if _CAPTURE_LAUNCH_EVENTS:
+        # Event.record() uses PyTorch's current stream, the exact stream the
+        # extension obtains with getCurrentCUDAStream below.
+        if _EVENT_CURSOR >= len(_EVENT_POOL):
+            raise RuntimeError("event CUDA launch diagnostic event pool exhausted")
+        start, end = _EVENT_POOL[_EVENT_CURSOR]
+        _EVENT_CURSOR += 1
+        stream = torch.cuda.current_stream(tag.device)
+        start.record(stream)
+    if _LAUNCH_DIAGNOSTICS:
+        torch.cuda.nvtx.range_push(_FIFO_SCOPE)
+    try:
+        _EXTENSION.append_fifo(
+            tag,
+            queue,
+            count,
+            contiguous_cells,
+            contiguous_mask,
+            accepted,
+            old_food,
+            cap,
+            corpse,
+            _LAUNCH_DIAGNOSTICS,
+        )
+        if end is not None:
+            # event_cuda.cu obtains this same PyTorch current stream with
+            # getCurrentCUDAStream(tag.get_device()) for its native launch.
+            end.record(stream)
+            _PENDING_LAUNCHES.append((_FIFO_SCOPE, int(stream.cuda_stream), start, end))
+    finally:
+        if _LAUNCH_DIAGNOSTICS:
+            torch.cuda.nvtx.range_pop()
 
 
 def selfcheck(output: Path) -> None:

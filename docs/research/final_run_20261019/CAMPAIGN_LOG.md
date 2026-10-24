@@ -505,3 +505,59 @@ slowdown/determinism evidence source hashes are unchanged. No actual production
 host check, factory, calibration, outcome look or long job was run. Owner notice:
 the narrow interim is now independently qualified; all real timing/health/
 slowdown/accounting stops remain binding.
+
+F0 factory persistence amendment (2026-10-23, prospective operational activation):
+**PASS — ALLOW_PERSISTENCE_30S**, policy ID
+`factory-nice15-persistence30/v1`, exact published operational pin
+`caafdf5d079bd73bcfbde6f9356dc0f60de42e0f`. Binding Astra ruling
+`big-lever/exp/JUDGMENT_FACTORY_PERSISTENCE_20261023.md`, SHA256
+`35295b5b4669bec32a61736c1d5dbb5d9c70015208d6f06db06e5f064bca7c32`;
+retained interim ruling SHA256
+`ea5ae541efc434fe3e5888eeab7a51a821220ce242f935795eacd0542af1accd`.
+Ordinary foreign priority veto now requires seven consecutive observations of
+one native `(PID,birth)` identity spanning >=30 s; no CPU threshold. Pending
+rows do not pause admissions or clear slowdown windows. Failed/stale monitoring
+stops immediately under the aggregate 15 s observation deadline; timing, health,
+slowdown and all other guards retain their existing immediate behavior. Colab
+pane shells/supervisors and reviewed agent launch routes reach effective nice
+>=15; shared/custom-socket tmux servers require native/trusted executable and
+exact socket/server PID proof, while real pane shells/children remain accountable.
+Recovery uses an honest digest-bound v3 window with final pending set empty,
+final host health/top consumers and the existing serial-test lock, bound to
+both ruling hashes, policy, operational pin and trip epoch; v2/foreign receipts
+cannot qualify it.
+
+Independent Codex-V executed **69 new focused fixtures** (60 guard/clock,
+6 synthetic coordinator preempt/resume, 3 real shell/stub supervisor priority),
+all serial/nice15/CPU-one-thread environment and below 120 s. The executed
+candidate `85f4106b` and final pin have byte-identical product and acceptance
+fixture closure; subsequent changes corrected only two old test assertions.
+Additional focused recovery/migrated guard regression checks: **223 passed**
+(147 + 68 + 8). Black/isort/flake8/shell syntax/diff checks passed. Initial
+fixture/harness failures remain preserved with corrected passing records;
+no failed or timed-out test is counted as PASS. Create-only independent receipt:
+`big-lever/exp/CODEX_V_FACTORY_PERSISTENCE_20261023.json`, with sidecar/completion
+and identical repo triplet, SHA256
+`50d9736a61947b335e06694b922419e646f0811458fd86564bf924cfe553938e`.
+Full commands/hashes and limits are in that receipt
+and `research/bl_labels/FACTORY_PERSISTENCE_OPERATOR_20261023.md`.
+
+Science remains clean/detached at `61900af28932e47e22e332840fc4406559adb062`.
+Frozen collector/export and unchanged slowdown closure retain applicable prior
+proof; this patch's changed control path additionally passed opaque immutable
+prefix/verified-skip preempt/resume and exact cumulative accounting checks.
+Caps, nominal worker-second and wall charges, drain charges, ledger semantics,
+retry entitlements, baseline rules and ChatGPT-helper exclusions are unchanged.
+Owner notice: this is a narrow operational qualification, not a scientific or
+full concurrency-supervisor result. No factory, production host check, timing,
+calibration, strict/serving, remote runtime or long job was launched, and no live
+D256 process was stopped, reniced, patched or restarted. The existing attempt
+at `387b1dde` stays on its pin until natural preemption/completion and verified
+stop; only then may the normal operator-requested verified-ledger continuation
+use the exact fresh `bl-f0-d256-guard-w12-08` command in the handoff, if missing work and
+all other registered admission conditions permit. No automatic dispatch.
+Final command-name correction: another operator consumed the requested `-07`
+at `387b1dde` during this implementation (worktree/runner/log observed at
+20:12 PT); this task preserved those artifacts and performed no dispatch.
+The new pin cannot reuse that differently pinned worktree. `-08` was verified
+without a worktree, runner or log reservation at closeout.

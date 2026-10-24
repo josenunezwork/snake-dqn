@@ -42,7 +42,18 @@ def require_source_pin(commit: str) -> None:
     """Refuse source drift and pins which are not yet published to origin."""
     _require_commit(commit)
     for path in sorted((ROOT / PACKAGE).rglob("*")):
-        if not path.is_file() or path.suffix not in (".py", ".sh", ".cu", ".cpp", ".txt"):
+        if not path.is_file() or path.suffix not in (
+            ".py",
+            ".sh",
+            ".cu",
+            ".cuh",
+            ".cpp",
+            ".cc",
+            ".c",
+            ".h",
+            ".hpp",
+            ".txt",
+        ):
             continue
         relative = path.relative_to(ROOT).as_posix()
         if _git_file(commit, relative) != path.read_bytes():
@@ -200,8 +211,10 @@ def manifest(
         _namespace(commit, smoke=False, canary=True),
         _allocation(smoke=False, canary=True),
     )
+    # Fresh v4 packet under round-28 Q1, not an amendment to old manifests.
+    # Canary + main together fit the 72-minute / 12-unit effective envelope.
     timeout, estimate, seconds, unit_cap, reserve = (
-        (30, 10, 900, 5.0, 1.0) if canary else (90, 30, 2400, 20.0, 4.0)
+        (24, 10, 900, 4.0, 2 / 3) if canary else (48, 20, 2400, 8.0, 4 / 3)
     )
     job_mode = "canary" if canary else "main"
     result: dict[str, Any] = {
@@ -223,6 +236,7 @@ def manifest(
             "A1_PROF_LEDGER_PATH": CANARY_LEDGER_DEST if canary else LEDGER_DEST,
             "A1_PROF_SECONDS": str(seconds),
             "A1_PROF_CANARY": "1" if canary else "0",
+            "GPU_SIM_VECTOR_FLOOD": "dense",
             "PYTORCH_ALLOC_CONF": "expandable_segments:True",
             "OMP_NUM_THREADS": "1",
             "MKL_NUM_THREADS": "1",
@@ -249,7 +263,7 @@ def manifest(
             "other_assignments": {},
         },
         "lease_seconds": 600,
-        "max_export_bytes": 64 * 1024**2,
+        "max_export_bytes": 512 * 1024**2,
         "required_exports": ["a1-prof.json"],
         "source_paths": _source_paths(),
         "resume": {
@@ -259,18 +273,22 @@ def manifest(
             "max_outcome_blind_retries": 2,
         },
         "a1_prof": {
+            "version": 4,
             "base_envelope": {
                 "estimate_minutes": 30,
-                "wall_minutes": 45,
-                "unit_cap": 10,
-                "reserve_units": 2,
+                "wall_minutes": 36,
+                "unit_cap": 6,
+                "reserve_units": 1,
             },
             "effective_envelope": {
                 "estimate_minutes": 30,
-                "wall_minutes": 90,
-                "unit_cap": 20,
-                "reserve_units": 4,
+                "wall_minutes": 72,
+                "unit_cap": 12,
+                "reserve_units": 2,
             },
+            "envelope_scope": (
+                "canary, main, and at most two mechanical completion attempts combined"
+            ),
             "runner_seconds": {"base": 1200, "effective": 2400},
             "matrix": {
                 "worlds": [64, 256, 1024],
@@ -313,6 +331,8 @@ REPO={ROOT}
 ART={canary_path.parent}
 PIN={commit}
 PY="$REPO/venv/bin/python"
+[[ -x "$PY" ]] || PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+export PATH="$(dirname "$PY"):$PATH"
 cd "$REPO"
 "$REPO/tools/ops/dispatch.sh" a1-prof-a100-canary{attempt} "$ART/{canary_path.name}" \\
   --broker "$REPO" --cwd "$REPO" --state-dir "$ART/state-canary" --dispatch-txt "$ART/DISPATCH.txt"
@@ -357,6 +377,8 @@ REPO={ROOT}
 ART={canary_path.parent}
 PIN={commit}
 PY="$REPO/venv/bin/python"
+[[ -x "$PY" ]] || PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+export PATH="$(dirname "$PY"):$PATH"
 RECEIPT="$ART/canary-output/receipt.json"
 
 cd "$REPO"

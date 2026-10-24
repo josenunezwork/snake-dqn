@@ -11,7 +11,7 @@ from research.gpu_sim_spike import make_manifests as manifests
 
 
 @pytest.mark.parametrize("kind,envelope,depth", [("l4", 15, "300"), ("probe", 5, "8")])
-def test_e1_l4_manifest_budgets_and_local_supervisor_validation(
+def test_legacy_e1_budgets_cannot_bypass_current_canary_admission(
     tmp_path, monkeypatch, kind, envelope, depth
 ) -> None:
     monkeypatch.setattr(manifests, "checkpoint_inputs", lambda: [])
@@ -24,7 +24,12 @@ def test_e1_l4_manifest_budgets_and_local_supervisor_validation(
         output_dir=tmp_path / kind,
         preflight={"kill_rule_sha256": rule_sha, "source_sha256": {}},
     )
-    manifests.validate_manifest(result)
+    # These historical E1 manifests predate qualified-family canaries. Preserve
+    # their budgets, but never mistake a legacy template for dispatch admission.
+    from research.colab_cli.supervisor import Refused
+
+    with pytest.raises(Refused, match="required_exports"):
+        manifests.validate_manifest(result)
     budget = result["budget"]
     assert budget["unit_cap"] + budget["reserve_units"] == envelope
     assert result["timeout_minutes"] * budget["rate_units_per_hour"] / 60 <= budget["unit_cap"]

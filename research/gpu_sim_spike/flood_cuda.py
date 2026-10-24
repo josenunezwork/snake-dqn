@@ -12,12 +12,28 @@ import argparse
 import hashlib
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
+import numpy as np
 import torch
 
 _EXTENSION: object | None = None
 _ERROR: Exception | None = None
+_DIAGNOSTICS_ENABLED = False
+
+
+@contextmanager
+def _native_nvtx(label: str):
+    """Mirror the optional native record-function scope without plain-tick cost."""
+    if _DIAGNOSTICS_ENABLED and torch.cuda.is_available():
+        torch.cuda.nvtx.range_push(label)
+        try:
+            yield
+        finally:
+            torch.cuda.nvtx.range_pop()
+    else:
+        yield
 
 
 def available() -> bool:
@@ -47,7 +63,7 @@ def _load() -> object:
         # module is the evidence that a CUDA E1 benchmark exercised the native
         # queue/union-find implementation.
         _EXTENSION = load(
-            name="snake_dqn_e1_flood_cuda_v1",
+            name="snake_dqn_e1_flood_cuda_v2",
             sources=[str(root / "flood_cuda.cpp"), str(root / "flood_cuda.cu")],
             extra_cuda_cflags=["-O3"],
             extra_cflags=["-O3"],
@@ -77,7 +93,9 @@ def flood(
     """Run one sparse FIFO frontier per ``(world, slot, action)`` on CUDA."""
     if release is None:
         release = torch.empty((0,), dtype=torch.int64, device=start.device)
-    result, status = _load().flood(start, blocked, cap, release, int(max_cap))
+    label = f"gpu_sim.native.flood.sparse_frontier_cap{int(max_cap)}"
+    with _native_nvtx(label):
+        result, status = _load().flood(start, blocked, cap, release, int(max_cap))
     torch._assert_async(status.eq(0), "E1 native frontier watchdog, queue, or lane failure")
     return result
 
@@ -90,9 +108,37 @@ def components(
     rows: torch.Tensor,
 ) -> torch.Tensor:
     """Run tiled union-find region sizing for the three ego action starts."""
-    result, status = _load().components(allowed, heads, direction, alive, rows)
+    with _native_nvtx("gpu_sim.native.flood.components"):
+        result, status = _load().components(allowed, heads, direction, alive, rows)
     torch._assert_async(status.eq(0), "E1 native union-find watchdog or invalid-root failure")
     return result
+
+
+def static_capped(start: torch.Tensor, occupied: torch.Tensor, cap: torch.Tensor) -> torch.Tensor:
+    """Count indexed static components without expanding occupancy by slot/action.
+
+    ``start`` is ``(E,S,3,2)``, ``occupied`` is world-shaped ``(E,H,W)``, and
+    each lane's cap is ``(E,S)``.  This specialized path deliberately has no
+    release map or distance state; callers needing either must retain ``flood``.
+    """
+    with _native_nvtx("gpu_sim.native.flood.sparse_frontier_cap160"):
+        result, status = _load().static_capped(
+            start.contiguous(), occupied.contiguous(), cap.contiguous()
+        )
+    torch._assert_async(status.eq(0), "E2 static capped frontier watchdog or queue failure")
+    return result
+
+
+def set_launch_diagnostics(enabled: bool, reset: bool = False, capture_events: bool = True) -> None:
+    """Enable optional actual-stream native-launch event accounting."""
+    global _DIAGNOSTICS_ENABLED
+    _DIAGNOSTICS_ENABLED = bool(enabled)
+    _load().set_launch_diagnostics(bool(enabled), bool(reset), bool(capture_events))
+
+
+def get_launch_diagnostics() -> list[dict[str, object]]:
+    """Drain completed native-launch event records after the diagnostic tick."""
+    return list(_load().get_launch_diagnostics())
 
 
 def _selfcheck(output: Path | None = None) -> None:
@@ -162,6 +208,88 @@ def _selfcheck(output: Path | None = None) -> None:
         wide = flood(wide_start, wide_blocked, torch.tensor([[cap]], device="cuda"), None, cap)
         if int(wide.cpu()[0, 0]) != cap:
             raise RuntimeError(f"native E1 cap selfcheck mismatch at cap={cap}")
+    # E2 vector61 path: one world occupancy grid is indexed by every slot and
+    # action.  These cases cover cap 32/160, blocked and OOB starts, a winding
+    # corridor, and repeated/disconnected queries without reusing the kernel.
+    static_open = torch.ones((1, 83, 145), dtype=torch.bool, device="cuda")
+    static_open[0, 2, 1:82] = False
+    static_open[0, 3:80, 81] = False
+    static_open[0, 79, 2:82] = False
+    static_start = torch.tensor(
+        [[[[1, 2], [1, 2], [-1, 2]], [[80, 79], [0, 0], [144, 82]]]],
+        dtype=torch.long,
+        device="cuda",
+    )
+    static_cap = torch.tensor([[32, 160]], dtype=torch.long, device="cuda")
+    static_got = static_capped(static_start, static_open, static_cap).cpu().numpy()
+    static_blocked = static_open.cpu().numpy()[0]
+
+    def static_count(start_xy: tuple[int, int], cap_value: int) -> int:
+        from collections import deque
+
+        sx, sy = start_xy
+        if not (0 <= sx < 145 and 0 <= sy < 83) or static_blocked[sy, sx]:
+            return 0
+        todo, seen = deque([(sx, sy)]), {(sx, sy)}
+        while todo and len(seen) < cap_value:
+            x, y = todo.popleft()
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if (
+                    0 <= nx < 145
+                    and 0 <= ny < 83
+                    and not static_blocked[ny, nx]
+                    and (nx, ny) not in seen
+                ):
+                    seen.add((nx, ny))
+                    todo.append((nx, ny))
+                    if len(seen) == cap_value:
+                        break
+        return len(seen)
+
+    static_expected = np.array(
+        [
+            [
+                [static_count((1, 2), 32), static_count((1, 2), 32), 0],
+                [static_count((80, 79), 160), 0, 0],
+            ]
+        ],
+        dtype=np.int64,
+    )
+    if not np.array_equal(static_got, static_expected):
+        raise RuntimeError(
+            f"native E2 static capped mismatch: {static_got.tolist()} "
+            f"!= {static_expected.tolist()}"
+        )
+    # Two worlds deliberately share starts but not occupancy.  The open world
+    # proves exact 159/160/161 component boundaries and cap saturation; the
+    # blocked world proves queries are indexed by world, never broadcast from
+    # its neighbour.  Slots retain independent cap32/cap160 contracts.
+    boundary_occ = torch.zeros((2, 19, 23), dtype=torch.bool, device="cuda")
+    boundary_occ[1, :, 3] = True
+    boundary_start = torch.tensor(
+        [
+            [[[0, 0], [0, 0], [0, 0]], [[0, 0], [0, 0], [0, 0]]],
+            [[[0, 0], [0, 0], [0, 0]], [[0, 0], [0, 0], [0, 0]]],
+        ],
+        dtype=torch.long,
+        device="cuda",
+    )
+    boundary_cap = torch.tensor([[32, 160], [32, 160]], dtype=torch.long, device="cuda")
+    boundary_got = static_capped(boundary_start, boundary_occ, boundary_cap).cpu().numpy()
+    boundary_expected = np.array(
+        [[[32, 32, 32], [160, 160, 160]], [[32, 32, 32], [57, 57, 57]]], dtype=np.int64
+    )
+    if not np.array_equal(boundary_got, boundary_expected):
+        raise RuntimeError(f"native E2 indexed/cap selfcheck mismatch: {boundary_got.tolist()}")
+    for component_size, expected_size in ((159, 159), (160, 160), (161, 160)):
+        line_occ = torch.zeros((1, 1, component_size), dtype=torch.bool, device="cuda")
+        line_start = torch.zeros((1, 1, 3, 2), dtype=torch.long, device="cuda")
+        line_cap = torch.tensor([[160]], dtype=torch.long, device="cuda")
+        line_got = static_capped(line_start, line_occ, line_cap).cpu().numpy()
+        if not bool((line_got == expected_size).all()):
+            raise RuntimeError(
+                f"native E2 boundary mismatch size={component_size}: " f"{line_got.tolist()}"
+            )
     # Two disconnected components cross 16-cell tiles.  The repeated rows
     # prove row gathering is separate from one-per-world component labelling.
     allowed = torch.zeros((1, 19, 23), dtype=torch.bool, device="cuda")
