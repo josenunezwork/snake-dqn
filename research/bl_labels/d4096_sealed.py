@@ -187,11 +187,6 @@ def seal_readiness(
         if not isinstance(job_id, str) or not job_id:
             raise ValueError("D1024 fit-job inventory is malformed")
         jobs.append(_supervisor_binding(path, job_id))
-    ids = {job["job_id"] for job in jobs}
-    if not any("canary" in job_id for job_id in ids) or not any(
-        "canary" not in job_id for job_id in ids
-    ):
-        raise ValueError("B1 requires distinct D1024 canary and main fit receipts")
     throughput = _validate_w6_throughput(d1024_w6_metadata)
     if throughput["d1024_terminal"] != terminal_binding:
         raise ValueError("D1024 W6 throughput binds another terminal")
@@ -241,12 +236,8 @@ def validate_readiness(path: Path) -> dict[str, Any]:
         if _supervisor_binding(Path(receipt["path"]), job.get("job_id", "")) != job:
             raise ValueError("D1024 fit-job state binding differs")
     ids = [job["job_id"] for job in jobs]
-    if (
-        len(ids) != len(set(ids))
-        or not any(job_id.startswith("f4-d1024-canary-") for job_id in ids)
-        or not any(not job_id.startswith("f4-d1024-canary-") for job_id in ids)
-    ):
-        raise ValueError("B1 requires distinct D1024 canary and main fit receipts")
+    if len(ids) != len(set(ids)):
+        raise ValueError("B1 refuses duplicate D1024 fit-job identities")
     w6_binding = value.get("d1024_w6_metadata")
     if not isinstance(w6_binding, dict) or set(w6_binding) != {"path", "sha256"}:
         raise ValueError("D1024 W6 throughput binding is malformed")

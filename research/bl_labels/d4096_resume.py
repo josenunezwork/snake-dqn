@@ -118,6 +118,7 @@ def attempt_chain(
     attempts: list[Path] = []
     elapsed_total = 0.0
     worker_total = 0.0
+    previous_terminal = None
     for index, path in enumerate(starts, 1):
         terminal_path = path.with_name(path.name.replace(".start.json", ".terminal.json"))
         if not terminal_path.is_file():
@@ -125,11 +126,17 @@ def attempt_chain(
         start, terminal = _read(path), _read(terminal_path)
         output = pack / f"d4096-output-mac-{index:02d}"
         workers = _verify_start(start, control, state, output)
+        if previous_terminal is not None and previous_terminal["workers"] != workers:
+            if previous_terminal.get("life_boundary_drained") is not True:
+                raise ValueError("D4096 width change requires a verified life-boundary drain; HOLD")
         exported = _read(output / "runtime-result.json")
         if {key: value for key, value in exported.items() if key != "mac_lease"} != terminal:
             raise ValueError("D4096 terminal/export receipt differs; HOLD")
         names.append(terminal_path.name)
         complete = final and index == len(starts)
+        delegated = terminal.get("status") == "COMPLETE_EXCEPT_DELEGATED"
+        if delegated:
+            _verify_delegated_terminal(terminal, control)
         # Charge the terminal before deciding whether it is reusable.  An
         # INVALID or registered-stop attempt is operationally unusable, but
         # its measured lifetime may never disappear from the frozen cap.
@@ -153,7 +160,10 @@ def attempt_chain(
             raise ValueError("registered D4096 stopping rule already fired; HOLD")
         if (
             terminal.get("schema") != "bl-labels-f0-mac-driver/v1"
-            or terminal.get("status") != ("COMPLETE" if complete else "PREEMPTED")
+            or (
+                not delegated
+                and terminal.get("status") != ("COMPLETE" if complete else "PREEMPTED")
+            )
             or (complete and terminal.get("pending_parents") != [])
             or terminal.get("invalid_reason") is not None
             or list(output.glob("INVALID*.json*"))
@@ -179,6 +189,7 @@ def attempt_chain(
             raise ValueError("D4096 sealed rate path differs; HOLD")
         _verify(sealed)
         attempts.append(output)
+        previous_terminal = terminal
     if terminals != set(names):
         raise ValueError("orphan D4096 terminal receipt; HOLD")
     if set(pack.glob("d4096-output-mac-*")) != set(attempts):
@@ -186,6 +197,43 @@ def attempt_chain(
     if elapsed_total > CAP or (starts and not final and elapsed_total >= CAP):
         raise ValueError("prior D4096 attempts exhausted the frozen wall cap; HOLD")
     return attempts, elapsed_total
+
+
+def _verify_delegated_terminal(terminal: dict, control: dict) -> None:
+    """Recognize a Mac-complete split only through the main delegation hook."""
+    from .l4_delegation import read_records
+
+    directory = terminal.get("delegation_dir")
+    parents = terminal.get("delegated_parents")
+    if (
+        not isinstance(directory, str)
+        or not isinstance(parents, list)
+        or not parents
+        or len(set(parents)) != len(parents)
+        or terminal.get("pending_parents") != []
+    ):
+        raise ValueError("D4096 delegated terminal lacks verified tail identities; HOLD")
+    records, _reclaims = read_records(Path(directory), control["namespace"], control["allocation"])
+    allowed = set()
+    for record in records.values():
+        if record.get("collector_source_commit") != OLD_PIN:
+            raise ValueError("D4096 delegated collector differs from OLD; HOLD")
+        allowed.update(record["parents"])
+    if not set(parents) <= allowed:
+        raise ValueError("D4096 delegated terminal names an unbound parent; HOLD")
+
+
+def require_boundary_change(pack: Path, workers: int) -> None:
+    """Never change width after a forced mid-life drain or mechanical worker exit."""
+    starts = sorted(
+        (pack / "d4096-state-mac-01").glob("attempt-*.start.json"),
+        key=lambda path: path.stat().st_mtime_ns,
+    )
+    if not starts:
+        return
+    terminal = _read(starts[-1].with_name(starts[-1].name.replace(".start.json", ".terminal.json")))
+    if terminal.get("workers") != workers and terminal.get("life_boundary_drained") is not True:
+        raise ValueError("D4096 width change requires a verified life-boundary drain; HOLD")
 
 
 def verify_union(ledger: Path, control: dict[str, Any], attempts: list[Path]) -> None:
@@ -304,6 +352,7 @@ def launch(
             projection_receipt=projection_receipt,
         )
     attempts, elapsed = attempt_chain(pack, admitted)
+    require_boundary_change(pack, workers)
     ledger = (
         initial_ledger(pack, admitted)
         if not attempts
@@ -317,6 +366,12 @@ def launch(
     _, _, pending = mac_driver._prepare_jobs(admitted, ledger)
     if not pending:
         raise ValueError("D4096 has no missing parents; HOLD")
+    if delegation_dir is not None:
+        from .l4_delegation import mac_excluded
+
+        excluded = mac_excluded(delegation_dir, admitted["namespace"], admitted["allocation"])
+        if all(job.allocation["allocation_id"] in excluded for job in pending):
+            raise ValueError("D4096 awaits verified L4 import/union or reclaim; no Mac work; HOLD")
     output = pack / f"d4096-output-mac-{len(attempts)+1:02d}"
     if output.exists() and any(output.iterdir()):
         raise ValueError("D4096 fresh attempt output already contains evidence; HOLD")

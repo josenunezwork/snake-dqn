@@ -265,9 +265,21 @@ def union_close(
     out_dir: Path,
     *,
     declared_pending: list[str] | None = None,
+    funding_receipt: Path | None = None,
 ) -> dict[str, Any]:
     """Close the Mac + L4 union: exactly one committed copy per unit, prefix dose ledger."""
     namespace, allocation = control["namespace"], control["allocation"]
+    d4096 = control.get("mac_gate", {}).get("stage") == "d4096" or namespace.endswith("-mac-d4096")
+    if d4096:
+        from . import d4096_resume, d4096_sealed, mac_gates
+
+        d4096_sealed.require_not_discarded(None)
+        d4096_sealed.require_funding_receipt(funding_receipt)
+        mac_gates.require_admission(control)
+        pack = Path(control["mac_gate"]["package_root"])
+        attempts, _elapsed = d4096_resume.attempt_chain(pack, control, final=True)
+        if [path.resolve() for path in mac_roots] != [path.resolve() for path in attempts]:
+            raise DelegationRefused("D4096 union must charge exactly every verified Mac attempt")
     ids = [unit_id(row) for row in allocation]
     breaches: list[str] = []
     mac_units = scan_units(mac_roots)
@@ -298,6 +310,8 @@ def union_close(
     union = {**mac_units, **l4_units}
     committed = committed_from_units(union)
     pending = [p for p in ids if p not in committed]
+    if d4096 and pending:
+        raise DelegationRefused("D4096 final union cannot publish while any parent is pending")
     if declared_pending is not None and sorted(declared_pending) != sorted(pending):
         breaches.append("C5 ledger close: allocated != committed ∪ declared-pending")
     prefix = contiguous_prefix(allocation, committed)

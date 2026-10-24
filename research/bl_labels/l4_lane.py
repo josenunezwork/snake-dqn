@@ -71,6 +71,9 @@ def main() -> None:
     p.add_argument("--union-root", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--declared-pending", type=Path, help="JSON list of pending parent ids")
+    p.add_argument(
+        "--funding-receipt", type=Path, help="D4096 only: independent PASS funding receipt"
+    )
 
     p = sub.add_parser("identity-prepare")
     p.add_argument("--control", type=Path, required=True)
@@ -146,6 +149,7 @@ def main() -> None:
             declared_pending=(
                 json.loads(args.declared_pending.read_text()) if args.declared_pending else None
             ),
+            funding_receipt=args.funding_receipt,
         )
         print(json.dumps({k: result[k] for k in ("verdict", "prefix_length", "allocated")}))
         if result["verdict"] != "CLEAN":

@@ -66,7 +66,12 @@ def publish_final(pack: Path, out: Path, code_commit: str, funding_receipt: Path
     d4096_sealed.require_funding_receipt(funding_receipt)
     attempts, elapsed = d4096_resume.attempt_chain(pack, control, final=True)
     value = mac_gates.publish_ledger(
-        pack, attempts, out, control=control, funding_receipt=funding_receipt
+        pack,
+        attempts,
+        out,
+        control=control,
+        funding_receipt=funding_receipt,
+        require_complete=True,
     )
     d4096_resume.verify_union(out, control, attempts)
     _, _, pending = mac_driver._prepare_jobs(control, out)

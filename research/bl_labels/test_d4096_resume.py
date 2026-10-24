@@ -102,6 +102,7 @@ def add_attempt(
         "operational_source_commit": start["operational_source_commit"],
         "stop_reason": "operational synthetic interruption",
         "registered_stop_reason": None,
+        "life_boundary_drained": True,
         "output": str(output),
         "state_dir": str(state),
         "start_receipt": start_path.name,
@@ -231,6 +232,49 @@ def test_final_chain_allows_only_the_last_complete_terminal(tmp_path) -> None:
     assert resume.attempt_chain(pack, control, final=True)[1] == 200
     with pytest.raises(ValueError, match="non-preempted"):
         resume.attempt_chain(pack, control)
+
+
+def test_width_change_refuses_forced_mid_life_drain(tmp_path):
+    pack, control = pack_fixture(tmp_path)
+    add_attempt(pack, control, 1, workers=12, terminal_change={"life_boundary_drained": False})
+    resume.require_boundary_change(pack, 12)
+    with pytest.raises(ValueError, match="life-boundary drain"):
+        resume.require_boundary_change(pack, 6)
+    add_attempt(pack, control, 2, workers=6, prior_elapsed=100, prior_worker_seconds=1200)
+    with pytest.raises(ValueError, match="life-boundary drain"):
+        resume.attempt_chain(pack, control)
+
+
+def test_mac_complete_delegated_terminal_requires_verified_old_tail_record(tmp_path):
+    from research.bl_labels import l4_delegation
+
+    pack, control = pack_fixture(tmp_path)
+    directory = pack / "delegation"
+    publish_json(
+        directory / "delegation-01.json",
+        {
+            "schema": l4_delegation.DELEGATION_SCHEMA,
+            "delegation_id": "01",
+            "namespace": control["namespace"],
+            "allocation_sha256": l4_delegation.allocation_sha256(control["allocation"]),
+            "collector_source_commit": resume.OLD_PIN,
+            "parents": ["p2"],
+        },
+    )
+    add_attempt(
+        pack,
+        control,
+        1,
+        workers=6,
+        terminal_change={
+            "status": "COMPLETE_EXCEPT_DELEGATED",
+            "pending_parents": [],
+            "delegation_dir": str(directory),
+            "delegated_parents": ["p2"],
+        },
+    )
+    assert resume.attempt_chain(pack, control)[1] == 100
+    assert resume.attempt_chain(pack, control, final=True)[1] == 100
 
 
 def _patch_launch(monkeypatch, pack: Path, control: dict, *, effective: int = 6) -> list[list[str]]:

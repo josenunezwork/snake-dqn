@@ -30,7 +30,9 @@ def _control(count: int = 6) -> dict:
     return {
         "namespace": NS,
         "allocation": _allocations(count),
-        "mac_gate": {"stage": "d4096", "collector_source_commit": PIN},
+        # Generic transport fixtures do not impersonate the sealed D4096
+        # production admission, which now requires its funding/attempt chain.
+        "mac_gate": {"stage": "synthetic", "collector_source_commit": PIN},
     }
 
 

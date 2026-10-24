@@ -469,10 +469,13 @@ def _require_d4096_operation(
     output: Path,
     delegation_dir: Path | None,
     funding_receipt: Path | None,
+    workers: int | None = None,
 ) -> None:
     """Recheck the sealed path before a lease or any export payload is opened."""
     if control.get("mac_gate", {}).get("stage") != "d4096":
         return
+    if workers is not None and workers not in RESUME_WIDTHS:
+        raise ValueError("D4096 permits only W6 or W12")
     from . import d4096_resume, d4096_sealed, mac_gates
 
     mac_gates.require_admission(control)
@@ -481,6 +484,8 @@ def _require_d4096_operation(
     if delegation_dir is not None:
         d4096_sealed.require_funding_receipt(funding_receipt)
     attempts, _elapsed = d4096_resume.attempt_chain(pack, control)
+    if workers is not None:
+        d4096_resume.require_boundary_change(pack, workers)
     expected_output = pack / f"d4096-output-mac-{len(attempts) + 1:02d}"
     if output.resolve() != expected_output.resolve():
         raise ValueError("D4096 output must be the next fresh charged attempt")
@@ -574,7 +579,7 @@ def run(
     it, admission, outputs and the result are unchanged.
     """
     started = time.monotonic() if started_monotonic is None else started_monotonic
-    _require_d4096_operation(control, output, delegation_dir, funding_receipt)
+    _require_d4096_operation(control, output, delegation_dir, funding_receipt, workers)
     if state_dir is not None and workers in RESUME_WIDTHS:
         from .w12_runtime import resolve_resume_workers
 
@@ -894,6 +899,7 @@ def run(
     pending = list(jobs)
     completed: list[str] = []
     preempted = False
+    life_boundary_drained = True
     telemetry: list[dict[str, Any]] = []
     invalid: str | None = None
     stop_reason: str | None = None
@@ -1217,6 +1223,7 @@ def run(
                         invalid = str(message.get("error", kind))
                         preempted = True
                     elif kind == "error":
+                        life_boundary_drained = False
                         stop_reason = str(message.get("error", kind))
                         preempted = True
                         stop_event.set()
@@ -1262,6 +1269,7 @@ def run(
                     process.join()
                     del active[pid]
                     if process.exitcode not in (0, None) and invalid is None:
+                        life_boundary_drained = False
                         stop_reason = f"worker {pid} exited {process.exitcode}"
                         preempted = True
                         stop_event.set()
@@ -1299,6 +1307,7 @@ def run(
                 process.join()
                 del active[pid]
                 if process.exitcode not in (0, None) and invalid is None:
+                    life_boundary_drained = False
                     invalid = f"worker {pid} exited {process.exitcode}"
                     preempted = True
             if preempted and not active:
@@ -1307,6 +1316,7 @@ def run(
                 # Drain and force-stop only owned workers inside the ten-minute
                 # bound. Uncompleted units stay absent from the verified ledger.
                 stop_reason = "preemption did not reach a life boundary within 10 minutes"
+                life_boundary_drained = False
                 stop_event.set()
                 _stop_workers(active)
                 active.clear()
@@ -1320,6 +1330,7 @@ def run(
     result = {
         "schema": "bl-labels-f0-mac-driver/v1",
         "status": status,
+        **({"life_boundary_drained": life_boundary_drained} if is_d4096 else {}),
         "namespace": namespace,
         "workers": workers,
         "owner_w12_ok": owner_w12_ok,
@@ -1449,7 +1460,9 @@ def main() -> None:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     control = json.loads(args.control.read_text())
-    _require_d4096_operation(control, args.output, args.delegation_dir, args.funding_receipt)
+    _require_d4096_operation(
+        control, args.output, args.delegation_dir, args.funding_receipt, args.workers
+    )
     if args.check:
         from .mac_gates import require_admission
 

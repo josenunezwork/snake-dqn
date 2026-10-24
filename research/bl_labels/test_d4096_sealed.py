@@ -295,3 +295,40 @@ def test_plain_supervisor_receipt_is_bound_and_active_job_refuses(tmp_path):
     receipt.write_text(json.dumps(changed))
     with pytest.raises(ValueError, match="terminal/HOLD"):
         sealed.validate_readiness(readiness)
+
+
+def test_incomplete_final_union_never_publishes_final_marker(tmp_path, monkeypatch):
+    from research.bl_labels import mac_gates
+
+    monkeypatch.setattr(sealed, "require_funding_receipt", lambda *_: {})
+    control = {
+        "namespace": "fixture-mac-d4096",
+        "allocation": [{"allocation_id": "p0", "seed": 1}],
+        "mac_gate": {"stage": "d4096"},
+    }
+    out = tmp_path / "final/verified-ledger.json"
+    with pytest.raises(ValueError, match="parents pending"):
+        mac_gates.publish_ledger(
+            tmp_path,
+            [],
+            out,
+            control=control,
+            funding_receipt=tmp_path / "funding",
+            require_complete=True,
+        )
+    assert not out.exists()
+    assert not Path(str(out) + ".complete").exists()
+
+
+def test_alternate_l4_union_entrypoint_cannot_bypass_pending_funding(tmp_path):
+    from research.bl_labels import l4_import
+
+    with pytest.raises(ValueError, match="PASS funding"):
+        l4_import.union_close(
+            {"namespace": "fixture-mac-d4096", "allocation": [], "mac_gate": {"stage": "d4096"}},
+            [],
+            tmp_path / "delegation",
+            tmp_path / "union",
+            tmp_path / "out",
+        )
+    assert not (tmp_path / "out").exists()

@@ -704,6 +704,7 @@ def publish_ledger(
     control: dict | None = None,
     sealed_resume: bool = False,
     funding_receipt: Path | None = None,
+    require_complete: bool = False,
 ) -> dict:
     """Publish only verified wrappers/path/size/hash; do not calculate any outcome.
 
@@ -740,6 +741,10 @@ def publish_ledger(
     try:
         names = load_ledger(temporary, namespace, allocation)
         _verify_resume_metadata(temporary, namespace, allocation, names)
+        if require_complete and completed_session_parents(temporary, names) != {
+            row["allocation_id"] for row in allocation
+        }:
+            raise ValueError("final D4096 union leaves allocated parents pending; HOLD")
     finally:
         for suffix in ("", ".sha256", ".complete"):
             Path(str(temporary) + suffix).unlink(missing_ok=True)
