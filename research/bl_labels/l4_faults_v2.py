@@ -318,6 +318,25 @@ def _match_injection(
     return None
 
 
+def _confirmed_planned_absence(call: dict[str, Any], entry: dict[str, Any]) -> bool:
+    """Whether a matched selector is a real absence, rather than relabelled failure."""
+    selector = entry.get("selector")
+    if not (
+        call.get("status") == "failed"
+        and call.get("failure_type") == "NOT_FOUND"
+        and isinstance(selector, dict)
+        and selector.get("kind") == "planned_absence_probe"
+    ):
+        return False
+    failure_class = str(call.get("failure_class", "")).upper()
+    error = str(call.get("error", "")).upper()
+    return (
+        "TIMEOUT" not in failure_class
+        and not re.search(r"(?:HTTP_)?5\d\d", failure_class)
+        and not re.search(r"\b(?:HTTP(?:ERROR)?\s+5\d\d|TIMED?\s+OUT|TIMEOUT(?:EXPIRED)?)\b", error)
+    )
+
+
 def _matched_failed_parent_selector(
     call: dict[str, Any], receipt: dict[str, Any], entries: list[dict[str, Any]]
 ) -> dict[str, Any] | None:
@@ -424,15 +443,56 @@ def _heartbeat_carveout(index: int, calls: list[dict[str, Any]], remotes: dict[i
     return elapsed is not None and timeout is not None and elapsed < timeout
 
 
+def _raw_observer_lineage(
+    calls: list[dict[str, Any]],
+    through: int,
+    parent_id: str,
+    child_id: str,
+    direction: str,
+    remote: str,
+) -> list[tuple[int, dict[str, Any]]] | None:
+    """Return one complete, raw-ordinal observer lineage or reject it."""
+    lineage = [
+        (ordinal, row)
+        for ordinal, row in enumerate(calls[: through + 1])
+        if row.get("parent_transfer_id") == parent_id and row.get("transfer_id") == child_id
+    ]
+    raw_attempt = calls[through].get("transfer_attempt")
+    if (
+        not lineage
+        or type(raw_attempt) is not int
+        or raw_attempt != len(lineage)
+        or any(
+            row.get("command") != direction or row.get("remote") != remote
+            for _ordinal, row in lineage
+        )
+        or any(
+            type(row.get("transfer_attempt")) is not int
+            or row.get("transfer_attempt") != ordinal + 1
+            for ordinal, (_index, row) in enumerate(lineage)
+        )
+    ):
+        return None
+    return lineage
+
+
 def _verified_transfer(
-    receipt: dict[str, Any], calls: list[dict[str, Any]], index: int, remote: str, direction: str
+    receipt: dict[str, Any],
+    calls: list[dict[str, Any]],
+    index: int,
+    remote: str,
+    direction: str,
+    planned_absence_indices: set[int],
 ) -> tuple[int, float] | None:
     """Require a verification tied to a later, matching logical transfer.
 
     A path is not an identity: repeated uploads of the same path may contain
     different bytes.  The receipt therefore has to bind the failed attempt to
     a later completed attempt and bind that completed attempt to its hash
-    verification record.
+    verification record. Observer ``transfer_attempt`` is retained as the raw
+    poll ordinal. The frozen three-attempt Contents allowance instead counts
+    the exact parent/child/remote lineage after discounting only failed
+    planned-absence probes already identity-matched by the classifier.
     """
     call = calls[index]
     # Chunk calls are physical children of a whole-file transfer. Their CLI
@@ -463,33 +523,50 @@ def _verified_transfer(
                 and candidate.get("status") == "completed"
             ):
                 continue
-            attempt = candidate.get("transfer_attempt")
+            raw_attempt = candidate.get("transfer_attempt")
             finished = _finite(candidate.get("finished_monotonic"))
             verified = candidate.get("verified_sha256")
             if (
-                type(attempt) is not int
-                or not first_attempt <= attempt <= TRANSFER_MAX_ATTEMPTS
+                type(raw_attempt) is not int
                 or finished is None
                 or finished < started
                 or not isinstance(verified, str)
                 or parent.get("status") != "verified"
                 or parent.get("direction") != direction
+                or (parent_id.startswith("observer-download-") and parent.get("remote") != remote)
                 or parent.get("sha256") != verified
                 or parent.get("verified_sha256") != verified
-                or not any(
+                or sum(
                     isinstance(child, dict)
                     and child.get("transfer_id") == child_id
                     and child.get("parent_transfer_id") == parent_id
                     and child.get("remote") == remote
+                    and child.get("direction", direction) == direction
+                    and child.get("attempts") == raw_attempt
                     and child.get("verified_sha256") == verified
                     for child in parent.get("children", [])
                 )
+                != 1
             ):
                 continue
-            # ``transfer_attempt`` is the raw per-child retry ordinal and
-            # already includes the original failure (1, 2, 3), so do not turn
-            # a three-attempt transfer into a fictional fourth attempt.
-            return (attempt, finished - started)
+            # The allowance belongs to the Contents helper everywhere except
+            # the direct observer's separately identified poll lineage.
+            if not parent_id.startswith("observer-download-"):
+                if not first_attempt <= raw_attempt <= TRANSFER_MAX_ATTEMPTS:
+                    continue
+                return (raw_attempt, finished - started)
+            # A raw observer census cannot be thinned or redirected to make a
+            # recovery fit the Contents cap. Every row under the stable child
+            # identity must remain an exact member of this transfer lineage.
+            lineage = _raw_observer_lineage(calls, later, parent_id, child_id, direction, remote)
+            if lineage is None or index not in {ordinal for ordinal, _row in lineage}:
+                continue
+            actual_attempts = sum(
+                ordinal not in planned_absence_indices for ordinal, _row in lineage
+            )
+            if not 1 <= actual_attempts <= TRANSFER_MAX_ATTEMPTS:
+                continue
+            return (actual_attempts, finished - started)
         return None
 
     operation_id, digest = call.get("operation_id"), call.get("sha256")
@@ -539,6 +616,12 @@ def _completed_transfer_verified(
     parent_id = call.get("parent_transfer_id")
     if isinstance(parent_id, str) and parent_id:
         child_id, verified = call.get("transfer_id"), call.get("verified_sha256")
+        if parent_id.startswith("observer-download-") and (
+            not isinstance(child_id, str)
+            or _raw_observer_lineage(calls, index, parent_id, child_id, call.get("command"), remote)
+            is None
+        ):
+            return False
         census = receipt.get("marker_census")
         client_files = census.get("client_files") if isinstance(census, dict) else None
 
@@ -561,17 +644,28 @@ def _completed_transfer_verified(
                 isinstance(parent, dict)
                 and parent.get("transfer_id") == parent_id
                 and parent.get("status") == "verified"
+                and parent.get("direction") == call.get("command")
+                and (
+                    not str(parent_id).startswith("observer-download-")
+                    or parent.get("remote") == remote
+                )
                 and parent.get("sha256") == verified
                 and parent.get("verified_sha256") == verified
                 and parent_matches(parent)
-                and any(
+                and sum(
                     isinstance(child, dict)
                     and child.get("transfer_id") == child_id
                     and child.get("parent_transfer_id") == parent_id
                     and child.get("remote") == remote
+                    and child.get("direction", call.get("command")) == call.get("command")
+                    and (
+                        not parent_id.startswith("observer-download-")
+                        or child.get("attempts") == call.get("transfer_attempt")
+                    )
                     and child.get("verified_sha256") == verified
                     for child in parent.get("children", [])
                 )
+                == 1
                 for parent in receipt.get("transfers") or []
             )
             == 1
@@ -1038,6 +1132,7 @@ def classify_session(
     used: dict[str, list[int]] = {}
     remotes = _transfer_remotes(receipt, calls)
     excluded_indices: set[int] = set()
+    planned_absence_indices: set[int] = set()
 
     # C1 applies to every call, injected or not: bounds must hold even for injections.
     for index, call in enumerate(calls):
@@ -1105,6 +1200,14 @@ def classify_session(
                         "detail": "completed consumed transfer lacks correlation identity",
                     }
                 )
+            elif (
+                not str(call.get("parent_transfer_id", "")).startswith("observer-download-")
+                and type(call.get("transfer_attempt")) is int
+                and call["transfer_attempt"] > TRANSFER_MAX_ATTEMPTS
+            ):
+                counted.append(
+                    _fault("C6", "transfer exceeded frozen attempt allowance", index, call)
+                )
             elif _census_transfer_observation_missing(receipt, call, remote):
                 evidence_missing.append(
                     {
@@ -1118,6 +1221,64 @@ def classify_session(
                     _fault("C6", "completed transfer lacks correlated verification", index, call)
                 )
 
+        # A verified direct-observer parent is itself a claim about the full
+        # raw census. Validate it even when every failed poll was an allowed
+        # absence, so deleting the only genuine failure or final read cannot
+        # manufacture a clean session by bypassing the recovery loop.
+        for parent in receipt.get("transfers") or []:
+            if not (
+                isinstance(parent, dict)
+                and isinstance(parent.get("transfer_id"), str)
+                and parent["transfer_id"].startswith("observer-download-")
+            ):
+                continue
+            parent_id = parent["transfer_id"]
+            children = parent.get("children")
+            valid = (
+                parent.get("status") == "verified" and isinstance(children, list) and bool(children)
+            )
+            for child in children or []:
+                if not isinstance(child, dict):
+                    valid = False
+                    break
+                child_id, remote, direction, digest = (
+                    child.get("transfer_id"),
+                    child.get("remote"),
+                    child.get("direction"),
+                    child.get("verified_sha256"),
+                )
+                matches = [
+                    index
+                    for index, call in enumerate(calls)
+                    if call.get("status") == "completed"
+                    and call.get("parent_transfer_id") == parent_id
+                    and call.get("transfer_id") == child_id
+                    and call.get("remote") == remote
+                    and call.get("command") == direction
+                    and call.get("verified_sha256") == digest
+                ]
+                if (
+                    not all(
+                        isinstance(value, str) and value
+                        for value in (child_id, remote, direction, digest)
+                    )
+                    or len(matches) != 1
+                    or _raw_observer_lineage(
+                        calls, matches[0], parent_id, child_id, direction, remote
+                    )
+                    is None
+                    or child.get("attempts") != calls[matches[0]].get("transfer_attempt")
+                ):
+                    valid = False
+                    break
+            if not valid:
+                evidence_missing.append(
+                    {
+                        "kind": "observer_transfer_lineage",
+                        "detail": "verified observer parent lacks a complete raw child census",
+                    }
+                )
+
     # Identity-based injection exclusion (failed calls only).
     for index, call in enumerate(calls):
         if call.get("status") == "completed" or call.get("command") in RECOVERY_COMMANDS:
@@ -1126,8 +1287,21 @@ def classify_session(
         entry = _match_injection(
             index, call, remote, entries, used, allow_retroactive=allow_retroactive_manifest
         )
+        if entry is not None and isinstance(entry.get("selector"), dict):
+            if entry["selector"].get(
+                "kind"
+            ) == "planned_absence_probe" and not _confirmed_planned_absence(call, entry):
+                matched = used.get(entry["injection_id"])
+                if matched is not None:
+                    matched.pop()
+                    if not matched:
+                        used.pop(entry["injection_id"], None)
+                entry = None
         if entry is not None:
             excluded_indices.add(index)
+            selector = entry.get("selector")
+            if isinstance(selector, dict) and selector.get("kind") == "planned_absence_probe":
+                planned_absence_indices.add(index)
             excluded.append(
                 {"index": index, "injection_id": entry["injection_id"], "type": entry["type"]}
             )
@@ -1209,7 +1383,7 @@ def classify_session(
                 )
                 continue
             transfer_recovery = (
-                _verified_transfer(receipt, calls, index, remote, command)
+                _verified_transfer(receipt, calls, index, remote, command, planned_absence_indices)
                 if remote is not None
                 else None
             )

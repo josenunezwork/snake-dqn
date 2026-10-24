@@ -22,12 +22,16 @@ TRANSPORT_TREE = "6415984f6cedc17a828a6a0d8fffc4519f7cb273"
 # recording it never moves the pack's pinned source commit.
 REVIEW_PATH = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/round-24/"
-    "ASTRA_L4_V2_REPAIR_REVIEW07_ACCEPT_20261024.json"
+    "ASTRA_L4_V2_REPAIR_REVIEW08_ACCEPT_20261024.json"
 )
 ARTIFACT_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts")
-PACK_ROOT = ARTIFACT_ROOT / "big-lever/round-24/rpc-qualification-09"
-PROOF_RELATIVE = "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_09.json"
+PACK_ROOT = ARTIFACT_ROOT / "big-lever/round-24/rpc-qualification-10"
+PROOF_RELATIVE = "research/rpc_qualification/FAKE_CLI_PROOF_20261024_V2_10.json"
 AUTHORITY_FILES = {
+    "review07_c6_scope": (
+        ARTIFACT_ROOT / "big-lever/exp/astra-20261024/JUDGMENT_L4_V2_REVIEW07_C6_SCOPE.md",
+        "739786fa3fbb710b8bf7d607ea31e61f2fdb6887f297a0720830d484c1b5a9b1",
+    ),
     "prerequisite_refusal": (
         ARTIFACT_ROOT / "big-lever/exp/astra-20261024/JUDGMENT_L4_V2_PREREQUISITE_REFUSAL.md",
         "b8ffb06bc9d91a2e6dd57720a08cdb880141b50debb9c051d188e51db82d7261",
@@ -86,6 +90,7 @@ def review_source_inventory(repo: Path, package_commit: str | None = None) -> di
         "tools/ops/watchd.sh",
         "tests/test_l4_cpu_acceptance_classifier.py",
         "tests/test_l4_prerequisite_evidence.py",
+        "tests/test_l4_observer_admission_scope.py",
         "tests/test_colab_cli_acceptance_stall_diagnosis.py",
         "tests/test_colab_cli_rpc_recovery.py",
         "tests/test_l4_faults_v2.py",
@@ -171,7 +176,7 @@ def review_artifact_bindings(repo: Path, package_commit: str) -> dict[str, Any]:
         "plan": PACK_ROOT / "plan.json",
         "proof": repo / PROOF_RELATIVE,
         "trace": PACK_ROOT / "DIFFERENTIAL_TRACE.json",
-        "helper": PACK_ROOT / "GUARDED_OPERATOR_COMMANDS_V6.sh",
+        "helper": PACK_ROOT / "GUARDED_OPERATOR_COMMANDS_V7.sh",
     }
     for name in ("plan", "proof", "trace"):
         _verify(paths[name])

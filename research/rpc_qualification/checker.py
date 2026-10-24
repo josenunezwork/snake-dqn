@@ -46,7 +46,10 @@ FAKE_PROOF_TESTS = (
     "tests/test_rpc_qualification_profile.py",
     "tests/test_ops_qualification.py",
 )
-SUPPLEMENTAL_PROOF_TESTS = ("tests/test_l4_prerequisite_evidence.py",)
+SUPPLEMENTAL_PROOF_TESTS = (
+    "tests/test_l4_prerequisite_evidence.py",
+    "tests/test_l4_observer_admission_scope.py",
+)
 FAKE_PROOF_EXTRA_SOURCES = (
     *SUPPLEMENTAL_PROOF_TESTS,
     "tests/fixtures/fake_colab.py",

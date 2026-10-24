@@ -243,6 +243,25 @@ def _verified_real_timeout_operation() -> tuple[_CLI, str]:
     return cli, remote
 
 
+def _prospective_real_poll_sequence() -> tuple[_CLI, dict]:
+    """Reproduce the refused raw 44→82 observer shape as a fresh operation."""
+    cli = _CLI()
+    rows = [_unbound_real_row(i) for i in range(123, 206)]
+    remotes = {row["remote"] for row in rows}
+    evidence = DirectObserverDownloadEvidence(cli, remotes)
+    injection = json.loads((FIXTURES / "l4.injection.json").read_text())
+    observer = AcceptanceObserver("unused", injections={injection["session_job_id"]: injection})
+    selectors = observer._declared_absence_selectors(injection["session_job_id"])
+    for row in rows:
+        cli.call_records.append(row)
+        evidence.observe_since(len(cli.call_records) - 1)
+        observer._tag_observed_absence(cli, row["remote"], declared_selectors=selectors)
+    digest = hashlib.sha256((FIXTURES / "watchdog-checkpoint.pkl").read_bytes()).hexdigest()
+    for remote in remotes:
+        assert evidence.bind_verified(remote, digest)
+    return cli, injection
+
+
 def test_real_timeout_shape_requires_fully_correlated_prospective_recovery() -> None:
     cli, _remote = _verified_real_timeout_operation()
     failed, completed = cli.call_records
@@ -305,25 +324,12 @@ def test_stale_earlier_verification_never_recovers_a_later_timeout() -> None:
     failed["transfer_attempt"] = 2
     cli.call_records[:] = [completed, failed]
     result = v2.classify_session(_prospective_receipt(cli))
-    assert result["counted_by_class"]["C6"] == 1
+    assert result["counted_by_class"]["C6"] >= 1
 
 
-def test_real_refused_poll_sequence_exposes_prospective_raw_retry_conflict() -> None:
-    """Diagnostic of a future same-shape operation, not amended historical evidence."""
-    cli = _CLI()
-    rows = [_unbound_real_row(i) for i in range(123, 206)]
-    remotes = {row["remote"] for row in rows}
-    evidence = DirectObserverDownloadEvidence(cli, remotes)
-    injection = json.loads((FIXTURES / "l4.injection.json").read_text())
-    observer = AcceptanceObserver("unused", injections={injection["session_job_id"]: injection})
-    selectors = observer._declared_absence_selectors(injection["session_job_id"])
-    for row in rows:
-        cli.call_records.append(row)
-        evidence.observe_since(len(cli.call_records) - 1)
-        observer._tag_observed_absence(cli, row["remote"], declared_selectors=selectors)
-    digest = hashlib.sha256((FIXTURES / "watchdog-checkpoint.pkl").read_bytes()).hexdigest()
-    for remote in remotes:
-        assert evidence.bind_verified(remote, digest)
+def test_real_refused_poll_sequence_preserves_raw_44_82_but_counts_two_attempts() -> None:
+    """A prospective same-shape lineage discounts only proved planned absences."""
+    cli, injection = _prospective_real_poll_sequence()
     timeout = cli.call_records[166 - 123]
     assert timeout["transfer_attempt"] == 44
     assert cli.call_records[204 - 123]["transfer_attempt"] == 82
@@ -331,9 +337,129 @@ def test_real_refused_poll_sequence_exposes_prospective_raw_retry_conflict() -> 
     result = v2.classify_session(
         _prospective_receipt(cli, job_id=injection["session_job_id"]), injection
     )
-    assert result["counted_by_class"] == {**{f"C{i}": 0 for i in range(1, 7)}, "C6": 1}
-    assert result["counted"][0]["index"] == 166 - 123
-    assert result["verdict"] == "FAIL"
+    assert len([row for row in result["excluded_injections"] if row.get("index") is not None]) == 80
+    assert result["counted_by_class"] == {f"C{i}": 0 for i in range(1, 7)}
+    assert result["verdict"] == "PASS", result
+    recovered = [row for row in result["recovered"] if row["source"] == "later verified transfer"]
+    assert [(row["first_failure_index"], row["attempts"]) for row in recovered] == [(43, 2)]
+
+
+def test_missing_genuine_timeout_row_cannot_make_the_44_82_observer_census_pass() -> None:
+    """A complete verified parent still needs every raw observer ordinal."""
+    cli, injection = _prospective_real_poll_sequence()
+    del cli.call_records[43]  # raw ordinal 44 was the sole genuine timeout.
+    result = v2.classify_session(
+        _prospective_receipt(cli, job_id=injection["session_job_id"]), injection
+    )
+    assert result["verdict"] == "FAIL", result
+    assert result["counted_by_class"]["C6"] >= 1
+    assert any(row["kind"] == "observer_transfer_lineage" for row in result["evidence_missing"])
+
+
+def test_planned_absence_probes_do_not_exempt_a_genuine_fourth_transfer_attempt() -> None:
+    """Only exact NOT_FOUND probes are discounted; the fourth actual attempt stays C6."""
+    cli, injection = _prospective_real_poll_sequence()
+
+    # Turn two separately identity-tagged absences into real timeouts. Three
+    # actual reads recover; four cannot be laundered by the remaining probes.
+    three = copy.deepcopy(cli)
+    three.call_records[0].pop("failure_type")
+    three.call_records[0].pop("realized_selector_id")
+    three.call_records[0]["failure_class"] = "RPC_EXEC_POLL_TIMEOUT"
+    assert (
+        v2.classify_session(
+            _prospective_receipt(three, job_id=injection["session_job_id"]), injection
+        )["verdict"]
+        == "PASS"
+    )
+
+    four = copy.deepcopy(three)
+    four.call_records[1].pop("failure_type")
+    four.call_records[1].pop("realized_selector_id")
+    four.call_records[1]["failure_class"] = "RPC_EXEC_POLL_TIMEOUT"
+    result = v2.classify_session(
+        _prospective_receipt(four, job_id=injection["session_job_id"]), injection
+    )
+    assert result["verdict"] == "FAIL", result
+    assert result["counted_by_class"]["C6"] >= 1
+
+
+@pytest.mark.parametrize("failure_class", ["RPC_EXEC_POLL_TIMEOUT", "HTTP_503"])
+def test_timeout_or_503_cannot_be_relabelled_as_a_planned_absence(failure_class: str) -> None:
+    """An untrusted NOT_FOUND tag cannot turn a real provider failure into an exclusion."""
+    cli, injection = _prospective_real_poll_sequence()
+    forged = cli.call_records[0]
+    forged["failure_class"] = failure_class
+    # Leave the exact selector-looking fields intact to prove that semantic
+    # failure evidence, not merely the producer tag, controls the discount.
+    result = v2.classify_session(
+        _prospective_receipt(cli, job_id=injection["session_job_id"]), injection
+    )
+    excluded = [row for row in result["excluded_injections"] if row.get("index") is not None]
+    assert len(excluded) == 79
+    assert result["verdict"] == "PASS", result
+    assert any(row["attempts"] == 3 for row in result["recovered"])
+
+
+def test_planned_absences_never_relax_the_normal_contents_child_allowance() -> None:
+    """Only direct-observer poll lineages derive a reduced transfer count."""
+    remote = "/content/normal/output/lease-checkpoint.pkl.sha256"
+    digest = "a" * 64
+    injection = json.loads((FIXTURES / "l4.injection.json").read_text())
+    calls = []
+    for ordinal in range(1, 4):
+        calls.append(
+            _row(
+                remote,
+                "failed",
+                ordinal,
+                parent_transfer_id="normal-parent",
+                transfer_id="normal-child",
+                transfer_attempt=ordinal,
+                failure_type="NOT_FOUND",
+                realized_selector_id="watchdog-checkpoint-marker-absent",
+            )
+        )
+    calls.append(
+        _row(
+            remote,
+            "completed",
+            4,
+            parent_transfer_id="normal-parent",
+            transfer_id="normal-child",
+            transfer_attempt=4,
+            verified_sha256=digest,
+        )
+    )
+    parent = {
+        "transfer_id": "normal-parent",
+        "direction": "download",
+        "remote": "/content/normal/output",
+        "status": "verified",
+        "sha256": digest,
+        "verified_sha256": digest,
+        "children": [
+            {
+                "transfer_id": "normal-child",
+                "parent_transfer_id": "normal-parent",
+                "direction": "download",
+                "remote": remote,
+                "attempts": 4,
+                "verified_sha256": digest,
+            }
+        ],
+    }
+    result = v2.classify_session(
+        _prospective_receipt(
+            _CLI(),
+            job_id=injection["session_job_id"],
+            cli_calls=calls,
+            transfers=[parent],
+        ),
+        injection,
+    )
+    assert result["verdict"] == "FAIL", result
+    assert result["counted_by_class"]["C6"] >= 1
 
 
 def test_repeated_successful_sidecars_bind_only_the_final_verified_read() -> None:

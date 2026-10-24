@@ -788,7 +788,7 @@ def _final_review(plan: Path, monkeypatch) -> dict:
     value.update(transport_pin=admission.TRANSPORT_PIN, transport_tree=admission.TRANSPORT_TREE)
     value["fake_proof"]["sha256"] = _sha(fake)
     _replace_json(plan, value)
-    (pack / "GUARDED_OPERATOR_COMMANDS_V6.sh").write_text("# reviewed helper\n")
+    (pack / "GUARDED_OPERATOR_COMMANDS_V7.sh").write_text("# reviewed helper\n")
     authority = pack / "ruling.md"
     authority.write_text("ratified review04\n")
     monkeypatch.setattr(admission, "PACK_ROOT", pack)
@@ -829,7 +829,7 @@ def test_final_verdict_refuses_binding_changes_before_one_look(
     if changed == "absent":
         context["review_path"].unlink()
     elif changed == "helper":
-        (tmp_path / "GUARDED_OPERATOR_COMMANDS_V6.sh").write_text("changed\n")
+        (tmp_path / "GUARDED_OPERATOR_COMMANDS_V7.sh").write_text("changed\n")
     elif changed == "authority":
         (tmp_path / "ruling.md").write_text("changed\n")
     else:

@@ -197,6 +197,11 @@ def test_pin_is_rebound_to_the_fix_commit() -> None:
     assert admission.TRANSPORT_PIN == "d68ba07c350d3f642879ee6df2cf9af9d34f0601"
     assert admission.FAULT_DEFINITION == "l4-label-faults/v2"
     assert admission.SCHEMA == "rpc-qualification-profile/v2"
+    assert admission.PACK_ROOT.name == "rpc-qualification-10"
+    assert admission.REVIEW_PATH.name == "ASTRA_L4_V2_REPAIR_REVIEW08_ACCEPT_20261024.json"
+    ruling, digest = admission.AUTHORITY_FILES["review07_c6_scope"]
+    assert admission.sha(ruling) == digest
+    assert digest == "739786fa3fbb710b8bf7d607ea31e61f2fdb6887f297a0720830d484c1b5a9b1"
 
 
 def test_prerequisite_arms_pass_with_recovered_l4_timeout(tmp_path: Path) -> None:
@@ -330,7 +335,7 @@ def _review_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[s
             "fake_proof": {"path": str(repo / "proof.json"), "sha256": _sha(repo / "proof.json")},
         },
     )
-    (pack / "GUARDED_OPERATOR_COMMANDS_V6.sh").write_text("# exact helper\n")
+    (pack / "GUARDED_OPERATOR_COMMANDS_V7.sh").write_text("# exact helper\n")
     authority = tmp_path / "authority.md"
     authority.write_text("ratified\n")
     monkeypatch.setattr(admission, "AUTHORITY_FILES", {"R": (authority, _sha(authority))})
@@ -356,7 +361,7 @@ def test_accept_refuses_changed_helper_or_authority(tmp_path, monkeypatch, chang
     path = (
         paths["authority"]
         if changed == "authority"
-        else paths["pack"] / "GUARDED_OPERATOR_COMMANDS_V6.sh"
+        else paths["pack"] / "GUARDED_OPERATOR_COMMANDS_V7.sh"
     )
     path.write_text("changed\n")
     with pytest.raises(ValueError, match="authority bytes|artifact/authority digests"):
