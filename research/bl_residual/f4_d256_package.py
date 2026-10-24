@@ -41,6 +41,11 @@ REQUIREMENTS = "research/bl_residual/requirements.txt"
 SOURCE_PATHS = [
     "src",
     "research/bl_residual",
+    # job -> collection_receipts -> d4096_design; bl_labels.__init__ also
+    # imports exports. D1024 and the paired canary share this sparse closure.
+    "research/bl_labels/__init__.py",
+    "research/bl_labels/d4096_design.py",
+    "research/bl_labels/exports.py",
     "research/a100_a2/__init__.py",
     "research/a100_a2/model.py",
     "research/bl_ppo/__init__.py",

@@ -9,6 +9,8 @@ partition check has passed and before any feature, loss or update is computed.
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +24,57 @@ from tests import f4_d1024_fixtures as fx
 
 class PartitionAccepted(Exception):
     """Raised at job.run's tensor-cache boundary: no feature/loss/update computed."""
+
+
+def test_real_d1024_sparse_source_import_preflight(tmp_path: Path) -> None:
+    """Probe the real pack source list in a clean venv, including package imports."""
+    from research.bl_residual import f4_d256_package as d256
+    from tools.ops.import_preflight import check
+
+    assert package.SOURCE_PATHS is d256.SOURCE_PATHS
+    # Pin current source bytes in an isolated fixture repository so this also
+    # catches uncommitted source-list fixes without changing the real Git index.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "-z", "--", *package.SOURCE_PATHS], cwd=package.ROOT
+    )
+    for name in tracked.decode().split("\0"):
+        if name:
+            target = repo / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(package.ROOT / name, target)
+    for args in (
+        ["init", "-q"],
+        ["add", "."],
+        [
+            "-c",
+            "user.name=Import regression",
+            "-c",
+            "user.email=import@example.invalid",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-qm",
+            "Pin real F4 sparse source",
+        ],
+    ):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+    report = check(
+        repo,
+        "HEAD",
+        package.SOURCE_PATHS,
+        package.REQUIREMENTS,
+        ["research.bl_residual.job", "research.bl_residual.f4_canary"],
+    )
+    assert report["status"] == "PASS"
+    assert report["system_site_packages"] is False and report["user_site"] is False
+    for module in (
+        "research.bl_labels",
+        "research.bl_labels.exports",
+        "research.bl_labels.d4096_design",
+    ):
+        assert module in report["closure"] and module in report["local_modules"]
 
 
 @pytest.fixture(scope="module")
