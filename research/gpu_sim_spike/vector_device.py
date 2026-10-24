@@ -2,10 +2,10 @@
 
 This is deliberately separate from :mod:`src.simd_env.vector61_policy`: that
 module is the frozen CPU evaluator contract.  The spike needs the same *state
-layout* on a ``DeviceSim`` without a hidden host featurizer call. The default
-dense comparator retains float32/torch arithmetic and ``atan2`` sectors. The
-opt-in static candidate uses the CPU sector lookup and pixel-space float64
-intermediates, with full feature bytes checked independently before timing.
+layout* on a ``DeviceSim`` without a hidden host featurizer call. Both dense
+and static flood backends use the CPU sector lookup and pixel-space
+float64 intermediates, with one final float32 cast. CUDA feature arithmetic
+uses explicit native round-to-nearest operations rather than torch division.
 Neither path establishes cross-platform policy or whole-engine identity.
 """
 
@@ -15,6 +15,7 @@ import os
 from dataclasses import replace
 from typing import Any, Optional
 
+import numpy as np
 import torch
 
 from research.gpu_sim_spike import flood_cuda
@@ -61,6 +62,7 @@ class DeviceVectorRuntime:
         self._cpu_sector_lut: Optional[torch.Tensor] = None
         self._cpu_sector_rx = 0
         self._cpu_sector_ry = 0
+        self._free_ratio: Optional[torch.Tensor] = None
         # Device counters intentionally remain tensors: reading them per frame
         # would synchronize CUDA and make a host stage invisible in the spike.
         self.fresh_rows: int | torch.Tensor = 0
@@ -86,11 +88,7 @@ class DeviceVectorRuntime:
             raise ValueError(f"controlled must have shape {(e, s)}, got {tuple(controlled.shape)}")
         self.controlled = controlled.clone()
         shape = (e, s)
-        trend_dtype = (
-            torch.float64
-            if os.environ.get("GPU_SIM_VECTOR_FLOOD", "dense").lower() == "static"
-            else torch.float32
-        )
+        trend_dtype = torch.float64
         self.prev_dist = torch.full(shape, torch.inf, device=self.device, dtype=trend_dtype)
         self.prev_id = torch.full(shape, -1, dtype=torch.long, device=self.device)
         width = self.params.input_size
@@ -104,13 +102,24 @@ class DeviceVectorRuntime:
         self.sel_fresh = torch.zeros(shape, dtype=torch.bool, device=self.device)
         self.fresh_rows = torch.zeros((), dtype=torch.long, device=self.device)
         self.carried_rows = torch.zeros((), dtype=torch.long, device=self.device)
-        # Static candidate parity uses the CPU's setup-time integer sector LUT;
-        # dense keeps its frozen atan2 implementation as the baseline.
+        # Both repaired backends use the CPU setup-time integer sector LUT.
         lut, rx, ry = _sector_lut(
             sim.grid_w, sim.grid_h, int(self.params.segment_size), self.params.num_sectors
         )
         self._cpu_sector_lut = torch.as_tensor(lut, device=self.device, dtype=torch.long)
         self._cpu_sector_rx, self._cpu_sector_ry = int(rx), int(ry)
+        # Finite integer count/cap domain: compute CPU float64 division once
+        # and upload its final float32 bytes. CUDA does only integer indexing.
+        counts = np.arange(FREE_SPACE_BFS_CAP + 1, dtype=np.int64)
+        caps = np.maximum(counts, 1)
+        ratios = np.minimum(counts[None, :] / caps[:, None], 1.0).astype(np.float32)
+        self._free_ratio = torch.as_tensor(ratios, device=self.device)
+        if self.device.type == "cuda":
+            torch.backends.cuda.matmul.allow_tf32 = False
+            torch.backends.cudnn.allow_tf32 = False
+            torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
+            torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+            torch.set_float32_matmul_precision("highest")
 
     @classmethod
     def from_reference(cls, runtime: Any, sim: Any) -> "DeviceVectorRuntime":
@@ -144,12 +153,6 @@ class DeviceVectorRuntime:
                 source = getattr(source, attr)
             if source is not None:
                 setattr(out, target, torch.as_tensor(source, device=out.device).clone())
-        # The dense comparator stores trend distances in cells; the corrected
-        # static candidate retains CPU pixel units. Feature vectors already
-        # contain normalized values and are never scaled here.
-        assert out.prev_dist is not None and out.params is not None
-        if os.environ.get("GPU_SIM_VECTOR_FLOOD", "dense").lower() != "static":
-            out.prev_dist.div_(float(out.params.segment_size))
         return out
 
     def _check(self) -> None:
@@ -171,16 +174,8 @@ class DeviceVectorRuntime:
         self_ok = live & (k >= 2) & (k < n - drop_self.to(n.dtype))
         return cells, live, self_ok, other_ok
 
-    def _sectors(self, dx: torch.Tensor, dy: torch.Tensor) -> torch.Tensor:
-        assert self.params is not None
-        angle = torch.atan2(dy.to(torch.float32), dx.to(torch.float32))
-        return torch.remainder(
-            (((angle + torch.pi) / (2.0 * torch.pi)) * self.params.num_sectors).to(torch.long),
-            self.params.num_sectors,
-        )
-
     def _static_sectors(self, dx: torch.Tensor, dy: torch.Tensor) -> torch.Tensor:
-        """CPU vector61's integer lookup, used only by the static candidate."""
+        """CPU vector61's integer sector lookup for both repaired backends."""
         assert self._cpu_sector_lut is not None
         ix = (dx.to(torch.long) + self._cpu_sector_rx).clamp(0, self._cpu_sector_lut.shape[0] - 1)
         iy = (dy.to(torch.long) + self._cpu_sector_ry).clamp(0, self._cpu_sector_lut.shape[1] - 1)
@@ -216,12 +211,17 @@ class DeviceVectorRuntime:
             east = torch.nn.functional.pad(frontier[..., :, 1:], (0, 1, 0, 0))
             frontier = (north | south | west | east) & ~seen & ~blocked[:, :, None]
             seen |= frontier
-        count = seen.flatten(-2).sum(-1).to(torch.float32)
+        count = seen.flatten(-2).sum(-1)
         cap = torch.minimum(
             torch.full_like(sim.length, FREE_SPACE_BFS_CAP),
             torch.clamp(sim.length.to(self.device) * 2, min=FREE_SPACE_MIN_CAP),
-        ).to(torch.float32)
-        return (count / cap[..., None]).clamp(max=1.0)
+        ).to(torch.long)
+        return self._normalize_free(count, cap)
+
+    def _normalize_free(self, count: torch.Tensor, cap: torch.Tensor) -> torch.Tensor:
+        """Lookup the CPU final cast for every possible capped integer ratio."""
+        assert self._free_ratio is not None
+        return self._free_ratio[cap[..., None], torch.minimum(count, cap[..., None])]
 
     def _free_space_all(self, sim: Any) -> torch.Tensor:
         """Compute the full resident flood result once for a feature call.
@@ -259,7 +259,7 @@ class DeviceVectorRuntime:
                     torch.clamp(sim.length.to(self.device) * 2, min=FREE_SPACE_MIN_CAP),
                 ).to(torch.long)
                 count = flood_cuda.static_capped(starts, occupied != 0, cap)
-                return (count.to(torch.float32) / cap[..., None].to(torch.float32)).clamp(max=1.0)
+                return self._normalize_free(count, cap)
             # CPU is an oracle-only fallback, preserving import/test usability.
             return self._free_space(
                 sim,
@@ -379,10 +379,20 @@ class DeviceVectorRuntime:
         )
         if not len(rows):
             return out
+        if self.device is not None and self.device.type == "cuda":
+            from research.gpu_sim_spike.vector_geometry import exact_features_rows
+
+            return exact_features_rows(
+                self,
+                sim,
+                rows,
+                update_memory=update_memory,
+                memory_mask=memory_mask,
+                free_space=free_space,
+            )
         er, sr = rows[:, 0], rows[:, 1]
-        static_exact = os.environ.get("GPU_SIM_VECTOR_FLOOD", "dense").lower() == "static"
-        math_dtype = torch.float64 if static_exact else torch.float32
-        distance_scale = float(self.params.segment_size) if static_exact else 1.0
+        math_dtype = torch.float64
+        distance_scale = float(self.params.segment_size)
         alive_row = sim.alive.to(self.device)[er, sr]
         cells, live_body, self_ok, other_ok = self._body_view(sim)
         heads = cells[..., 0, :]
@@ -394,8 +404,8 @@ class DeviceVectorRuntime:
         onehot = torch.zeros((len(rows), 4), dtype=torch.float32, device=self.device)
         onehot.scatter_(1, drow[:, None], 1.0)
         out[:, :4] = onehot * valid[:, None]
-        logical_length = lrow.clamp_min(1) if static_exact else lrow
-        out[:, 4] = (logical_length.to(torch.float32) / float(self.params.max_length)).clamp(
+        logical_length = lrow.clamp_min(1)
+        out[:, 4] = (logical_length.to(math_dtype) / float(self.params.max_length)).clamp(
             max=1
         ) * valid
 
@@ -411,29 +421,28 @@ class DeviceVectorRuntime:
             max(self.params.game_width, self.params.game_height) // self.params.segment_size
         )
         diag = float((sim.grid_w**2 + sim.grid_h**2) ** 0.5)
-        if static_exact:
-            fd2 = fd2 * (distance_scale**2)
-            diag = float((self.params.game_width**2 + self.params.game_height**2) ** 0.5)
+        fd2 = fd2 * (distance_scale**2)
+        diag = float((self.params.game_width**2 + self.params.game_height**2) ** 0.5)
         out[:, 5] = torch.where(
-            has_food, fdelta[:, 0].float() / max_dim, torch.zeros_like(lrow, dtype=torch.float32)
+            has_food,
+            fdelta[:, 0].to(math_dtype) / max_dim,
+            torch.zeros_like(lrow, dtype=torch.float32),
         )
         out[:, 6] = torch.where(
-            has_food, fdelta[:, 1].float() / max_dim, torch.zeros_like(lrow, dtype=torch.float32)
+            has_food,
+            fdelta[:, 1].to(math_dtype) / max_dim,
+            torch.zeros_like(lrow, dtype=torch.float32),
         )
         out[:, 7] = torch.where(
             has_food, fd2[ar, nearest].sqrt() / diag, torch.ones_like(lrow, dtype=torch.float32)
         ).clamp(max=1)
-        fsector = (
-            self._static_sectors(fd[..., 0], fd[..., 1])
-            if static_exact
-            else self._sectors(fd[..., 0], fd[..., 1])
-        )
+        fsector = self._static_sectors(fd[..., 0], fd[..., 1])
         fone = (
-            torch.nn.functional.one_hot(fsector, self.params.num_sectors).to(torch.float32)
+            torch.nn.functional.one_hot(fsector, self.params.num_sectors).to(torch.long)
             * present[er, :, None]
         )
         expected = max(float(self.params.food_capacity) / self.params.num_sectors, 1.0)
-        out[:, 8:24] = (fone.sum(1) / expected).clamp(max=1) * valid[:, None]
+        out[:, 8:24] = (fone.sum(1).to(math_dtype) / expected).clamp(max=1) * valid[:, None]
 
         # Danger map includes every body segment selected by the CPU self/other tail rules.
         body = cells[er]
@@ -445,14 +454,10 @@ class DeviceVectorRuntime:
         )
         bdelta = body - hrow[:, None, None]
         bdist2 = bdelta.square().sum(-1).to(math_dtype)
-        bdist = (bdist2 * distance_scale**2 if static_exact else bdist2).sqrt()
+        bdist = (bdist2 * distance_scale**2).sqrt()
         maxd = float(self.params.danger_max_distance) * distance_scale
         near = mask & (bdist <= maxd)
-        sec = (
-            self._static_sectors(bdelta[..., 0], bdelta[..., 1])
-            if static_exact
-            else self._sectors(bdelta[..., 0], bdelta[..., 1])
-        )
+        sec = self._static_sectors(bdelta[..., 0], bdelta[..., 1])
         values = (1.0 - bdist / maxd).clamp(min=0) * 1.5
         danger = torch.zeros(
             (len(rows), self.params.num_sectors), device=self.device, dtype=math_dtype
@@ -522,13 +527,9 @@ class DeviceVectorRuntime:
             )
             wall_delta = torch.stack((wx - hrow[:, 0, None], wy - hrow[:, 1, None]), -1)
             wall_dist2 = wall_delta.square().sum(-1).to(math_dtype)
-            wall_dist = (wall_dist2 * distance_scale**2 if static_exact else wall_dist2).sqrt()
+            wall_dist = (wall_dist2 * distance_scale**2).sqrt()
             wall_near = wall_valid & (wall_dist <= maxd)
-            wall_sec = (
-                self._static_sectors(wall_delta[..., 0], wall_delta[..., 1])
-                if static_exact
-                else self._sectors(wall_delta[..., 0], wall_delta[..., 1])
-            )
+            wall_sec = self._static_sectors(wall_delta[..., 0], wall_delta[..., 1])
             wall_values = (1.0 - wall_dist / maxd).clamp(min=0) * 2.0
             danger.scatter_reduce_(
                 1,
@@ -542,7 +543,7 @@ class DeviceVectorRuntime:
             count > 1, (danger + (count / 5).clamp(max=1) * 0.2).clamp(max=2), danger
         ).clamp(max=1)
         out[:, 24:40] = danger.to(torch.float32) * valid[:, None]
-        x, y = hrow[:, 0].float(), hrow[:, 1].float()
+        x, y = hrow[:, 0].to(math_dtype), hrow[:, 1].to(math_dtype)
         out[:, 40] = x / float(sim.grid_w)
         out[:, 41] = (float(sim.grid_w) - x) / float(sim.grid_w)
         out[:, 42] = y / float(sim.grid_h)
@@ -551,7 +552,7 @@ class DeviceVectorRuntime:
         # Stable nearest/second enemy: torch.argsort is stable and slots are input ordered.
         hd = heads[er] - hrow[:, None]
         enemy_dist2 = hd.square().sum(-1).to(math_dtype)
-        enemy_dist = (enemy_dist2 * distance_scale**2 if static_exact else enemy_dist2).sqrt()
+        enemy_dist = (enemy_dist2 * distance_scale**2).sqrt()
         candidate = sim.alive.to(self.device)[er] & (
             torch.arange(s, device=self.device)[None] != sr[:, None]
         )
@@ -560,11 +561,11 @@ class DeviceVectorRuntime:
         n_enemy = candidate.sum(1)
         has1, has2 = n_enemy >= 1, n_enemy >= 2
         first_delta, second_delta = hd[ar, first], hd[ar, second]
-        own = lrow.clamp_min(1).float()
-        lens = length[er].clamp_min(1).float()
+        own = lrow.clamp_min(1).to(math_dtype)
+        lens = length[er].clamp_min(1).to(math_dtype)
         first_dir = _CARDINAL.to(self.device)[direction[er, first]]
-        out[:, 44] = torch.where(has1, first_delta[:, 0].float() / max_dim, 0.0)
-        out[:, 45] = torch.where(has1, first_delta[:, 1].float() / max_dim, 0.0)
+        out[:, 44] = torch.where(has1, first_delta[:, 0].to(math_dtype) / max_dim, 0.0)
+        out[:, 45] = torch.where(has1, first_delta[:, 1].to(math_dtype) / max_dim, 0.0)
         out[:, 46] = torch.where(has1, (lens[ar, first] / own).clamp(max=2) / 2, 0.0)
         out[:, 47:49] = first_dir.float() * has1[:, None]
         d1 = enemy_dist[ar, first]
@@ -573,11 +574,11 @@ class DeviceVectorRuntime:
             d1 < self.prev_dist[er, sr], 1.0, torch.where(d1 > self.prev_dist[er, sr], -1.0, 0.0)
         )
         out[:, 49] = torch.where(has1 & same, trend, 0.0)
-        out[:, 50] = torch.where(has2, second_delta[:, 0].float() / max_dim, 0.0)
-        out[:, 51] = torch.where(has2, second_delta[:, 1].float() / max_dim, 0.0)
+        out[:, 50] = torch.where(has2, second_delta[:, 0].to(math_dtype) / max_dim, 0.0)
+        out[:, 51] = torch.where(has2, second_delta[:, 1].to(math_dtype) / max_dim, 0.0)
         out[:, 52] = torch.where(has2, (lens[ar, second] / own).clamp(max=2) / 2, 0.0)
         future = heads[er, first] + first_dir
-        out[:, 53] = (has1 & ((hrow - future).square().sum(-1).float().sqrt() < 3)).float()
+        out[:, 53] = (has1 & ((hrow - future).square().sum(-1) < 9)).float()
         if update_memory:
             store = memory_mask & valid
             self.prev_dist[er, sr] = torch.where(
@@ -597,7 +598,7 @@ class DeviceVectorRuntime:
         )
         delta = next_cells[:, :, None, None] - body[:, None]
         ddist2 = delta.square().sum(-1).to(math_dtype)
-        ddist = (ddist2 * distance_scale**2 if static_exact else ddist2).sqrt()
+        ddist = (ddist2 * distance_scale**2).sqrt()
         body_mask = mask[:, None]
         hit = (~inside) | ((ddist < distance_scale) & body_mask).any((-1, -2))
         nearest = (
@@ -605,11 +606,10 @@ class DeviceVectorRuntime:
                 torch.minimum(next_cells[..., 0], (sim.grid_w - next_cells[..., 0]).abs()),
                 torch.minimum(next_cells[..., 1], (sim.grid_h - next_cells[..., 1]).abs()),
             )
-            .float()
+            .to(math_dtype)
             .clamp(max=3)
         )
-        if static_exact:
-            nearest = nearest * distance_scale
+        nearest = nearest * distance_scale
         obstacle = ddist.masked_fill(~body_mask, torch.inf).amin((-1, -2))
         nearest = torch.minimum(nearest, obstacle)
         out[:, 54:57] = (
@@ -629,10 +629,8 @@ class DeviceVectorRuntime:
             if free_space is None:
                 free_space = self._free_space_all(sim)
             out[:, 58:61] = free_space[er, sr] * valid[:, None]
-        if static_exact:
-            # The CPU oracle emits canonical positive zero in every column
-            # for dead rows, including food/boundary values computed above.
-            out = torch.where(valid[:, None], out, torch.zeros_like(out))
+        # The CPU oracle emits canonical positive zero in every dead row.
+        out = torch.where(valid[:, None], out, torch.zeros_like(out))
         return out
 
     def _mask(self, sim: Any) -> torch.Tensor:

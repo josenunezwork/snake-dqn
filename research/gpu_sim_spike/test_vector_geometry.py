@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 
 from research.gpu_sim_spike.device_sim import DeviceSim
@@ -50,7 +51,7 @@ def _world(envs: int = 3) -> DeviceSim:
             # indexing, self masking and enemy masking all participate.
             head = (env + slot + 2) % 8
             ring = torch.tensor(((head - 0) % 8, (head - 1) % 8, (head - 2) % 8))
-            x, y = 2 + env * 2, 2 + slot * 2
+            x, y = 2 + (env % 3) * 2, 2 + slot * 2
             sim.head_ptr[env, slot] = head
             sim.bodies[env, slot, ring] = torch.tensor(((x, y), (x - 1, y), (x - 2, y)))
     sim.seg_count[:] = 3
@@ -63,8 +64,10 @@ def _world(envs: int = 3) -> DeviceSim:
     return sim
 
 
-def test_indexed_geometry_matches_source_pinned_dense_oracle(tmp_path: Path, monkeypatch) -> None:
-    """Every feature byte and carry entry match the frozen dense implementation."""
+def test_indexed_geometry_matches_cpu_repair_and_preserves_unaffected_fields(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """CPU bytes repair numerical fields; independent dense keeps discrete invariants."""
     monkeypatch.delenv("GPU_SIM_VECTOR_FLOOD", raising=False)
     sim = _world()
     params = Vector61Params.from_game_config(sim.cfg)
@@ -72,7 +75,7 @@ def test_indexed_geometry_matches_source_pinned_dense_oracle(tmp_path: Path, mon
     memory_mask = torch.tensor((True, False, True, True, True, True, False, False, True))
     frozen = _frozen_runtime_type(tmp_path)(params)
     frozen.bind(sim)
-    frozen.prev_dist[:] = 7.0
+    frozen.prev_dist[:] = 0.7
     frozen.prev_id[:] = 2
     expected = frozen.features(sim, rows, update_memory=True, memory_mask=memory_mask)
 
@@ -80,11 +83,20 @@ def test_indexed_geometry_matches_source_pinned_dense_oracle(tmp_path: Path, mon
     indexed.bind(sim)
     indexed.prev_dist[:] = 7.0
     indexed.prev_id[:] = 2
+    canonical, memory = _canonical(sim, indexed, rows.numpy())
     actual = indexed.features(sim, rows, update_memory=True, memory_mask=memory_mask)
-
-    assert actual.cpu().numpy().tobytes() == expected.cpu().numpy().tobytes()
-    assert indexed.prev_dist.cpu().numpy().tobytes() == frozen.prev_dist.cpu().numpy().tobytes()
-    assert indexed.prev_id.cpu().numpy().tobytes() == frozen.prev_id.cpu().numpy().tobytes()
+    assert actual.numpy().tobytes() == canonical.tobytes()
+    # Declared repair changes numerical columns and distance carry. Preserve
+    # discrete live columns against the independent pre-repair device baseline.
+    live = sim.alive[rows[:, 0], rows[:, 1]]
+    discrete = [0, 1, 2, 3, 47, 48, 49, 53, 57]
+    assert torch.equal(actual[live][:, discrete], expected[live][:, discrete])
+    for index, (env, slot) in enumerate(rows.tolist()):
+        if live[index] and memory_mask[index]:
+            assert indexed.prev_dist[env, slot] == memory.prev_dist[env, slot]
+        else:
+            assert indexed.prev_dist[env, slot] == 7.0
+    assert torch.equal(indexed.prev_id, frozen.prev_id)
     assert indexed._geometry_body_view is None
 
 
@@ -120,17 +132,17 @@ def test_indexed_geometry_multi_chunk_permuted_and_duplicate_rows(
     rows = grid.flip(0)
     frozen = _frozen_runtime_type(tmp_path)(params)
     frozen.bind(sim)
-    expected = frozen.features(sim, rows, update_memory=True)
     indexed = IndexedVectorRuntime(params)
     indexed.bind(sim)
+    expected, memory = _canonical(sim, indexed, rows.numpy())
     actual = indexed.features(sim, rows, update_memory=True)
-    assert actual.cpu().numpy().tobytes() == expected.cpu().numpy().tobytes()
-    assert indexed.prev_dist.cpu().numpy().tobytes() == frozen.prev_dist.cpu().numpy().tobytes()
+    assert actual.numpy().tobytes() == expected.tobytes()
+    assert indexed.prev_dist.numpy().tobytes() == memory.prev_dist.tobytes()
 
     duplicate = torch.cat((rows[:4], rows[:4], rows[4:]))
-    expected_dup = frozen.features(sim, duplicate, update_memory=False)
+    expected_dup, _ = _canonical(sim, indexed, duplicate.numpy(), update_memory=False)
     actual_dup = indexed.features(sim, duplicate, update_memory=False)
-    assert actual_dup.cpu().numpy().tobytes() == expected_dup.cpu().numpy().tobytes()
+    assert actual_dup.cpu().numpy().tobytes() == expected_dup.tobytes()
 
 
 def test_indexed_geometry_drops_snapshot_after_feature_call(tmp_path: Path, monkeypatch) -> None:
@@ -144,9 +156,9 @@ def test_indexed_geometry_drops_snapshot_after_feature_call(tmp_path: Path, monk
     indexed.bind(sim)
     indexed.features(sim, update_memory=False)
     sim.bodies[0, 0, sim.head_ptr[0, 0]] = torch.tensor((8, 2))
-    expected = frozen.features(sim, update_memory=False)
+    expected, _ = _canonical(sim, indexed, update_memory=False)
     actual = indexed.features(sim, update_memory=False)
-    assert actual.cpu().numpy().tobytes() == expected.cpu().numpy().tobytes()
+    assert actual.cpu().numpy().tobytes() == expected.tobytes()
     assert indexed._geometry_body_view is None
 
 
@@ -174,13 +186,15 @@ def _canonical(sim, runtime, rows=None, update_memory=True):
     return result, memory
 
 
-def test_cuda_indexed_geometry_bytes_match_canonical_cpu(monkeypatch) -> None:
+@pytest.mark.parametrize("backend", ["dense", "static"])
+@pytest.mark.parametrize("indexed", [False, True])
+def test_cuda_indexed_geometry_bytes_match_canonical_cpu(monkeypatch, backend, indexed) -> None:
     """CUDA admission: independent canonical CPU bytes and masked trend carry."""
     import pytest
 
     if not torch.cuda.is_available():
         pytest.skip("CUDA-only indexed geometry admission")
-    monkeypatch.setenv("GPU_SIM_VECTOR_FLOOD", "static")
+    monkeypatch.setenv("GPU_SIM_VECTOR_FLOOD", backend)
     monkeypatch.setenv("GPU_SIM_VECTOR_GEOMETRY", "native")
     cpu = _world()
     params = Vector61Params.from_game_config(cpu.cfg)
@@ -200,7 +214,9 @@ def test_cuda_indexed_geometry_bytes_match_canonical_cpu(monkeypatch) -> None:
         "food_count",
     ):
         setattr(cuda, name, getattr(cpu, name).to("cuda"))
-    candidate = IndexedVectorRuntime(params)
+    from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
+
+    candidate = (IndexedVectorRuntime if indexed else DeviceVectorRuntime)(params)
     candidate.bind(cuda)
     actual = candidate.features(cuda, update_memory=True).cpu().numpy()
     assert actual.tobytes() == expected.tobytes()
@@ -215,3 +231,12 @@ def test_cuda_indexed_geometry_bytes_match_canonical_cpu(monkeypatch) -> None:
     assert actual_dup.tobytes() == expected_dup.tobytes()
     with pytest.raises(ValueError, match="unique"):
         candidate.features(cuda, rows, update_memory=True)
+
+    # The native helper also respects an explicitly selected feature58 width.
+    from dataclasses import replace
+
+    candidate.params = replace(candidate.params, use_free_space=False)
+    actual58 = candidate.features(cuda, update_memory=False).cpu().numpy()
+    expected58, _ = _canonical(cpu, candidate, update_memory=False)
+    assert actual58.shape[1] == 58
+    assert actual58.tobytes() == expected58.tobytes()

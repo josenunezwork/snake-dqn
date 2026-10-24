@@ -1,16 +1,8 @@
-"""Indexed vector61 non-flood geometry adapter.
+"""Indexed body-gather adapter and shared CPU-order CUDA feature arithmetic.
 
-The dense :mod:`vector_device` implementation is the frozen feature contract.
-It intentionally splits rows into small blocks, but each block used to rebuild
-the same full-world ring-ordered body tensor.  This adapter makes precisely one
-indexed ring snapshot for one public ``features`` invocation and presents it to
-the unchanged feature arithmetic.  Consequently the numerical reductions,
-row order, and vector61 flood columns continue to be owned by the dense/FLOOD
-implementation while the repeated all-world gather disappears.
-
-The adapter is deliberately opt-in.  Benchmark callers wrap an already-bound
-runtime with :meth:`IndexedVectorRuntime.from_runtime`; no policy or simulator
-module needs to import this experimental implementation.
+Both flood backends use the same explicitly rounded feature58 kernel. This
+adapter additionally hoists the immutable body view for one feature call; the
+native geometry mode avoids row chunking without changing the CPU contract.
 """
 
 from __future__ import annotations
@@ -37,6 +29,19 @@ def _native_body_view(sim: Any, device: torch.device) -> Optional[BodyView]:
     """
     if device.type != "cuda" or os.environ.get("GPU_SIM_VECTOR_GEOMETRY", "torch") != "native":
         return None
+    extension = _load_exact_extension()
+    cells, live, self_ok, other_ok = extension.indexed_body_view(
+        sim.bodies.contiguous(),
+        sim.head_ptr.contiguous(),
+        sim.seg_count.contiguous(),
+        sim.length.contiguous(),
+        sim.alive.contiguous(),
+    )
+    return cells, live, self_ok, other_ok
+
+
+def _load_exact_extension() -> Any:
+    """Load CPU-order RN arithmetic; CUDA never falls back to torch floats."""
     global _EXTENSION
     if _EXTENSION is None:
         if not torch.cuda.is_available() or torch.version.cuda is None:
@@ -45,22 +50,14 @@ def _native_body_view(sim: Any, device: torch.device) -> Optional[BodyView]:
 
         root = Path(__file__).resolve().parent
         _EXTENSION = load(
-            name="snake_dqn_vector_geometry_v1",
+            name="snake_dqn_vector_geometry_exact_v2",
             sources=[str(root / "vector_geometry.cpp"), str(root / "vector_geometry.cu")],
             extra_cflags=["-O3"],
-            # No fast-math or fmad contraction: this native part only moves
-            # integer ring cells/masks, and feature arithmetic stays explicit.
-            extra_cuda_cflags=["-O3", "--fmad=false"],
+            # No fast-math or FMA contraction in integer views or feature arithmetic.
+            extra_cuda_cflags=["-O3", "--fmad=false", "--prec-div=true", "--prec-sqrt=true"],
             verbose=os.environ.get("GPU_SIM_SPIKE_CUDA_VERBOSE") == "1",
         )
-    cells, live, self_ok, other_ok = _EXTENSION.indexed_body_view(
-        sim.bodies.contiguous(),
-        sim.head_ptr.contiguous(),
-        sim.seg_count.contiguous(),
-        sim.length.contiguous(),
-        sim.alive.contiguous(),
-    )
-    return cells, live, self_ok, other_ok
+    return _EXTENSION
 
 
 class IndexedVectorRuntime(DeviceVectorRuntime):
@@ -126,85 +123,6 @@ class IndexedVectorRuntime(DeviceVectorRuntime):
             return self._geometry_body_view
         return super()._body_view(sim)
 
-    def _features_rows(
-        self, sim: Any, rows: Optional[torch.Tensor] = None, **kwargs: Any
-    ) -> torch.Tensor:
-        """Use direct CUDA rows only for the frozen static, unique-row contract."""
-        if (
-            self.device is None
-            or self.device.type != "cuda"
-            or os.environ.get("GPU_SIM_VECTOR_GEOMETRY", "torch") != "native"
-            or os.environ.get("GPU_SIM_VECTOR_FLOOD", "dense") != "static"
-            or rows is None
-        ):
-            return super()._features_rows(sim, rows, **kwargs)
-        rows = torch.as_tensor(rows, dtype=torch.long, device=self.device).reshape(-1, 2)
-        ids = rows[:, 0] * int(sim.S) + rows[:, 1]
-        if int(torch.unique(ids).numel()) != len(ids) and kwargs.get("update_memory", True):
-            raise ValueError("rows must be unique when updating trend memory")
-        assert self.params is not None and self.prev_dist is not None and self.prev_id is not None
-        if (
-            tuple(self.params.actions) != ((0, -1), (1, 0), (0, 1), (-1, 0))
-            or self.params.num_sectors != 16
-        ):
-            raise ValueError("native geometry requires the frozen cardinal vector61 contract")
-        torch._assert_async(
-            (
-                (rows[:, 0] >= 0) & (rows[:, 0] < sim.E) & (rows[:, 1] >= 0) & (rows[:, 1] < sim.S)
-            ).all(),
-            "native geometry row outside world",
-        )
-        torch._assert_async(
-            (
-                (sim.head_ptr >= 0)
-                & (sim.head_ptr < sim.cap)
-                & (sim.seg_count >= 0)
-                & (sim.seg_count <= sim.cap)
-                & (sim.direction >= 0)
-                & (sim.direction < 4)
-            ).all(),
-            "native geometry invalid ring state",
-        )
-        memory_mask = kwargs.get("memory_mask")
-        if memory_mask is None:
-            memory_mask = torch.ones(len(rows), dtype=torch.bool, device=self.device)
-        result, next_dist, next_id = _EXTENSION.indexed_features58(  # type: ignore[union-attr]
-            sim.bodies.contiguous(),
-            sim.head_ptr.contiguous(),
-            sim.seg_count.contiguous(),
-            sim.length.contiguous(),
-            sim.alive.contiguous(),
-            sim.direction.contiguous(),
-            sim.food_cells.contiguous(),
-            sim.food_present.contiguous(),
-            rows.contiguous(),
-            self.prev_dist.contiguous(),
-            self.prev_id.contiguous(),
-            self._cpu_sector_lut.contiguous(),
-            self._cpu_sector_rx,
-            self._cpu_sector_ry,
-            int(sim.grid_w),
-            int(sim.grid_h),
-            int(self.params.segment_size),
-            self.params.num_sectors,
-            self.params.max_length,
-            self.params.danger_max_distance,
-            self.params.min_boost_length,
-            self.params.food_capacity,
-            self.params.use_boundary_as_danger,
-        )
-        er, sr = rows[:, 0], rows[:, 1]
-        valid = sim.alive[er, sr]
-        if kwargs.get("update_memory", True):
-            store = torch.as_tensor(memory_mask, dtype=torch.bool, device=self.device) & valid
-            self.prev_dist[er, sr] = torch.where(store, next_dist, self.prev_dist[er, sr])
-            self.prev_id[er, sr] = torch.where(store, next_id, self.prev_id[er, sr])
-        free_space = kwargs.get("free_space")
-        if free_space is None:
-            free_space = self._free_space_all(sim)
-        result = torch.cat((result, free_space[er, sr] * valid[:, None]), dim=1)
-        return torch.where(valid[:, None], result, torch.zeros_like(result))
-
     def features(
         self,
         sim: Any,
@@ -213,7 +131,7 @@ class IndexedVectorRuntime(DeviceVectorRuntime):
         update_memory: bool = True,
         memory_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Compute frozen vector61 features using a single ring snapshot.
+        """Compute CPU-exact vector61 features using a single ring snapshot.
 
         ``super().features`` still invokes the unmodified flood path for
         columns 58:61.  ``finally`` guarantees callers cannot accidentally
@@ -227,7 +145,6 @@ class IndexedVectorRuntime(DeviceVectorRuntime):
                 self.device is not None
                 and self.device.type == "cuda"
                 and os.environ.get("GPU_SIM_VECTOR_GEOMETRY", "torch") == "native"
-                and os.environ.get("GPU_SIM_VECTOR_FLOOD", "dense") == "static"
             )
             if native:
                 if rows is None:
@@ -267,3 +184,76 @@ class IndexedVectorRuntime(DeviceVectorRuntime):
         finally:
             self._geometry_sim = None
             self._geometry_body_view = None
+
+
+def exact_features_rows(
+    runtime: DeviceVectorRuntime, sim: Any, rows: torch.Tensor, **kwargs: Any
+) -> torch.Tensor:
+    """Shared exact CUDA feature58 arithmetic for dense and static flood backends."""
+    rows = torch.as_tensor(rows, dtype=torch.long, device=runtime.device).reshape(-1, 2)
+    ids = rows[:, 0] * int(sim.S) + rows[:, 1]
+    if int(torch.unique(ids).numel()) != len(ids) and kwargs.get("update_memory", True):
+        raise ValueError("rows must be unique when updating trend memory")
+    assert (
+        runtime.params is not None and runtime.prev_dist is not None and runtime.prev_id is not None
+    )
+    if (
+        tuple(runtime.params.actions) != ((0, -1), (1, 0), (0, 1), (-1, 0))
+        or runtime.params.num_sectors != 16
+    ):
+        raise ValueError("native geometry requires the frozen cardinal vector61 contract")
+    torch._assert_async(
+        ((rows[:, 0] >= 0) & (rows[:, 0] < sim.E) & (rows[:, 1] >= 0) & (rows[:, 1] < sim.S)).all(),
+        "native geometry row outside world",
+    )
+    torch._assert_async(
+        (
+            (sim.head_ptr >= 0)
+            & (sim.head_ptr < sim.cap)
+            & (sim.seg_count >= 0)
+            & (sim.seg_count <= sim.cap)
+            & (sim.direction >= 0)
+            & (sim.direction < 4)
+        ).all(),
+        "native geometry invalid ring state",
+    )
+    memory_mask = kwargs.get("memory_mask")
+    if memory_mask is None:
+        memory_mask = torch.ones(len(rows), dtype=torch.bool, device=runtime.device)
+    result, next_dist, next_id = _load_exact_extension().indexed_features58(
+        sim.bodies.contiguous(),
+        sim.head_ptr.contiguous(),
+        sim.seg_count.contiguous(),
+        sim.length.contiguous(),
+        sim.alive.contiguous(),
+        sim.direction.contiguous(),
+        sim.food_cells.contiguous(),
+        sim.food_present.contiguous(),
+        rows.contiguous(),
+        runtime.prev_dist.contiguous(),
+        runtime.prev_id.contiguous(),
+        runtime._cpu_sector_lut.contiguous(),
+        runtime._cpu_sector_rx,
+        runtime._cpu_sector_ry,
+        int(sim.grid_w),
+        int(sim.grid_h),
+        int(runtime.params.segment_size),
+        runtime.params.num_sectors,
+        runtime.params.max_length,
+        runtime.params.danger_max_distance,
+        runtime.params.min_boost_length,
+        runtime.params.food_capacity,
+        runtime.params.use_boundary_as_danger,
+    )
+    er, sr = rows[:, 0], rows[:, 1]
+    valid = sim.alive[er, sr]
+    if kwargs.get("update_memory", True):
+        store = torch.as_tensor(memory_mask, dtype=torch.bool, device=runtime.device) & valid
+        runtime.prev_dist[er, sr] = torch.where(store, next_dist, runtime.prev_dist[er, sr])
+        runtime.prev_id[er, sr] = torch.where(store, next_id, runtime.prev_id[er, sr])
+    if runtime.params.use_free_space:
+        free_space = kwargs.get("free_space")
+        if free_space is None:
+            free_space = runtime._free_space_all(sim)
+        result = torch.cat((result, free_space[er, sr] * valid[:, None]), dim=1)
+    return torch.where(valid[:, None], result, torch.zeros_like(result))

@@ -10,6 +10,41 @@
 namespace {
 constexpr int kThreads = 256;
 
+// The CPU vector61 oracle evaluates its feature arithmetic as ordered IEEE-754
+// binary64 operations and only then rounds each feature to float32.  CUDA's
+// ordinary operators are permitted to contract or select target-specific
+// implementations even when their source spelling looks equivalent.  Keep the
+// scalar feature path explicit: each helper emits one correctly-rounded double
+// operation and, in particular, never creates an FMA.  ``--fmad=false`` is a
+// second (build-time) guard; these wrappers make that contract visible in the
+// kernel itself.
+__device__ __forceinline__ double dadd(double lhs, double rhs) {
+  return __dadd_rn(lhs, rhs);
+}
+
+__device__ __forceinline__ double dsub(double lhs, double rhs) {
+  return __dsub_rn(lhs, rhs);
+}
+
+__device__ __forceinline__ double dmul(double lhs, double rhs) {
+  return __dmul_rn(lhs, rhs);
+}
+
+__device__ __forceinline__ double ddiv(double lhs, double rhs) {
+  return __ddiv_rn(lhs, rhs);
+}
+
+__device__ __forceinline__ double dsqrt(double value) {
+  return __dsqrt_rn(value);
+}
+
+__device__ __forceinline__ double distance_from_squared(long long squared) {
+  // All feature coordinates are integer pixels.  Form the squared distance in
+  // integer arithmetic, exactly as the CPU reference does, before its one
+  // correctly-rounded binary64 square root.
+  return dsqrt(static_cast<double>(squared));
+}
+
 __global__ void indexed_body_view_kernel(
     const int64_t* bodies, const int64_t* head_ptr, const int64_t* seg_count,
     const int64_t* length, const bool* alive, int64_t* cells, bool* live,
@@ -101,9 +136,12 @@ __global__ void indexed_features58_kernel(
   const int cardx[4] = {0, 1, 0, -1}, cardy[4] = {-1, 0, 1, 0};
   f[d] = 1.0F;
   const int logical = max(1, static_cast<int>(length[self_index]));
-  f[4] = static_cast<float>(fmin(1.0, static_cast<double>(logical) / max_length));
+  f[4] = __double2float_rn(fmin(1.0, ddiv(static_cast<double>(logical),
+                                            static_cast<double>(max_length))));
   const int max_dim = max(grid_w, grid_h) * ss;
-  const double diag = sqrt(static_cast<double>(grid_w * ss) * (grid_w * ss) + static_cast<double>(grid_h * ss) * (grid_h * ss));
+  const long long width_px = static_cast<long long>(grid_w) * ss;
+  const long long height_px = static_cast<long long>(grid_h) * ss;
+  const double diag = distance_from_squared(width_px * width_px + height_px * height_px);
   int food_counts[16] = {};
   int best_food = -1; long long best_food_d2 = LLONG_MAX;
   for (int q = 0; q < foods; ++q) if (food_present[static_cast<int64_t>(env) * foods + q]) {
@@ -114,12 +152,21 @@ __global__ void indexed_features58_kernel(
     const int sec = static_cast<int>(lut[(dx / ss + rx) * (2 * ry + 1) + dy / ss + ry]);
     ++food_counts[sec];
   }
-  for (int sec = 0; sec < sectors; ++sec) f[8 + sec] = static_cast<float>(fmin(1.0, static_cast<double>(food_counts[sec]) / fmax(1.0, static_cast<double>(food_capacity) / sectors)));
+  // Mirrors Vector61Featurizer.expected_per_sector exactly: the denominator is
+  // a separately rounded Python float division before the count division.
+  const double expected_per_sector = fmax(
+      1.0, ddiv(static_cast<double>(food_capacity), static_cast<double>(sectors)));
+  for (int sec = 0; sec < sectors; ++sec) {
+    f[8 + sec] = __double2float_rn(fmin(
+        1.0, ddiv(static_cast<double>(food_counts[sec]), expected_per_sector)));
+  }
   if (best_food >= 0) {
     const int dx = static_cast<int>(food[(static_cast<int64_t>(env) * foods + best_food) * 2]) * ss - hx;
     const int dy = static_cast<int>(food[(static_cast<int64_t>(env) * foods + best_food) * 2 + 1]) * ss - hy;
-    f[5] = static_cast<float>(static_cast<double>(dx) / max_dim); f[6] = static_cast<float>(static_cast<double>(dy) / max_dim);
-    f[7] = static_cast<float>(fmin(1.0, sqrt(static_cast<double>(best_food_d2)) / diag));
+    f[5] = __double2float_rn(ddiv(static_cast<double>(dx), static_cast<double>(max_dim)));
+    f[6] = __double2float_rn(ddiv(static_cast<double>(dy), static_cast<double>(max_dim)));
+    f[7] = __double2float_rn(fmin(
+        1.0, ddiv(distance_from_squared(best_food_d2), diag)));
   } else f[7] = 1.0F;
   const double maxd = static_cast<double>(danger_distance * ss);
   double danger[16] = {}; int count[16] = {};
@@ -140,9 +187,23 @@ __global__ void indexed_features58_kernel(
       const int ring = static_cast<int>((head_ptr[oi] - k + cap) % cap);
       const int64_t bi = (oi * cap + ring) * 2;
       const int bx = static_cast<int>(bodies[bi]) * ss, by = static_cast<int>(bodies[bi + 1]) * ss;
-      const int dx = bx - hx, dy = by - hy; const double dist = sqrt(static_cast<double>(dx) * dx + static_cast<double>(dy) * dy);
-      if (dist <= maxd) { const int sec = static_cast<int>(lut[(dx / ss + rx) * (2 * ry + 1) + dy / ss + ry]); const double val = fmax(0.0, 1.0 - dist / maxd) * 1.5; danger[sec] = fmax(danger[sec], val); if (val > 0.0) ++count[sec]; }
-      for (int a = 0; a < 3; ++a) { int nd = (d + a + 3) % 4, nx = hx + cardx[nd] * ss, ny = hy + cardy[nd] * ss; const double dd = sqrt(static_cast<double>(bx-nx)*(bx-nx)+static_cast<double>(by-ny)*(by-ny)); if (dd < ss) action_hit[a] = true; action_near[a] = fmin(action_near[a], dd); }
+      const int dx = bx - hx, dy = by - hy;
+      const long long d2 = static_cast<long long>(dx) * dx + static_cast<long long>(dy) * dy;
+      const double dist = distance_from_squared(d2);
+      if (dist <= maxd) {
+        const int sec = static_cast<int>(lut[(dx / ss + rx) * (2 * ry + 1) + dy / ss + ry]);
+        const double val = dmul(fmax(0.0, dsub(1.0, ddiv(dist, maxd))), 1.5);
+        danger[sec] = fmax(danger[sec], val);
+        if (val > 0.0) ++count[sec];
+      }
+      for (int a = 0; a < 3; ++a) {
+        int nd = (d + a + 3) % 4, nx = hx + cardx[nd] * ss, ny = hy + cardy[nd] * ss;
+        const int adx = bx - nx, ady = by - ny;
+        const double dd = distance_from_squared(
+            static_cast<long long>(adx) * adx + static_cast<long long>(ady) * ady);
+        if (dd < ss) action_hit[a] = true;
+        action_near[a] = fmin(action_near[a], dd);
+      }
     }
   }
   // Boundary samples follow the CPU's four ordered wall strips.  They are
@@ -157,18 +218,77 @@ __global__ void indexed_features58_kernel(
         hy < danger_distance * ss + ss && hx + delta >= 0 && hx + delta < grid_w * ss,
         grid_h * ss - hy < danger_distance * ss + ss && hx + delta >= 0 && hx + delta < grid_w * ss};
     for (int q = 0; q < 4; ++q) if (ok[q]) {
-      const int dx = wx[q] - hx, dy = wy[q] - hy; const double dist = sqrt(static_cast<double>(dx)*dx + static_cast<double>(dy)*dy);
-      if (dist <= maxd) { const int sec = static_cast<int>(lut[(dx / ss + rx) * (2 * ry + 1) + dy / ss + ry]); const double val=fmax(0.0,1.0-dist/maxd)*2.0; danger[sec]=fmax(danger[sec],val); if(val>0.0)++count[sec]; }
+      const int dx = wx[q] - hx, dy = wy[q] - hy;
+      const double dist = distance_from_squared(
+          static_cast<long long>(dx) * dx + static_cast<long long>(dy) * dy);
+      if (dist <= maxd) {
+        const int sec = static_cast<int>(lut[(dx / ss + rx) * (2 * ry + 1) + dy / ss + ry]);
+        const double val = dmul(fmax(0.0, dsub(1.0, ddiv(dist, maxd))), 2.0);
+        danger[sec] = fmax(danger[sec], val);
+        if (val > 0.0) ++count[sec];
+      }
     }
   }
-  for (int sec = 0; sec < sectors; ++sec) { if (count[sec] > 1) danger[sec] = fmin(2.0, danger[sec] + fmin(1.0, count[sec] / 5.0) * .2); f[24 + sec] = static_cast<float>(fmin(1.0, danger[sec])); }
-  f[40] = static_cast<float>(static_cast<double>(hx) / (grid_w * ss)); f[41] = static_cast<float>(static_cast<double>(grid_w * ss - hx) / (grid_w * ss)); f[42] = static_cast<float>(static_cast<double>(hy) / (grid_h * ss)); f[43] = static_cast<float>(static_cast<double>(grid_h * ss - hy) / (grid_h * ss));
+  for (int sec = 0; sec < sectors; ++sec) {
+    if (count[sec] > 1) {
+      const double bonus = dmul(fmin(1.0, ddiv(static_cast<double>(count[sec]), 5.0)), .2);
+      danger[sec] = fmin(2.0, dadd(danger[sec], bonus));
+    }
+    f[24 + sec] = __double2float_rn(fmin(1.0, danger[sec]));
+  }
+  f[40] = __double2float_rn(ddiv(static_cast<double>(hx), static_cast<double>(width_px)));
+  f[41] = __double2float_rn(ddiv(static_cast<double>(width_px - hx), static_cast<double>(width_px)));
+  f[42] = __double2float_rn(ddiv(static_cast<double>(hy), static_cast<double>(height_px)));
+  f[43] = __double2float_rn(ddiv(static_cast<double>(height_px - hy), static_cast<double>(height_px)));
   int first = -1, second = -1; double firstd = INFINITY, secondd = INFINITY;
-  for (int o = 0; o < slots; ++o) if (o != self && alive[static_cast<int64_t>(env)*slots+o]) { const int64_t oi=static_cast<int64_t>(env)*slots+o; const int ring=static_cast<int>((head_ptr[oi]+cap)%cap); const int64_t bi=(oi*cap+ring)*2; const double ed=sqrt(static_cast<double>(static_cast<int>(bodies[bi])*ss-hx)*(static_cast<int>(bodies[bi])*ss-hx)+static_cast<double>(static_cast<int>(bodies[bi+1])*ss-hy)*(static_cast<int>(bodies[bi+1])*ss-hy)); if(ed<firstd){second=first;secondd=firstd;first=o;firstd=ed;} else if(ed<secondd){second=o;secondd=ed;} }
+  for (int o = 0; o < slots; ++o) if (o != self && alive[static_cast<int64_t>(env)*slots+o]) {
+    const int64_t oi = static_cast<int64_t>(env) * slots + o;
+    const int ring = static_cast<int>((head_ptr[oi] + cap) % cap);
+    const int64_t bi = (oi * cap + ring) * 2;
+    const int dx = static_cast<int>(bodies[bi]) * ss - hx;
+    const int dy = static_cast<int>(bodies[bi + 1]) * ss - hy;
+    const double ed = distance_from_squared(
+        static_cast<long long>(dx) * dx + static_cast<long long>(dy) * dy);
+    if (ed < firstd) { second = first; secondd = firstd; first = o; firstd = ed; }
+    else if (ed < secondd) { second = o; secondd = ed; }
+  }
   next_dist[r]=INFINITY; next_id[r]=-1;
-  if(first>=0){ const int64_t oi=static_cast<int64_t>(env)*slots+first; const int ring=static_cast<int>((head_ptr[oi]+cap)%cap); const int64_t bi=(oi*cap+ring)*2; const int ex=static_cast<int>(bodies[bi])*ss, ey=static_cast<int>(bodies[bi+1])*ss; f[44]=static_cast<float>(static_cast<double>(ex-hx)/max_dim); f[45]=static_cast<float>(static_cast<double>(ey-hy)/max_dim); f[46]=static_cast<float>(fmin(2.0,static_cast<double>(max(1,(int)length[oi]))/logical)/2.0); f[47]=cardx[(int)direction[oi]];f[48]=cardy[(int)direction[oi]]; if(prev_id[self_index]==first && isfinite(prev_dist[self_index])) f[49]=firstd<prev_dist[self_index]?1.0F:firstd>prev_dist[self_index]?-1.0F:0.0F; f[53]=sqrt(static_cast<double>(hx-(ex+cardx[(int)direction[oi]]*ss))*(hx-(ex+cardx[(int)direction[oi]]*ss))+static_cast<double>(hy-(ey+cardy[(int)direction[oi]]*ss))*(hy-(ey+cardy[(int)direction[oi]]*ss)))<3*ss; next_dist[r]=firstd;next_id[r]=first; }
-  if(second>=0){const int64_t oi=static_cast<int64_t>(env)*slots+second;const int ring=(head_ptr[oi]+cap)%cap;const int64_t bi=(oi*cap+ring)*2;f[50]=static_cast<float>(static_cast<double>((int)bodies[bi]*ss-hx)/max_dim);f[51]=static_cast<float>(static_cast<double>((int)bodies[bi+1]*ss-hy)/max_dim);f[52]=static_cast<float>(fmin(2.0,static_cast<double>(max(1,(int)length[oi]))/logical)/2.0);}
-  for(int a=0;a<3;++a) f[54+a]=action_hit[a]?1.0F:static_cast<float>(action_near[a]<3*ss?fmin(.95,1.0-action_near[a]/(3*ss)):0.0);
+  if (first >= 0) {
+    const int64_t oi = static_cast<int64_t>(env) * slots + first;
+    const int ring = static_cast<int>((head_ptr[oi] + cap) % cap);
+    const int64_t bi = (oi * cap + ring) * 2;
+    const int ex = static_cast<int>(bodies[bi]) * ss, ey = static_cast<int>(bodies[bi + 1]) * ss;
+    f[44] = __double2float_rn(ddiv(static_cast<double>(ex - hx), static_cast<double>(max_dim)));
+    f[45] = __double2float_rn(ddiv(static_cast<double>(ey - hy), static_cast<double>(max_dim)));
+    f[46] = __double2float_rn(ddiv(fmin(2.0, ddiv(static_cast<double>(max(1, static_cast<int>(length[oi]))),
+                                           static_cast<double>(logical))), 2.0));
+    f[47] = cardx[static_cast<int>(direction[oi])];
+    f[48] = cardy[static_cast<int>(direction[oi])];
+    if (prev_id[self_index] == first && isfinite(prev_dist[self_index])) {
+      f[49] = firstd < prev_dist[self_index] ? 1.0F : firstd > prev_dist[self_index] ? -1.0F : 0.0F;
+    }
+    const int kdx = hx - (ex + cardx[static_cast<int>(direction[oi])] * ss);
+    const int kdy = hy - (ey + cardy[static_cast<int>(direction[oi])] * ss);
+    f[53] = distance_from_squared(static_cast<long long>(kdx) * kdx +
+                                  static_cast<long long>(kdy) * kdy) < 3 * ss;
+    next_dist[r] = firstd;
+    next_id[r] = first;
+  }
+  if (second >= 0) {
+    const int64_t oi = static_cast<int64_t>(env) * slots + second;
+    const int ring = (head_ptr[oi] + cap) % cap;
+    const int64_t bi = (oi * cap + ring) * 2;
+    f[50] = __double2float_rn(ddiv(static_cast<double>(static_cast<int>(bodies[bi]) * ss - hx),
+                                   static_cast<double>(max_dim)));
+    f[51] = __double2float_rn(ddiv(static_cast<double>(static_cast<int>(bodies[bi + 1]) * ss - hy),
+                                   static_cast<double>(max_dim)));
+    f[52] = __double2float_rn(ddiv(fmin(2.0, ddiv(static_cast<double>(max(1, static_cast<int>(length[oi]))),
+                                           static_cast<double>(logical))), 2.0));
+  }
+  for (int a = 0; a < 3; ++a) {
+    f[54 + a] = action_hit[a] ? 1.0F : __double2float_rn(
+        action_near[a] < 3 * ss ? fmin(.95, dsub(1.0, ddiv(action_near[a], 3.0 * ss))) : 0.0);
+  }
   f[57]=length[self_index]>=min_boost;
 }
 

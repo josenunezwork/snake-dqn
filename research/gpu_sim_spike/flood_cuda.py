@@ -65,7 +65,7 @@ def _load() -> object:
         _EXTENSION = load(
             name="snake_dqn_e1_flood_cuda_v2",
             sources=[str(root / "flood_cuda.cpp"), str(root / "flood_cuda.cu")],
-            extra_cuda_cflags=["-O3"],
+            extra_cuda_cflags=["-O3", "--fmad=false", "--prec-div=true", "--prec-sqrt=true"],
             extra_cflags=["-O3"],
             verbose=os.environ.get("GPU_SIM_SPIKE_CUDA_VERBOSE") == "1",
         )

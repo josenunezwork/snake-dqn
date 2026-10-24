@@ -17,7 +17,7 @@ from research.gpu_sim_spike import sparse_pack, sparse_units
 from research.gpu_sim_spike.make_manifests import checkpoint_inputs, git_head, sha256_file
 
 
-def preflight(root: Path, commit: str) -> dict:
+def preflight(root: Path, commit: str, exactness_fixture: Path | None = None) -> dict:
     if platform.system() != "Darwin":
         raise ValueError("sparse preflight requires the Mac")
     sparse_pack.require_source_pin(commit)
@@ -61,6 +61,11 @@ def preflight(root: Path, commit: str) -> dict:
             "PATH": str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", ""),
         }
     )
+    if exactness_fixture is not None:
+        target = inputs / "exactness/failed-a100-state.npz"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(exactness_fixture, target)
+        env["SPARSE_EXACTNESS_FIXTURE"] = "exactness/failed-a100-state.npz"
     began = time.perf_counter()
     log = root / "entrypoint.log"
     with log.open("x") as stream:
@@ -103,6 +108,16 @@ def preflight(root: Path, commit: str) -> dict:
         "completed_units": receipt["completed_units"],
         "source_sha256": receipt["source_sha256"],
     }
+    if exactness_fixture is not None:
+        probe_path = root / "runtime/output/vector-exactness.json"
+        sparse_units._verify(probe_path)
+        probe = json.loads(probe_path.read_text())
+        if probe.get("status") != "PASS" or probe.get("fixture_sha256") != sha256_file(
+            exactness_fixture
+        ):
+            raise ValueError("exactness fixture/probe differs from preflight input")
+        result["exactness_fixture_sha256"] = sha256_file(exactness_fixture)
+        result["exactness_probe"] = {"path": str(probe_path), "sha256": sha256_file(probe_path)}
     sparse_units.publish_json(root / "mac-preflight.json", result)
     print(json.dumps(result, sort_keys=True))
     return result
@@ -112,8 +127,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--exactness-fixture", type=Path)
     args = parser.parse_args()
-    preflight(args.root, args.commit)
+    preflight(args.root, args.commit, args.exactness_fixture)
 
 
 if __name__ == "__main__":
