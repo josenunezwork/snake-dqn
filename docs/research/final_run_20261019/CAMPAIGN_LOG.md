@@ -855,3 +855,6 @@ Round-27 speed repair equiv-02: round-27 speed equivalence phase ledger 02. Ledg
 
 
 Round-27 speed repair equiv-02: round-27 speed equivalence and W12 receipts 02. Ledger `research/bl_labels/ledger/ROUND27_SPEED_RECEIPTS_20261024_02.json`, SHA256 `02d747d908334ee684c12457f5e5976d327b6258e3a9871d8354b5d209a640d9`. equiv-01 retained unchanged.
+
+
+Outcome-blind phase publication: F4 D256 metadata-pack fit. Ledger `research/bl_residual/ledger/F4_D256_FIT_PHASE_20261023.json`, SHA256 `82b53a3b8ccd4dfd49bac71e77d80e9926946a6225855553390ec4db21686abc`. Receipt/manifest binding `research/bl_residual/ledger/F4_D256_METADATA_FIT_BINDING_20261024.json`, SHA256 `65731d8bf2a4d63e81b18ad5024359604d38fa9e36253ae97bef1f94913d9cba`, fit pin `6313fe8fce990915ef1c3702ff1687169513b624`. Published before metadata staging or the deferred joint R-A look; no fit/reserve/gameplay outcomes opened by publication.
