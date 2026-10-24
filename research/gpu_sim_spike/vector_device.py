@@ -18,7 +18,7 @@ from typing import Any, Optional
 import numpy as np
 import torch
 
-from research.gpu_sim_spike import flood_cuda
+from research.gpu_sim_spike import flood_cuda, r2_cache
 from src.simd_env.vector61_featurizer import (
     FREE_SPACE_BFS_CAP,
     FREE_SPACE_MIN_CAP,
@@ -159,10 +159,25 @@ class DeviceVectorRuntime:
         if self.params is None or self.device is None or self.controlled is None:
             raise RuntimeError("DeviceVectorRuntime called before bind")
 
+    def _turns_and_cardinal(self, sim: Any) -> tuple[torch.Tensor, torch.Tensor]:
+        """Relative turns and cardinal table; R2 serves cached device copies (L3)."""
+        if r2_cache.enabled(sim):
+            assert self.device is not None
+            return (
+                r2_cache.const((-1, 0, 1), torch.long, self.device),
+                r2_cache.const(((0, -1), (1, 0), (0, 1), (-1, 0)), torch.long, self.device),
+            )
+        return torch.tensor((-1, 0, 1), device=self.device), _CARDINAL.to(self.device)
+
     def _body_view(self, sim: Any) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Return ring cells, live entries, self-safe and other-safe masks."""
+        """Return ring cells, live entries, self-safe and other-safe masks.
+
+        R2 (L1) returns the first live-window offsets only; every omitted
+        offset is beyond ``seg_count`` and therefore false in all three masks.
+        """
         e, s, cap = sim.bodies.shape[:3]
-        k = torch.arange(cap, device=self.device)[None, None, :]
+        span = r2_cache.window(sim) if r2_cache.enabled(sim) else cap
+        k = torch.arange(span, device=self.device)[None, None, :]
         ring = (sim.head_ptr.to(self.device)[..., None] - k) % cap
         cells = sim.bodies.to(self.device).gather(2, ring[..., None].expand(-1, -1, -1, 2))
         n = sim.seg_count.to(self.device)[..., None]
@@ -188,8 +203,9 @@ class DeviceVectorRuntime:
         assert self.params is not None
         e, s = heads.shape[:2]
         h, w = int(sim.grid_h), int(sim.grid_w)
-        dirs = (direction[..., None] + torch.tensor((-1, 0, 1), device=self.device)) % 4
-        delta = _CARDINAL.to(self.device)[dirs]
+        turns, cardinal = self._turns_and_cardinal(sim)
+        dirs = (direction[..., None] + turns) % 4
+        delta = cardinal[dirs]
         starts = heads[..., None, :] + delta
         sx, sy = starts[..., 0], starts[..., 1]
         inside = (sx >= 0) & (sx < w) & (sy >= 0) & (sy < h)
@@ -230,6 +246,8 @@ class DeviceVectorRuntime:
         all-body distance tensor.  Building them here prevents row chunking
         from repeating the same E x S x 3 flood for every chunk.
         """
+        if r2_cache.enabled(sim):
+            return self._free_space_r2(sim)
         cells, live_body, _self_ok, _other_ok = self._body_view(sim)
         e = int(sim.E)
         occupied = torch.zeros((e, sim.grid_h, sim.grid_w), dtype=torch.uint8, device=self.device)
@@ -252,8 +270,9 @@ class DeviceVectorRuntime:
             if self.device is not None and self.device.type == "cuda":
                 heads = cells[..., 0, :]
                 direction = sim.direction.to(self.device, dtype=torch.long)
-                dirs = (direction[..., None] + torch.tensor((-1, 0, 1), device=self.device)) % 4
-                starts = heads[..., None, :] + _CARDINAL.to(self.device)[dirs]
+                turns, cardinal = self._turns_and_cardinal(sim)
+                dirs = (direction[..., None] + turns) % 4
+                starts = heads[..., None, :] + cardinal[dirs]
                 cap = torch.minimum(
                     torch.full_like(sim.length, FREE_SPACE_BFS_CAP),
                     torch.clamp(sim.length.to(self.device) * 2, min=FREE_SPACE_MIN_CAP),
@@ -275,6 +294,33 @@ class DeviceVectorRuntime:
             sim.direction.to(self.device, dtype=torch.long),
             occupied != 0,
         )
+
+    def _free_space_r2(self, sim: Any) -> torch.Tensor:
+        """R2 L2: the same capped floods from the shared per-state occupancy.
+
+        The pinned builder paints every live in-board body cell into one union
+        and starts from the ring heads; ``all_occupancy`` is that union and
+        ``sim.heads()`` is offset zero of the same rings.
+        """
+        occupied = r2_cache.all_occupancy(sim)
+        heads = sim.heads()
+        direction = sim.direction.to(self.device, dtype=torch.long)
+        backend = os.environ.get("GPU_SIM_VECTOR_FLOOD", "dense").lower()
+        if backend == "static":
+            if self.device is not None and self.device.type == "cuda":
+                turns, cardinal = self._turns_and_cardinal(sim)
+                dirs = (direction[..., None] + turns) % 4
+                starts = heads[..., None, :] + cardinal[dirs]
+                cap = torch.minimum(
+                    torch.full_like(sim.length, FREE_SPACE_BFS_CAP),
+                    torch.clamp(sim.length.to(self.device) * 2, min=FREE_SPACE_MIN_CAP),
+                ).to(torch.long)
+                count = flood_cuda.static_capped(starts, occupied.contiguous(), cap)
+                return self._normalize_free(count, cap)
+            return self._free_space(sim, heads, direction, occupied)
+        if backend != "dense":
+            raise ValueError("GPU_SIM_VECTOR_FLOOD must be 'dense' or 'static'")
+        return self._free_space(sim, heads, direction, occupied)
 
     def features(
         self,
@@ -563,7 +609,10 @@ class DeviceVectorRuntime:
         first_delta, second_delta = hd[ar, first], hd[ar, second]
         own = lrow.clamp_min(1).to(math_dtype)
         lens = length[er].clamp_min(1).to(math_dtype)
-        first_dir = _CARDINAL.to(self.device)[direction[er, first]]
+        cardinal = (
+            self._turns_and_cardinal(sim)[1] if r2_cache.enabled(sim) else _CARDINAL.to(self.device)
+        )
+        first_dir = cardinal[direction[er, first]]
         out[:, 44] = torch.where(has1, first_delta[:, 0].to(math_dtype) / max_dim, 0.0)
         out[:, 45] = torch.where(has1, first_delta[:, 1].to(math_dtype) / max_dim, 0.0)
         out[:, 46] = torch.where(has1, (lens[ar, first] / own).clamp(max=2) / 2, 0.0)
@@ -588,8 +637,9 @@ class DeviceVectorRuntime:
                 store, torch.where(has1, first, -torch.ones_like(first)), self.prev_id[er, sr]
             )
 
-        dirs3 = (drow[:, None] + torch.tensor((-1, 0, 1), device=self.device)) % 4
-        next_cells = hrow[:, None] + _CARDINAL.to(self.device)[dirs3]
+        turns, cardinal = self._turns_and_cardinal(sim)
+        dirs3 = (drow[:, None] + turns) % 4
+        next_cells = hrow[:, None] + cardinal[dirs3]
         inside = (
             (next_cells[..., 0] >= 0)
             & (next_cells[..., 0] < sim.grid_w)

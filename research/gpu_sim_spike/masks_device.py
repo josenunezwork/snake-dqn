@@ -10,16 +10,34 @@ from typing import Any
 
 import torch
 
+from research.gpu_sim_spike import r2_cache
+
 
 def advisory_mask(sim: Any) -> torch.Tensor:
-    """Return the six exact advisory bits for all E*S rows, entirely on device."""
+    """Return the six exact advisory bits for all E*S rows, entirely on device.
+
+    An R2-enabled simulator computes the mask once per state generation over
+    its live ring window (debug mode re-derives it with the pinned full scan).
+    """
+    if r2_cache.enabled(sim):
+        return r2_cache.memo(
+            sim,
+            "advisory_mask",
+            lambda: _advisory_mask(sim, r2_cache.window(sim), True),
+            reference=lambda: _advisory_mask(sim, sim.cap, False),
+        )
+    return _advisory_mask(sim, sim.cap, False)
+
+
+def _advisory_mask(sim: Any, span: int, r2: bool) -> torch.Tensor:
+    """Pinned mask over the first ``span`` offsets; ``cap`` stays in the rank code."""
     if sim.cfg.arena_type != "rectangular":
         raise NotImplementedError("Grid reference advisory masks require rectangular arenas")
     ecount, slots, cap = sim.E, sim.S, sim.cap
     device, width, height = sim.device, sim.grid_w, sim.grid_h
     env = torch.arange(ecount, device=device)[:, None, None]
     snake = torch.arange(slots, device=device)[None, :, None]
-    offset = torch.arange(cap, device=device)[None, None, :]
+    offset = torch.arange(span, device=device)[None, None, :]
     ring = (sim.head_ptr[..., None] - offset) % cap
     body = sim.bodies[env, snake, ring]
     bx, by = body[..., 0], body[..., 1]
@@ -31,8 +49,13 @@ def advisory_mask(sim: Any) -> torch.Tensor:
     grid = torch.zeros((ecount, height * width), dtype=torch.long, device=device)
     index = by.clamp(0, height - 1) * width + bx.clamp(0, width - 1)
     grid.scatter_reduce_(1, index.reshape(ecount, -1), values.reshape(ecount, -1), "amax")
-    direction = (sim.direction[..., None] + torch.tensor((-1, 0, 1), device=device)) % 4
-    cardinal = torch.tensor(((0, -1), (1, 0), (0, 1), (-1, 0)), device=device)
+    if r2:
+        turns = r2_cache.const((-1, 0, 1), torch.long, device)
+        cardinal = r2_cache.const(((0, -1), (1, 0), (0, 1), (-1, 0)), torch.long, device)
+    else:
+        turns = torch.tensor((-1, 0, 1), device=device)
+        cardinal = torch.tensor(((0, -1), (1, 0), (0, 1), (-1, 0)), device=device)
+    direction = (sim.direction[..., None] + turns) % 4
     delta = cardinal[direction]
     first = sim.heads()[:, :, None] + delta
     cells = torch.stack((first, first + delta), dim=3)
