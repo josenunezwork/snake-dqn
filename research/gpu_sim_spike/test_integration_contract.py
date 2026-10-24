@@ -224,3 +224,33 @@ def test_run_preserves_combined_parity_invalid_before_missing_coverage(tmp_path,
     )
     assert bench.run(args)["status"] == "INVALID"
     assert analyze.aggregate([output], PIN, smoke=True)["verdict"] == "INVALID"
+
+
+def test_proof_oracle_value_error_is_classified_as_parity_invalid(tmp_path, monkeypatch):
+    import time
+
+    from research.gpu_sim_spike import integration_bench as bench
+    from research.gpu_sim_spike import integration_parity as parity
+
+    monkeypatch.setattr(bench.engine, "_case", lambda *args: ())
+    monkeypatch.setattr(bench.engine, "assert_oracle_separation", lambda *args: None)
+    monkeypatch.setattr(bench.ruler, "_release_cell", lambda *args: None)
+
+    def oracle(*args):
+        raise ValueError("oracle fixture is not replicated: bodies")
+
+    monkeypatch.setattr(parity, "prove", oracle)
+    with pytest.raises(parity.IntegrationParityError, match="not replicated"):
+        bench.measure(
+            tmp_path / "unused",
+            "frozen",
+            1,
+            "cpu",
+            time.monotonic() + 10,
+            tmp_path,
+            {"status": "PREFLIGHT"},
+            False,
+            1,
+            1,
+            0,
+        )

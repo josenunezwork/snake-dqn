@@ -84,6 +84,7 @@ def instrument(sim: Any, timer: IntegrationTiming):
             (DeviceVectorRuntime, "prepare", "vector61_carry"),
             (DeviceVectorRuntime, "observe_step", "vector61_carry"),
             (DeviceVectorRuntime, "features", "vector61_other"),
+            (IndexedVectorRuntime, "features", "vector61_other"),
         ):
             stack.enter_context(patch.object(cls, method, wrap(getattr(cls, method), stage)))
         yield
@@ -291,7 +292,10 @@ def measure(
     try:
         from research.gpu_sim_spike import integration_parity
 
-        proof = integration_parity.prove(cases, device)
+        try:
+            proof = integration_parity.prove(cases, device)
+        except (ValueError, engine.IntegrationEngineError) as exc:
+            raise integration_parity.IntegrationParityError(str(exc)) from exc
         if not (proof.get("frozen_device_identity") and proof.get("cpu_geometry_carry")):
             raise integration_parity.IntegrationParityError("combined I0 parity proof failed")
         arms = {name: {"plain_seconds": [], "digests": [], "stages": []} for name in ARMS}
@@ -308,6 +312,11 @@ def measure(
                 plain, digest = _tick(cases[name], device)
                 arms[name]["plain_seconds"].append(plain)
                 arms[name]["digests"].append(digest)
+        for name in ARMS:
+            if len(set(arms[name]["digests"])) != 1:
+                raise integration_parity.IntegrationParityError(
+                    "nondeterministic restored plain tick: " + name
+                )
         # Diagnostic ticks begin only after every plain scored repeat. They
         # cannot perturb cache/allocator state before a later scored sample.
         for repeat, order in enumerate(orders):
@@ -335,6 +344,14 @@ def measure(
         continuous = (
             _continuous(cases, device, deadline) if continuous_ticks else {"status": "NOT_REQUIRED"}
         )
+        if continuous_ticks:
+            for name in ARMS:
+                finals = [item["final_digest"] for item in continuous["arms"][name]["repeats"]]
+                if len(set(finals)) != 1:
+                    raise integration_parity.IntegrationParityError(
+                        "nondeterministic continuous block: " + name
+                    )
+
         return {
             "mix": mix,
             "worlds": worlds,
