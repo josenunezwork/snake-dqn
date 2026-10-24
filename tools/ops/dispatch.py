@@ -27,10 +27,31 @@ else:
 HERE = Path(__file__).resolve().parent
 EXACT_ERROR = "AccountingError('assignment endpoints changed during allocation')"
 BLOCK = re.compile(r"^\s*(?:BLOCK|HOLD)\b|RUNTIME BLOCKED|do not run this|PREPARED_NOT_DISPATCHED")
+NICE_FLOOR = 15
 
 
 class Refused(ValueError):
     """The wrapper cannot prove that the next operational step is allowed."""
+
+
+def persistent_shell(command_text: str) -> str:
+    """Return a tmux command whose long-lived shell has an effective nice floor.
+
+    Tmux first invokes its own command shell.  Its shell immediately execs this
+    checked launcher, which in turn execs a floor-adjusted Bash before starting
+    the supplied command.  This prevents a normal-priority wrapper from waiting
+    around a low-priority supervisor or agent child.
+    """
+    floor = f"""current_nice=$(/bin/ps -o nice= -p \"$$\")
+if ! [[ \"$current_nice\" =~ ^[[:space:]]*-?[0-9]+[[:space:]]*$ ]]; then
+  echo \"REFUSE: cannot read persistent shell scheduling nice value\" >&2
+  exit 2
+fi
+if [ \"$current_nice\" -lt {NICE_FLOOR} ]; then
+  exec /usr/bin/nice -n \"$(({NICE_FLOOR} - current_nice))\" /bin/bash -c \"$1\"
+fi
+exec /bin/bash -c \"$1\""""
+    return "exec " + shlex.join(["/bin/bash", "-c", floor, "persistent-shell", command_text])
 
 
 def command(
@@ -133,7 +154,7 @@ def start(
     )
     try:
         command(
-            ["tmux", "new-session", "-d", "-s", f"job-{name}", shlex.join(["bash", "-c", body])],
+            ["tmux", "new-session", "-d", "-s", f"job-{name}", persistent_shell(body)],
             deadline=deadline,
         )
     except (OSError, TimeoutError, subprocess.SubprocessError):
@@ -364,8 +385,10 @@ def ensure_watcher(ops: Path, broker: Path) -> None:
                 "-d",
                 "-s",
                 "watchd",
-                shlex.join(
-                    ["env", f"OPS_DIR={ops}", f"OPS_REPO={broker}", str(HERE / "watchd.sh")]
+                persistent_shell(
+                    shlex.join(
+                        ["env", f"OPS_DIR={ops}", f"OPS_REPO={broker}", str(HERE / "watchd.sh")]
+                    )
                 ),
             ]
         )

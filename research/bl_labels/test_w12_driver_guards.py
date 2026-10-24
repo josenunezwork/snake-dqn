@@ -5,16 +5,52 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from research.bl_labels import mac_driver, mac_gates
 from research.bl_labels.exports import empty_ledger, publish_json
+from research.bl_labels.factory_persistence import PersistenceTracker
 from research.bl_labels.test_mac_integration import (
     _allocations,
     _install_fake_factory,
     _patch_inline_runtime,
 )
+
+
+def _native_window(monkeypatch: pytest.MonkeyPatch) -> PersistenceTracker:
+    """Drive a seven-sample persistence window without wall-clock waiting."""
+    from research.bl_labels import factory_persistence
+
+    clock = [0.0]
+    monkeypatch.setattr(
+        factory_persistence,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: clock[0],
+            sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+        ),
+    )
+    monkeypatch.setattr(
+        factory_persistence,
+        "_native_identity",
+        lambda pid: {
+            "birth": f"fixture-{pid}",
+            "birth_precision": {"unit": "fixture"},
+            "executable": "/usr/bin/python3",
+        },
+    )
+    tracker = PersistenceTracker("w12-guard-fixture")
+    tracker.fixture_clock = clock
+    return tracker
+
+
+def _persistent_guard(monkeypatch: pytest.MonkeyPatch, owned: set[int] | None = None) -> None:
+    tracker = _native_window(monkeypatch)
+    for index in range(7):
+        tracker.fixture_clock[0] = index * 5.0
+        mac_driver._exclusive_factory_guard(owned or set(), tracker)
 
 
 def _run(tmp_path, monkeypatch, *, rss=0, total_rss=None, thermal=False, sanity=False):
@@ -164,8 +200,8 @@ def test_w6_wall_time_cannot_complete_or_fail_the_w12_sanity_window(tmp_path, mo
 )
 def test_exclusive_factory_refuses_other_compute(monkeypatch, other):
     monkeypatch.setattr(mac_driver, "_command_output", lambda _: f"123 1 0 {other}\n")
-    with pytest.raises(mac_driver.MacGuardError, match="concurrent compute pid 123"):
-        mac_driver._exclusive_factory_guard(set())
+    with pytest.raises(mac_driver.MacGuardError, match="persistent concurrent compute pid 123"):
+        _persistent_guard(monkeypatch)
 
 
 def test_exclusive_factory_allows_owned_descendants_and_idle_os(monkeypatch):
@@ -177,7 +213,7 @@ def test_exclusive_factory_allows_owned_descendants_and_idle_os(monkeypatch):
             "124 123 0 python research/worker.py\n1 0 0 /sbin/launchd\n"
         ),
     )
-    mac_driver._exclusive_factory_guard(set())
+    _persistent_guard(monkeypatch)
 
 
 @pytest.mark.parametrize(
@@ -186,8 +222,9 @@ def test_exclusive_factory_allows_owned_descendants_and_idle_os(monkeypatch):
 )
 def test_exclusive_factory_fails_closed_on_missing_or_invalid_nice(monkeypatch, row):
     monkeypatch.setattr(mac_driver, "_command_output", lambda _: row + "\n")
-    with pytest.raises(mac_driver.MacGuardError, match="nice observation"):
-        mac_driver._exclusive_factory_guard(set())
+    tracker = _native_window(monkeypatch)
+    with pytest.raises(mac_driver.MacGuardError, match="process monitor fault"):
+        mac_driver._exclusive_factory_guard(set(), tracker)
 
 
 def test_guard_refusal_leaves_no_orphan_output_or_start(tmp_path, monkeypatch):
@@ -195,7 +232,7 @@ def test_guard_refusal_leaves_no_orphan_output_or_start(tmp_path, monkeypatch):
     monkeypatch.setattr(mac_gates, "require_admission", lambda _: None)
     monkeypatch.setenv("F0_COMMIT", "f" * 40)
 
-    def refuse(_owned):
+    def refuse(_owned, _tracker):
         raise mac_driver.MacGuardError("exclusive factory window")
 
     monkeypatch.setattr(mac_driver, "_exclusive_factory_guard", refuse)
