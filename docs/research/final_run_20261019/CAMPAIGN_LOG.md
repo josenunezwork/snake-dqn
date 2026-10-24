@@ -212,6 +212,8 @@ Newest entries at the bottom of each section. Update this file whenever a decisi
 | 2026-10-23 20:14 PT | P1 REPAIR ADMITTED and DISPATCHED (p1-repair10-04-repair, 6.16 u / 200 min; repair line check binds the CANARY_PASS chain; fresh gates: tree d0d92bdb, 0 assignments, balance 1,098.49). Its local supervisor spawns colab CLI children at nice 0 every few seconds, so D256 -06 was PREEMPTED (8 parents done) and -07 was refused at the host check. D256 waits for Sol's persistence fix; an interim renicer loop (ops/renicer.sh, nice 15) lowers stray Colab/agent processes every 1 s. No A100 jobs during the P1 repair (zero-other-assignment accounting). |
 | 2026-10-23 20:14 PT | **A1-PROF full profile obtained** (canary-03: the job succeeded with 12 exports; marked INCOMPLETE only because result transfer took 162.9 s > 150 s). E1024 tick = 6.48 / 6.43 / 6.17 s (frozen/mixed/scripted; 157–166 steps/s). vector61 flood 2.46 s + vector61 other 2.51–2.59 s ≈ 77%; movement/collision/events 0.85 s CUDA (0.12 s host); opponent v8 0.47/0.28/0 s; non-observation remainder 0.89–1.01 s, above the 0.512 s bar. Throughput is flat from E256 to E1024 (tick linear in E): no batching gain. Round-35 Astra panel launched with the data. |
 | 2026-10-23 20:19 PT | Persistence fix caafdf5d (ALLOW_PERSISTENCE_30S; Codex-V 69 acceptance cases + 223 regressions PASS). D256 resumed as bl-f0-d256-guard-w12-08 (W12, 805 pending, output -05), running alongside the active P1 repair supervisor and the renicer loop. |
+| 2026-10-23 20:22 PT | P1 REPAIR attempt INCOMPLETE: UPLOAD_CAP (the total upload time cap was reached at source.py), stop_verified true, cleanup_error null, 384.6 s. The canary had uploaded in 113.8 s on an idle Mac with its supervisor at nice 0; this attempt's supervisor was reniced to 15 while D256 W12 was starting or draining. Codex-V diagnosis sol-p1repairv is running and will rule whether this is the one permitted mechanical retry, give the root cause, and set safe retry conditions. No retry yet. |
+| 2026-10-23 20:22 PT | GPU sprint: Sol gpuflood built A1-PROF v4 (FUNCTION scopes/NVTX/per-launch events) and the exact sparse capped-BFS candidate (pin 31375825, frozen checkout snake-dqn-gpu-flood-frozen-01; Mac preflights PASS; CPU byte-identical full61 on all rosters; 317 tests). Profiler v4 canary a1-prof-a100-canary-0401 DISPATCHED; D256 kept running through the dispatch, so the persistence fix holds. Round-35 Astras: four repairs are needed (dense flood; repeated geometry/body views; movement/collision with 32 redundant respawn occupancy builds; v8 bundle 0.63 s on frozen). The red team calls 2,000 steps/s in 72 h an upside case and wants a measured residual budget by T0+24 h. Parallel Sol lanes MOVE and V8 launched with strict file ownership. |
 ## Compute portfolio (adopted 2026-10-20, Fable judge; goal: spend ~1,160 u by ~11-20)
 
 | Lane | Question | Units | Start | Kill / gate |
@@ -564,3 +566,42 @@ at `387b1dde` during this implementation (worktree/runner/log observed at
 20:12 PT); this task preserved those artifacts and performed no dispatch.
 The new pin cannot reuse that differently pinned worktree. `-08` was verified
 without a worktree, runner or log reservation at closeout.
+
+## R33 implementation closeout — 2026-10-23
+
+Delivered the adopted durable task journal/watcher consumer protocol, thin immutable
+package/ledger and real-entrypoint preflight adapters, explicit 15-node Linux CI
+inventory, common actual startup/runtime/recovery process fixtures, and narrow
+future opt-in proof-dependency charter. A1-PROF remains with its existing owner;
+no factory, F4, P1, GPU spike or serving implementation was authored in this lane.
+Other-owner main commits were integrated without reverting their changes.
+
+Frozen qualified source `d53eaef784fc06996e4d77e3d39889ecd804d66a`, closure
+`52d4ad55f8f07ee544ed726e4b595298283626e87ea25163a2aec2e91114ec6c`, is published
+through an explicit history merge preserving main's newer transport wrapper.
+Both source-pin and broker-HEAD CLI trees match the existing qualification record;
+no registry or live transport was changed. Exact-pin serial check: 64 passed in
+1.06 s (complete wrapper 1.318319 s), nice 15, one process, six thread caps 1.
+Actual scrubbed/native Mac preflight: 15 required checks / three immutable shards,
+3.582715 s, runtime nice 15. Codex-V `codex-v-02/receipt.json` SHA256
+`5997b23f8dc50f4181c51ecf1edfec52f75aa965e23577cb09adc5edfe905d86` independently
+accepts this implementation. Focused style/shell/diff/import checks pass. Hosted
+Research contracts run 40057728587 at `9bfd99ea` passed the complete frozen Linux
+packet. Native ownership, A100 attribution, timing/strict/serving and actual
+handoff-latency/review-time performance remain unproven by this evidence.
+
+**CANCEL_CPU_PILOT_NO_REMAINING_DEMAND**, applying the R33 section-6 kill rule:
+the actual Linux packet already passed CI and no finite unverified Linux backlog
+remains to move off the factory Mac. Independent Codex-V confirmed cancellation.
+The historical `cpu-pilot-01` preparation was refused by the qualified supervisor
+for a missing target-platform family canary receipt; it is not dispatch-qualified.
+No new canary, second pack, allocation or retry was created to repeat the work.
+Immutable cancellation SHA256
+`6c79fb57edab867fc75a415ed731cefb84309d7cc934bd0928c67683971a4591` binds the rejected
+manifest, ruling, accepted source and actual CI evidence. Actual R33 cloud charges
+and active remote liability: **0 units / 0 allocated minutes / 0 assignments**.
+The registered forecast 120 min / 0.16 u and owner-2x ceiling 288 min / 0.384 u
+were never spent or added to existing P1/F4/R28 liabilities. No native/release
+qualification or SLA improvement is claimed. Failed/refused checks and superseded
+receipts remain immutable historical evidence. Complete limits, source assembly,
+artifact paths and exact metadata-only Claude commands: `research/r33_ops/HANDOFF.md`.

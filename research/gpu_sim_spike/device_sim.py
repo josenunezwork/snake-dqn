@@ -41,7 +41,11 @@ class DeviceSim:
         train_mode: bool = True,
         allow_respawn: bool = True,
         cap: int | None = None,
+        move_backend: str = "reference",
     ) -> None:
+        if move_backend not in ("reference", "indexed"):
+            raise ValueError("move_backend must be reference or indexed")
+        self.move_backend = move_backend
         self.cfg = copy.copy(cfg)
         requested_device = torch.device(device)
         self.device = (
@@ -630,6 +634,14 @@ class DeviceSim:
         return rect & ((x.float() - cx).square() + (y.float() - cy).square() < radius * radius)
 
     def _respawn(self) -> None:
+        if self.move_backend == "indexed" and self.device.type != "meta":
+            from research.gpu_sim_spike.move_cuda import respawn
+
+            respawn(self)
+            return
+        self._respawn_reference()
+
+    def _respawn_reference(self) -> None:
         dead = ~self.alive
         self.respawn_timer = torch.where(
             dead & (self.respawn_timer > 0), self.respawn_timer - 1, self.respawn_timer
@@ -700,94 +712,10 @@ class DeviceSim:
                 self._respawn()
         self._prepared = True
 
-    def step(self, actions: torch.Tensor) -> None:
-        """Advance all environments, compacting event candidates before dispatch."""
-        if actions.shape != (self.E, self.S):
-            raise ValueError(f"actions must have shape {(self.E, self.S)}")
-        if actions.device != self.device:
-            raise ValueError("actions must be on the DeviceSim device")
-        actions = actions.long().clamp(0, 5)
-        self.prepare()
-        movement_stage = self.stage("movement")
-        movement_stage.__enter__()
-        acted, prev_length = self.alive.clone(), self._reward_prev_length.clone()
-        new_dir = (
-            self.direction
-            + torch.where(
-                actions.remainder(3) == 0, -1, torch.where(actions.remainder(3) == 2, 1, 0)
-            )
-        ) % 4
-        self.direction = torch.where(self.alive, new_dir, self.direction)
-        cardinal = torch.tensor(_CARDINAL, dtype=torch.long, device=self.device)
-        delta = cardinal[self.direction]
-        head0 = self.heads()
-        move1 = self.alive
-        head1 = head0 + delta
-        self._push(head1, move1)
-        boost = self.alive & (actions >= 3) & (self.length >= int(self.cfg.min_boost_length))
-        head2 = head1 + delta
-        self._push(head2, boost)
-        self._boosted_this_step = boost
-        self.boost_frames = torch.where(boost, self.boost_frames + 1, self.boost_frames)
-        burn = (
-            boost
-            & (self.boost_frames >= int(self.cfg.boost_length_cost_frames))
-            & (self.length > 1)
-        )
-        self.boost_frames = torch.where(
-            burn, torch.zeros_like(self.boost_frames), self.boost_frames
-        )
-        # Capture a paid tail before the additional pop; v2 transfers it to food.
-        tail_ring = (self.head_ptr - (self.seg_count - 1).clamp_min(0)) % self.cap
-        e = torch.arange(self.E, device=self.device)[:, None]
-        s = torch.arange(self.S, device=self.device)[None, :]
-        paid_tail = self.bodies[e, s, tail_ring]
-        self.length -= burn.long()
-        extra = burn & (self.seg_count > self.length)
-        self.seg_count -= extra.long()
-        if self.v2:
-            for slot in range(self.S):
-                self._append_food(
-                    paid_tail[:, slot], extra[:, slot] & self._in_arena(paid_tail[:, slot]), True
-                )
-        traversed = torch.stack((head1, head2), dim=2)
-        traversed_valid = torch.stack((move1, boost), dim=2)
-        # Food is consumed at the first traversed cell.  Matching is vectorized,
-        # then stable-compacted once, retaining append order of survivors.
-        live_food = self.food_present
-        eq = (traversed[:, :, :, None, :] == self.food_cells[:, None, None, :, :]).all(dim=-1)
-        hit = eq & live_food[:, None, None, :] & traversed_valid[..., None]
-        # CPU resolves food in snake-slot order and rechecks the remaining food
-        # for each snake.  The fixed-S loop preserves that contested-boost case
-        # while all state and selection work remain device tensors.
-        picked = torch.zeros_like(self.food_present)
-        ate = torch.zeros_like(self.alive)
-        ate_corpse = torch.zeros_like(self.alive)
-        food_slots = torch.arange(self.food_capacity, device=self.device)[None, :]
-        for slot in range(self.S):
-            available = hit[:, slot] & ~picked[:, None, :]
-            by_t = available.any(dim=2)
-            first_t = by_t.long().argmax(dim=1)
-            tmask = torch.arange(2, device=self.device)[None, :] == first_t[:, None]
-            candidates = (available & tmask[:, :, None]).any(dim=1)
-            has = candidates.any(dim=1) & self.alive[:, slot]
-            chosen = candidates.long().argmax(dim=1)
-            select = has[:, None] & (food_slots == chosen[:, None])
-            ate[:, slot] = has
-            ate_corpse[:, slot] = (select & self.corpse_food).any(dim=1)
-            picked |= select
-        self.length += ate.long()
-        self.food_present &= ~picked
-        self.corpse_food &= self.food_present
-        self._compact_food()
-        movement_stage.__exit__(None, None, None)
-        if self.train_mode:
-            self._maintain_food()
-        death_stage = self.stage("deaths_corpse")
-        death_stage.__enter__()
-        # Collisions use the post-move ring.  This is all tensor work, including
-        # boost traversals and head swaps.
-        in_arena = ((~traversed_valid) | self._in_arena(traversed)).all(dim=2)
+    def _collision_flags_reference(
+        self, head0: torch.Tensor, traversed: torch.Tensor, traversed_valid: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Retain the original dense comparison as the default regression arm."""
         k = torch.arange(self.cap, device=self.device)[None, None, :]
         rings = (self.head_ptr[..., None] - k) % self.cap
         body = self.bodies.gather(2, rings[..., None].expand(-1, -1, -1, 2))
@@ -814,6 +742,16 @@ class DeviceSim:
         body_other = same & valid_body[:, None, None, :, :]
         body_other &= ~eye[:, :, None, :, None]
         body_pair = body_other.any(dim=(2, 4))
+        return body, self_hit, head_pair, body_pair
+
+    def _resolve_collisions_reference(
+        self,
+        in_arena: torch.Tensor,
+        self_hit: torch.Tensor,
+        head_pair: torch.Tensor,
+        body_pair: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Retain the original ordered tensor resolver as the regression arm."""
         # Resolve exactly in the CPU collision-list order.  The loops are fixed
         # by S (no device scalar extraction) and carry a per-env dead set.
         death = torch.zeros_like(self.length)
@@ -903,10 +841,118 @@ class DeviceSim:
                     & die_j[:, None]
                 )
                 rank += 1
+        return death, death_rank, dead, kills, kill_mass
+
+    def step(self, actions: torch.Tensor) -> None:
+        """Advance all environments, compacting event candidates before dispatch."""
+        if actions.shape != (self.E, self.S):
+            raise ValueError(f"actions must have shape {(self.E, self.S)}")
+        if actions.device != self.device:
+            raise ValueError("actions must be on the DeviceSim device")
+        actions = actions.long().clamp(0, 5)
+        self.prepare()
+        movement_stage = self.stage("movement")
+        movement_stage.__enter__()
+        acted, prev_length = self.alive.clone(), self._reward_prev_length.clone()
+        new_dir = (
+            self.direction
+            + torch.where(
+                actions.remainder(3) == 0, -1, torch.where(actions.remainder(3) == 2, 1, 0)
+            )
+        ) % 4
+        self.direction = torch.where(self.alive, new_dir, self.direction)
+        cardinal = torch.tensor(_CARDINAL, dtype=torch.long, device=self.device)
+        delta = cardinal[self.direction]
+        head0 = self.heads()
+        move1 = self.alive
+        head1 = head0 + delta
+        self._push(head1, move1)
+        boost = self.alive & (actions >= 3) & (self.length >= int(self.cfg.min_boost_length))
+        head2 = head1 + delta
+        self._push(head2, boost)
+        self._boosted_this_step = boost
+        self.boost_frames = torch.where(boost, self.boost_frames + 1, self.boost_frames)
+        burn = (
+            boost
+            & (self.boost_frames >= int(self.cfg.boost_length_cost_frames))
+            & (self.length > 1)
+        )
+        self.boost_frames = torch.where(
+            burn, torch.zeros_like(self.boost_frames), self.boost_frames
+        )
+        # Capture a paid tail before the additional pop; v2 transfers it to food.
+        tail_ring = (self.head_ptr - (self.seg_count - 1).clamp_min(0)) % self.cap
+        e = torch.arange(self.E, device=self.device)[:, None]
+        s = torch.arange(self.S, device=self.device)[None, :]
+        paid_tail = self.bodies[e, s, tail_ring]
+        self.length -= burn.long()
+        extra = burn & (self.seg_count > self.length)
+        self.seg_count -= extra.long()
+        if self.v2:
+            for slot in range(self.S):
+                self._append_food(
+                    paid_tail[:, slot], extra[:, slot] & self._in_arena(paid_tail[:, slot]), True
+                )
+        traversed = torch.stack((head1, head2), dim=2)
+        traversed_valid = torch.stack((move1, boost), dim=2)
+        # Food is consumed at the first traversed cell.  Matching is vectorized,
+        # then stable-compacted once, retaining append order of survivors.
+        live_food = self.food_present
+        eq = (traversed[:, :, :, None, :] == self.food_cells[:, None, None, :, :]).all(dim=-1)
+        hit = eq & live_food[:, None, None, :] & traversed_valid[..., None]
+        # CPU resolves food in snake-slot order and rechecks the remaining food
+        # for each snake.  The fixed-S loop preserves that contested-boost case
+        # while all state and selection work remain device tensors.
+        picked = torch.zeros_like(self.food_present)
+        ate = torch.zeros_like(self.alive)
+        ate_corpse = torch.zeros_like(self.alive)
+        food_slots = torch.arange(self.food_capacity, device=self.device)[None, :]
+        for slot in range(self.S):
+            available = hit[:, slot] & ~picked[:, None, :]
+            by_t = available.any(dim=2)
+            first_t = by_t.long().argmax(dim=1)
+            tmask = torch.arange(2, device=self.device)[None, :] == first_t[:, None]
+            candidates = (available & tmask[:, :, None]).any(dim=1)
+            has = candidates.any(dim=1) & self.alive[:, slot]
+            chosen = candidates.long().argmax(dim=1)
+            select = has[:, None] & (food_slots == chosen[:, None])
+            ate[:, slot] = has
+            ate_corpse[:, slot] = (select & self.corpse_food).any(dim=1)
+            picked |= select
+        self.length += ate.long()
+        self.food_present &= ~picked
+        self.corpse_food &= self.food_present
+        self._compact_food()
+        movement_stage.__exit__(None, None, None)
+        if self.train_mode:
+            self._maintain_food()
+        death_stage = self.stage("deaths_corpse")
+        death_stage.__enter__()
+        # Collisions use the post-move ring.  This is all tensor work, including
+        # boost traversals and head swaps.
+        in_arena = ((~traversed_valid) | self._in_arena(traversed)).all(dim=2)
+        if self.move_backend == "indexed" and self.device.type != "meta":
+            from research.gpu_sim_spike.move_cuda import collisions
+
+            death, death_rank, dead, kills, kill_mass = collisions(
+                self, head0, traversed, traversed_valid, in_arena
+            )
+            body = None
+        else:
+            body, self_hit, head_pair, body_pair = self._collision_flags_reference(
+                head0, traversed, traversed_valid
+            )
+            death, death_rank, dead, kills, kill_mass = self._resolve_collisions_reference(
+                in_arena, self_hit, head_pair, body_pair
+            )
         died = dead
         # A single reduction rejects empty death events before body reordering,
         # candidate compaction, or native corpse dispatch. Meta retains shapes.
         if self.device.type == "meta" or bool(died.any().item()):
+            if body is None:
+                offsets = torch.arange(self.cap, device=self.device)[None, None, :]
+                rings = (self.head_ptr[..., None] - offsets) % self.cap
+                body = self.bodies.gather(2, rings[..., None].expand(-1, -1, -1, 2))
             # Reorder corpse candidates by recorded resolution order, not snake id.
             snake_order = death_rank.argsort(dim=1, stable=True)
             body = body.gather(1, snake_order[:, :, None, None].expand(-1, -1, self.cap, 2))
