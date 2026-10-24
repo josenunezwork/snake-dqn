@@ -128,7 +128,14 @@ def make_pack(output: Path, commit: str, *, preflight: Path, consumer_preflight:
         or set(consumer.get("source_sha256", {})) != required_consumer_sources
     ):
         raise ValueError("actual synthetic consumer/refusal trace required")
-    if any(source_inventory().get(name) != sha for name, sha in consumer["source_sha256"].items()):
+    if (
+        any(digest(ROOT / name) != sha for name, sha in consumer["source_sha256"].items())
+        or subprocess.check_output(
+            ["git", "status", "--porcelain", "--", *sorted(required_consumer_sources)],
+            cwd=ROOT,
+            text=True,
+        ).strip()
+    ):
         raise ValueError("consumer preflight source is stale")
     for key, filename in (
         ("zero", "zero-residual-fused.pth"),
