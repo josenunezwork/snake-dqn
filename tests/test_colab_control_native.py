@@ -49,7 +49,6 @@ def _broker(tmp_path: Path) -> tuple[Path, Path, Path]:
     root = tmp_path / "broker"
     package = root / "research/colab_cli"
     package.mkdir(parents=True)
-    (root / "research/__init__.py").write_text("")
     (package / "__init__.py").write_text("")
     ready = root / "ready.txt"
     cli_pid = root / "cli.pid"

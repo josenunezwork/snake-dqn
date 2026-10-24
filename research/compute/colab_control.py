@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
+from importlib.machinery import PathFinder
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
@@ -406,6 +407,15 @@ def _source_matches(record: AdmissionRecord, cwd: str) -> bool:
             return False
     root = Path(cwd).resolve()
     if root != Path(record.import_root):
+        return False
+    # The qualified broker uses a namespace parent. A new initializer/module
+    # could execute outside the frozen transport subtree before the supervisor.
+    parent = PathFinder.find_spec("research", [str(root)])
+    if (
+        parent is None
+        or parent.origin is not None
+        or list(parent.submodule_search_locations or ()) != [str(root / "research")]
+    ):
         return False
     source = root / "research" / "colab_cli" / "supervisor.py"
     if not source.is_file():
