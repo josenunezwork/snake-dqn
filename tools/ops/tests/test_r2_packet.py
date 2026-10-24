@@ -87,6 +87,90 @@ def test_main_preparation_never_regenerates_the_executed_canary(tmp_path, monkey
     assert "r2-main.json" in code and "canary=False" in code and "validate(m" in code
 
 
+def _staging_package(tmp_path, *, error=None, returncode=0, staging=362.0, edit=None):
+    import hashlib
+
+    from tools.ops.repack_gpu_upload import publish
+
+    root = tmp_path / "packet/native-compile"
+    manifest = {
+        "job_id": "native-compile-l4-da09cba1-r6",
+        "commit": "d" * 40,
+        "script": "research/gpu_sim_spike/native_compile.sh",
+        "budget": {"other_assignments": {}, "unit_cap": 1.2},
+        "output_dir": str(root / "output"),
+    }
+    publish(root / "native-compile.json", manifest)
+    output = root / "output"
+    output.mkdir()
+    executed = copy.deepcopy(manifest)
+    if edit:
+        edit(executed)
+    (output / "manifest.json").write_text(json.dumps(executed))
+    (output / "upload-measurement.json").write_text(json.dumps({"elapsed_seconds": staging}))
+    receipt = {
+        "status": "INCOMPLETE",
+        "failure_class": "SUPERVISOR",
+        "error": error or r2_packet.STAGING_ERROR,
+        "stop_verified": True,
+        "cleanup_error": None,
+        "job_id": manifest["job_id"],
+        "manifest_sha256": hashlib.sha256((output / "manifest.json").read_bytes()).hexdigest(),
+        "terminal": {"returncode": returncode},
+        "elapsed_seconds": 1058.757,
+        "accounting": {"own_rate_units_per_hour": 3.0},
+        "generation": "g",
+        "session": "s",
+        "usage_before": {"balance": 1080.09},
+        "usage_after": {"balance": 1079.77},
+    }
+    (output / "receipt.json").write_text(json.dumps(receipt))
+    return tmp_path, manifest
+
+
+def test_compile_staging_failure_is_charged_and_freshly_identified(tmp_path):
+    artifact, manifest = _staging_package(tmp_path)
+    proof = r2_packet.compile_staging_failure(artifact)
+    assert proof["charged_units"] == pytest.approx(1058.757 * 3 / 3600)
+    assert proof["observed_balance_drop_units"] == pytest.approx(0.32)
+    job = r2_packet.compile_attempt_manifest(manifest, proof, Path("/o-02"))
+    assert job["job_id"] == "native-compile-l4-da09cba1-r6-02" and job["output_dir"] == "/o-02"
+    rest = {k: v for k, v in job.items() if k not in ("job_id", "output_dir", "compile_attempt")}
+    assert rest == {k: v for k, v in manifest.items() if k not in ("job_id", "output_dir")}
+    with pytest.raises(ValueError):
+        r2_packet.compile_attempt_manifest(manifest, proof, Path("/o"), attempt=3)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    (
+        {"error": "Refused('other')"},
+        {"returncode": 1},
+        {"staging": 120.0},
+        {"edit": lambda m: m.update(script="research/gpu_sim_spike/other.sh")},
+    ),
+)
+def test_compile_staging_failure_refuses_other_shapes(tmp_path, kwargs):
+    artifact, _ = _staging_package(tmp_path, **kwargs)
+    with pytest.raises(ValueError):
+        r2_packet.compile_staging_failure(artifact)
+
+
+@pytest.mark.skipif(
+    not (
+        Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp")
+        / "gpu-r6-escaling-20261024/packet/native-compile/output/receipt.json"
+    ).is_file(),
+    reason="R6 artifacts absent",
+)
+def test_real_r6_compile_attempt_one_is_a_staging_time_limit_failure(monkeypatch):
+    from tools.ops import r6_packet
+
+    monkeypatch.setattr(r2_packet, "FAMILY", r6_packet.R6)
+    proof = r2_packet.compile_staging_failure(r6_packet.R6.artifact)
+    assert proof["terminal_returncode"] == 0 and proof["staging_seconds"]["elapsed_seconds"] > 300
+
+
 def test_r6_family_uses_its_own_names_producer_key_and_main_builder(tmp_path, monkeypatch):
     from tools.ops import r6_packet
 

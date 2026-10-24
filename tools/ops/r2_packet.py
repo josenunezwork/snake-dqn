@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import math
 import os
@@ -128,6 +129,98 @@ def prior_failure(artifact: Path) -> dict[str, Any]:
     return proof
 
 
+STAGING_ERROR = "CanaryError('staging must complete within 300 seconds')"
+
+
+def _charge(receipt_path: Path) -> dict[str, Any]:
+    """Charge one released receipt: max(elapsed-rate units, observed balance drop)."""
+    sys.path.insert(0, str(ROOT))
+    from tools.ops.spend import read_spend
+
+    receipt = json.loads(receipt_path.read_text())
+    spend = read_spend(receipt_path)
+    before = receipt.get("usage_before", {}).get("balance")
+    after = receipt.get("usage_after", {}).get("balance")
+    drop = (
+        float(before) - float(after)
+        if isinstance(before, (int, float)) and isinstance(after, (int, float))
+        else 0.0
+    )
+    return {
+        "receipt": {"path": str(receipt_path), "sha256": spend.sha256},
+        "prior_allocation_elapsed_seconds": spend.elapsed_seconds,
+        "prior_elapsed_rate_units": spend.units,
+        "observed_balance_drop_units": drop,
+        "charged_units": max(float(spend.units), drop, 0.0),
+    }
+
+
+def compile_staging_failure(artifact: Path) -> dict[str, Any]:
+    """Prove compile attempt 1 finished its work but failed only the 300 s staging rule.
+
+    Accepted shape: released receipt (stop verified, no cleanup error), terminal
+    exit 0, the executed manifest equal to the published one apart from the
+    live assignment inventory, a staging measurement above 300 s, and exactly
+    the qualified canary-evidence refusal as the error.  Compilation is
+    idempotent and produces no outcome data, so a fresh attempt is mechanical.
+    """
+    root = artifact / "packet/native-compile"
+    source = root / "native-compile.json"
+    output = root / "output"
+    receipt_path = output / "receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    saved = output / "manifest.json"
+    published = _verified(source)
+    executed = json.loads(saved.read_text())
+    executed.setdefault("budget", {})["other_assignments"] = published.get("budget", {}).get(
+        "other_assignments", {}
+    )
+    staging = json.loads((output / "upload-measurement.json").read_text())
+    terminal = receipt.get("terminal") or {}
+    if (
+        receipt.get("status") != "INCOMPLETE"
+        or receipt.get("failure_class") != "SUPERVISOR"
+        or receipt.get("error") != STAGING_ERROR
+        or receipt.get("stop_verified") is not True
+        or receipt.get("cleanup_error") is not None
+        or receipt.get("manifest_sha256") != hashlib.sha256(saved.read_bytes()).hexdigest()
+        or executed != published
+        or receipt.get("job_id") != published["job_id"]
+        or terminal.get("returncode") != 0
+        or not float(staging.get("elapsed_seconds", 0)) > 300
+    ):
+        raise ValueError("compile attempt 1 is not a released staging-time-limit failure")
+    return {
+        **_charge(receipt_path),
+        "source_manifest": {"path": str(source), "sha256": _sha(source)},
+        "failure": STAGING_ERROR,
+        "staging_seconds": staging,
+        "terminal_returncode": 0,
+    }
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def compile_attempt_manifest(
+    first: dict[str, Any], proof: dict[str, Any], output_dir: Path, attempt: int = 2
+) -> dict[str, Any]:
+    """Fresh compile: identical frozen manifest except job id and output directory."""
+    if attempt != 2:
+        raise ValueError("the compile allows exactly one fresh attempt (attempt 2)")
+    job = copy.deepcopy(first)
+    job["job_id"] = f"{first['job_id']}-{attempt:02d}"
+    job["output_dir"] = str(output_dir)
+    job["compile_attempt"] = {
+        "attempt": attempt,
+        "prior_attempt_charged_units": proof["charged_units"],
+        "prior_failure": proof["failure"],
+        "changed_fields": ["job_id", "output_dir", "compile_attempt"],
+    }
+    return job
+
+
 def frozen(broker: Path, code: str, *args: str) -> Any:
     """Run pinned package/transport code from the broker without authoring imports."""
     result = subprocess.run(
@@ -202,7 +295,7 @@ def dispatch_command(
     host: Path, artifact: Path, broker: Path, name: str, path: Path, lane: str, attempt: int = 1
 ) -> list[str]:
     state = {
-        "compile": "packet/native-compile/state",
+        "compile": "packet/native-compile/state" + _suffix(attempt),
         "canary": "packet/state-canary" + _suffix(attempt),
         "main": "packet/state-main",
     }[lane]
@@ -327,8 +420,8 @@ def run(
     receipt: Path | None = None,
     attempt: int = 1,
 ) -> dict[str, Any]:
-    if attempt not in range(1, MAX_CANARY_ATTEMPTS + 1) or (attempt > 1 and lane != "canary"):
-        raise ValueError("--attempt 2 applies only to the canary lane")
+    if attempt not in range(1, MAX_CANARY_ATTEMPTS + 1) or (attempt > 1 and lane == "main"):
+        raise ValueError("--attempt 2 applies only to the compile or canary lane")
     original, pin = controls(artifact, broker)
     accounting = None
     name = {
@@ -342,13 +435,19 @@ def run(
         job = _verified(path)
         if job["commit"] != pin or job["script"] != f"{PACKAGE}/native_compile.sh":
             raise ValueError("compiler identity differs")
+        if attempt > 1:
+            accounting = compile_staging_failure(artifact)
+            job = compile_attempt_manifest(
+                job, accounting, artifact / f"packet/native-compile/output{_suffix(attempt)}"
+            )
+            path = artifact / f"packet/native-compile/native-compile{_suffix(attempt)}.json"
         name = job["job_id"]
     elif lane == "canary":
         path = artifact / f"packet/{FAMILY.tag}-canary-compiled{_suffix(attempt)}.json"
-        receipt = receipt or Path(
-            os.environ.get("NATIVE_COMPILE_RECEIPT")
-            or artifact / "packet/native-compile/output/receipt.json"
-        )
+        compiled = artifact / "packet/native-compile/output-02/receipt.json"
+        if not compiled.is_file():
+            compiled = artifact / "packet/native-compile/output/receipt.json"
+        receipt = receipt or Path(os.environ.get("NATIVE_COMPILE_RECEIPT") or compiled)
         job = dict(original)
         # The host reader (as used by dispatch.py's gate) carries the corrected
         # payload-only export inventory; the pinned runtime reader predates it.
@@ -405,7 +504,11 @@ def run(
         subprocess.run([*command, "--dry-run"], cwd=host, check=True)
         if not dry:
             if accounting is not None:
-                record = artifact / f"packet/CANARY_ATTEMPT{_suffix(attempt)}.json"
+                record = artifact / (
+                    f"packet/native-compile/COMPILE_ATTEMPT{_suffix(attempt)}.json"
+                    if lane == "compile"
+                    else f"packet/CANARY_ATTEMPT{_suffix(attempt)}.json"
+                )
                 if not record.exists():
                     _publish(record, accounting)
             if not path.exists():
@@ -427,6 +530,7 @@ def run(
         "live_accounting": "NOT_CHECKED" if dry else "CHECKED",
         "attempt": attempt,
         "canary_attempt": job.get("canary_attempt"),
+        "compile_attempt": job.get("compile_attempt"),
         "prior_attempt_accounting": accounting,
     }
 
