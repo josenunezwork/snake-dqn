@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "research/gpu_sim_spike"
 SCRIPT = f"{PACKAGE}/v8_bench.sh"
 DEFAULT_ARTIFACT = Path(
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-sprint-20261023-01"
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/gpu-v8-sprint-20261023-02"
 )
 PRIMARY_PY = "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python"
 
@@ -174,10 +174,10 @@ def manifest(
                 "Q2/Q4/global subordinate"
             ),
             "matrix": {
-                "worlds": [64, 256, 1024],
+                "worlds": [64] if canary else [64, 256, 1024],
                 "rosters": ["scripted", "frozen", "mixed"],
-                "repeats": 3,
-                "warmups": 3,
+                "repeats": 1 if canary else 3,
+                "warmups": 1 if canary else 3,
             },
             "kill_rule": "any mismatch, or either vector61_non_flood/v8_combined E1024 speedup <2x",
             "transport_reference_pin": "313758255ee5b9f1422a0202c14a80cc32554857",

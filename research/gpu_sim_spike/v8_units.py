@@ -27,7 +27,7 @@ def namespace(commit: str, *, smoke: bool = False, canary: bool = False) -> str:
 def allocation(*, smoke: bool = False, canary: bool = False) -> tuple[str, ...]:
     if smoke and canary:
         raise ValueError("smoke and canary are exclusive")
-    worlds = (1,) if smoke else (64, 256, 1024)
+    worlds = (1,) if smoke else (64,) if canary else (64, 256, 1024)
     return tuple(
         f"cell-{mix}-e{world}" for mix in ("scripted", "frozen", "mixed") for world in worlds
     )

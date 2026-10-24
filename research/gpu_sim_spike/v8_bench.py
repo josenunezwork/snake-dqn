@@ -149,6 +149,7 @@ def _oracles(case: tuple, output: Path, mix: str, worlds: int) -> dict[str, Any]
     """Compare actual full-population outputs to CPU on a proven repeated world."""
     from research.gpu_sim_spike.v8_device import v8_decide
     from src.simd_env.v8_nb import v8_decide as cpu_v8
+    from src.simd_env.v8_nb import v8_feature_planes
 
     sim, policy, _, _, _, candidate = case
     with _arm(candidate), torch.inference_mode():
@@ -217,7 +218,12 @@ def _oracles(case: tuple, output: Path, mix: str, worlds: int) -> dict[str, Any]
                     or actual_field.tobytes() != expected_field.tobytes()
                 ):
                     raise ParityMismatch(f"CPU v8 byte mismatch: {mix}/slot{slot}/{field}")
-            diagnostics.append({"slot": slot, "fields": len(fields), "match": True})
+            expected_planes = np.repeat(v8_feature_planes(ref), worlds, axis=0)
+            if _bytes(got.feature_planes()) != expected_planes.tobytes():
+                raise ParityMismatch(f"CPU B8-v8 feature-plane byte mismatch: {mix}/slot{slot}")
+            diagnostics.append(
+                {"slot": slot, "fields": len(fields), "feature_planes_match": True, "match": True}
+            )
         if not vector_match:
             raise ParityMismatch(f"CPU vector61 byte mismatch: {mix}/E{worlds}")
         fixture = _recorded_fixture(output, mix, worlds, sim, policy)
@@ -518,8 +524,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     mix,
                     int(world[1:]),
                     args.device,
-                    1 if args.smoke else 3,
-                    0 if args.smoke else 3,
+                    1 if (args.smoke or args.canary) else 3,
+                    0 if args.smoke else 1 if args.canary else 3,
                     started + args.seconds,
                     args.output_dir,
                 )

@@ -24,6 +24,8 @@ def test_v8_units_are_isolated_by_mode_and_resume_only_complete_payloads(tmp_pat
     assert v8_units.load_ledger(ledger, ns, cells) == {cells[0]: {"ok": True}}
     assert v8_units.namespace(COMMIT, canary=True) != ns
     assert all(cell.endswith("-e1") for cell in v8_units.allocation(smoke=True))
+    assert len(v8_units.allocation(canary=True)) == 3
+    assert all(cell.endswith("-e64") for cell in v8_units.allocation(canary=True))
 
 
 def test_ledger_copies_and_rechecks_bound_recorded_fixture(tmp_path):

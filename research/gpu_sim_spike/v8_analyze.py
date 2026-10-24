@@ -41,17 +41,17 @@ def aggregate(exports: list[Path], commit: str, *, canary: bool = False) -> dict
         if (
             row.get("mix") != unit.split("-")[1]
             or row.get("worlds") != int(unit.rsplit("e", 1)[1])
-            or row.get("repeats") != 3
-            or row.get("warmups") != 3
+            or row.get("repeats") != (1 if canary else 3)
+            or row.get("warmups") != (1 if canary else 3)
         ):
             raise ValueError("V8 cell identity/repeat contract differs")
         for arm in ("baseline", "candidate"):
             arm_data = row[arm]
             plain = arm_data["plain_ticks"]
             if (
-                len(plain) != 3
-                or len(arm_data["digests"]) != 3
-                or len(arm_data["stages"]) != 3
+                len(plain) != (1 if canary else 3)
+                or len(arm_data["digests"]) != (1 if canary else 3)
+                or len(arm_data["stages"]) != (1 if canary else 3)
                 or any(
                     not isinstance(x, (int, float)) or not math.isfinite(x) or x <= 0 for x in plain
                 )
