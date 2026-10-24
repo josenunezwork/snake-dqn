@@ -7,6 +7,7 @@ or rate-sealed outcome diagnostics.
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import time
@@ -14,7 +15,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .exports import _verify
+from .exports import _verify, publish_json
 
 W6 = 6
 W12 = 12
@@ -317,6 +318,254 @@ def future_w6_parent_rates(control: dict[str, Any], teq_receipt: Path) -> dict[s
     }
 
 
+def d4096_old_w6_parent_rates(control: dict[str, Any]) -> dict[str, Any]:
+    """Load the sealed D1024 OLD W6 same-stream throughput comparator.
+
+    D4096's three-hour W12 check is deliberately not allowed to fall back to
+    the D256 rate, a Watch6 prose rate, or the Canary-B rate.  The readiness
+    packet must instead bind an immutable, post-terminal D1024 metadata
+    receipt with actual completed-parent and elapsed-wall exposure for every
+    stream in the D4096 allocation.  This function only reads that receipt;
+    it never locates or opens a live D1024 state/output directory.
+    """
+    gate = control.get("mac_gate")
+    if not isinstance(gate, dict) or gate.get("stage") != "d4096":
+        raise ValueError("D4096 OLD W6 comparator requires D4096 admission; HOLD")
+    bindings = gate.get("bindings")
+    if not isinstance(bindings, dict):
+        raise ValueError("D4096 lacks sealed collection readiness binding; HOLD")
+    sealed_collection = bindings.get("sealed_collection")
+    if not isinstance(sealed_collection, dict):
+        raise ValueError("D4096 lacks sealed collection readiness binding; HOLD")
+    readiness_binding = sealed_collection.get("readiness")
+    if not isinstance(readiness_binding, dict):
+        raise ValueError("D4096 sealed readiness binding is malformed; HOLD")
+    readiness_path = readiness_binding.get("path")
+    readiness_sha = readiness_binding.get("sha256")
+    if not isinstance(readiness_path, str) or not isinstance(readiness_sha, str):
+        raise ValueError("D4096 sealed readiness binding is malformed; HOLD")
+    readiness = _read_triplet(Path(readiness_path))
+    if _verify(Path(readiness_path)) != readiness_sha:
+        raise ValueError("D4096 sealed readiness binding changed; HOLD")
+    metadata_binding = readiness.get("d1024_w6_metadata")
+    if not isinstance(metadata_binding, dict):
+        raise ValueError("D4096 readiness lacks D1024 W6 metadata binding; HOLD")
+    metadata_path = metadata_binding.get("path")
+    metadata_sha = metadata_binding.get("sha256")
+    if not isinstance(metadata_path, str) or not isinstance(metadata_sha, str):
+        raise ValueError("D4096 D1024 W6 metadata binding is malformed; HOLD")
+    metadata_file = Path(metadata_path)
+    metadata = _read_triplet(metadata_file)
+    if _verify(metadata_file) != metadata_sha:
+        raise ValueError("D4096 D1024 W6 metadata binding changed; HOLD")
+    if (
+        metadata.get("schema") != "bl-labels-f0-d1024-old-w6-throughput/v1"
+        or metadata.get("stage") != "d1024"
+        or metadata.get("workers") != W6
+        or metadata.get("source_commit") != control.get("source_commit")
+    ):
+        raise ValueError("D4096 D1024 W6 metadata identity differs; HOLD")
+    terminal_binding = metadata.get("d1024_terminal")
+    if not isinstance(terminal_binding, dict):
+        raise ValueError("D4096 D1024 metadata lacks terminal binding; HOLD")
+    terminal_path = terminal_binding.get("path")
+    terminal_sha = terminal_binding.get("sha256")
+    if not isinstance(terminal_path, str) or not isinstance(terminal_sha, str):
+        raise ValueError("D4096 D1024 terminal binding is malformed; HOLD")
+    # This is only a post-terminal identity proof.  Counts and elapsed exposure
+    # remain the metadata receipt's explicit, stream-specific fields.
+    terminal_file = Path(terminal_path)
+    terminal = _read_triplet(terminal_file)
+    if _verify(terminal_file) != terminal_sha:
+        raise ValueError("D4096 D1024 terminal binding changed; HOLD")
+    if terminal.get("status") != "COMPLETE":
+        raise ValueError("D4096 D1024 terminal is not COMPLETE; HOLD")
+    allocation = control.get("allocation")
+    if not isinstance(allocation, list) or not allocation:
+        raise ValueError("D4096 allocation is malformed; HOLD")
+    if any(
+        not isinstance(row, dict) or not isinstance(row.get("stream"), str) or not row["stream"]
+        for row in allocation
+    ):
+        raise ValueError("D4096 allocation stream identity is malformed; HOLD")
+    required_streams = {row["stream"] for row in allocation}
+    streams = metadata.get("streams")
+    if not isinstance(streams, dict) or set(streams) != required_streams:
+        raise ValueError("D4096 D1024 metadata does not cover exactly its streams; HOLD")
+    rates: dict[str, float] = {}
+    completed: dict[str, int] = {}
+    elapsed: dict[str, float] = {}
+    for stream in sorted(required_streams):
+        item = streams.get(stream)
+        if not isinstance(item, dict):
+            raise ValueError("D4096 D1024 stream metadata is malformed; HOLD")
+        count = item.get("completed_parents")
+        if type(count) is not int or count <= 0:
+            raise ValueError("D4096 D1024 stream completion count is malformed; HOLD")
+        seconds = _finite_positive(item.get("elapsed_seconds"), "D1024 stream elapsed_seconds")
+        completed[stream] = count
+        elapsed[stream] = seconds
+        rates[stream] = count * 3600.0 / seconds
+    return {
+        "schema": "bl-labels-f0-w12-w6-parent-rate/v1",
+        "source": "d1024-old-w6-sealed-metadata",
+        "rates_per_wall_hour": rates,
+        "completed_parents": completed,
+        "elapsed_seconds": elapsed,
+        "stream_diagnostics": {"completed_parents": completed},
+        "provenance": [
+            _provenance(Path(readiness_path)),
+            _provenance(metadata_file),
+            _provenance(terminal_file),
+        ],
+    }
+
+
+def seal_d1024_old_w6_throughput(
+    d1024_control: Path, terminals: list[Path], out: Path | None
+) -> dict[str, Any]:
+    """Publish the metadata-only D1024 OLD W6 comparator for D4096.
+
+    ``terminals`` must be the ordered, complete D1024 attempt chain.  The
+    builder reads only start/terminal receipts and the final operational
+    slowdown snapshots: completed parent IDs, allocation stream membership,
+    and active-stream wall exposure.  It intentionally never reads an output
+    directory, ledger unit, life export, or outcome-bearing payload.
+    """
+    if out is not None and any(
+        Path(str(out) + suffix).exists() for suffix in ("", ".sha256", ".complete")
+    ):
+        raise FileExistsError("D1024 throughput receipt is create-only")
+    control = _read_triplet(d1024_control)
+    gate = control.get("mac_gate")
+    source_commit = control.get("source_commit")
+    allocation = control.get("allocation")
+    if (
+        not isinstance(gate, dict)
+        or gate.get("stage") != "d1024"
+        or not isinstance(source_commit, str)
+        or len(source_commit) != 40
+        or not isinstance(allocation, list)
+        or not allocation
+    ):
+        raise ValueError("D1024 control identity is malformed; HOLD")
+    parent_streams: dict[str, str] = {}
+    for row in allocation:
+        parent = row.get("allocation_id") if isinstance(row, dict) else None
+        stream = row.get("stream") if isinstance(row, dict) else None
+        if (
+            not isinstance(parent, str)
+            or not parent
+            or not isinstance(stream, str)
+            or not stream
+            or parent in parent_streams
+        ):
+            raise ValueError("D1024 allocation stream identity is malformed; HOLD")
+        parent_streams[parent] = stream
+    if not terminals:
+        raise ValueError("D1024 terminal chain is empty; HOLD")
+    from . import frozen_factory
+
+    seen_parents: set[str] = set()
+    terminal_values: list[tuple[Path, dict[str, Any]]] = []
+    names = [path.name for path in terminals]
+    for index, terminal_path in enumerate(terminals):
+        terminal = _read_triplet(terminal_path)
+        if terminal.get("schema") != "bl-labels-f0-mac-driver/v1" or terminal.get(
+            "namespace"
+        ) != control.get("namespace"):
+            raise ValueError("D1024 terminal namespace differs; HOLD")
+        if (
+            terminal.get("workers") != W6
+            or terminal.get("collector_source_commit") != frozen_factory.OLD_PIN
+            or terminal.get("w12_calibration_source_commit") != frozen_factory.OLD_PIN
+        ):
+            raise ValueError("D1024 terminal OLD W6 identity differs; HOLD")
+        expected_status = "COMPLETE" if index == len(terminals) - 1 else "PREEMPTED"
+        if terminal.get("status") != expected_status:
+            raise ValueError("D1024 terminal sequence is not completed in order; HOLD")
+        if terminal.get("attempts_ledger") != names[: index + 1]:
+            raise ValueError("D1024 terminal attempt ledger differs; HOLD")
+        start_name = terminal.get("start_receipt")
+        if not isinstance(start_name, str) or Path(start_name).name != start_name:
+            raise ValueError("D1024 terminal start receipt is malformed; HOLD")
+        start_path = terminal_path.parent / start_name
+        start = _read_triplet(start_path)
+        if (
+            terminal.get("start_sha256") != _verify(start_path)
+            or start.get("namespace") != control.get("namespace")
+            or start.get("source_commit") != source_commit
+            or start.get("workers") != W6
+        ):
+            raise ValueError("D1024 terminal start binding differs; HOLD")
+        completed = terminal.get("completed_parents")
+        if not isinstance(completed, list) or len(completed) != len(set(completed)):
+            raise ValueError("D1024 completed-parent metadata is malformed; HOLD")
+        for parent in completed:
+            if parent not in parent_streams or parent in seen_parents:
+                raise ValueError("D1024 completed parent is foreign or duplicated; HOLD")
+            seen_parents.add(parent)
+        terminal_values.append((terminal_path, terminal))
+    if seen_parents != set(parent_streams):
+        raise ValueError("D1024 terminal chain is not complete; HOLD")
+    final_path, final = terminal_values[-1]
+    slowdown = final.get("slowdown_state_by_stream")
+    streams = set(parent_streams.values())
+    if not isinstance(slowdown, dict) or set(slowdown) != streams:
+        raise ValueError("D1024 final stream exposure differs; HOLD")
+    result_streams: dict[str, dict[str, float | int]] = {}
+    for stream in sorted(streams):
+        snapshot = slowdown.get(stream)
+        raw_walls = snapshot.get("width_wall_seconds") if isinstance(snapshot, dict) else None
+        if not isinstance(raw_walls, dict):
+            raise ValueError("D1024 stream wall exposure is malformed; HOLD")
+        elapsed = _finite_positive(raw_walls.get(str(W6)), "D1024 W6 stream elapsed_seconds")
+        completed = sum(1 for value in seen_parents if parent_streams[value] == stream)
+        if completed <= 0:
+            raise ValueError("D1024 stream has no completed parents; HOLD")
+        result_streams[stream] = {
+            "completed_parents": completed,
+            "elapsed_seconds": elapsed,
+        }
+    value = {
+        "schema": "bl-labels-f0-d1024-old-w6-throughput/v1",
+        "stage": "d1024",
+        "workers": W6,
+        "source_commit": source_commit,
+        "d1024_control": _provenance(d1024_control),
+        "d1024_terminal": _provenance(final_path),
+        "terminal_chain": [_provenance(path) for path, _value in terminal_values],
+        "streams": result_streams,
+    }
+    if out is not None:
+        publish_json(out, value)
+    return value
+
+
+def verify_d1024_old_w6_throughput(path: Path) -> dict[str, Any]:
+    """Recompute a receipt from its complete immutable metadata chain."""
+    value = _read_triplet(path)
+    control_binding = value.get("d1024_control")
+    terminal_chain = value.get("terminal_chain")
+    if not isinstance(control_binding, dict) or not isinstance(terminal_chain, list):
+        raise ValueError("D1024 W6 throughput lacks verified source metadata")
+    bindings = [control_binding, *terminal_chain]
+    for binding in bindings:
+        if (
+            not isinstance(binding, dict)
+            or set(binding) != {"path", "sha256"}
+            or not isinstance(binding["path"], str)
+            or _verify(Path(binding["path"])) != binding["sha256"]
+        ):
+            raise ValueError("D1024 W6 throughput source binding differs")
+    expected = seal_d1024_old_w6_throughput(
+        Path(control_binding["path"]), [Path(row["path"]) for row in terminal_chain], None
+    )
+    if value != expected:
+        raise ValueError("D1024 W6 throughput differs from recomputed terminal metadata")
+    return value
+
+
 def resolve_w6_parent_rates(
     control: dict[str, Any], *, d256_pack: Path | None = None, teq_receipt: Path | None = None
 ) -> dict[str, Any]:
@@ -330,7 +579,9 @@ def resolve_w6_parent_rates(
         if d256_pack is None:
             raise ValueError("D256 W12 needs an original W6 attempt baseline; HOLD")
         return d256_w6_parent_rates(control, d256_pack)
-    if stage in {"d1024", "d4096"}:
+    if stage == "d4096":
+        return d4096_old_w6_parent_rates(control)
+    if stage == "d1024":
         from . import d256_resume, w12_calibration
 
         if control.get("source_commit") == d256_resume.OLD_PIN:
@@ -348,12 +599,44 @@ def resolve_w6_parent_rates(
 
 
 def w12_sanity_decision(
-    completed_parents: Mapping[str, int], elapsed_seconds: float, w6_rates: Mapping[str, float]
+    completed_parents: Mapping[str, int],
+    elapsed_seconds: float,
+    w6_rates: Mapping[str, float],
+    *,
+    stream_elapsed_seconds: Mapping[str, float] | None = None,
 ) -> tuple[bool, dict[str, float]]:
-    """Evaluate the one three-hour W12 wall-throughput guard per stream."""
+    """Evaluate the one three-hour W12 wall-throughput guard per stream.
+
+    D1024 retains the historical all-stream rule when no exposure map is
+    supplied.  D4096 may supply its sealed admission exposure map because its
+    frozen allocation can spend the opening interval on a single stream.  An
+    unadmitted stream is then omitted rather than treated as a zero-rate
+    failure; every admitted stream has its own matched wall denominator.
+    """
     elapsed = _finite_positive(elapsed_seconds, "W12 sanity elapsed_seconds")
     if elapsed < W12_SANITY_SECONDS:
         return True, {}
+    exposure: dict[str, float] | None = None
+    if stream_elapsed_seconds is not None:
+        if not isinstance(stream_elapsed_seconds, Mapping):
+            raise ValueError("W12 stream exposure is malformed; HOLD")
+        if set(stream_elapsed_seconds) != set(w6_rates):
+            raise ValueError("W12 stream exposure does not match baseline streams; HOLD")
+        exposure = {}
+        for stream, value in stream_elapsed_seconds.items():
+            if not isinstance(stream, str) or not stream:
+                raise ValueError("W12 stream exposure name is malformed; HOLD")
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise ValueError("W12 stream exposure is malformed; HOLD")
+            if value < 0 or value > elapsed:
+                raise ValueError("W12 stream exposure is outside the sanity window; HOLD")
+            exposure[stream] = float(value)
+        if not any(exposure.values()):
+            raise ValueError("W12 sanity has no admitted stream exposure; HOLD")
     actual = {}
     for stream, baseline in w6_rates.items():
         if not isinstance(stream, str) or not stream:
@@ -362,7 +645,12 @@ def w12_sanity_decision(
         count = completed_parents.get(stream)
         if type(count) is not int or count < 0:
             raise ValueError("W12 completed parent count is malformed; HOLD")
-        actual[stream] = count * 3600.0 / elapsed
+        denominator = elapsed if exposure is None else exposure[stream]
+        if denominator == 0:
+            if count != 0:
+                raise ValueError("W12 completion has no matching stream exposure; HOLD")
+            continue
+        actual[stream] = count * 3600.0 / denominator
         if actual[stream] < W12_SANITY_MULTIPLIER * base:
             return False, actual
     return True, actual
@@ -371,3 +659,17 @@ def w12_sanity_decision(
 def rate_drift_baseline(canary_b_rate: float) -> float:
     """Apply the ruling's width-normalized Canary-B baseline exactly once."""
     return W12_RATE_DRIFT_MULTIPLIER * _finite_positive(canary_b_rate, "Canary-B rate")
+
+
+def main() -> None:
+    """Create the sealed, metadata-only D1024 OLD W6 throughput receipt."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--d1024-control", required=True, type=Path)
+    parser.add_argument("--terminal", action="append", required=True, type=Path)
+    parser.add_argument("--out", required=True, type=Path)
+    args = parser.parse_args()
+    seal_d1024_old_w6_throughput(args.d1024_control, args.terminal, args.out)
+
+
+if __name__ == "__main__":
+    main()
