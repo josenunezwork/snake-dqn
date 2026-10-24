@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import subprocess
 import time
 from collections.abc import Iterable
@@ -220,6 +221,16 @@ def resume_policy(
     return requested_workers, []
 
 
+def _sol_codex_job(argv: str) -> bool:
+    """Match launched CLI jobs without treating desktop app helpers as jobs."""
+    if "codex-handoff.sh" in argv or "CODEX_MODEL=gpt-6.1-sol" in argv:
+        return True
+    return any(
+        not match.group("executable").startswith("/Applications/ChatGPT.app/")
+        for match in re.finditer(r"(?:^|\s)(?P<executable>(?:\S*/)?codex)\s+exec(?:\s|$)", argv)
+    )
+
+
 def record_host_check(state_dir: Path, *, checked_epoch: float | None = None) -> Path:
     """Capture the required operator W6 check as a completion-last receipt."""
     latest = escalation(state_dir)["w6_epoch"]
@@ -237,13 +248,12 @@ def record_host_check(state_dir: Path, *, checked_epoch: float | None = None) ->
     consumers = sorted(
         rows, key=lambda row: float(row.split()[1]) if len(row.split()) >= 2 else 0.0, reverse=True
     )[:20]
-    forbidden = []
-    for row in rows:
-        fields = row.split(maxsplit=2)
-        command = fields[2] if len(fields) == 3 else ""
-        if Path(command).name.lower() in {"sol", "codex"}:
-            forbidden.append(row)
-    if forbidden:
+    process_rows = subprocess.check_output(["/bin/ps", "-axo", "pid=,args="], text=True)
+    if any(
+        _sol_codex_job(row.split(maxsplit=1)[1])
+        for row in process_rows.splitlines()
+        if len(row.split(maxsplit=1)) == 2
+    ):
         raise ValueError("host check found Sol/Codex process; HOLD")
     path = state_dir / f"slowdown-host-check-{int(epoch)}.json"
     publish_json(

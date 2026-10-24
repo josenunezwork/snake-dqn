@@ -52,6 +52,69 @@ def _host_check(state: Path, epoch: float) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("argv", "blocked"),
+    [
+        (
+            "/Applications/ChatGPT.app/Contents/Resources/codex-cli/"
+            "CodexCLI.app/Contents/MacOS/codex app-server",
+            False,
+        ),
+        (
+            "/Applications/ChatGPT.app/Contents/Resources/codex-cli/"
+            "CodexCLI.app/Contents/MacOS/codex exec-server",
+            False,
+        ),
+        (
+            "/Applications/ChatGPT.app/Contents/Resources/codex-cli/"
+            "CodexCLI.app/Contents/MacOS/codex exec task",
+            False,
+        ),
+        ("/Applications/ChatGPT.app/Contents/Frameworks/Codex (Service)", False),
+        ("/Applications/ChatGPT.app/Contents/Frameworks/Codex (Renderer)", False),
+        ("/bin/bash /Users/owner/bin/codex-handoff.sh -C /tmp/worktree", True),
+        ("/opt/homebrew/bin/codex exec --model gpt-6.1-sol task", True),
+        ("/opt/homebrew/lib/node_modules/@openai/codex/bin/codex exec task", True),
+        ("codex exec task", True),
+        ("env CODEX_MODEL=gpt-6.1-sol /usr/local/bin/worker", True),
+        ("/opt/homebrew/bin/codex app-server", False),
+        ("/usr/local/bin/sol unrelated", False),
+    ],
+)
+def test_record_host_check_matches_job_argv_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: str, blocked: bool
+) -> None:
+    _attempt(tmp_path, "one", workers=6, records=[_trip("watch6", 6, 100, 1000)])
+    _attempt(tmp_path, "two", workers=6, records=[_trip("watch6", 6, 200, 2000)])
+    calls = []
+
+    def check_output(command: list[str], *, text: bool) -> str:
+        assert text is True
+        calls.append(command)
+        if command == ["/usr/bin/pmset", "-g", "therm"]:
+            return "CPU_Speed_Limit = 100\n"
+        if command == ["/bin/ps", "-axo", "pid=,pcpu=,comm="]:
+            return " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex\n"
+        assert command == ["/bin/ps", "-axo", "pid=,args="]
+        return f" 123 {argv}\n"
+
+    monkeypatch.setattr(slowdown_resume.subprocess, "check_output", check_output)
+    if blocked:
+        with pytest.raises(ValueError, match="host check found Sol/Codex process; HOLD"):
+            slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
+        assert not list(tmp_path.glob("slowdown-host-check-*"))
+    else:
+        path = slowdown_resume.record_host_check(tmp_path, checked_epoch=2001)
+        receipt = slowdown_resume._read_triplet(path)
+        assert receipt["no_sol_codex"] is True
+        assert receipt["pmset_therm"] == "CPU_Speed_Limit = 100\n"
+        assert receipt["top_cpu_consumers"] == [
+            " 123 2.0 /Applications/ChatGPT.app/Contents/MacOS/codex"
+        ]
+        assert slowdown_resume.resume_policy(6, tmp_path) == (6, [])
+    assert calls[-1] == ["/bin/ps", "-axo", "pid=,args="]
+
+
 def test_w12_pair_uses_common_verified_24_hour_clean_return_rule(tmp_path: Path) -> None:
     _attempt(tmp_path, "one", workers=12, records=[_trip("watch6", 12, 100, 1000)])
     _attempt(
