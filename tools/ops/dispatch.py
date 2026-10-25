@@ -931,6 +931,26 @@ def require_resume_policy(manifest: dict[str, Any]) -> None:
         raise Refused("resume.max_outcome_blind_retries must be the integer 2")
 
 
+def require_timing_calibration_retry_policy(manifest: dict[str, Any]) -> bool:
+    """Return whether this manifest refuses the wrapper allocation retry.
+
+    This opt-in is deliberately confined to timing-calibration manifests. The
+    wrapper's historical accounting retry remains unchanged for every manifest
+    without the block.
+    """
+    if "timing_calibration" not in manifest:
+        return False
+    timing_calibration = manifest["timing_calibration"]
+    if not isinstance(timing_calibration, dict):
+        raise Refused("timing_calibration must be an object")
+    if "no_automatic_retry" not in timing_calibration:
+        return False
+    no_automatic_retry = timing_calibration["no_automatic_retry"]
+    if type(no_automatic_retry) is not bool:
+        raise Refused("timing_calibration.no_automatic_retry must be a boolean")
+    return no_automatic_retry
+
+
 def wait_allocation(output: Path, log: Path, deadline: float, poll: float) -> str:
     """An assignment record is too early: accounting calibration must finish."""
     while time.monotonic() < deadline:
@@ -1020,6 +1040,7 @@ def dispatch(args: argparse.Namespace) -> str:
     if not isinstance(value, dict):
         raise Refused("manifest must be an object")
     require_resume_policy(value)
+    no_automatic_retry = require_timing_calibration_retry_policy(value)
     control_nice0 = bool(getattr(args, "colab_control_nice0", False))
     control_admission: Path | None = None
     if control_nice0:
@@ -1133,6 +1154,11 @@ def dispatch(args: argparse.Namespace) -> str:
                 **({"small_bench_config": small_config} if small_config is not None else {}),
             )
             outcome = wait_allocation(Path(output), log, deadline, poll)
+            if outcome == "retry" and no_automatic_retry:
+                note(log, "OPS_ALLOCATION_RETRY_REFUSED timing_calibration.no_automatic_retry=true")
+                raise Refused(
+                    "timing_calibration.no_automatic_retry forbids retry after accounting failure"
+                )
             if attempt == 1 and outcome == "retry":
                 note(log, "OPS_ALLOCATION_RETRY_EXHAUSTED")
                 outcome = "failed"

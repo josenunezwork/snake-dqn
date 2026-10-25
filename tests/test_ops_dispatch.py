@@ -413,6 +413,54 @@ def test_one_exact_retry_fresh_outputs_preserves_original_evidence(fixture):
     assert len((f["ops"] / "watch-logs.txt").read_text().splitlines()) == 2
 
 
+def test_timing_calibration_refuses_accounting_retry_before_second_allocation(fixture):
+    f = fixture
+    f["change"](test_mode="retry_success", timing_calibration={"no_automatic_retry": True})
+    result = f["invoke"]()
+    assert result.returncode == 1
+    assert "forbids retry after accounting failure" in result.stderr
+    assert [row["job"] for row in runs(f)] == ["job"]
+    assert not (f["ops"] / "manifests/lane-retry-1.json").exists()
+    log = (f["ops"] / "logs/lane.log").read_text()
+    assert "original failure evidence" in log
+    assert "OPS_ALLOCATION_RETRY_REFUSED timing_calibration.no_automatic_retry=true" in log
+
+
+@pytest.mark.parametrize(
+    "timing_calibration",
+    [
+        None,
+        [],
+        "enabled",
+        {"no_automatic_retry": "true"},
+        {"no_automatic_retry": 1},
+    ],
+)
+def test_timing_calibration_no_automatic_retry_must_be_boolean_true(fixture, timing_calibration):
+    f = fixture
+    f["change"](timing_calibration=timing_calibration)
+    result = f["invoke"]()
+    assert result.returncode == 1 and "timing_calibration" in result.stderr
+    assert not (f["tmp"] / "trace").exists()
+    assert not (f["ops"] / "dispatch").exists()
+
+
+def test_timing_calibration_without_no_retry_flag_keeps_legacy_retry(fixture):
+    f = fixture
+    f["change"](test_mode="retry_success", timing_calibration={})
+    result = f["invoke"]()
+    assert result.returncode == 0, result.stderr
+    assert [row["job"] for row in runs(f)] == ["job", "job-retry-1"]
+
+
+def test_timing_calibration_false_keeps_legacy_retry(fixture):
+    f = fixture
+    f["change"](test_mode="retry_success", timing_calibration={"no_automatic_retry": False})
+    result = f["invoke"]()
+    assert result.returncode == 0, result.stderr
+    assert [row["job"] for row in runs(f)] == ["job", "job-retry-1"]
+
+
 @pytest.mark.parametrize(
     "values",
     [

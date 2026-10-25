@@ -17,6 +17,7 @@ from typing import Any
 from research.bl_ppo.exports import digest, export_bytes, export_json
 from research.bl_round30.pack import SOURCE_PATHS as R30_SOURCE_PATHS
 from research.bl_round30.protocol import B8_SHA
+from research.bl_round30.timing import AMENDMENT_SHA, DEADLINES
 from tools.ops.qualification import OPS, check
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -35,10 +36,13 @@ FROZEN_BUNDLE_BYTES = 36_189_672
 TRANSFER_BAR_SECONDS = 150
 STAGING_BAR_SECONDS = 300
 RATE_UNITS_PER_HOUR = 1.54
-BASE_MINUTES = 20
-EFFECTIVE_MINUTES = 40
+AMENDMENT = RULING.with_name("JUDGMENT_R30_TIMING_185D8395_FIX_FIRST_20261025.md")
+OLD_RESERVATION = FROZEN_NATIVE.parent / "timing-calibration-01/accounting-reservation.json"
+OLD_RESERVATION_SHA256 = "621fc26028b93fc5be0fe933f642ebaac8ef79ab48277129e03091e041aad6c6"
+BASE_MINUTES = 15
+EFFECTIVE_MINUTES = 30
 RESERVE_FRACTION = 0.20
-SOURCE_PATHS = [*R30_SOURCE_PATHS, "tools/ops/qualification.py"]
+SOURCE_PATHS = [*R30_SOURCE_PATHS, "tools/ops/qualification.py", "tools/ops/dispatch.py"]
 EXPECTED_SCHEDULE = {
     "adam_blocks": [[0, 10], [10, 20], [20, 30]],
     "closure_updates": [0, 10, 30],
@@ -93,6 +97,8 @@ def load_timing_config(path: Path, *, commit: str, control: dict[str, Any]) -> d
     if (
         value.get("schema") != "r30-timing-config/v1"
         or value.get("ruling_sha256") != RULING_SHA256
+        or value.get("amendment_sha256") != AMENDMENT_SHA
+        or value.get("deadlines") != DEADLINES
         or value.get("source_commit") != commit
         or value.get("bundle_sha256") != FROZEN_BUNDLE_SHA256
         or value.get("synthetic") is not False
@@ -152,13 +158,15 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
     """Create one immutable timing-only packet; no provider operation occurs."""
     if output.exists():
         raise FileExistsError(output)
-    if digest(RULING) != RULING_SHA256:
+    if digest(RULING) != RULING_SHA256 or digest(AMENDMENT) != AMENDMENT_SHA:
         raise ValueError("timing ruling hash differs")
     if (
         digest(FROZEN_BUNDLE) != FROZEN_BUNDLE_SHA256
         or FROZEN_BUNDLE.stat().st_size != FROZEN_BUNDLE_BYTES
     ):
         raise ValueError("frozen private bundle identity differs")
+    if digest(OLD_RESERVATION) != OLD_RESERVATION_SHA256:
+        raise ValueError("original calibration reservation differs")
     pin = _published_clean(commit)
     control = _read_json(FROZEN_NATIVE / "inputs/control.json")
     load_timing_config(timing_config, commit=pin, control=control)
@@ -167,11 +175,23 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
     inputs.mkdir()
     config_copy = export_bytes(inputs / "timing-config.json", timing_config.read_bytes())
     ruling_copy = export_bytes(inputs / "timing-ruling.md", RULING.read_bytes())
+    amendment_copy = export_bytes(inputs / "timing-amendment.md", AMENDMENT.read_bytes())
     reservation = export_json(
         output / "accounting-reservation.json",
         {
             "schema": "r30-g5-timing-calibration-accounting/v1",
-            "entry": "r30-1-g5-timing-calibration-01",
+            "entry": "r30-1-g5-timing-calibration-probe-01",
+            "amendment_sha256": AMENDMENT_SHA,
+            "original_reservation": {
+                "path": str(OLD_RESERVATION),
+                "sha256": OLD_RESERVATION_SHA256,
+            },
+            "retained_liability_minutes": 40,
+            "unused_difference_minutes": 10,
+            "reconciliation": (
+                "retain original 40-minute liability until verified stop/debit; "
+                "difference nontransferable"
+            ),
             "ruling_sha256": RULING_SHA256,
             "source_commit": pin,
             "base_minutes": BASE_MINUTES,
@@ -208,12 +228,22 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
         "sha256": B8_SHA,
     }
     manifest = {
-        "job_id": f"r30-1-timing-calibration-{pin[:8]}",
+        "job_id": f"r30-1-timing-calibration-probe-{pin[:8]}",
         "commit": pin,
         "script": "research/bl_round30/timing_colab.sh",
         "source_paths": SOURCE_PATHS,
         "device": "cuda",
-        "requirements": {"gpu": "L4", "allowed_gpus": ["L4"], "min_vcpu": 1, "est_minutes": 20},
+        "canary": {
+            "schema": "colab-family-canary/v1",
+            "mode": "probe",
+            "family": "research/bl_round30/timing_colab.sh",
+        },
+        "requirements": {
+            "gpu": "L4",
+            "allowed_gpus": ["L4"],
+            "min_vcpu": 1,
+            "est_minutes": BASE_MINUTES,
+        },
         "timeout_minutes": EFFECTIVE_MINUTES,
         "output_dir": str((output / "runtime-output").resolve()),
         "inputs": [
@@ -231,8 +261,16 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
                 "sha256": ruling_copy["sha256"],
                 "size_bytes": ruling_copy["size"],
             },
+            {
+                "dest": "timing-amendment.md",
+                "path": amendment_copy["path"],
+                "sha256": amendment_copy["sha256"],
+                "size_bytes": amendment_copy["size"],
+            },
         ],
         "env": {
+            "SNAKE_COLAB_CANARY": "1",
+            "SNAKE_COLAB_CANARY_PACKAGE": "research/bl_round30",
             "R30_DEVICE": "cuda",
             "R30_TIMING_CONFIG_SHA256": config_copy["sha256"],
             "R30_PRIVATE_BUNDLE_SHA256": FROZEN_BUNDLE_SHA256,
@@ -256,6 +294,9 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
         },
         "timing_calibration": {
             "schema": "r30-g5-timing-calibration/v1",
+            "amendment_sha256": AMENDMENT_SHA,
+            "deadlines": DEADLINES,
+            "tested_dispatcher_sha256": digest(ROOT / "tools/ops/dispatch.py"),
             "ruling_sha256": RULING_SHA256,
             "config_sha256": config_copy["sha256"],
             "config_source_sha256": digest(timing_config),
@@ -281,17 +322,26 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
             },
             "separate_accounting": reservation,
             "independent_predispatch_review_required": True,
-            "qualified_transport_status": "HOLD",
-            "dispatch_blocker": (
-                "The qualified supervisor currently requires a <=30-minute family canary receipt; "
-                "this ruling admits no G4 probe and fixes the isolated calibration at 40 minutes. "
-                "A narrowly reviewed transport admission is required before dispatch."
-            ),
+            "qualified_transport_status": "SOURCE_BOUND_PROBE_PENDING_ACCEPT",
             "scientific_admission": "not-applicable-timing-only",
             "export_policy": "timing.json and its supervisor sidecars only",
         },
     }
     export_json(output / "job.json", manifest)
+    export_json(
+        output / "SOURCE_BINDINGS.json",
+        {
+            "schema": "r30-timing-probe-source-bindings/v1",
+            "source_commit": pin,
+            "qualified_transport_tree": check(ROOT, OPS / "colab-cli-qualified.json", pin),
+            "qualification_registry_sha256": digest(OPS / "colab-cli-qualified.json"),
+            "dispatcher_sha256": digest(ROOT / "tools/ops/dispatch.py"),
+            "manifest_sha256": digest(output / "job.json"),
+            "config_sha256": config_copy["sha256"],
+            "amendment_sha256": AMENDMENT_SHA,
+            "live_account_state": "NOT_CHECKED",
+        },
+    )
     export_json(
         output / "PRE_DISPATCH_REVIEW.json",
         {
@@ -302,7 +352,7 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
                 "independent implementation/redaction review",
                 "timing schedule and source closure review",
                 "qualified supervisor and current account review",
-                "narrowly reviewed qualified-transport admission for the 40-minute calibration",
+                "source-bound 30-minute family probe; no live account state established",
             ],
         },
     )

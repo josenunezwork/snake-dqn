@@ -23,7 +23,13 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 RULING_SHA = "9b07b66663d8a7ac168f80dbfc35889b3551df8797f347335c10d83a8d81801f"
+AMENDMENT_SHA = "447609b306bde15de4014640e1248a4349f8cb2feb811e455511a66886e943ff"
 SCHEMA = "r30-timing-only/v1"
+DEADLINES = {
+    "whole_session_seconds": 1800,
+    "worker_seconds": 1500,
+    "cleanup_export_reserve_seconds": 300,
+}
 SCHEDULE = {
     "adam_blocks": [[0, 10], [10, 20], [20, 30]],
     "closure_updates": [0, 10, 30],
@@ -38,6 +44,7 @@ PHASES = (
     "unpack",
     "input_checks_load",
     "feature_cache",
+    "b8_masked_action_decision",
     "plan_coefficients",
     "equality",
     "adam_setup",
@@ -71,6 +78,8 @@ def validate_report(value: dict) -> None:
         "complete",
         "synthetic",
         "ruling_sha256",
+        "amendment_sha256",
+        "deadlines",
         "config_sha256",
         "source_commit",
         "source_hashes",
@@ -92,6 +101,8 @@ def validate_report(value: dict) -> None:
         or value["complete"] is not True
         or type(value["synthetic"]) is not bool
         or value["ruling_sha256"] != RULING_SHA
+        or value["amendment_sha256"] != AMENDMENT_SHA
+        or value["deadlines"] != DEADLINES
         or value["schedule"] != SCHEDULE
         or value["device"] not in {"cuda", "cpu"}
         or type(value["threads"]) is not int
@@ -128,7 +139,10 @@ def validate_report(value: dict) -> None:
     for duration in (*phases.values(), value["worker_seconds"]):
         if type(duration) not in (int, float) or not math.isfinite(duration) or duration < 0:
             raise ValueError("invalid timing duration")
-    if phases["certificate"] >= 600 or value["worker_seconds"] >= 2400:
+    if (
+        phases["certificate"] >= SCHEDULE["certificate_cap_seconds"]
+        or value["worker_seconds"] >= DEADLINES["worker_seconds"]
+    ):
         raise ValueError("incomplete calibration: timeout")
     if sum(phases.values()) > value["worker_seconds"] + 0.1:
         raise ValueError("overlapping timing phases")
@@ -365,6 +379,82 @@ def bookkeeping_probe() -> None:
             vector + work * (1.0 / (trial + 1))
 
 
+def _b8_masked_action_decision(base: Any, table: dict, *, device: str, synthetic: bool) -> None:
+    """Make and discard one fixed-row, masked B8 six-action decision.
+
+    Row zero is fixed before execution and is part of the already admitted
+    training table.  In the real probe the CUDA observer wraps ``argmax`` and
+    writes only caller/shape/device/count metadata; no result survives this
+    function.  The CPU branch exists only for the hermetic synthetic test.
+    """
+    import torch
+
+    if not synthetic and device != "cuda":
+        raise ValueError("real timing probe requires one CUDA B8 decision")
+    mask = torch.as_tensor(table["action_mask"][:1], dtype=torch.bool, device=device)
+    from research.bl_round30.objective import resolved_action_mask
+
+    mask = resolved_action_mask(mask)
+    with torch.no_grad():
+        q = base(
+            *[
+                torch.as_tensor(table[key][:1], device=device)
+                for key in ("local", "global", "scalars")
+            ]
+        )
+        if q.shape != (1, 6) or not torch.isfinite(q).all():
+            raise ValueError("foreign or nonfinite B8 action tensor")
+        action = q.masked_fill(~mask, -torch.inf).argmax(dim=1)
+        if action.shape != (1,):
+            raise ValueError("B8 action decision shape differs")
+        if device == "cuda":
+            torch.cuda.synchronize()
+    # Deliberately discard Q-values and action before any later phase/export.
+    del action, q, mask
+
+
+def _worker_deadline_seconds(*, input_dir: Path, synthetic: bool, launch_age: float) -> float:
+    """Reserve the final five minutes of the fixed 30-minute session.
+
+    Production timing uses supervisor-owned immutable start/timeout metadata,
+    while synthetic tests have no supervisor root and use the same fixed worker
+    ceiling.  Neither metadata file or its contents enters the timing export.
+    """
+    remaining = float(DEADLINES["worker_seconds"]) - launch_age
+    if synthetic:
+        return max(0.001, remaining)
+    root_value = os.environ.get("COLAB_CLI_ROOT")
+    if not root_value:
+        raise ValueError("real timing probe requires supervisor runtime metadata")
+    root = Path(root_value).resolve()
+    try:
+        spec = json.loads((root / "spec.json").read_text())
+        state = json.loads((root / "state.json").read_text())
+        timeout = spec["timeout_seconds"]
+        started = state["started_at"]
+    except (OSError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        raise ValueError("real timing probe runtime metadata is invalid") from exc
+    if (
+        isinstance(timeout, bool)
+        or isinstance(started, bool)
+        or not isinstance(timeout, (int, float))
+        or not isinstance(started, (int, float))
+        or not math.isfinite(float(timeout))
+        or not math.isfinite(float(started))
+        or timeout <= 0
+        or timeout > DEADLINES["whole_session_seconds"]
+    ):
+        raise ValueError("real timing probe deadline metadata differs")
+    remaining = min(
+        remaining,
+        float(started)
+        + float(timeout)
+        - time.time()
+        - float(DEADLINES["cleanup_export_reserve_seconds"]),
+    )
+    return max(0.001, remaining)
+
+
 def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = False) -> dict:
     """Only this function can publish; every phase must complete first."""
     from research.bl_ppo.exports import digest, export_json
@@ -381,6 +471,8 @@ def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = 
     if (
         config["schema"] != "r30-timing-config/v1"
         or config["ruling_sha256"] != RULING_SHA
+        or config.get("amendment_sha256") != AMENDMENT_SHA
+        or config.get("deadlines") != DEADLINES
         or config["schedule"] != SCHEDULE
         or config["synthetic"] is not synthetic
     ):
@@ -396,7 +488,14 @@ def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = 
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         raise FileExistsError("nonempty timing output")
-    with silence(), deadline(max(0.001, 2390 - launch_age)):
+    with (
+        silence(),
+        deadline(
+            _worker_deadline_seconds(
+                input_dir=input_dir, synthetic=synthetic, launch_age=launch_age
+            )
+        ),
+    ):
         import torch
 
         from research.bl_residual.data import tensor_cache
@@ -451,6 +550,10 @@ def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = 
             return result
 
         cache = timer.call("feature_cache", features)
+        timer.call(
+            "b8_masked_action_decision",
+            lambda: _b8_masked_action_decision(base, table, device=device, synthetic=synthetic),
+        )
         rows = workload(
             cache, base, timer, None if synthetic else input_dir / "sampler-plan.npz", table
         )
@@ -479,6 +582,8 @@ def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = 
         "complete": True,
         "synthetic": synthetic,
         "ruling_sha256": RULING_SHA,
+        "amendment_sha256": AMENDMENT_SHA,
+        "deadlines": DEADLINES,
         "config_sha256": config_sha256,
         "source_commit": config["source_commit"],
         "source_hashes": config["source_hashes"],

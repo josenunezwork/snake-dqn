@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -21,6 +22,8 @@ def config() -> dict:
     return {
         "schema": "r30-timing-config/v1",
         "ruling_sha256": timing.RULING_SHA,
+        "amendment_sha256": timing.AMENDMENT_SHA,
+        "deadlines": copy.deepcopy(timing.DEADLINES),
         "source_commit": "a" * 40,
         "source_hashes": {name: digest(timing.ROOT / name) for name in identity_paths()},
         "bundle_sha256": "b" * 64,
@@ -41,6 +44,8 @@ def report() -> dict:
         "complete": True,
         "synthetic": True,
         "ruling_sha256": timing.RULING_SHA,
+        "amendment_sha256": timing.AMENDMENT_SHA,
+        "deadlines": copy.deepcopy(timing.DEADLINES),
         "config_sha256": "e" * 64,
         **{
             key: c[key]
@@ -173,6 +178,98 @@ def test_fixed_full_plan_schedule_and_no_scientific_return(monkeypatch: pytest.M
         "synthetic-io.bin.sha256",
         "synthetic-io.bin.complete",
     ]
+
+
+def test_fixed_row_b8_masked_action_discards_values_and_uses_six_actions() -> None:
+    """The hermetic analogue preserves the real probe's fixed-row contract."""
+    from research.bl_round30.fixture import synthetic_table
+    from src.model.ego2s_network import Ego2sNet
+
+    model = Ego2sNet(local_channels=7, n_scalars=60).eval()
+    table = synthetic_table(model)
+    table["action_mask"][0] = False  # exercise the fixed normal-action fallback.
+    assert timing._b8_masked_action_decision(model, table, device="cpu", synthetic=True) is None
+    with pytest.raises(ValueError, match="requires one CUDA"):
+        timing._b8_masked_action_decision(model, table, device="cpu", synthetic=False)
+
+
+def test_observer_record_for_real_masked_q_contains_operational_metadata_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hermetic observer seam; it does not manufacture runtime evidence."""
+    from research.bl_round30.fixture import synthetic_table
+    from research.colab_cli import canary_observer
+    from src.model.ego2s_network import Ego2sNet
+
+    class CudaDevice:
+        type = "cuda"
+
+        def __str__(self) -> str:
+            return "cuda:0"
+
+    model = Ego2sNet(local_channels=7, n_scalars=60).eval()
+    table = synthetic_table(model)
+    with torch.no_grad():
+        q = model(*[torch.as_tensor(table[key][:1]) for key in ("local", "global", "scalars")])
+        masked_q = q.masked_fill(~torch.as_tensor(table["action_mask"][:1]), -torch.inf)
+
+    root = tmp_path / "root"
+    package = "research/bl_round30"
+    (root / "repo" / package).mkdir(parents=True)
+    carrier = SimpleNamespace(shape=masked_q.shape, device=CudaDevice())
+    monkeypatch.setattr(
+        canary_observer,
+        "_caller",
+        lambda package_root, repository: (
+            "research/bl_round30/timing.py:999:_b8_masked_action_decision"
+        ),
+    )
+    canary_observer._observe(
+        "Tensor.argmax",
+        carrier,
+        lambda: masked_q.argmax(dim=1),
+        root=root,
+        package_root=root / "repo" / package,
+        package=package,
+        torch=SimpleNamespace(cuda=SimpleNamespace(synchronize=lambda device: None)),
+    )
+    record = json.loads(next((root / "canary-observations").glob("*.json")).read_text())
+    assert set(record) == {
+        "version",
+        "pid",
+        "root",
+        "package",
+        "cuda_decisions",
+        "operation",
+        "caller",
+        "device",
+        "shape",
+    }
+    encoded = json.dumps(record, sort_keys=True)
+    assert "SECRET_SCIENTIFIC_SENTINEL" not in encoded
+    assert '"action":' not in encoded and '"q":' not in encoded
+
+
+def test_real_deadline_reserves_cleanup_export_from_supervisor_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = 10_000.0
+    (tmp_path / "spec.json").write_text(json.dumps({"timeout_seconds": 1642.5}))
+    (tmp_path / "state.json").write_text(json.dumps({"started_at": now - 100}))
+    monkeypatch.setenv("COLAB_CLI_ROOT", str(tmp_path))
+    monkeypatch.setattr(timing.time, "time", lambda: now)
+    assert (
+        timing._worker_deadline_seconds(input_dir=tmp_path, synthetic=False, launch_age=0) == 1242.5
+    )
+    assert timing._worker_deadline_seconds(input_dir=tmp_path, synthetic=True, launch_age=0) == 1500
+
+
+@pytest.mark.parametrize("field,bad", [("amendment_sha256", "0" * 64), ("deadlines", {})])
+def test_export_rejects_unbound_amendment_or_deadlines(field: str, bad: object) -> None:
+    value = report()
+    value[field] = bad
+    with pytest.raises(ValueError):
+        timing.validate_report(value)
 
 
 def test_cli_real_synthetic_workload_and_only_timing_export(tmp_path: Path) -> None:

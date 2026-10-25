@@ -9,8 +9,18 @@ from research.bl_ppo.exports import digest
 
 
 def _fixture(tmp_path: Path, monkeypatch, timing_pack) -> dict:
+    (tmp_path / "colab-cli-qualified.json").write_text("{}\n")
+    monkeypatch.setattr(timing_pack, "OPS", tmp_path)
     ruling = tmp_path / "ruling.md"
     ruling.write_text("synthetic timing ruling\n")
+    amendment = tmp_path / "amendment.md"
+    amendment.write_text("synthetic amendment\n")
+    reservation = tmp_path / "old-reservation.json"
+    reservation.write_text("{}\n")
+    monkeypatch.setattr(timing_pack, "AMENDMENT", amendment)
+    monkeypatch.setattr(timing_pack, "AMENDMENT_SHA", digest(amendment))
+    monkeypatch.setattr(timing_pack, "OLD_RESERVATION", reservation)
+    monkeypatch.setattr(timing_pack, "OLD_RESERVATION_SHA256", digest(reservation))
     native = tmp_path / "native"
     (native / "inputs").mkdir(parents=True)
     bundle = tmp_path / "private-inputs.tar.gz"
@@ -42,6 +52,8 @@ def _config(tmp_path: Path, timing_pack, *, commit: str = "a" * 40) -> tuple[Pat
     value = {
         "schema": "r30-timing-config/v1",
         "ruling_sha256": timing_pack.RULING_SHA256,
+        "amendment_sha256": timing_pack.AMENDMENT_SHA,
+        "deadlines": timing_pack.DEADLINES,
         "source_commit": commit,
         "bundle_sha256": timing_pack.FROZEN_BUNDLE_SHA256,
         "control_sha256": digest(timing_pack.FROZEN_NATIVE / "inputs/control.json"),
@@ -72,8 +84,24 @@ def test_packet_is_timing_only_and_uses_opaque_frozen_bundle(tmp_path, monkeypat
     manifest = timing_pack.make_timing_pack(
         tmp_path / "packet", commit="a" * 40, timing_config=config
     )
-    assert manifest["timeout_minutes"] == 40
-    assert manifest["requirements"]["est_minutes"] == 20
+    assert manifest["timeout_minutes"] == 30
+    assert manifest["requirements"]["est_minutes"] == 15
+    assert manifest["canary"] == {
+        "schema": "colab-family-canary/v1",
+        "mode": "probe",
+        "family": "research/bl_round30/timing_colab.sh",
+    }
+    assert manifest["env"]["SNAKE_COLAB_CANARY"] == "1"
+    assert manifest["env"]["SNAKE_COLAB_CANARY_PACKAGE"] == "research/bl_round30"
+    assert manifest["timing_calibration"]["no_automatic_retry"] is True
+    assert manifest["timing_calibration"]["deadlines"] == timing_pack.DEADLINES
+    assert manifest["timing_calibration"]["tested_dispatcher_sha256"] == digest(
+        timing_pack.ROOT / "tools/ops/dispatch.py"
+    )
+    reservation = json.loads((tmp_path / "packet/accounting-reservation.json").read_text())
+    assert reservation["retained_liability_minutes"] == 40
+    assert reservation["unused_difference_minutes"] == 10
+    assert reservation["nontransferable"] is True
     assert manifest["required_exports"] == ["timing.json"]
     assert "resume" not in manifest
     assert manifest["resume_exemption"]["kind"] == "short-canary"
@@ -83,10 +111,14 @@ def test_packet_is_timing_only_and_uses_opaque_frozen_bundle(tmp_path, monkeypat
     assert manifest["inputs"][0]["sha256"] == timing_pack.B8_SHA
     assert manifest["inputs"][1]["r30_private_bundle"]["opaque_reuse"] is True
     assert manifest["timing_calibration"]["scientific_admission"] == "not-applicable-timing-only"
-    assert manifest["timing_calibration"]["qualified_transport_status"] == "HOLD"
+    assert (
+        manifest["timing_calibration"]["qualified_transport_status"]
+        == "SOURCE_BOUND_PROBE_PENDING_ACCEPT"
+    )
     assert set(timing_pack.SOURCE_PATHS) == {
         *timing_pack.R30_SOURCE_PATHS,
         "tools/ops/qualification.py",
+        "tools/ops/dispatch.py",
     }
 
 
@@ -116,4 +148,17 @@ def test_source_closure_must_match_current_bytes(tmp_path, monkeypatch):
     value["source_hashes"] = {"research/bl_round30/timing_pack.py": "0" * 64}
     config.write_text(json.dumps(value))
     with pytest.raises(ValueError, match="source closure differs"):
+        timing_pack.load_timing_config(config, commit="a" * 40, control=control)
+
+
+@pytest.mark.parametrize("key,bad", [("amendment_sha256", "0" * 64), ("deadlines", {})])
+def test_config_rejects_amendment_or_deadline_drift(tmp_path, monkeypatch, key, bad):
+    from research.bl_round30 import timing_pack
+
+    _fixture(tmp_path, monkeypatch, timing_pack)
+    config, control = _config(tmp_path, timing_pack)
+    value = json.loads(config.read_text())
+    value[key] = bad
+    config.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="calibration contract"):
         timing_pack.load_timing_config(config, commit="a" * 40, control=control)

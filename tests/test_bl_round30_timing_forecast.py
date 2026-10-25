@@ -29,6 +29,7 @@ def _report() -> dict:
         "complete": True,
         "synthetic": False,
         "ruling_sha256": timing.RULING_SHA,
+        "amendment_sha256": timing.AMENDMENT_SHA,
         "config_sha256": "a" * 64,
         "source_commit": "b" * 40,
         "source_hashes": {path: "c" * 64 for path in identity_paths()},
@@ -41,6 +42,7 @@ def _report() -> dict:
         "control_sha256": "1" * 64,
         "bundle_sha256": "2" * 64,
         "schedule": timing.SCHEDULE,
+        "deadlines": timing.DEADLINES,
         "device": "cuda",
         "threads": 1,
         "row_count": 2,
@@ -78,6 +80,7 @@ def _operational(report: dict) -> dict:
     return {
         "schema": timing_forecast.OPERATIONAL_SCHEMA,
         "ruling_sha256": timing.RULING_SHA,
+        "amendment_sha256": timing.AMENDMENT_SHA,
         "source_commit": report["source_commit"],
         "control_sha256": report["control_sha256"],
         "input_hashes": report["input_hashes"],
@@ -103,8 +106,8 @@ def test_forecast_uses_frozen_conservative_formula_once():
     report = _report()
     result = timing_forecast.forecast(report, _operational(report))
     # fixed phases 13, Adam 600, closures 2500, bookkeeping 300, certificate
-    # + export 2, worker residual 44, supervisor residual 30, output 150.
-    assert result["measured_est_seconds"] == 3639.0
+    # + export 2, worker residual 43, supervisor residual 30, output 150.
+    assert result["measured_est_seconds"] == 3638.0
     assert result["within_main_ceiling"] is False
     assert result["g4_status"] == "PENDING_INDEPENDENT_REVIEW"
     assert result["g5_status"] == "PENDING_ACCEPT"
@@ -180,3 +183,83 @@ def test_exact_main_ceiling_is_accepted():
     result = timing_forecast.forecast(report, operational)
     assert result["measured_est_seconds"] == 3180.0
     assert result["within_main_ceiling"] is True
+
+
+@pytest.mark.parametrize("elapsed", [1800.0, 1800.1, 2400.0])
+def test_forecast_refuses_whole_session_deadline(elapsed):
+    report = _report()
+    operational = _operational(report)
+    operational["supervisor_receipt"]["elapsed_seconds"] = elapsed
+    with pytest.raises(ValueError, match="supervisor calibration timeout"):
+        timing_forecast.forecast(report, operational)
+
+
+def test_probe_only_decision_overhead_is_excluded_from_main_forecast():
+    report = _report()
+    first = timing_forecast.forecast(report, _operational(report))
+    report["phase_seconds"]["b8_masked_action_decision"] += 2
+    report["worker_seconds"] += 2
+    operational = _operational(report)
+    operational["supervisor_receipt"]["elapsed_seconds"] += 2
+    second = timing_forecast.forecast(report, operational)
+    assert first["measured_est_seconds"] == second["measured_est_seconds"]
+
+
+@pytest.mark.parametrize(
+    "field,bad",
+    [
+        ("timeout_minutes", 40),
+        ("canary", {}),
+        ("timing_calibration", {"no_automatic_retry": False}),
+    ],
+)
+def test_cli_bindings_reject_old_or_uninstrumented_manifest(tmp_path, field, bad):
+    from research.bl_ppo.exports import digest, export_json
+
+    report = _report()
+    config = {
+        "source_hashes": report["source_hashes"],
+        "deadlines": timing.DEADLINES,
+        "amendment_sha256": timing.AMENDMENT_SHA,
+    }
+    review = {"decision": "ACCEPT"}
+    config_path, review_path, manifest_path = (
+        tmp_path / name for name in ("config.json", "review.json", "job.json")
+    )
+    export_json(config_path, config)
+    export_json(review_path, review)
+    report["config_sha256"] = digest(config_path)
+    manifest = {
+        "commit": report["source_commit"],
+        "output_dir": str(tmp_path / "output"),
+        "required_exports": ["timing.json"],
+        "env": {"R30_TIMING_CONFIG_SHA256": report["config_sha256"]},
+        "timeout_minutes": 30,
+        "requirements": {"est_minutes": 15},
+        "resume_exemption": {"timeout_minutes": 30},
+        "canary": {
+            "schema": "colab-family-canary/v1",
+            "mode": "probe",
+            "family": "research/bl_round30/timing_colab.sh",
+        },
+        "timing_calibration": {"no_automatic_retry": True},
+    }
+    manifest[field] = bad
+    export_json(manifest_path, manifest)
+    operational = _operational(report)
+    operational.update(
+        calibration_manifest_sha256=digest(manifest_path),
+        timing_config_sha256=digest(config_path),
+        independent_review_sha256=digest(review_path),
+    )
+    with pytest.raises(ValueError, match="probe deadlines/amendment"):
+        timing_forecast._validate_cli_bindings(
+            report,
+            operational,
+            manifest,
+            config,
+            review,
+            manifest_path=manifest_path,
+            config_path=config_path,
+            review_path=review_path,
+        )

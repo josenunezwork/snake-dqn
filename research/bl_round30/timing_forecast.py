@@ -108,6 +108,7 @@ def _operational(value: object, report: dict[str, Any]) -> dict[str, Any]:
     required = {
         "schema",
         "ruling_sha256",
+        "amendment_sha256",
         "source_commit",
         "control_sha256",
         "input_hashes",
@@ -129,7 +130,10 @@ def _operational(value: object, report: dict[str, Any]) -> dict[str, Any]:
     }
     if set(value) != required:
         raise ValueError("timing operational metadata keys differ")
-    if value["ruling_sha256"] != timing.RULING_SHA:
+    if (
+        value["ruling_sha256"] != timing.RULING_SHA
+        or value["amendment_sha256"] != timing.AMENDMENT_SHA
+    ):
         raise ValueError("timing ruling binding differs")
     if value["source_commit"] != report["source_commit"]:
         raise ValueError("source commit binding differs")
@@ -200,7 +204,7 @@ def forecast(report: dict[str, Any], operational: dict[str, Any]) -> dict[str, A
     worker = _number(report["worker_seconds"], "worker_seconds", positive=True)
     receipt = operational["supervisor_receipt"]
     supervisor = _number(receipt["elapsed_seconds"], "supervisor elapsed_seconds", positive=True)
-    if supervisor > 2400:
+    if supervisor >= timing.DEADLINES["whole_session_seconds"]:
         raise ValueError("supervisor calibration timeout")
     if supervisor < worker:
         raise ValueError("supervisor elapsed time is below reconciled worker time")
@@ -235,6 +239,8 @@ def forecast(report: dict[str, Any], operational: dict[str, Any]) -> dict[str, A
         raise ValueError("operational metadata does not bind timing report bytes")
     return {
         "schema": SCHEMA,
+        "amendment_sha256": timing.AMENDMENT_SHA,
+        "deadlines": timing.DEADLINES,
         "source_commit": report["source_commit"],
         "input_control_sha256": report["control_sha256"],
         "timing_report_sha256": report_sha,
@@ -248,6 +254,7 @@ def forecast(report: dict[str, Any], operational: dict[str, Any]) -> dict[str, A
         "g5_status": "PENDING_ACCEPT",
         "formula": {
             "fixed_phase_seconds": fixed,
+            "excluded_probe_decision_seconds": float(phase["b8_masked_action_decision"]),
             "worker_phase_residual_seconds": worker_phase_residual,
             "adam_block_seconds": adam_per_ten,
             "adam_extrapolated_seconds": 2000.0 * adam_per_ten / 10.0,
@@ -321,6 +328,23 @@ def _validate_cli_bindings(
         or manifest.get("env", {}).get("R30_TIMING_CONFIG_SHA256") != report["config_sha256"]
     ):
         raise ValueError("calibration manifest timing binding differs")
+    from research.bl_round30.timing_pack import BASE_MINUTES, EFFECTIVE_MINUTES
+
+    if (
+        manifest.get("timeout_minutes") != EFFECTIVE_MINUTES
+        or manifest.get("requirements", {}).get("est_minutes") != BASE_MINUTES
+        or manifest.get("resume_exemption", {}).get("timeout_minutes") != EFFECTIVE_MINUTES
+        or manifest.get("canary")
+        != {
+            "schema": "colab-family-canary/v1",
+            "mode": "probe",
+            "family": "research/bl_round30/timing_colab.sh",
+        }
+        or manifest.get("timing_calibration", {}).get("no_automatic_retry") is not True
+        or config.get("deadlines") != timing.DEADLINES
+        or config.get("amendment_sha256") != timing.AMENDMENT_SHA
+    ):
+        raise ValueError("calibration probe deadlines/amendment differ")
     if config.get("source_hashes") != report["source_hashes"]:
         raise ValueError("timing config source hash binding differs")
 
