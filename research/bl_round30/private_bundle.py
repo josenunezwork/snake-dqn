@@ -44,6 +44,8 @@ _BASE_NAMES = {
     "partition-manifest.json",
     "coverage-approval.json",
     "life-id-map.json",
+    "sampler-plan.npz",
+    "sampler-plan.json",
 }
 
 

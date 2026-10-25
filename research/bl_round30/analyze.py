@@ -175,6 +175,23 @@ def resolved_conversion(
     return conversion
 
 
+def _claim_and_load_unit(look_path: Path, binding_path: Path, unit_path: Path, stage: str) -> dict:
+    """Claim the canonical look before deserializing any sealed diagnostics."""
+    export_json(
+        look_path,
+        {
+            "schema": "r30-one-look/v1",
+            "binding_sha256": digest(binding_path),
+            "unit_sha256": digest(unit_path),
+            "stage": stage,
+        },
+    )
+    # The fence deliberately precedes checkpoint/table deserialization.  An
+    # already-created canonical look therefore exposes neither sealed unit nor
+    # outcome bytes to a second caller, even if its later identity fails.
+    return torch.load(unit_path, map_location="cpu", weights_only=False)
+
+
 def analyze(
     unit_path: Path, table_path: Path, binding_path: Path, output: Path, *, stage: str
 ) -> dict:
@@ -260,17 +277,6 @@ def analyze(
         or binding.get("mac_rowwise_admission") is not True
     ):
         raise ValueError("INVALID: stale analyzer/endpoints/partition binding")
-    unit = torch.load(unit_path, map_location="cpu", weights_only=False)
-    if (
-        unit.get("synthetic") is not False
-        or unit.get("ruling_sha256") != JUDGMENT_SHA
-        or unit.get("amendment_sha256") != AMENDMENT_SHA
-        or unit.get("heldout_outcomes_opened") is not False
-        or unit.get("allocation") != binding.get("allocation")
-        or unit.get("source_commit") != binding.get("source_commit")
-        or unit.get("stage") != stage
-    ):
-        raise ValueError("INVALID: foreign endpoint")
     if stage == "r30-2":
         diagnosis_path = Path(binding["diagnosis_path"])
         from research.bl_round30.protocol import bound_json
@@ -283,15 +289,17 @@ def analyze(
     look_path = look_root / (admitted.allocation_sha256 + "-" + stage + ".json")
     if binding.get("look_path") != str(look_path):
         raise ValueError("INVALID: noncanonical look binding")
-    export_json(
-        look_path,
-        {
-            "schema": "r30-one-look/v1",
-            "binding_sha256": digest(binding_path),
-            "unit_sha256": digest(unit_path),
-            "stage": stage,
-        },
-    )
+    unit = _claim_and_load_unit(look_path, binding_path, unit_path, stage)
+    if (
+        unit.get("synthetic") is not False
+        or unit.get("ruling_sha256") != JUDGMENT_SHA
+        or unit.get("amendment_sha256") != AMENDMENT_SHA
+        or unit.get("heldout_outcomes_opened") is not False
+        or unit.get("allocation") != binding.get("allocation")
+        or unit.get("source_commit") != binding.get("source_commit")
+        or unit.get("stage") != stage
+    ):
+        raise ValueError("INVALID: foreign endpoint")
     with np.load(table_path, allow_pickle=False) as archive:
         table = {key: archive[key] for key in archive.files}
     validate_rows(table)

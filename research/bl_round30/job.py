@@ -7,6 +7,7 @@ import json
 import os
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +85,19 @@ def preflight_inputs(input_dir: Path, *, mode: str, commit: str | None = None) -
         or life_id_map.get("inventory_sha256") != admitted.inventory_sha256
     ):
         raise ValueError("partition manifest/coverage approval/global life map differs")
+    sampler_plan = bound_json(input_dir / "sampler-plan.json", control["sampler_plan_sha256"])
+    if (
+        sampler_plan.get("schema") != "r30-scientific-sampler-plan/v1"
+        or sampler_plan.get("source_commit") != control.get("commit")
+        or sampler_plan.get("train_sha256") != control.get("input_hashes", {}).get("train.npz")
+        or sampler_plan.get("plan_sha256") != control.get("sampler_plan_bytes_sha256")
+        or sampler_plan.get("fit_seed") != 3403
+        or sampler_plan.get("audit_seed") != 3404
+        or sampler_plan.get("batches_per_plan") != 2000
+        or sampler_plan.get("features_constructed") is not False
+        or sampler_plan.get("fit_performed") is not False
+    ):
+        raise ValueError("frozen scientific sampler metadata differs")
     allowed = {
         "b8.pth",
         "train.npz",
@@ -92,11 +106,21 @@ def preflight_inputs(input_dir: Path, *, mode: str, commit: str | None = None) -
         "partition-manifest.json",
         "coverage-approval.json",
         "life-id-map.json",
+        "sampler-plan.npz",
+        "sampler-plan.json",
         "successor-gate.json",
         "diagnosis.json",
     }
-    if not {"b8.pth", "train.npz"} <= control.get("input_hashes", {}).keys():
-        raise ValueError("bound training partition and B8 required")
+    if (
+        not {
+            "b8.pth",
+            "train.npz",
+            "sampler-plan.npz",
+            "sampler-plan.json",
+        }
+        <= control.get("input_hashes", {}).keys()
+    ):
+        raise ValueError("bound training partition, sampler plan, and B8 required")
     if not set(control["input_hashes"]) <= allowed:
         raise ValueError("foreign input: validation/archive outcomes must stay on Mac")
     if mode == "r30-2":
@@ -114,7 +138,7 @@ def preflight_inputs(input_dir: Path, *, mode: str, commit: str | None = None) -
     return control
 
 
-def _load_training(input_dir: Path, control: dict) -> dict[str, np.ndarray]:
+def _load_training(input_dir: Path, control: dict, updates: int = 2000) -> dict[str, np.ndarray]:
     """Only the admitted train file is permitted at this boundary."""
     if "train.npz" not in control["input_hashes"]:
         raise ValueError("training partition is not bound")
@@ -161,6 +185,12 @@ def _load_training(input_dir: Path, control: dict) -> dict[str, np.ndarray]:
         raise ValueError("tranche-local parent/life identity collision")
     if len(source_to_life) != len({index for _, _, index in source_to_life.values()}):
         raise ValueError("global life integer map collision")
+    from research.bl_round30.batch_plan import verify_plan_bytes
+
+    # Identity validation precedes the runtime sampler reproduction.  The worker
+    # consumes the exact G1-frozen list prefix for a native three-update canary
+    # and the entire list for a scientific fit.
+    verify_plan_bytes(input_dir / "sampler-plan.npz", table, updates=updates)
     return table
 
 
@@ -179,6 +209,15 @@ def _checkpoint(base: Any, parameters: torch.Tensor, state: dict) -> dict:
         "parameters": parameters.detach().cpu(),
         "execution_dtype": "float32",
     }
+
+
+def _table_for_mode(input_dir: Path, control: dict, *, synthetic: bool, base: Any) -> dict:
+    """Keep an exact-input canary on real rows while retaining its short fit."""
+    if synthetic and control.get("synthetic") is True:
+        from research.bl_round30.fixture import synthetic_table
+
+        return synthetic_table(base)
+    return _load_training(input_dir, control, 3 if synthetic else 2000)
 
 
 def reloaded_canary_actions(endpoint: dict, table: dict, device: str) -> list[int]:
@@ -310,12 +349,7 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
             from research.bl_round30.objective import execute_packet
 
             base = load_ego2s_checkpoint(str(input_dir / "b8.pth"))
-            if synthetic and control.get("synthetic") is True:
-                from research.bl_residual.job import synthetic_table
-
-                table = synthetic_table(base)
-            else:
-                table = _load_training(input_dir, control)
+            table = _table_for_mode(input_dir, control, synthetic=synthetic, base=base)
             cache_started = time.monotonic()
             cache = tensor_cache(table, base.to(device), batch_size=1)
             feature_cache_seconds = time.monotonic() - cache_started

@@ -131,16 +131,14 @@ def _positive_number(value: object, name: str) -> float:
 
 
 def _main_operational_guard(
-    accounting: dict, stage: str, remaining_before_canary: object
+    accounting: dict, stage: str, remaining_before_canary: object, measured_estimate: object
 ) -> tuple[float, float, float]:
     """Derive the only unit guard from remaining wall time and an observed rate."""
     rate = _positive_number(accounting.get("verified_rate_units_per_hour"), "verified L4 rate")
     if rate <= 0:
         raise ValueError("verified positive L4 rate required for operational guard")
     remaining = _positive_number(remaining_before_canary, "remaining series minutes")
-    measured_estimate = _positive_number(
-        accounting.get("measured_est_minutes"), "measured runtime estimate"
-    )
+    measured_estimate = _positive_number(measured_estimate, "measured runtime estimate")
     remaining -= CANARY_WALL_MINUTES
     if remaining <= 0:
         raise ValueError("INCOMPLETE: no wall allowance remains after exact-input canary liability")
@@ -150,6 +148,34 @@ def _main_operational_guard(
         )
     work_units = remaining / 60 * rate
     return remaining, rate, work_units
+
+
+def _runtime_forecast(
+    path: Path | None, *, commit: str, canary_receipt: Path | None, input_control: Path
+) -> tuple[float, str]:
+    """Bind a Mac-only post-canary estimate without mutating uploaded series bytes."""
+    if path is None or canary_receipt is None:
+        raise ValueError("main requires a Mac-only runtime forecast and exact-input canary receipt")
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or canary_receipt.is_symlink()
+        or not canary_receipt.is_file()
+    ):
+        raise ValueError("runtime forecast/canary receipt must be regular files")
+    value = json.loads(path.read_text())
+    if (
+        not isinstance(value, dict)
+        or value.get("schema") != "r30-runtime-forecast/v1"
+        or value.get("source_commit") != commit
+        or value.get("canary_receipt_sha256") != digest(canary_receipt)
+        or value.get("input_control_sha256") != digest(input_control)
+    ):
+        raise ValueError("runtime forecast source/canary/control binding differs")
+    estimate = _positive_number(value.get("measured_est_minutes"), "measured runtime estimate")
+    if estimate <= 0:
+        raise ValueError("positive measured runtime estimate required")
+    return estimate, digest(path)
 
 
 def _canary_operational_guard(accounting: dict, stage: str) -> tuple[float, float, float]:
@@ -177,6 +203,7 @@ def make_pack(
     canary_receipt: Path | None = None,
     preflight_receipt: Path | None = None,
     canary_only: bool = False,
+    runtime_forecast: Path | None = None,
 ) -> dict:
     """Bind the published pin, allowed input destinations and immutable envelope.
 
@@ -246,12 +273,18 @@ def make_pack(
                 5,
             )
         else:
+            measured_estimate, runtime_forecast_sha256 = _runtime_forecast(
+                runtime_forecast,
+                commit=commit,
+                canary_receipt=canary_receipt,
+                input_control=inputs / "control.json",
+            )
             accounting_remaining = require_series(accounting, stage)["remaining_minutes"]
             cap_minutes, rate, cap_units = _main_operational_guard(
-                accounting, stage, accounting_remaining
+                accounting, stage, accounting_remaining, measured_estimate
             )
             cap_hours = cap_minutes / 60
-            estimate_minutes = int(math.ceil(accounting["measured_est_minutes"]))
+            estimate_minutes = int(math.ceil(measured_estimate))
     else:
         control = {
             "schema": "r30-control/v1",
@@ -358,6 +391,8 @@ def make_pack(
             "main_admission": "HOLD" if synthetic or canary_only else "ADMITTED",
         },
     }
+    if not synthetic and not canary_only:
+        manifest["r30"]["runtime_forecast_sha256"] = runtime_forecast_sha256
     if preflight_passed:
         manifest["r30"]["mac_preflight"] = {
             "path": str(preflight_receipt.resolve()),
@@ -479,6 +514,7 @@ def main() -> None:
     parser.add_argument("--canary-receipt", type=Path)
     parser.add_argument("--preflight-receipt", type=Path)
     parser.add_argument("--canary-only", action="store_true")
+    parser.add_argument("--runtime-forecast", type=Path)
     args = parser.parse_args()
     value = make_pack(
         args.output.resolve(),
@@ -490,6 +526,7 @@ def main() -> None:
         canary_receipt=args.canary_receipt,
         preflight_receipt=args.preflight_receipt,
         canary_only=args.canary_only,
+        runtime_forecast=args.runtime_forecast,
     )
     print(json.dumps({"manifest": str(args.output / "job.json"), "job_id": value["job_id"]}))
 

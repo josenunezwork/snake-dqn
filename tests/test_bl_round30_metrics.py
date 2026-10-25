@@ -183,3 +183,22 @@ def test_heldout_dying_selection_keeps_its_finite_survivor_reference_regret():
     result = heldout_reducer(rows, natural_rows=[_row(parent=100)])
     assert result["control_regret"] == 7
     assert result["failed_selection"]["control"] == 32
+
+
+def test_existing_canonical_look_never_deserializes_diagnostics(tmp_path, monkeypatch):
+    import pytest
+
+    from research.bl_round30 import analyze
+
+    look, binding, unit = (tmp_path / x for x in ("look.json", "binding.json", "unit.pth"))
+    look.write_text("already claimed")
+    binding.write_text("metadata")
+    unit.write_bytes(b"sealed diagnostic fixture")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("sealed payload deserialized on a second look")
+
+    monkeypatch.setattr(analyze.torch, "load", forbidden)
+    monkeypatch.setattr(analyze.np, "load", forbidden)
+    with pytest.raises(FileExistsError):
+        analyze._claim_and_load_unit(look, binding, unit, "r30-1")

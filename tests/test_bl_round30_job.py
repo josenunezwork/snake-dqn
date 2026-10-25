@@ -157,8 +157,8 @@ def test_real_entrypoint_three_tiny_units_and_exact_skip(tmp_path: Path) -> None
     unit = torch.load(tmp_path / "out-0/unit-0000.pth", weights_only=False)
     assert unit["synthetic"] and unit["endpoints"]
     # Consumer really reloads the fused checkpoint and uses rowwise Mac actions.
-    from research.bl_residual.job import synthetic_table
     from research.bl_round30.analyze import rows_from_table, rowwise_q
+    from research.bl_round30.fixture import synthetic_table
     from research.bl_round30.metrics import served_selection
     from src.model.ego2s_network import load_ego2s_checkpoint
 
@@ -202,6 +202,14 @@ def test_stale_pin_and_partial_export_refuse(tmp_path: Path) -> None:
     Path(str(tmp_path / "partial.json") + ".complete").unlink()
     with pytest.raises(ValueError, match="missing"):
         verify_export(tmp_path / "partial.json")
+
+
+def test_exact_input_canary_uses_real_training_table(monkeypatch, tmp_path: Path) -> None:
+    from research.bl_round30 import job
+
+    real = {"real": True}
+    monkeypatch.setattr(job, "_load_training", lambda *_: real)
+    assert job._table_for_mode(tmp_path, {"synthetic": False}, synthetic=True, base=None) is real
 
 
 def test_series_first_local_or_combined_cap_and_no_science_retry() -> None:

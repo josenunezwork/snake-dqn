@@ -66,6 +66,17 @@ def prepare(
         shutil.copyfile(Path(str(life_id_map) + suffix), output / ("life-id-map.json" + suffix))
     shutil.copyfile(train, output / "train.npz")
     shutil.copyfile(b8, output / "b8.pth")
+    # Freeze only the original sampler's row identities and RNG-derived index
+    # lists.  This comes after all G1/coverage checks and before control hashing;
+    # it deliberately opens no feature payload and performs no fitting.
+    from research.bl_round30.batch_plan import freeze_plan
+
+    sampler_plan = freeze_plan(
+        output / "train.npz",
+        output,
+        source_commit=commit,
+        train_sha256=digest(output / "train.npz"),
+    )
     hashes = {
         name: digest(output / name)
         for name in (
@@ -74,6 +85,8 @@ def prepare(
             "partition-manifest.json",
             "coverage-approval.json",
             "life-id-map.json",
+            "sampler-plan.npz",
+            "sampler-plan.json",
         )
     }
     control = {
@@ -91,6 +104,8 @@ def prepare(
         "partition_manifest_sha256": hashes["partition-manifest.json"],
         "coverage_approval_sha256": hashes["coverage-approval.json"],
         "life_id_map_sha256": hashes["life-id-map.json"],
+        "sampler_plan_sha256": hashes["sampler-plan.json"],
+        "sampler_plan_bytes_sha256": sampler_plan["plan_sha256"],
         "horizon": 300,
         "mass_convention": "full-horizon-dead-zero",
         "continuation_sha256": inventory["continuation_sha256"],

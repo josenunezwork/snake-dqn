@@ -37,6 +37,19 @@ def _private_transport_fixture(destination, archive):
     ]
 
 
+def _runtime_forecast(path, *, receipt, control, estimate=10):
+    export_json(
+        path,
+        {
+            "schema": "r30-runtime-forecast/v1",
+            "source_commit": "a" * 40,
+            "canary_receipt_sha256": digest(receipt),
+            "input_control_sha256": digest(control),
+            "measured_est_minutes": estimate,
+        },
+    )
+
+
 def test_native_canary_covers_exact_main_inventory_and_reserves_liability(tmp_path, monkeypatch):
     from research.bl_round30 import job, pack
 
@@ -69,11 +82,22 @@ def test_native_canary_covers_exact_main_inventory_and_reserves_liability(tmp_pa
                 "stage_minutes": 0,
                 "combined_minutes": 0,
                 "verified_rate_units_per_hour": 1.54,
-                "measured_est_minutes": 10,
             }
         )
     )
-    manifest = make_pack(tmp_path / "pack", "a" * 40, b8, inputs=inputs, series=series)
+    receipt = tmp_path / "canary-receipt.json"
+    export_json(receipt, {"canary": "receipt"})
+    forecast = tmp_path / "runtime-forecast.json"
+    _runtime_forecast(forecast, receipt=receipt, control=inputs / "control.json")
+    manifest = make_pack(
+        tmp_path / "pack",
+        "a" * 40,
+        b8,
+        inputs=inputs,
+        series=series,
+        canary_receipt=receipt,
+        runtime_forecast=forecast,
+    )
     probe = json.loads((tmp_path / "pack/canary-job.json").read_text())
     assert "resume" not in probe
     assert probe["resume_exemption"]["kind"] == "short-canary"
@@ -84,6 +108,7 @@ def test_native_canary_covers_exact_main_inventory_and_reserves_liability(tmp_pa
     assert probe["timeout_minutes"] + manifest["timeout_minutes"] == 144
     assert manifest["budget"]["unit_cap"] == 124 / 60 * 1.54
     assert manifest["budget"]["reserve_units"] == 124 / 60 * 1.54 * 0.20
+    assert manifest["r30"]["runtime_forecast_sha256"] == digest(forecast)
     assert not any("validation" in row["dest"] for row in manifest["inputs"])
 
 
