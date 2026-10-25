@@ -121,6 +121,53 @@ def test_synthetic_canary_declares_short_exemption_and_main_keeps_resume(tmp_pat
     assert template["resume"]["max_outcome_blind_retries"] == 2
 
 
+def test_exact_input_canary_does_not_require_main_runtime_estimate(tmp_path, monkeypatch):
+    from research.bl_round30 import job, pack
+
+    b8 = tmp_path / "b8.pth"
+    b8.write_bytes(b"exact-input fixture")
+    monkeypatch.setattr(pack, "B8_SHA", digest(b8))
+    monkeypatch.setattr(
+        pack.subprocess,
+        "check_output",
+        lambda *a, **k: b"" if ("diff" in a[0] or "ls-files" in a[0]) else "a" * 40,
+    )
+    monkeypatch.setattr(pack.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(pack, "check", lambda *a, **k: "qualified fixture tree")
+    monkeypatch.setattr(pack, "transport_inputs", _private_transport_fixture)
+    monkeypatch.setattr(job, "preflight_inputs", lambda *a, **k: {"input_hashes": {}})
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    for name in ("control.json", "inventory.json", "approval.json", "verified-ledger.json"):
+        export_json(inputs / name, {"units": []})
+    series = tmp_path / "series.json"
+    series.write_text(
+        json.dumps(
+            {
+                "ruling_sha256": JUDGMENT_SHA,
+                "amendment_sha256": AMENDMENT_SHA,
+                "attempt": 0,
+                "stage_minutes": 0,
+                "combined_minutes": 0,
+                "verified_rate_units_per_hour": 1.54,
+            }
+        )
+    )
+    canary = make_pack(
+        tmp_path / "canary", "a" * 40, b8, inputs=inputs, series=series, canary_only=True
+    )
+    template = json.loads((tmp_path / "canary/main-template.json").read_text())
+    assert canary["canary"]["mode"] == "probe"
+    assert canary["timeout_minutes"] == 20
+    assert canary["budget"]["unit_cap"] == 20 / 60 * 1.54
+    assert canary["budget"]["reserve_units"] == 20 / 60 * 1.54 * 0.20
+    assert "est_minutes" not in template["requirements"]
+    assert "canary" not in template
+    assert "SNAKE_COLAB_CANARY" not in template["env"]
+    assert template["scientific_admission"] is False
+    assert "measured runtime forecast" in template["blocked_reason"]
+
+
 def test_private_transport_is_lossless_standard_bar_bound_and_excludes_public_b8(
     tmp_path, monkeypatch
 ):

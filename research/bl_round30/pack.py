@@ -152,6 +152,20 @@ def _main_operational_guard(
     return remaining, rate, work_units
 
 
+def _canary_operational_guard(accounting: dict, stage: str) -> tuple[float, float, float]:
+    """Reserve the exact-input canary from verified wall/rate evidence only."""
+    rate = _positive_number(accounting.get("verified_rate_units_per_hour"), "verified L4 rate")
+    if rate <= 0:
+        raise ValueError("verified positive L4 rate required for operational guard")
+    remaining = _positive_number(
+        require_series(accounting, stage)["remaining_minutes"], "remaining series minutes"
+    )
+    if remaining < CANARY_WALL_MINUTES:
+        raise ValueError("INCOMPLETE: no wall allowance remains for exact-input canary")
+    canary_units = CANARY_WALL_MINUTES / 60 * rate
+    return remaining - CANARY_WALL_MINUTES, rate, canary_units
+
+
 def make_pack(
     output: Path,
     commit: str,
@@ -162,6 +176,7 @@ def make_pack(
     series: Path | None = None,
     canary_receipt: Path | None = None,
     preflight_receipt: Path | None = None,
+    canary_only: bool = False,
 ) -> dict:
     """Bind the published pin, allowed input destinations and immutable envelope.
 
@@ -214,6 +229,8 @@ def make_pack(
             raise ValueError("current-source Mac preflight has not passed")
         preflight_passed = True
     synthetic = inputs is None
+    if canary_only and synthetic:
+        raise ValueError("exact-input canary requires admitted real inputs")
     if not synthetic:
         from research.bl_round30.job import preflight_inputs
 
@@ -221,12 +238,20 @@ def make_pack(
         if series is None:
             raise ValueError("main needs cumulative accounting")
         accounting = json.loads(series.read_text())
-        accounting_remaining = require_series(accounting, stage)["remaining_minutes"]
-        cap_minutes, rate, cap_units = _main_operational_guard(
-            accounting, stage, accounting_remaining
-        )
-        cap_hours = cap_minutes / 60
-        estimate_minutes = int(math.ceil(accounting["measured_est_minutes"]))
+        if canary_only:
+            remaining_after_canary, rate, cap_units = _canary_operational_guard(accounting, stage)
+            cap_minutes, cap_hours, estimate_minutes = (
+                CANARY_WALL_MINUTES,
+                CANARY_WALL_MINUTES / 60,
+                5,
+            )
+        else:
+            accounting_remaining = require_series(accounting, stage)["remaining_minutes"]
+            cap_minutes, rate, cap_units = _main_operational_guard(
+                accounting, stage, accounting_remaining
+            )
+            cap_hours = cap_minutes / 60
+            estimate_minutes = int(math.ceil(accounting["measured_est_minutes"]))
     else:
         control = {
             "schema": "r30-control/v1",
@@ -290,7 +315,7 @@ def make_pack(
     inventory = transport_inputs(destination, output / "private-inputs.tar.gz")
     private_bundle = next(row for row in inventory if row["dest"] == "private-inputs.tar.gz")
     manifest = {
-        "job_id": f"r30-{stage}-{'canary' if synthetic else 'main'}-{commit[:8]}",
+        "job_id": f"r30-{stage}-{'canary' if synthetic or canary_only else 'main'}-{commit[:8]}",
         "commit": commit,
         "script": "research/bl_round30/colab.sh",
         "source_paths": SOURCE_PATHS,
@@ -306,7 +331,7 @@ def make_pack(
         "inputs": inventory,
         "env": {
             "R30_DEVICE": "cuda",
-            "R30_MODE": "canary" if synthetic else stage,
+            "R30_MODE": "canary" if synthetic or canary_only else stage,
             "COLAB_CLI_REQUIREMENTS": "research/bl_round30/requirements.txt",
             "R30_PRIVATE_BUNDLE_SHA256": private_bundle["sha256"],
         },
@@ -330,7 +355,7 @@ def make_pack(
             "canary_base_minutes": 10,
             "canary_effective_minutes": 20,
             "synthetic": synthetic,
-            "main_admission": "HOLD" if synthetic else "ADMITTED",
+            "main_admission": "HOLD" if synthetic or canary_only else "ADMITTED",
         },
     }
     if preflight_passed:
@@ -339,7 +364,7 @@ def make_pack(
             "sha256": digest(preflight_receipt),
             "source_commit": commit,
         }
-    if synthetic:
+    if synthetic or canary_only:
         manifest.pop("resume")
         manifest["resume_exemption"] = dict(CANARY_EXEMPTION)
         manifest["canary"] = {
@@ -357,7 +382,7 @@ def make_pack(
     else:
         manifest["scientific_admission"] = False
         manifest["blocked_reason"] = "HOLD: exact-input current-pin native canary pending"
-    if not synthetic:
+    if not synthetic and not canary_only:
         # Exact inventory (including unchanged accounting bytes) is necessary to
         # qualify a main job. The synthetic-only rehearsal above cannot do so.
         native_canary = {
@@ -392,19 +417,52 @@ def make_pack(
         manifest["scientific_admission"] = False
         manifest["blocked_reason"] = "HOLD: current-source Mac preflight pending"
     export_json(output / "job.json", manifest)
-    if synthetic:
+    if synthetic or canary_only:
         template = {
             **manifest,
             "scientific_admission": False,
-            "blocked_reason": "HOLD: Claude corpus reuse/account reservation and Codex-V admission",
+            "blocked_reason": (
+                "HOLD: measured runtime forecast and exact-input native canary pending"
+                if canary_only
+                else "HOLD: Claude corpus reuse/account reservation and Codex-V admission"
+            ),
         }
         template.pop("resume_exemption")
+        template.pop("canary")
         template["resume"] = dict(RESUME_POLICY)
-        template["timeout_minutes"] = STAGE_WALL_CAP_MINUTES[stage] - CANARY_WALL_MINUTES
+        template["job_id"] = template["job_id"].replace("canary", "main")
+        template["env"] = {
+            key: value
+            for key, value in {**template["env"], "R30_MODE": stage}.items()
+            if key not in {"SNAKE_COLAB_CANARY", "SNAKE_COLAB_CANARY_PACKAGE"}
+        }
+        if canary_only:
+            template["timeout_minutes"] = remaining_after_canary
+            template["requirements"] = {
+                key: value
+                for key, value in template["requirements"].items()
+                if key != "est_minutes"
+            }
+            template["budget"] = {
+                **template["budget"],
+                "unit_cap": remaining_after_canary / 60 * rate,
+                "reserve_units": remaining_after_canary / 60 * rate * TECHNICAL_RATE_RESERVE,
+            }
+        else:
+            template["timeout_minutes"] = STAGE_WALL_CAP_MINUTES[stage] - CANARY_WALL_MINUTES
         template["budget"] = {
-            **manifest["budget"],
-            "unit_cap": template["timeout_minutes"] / 60 * 1.54,
-            "reserve_units": template["timeout_minutes"] / 60 * 1.54 * TECHNICAL_RATE_RESERVE,
+            **template["budget"],
+            **(
+                {}
+                if canary_only
+                else {
+                    "unit_cap": template["timeout_minutes"] / 60 * 1.54,
+                    "reserve_units": template["timeout_minutes"]
+                    / 60
+                    * 1.54
+                    * TECHNICAL_RATE_RESERVE,
+                }
+            ),
         }
         export_json(output / "main-template.json", template)
     return manifest
@@ -420,6 +478,7 @@ def main() -> None:
     parser.add_argument("--series", type=Path)
     parser.add_argument("--canary-receipt", type=Path)
     parser.add_argument("--preflight-receipt", type=Path)
+    parser.add_argument("--canary-only", action="store_true")
     args = parser.parse_args()
     value = make_pack(
         args.output.resolve(),
@@ -430,6 +489,7 @@ def main() -> None:
         series=args.series,
         canary_receipt=args.canary_receipt,
         preflight_receipt=args.preflight_receipt,
+        canary_only=args.canary_only,
     )
     print(json.dumps({"manifest": str(args.output / "job.json"), "job_id": value["job_id"]}))
 

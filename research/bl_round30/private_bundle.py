@@ -41,6 +41,9 @@ _BASE_NAMES = {
     "diagnosis.json",
     "unit-0000.pth",
     "allocation.json",
+    "partition-manifest.json",
+    "coverage-approval.json",
+    "life-id-map.json",
 }
 
 

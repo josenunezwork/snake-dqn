@@ -310,26 +310,55 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
             from research.bl_round30.objective import execute_packet
 
             base = load_ego2s_checkpoint(str(input_dir / "b8.pth"))
-            if synthetic:
+            if synthetic and control.get("synthetic") is True:
                 from research.bl_residual.job import synthetic_table
 
                 table = synthetic_table(base)
             else:
                 table = _load_training(input_dir, control)
+            cache_started = time.monotonic()
             cache = tensor_cache(table, base.to(device), batch_size=1)
+            feature_cache_seconds = time.monotonic() - cache_started
             # Real-valued solve uses the L4 host CPU; Adam can use CUDA.
             gate = (
                 json.loads((input_dir / "successor-gate.json").read_text())
                 if mode == "r30-2"
                 else {}
             )
+            fit_started = time.monotonic()
             result = execute_packet(
                 cache, synthetic=synthetic, successor=mode == "r30-2", gate=gate, device=device
             )
+            fit_and_certificate_seconds = time.monotonic() - fit_started
+            sampler_packet: dict[str, Any] | None = None
+            if control.get("synthetic") is False:
+                row_ids = table.get("row_id")
+                source_life_ids = table.get("source_life_id")
+                if row_ids is None or source_life_ids is None:
+                    raise ValueError("real packet lacks immutable row/source-life identities")
+                fit_indices = result["batch_indices"]
+                audit_indices = result["audit_indices"]
+                sampler_packet = {
+                    "source_commit": control["commit"],
+                    "train_sha256": control["input_hashes"]["train.npz"],
+                    "row_ids_by_index": row_ids.tolist(),
+                    "source_life_ids_by_index": source_life_ids.tolist(),
+                    "fit_indices": fit_indices,
+                    "audit_indices": audit_indices,
+                    "fit_multiplicities": dict(
+                        Counter(index for batch in fit_indices for index in batch)
+                    ),
+                    "audit_multiplicities": dict(Counter(audit_indices)),
+                    "cache_sha256": result["convergence_bindings"]
+                    .get("adam", {})
+                    .get("cache_sha256"),
+                }
+            fuse_started = time.monotonic()
             endpoints = {
                 name: _checkpoint(base.cpu(), endpoint["parameters"], endpoint["state"])
                 for name, endpoint in result.pop("endpoints").items()
             }
+            fused_checkpoint_seconds = time.monotonic() - fuse_started
             if mode == "r30-2":
                 from research.bl_round30.analyze import endpoint_sha256
 
@@ -348,6 +377,12 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
                 "endpoints": endpoints,
                 "diagnostics": result,
                 "heldout_outcomes_opened": False,
+                "stage_timings_seconds": {
+                    "feature_cache": feature_cache_seconds,
+                    "fit_and_certificate": fit_and_certificate_seconds,
+                    "fused_checkpoint": fused_checkpoint_seconds,
+                },
+                "sampler_packet": sampler_packet,
             }
             export_torch(output / "unit-0000.pth", unit, max_payload_bytes=120 * 1024**2)
         canary_actions = None

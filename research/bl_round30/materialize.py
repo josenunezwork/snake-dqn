@@ -127,6 +127,8 @@ def materialize(inventory_path: Path, approval_path: Path, output: Path) -> dict
         or approval.get("reviewer_role") != "Codex-V"
     ):
         raise AdmissionRefused("independent closed-F4 metadata approval scope required")
+    if approval.get("selector_sha256") != hashlib.sha256(Path(__file__).read_bytes()).hexdigest():
+        raise AdmissionRefused("fixed selector source differs from independent approval")
     # Refuse destinations and symlinks before any data access. The approved
     # inventory is already immutable; never edit it to add payload hashes.
     if output.exists() or output.is_symlink():

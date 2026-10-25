@@ -62,7 +62,8 @@ def prepare(
     export_json(output / "approval.json", json.loads(approval_path.read_text()))
     export_json(output / "partition-manifest.json", manifest)
     export_json(output / "coverage-approval.json", coverage)
-    shutil.copyfile(life_id_map, output / "life-id-map.json")
+    for suffix in ("", ".sha256", ".complete"):
+        shutil.copyfile(Path(str(life_id_map) + suffix), output / ("life-id-map.json" + suffix))
     shutil.copyfile(train, output / "train.npz")
     shutil.copyfile(b8, output / "b8.pth")
     hashes = {
