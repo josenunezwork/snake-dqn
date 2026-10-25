@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from research.bl_labels.d4096_resume import canonical_sha as collector_sha
 from research.bl_ppo.exports import digest, verify_export
 from research.bl_residual import f2
 from research.bl_residual.protocol import F4_REGISTRATION_SHA, allocation_hash, canonical_sha
@@ -27,6 +28,7 @@ CUTOFF = datetime.fromisoformat("2026-10-25T18:00:00-07:00").timestamp()
 SOURCE_FILES = tuple(
     sorted(
         set(f2.SOURCE_FILES)
+        | {"research/bl_labels/d256_resume.py", "research/bl_labels/d4096_resume.py"}
         | {str(path.relative_to(ROOT)) for path in (ROOT / "research/bl_residual").glob("*.py")}
     )
 )
@@ -239,8 +241,8 @@ def authoritative_starts() -> dict:
             or epoch <= 0
             or epoch > now_epoch()
             or value.get("namespace") != control["namespace"]
-            or value.get("allocation_sha256") != canonical_sha(control["allocation"])
-            or value.get("control_sha256") != canonical_sha(control)
+            or value.get("allocation_sha256") != collector_sha(control["allocation"])
+            or value.get("control_sha256") != collector_sha(control)
             or value.get("source_commit") != control["source_commit"]
         ):
             raise ValueError("R-A timing requires a sealed D4096 attempt-start receipt")

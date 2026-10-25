@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from research.bl_labels.d4096_resume import canonical_sha as collector_sha
 from research.bl_ppo.exports import digest, export_json
 from research.bl_residual import f2, github_authority, ra_guard
-from research.bl_residual.protocol import canonical_sha
 from tests.test_bl_residual_f2 import git_fixture, seal_fixture
 from tests.test_bl_residual_github_authority import _server_objects
 
@@ -131,7 +131,7 @@ def _authoritative(
         },
     }
     export_json(control_path.with_name("d4096-admitted.json"), admitted)
-    assert canonical_sha(admitted) != canonical_sha(control)
+    assert collector_sha(admitted) != collector_sha(control)
     path = state / "attempt-01.start.json"
     export_json(
         path,
@@ -141,8 +141,8 @@ def _authoritative(
             "judgment_sha256": f2.JUDGMENT_SHA,
             "started_epoch": epoch,
             "namespace": "d4096",
-            "allocation_sha256": canonical_sha(admitted["allocation"]),
-            "control_sha256": canonical_sha(admitted),
+            "allocation_sha256": collector_sha(admitted["allocation"]),
+            "control_sha256": collector_sha(admitted),
             "source_commit": admitted["source_commit"],
             **(overrides or {}),
         },

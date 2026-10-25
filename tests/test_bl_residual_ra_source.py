@@ -13,6 +13,8 @@ from research.bl_residual import ra_guard
 SOURCE_FILES = (
     "research/bl_residual/model.py",
     "research/bl_residual/funding.py",
+    "research/bl_labels/d256_resume.py",
+    "research/bl_labels/d4096_resume.py",
 )
 
 
@@ -33,6 +35,8 @@ def _repository(tmp_path: Path) -> tuple[Path, str]:
     for relative, payload in {
         "research/bl_residual/model.py": "MODEL = 'frozen'\n",
         "research/bl_residual/funding.py": "FUNDING = 'frozen'\n",
+        "research/bl_labels/d256_resume.py": "HASH_HELPER = 'frozen'\n",
+        "research/bl_labels/d4096_resume.py": "HASH_IMPORT = 'frozen'\n",
     }.items():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -77,15 +81,23 @@ def test_source_identity_refuses_source_pin_that_is_not_head(
         ra_guard.source_identity(pin)
 
 
+@pytest.mark.parametrize("relative", SOURCE_FILES)
 def test_source_identity_refuses_dirty_representative_source(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, relative: str
 ) -> None:
     root, pin = _repository(tmp_path)
-    (root / "research/bl_residual/model.py").write_text("MODEL = 'dirty'\n")
+    (root / relative).write_text("SOURCE = 'dirty'\n")
     _guard_root(monkeypatch, root)
 
     with pytest.raises(ValueError, match="source differs"):
         ra_guard.source_identity(pin)
+
+
+def test_source_identity_includes_collector_hash_implementation() -> None:
+    assert {
+        "research/bl_labels/d256_resume.py",
+        "research/bl_labels/d4096_resume.py",
+    } <= set(ra_guard.SOURCE_FILES)
 
 
 def test_source_identity_refuses_head_not_published_to_origin_main(
