@@ -55,14 +55,14 @@ class FakeCLI:
         self.rpc_codes.append(code)
         spec = json.loads(re.search(r"spec = (\{.*\})", code).group(1))
         if "UPLOAD_ASSEMBLE" in code:
-            data = b"".join(
-                self._path(f"{spec['parts']}/{index:08d}.part").read_bytes()
-                for index in range(spec["chunks"])
-            )
-            target = self._path(spec["target"])
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-            return {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+            # Exercise the production chunk/full hash, fsync, atomic publish
+            # and inline cleanup rather than simulating their acknowledgement.
+            for key in ("parts", "temporary", "target"):
+                spec[key] = str(self._path(spec[key]))
+            code = re.sub(r"spec = (\{[^\n]+\})", lambda _: "spec = " + repr(spec), code)
+            namespace = {}
+            exec(compile(code, "<fake-assembly>", "exec"), namespace)
+            return namespace["result"]
         if "DOWNLOAD_SPLIT" in code:
             data = self._path(spec["source"]).read_bytes()
             assert hashlib.sha256(data).hexdigest() == spec["sha256"]
@@ -75,7 +75,11 @@ class FakeCLI:
                 (directory / f"{index:08d}.part").write_bytes(piece)
             return {"sha256": spec["sha256"], "size": len(data), "chunks": len(chunks)}
         if "REMOVE_TREE" in code:
-            shutil.rmtree(self._path(spec["path"]), ignore_errors=True)
+            path = self._path(spec["path"])
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
             return True
         if "CREATE_DIR" in code:
             self._path(spec["path"]).mkdir(parents=True)

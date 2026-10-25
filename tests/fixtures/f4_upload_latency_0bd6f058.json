@@ -1,0 +1,155 @@
+{
+  "schema": "f4-upload-latency-replay/v1",
+  "receipt_sha256": "8bb428854e51f727f564d085a2c7c9a3cd1cfeabd56d9eb9d23cebc9083f0e3c",
+  "measurement_sha256": "714b430f2e26ede64ae913cfcbd0b465d14297cb1e2ce7d7119ee81e964e7b08",
+  "measurement": {
+    "elapsed_seconds": 220.22179129195865,
+    "setup_seconds": 1.3687461250228807,
+    "source_delivery_seconds": 11.504017250030302,
+    "transfer_seconds": 207.348055665032
+  },
+  "files": [
+    {
+      "name": "bootstrap.sh",
+      "size_bytes": 3244,
+      "elapsed_seconds": 3.3919287499738857,
+      "put_seconds": [
+        1.0012042910093442
+      ],
+      "control_seconds": {
+        "mkdir": 0,
+        "assemble": 0,
+        "verify": 2.3904300410067663,
+        "renewal": 0,
+        "cleanup": 0
+      },
+      "wrapper_overhead_seconds": 0.0002944179577752948
+    },
+    {
+      "name": "source.py",
+      "size_bytes": 14511,
+      "elapsed_seconds": 3.2728759589372203,
+      "put_seconds": [
+        1.0050724589964375
+      ],
+      "control_seconds": {
+        "mkdir": 0,
+        "assemble": 0,
+        "verify": 2.2673143330030143,
+        "renewal": 0,
+        "cleanup": 0
+      },
+      "wrapper_overhead_seconds": 0.0004891669377684593
+    },
+    {
+      "name": "acceptance_probe.py",
+      "size_bytes": 13101,
+      "elapsed_seconds": 2.8722303750691935,
+      "put_seconds": [
+        0.5551363750128075
+      ],
+      "control_seconds": {
+        "mkdir": 0,
+        "assemble": 0,
+        "verify": 2.316588749992661,
+        "renewal": 0,
+        "cleanup": 0
+      },
+      "wrapper_overhead_seconds": 0.0005052500637248158
+    },
+    {
+      "name": "acceptance_probe.sh",
+      "size_bytes": 236,
+      "elapsed_seconds": 2.3486708340933546,
+      "put_seconds": [
+        0.52196737495251
+      ],
+      "control_seconds": {
+        "mkdir": 0,
+        "assemble": 0,
+        "verify": 1.826346541987732,
+        "renewal": 0,
+        "cleanup": 0
+      },
+      "wrapper_overhead_seconds": 0.0003569171531125903
+    },
+    {
+      "name": "factory-verified-ledger.json",
+      "size_bytes": 2405362,
+      "elapsed_seconds": 14.446324249962345,
+      "put_seconds": [
+        2.1516522919991985,
+        1.5748122499790043
+      ],
+      "control_seconds": {
+        "mkdir": 2.2936199579853565,
+        "assemble": 1.8978987919399515,
+        "verify": 0,
+        "renewal": 2.398787415935658,
+        "cleanup": 4.125089499051683
+      },
+      "wrapper_overhead_seconds": 0.004464043071493506
+    },
+    {
+      "name": "train-1024.npz",
+      "size_bytes": 45397643,
+      "elapsed_seconds": 169.24568866705522,
+      "put_seconds": [
+        1.975757374893874,
+        1.9367705839686096,
+        2.1367790000513196,
+        2.1355571660678834,
+        2.160600750008598,
+        2.1357884589815512,
+        1.9244115840410814,
+        39.505133708007634,
+        2.1513157499721274,
+        2.141221583937295,
+        2.1412362499395385,
+        1.6023902499582618,
+        2.1443484999472275,
+        1.928820624947548,
+        2.1204383749281988,
+        2.1442316659959033,
+        2.162230791989714,
+        1.9289126249495894,
+        1.9411512500373647,
+        1.9406017500441521,
+        2.1468710000626743,
+        1.935061875032261
+      ],
+      "control_seconds": {
+        "mkdir": 2.320832542027347,
+        "assemble": 2.1032302499515936,
+        "verify": 0,
+        "renewal": 51.585161790950224,
+        "cleanup": 30.840435709105805
+      },
+      "wrapper_overhead_seconds": 0.05639745725784451
+    },
+    {
+      "name": "metadata.tar",
+      "size_bytes": 2211840,
+      "elapsed_seconds": 11.769958624965511,
+      "put_seconds": [
+        2.133018416003324,
+        1.2860547919990495
+      ],
+      "control_seconds": {
+        "mkdir": 1.8127634160919115,
+        "assemble": 1.8874403330264613,
+        "verify": 0,
+        "renewal": 0,
+        "cleanup": 4.64678962493781
+      },
+      "wrapper_overhead_seconds": 0.0038920429069548845
+    }
+  ],
+  "heartbeat_seconds": [
+    0.9930884160567075,
+    1.0450651249848306,
+    13.031623249989934,
+    1.005288999993354,
+    37.02656104101334
+  ]
+}

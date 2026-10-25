@@ -399,6 +399,28 @@ class CLI:
                     timeout=timeout,
                 )
 
+    def renew_runtime_lease(self, root: str, generation: str, *, force: bool = False) -> Any:
+        """Use fenced Contents during staging; obtain kernel state when requested."""
+        with self.operation("renewal"):
+            if not force and getattr(self._control_context, "deadline", math.inf) != math.inf:
+                # The watchdog validates the generation and VM mtime. Staging
+                # needs no kernel state read, and must not queue renewal execs
+                # behind data PUTs. The caller retains credential/account checks.
+                self._put_lease(root, generation, self.remaining_seconds(60))
+                return None
+            operation = (
+                f"read_state({root!r},{generation!r},renew=True,compact=True)"
+                if force
+                else f"renew_lease({root!r},{generation!r})"
+            )
+            return self.poll_rpc(
+                "import importlib.util\n"
+                f"runtime_path={root + '/runtime.py'!r}\n"
+                "s=importlib.util.spec_from_file_location('snake_runtime',runtime_path)\n"
+                "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
+                f"result=mod.{operation}"
+            )
+
     def stop_lease(self, *, wait: bool = False) -> None:
         """Fence future lease PUTs before simulated Mac loss or broker cleanup."""
         self._lease_stop.set()
@@ -1517,19 +1539,7 @@ class Broker:
 
                 # The independent Contents heartbeat covers slow credential
                 # work; rotation borrows no time beyond the first real cap.
-                operation = (
-                    f"read_state({root!r},{generation!r},renew=True,compact=True)"
-                    if force
-                    else f"renew_lease({root!r},{generation!r})"
-                )
-                with cli.operation("renewal"):
-                    result = cli.poll_rpc(
-                        "import importlib.util\n"
-                        f"runtime_path={root + '/runtime.py'!r}\n"
-                        "s=importlib.util.spec_from_file_location('snake_runtime',runtime_path)\n"
-                        "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
-                        f"result=mod.{operation}"
-                    )
+                result = cli.renew_runtime_lease(root, generation, force=force)
                 if credential_renewal_due(cli.release_credential, "", safety_window_seconds=900):
                     cli.release_credential = mint_release_credential(
                         cli.oauth_python,

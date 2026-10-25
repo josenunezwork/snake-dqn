@@ -18,6 +18,7 @@ import os
 import tempfile
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Protocol
 
@@ -27,6 +28,7 @@ from research.colab_cli import policy
 # are materially more reliable on a fresh VM.  Downloads do not have that
 # failure mode, so retain the established 8 MiB bound for export recovery.
 UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024
+UPLOAD_WORKERS = 2
 DOWNLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 CONTENTS_ATTEMPTS = 3
 # Only initial input staging shares this cap. Later transfers start fresh.
@@ -202,7 +204,7 @@ def _rpc(cli: _CLI, operation: str, spec: dict[str, Any], timeout: float) -> Any
     payload = json.dumps(spec, sort_keys=True)
     if operation == "UPLOAD_ASSEMBLE":
         code = """# SNAKE_TRANSFER_UPLOAD_ASSEMBLE
-import hashlib, os
+import hashlib, os, shutil
 from pathlib import Path
 spec = PAYLOAD
 parts = Path(spec['parts'])
@@ -212,15 +214,22 @@ temporary.parent.mkdir(parents=True, exist_ok=True)
 hash_ = hashlib.sha256()
 with temporary.open('xb') as out:
     for index in range(spec['chunks']):
+        chunk_hash = hashlib.sha256()
         with (parts / f'{index:08d}.part').open('rb') as source:
             while block := source.read(1024 * 1024):
                 out.write(block)
                 hash_.update(block)
+                chunk_hash.update(block)
+        if chunk_hash.hexdigest() != spec['chunk_sha256'][index]:
+            raise RuntimeError('uploaded chunk digest mismatch')
     out.flush()
     os.fsync(out.fileno())
 if hash_.hexdigest() != spec['sha256'] or temporary.stat().st_size != spec['size']:
     raise RuntimeError('assembled upload digest or size mismatch')
 os.replace(temporary, target)
+# UUID parts are no longer needed after verified atomic publication. Keep
+# cleanup in this same single-dispatch, durably acknowledged operation.
+shutil.rmtree(parts, ignore_errors=True)
 result = {'sha256': hash_.hexdigest(), 'size': spec['size']}
 """.replace("PAYLOAD", payload)
     elif operation == "DOWNLOAD_SPLIT":
@@ -377,6 +386,7 @@ def upload_file(
     ident = uuid.uuid4().hex
     parts, temporary = _staging(remote, ident)
     chunks = math.ceil(size / UPLOAD_CHUNK_BYTES)
+    assembled = False
     try:
         # ContentsClient PUT does not create missing parents. Directory creation
         # is idempotent; recovery still requires independent kernel-idle proof.
@@ -389,20 +399,53 @@ def upload_file(
         )
         renew()
         with tempfile.TemporaryDirectory(prefix="snake-colab-upload-") as directory:
-            chunk = Path(directory) / "chunk"
-            with local.open("rb") as source:
-                for index in range(chunks):
-                    data = source.read(UPLOAD_CHUNK_BYTES)
-                    if not data:
-                        raise TransferError("source changed while upload was read")
-                    chunk.write_bytes(data)
+            chunk_hashes = []
+
+            def put(index: int, chunk: Path) -> None:
+                # Thread-local broker deadlines do not propagate to workers.
+                # Workers own only idempotent PUTs; never dispatch kernel RPCs.
+                context = (
+                    cli.staging_controls(deadline)
+                    if hasattr(cli, "staging_controls")
+                    else contextlib.nullcontext()
+                )
+                with context:
                     _contents_call(
                         cli,
                         ("upload", "-s", cli.session, str(chunk), f"{parts}/{index:08d}.part"),
-                        _timeout(len(data)),
-                        renew,
+                        _timeout(chunk.stat().st_size),
+                        None,
                         deadline=deadline,
                     )
+
+            # Two distinct immutable local files per window bound memory/disk
+            # and CLI concurrency. Join ALL workers before cleanup or assembly,
+            # including after a failure: a late PUT cannot recreate cleaned parts.
+            with (
+                local.open("rb") as source,
+                ThreadPoolExecutor(
+                    max_workers=UPLOAD_WORKERS, thread_name_prefix="colab-put"
+                ) as pool,
+            ):
+                for first in range(0, chunks, UPLOAD_WORKERS):
+                    renew()
+                    pending = []
+                    for index in range(first, min(first + UPLOAD_WORKERS, chunks)):
+                        data = source.read(UPLOAD_CHUNK_BYTES)
+                        if not data:
+                            raise TransferError("source changed while upload was read")
+                        chunk = Path(directory) / f"{index:08d}.part"
+                        chunk.write_bytes(data)
+                        chunk_hashes.append(hashlib.sha256(data).hexdigest())
+                        pending.append((pool.submit(put, index, chunk), chunk))
+                    try:
+                        wait([future for future, _ in pending])
+                        for future, _ in pending:
+                            future.result()
+                    finally:
+                        for _, chunk in pending:
+                            chunk.unlink(missing_ok=True)
+                    renew()
         if _digest(local) != digest or local.stat().st_size != size:
             raise TransferError("upload source changed during transfer")
         renew()
@@ -414,6 +457,7 @@ def upload_file(
                 "temporary": temporary,
                 "target": remote,
                 "chunks": chunks,
+                "chunk_sha256": chunk_hashes,
                 "sha256": digest,
                 "size": size,
             },
@@ -426,12 +470,14 @@ def upload_file(
             or reply.get("size") != size
         ):
             raise TransferError("kernel did not acknowledge immutable upload assembly")
+        assembled = True
         # Assembly acknowledged a digest-checked fsync + atomic publish. Do not
         # repeat that same whole-file hash in another kernel/control round trip.
         return digest
     finally:
-        _cleanup(cli, parts, renew, deadline=deadline)
-        _cleanup(cli, temporary, renew, deadline=deadline)
+        if not assembled:
+            _cleanup(cli, parts, renew, deadline=deadline)
+            _cleanup(cli, temporary, renew, deadline=deadline)
 
 
 def upload_contents(cli: _CLI, local: Path, remote: str, *, deadline: float | None = None) -> None:

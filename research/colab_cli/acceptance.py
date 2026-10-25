@@ -836,6 +836,36 @@ def load_other_assignments(path: Path | None) -> dict[str, float]:
     return result
 
 
+def _record_d1024_synthetic_staging(
+    observer: AcceptanceObserver,
+    plan: dict[str, Any],
+    job: dict[str, Any],
+    receipt: dict[str, Any],
+    output: Path,
+) -> dict[str, str] | None:
+    """Record a synthetic-staging refusal without hiding clean release evidence.
+
+    The intentional L4 watchdog ends the broker call with a refusal after the
+    runtime has released its assignment.  Staging verification is a separate
+    qualification gate: its failure must not be recast as missing cleanup or
+    provider calibration evidence.
+    """
+    if job["name"] != "l4" or "d1024_synthetic_inventory" not in plan:
+        return None
+    try:
+        evidence = d1024_synthetic_staging_evidence(plan, job, receipt, output)
+    except (OSError, ValueError, supervisor.Refused) as exc:
+        failure = {
+            "status": "INCOMPLETE",
+            "error": str(exc),
+            "exception_type": type(exc).__name__,
+        }
+        observer._record("d1024-synthetic-full-inventory-staging", **failure)
+        return failure
+    observer._record("d1024-synthetic-full-inventory-staging", **evidence)
+    return None
+
+
 def execute(
     plan: dict[str, Any], *, state_dir: Path, colab: str, review_token: str, oauth_python: str
 ) -> int:
@@ -854,21 +884,22 @@ def execute(
             supervisor.Broker(state_dir.resolve() / "lanes", colab, observer=observer).run(payload)
             receipt = _clean_release_receipt(output)
             measurement = _calibration_evidence(receipt)
-            if job["name"] == "l4" and "d1024_synthetic_inventory" in plan:
-                observer._record(
-                    "d1024-synthetic-full-inventory-staging",
-                    **d1024_synthetic_staging_evidence(plan, job, receipt, output),
-                )
+            staging_error = _record_d1024_synthetic_staging(observer, plan, job, receipt, output)
             observer._record("backend-stop-disappearance", receipt=str(output / "receipt.json"))
             results.append(
                 {
                     "job": job["name"],
-                    "status": "PASS" if measurement["status"] == "PASS" else "INCOMPLETE",
+                    "status": (
+                        "PASS"
+                        if measurement["status"] == "PASS" and staging_error is None
+                        else "INCOMPLETE"
+                    ),
                     "receipt": str(output / "receipt.json"),
                     "receipt_sha256": sha256_file(output / "receipt.json"),
                     "priced_rate_units_per_hour": measurement["priced_rate_units_per_hour"],
                     "measured_rate_units_per_hour": measurement["observed_rate_units_per_hour"],
                     "rate_calibration": measurement,
+                    "staging_error": staging_error,
                 }
             )
         except (supervisor.Refused, OSError, subprocess.SubprocessError) as exc:
@@ -880,11 +911,6 @@ def execute(
             try:
                 receipt = _clean_release_receipt(output, require_success=False)
                 measurement = _calibration_evidence(receipt)
-                if job["name"] == "l4" and "d1024_synthetic_inventory" in plan:
-                    observer._record(
-                        "d1024-synthetic-full-inventory-staging",
-                        **d1024_synthetic_staging_evidence(plan, job, receipt, output),
-                    )
                 clean_cleanup = True
             except (OSError, ValueError, supervisor.Refused):
                 clean_cleanup = False
@@ -894,6 +920,11 @@ def execute(
                     "priced_rate_units_per_hour": None,
                     "observed_rate_units_per_hour": None,
                 }
+            staging_error = (
+                _record_d1024_synthetic_staging(observer, plan, job, receipt, output)
+                if clean_cleanup
+                else None
+            )
             results.append(
                 {
                     "job": job["name"],
@@ -904,6 +935,7 @@ def execute(
                             and released
                             and clean_cleanup
                             and measurement["status"] == "PASS"
+                            and staging_error is None
                         )
                         else "INCOMPLETE"
                     ),
@@ -917,6 +949,7 @@ def execute(
                     "priced_rate_units_per_hour": measurement["priced_rate_units_per_hour"],
                     "measured_rate_units_per_hour": measurement["observed_rate_units_per_hour"],
                     "rate_calibration": measurement,
+                    "staging_error": staging_error,
                 }
             )
         finally:
