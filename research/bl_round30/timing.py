@@ -26,11 +26,12 @@ from research.bl_round30.timing_telemetry import OBSERVABILITY_SHA
 
 RULING_SHA = "9b07b66663d8a7ac168f80dbfc35889b3551df8797f347335c10d83a8d81801f"
 AMENDMENT_SHA = "447609b306bde15de4014640e1248a4349f8cb2feb811e455511a66886e943ff"
+CERTIFICATE_AMENDMENT_SHA = "d21347475aba7b4e3be8e4e615b97d6a9f72d487d024a701aa81bf269d1bc837"
 SCHEMA = "r30-timing-only/v2"
 TIMING_PAYLOAD_BYTES = 524_288
 DEADLINES = {
-    "whole_session_seconds": 1800,
-    "worker_seconds": 1500,
+    "whole_session_seconds": 2400,
+    "worker_seconds": 2100,
     "cleanup_export_reserve_seconds": 300,
 }
 SCHEDULE = {
@@ -40,7 +41,7 @@ SCHEDULE = {
     "fit_seed": 3403,
     "audit_seed": 3404,
     "certificate_update": 30,
-    "certificate_cap_seconds": 600,
+    "certificate_cap_seconds": 1200,
 }
 PHASES = (
     "imports",
@@ -82,6 +83,7 @@ def validate_report(value: dict) -> None:
         "synthetic",
         "ruling_sha256",
         "amendment_sha256",
+        "certificate_amendment_sha256",
         "observability_ruling_sha256",
         "deadlines",
         "config_sha256",
@@ -106,6 +108,7 @@ def validate_report(value: dict) -> None:
         or type(value["synthetic"]) is not bool
         or value["ruling_sha256"] != RULING_SHA
         or value["amendment_sha256"] != AMENDMENT_SHA
+        or value["certificate_amendment_sha256"] != CERTIFICATE_AMENDMENT_SHA
         or value["observability_ruling_sha256"] != OBSERVABILITY_SHA
         or value["deadlines"] != DEADLINES
         or value["schedule"] != SCHEDULE
@@ -354,7 +357,13 @@ def workload(
     timer.call("bookkeeping_probe", bookkeeping_probe)
     timer.call(
         "certificate",
-        lambda: gradient_certificate(theta.detach().double(), cache, plan, recipe, max_seconds=600),
+        lambda: gradient_certificate(
+            theta.detach().double(),
+            cache,
+            plan,
+            recipe,
+            max_seconds=SCHEDULE["certificate_cap_seconds"],
+        ),
     )  # no certified flag or bound survives
     timer.call(
         "diagnostics",
@@ -466,7 +475,7 @@ def _b8_masked_action_decision(base: Any, table: dict, *, device: str, synthetic
 
 
 def _worker_deadline_seconds(*, input_dir: Path, synthetic: bool, launch_age: float) -> float:
-    """Reserve the final five minutes of the fixed 30-minute session.
+    """Reserve the final five minutes of the fixed 40-minute session.
 
     Production timing uses supervisor-owned immutable start/timeout metadata,
     while synthetic tests have no supervisor root and use the same fixed worker
@@ -524,6 +533,7 @@ def _run(
         config["schema"] != "r30-timing-config/v2"
         or config["ruling_sha256"] != RULING_SHA
         or config.get("amendment_sha256") != AMENDMENT_SHA
+        or config.get("certificate_amendment_sha256") != CERTIFICATE_AMENDMENT_SHA
         or config.get("observability_ruling_sha256") != OBSERVABILITY_SHA
         or config.get("deadlines") != DEADLINES
         or config["schedule"] != SCHEDULE
@@ -581,6 +591,11 @@ def _run(
                     raise ValueError("frozen control differs")
                 if digest(input_dir / "timing-observability-ruling.md") != OBSERVABILITY_SHA:
                     raise ValueError("observability ruling differs")
+                if (
+                    digest(input_dir / "timing-certificate-amendment.md")
+                    != CERTIFICATE_AMENDMENT_SHA
+                ):
+                    raise ValueError("certificate amendment differs")
                 if digest(input_dir / "timing-ruling.md") != RULING_SHA:
                     raise ValueError("ruling differs")
                 control = preflight_inputs(input_dir, mode="r30-1")
@@ -633,6 +648,7 @@ def _run(
         "synthetic": synthetic,
         "ruling_sha256": RULING_SHA,
         "amendment_sha256": AMENDMENT_SHA,
+        "certificate_amendment_sha256": CERTIFICATE_AMENDMENT_SHA,
         "observability_ruling_sha256": OBSERVABILITY_SHA,
         "deadlines": DEADLINES,
         "config_sha256": config_sha256,

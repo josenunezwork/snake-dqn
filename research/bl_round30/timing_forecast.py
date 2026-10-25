@@ -370,6 +370,7 @@ def _validate_cli_bindings(
         or manifest.get("timing_calibration", {}).get("no_automatic_retry") is not True
         or config.get("deadlines") != timing.DEADLINES
         or config.get("amendment_sha256") != timing.AMENDMENT_SHA
+        or config.get("certificate_amendment_sha256") != timing.CERTIFICATE_AMENDMENT_SHA
         or config.get("observability_ruling_sha256") != timing.OBSERVABILITY_SHA
     ):
         raise ValueError("calibration probe deadlines/amendment differ")

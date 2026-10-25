@@ -23,6 +23,10 @@ def _fixture(tmp_path: Path, monkeypatch, timing_pack) -> dict:
     monkeypatch.setattr(timing_pack, "OLD_RESERVATION_SHA256", digest(reservation))
     monkeypatch.setattr(timing_pack, "OBSERVABILITY_RULING", ruling)
     monkeypatch.setattr(timing_pack, "OBSERVABILITY_SHA", digest(ruling))
+    monkeypatch.setattr(timing_pack, "CERTIFICATE_AMENDMENT", ruling)
+    monkeypatch.setattr(timing_pack, "CERTIFICATE_AMENDMENT_SHA", digest(ruling))
+    monkeypatch.setattr(timing_pack, "PRIOR_PROBE_RESERVATION", reservation)
+    monkeypatch.setattr(timing_pack, "PRIOR_PROBE_RESERVATION_SHA256", digest(reservation))
     native = tmp_path / "native"
     (native / "inputs").mkdir(parents=True)
     bundle = tmp_path / "private-inputs.tar.gz"
@@ -57,6 +61,7 @@ def _config(tmp_path: Path, timing_pack, *, commit: str = "a" * 40) -> tuple[Pat
         "schema": "r30-timing-config/v2",
         "ruling_sha256": timing_pack.RULING_SHA256,
         "amendment_sha256": timing_pack.AMENDMENT_SHA,
+        "certificate_amendment_sha256": timing_pack.CERTIFICATE_AMENDMENT_SHA,
         "observability_ruling_sha256": timing_pack.OBSERVABILITY_SHA,
         "deadlines": timing_pack.DEADLINES,
         "source_commit": commit,
@@ -87,12 +92,12 @@ def test_packet_is_timing_only_and_uses_opaque_frozen_bundle(tmp_path, monkeypat
     config, control = _config(tmp_path, timing_pack)
     _patch_admission(monkeypatch, timing_pack, control)
     manifest = timing_pack.make_timing_pack(
-        tmp_path / "timing-calibration-probe-03", commit="a" * 40, timing_config=config
+        tmp_path / "timing-calibration-probe-04", commit="a" * 40, timing_config=config
     )
-    assert manifest["timeout_minutes"] == 30
+    assert manifest["timeout_minutes"] == 40
     assert manifest["max_export_bytes"] == 67_108_864
     assert manifest["timing_calibration"]["timing_payload_max_bytes"] == 524_288
-    assert manifest["requirements"]["est_minutes"] == 15
+    assert manifest["requirements"]["est_minutes"] == 20
     assert manifest["canary"] == {
         "schema": "colab-family-canary/v1",
         "mode": "probe",
@@ -106,17 +111,29 @@ def test_packet_is_timing_only_and_uses_opaque_frozen_bundle(tmp_path, monkeypat
         timing_pack.ROOT / "tools/ops/dispatch.py"
     )
     reservation = json.loads(
-        (tmp_path / "timing-calibration-probe-03/accounting-reservation.json").read_text()
+        (tmp_path / "timing-calibration-probe-04/accounting-reservation.json").read_text()
     )
-    assert reservation["retained_liability_minutes"] == 40
+    assert reservation["retained_liability_minutes"] == 70
     assert reservation["nontransferable"] is True
-    assert reservation["prior_probe_disposition"] == "INCOMPLETE_CAUSE_UNKNOWN"
+    assert reservation["prior_probe_disposition"] == "INCOMPLETE_CERTIFICATE_DEADLINE"
     assert reservation["additional_attempt_allowance"] == 1
     assert manifest["required_exports"] == ["timing.json"]
     assert "resume" not in manifest
     assert manifest["resume_exemption"]["kind"] == "short-canary"
-    assert manifest["timing_calibration"]["combined_effective_minutes_after"] == 502
+    assert manifest["timing_calibration"]["combined_effective_minutes_after"] == 542
     assert manifest["timing_calibration"]["main_estimate_ceiling_minutes"] == 53
+    assert manifest["timing_calibration"]["main_remaining_minutes"] == 106
+    assert reservation["combined_effective_minutes_before"] == 502
+    assert reservation["combined_effective_minutes_after"] == 542
+    assert reservation["base_minutes"] == 20 and reservation["effective_minutes"] == 40
+    assert reservation["certificate_cap_seconds"] == {"base": 600, "effective": 1200}
+    assert manifest["resume_exemption"]["timeout_minutes"] == 40
+    assert timing_pack.EXPECTED_SCHEDULE["certificate_cap_seconds"] == 1200
+    assert timing_pack.DEADLINES == {
+        "whole_session_seconds": 2400,
+        "worker_seconds": 2100,
+        "cleanup_export_reserve_seconds": 300,
+    }
     assert manifest["inputs"][0]["dest"] == "b8.pth"
     assert manifest["inputs"][0]["sha256"] == timing_pack.B8_SHA
     assert manifest["inputs"][1]["r30_private_bundle"]["opaque_reuse"] is True
@@ -161,7 +178,10 @@ def test_source_closure_must_match_current_bytes(tmp_path, monkeypatch):
         timing_pack.load_timing_config(config, commit="a" * 40, control=control)
 
 
-@pytest.mark.parametrize("key,bad", [("amendment_sha256", "0" * 64), ("deadlines", {})])
+@pytest.mark.parametrize(
+    "key,bad",
+    [("amendment_sha256", "0" * 64), ("certificate_amendment_sha256", "0" * 64), ("deadlines", {})],
+)
 def test_config_rejects_amendment_or_deadline_drift(tmp_path, monkeypatch, key, bad):
     from research.bl_round30 import timing_pack
 

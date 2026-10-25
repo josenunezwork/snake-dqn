@@ -114,3 +114,68 @@ def test_directed_gradient_certificate_and_unknown_audit_nonretention() -> None:
         {"certificate": {"certified": True, "terms": {"total": 0.5}}, "adam_objective": 1}, rows
     )
     assert decision["life_macro_rescue_retention_gain"] == -1
+
+
+def test_certificate_wall_cap_is_forwarded_without_changing_default(monkeypatch) -> None:
+    import inspect
+
+    from research.bl_round30 import certificate, objective
+
+    seen = []
+
+    def capture(*args, **kwargs):
+        seen.append(kwargs["max_seconds"])
+        raise TimeoutError("synthetic deadline")
+
+    monkeypatch.setattr(certificate, "gradient_certificate", capture)
+    cache, recipe = _cache(), _recipe()
+    plan = reproduce_batch_plan(cache, recipe)
+    result = objective.fit_float64_lbfgs(
+        cache, plan, recipe, max_evaluations=1, certificate_max_seconds=1200.0
+    )
+    assert seen == [1200.0] and not result.certified
+    assert (
+        inspect.signature(objective.fit_float64_lbfgs).parameters["certificate_max_seconds"].default
+        == 600.0
+    )
+
+
+def test_only_prospective_real_r30_1_gets_amended_certificate_cap(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import pytest
+
+    from research.bl_round30 import objective
+
+    cache, recipe = _cache(), _recipe()
+    plan = reproduce_batch_plan(cache, recipe)
+    theta = zero_parameters()
+    monkeypatch.setattr(objective, "ObjectiveRecipe", lambda: recipe)
+    monkeypatch.setattr(
+        objective, "fit_original_adam", lambda *a, **k: SimpleNamespace(parameters=theta)
+    )
+    seen = []
+
+    class StopAtCertificate(Exception):
+        pass
+
+    def capture(*args, **kwargs):
+        seen.append(kwargs.get("certificate_max_seconds", 600.0))
+        raise StopAtCertificate()
+
+    monkeypatch.setattr(objective, "fit_float64_lbfgs", capture)
+    for synthetic, successor, expected in [
+        (False, False, 1200.0),
+        (True, False, 600.0),
+        (False, True, 600.0),
+    ]:
+        gate = {
+            "allow_successor": True,
+            "convergence_procedure": "lbfgs",
+            "convergence_binding": objective._procedure_binding(
+                "lbfgs", "r30-1-adam-endpoint", theta, cache, plan, recipe
+            ),
+        }
+        with pytest.raises(StopAtCertificate):
+            objective.execute_packet(cache, synthetic=synthetic, successor=successor, gate=gate)
+        assert seen[-1] == expected
