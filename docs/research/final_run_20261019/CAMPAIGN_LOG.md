@@ -1397,3 +1397,6 @@ control, lease edits, or label/fit payload access occurred in this implementatio
 
 
 Outcome-blind phase publication: F4 D1024 fit. Ledger `research/bl_residual/ledger/F4_D1024_FIT_PHASE_20261024.json`, SHA256 `1de137562ac5f99e7224ac965f72dc2c9f2312b2c333c7ef3057703c9ffc4e0d`; binding `research/bl_residual/ledger/F4_D1024_FIT_BINDING_20261024.json`, SHA256 `b44ba54e84b68add3f583d66556d37d5eea19aeccad89dcd764e20076dd9bed2`; fit pin `de5bde2d7866eb6cd01060f7c2fe4ed8d1253759`. Published before the census consumer, R-A preparation or any look; no fit/reserve/gameplay outcome opened.
+
+
+Outcome-blind phase publication: F4 R5 natural-archive census frozen and hashed before Look R-A. Receipt `research/bl_residual/ledger/F4_R_A_ARCHIVE_CENSUS_20261024.json`, SHA256 `44577f8a003314e97bcffe29dbb4f44cf51be67ec36f90e972b499c3f07530f0`; local table `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/r-a-archive-census-01/archive-table.npz` bound by its table_sha256 (Mac-only). Identities and counts only; no metric or look.
