@@ -1,0 +1,10 @@
+{
+  "claim": "standalone dev batch-invariance premise only; no CPU/label/release authority",
+  "commit": "c2681b0d9f09641b17e10e038489c2bb280ca942",
+  "incomplete": [],
+  "invalid_evidence": [],
+  "mismatches": [],
+  "mode": "main",
+  "schema": "gpu-sim-spike-t4a-analysis/v1",
+  "verdict": "PASS_T4A_DEV"
+}
