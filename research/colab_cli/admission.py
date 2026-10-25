@@ -30,10 +30,13 @@ def require_final_only(result: dict[str, Any], repo: Path) -> dict[str, Any]:
         raise Refused("final-only acceptance is not bound to the current transport source")
     gates = plan.get("gates")
     expected = review_gates("final-only")
-    if not isinstance(gates, list) or len(gates) != len(expected):
+    d1024_gate = "d1024-synthetic-full-inventory-staging"
+    synthetic = plan.get("d1024_synthetic_inventory")
+    allowed_count = len(expected) + (1 if isinstance(synthetic, dict) else 0)
+    if not isinstance(gates, list) or len(gates) != allowed_count:
         raise Refused("final-only acceptance lacks the complete gate inventory")
     by_id = {gate.get("id"): gate for gate in gates}
-    if len(by_id) != len(expected):
+    if len(by_id) != allowed_count or set(by_id) - {gate["id"] for gate in expected} - {d1024_gate}:
         raise Refused("final-only acceptance has duplicate gates")
     for gate in expected:
         actual = by_id.get(gate["id"], {})
@@ -41,6 +44,10 @@ def require_final_only(result: dict[str, Any], repo: Path) -> dict[str, Any]:
             "OBSERVED" if gate["required"] else "NOT_REQUIRED"
         ):
             raise Refused(f"final-only acceptance gate incomplete: {gate['id']}")
+    if isinstance(synthetic, dict):
+        d1024 = by_id.get(d1024_gate, {})
+        if d1024.get("required") is not True or d1024.get("status") != "OBSERVED":
+            raise Refused("final-only acceptance synthetic D1024 staging gate incomplete")
     cold = by_id["cold-kernel-metadata-recovery"].get("evidence_record")
     if not isinstance(cold, dict) or cold.get("status") != "PASS":
         raise Refused("final-only acceptance lacks cold-kernel recovery evidence")

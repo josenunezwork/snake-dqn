@@ -6,7 +6,7 @@
 set -euo pipefail
 
 SOURCE=${SOURCE:-/Users/josenunez/Projects/ml/snake-dqn-f4fix}
-# Prepare-attempt suffix for Q, preflight, pack and the prepare job (01 = original).
+# Create-only transport-attempt suffix for every D1024 Q/pack/canary/main path.
 ATTEMPT=${F4_D1024_ATTEMPT:-01}
 Q=${Q:-/Users/josenunez/Projects/ml/snake-dqn-f4-d1024-qualified-${ATTEMPT}.noindex}
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
@@ -35,6 +35,10 @@ if [ "$#" -ne 1 ] || ! printf '%s\n' "$PHASES" | tr '|' '\n' | grep -qx -- "$1";
   exit 2
 fi
 PHASE=$1
+case "$ATTEMPT" in
+  [0-9][0-9]) ;;
+  *) echo 'HOLD: F4_D1024_ATTEMPT must be a two-digit suffix' >&2; exit 2 ;;
+esac
 if [ -e "$ART/ops/mac-timing-armed" ]; then
   echo 'HOLD: P1/timing window remains armed; only its owner may close it' >&2
   exit 2
@@ -53,6 +57,13 @@ check_q() {
     echo "HOLD: $Q must be clean and detached at PIN=$PIN" >&2
     exit 2
   fi
+  verify_repaired_transport "$Q"
+}
+verify_repaired_transport() {
+  local repo=$1
+  (cd -- "$repo" && "$PY" -m research.colab_cli.acceptance --repo "$repo" \
+    --verify-qualified-record "$ART/ops/colab-cli-qualified.json" \
+    --reject-tree d0d92bdb572b770284a1fea6152417ffa5f06bea)
 }
 push_main() {
   git -C "$SOURCE" diff --cached --check
@@ -121,6 +132,7 @@ case "$PHASE" in
     git -C "$SOURCE" merge-base --is-ancestor "$PIN" origin/main
     git -C "$SOURCE" cat-file -e "$PIN:$D1024_UNION_PUB"
     [ ! -e "$Q" ] || { echo "HOLD: $Q exists; choose a fresh Q" >&2; exit 2; }
+    verify_repaired_transport "$SOURCE"
     git -C "$SOURCE" worktree add --detach "$Q" "$PIN"
     check_q
     "$PY" "$Q/tools/ops/qualification.py" check --repo "$Q" \
@@ -175,7 +187,8 @@ PY
     need D1024_UNION_SHA
     dispatch_mac "bl-f4-d1024-prepare-${ATTEMPT}" "$PIN" -m research.bl_residual.f4_d1024_package \
       --out "$PACK" --d256-ledger "$D256_UNION" --d1024-ledger "$D1024_UNION" \
-      --d1024-union-sha256 "$D1024_UNION_SHA" --preflight-receipt "$PREFLIGHT" --commit "$PIN"
+      --d1024-union-sha256 "$D1024_UNION_SHA" --preflight-receipt "$PREFLIGHT" --commit "$PIN" \
+      --attempt "$ATTEMPT"
     ;;
   upload-check)
     "$PY" - "$PACK/pack.json" <<'PY'
@@ -193,15 +206,15 @@ PY
     cd "$Q"
     extra=()
     [ "$PHASE" = canary-dry-run ] && extra=(--dry-run)
-    "$Q/tools/ops/dispatch.sh" bl-f4-d1024-canary-01 "$PACK/canary.json" \
-      --broker "$Q" --cwd "$Q" --state-dir "$F4/d1024-canary-state-01" ${extra[@]+"${extra[@]}"}
+    "$Q/tools/ops/dispatch.sh" "bl-f4-d1024-canary-${ATTEMPT}" "$PACK/canary.json" \
+      --broker "$Q" --cwd "$Q" --state-dir "$F4/d1024-canary-state-${ATTEMPT}" ${extra[@]+"${extra[@]}"}
     ;;
   seal-main)
     check_q
     cd "$Q"
     "$PY" -m research.bl_residual.f4_d1024_package \
       --seal-main-template "$PACK/main-template.json" \
-      --canary-receipt "$PACK/canary-output-l4-01/receipt.json" \
+      --canary-receipt "$PACK/canary-output-l4-${ATTEMPT}/receipt.json" \
       --main-manifest-out "$PACK/main.json"
     ;;
   fit-dry-run|fit)
@@ -209,8 +222,8 @@ PY
     cd "$Q"
     extra=()
     [ "$PHASE" = fit-dry-run ] && extra=(--dry-run)
-    "$Q/tools/ops/dispatch.sh" bl-f4-d1024-fit-01 "$PACK/main.json" \
-      --broker "$Q" --cwd "$Q" --state-dir "$F4/d1024-fit-state-01" ${extra[@]+"${extra[@]}"}
+    "$Q/tools/ops/dispatch.sh" "bl-f4-d1024-fit-${ATTEMPT}" "$PACK/main.json" \
+      --broker "$Q" --cwd "$Q" --state-dir "$F4/d1024-fit-state-${ATTEMPT}" ${extra[@]+"${extra[@]}"}
     ;;
   publish-fit)
     check_q
@@ -218,19 +231,20 @@ PY
     cd "$Q"
     # Reads supervisor completion, control identity and export path/size/hash only.
     "$PY" -m research.bl_residual.f4_d1024_package --publish-fit "$PACK" --out "$SOURCE/$FIT_PHASE"
-    "$PY" - "$SOURCE" "$FIT_PHASE" "$FIT_BINDING" "$PACK" "$PIN" <<'PY'
+    "$PY" - "$SOURCE" "$FIT_PHASE" "$FIT_BINDING" "$PACK" "$PIN" "$ATTEMPT" <<'PY'
 import hashlib
 import sys
 from pathlib import Path
 from research.bl_ppo.exports import export_json
 
-repo, phase, binding, pack, pin = sys.argv[1:]
+repo, phase, binding, pack, pin, attempt = sys.argv[1:]
 repo, pack = Path(repo), Path(pack)
+main_output = "d1024-output-l4-" + attempt
 files = {}
 for name, path in {
     "manifest": pack / "main.json",
-    "supervisor_receipt": pack / "d1024-output-l4-01/receipt.json",
-    "producer_receipt": pack / "d1024-output-l4-01/exports/fit/receipt.json",
+    "supervisor_receipt": pack / main_output / "receipt.json",
+    "producer_receipt": pack / main_output / "exports/fit/receipt.json",
 }.items():
     files[name] = {"path": str(path), "size": path.stat().st_size,
                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}

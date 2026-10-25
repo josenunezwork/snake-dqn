@@ -26,7 +26,9 @@ def load_transport(repo: Path) -> tuple[ModuleType, ModuleType]:
     return acceptance, admission
 
 
-def plan(repo: Path, parent: Path, account_map: Path, colab: str) -> Path:
+def plan(
+    repo: Path, parent: Path, account_map: Path, colab: str, *, d1024_inventory: bool = False
+) -> Path:
     """Use a unique state parent even for two plans in the same second."""
     acceptance, _ = load_transport(repo)
     parent.mkdir(parents=True, exist_ok=True)
@@ -36,6 +38,7 @@ def plan(repo: Path, parent: Path, account_map: Path, colab: str) -> Path:
         state,
         other_assignments=acceptance.load_other_assignments(account_map),
         profile="final-only",
+        d1024_inventory=d1024_inventory,
     )
     run = Path(record["run_dir"])
     saved = run / "ops-review.json"
@@ -50,6 +53,7 @@ def plan(repo: Path, parent: Path, account_map: Path, colab: str) -> Path:
             job["manifest"]: hashlib.sha256(Path(job["manifest"]).read_bytes()).hexdigest()
             for job in record["plan"]["jobs"]
         },
+        "d1024_inventory": d1024_inventory,
     }
     # This file is create-only review material, separate from the broker's plan.
     with saved.open("x") as stream:
@@ -71,6 +75,11 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
     prepared = review["plan"]
     if prepared["profile"] != "final-only" or prepared["commit"] != review["commit"]:
         raise ValueError("only the pinned final-only plan can execute")
+    wants_d1024 = review.get("d1024_inventory", False)
+    if not isinstance(wants_d1024, bool) or wants_d1024 != (
+        "d1024_synthetic_inventory" in prepared
+    ):
+        raise ValueError("reviewed D1024 synthetic-inventory selection differs from plan")
     acceptance.verify_plan_sources(prepared, repo)
     for job in prepared["jobs"]:
         manifest_bytes = Path(job["manifest"]).read_bytes()
@@ -125,6 +134,11 @@ def main() -> int:
     prepare.add_argument("--other-assignments", required=True, type=Path)
     prepare.add_argument("--state-parent", type=Path)
     prepare.add_argument("--colab", default=str(Path.home() / ".local/bin/colab"))
+    prepare.add_argument(
+        "--d1024-inventory",
+        action="store_true",
+        help="stage the prospective synthetic D1024 inventory in this acceptance plan",
+    )
     run = actions.add_parser("execute")
     run.add_argument("--plan", required=True, type=Path)
     run.add_argument("--review-token", required=True)
@@ -139,6 +153,7 @@ def main() -> int:
                     args.state_parent or ops / "requalification",
                     args.other_assignments,
                     args.colab,
+                    d1024_inventory=args.d1024_inventory,
                 )
             )
         else:

@@ -19,6 +19,7 @@ import dataclasses
 import hashlib
 import io
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -71,9 +72,17 @@ PREFLIGHT_FIXTURES = {
 # Fit-series accounting (R7: whole series 10 / 20 u, first cap wins). Prior F4
 # fit-series dispatches and their frozen liabilities (unit_cap + reserve):
 # bl-f4-d256-canary-02 1.2, bl-f4-d256-metadata-canary-02 1.2,
-# bl-f4-d256-metadata-fit-02 4.8. Supervisor wall: 428.9 + 336.0 + 676.4 s.
-PRIOR_SERIES_LIABILITY_UNITS = 7.2
-PRIOR_SERIES_WALL_SECONDS = 428.9102839999832 + 335.9559656250058 + 676.4081622079248
+# bl-f4-d256-metadata-fit-02 4.8; bl-f4-d1024-canary-01/-02 1.2 each.
+# Both failed D1024 attempts remain charged operational history. Receipt SHA-256
+# identities are in colab_cli/STAGING_REPAIR_20261024.md; no scientific look.
+PRIOR_SERIES_LIABILITY_UNITS = 9.6
+PRIOR_SERIES_WALL_SECONDS = (
+    428.9102839999832
+    + 335.9559656250058
+    + 676.4081622079248
+    + 346.1885202090489
+    + 464.9269054160686
+)
 # Transport ruling JUDGMENT_D1024_FIT_TRANSPORT_20261024.md (sha 4beccde2...8618):
 # the training data and metadata.tar stay qualified private uploads; only b8.pth
 # moves to its existing owner-supplied public release URL (same bytes, same dest).
@@ -90,6 +99,34 @@ MULTI_CHUNK_OVERHEAD_SECONDS = 16.0
 SINGLE_CHUNK_OVERHEAD_SECONDS = 4.0
 TRANSPORT_FILE_SECONDS = {"bootstrap.sh": 4.0, "source.py": 4.0}
 CANARY_UPLOAD_BAR_SECONDS = 150.0
+
+
+def _attempt(value: str) -> str:
+    """Accept the create-only, two-digit transport-attempt suffix."""
+    if not re.fullmatch(r"[0-9]{2}", value):
+        raise ValueError("D1024 attempt must be a two-digit suffix")
+    return value
+
+
+def output_names(attempt: str) -> tuple[str, str]:
+    """Return the fresh main/canary output names for one transport attempt."""
+    attempt = _attempt(attempt)
+    return f"d1024-output-l4-{attempt}", f"canary-output-l4-{attempt}"
+
+
+def require_repaired_transport(repo: Path, record: Path) -> dict[str, str]:
+    """Require a source-bound PASS for a new tree and D1024-size inventory."""
+    from research.colab_cli.acceptance import (
+        D1024_F4_INVENTORY_SHA256,
+        verify_qualified_transport_record,
+    )
+
+    return verify_qualified_transport_record(
+        repo,
+        record,
+        required_inventory_sha256=D1024_F4_INVENTORY_SHA256,
+        reject_tree=QUALIFIED_TREE,
+    )
 
 
 def require_publication(local: Path, relative: str, expected_sha: str | None) -> str:
@@ -211,13 +248,21 @@ def _metadata_archive_sha256(inventory: list[dict[str, Any]]) -> str:
 
 
 def manifests(
-    output: Path, commit: str, inventory: list[dict], *, attempt: str = "01"
+    output: Path,
+    commit: str,
+    inventory: list[dict],
+    *,
+    attempt: str = "01",
+    qualified_transport: dict[str, str] | None = None,
 ) -> tuple[dict, dict]:
     """Freeze D1024/canary reservations inside the registered 20-unit fit series.
 
     Base envelopes equal D256's (the 2,000-update recipe does not grow with the
     dose); effective = 2 x base, applied once.
     """
+    attempt = _attempt(attempt)
+    qualified_transport = qualified_transport or {"tree_hash": QUALIFIED_TREE}
+    main_output, canary_output = output_names(attempt)
     reserved = 6
     after = PRIOR_SERIES_LIABILITY_UNITS + reserved
     main_template = {
@@ -228,7 +273,7 @@ def manifests(
         "device": "cuda:0",
         "requirements": {"gpu": "L4", "allowed_gpus": ["L4"], "min_vcpu": 1, "est_minutes": 30},
         "timeout_minutes": 120,
-        "output_dir": str((output / MAIN_OUTPUT).resolve()),
+        "output_dir": str((output / main_output).resolve()),
         "inputs": inventory,
         "required_exports": [
             "fit/allocation.json",
@@ -260,7 +305,7 @@ def manifests(
             "fit_series_base_units": 10,
             "fit_series_effective_units": 20,
             "registered_updates": 2000,
-            "qualified_tree": QUALIFIED_TREE,
+            "qualified_tree": qualified_transport["tree_hash"],
             "base_units": 2,
             "effective_units": 4,
             "base_reserve_units": 0.4,
@@ -280,7 +325,7 @@ def manifests(
     canary_manifest = {
         **main_template,
         "job_id": f"f4-d1024-canary-{commit[:8]}-{attempt}",
-        "output_dir": str((output / CANARY_OUTPUT).resolve()),
+        "output_dir": str((output / canary_output).resolve()),
         "timeout_minutes": 20,
         "budget": {
             "unit_cap": 1,
@@ -432,6 +477,7 @@ def _prepare(
     staging: Path,
     commit: str,
     preflight_receipt: Path,
+    attempt: str = "01",
 ) -> dict[str, Any]:
     """Write a fresh D1024-only package; no reserve or archive rows are uploaded."""
     d256.require_window_closed()
@@ -444,7 +490,8 @@ def _prepare(
     from tools.ops.import_preflight import check as imports
     from tools.ops.qualification import check as qualification
 
-    if qualification(ROOT, Path(QUALIFICATION_RECORD), commit) != QUALIFIED_TREE:
+    qualified_transport = require_repaired_transport(ROOT, Path(QUALIFICATION_RECORD))
+    if qualification(ROOT, Path(QUALIFICATION_RECORD), commit) != qualified_transport["tree_hash"]:
         raise ValueError("F4 transport qualification differs")
     import_receipt = imports(
         ROOT,
@@ -525,7 +572,10 @@ def _prepare(
     inventory = bundle_inputs(transport_rows(raw_inventory), inputs / "metadata.tar")
     if [row["dest"] for row in inventory if "url" in row] != ["b8.pth"]:
         raise ValueError("only b8.pth may use public HTTPS transport")
-    main_template, canary_manifest = manifests(output, commit, inventory)
+    attempt = _attempt(attempt)
+    main_template, canary_manifest = manifests(
+        output, commit, inventory, attempt=attempt, qualified_transport=qualified_transport
+    )
     export_json(output / "main-template.json", main_template)
     export_json(output / "canary.json", canary_manifest)
     export_json(output / "clean-import-preflight.json", import_receipt)
@@ -541,6 +591,8 @@ def _prepare(
         {
             "schema": "bl-residual-f4-d1024-pack/v1",
             "commit": commit,
+            "attempt": attempt,
+            "qualified_transport": qualified_transport,
             "dose": DOSE,
             "factory_union_ledger_sha256": digest(d1024_ledger),
             "d256_factory_union_ledger_sha256": digest(d256_ledger),
@@ -602,7 +654,9 @@ def publish_fit(pack: Path, output: Path) -> dict[str, Any]:
     control = json.loads((pack / "inputs/control.json").read_text())
     if control.get("doses") != [DOSE]:
         raise ValueError("HOLD: not a D1024 fit pack")
-    run_output = pack / MAIN_OUTPUT
+    pack_record = json.loads((pack / "pack.json").read_text())
+    _main_output, _canary_output = output_names(str(pack_record.get("attempt", "01")))
+    run_output = pack / _main_output
     receipt = json.loads((run_output / "receipt.json").read_text())
     if (
         receipt.get("status") != "PASS"
@@ -630,6 +684,7 @@ def main() -> None:
     parser.add_argument("--staging", type=Path, default=STAGING)
     parser.add_argument("--preflight-receipt", type=Path)
     parser.add_argument("--commit", default="HEAD")
+    parser.add_argument("--attempt", default="01")
     parser.add_argument("--publish-fit", type=Path, metavar="PACK")
     parser.add_argument("--seal-main-template", type=Path)
     parser.add_argument("--canary-receipt", type=Path)
@@ -671,6 +726,7 @@ def main() -> None:
                 staging=args.staging,
                 commit=args.commit,
                 preflight_receipt=args.preflight_receipt,
+                attempt=args.attempt,
             )
         )
     )

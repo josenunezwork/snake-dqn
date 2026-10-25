@@ -298,6 +298,8 @@ class CLI:
         self.transfer_records: list[dict[str, Any]] = []
         self.contents_transfers: list[dict[str, Any]] = []
         self.call_records: list[dict[str, Any]] = []
+        self.operation_records: list[dict[str, Any]] = []
+        self._control_context = threading.local()
         self.verified_exports: dict[str, dict[str, Any]] = {}
         self.warmup_seconds = 0.0
         self._lease_stop = threading.Event()
@@ -305,8 +307,11 @@ class CLI:
 
     def remaining_seconds(self, allowance: float) -> float:
         """Clip non-CLI helpers to the same first-cap-wins session clock."""
+        staging_deadline = getattr(self._control_context, "deadline", math.inf)
         remaining = min(
             allowance,
+            policy.STAGING_CONTROL_SECONDS if staging_deadline != math.inf else math.inf,
+            staging_deadline - time.monotonic(),
             (self.deadline if self.deadline is not None else math.inf) - time.monotonic(),
             (self.priced_deadline if self.priced_deadline is not None else math.inf)
             - time.monotonic(),
@@ -314,6 +319,44 @@ class CLI:
         if remaining <= 0:
             raise Refused("whole-session deadline reached before helper")
         return remaining
+
+    @contextlib.contextmanager
+    def staging_controls(self, deadline: float) -> Iterator[None]:
+        """Bound foreground staging without starving the independent lease thread."""
+        previous = getattr(self._control_context, "deadline", math.inf)
+        self._control_context.deadline = min(previous, deadline)
+        try:
+            if time.monotonic() >= self._control_context.deadline:
+                raise Refused("total upload time cap reached before staging control")
+            yield
+            if time.monotonic() > self._control_context.deadline:
+                raise Refused("total upload time cap reached after staging control")
+        finally:
+            self._control_context.deadline = previous
+
+    @contextlib.contextmanager
+    def operation(self, tag: str) -> Iterator[None]:
+        """Record monotonic intervals; overlapping heartbeat work stays identifiable."""
+        previous = getattr(self._control_context, "tag", "control")
+        self._control_context.tag = tag
+        started = time.monotonic()
+        status = "failed"
+        try:
+            yield
+            status = "completed"
+        finally:
+            ended = time.monotonic()
+            self.operation_records.append(
+                {
+                    "operation": tag,
+                    "started_monotonic": started,
+                    "ended_monotonic": ended,
+                    "elapsed_seconds": ended - started,
+                    "status": status,
+                    "thread": threading.current_thread().name,
+                }
+            )
+            self._control_context.tag = previous
 
     def start_lease(self, root: str, generation: str, lease_seconds: float) -> None:
         """Renew via Contents while a kernel/control RPC is blocked.
@@ -346,14 +389,15 @@ class CLI:
         with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
             json.dump({"generation": generation, "renewal_clock": "contents-mtime"}, handle)
             handle.flush()
-            self.call(
-                "upload",
-                "-s",
-                self.session,
-                handle.name,
-                root + "/lease-heartbeat.json",
-                timeout=timeout,
-            )
+            with self.operation("renewal-heartbeat"):
+                self.call(
+                    "upload",
+                    "-s",
+                    self.session,
+                    handle.name,
+                    root + "/lease-heartbeat.json",
+                    timeout=timeout,
+                )
 
     def stop_lease(self, *, wait: bool = False) -> None:
         """Fence future lease PUTs before simulated Mac loss or broker cleanup."""
@@ -399,6 +443,10 @@ class CLI:
                 self.call_records.append(
                     {
                         "command": args[0],
+                        "operation": getattr(self._control_context, "tag", "control"),
+                        "started_monotonic": started,
+                        "ended_monotonic": time.monotonic(),
+                        "thread": threading.current_thread().name,
                         "attempt": attempt + 1,
                         "timeout_seconds": remaining,
                         "status": status,
@@ -412,9 +460,12 @@ class CLI:
             deadline = min(
                 self.deadline if self.deadline is not None else math.inf,
                 self.priced_deadline if self.priced_deadline is not None else math.inf,
+                getattr(self._control_context, "deadline", math.inf),
             )
             timeout = min(timeout, deadline - time.monotonic())
             if timeout <= 0:
+                if time.monotonic() >= getattr(self._control_context, "deadline", math.inf):
+                    raise Refused("total upload time cap reached before CLI call")
                 raise Refused("whole-session deadline reached before CLI call")
         env = {
             **os.environ,
@@ -468,6 +519,10 @@ class CLI:
                 self.contents_transfers.append(
                     {
                         "direction": args[0],
+                        "operation": getattr(self._control_context, "tag", "control"),
+                        "started_monotonic": transfer_started,
+                        "ended_monotonic": time.monotonic(),
+                        "thread": threading.current_thread().name,
                         "remote": args[-1] if args[0] == "upload" else args[-2],
                         "size_bytes": size if transfer_status == "completed" else None,
                         "elapsed_seconds": elapsed,
@@ -509,6 +564,14 @@ class CLI:
         """Prove completion by nonce, with optional transport acknowledgement grace."""
         if self.exec_uncertain:
             raise Refused("previous exec uncertain/busy; refusing to resubmit to kernel")
+        staging_deadline = getattr(self._control_context, "deadline", math.inf)
+        if staging_deadline != math.inf:
+            timeout = min(
+                timeout, policy.STAGING_CONTROL_SECONDS, staging_deadline - time.monotonic()
+            )
+            completion_grace = 0
+            if timeout <= 0:
+                raise Refused("total upload time cap reached before control RPC")
         nonce = "SNAKE_RPC_" + uuid.uuid4().hex
         wrapped = (
             "import json, traceback\ntry:\n"
@@ -668,14 +731,23 @@ class CLI:
         """
         from research.colab_cli.cli_guard import kernel_idle
 
+        staging_deadline = getattr(self._control_context, "deadline", math.inf)
         deadline = min(
             time.monotonic() + timeout,
             self.deadline if self.deadline is not None else math.inf,
             self.priced_deadline if self.priced_deadline is not None else math.inf,
+            staging_deadline,
+            (
+                time.monotonic() + policy.STAGING_RECOVERY_SECONDS
+                if staging_deadline != math.inf
+                else math.inf
+            ),
         )
         for attempt in range(policy.ATTEMPTS):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                if time.monotonic() >= staging_deadline:
+                    raise Refused("total upload time cap reached during control recovery")
                 raise Refused("deadline reached during telemetry recovery")
             try:
                 attempt_seconds = min(policy.RPC_SECONDS, remaining)
@@ -690,14 +762,24 @@ class CLI:
                 for probe in range(policy.ATTEMPTS):
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
+                        if time.monotonic() >= staging_deadline:
+                            raise Refused("total upload time cap reached during control recovery")
                         raise Refused("deadline reached during telemetry recovery")
                     try:
-                        idle = kernel_idle(
-                            self.oauth_python,
-                            self.config,
-                            self.session,
-                            timeout=min(policy.READ_SECONDS, remaining),
-                        )
+                        with self.operation("recovery-idle"):
+                            idle = kernel_idle(
+                                self.oauth_python,
+                                self.config,
+                                self.session,
+                                timeout=min(
+                                    (
+                                        policy.STAGING_CONTROL_SECONDS
+                                        if staging_deadline != math.inf
+                                        else policy.READ_SECONDS
+                                    ),
+                                    remaining,
+                                ),
+                            )
                     except Exception as exc:
                         if not policy.transient_error(exc):
                             raise
@@ -922,6 +1004,7 @@ class Broker:
                             "transfers": [],
                             "contents_transfers": [],
                             "cli_calls": [],
+                            "control_operations": [],
                             "warmup_seconds": 0.0,
                             "error": detail,
                             "failure_class": FailureClass.UPLOAD_CAP.value,
@@ -942,6 +1025,7 @@ class Broker:
                 cli.transfer_records = []
                 cli.contents_transfers = []
                 cli.call_records = []
+                cli.operation_records = []
                 cli.verified_exports = {}
                 cli.warmup_seconds = 0.0
             started = time.monotonic()
@@ -1162,6 +1246,7 @@ class Broker:
                         "transfers": cli.transfer_records,
                         "contents_transfers": cli.contents_transfers,
                         "cli_calls": cli.call_records,
+                        "control_operations": cli.operation_records,
                         "error": error,
                         "failure_class": failure_class,
                         "cleanup_error": cleanup,
@@ -1437,13 +1522,14 @@ class Broker:
                     if force
                     else f"renew_lease({root!r},{generation!r})"
                 )
-                result = cli.poll_rpc(
-                    "import importlib.util\n"
-                    f"runtime_path={root + '/runtime.py'!r}\n"
-                    "s=importlib.util.spec_from_file_location('snake_runtime',runtime_path)\n"
-                    "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
-                    f"result=mod.{operation}"
-                )
+                with cli.operation("renewal"):
+                    result = cli.poll_rpc(
+                        "import importlib.util\n"
+                        f"runtime_path={root + '/runtime.py'!r}\n"
+                        "s=importlib.util.spec_from_file_location('snake_runtime',runtime_path)\n"
+                        "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
+                        f"result=mod.{operation}"
+                    )
                 if credential_renewal_due(cli.release_credential, "", safety_window_seconds=900):
                     cli.release_credential = mint_release_credential(
                         cli.oauth_python,
@@ -1509,63 +1595,71 @@ class Broker:
                 for i in m.get("inputs", [])
                 if "path" in i
             ]
-            checks = {}
-            for path, dest, digest in local_files:
-                if path.stat().st_size > m["max_export_bytes"]:
-                    raise Refused("upload exceeds bounded transfer size")
-                digest = digest or sha256(path)
-                renew()
-                cli.poll_rpc(
-                    "from pathlib import Path\n"
-                    f"parent=Path({(root + '/' + dest)!r}).parent\n"
-                    "parent.mkdir(parents=True,exist_ok=True)\nresult=True"
+            with cli.staging_controls(upload_deadline):
+                checks = {}
+                setup_started = time.monotonic()
+                parents = sorted(
+                    {str(Path(root + "/" + dest).parent) for _, dest, _ in local_files}
                 )
-                stage_upload(path, root + "/" + dest)
-                checks[dest] = digest
-            checks["runtime.py"] = sha256(pinned["runtime.py"])
-            checks["release.py"] = sha256(pinned["release.py"])
-            # The runtime downloads source directly from GitHub, rather than
-            # passing every committed evidence blob through ContentsClient.
-            plan = json.loads((staging / "source-plan.json").read_text())
+                with cli.operation("mkdir"):
+                    cli.poll_rpc(
+                        "# SNAKE_STAGING_PARENTS\nfrom pathlib import Path\n"
+                        f"parents={parents!r}\n"
+                        "for parent in parents: Path(parent).mkdir(parents=True,exist_ok=True)\n"
+                        "result=True"
+                    )
+                setup_seconds = time.monotonic() - setup_started
+                for path, dest, digest in local_files:
+                    if path.stat().st_size > m["max_export_bytes"]:
+                        raise Refused("upload exceeds bounded transfer size")
+                    digest = digest or sha256(path)
+                    stage_upload(path, root + "/" + dest)
+                    checks[dest] = digest
+                checks["runtime.py"] = sha256(pinned["runtime.py"])
+                checks["release.py"] = sha256(pinned["release.py"])
+                # The runtime downloads source directly from GitHub, rather than
+                # passing every committed evidence blob through ContentsClient.
+                plan = json.loads((staging / "source-plan.json").read_text())
 
-            def deliver_source(operation: str) -> Any:
-                nonlocal source_delivery_seconds
-                started = time.monotonic()
-                renew()
-                result = cli.recoverable_rpc(
-                    "# SNAKE_SOURCE_DELIVERY\n"
-                    "import importlib.util\nfrom pathlib import Path\n"
-                    f"root=Path({root!r})\nplan={plan!r}\n"
-                    "s=importlib.util.spec_from_file_location("
-                    "'snake_source',root/'source.py')\n"
-                    "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
-                    f"result=mod.{operation}(root,plan)",
-                )
-                renew()
-                source_delivery_seconds += time.monotonic() - started
-                return result
+                def deliver_source(operation: str) -> Any:
+                    nonlocal source_delivery_seconds
+                    started = time.monotonic()
+                    renew()
+                    result = cli.recoverable_rpc(
+                        "# SNAKE_SOURCE_DELIVERY\n"
+                        "import importlib.util\nfrom pathlib import Path\n"
+                        f"root=Path({root!r})\nplan={plan!r}\n"
+                        "s=importlib.util.spec_from_file_location("
+                        "'snake_source',root/'source.py')\n"
+                        "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
+                        f"result=mod.{operation}(root,plan)",
+                    )
+                    renew()
+                    source_delivery_seconds += time.monotonic() - started
+                    return result
 
-            delivery = deliver_source("fetch")
-            if not isinstance(delivery, dict):
-                raise Refused("source delivery returned no identity evidence")
-            if delivery.get("transport") == "fallback_required":
-                path = staging / "source.tar.gz"
-                stage_upload(path, root + "/source.tar.gz")
-                checks["source.tar.gz"] = sha256(path)
-                delivery = deliver_source("install_fallback")
-            if (
-                not isinstance(delivery, dict)
-                or delivery.get("transport") not in {"github", "fallback"}
-                or delivery.get("commit") != plan["commit"]
-                or delivery.get("tree") != plan["tree"]
-            ):
-                raise Refused("source delivery commit/tree identity mismatch")
+                delivery = deliver_source("fetch")
+                if not isinstance(delivery, dict):
+                    raise Refused("source delivery returned no identity evidence")
+                if delivery.get("transport") == "fallback_required":
+                    path = staging / "source.tar.gz"
+                    stage_upload(path, root + "/source.tar.gz")
+                    checks["source.tar.gz"] = sha256(path)
+                    delivery = deliver_source("install_fallback")
+                if (
+                    not isinstance(delivery, dict)
+                    or delivery.get("transport") not in {"github", "fallback"}
+                    or delivery.get("commit") != plan["commit"]
+                    or delivery.get("tree") != plan["tree"]
+                ):
+                    raise Refused("source delivery commit/tree identity mismatch")
             write_once(
                 output / "upload-measurement.json",
                 {
                     "elapsed_seconds": time.monotonic() - upload_started,
                     "transfer_seconds": transfer_seconds,
                     "source_delivery_seconds": source_delivery_seconds,
+                    "setup_seconds": setup_seconds,
                 },
             )
             write_once(output / "source-delivery.json", delivery)

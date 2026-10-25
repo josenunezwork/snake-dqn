@@ -142,6 +142,11 @@ def test_prepare_publishes_first_and_writes_nested_bound_d1024_partition(
     assert preflight["doses"] == [1024] and preflight["allocation"] == control["allocation"]
     projection = json.loads((pack / "pack.json").read_text())["upload_projection"]
     assert projection["status"] in ("WITHIN_CANARY_BAR", "HOLD_PROJECTED_ABOVE_CANARY_UPLOAD_BAR")
+    qualified = json.loads((pack / "pack.json").read_text())["qualified_transport"]
+    assert qualified["d1024_synthetic_inventory_sha256"] == "b" * 64
+    assert json.loads((pack / "main-template.json").read_text())["f4"]["qualified_tree"] == (
+        qualified["tree_hash"]
+    )
     assert calls["validated"] == [f"f4-d1024-canary-{'c' * 8}-01"]
 
 
@@ -205,6 +210,34 @@ def test_publication_failure_precedes_label_io(
             staging=tmp_path / "staging",
             commit="HEAD",
             preflight_receipt=tmp_path / "preflight",
+        )
+
+
+def test_repaired_acceptance_is_required_before_d1024_label_io(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from research.bl_residual import f4_d256_package as d256
+
+    monkeypatch.setattr(d256, "require_window_closed", lambda: None)
+    monkeypatch.setattr(package, "require_publication", lambda *_: None)
+    monkeypatch.setattr(package, "_require_source", lambda commit: "c" * 40)
+    monkeypatch.setattr(package, "_require_preflight", lambda *_: {"fixture": True})
+    monkeypatch.setattr(
+        package,
+        "require_repaired_transport",
+        lambda *_: (_ for _ in ()).throw(ValueError("D1024 transport acceptance required")),
+    )
+    monkeypatch.setattr(d256, "_life_catalog", lambda *_: pytest.fail("labels opened"))
+
+    with pytest.raises(ValueError, match="acceptance required"):
+        package._prepare(
+            tmp_path / "pack",
+            d256_ledger=tmp_path / "d256.json",
+            d1024_ledger=tmp_path / "d1024.json",
+            d1024_union_sha="d" * 64,
+            staging=tmp_path / "staging",
+            commit="HEAD",
+            preflight_receipt=tmp_path / "preflight.json",
         )
 
 
@@ -336,6 +369,60 @@ def test_canary_covers_main_transport_with_dose_1024_exports_and_series_caps(
     after = package.PRIOR_SERIES_LIABILITY_UNITS + liability
     assert main["f4"]["series_liability_after_d1024_units"] == pytest.approx(after)
     assert after <= main["f4"]["fit_series_effective_units"] == 20
+
+
+def test_attempt_three_is_a_fresh_full_inventory_canary_and_main_path(tmp_path: Path) -> None:
+    inventory = [
+        {
+            "dest": "b8.pth",
+            "url": "https://example.invalid/B8_s3_final.pth",
+            "sha256": "a" * 64,
+            "size_bytes": 6_562_005,
+        },
+        {
+            "path": "/fixture/factory-verified-ledger.json",
+            "dest": "factory-verified-ledger.json",
+            "sha256": "b" * 64,
+        },
+        {
+            "path": "/fixture/train-1024.npz",
+            "dest": "train-1024.npz",
+            "sha256": "c" * 64,
+        },
+        {
+            "path": "/fixture/metadata.tar",
+            "dest": "metadata.tar",
+            "sha256": "d" * 64,
+        },
+    ]
+    main, canary = package.manifests(tmp_path, "b" * 40, inventory, attempt="03")
+
+    assert canary["inputs"] == main["inputs"] == inventory
+    assert {row["dest"] for row in canary["inputs"]} == {
+        "b8.pth",
+        "factory-verified-ledger.json",
+        "train-1024.npz",
+        "metadata.tar",
+    }
+    assert canary["commit"] == main["commit"]
+    assert canary["script"] == main["script"]
+    assert canary["source_paths"] == main["source_paths"]
+    assert canary["device"] == main["device"] == "cuda:0"
+    assert canary["requirements"]["gpu"] == main["requirements"]["gpu"] == "L4"
+    assert canary["requirements"]["allowed_gpus"] == main["requirements"]["allowed_gpus"] == ["L4"]
+    assert canary["resume"] == main["resume"]
+    assert canary["job_id"] == "f4-d1024-canary-bbbbbbbb-03"
+    assert main["job_id"] == "f4-d1024-fit-bbbbbbbb-03"
+    # The fresh attempt must retain the D256 7.2-unit liabilities and both
+    # failed D1024 canary envelopes (1.2 each), with the same 20-unit guard.
+    assert main["f4"]["prior_series_liability_units"] == pytest.approx(9.6)
+    assert main["f4"]["series_liability_after_d1024_units"] == pytest.approx(15.6)
+    assert main["f4"]["fit_series_effective_units"] == 20
+    assert Path(canary["output_dir"]).name == "canary-output-l4-03"
+    assert Path(main["output_dir"]).name == "d1024-output-l4-03"
+    assert package.output_names("01") == (package.MAIN_OUTPUT, package.CANARY_OUTPUT)
+    with pytest.raises(ValueError, match="two-digit"):
+        package.manifests(tmp_path, "b" * 40, inventory, attempt="3")
 
 
 def test_excluded_canary_dose_selects_producer_filename(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -477,7 +564,14 @@ def test_seal_main_binds_only_the_d1024_main_template(
         package.seal_main(tmp_path / "d256-main.json", receipt, tmp_path / "third.json")
 
 
-def _fit_pack(tmp_path: Path, receipt: dict, *, index: int = 1, fault: bool = False) -> Path:
+def _fit_pack(
+    tmp_path: Path,
+    receipt: dict,
+    *,
+    index: int = 1,
+    fault: bool = False,
+    attempt: str = "01",
+) -> Path:
     from research.bl_residual.protocol import NAMESPACE
 
     pack = tmp_path / "pack"
@@ -485,7 +579,9 @@ def _fit_pack(tmp_path: Path, receipt: dict, *, index: int = 1, fault: bool = Fa
         pack / "inputs/control.json",
         {"namespace": NAMESPACE, "allocation": "a" * 64, "doses": [1024]},
     )
-    run = pack / package.MAIN_OUTPUT
+    export_json(pack / "pack.json", {"schema": "bl-residual-f4-d1024-pack/v1", "attempt": attempt})
+    main_output, _canary_output = package.output_names(attempt)
+    run = pack / main_output
     run.mkdir(parents=True, exist_ok=True)
     (run / "receipt.json").write_text(json.dumps(receipt))
     fit = run / "exports/fit"
@@ -500,7 +596,7 @@ PASS = {"status": "PASS", "stop_verified": True, "error": None, "cleanup_error":
 
 
 def test_publish_fit_binds_only_the_complete_index_one_unit(tmp_path: Path) -> None:
-    pack = _fit_pack(tmp_path, PASS)
+    pack = _fit_pack(tmp_path, PASS, attempt="03")
     result = package.publish_fit(pack, tmp_path / "ledger.json")
     value = json.loads((tmp_path / "ledger.json").read_text())
     assert [row["index"] for row in value["units"]] == [1]

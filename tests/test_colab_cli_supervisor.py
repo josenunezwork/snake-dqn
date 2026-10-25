@@ -227,11 +227,11 @@ def test_cold_first_call_is_warmed_before_any_upload_and_staging_clock(
                 raise subprocess.TimeoutExpired("cold first exec", timeout)
             if slow_staging and "SNAKE_TRANSFER_VERIFY_FILE" in code and not verify_delayed:
                 verify_delayed = True
-                now[0] += 120  # Later acknowledgement loss must not be relabelled warmup.
+                now[0] += min(120, timeout)  # Staging controls now have a 30s attempt bound.
                 raise subprocess.TimeoutExpired("later verification", timeout)
         if args[0] == "upload":
             uploads_at.append(now[0])
-            now[0] += 12 if slow_staging else 2
+            now[0] += 42 if slow_staging else 2
         return original(self, *args, timeout=timeout)
 
     monkeypatch.setattr(supervisor.CLI, "_call_once", cold_call)
@@ -308,8 +308,6 @@ def test_staging_separates_verified_transfers_from_source_delivery(
 def test_whole_staging_over_300_seconds_cannot_qualify(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from research.colab_cli import canary
-
     binary = _fake_env(monkeypatch, tmp_path)
     now = [0.0]
     monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
@@ -332,16 +330,17 @@ def test_whole_staging_over_300_seconds_cannot_qualify(
     manifest = _manifest(tmp_path)
     manifest["timeout_minutes"] = 10
     manifest["budget"]["unit_cap"] = 2
-    supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    # Previously the broker completed staging after expiry and relied on the
+    # canary's post-success bar. It must now refuse before another control RPC.
+    with pytest.raises(supervisor.Refused, match="INCOMPLETE"):
+        supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
     output = Path(manifest["output_dir"])
     receipt = json.loads((output / "receipt.json").read_text())
-    measured = json.loads((output / "upload-measurement.json").read_text())
-    assert measured["elapsed_seconds"] == 304
-    assert measured["transfer_seconds"] == 3
-    assert measured["source_delivery_seconds"] == 301
+    assert not (output / "upload-measurement.json").exists()
     assert receipt["stop_verified"] is True
-    with pytest.raises(canary.CanaryError, match="staging must complete within 300"):
-        canary.evidence(manifest, receipt, output, REPO)
+    assert receipt["status"] == "INCOMPLETE"
+    assert receipt["terminal"] is None
+    assert not receipt["exports"]
 
 
 def test_warmup_failure_stops_runtime_without_uploading_or_launching(

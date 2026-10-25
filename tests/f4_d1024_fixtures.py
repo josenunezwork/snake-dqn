@@ -242,6 +242,17 @@ def patch_package(monkeypatch: Any, world: dict[str, Any], calls: dict[str, Any]
     )
     monkeypatch.setattr(package, "_require_source", lambda commit: "c" * 40)
     monkeypatch.setattr(package, "_require_preflight", lambda *_: {"fixture": True})
+    monkeypatch.setattr(
+        package,
+        "require_repaired_transport",
+        lambda *_: {
+            "tree_hash": package.QUALIFIED_TREE,
+            "qualified_commit": "c" * 40,
+            "acceptance_result": "/fixture/acceptance-result.json",
+            "acceptance_result_sha256": "a" * 64,
+            "d1024_synthetic_inventory_sha256": "b" * 64,
+        },
+    )
     monkeypatch.setattr(package, "require_d256_fit_publication", lambda *_: None)
     monkeypatch.setattr("tools.ops.qualification.check", lambda *_: package.QUALIFIED_TREE)
     monkeypatch.setattr("tools.ops.import_preflight.check", lambda *_: {"fixture": "imports"})

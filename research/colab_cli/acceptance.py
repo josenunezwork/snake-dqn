@@ -33,6 +33,35 @@ PROFILES = ("final-only", "full-state")
 FINAL_ARTIFACT_BYTES = 64 * 1024 * 1024
 FULL_STATE_GATES = {"busy-full-snapshot", "exact-resume", "checkpoint-overhead"}
 REVIEW_TOKEN = "COLAB_CLI_ACCEPTANCE_REVIEWED"
+QUALIFIED_RECORD_SCHEMA = "snake-dqn-colab-cli-qualified/v1"
+D1024_SYNTHETIC_INVENTORY_SCHEMA = "f4-d1024-synthetic-input-inventory/v1"
+D1024_TRANSFER_BAR_SECONDS = 150.0
+D1024_STAGING_CAP_SECONDS = 300.0
+# These are size/count/transport-role facts from the failed D1024 canary's
+# immutable manifest plus metadata-only stat results.  They intentionally do
+# not contain a fit, label, or ledger payload digest.  The public B8 input
+# remains a public-input exercise; the other three are deterministic synthetic
+# local files with the same names and byte counts as the production inventory.
+D1024_SYNTHETIC_INVENTORY = {
+    "schema": D1024_SYNTHETIC_INVENTORY_SCHEMA,
+    "inputs": [
+        {
+            "dest": "b8.pth",
+            "size_bytes": 6_562_005,
+            "transport": "https",
+            "url": "https://github.com/josenunezwork/snake-dqn/releases/download/"
+            "s1-inputs-20261019/B8_s3_final.pth",
+            "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+        },
+        {
+            "dest": "factory-verified-ledger.json",
+            "size_bytes": 2_405_362,
+            "transport": "upload",
+        },
+        {"dest": "train-1024.npz", "size_bytes": 45_397_643, "transport": "upload"},
+        {"dest": "metadata.tar", "size_bytes": 2_211_840, "transport": "upload"},
+    ],
+}
 BASELINE = {
     "supplied_at": "2026-10-18 18:38 PT",
     "balance_units": 1174.37,
@@ -50,6 +79,62 @@ def sha256_file(path: Path) -> str:
         for block in iter(lambda: source.read(1 << 20), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def canonical_sha256(value: dict[str, Any]) -> str:
+    """Hash a JSON contract independently of whitespace or dictionary order."""
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def d1024_synthetic_inventory() -> dict[str, Any]:
+    """Return the payload-free D1024 inventory contract for requalification."""
+    inventory = json.loads(json.dumps(D1024_SYNTHETIC_INVENTORY))
+    inventory["sha256"] = canonical_sha256(inventory)
+    return inventory
+
+
+D1024_F4_INVENTORY_SHA256 = canonical_sha256(D1024_SYNTHETIC_INVENTORY)
+
+
+def _write_synthetic_file(path: Path, size_bytes: int) -> str:
+    """Create deterministic sparse acceptance bytes without copying study inputs."""
+    if path.exists():
+        raise ValueError(f"synthetic acceptance input already exists: {path}")
+    with path.open("xb") as stream:
+        stream.truncate(size_bytes)
+        stream.flush()
+        os.fsync(stream.fileno())
+    return sha256_file(path)
+
+
+def build_d1024_synthetic_inputs(directory: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Materialize only synthetic local inputs while retaining the public B8 role."""
+    directory.mkdir(parents=True, exist_ok=False)
+    inventory = d1024_synthetic_inventory()
+    inputs: list[dict[str, Any]] = []
+    for row in inventory["inputs"]:
+        if row["transport"] == "https":
+            inputs.append(
+                {
+                    "dest": row["dest"],
+                    "url": row["url"],
+                    "size_bytes": row["size_bytes"],
+                    "sha256": row["sha256"],
+                }
+            )
+            continue
+        path = directory / row["dest"]
+        inputs.append(
+            {
+                "dest": row["dest"],
+                "path": str(path),
+                "size_bytes": row["size_bytes"],
+                "sha256": _write_synthetic_file(path, row["size_bytes"]),
+            }
+        )
+    return inputs, inventory
 
 
 def atomic_json(path: Path, value: dict[str, Any]) -> None:
@@ -86,6 +171,7 @@ def manifest(
     priced_rate: float,
     other_assignments: dict[str, float],
     profile: str = "final-only",
+    synthetic_inputs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "job_id": job_id,
@@ -107,7 +193,8 @@ def manifest(
                 "dest": "acceptance_probe.py",
             },
             {"path": str(wrapper), "sha256": sha256_file(wrapper), "dest": "acceptance_probe.sh"},
-        ],
+        ]
+        + (synthetic_inputs or []),
         "budget": {
             # This is deliberately a conservative price ceiling.  It controls
             # admission, the liability reservation, and the session cap even
@@ -230,6 +317,360 @@ def source_manifest(root: Path) -> dict[str, str]:
     }
 
 
+def transport_tree(root: Path, ref: str = "HEAD") -> str:
+    """Resolve the committed CLI subtree used by an acceptance source manifest."""
+    value = subprocess.run(
+        ["git", "rev-parse", "--verify", f"{ref}:research/colab_cli"],
+        cwd=root,
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=15,
+    )
+    if value.returncode:
+        raise ValueError(f"cannot resolve Colab CLI tree for {ref}")
+    tree = value.stdout.strip()
+    kind = subprocess.run(
+        ["git", "cat-file", "-t", tree],
+        cwd=root,
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=15,
+    )
+    if kind.returncode or kind.stdout.strip() != "tree":
+        raise ValueError("Colab CLI identity is not a Git tree")
+    return tree
+
+
+def _require_hex(value: Any, label: str, length: int = 40) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != length
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{label} must be a {length}-character lowercase hex digest")
+    return value
+
+
+def _source_manifest_at_commit(repo: Path, commit: str, expected: dict[str, str]) -> None:
+    """Ensure a record's per-file hashes came from its stated committed source."""
+    if not isinstance(expected, dict) or not expected:
+        raise ValueError("qualified acceptance record has no source manifest")
+    for relative, digest in expected.items():
+        _require_hex(digest, f"source manifest digest for {relative}", 64)
+        if not isinstance(relative, str) or not relative.startswith("research/colab_cli/"):
+            raise ValueError("qualified source manifest contains a non-transport path")
+        pinned = subprocess.run(
+            ["git", "show", f"{commit}:{relative}"],
+            cwd=repo,
+            capture_output=True,
+            check=False,
+            timeout=15,
+        )
+        if pinned.returncode or hashlib.sha256(pinned.stdout).hexdigest() != digest:
+            raise ValueError(f"qualified source manifest differs from commit: {relative}")
+
+
+def verify_qualified_transport_record(
+    repo: Path,
+    record_path: Path,
+    *,
+    required_inventory_sha256: str = D1024_F4_INVENTORY_SHA256,
+    reject_tree: str | None = None,
+) -> dict[str, Any]:
+    """Fail closed unless an operator-created PASS binds this exact CLI tree.
+
+    This deliberately accepts a science commit that differs outside
+    ``research/colab_cli``.  It refuses a copied PASS, an old tree, altered
+    acceptance receipt, or an acceptance that omitted the D1024-size synthetic
+    transport inventory.
+    """
+    repo = repo.resolve()
+    registry = json.loads(record_path.read_text())
+    if not isinstance(registry, dict) or registry.get("schema") != QUALIFIED_RECORD_SCHEMA:
+        raise ValueError("invalid qualified transport registry")
+    tree = _require_hex(registry.get("tree_hash"), "qualified tree")
+    if reject_tree is not None and tree == _require_hex(reject_tree, "rejected tree"):
+        raise ValueError("qualified transport registry still names the rejected tree")
+    if tree != transport_tree(repo):
+        raise ValueError("current Colab CLI tree does not match qualified transport registry")
+    result_path = Path(registry.get("acceptance_result", ""))
+    if not result_path.is_file():
+        raise ValueError("qualified transport acceptance result is absent")
+    if sha256_file(result_path) != _require_hex(
+        registry.get("acceptance_result_sha256"), "acceptance result SHA-256", 64
+    ):
+        raise ValueError("qualified transport acceptance result hash differs from registry")
+    result = json.loads(result_path.read_text())
+    if (
+        not isinstance(result, dict)
+        or result.get("status") != "PASS"
+        or result.get("qualified") is not True
+        or result.get("return_code") != 0
+        or result.get("profile") != "final-only"
+    ):
+        raise ValueError("qualified transport acceptance result is not a final-only PASS")
+    commit = _require_hex(result.get("qualified_commit"), "qualified commit")
+    if commit != _require_hex(registry.get("qualified_commit"), "registry qualified commit"):
+        raise ValueError("qualified commit differs between registry and acceptance result")
+    result_tree = _require_hex(result.get("qualified_tree_hash"), "acceptance result tree")
+    if result_tree != tree or result_tree != transport_tree(repo, commit):
+        raise ValueError("qualified acceptance tree differs from the accepted source commit")
+    plan = result.get("final_plan")
+    if not isinstance(plan, dict) or plan.get("commit") != commit or plan.get("tree_hash") != tree:
+        raise ValueError("qualified acceptance plan identity differs from acceptance result")
+    if plan.get("source_manifest") != result.get("source_manifest"):
+        raise ValueError("qualified acceptance plan/source manifest mismatch")
+    _source_manifest_at_commit(repo, commit, result["source_manifest"])
+    if source_manifest(repo) != result["source_manifest"]:
+        raise ValueError("current Colab CLI source manifest is not the qualified source")
+    # Reuse the common final-only admission proof so this D1024-specific
+    # consumer cannot mistake a copied PASS header for a qualified acceptance.
+    from research.colab_cli import admission
+
+    admission.require_final_only(result, repo)
+    inventory = plan.get("d1024_synthetic_inventory")
+    if not isinstance(inventory, dict) or inventory.get("sha256") != required_inventory_sha256:
+        raise ValueError("qualified acceptance lacks the required D1024 synthetic inventory")
+    unsigned_inventory = dict(inventory)
+    supplied_digest = unsigned_inventory.pop("sha256", None)
+    if supplied_digest != canonical_sha256(unsigned_inventory):
+        raise ValueError("D1024 synthetic inventory digest is invalid")
+    if result.get("d1024_synthetic_inventory_sha256") != supplied_digest:
+        raise ValueError("acceptance result does not bind the D1024 synthetic inventory")
+    gates = plan.get("gates")
+    if not isinstance(gates, list):
+        raise ValueError("qualified acceptance plan has no gate records")
+    staging = next(
+        (gate for gate in gates if gate.get("id") == "d1024-synthetic-full-inventory-staging"), None
+    )
+    if not isinstance(staging, dict) or staging.get("status") != "OBSERVED":
+        raise ValueError("qualified acceptance did not observe synthetic D1024 staging")
+    evidence = staging.get("evidence_record")
+    if (
+        not isinstance(evidence, dict)
+        or evidence.get("status") != "PASS"
+        or evidence.get("inventory_sha256") != supplied_digest
+        or not isinstance(evidence.get("public_input_preflight"), str)
+    ):
+        raise ValueError("qualified acceptance synthetic D1024 staging evidence is incomplete")
+    executions = {row.get("job"): row for row in plan.get("execution", []) if isinstance(row, dict)}
+    if set(executions) != {"cpu", "l4"}:
+        raise ValueError("qualified acceptance lacks exactly one CPU and L4 execution receipt")
+    receipts: dict[str, tuple[Path, dict[str, Any]]] = {}
+    for arm in ("cpu", "l4"):
+        execution = executions[arm]
+        receipt_path = Path(execution.get("receipt", ""))
+        receipt_digest = _require_hex(
+            execution.get("receipt_sha256"), f"{arm} acceptance receipt hash", 64
+        )
+        if not receipt_path.is_file() or sha256_file(receipt_path) != receipt_digest:
+            raise ValueError(f"qualified acceptance {arm} receipt changed")
+        receipt = json.loads(receipt_path.read_text())
+        if not isinstance(receipt, dict) or receipt.get("commit") != commit:
+            raise ValueError(f"qualified acceptance {arm} receipt is not from the qualified commit")
+        receipts[arm] = (receipt_path.resolve(), receipt)
+    l4_receipt_path, l4_receipt = receipts["l4"]
+    measurement = evidence.get("upload_measurement")
+    if not isinstance(measurement, dict):
+        raise ValueError("qualified acceptance synthetic D1024 timing evidence is absent")
+    measurement_path = Path(measurement.get("path", ""))
+    if measurement_path.resolve() != (l4_receipt_path.parent / "upload-measurement.json").resolve():
+        raise ValueError("qualified acceptance synthetic D1024 timing is not from the L4 receipt")
+    if not measurement_path.is_file() or sha256_file(measurement_path) != _require_hex(
+        measurement.get("sha256"), "synthetic staging measurement hash", 64
+    ):
+        raise ValueError("qualified acceptance synthetic D1024 timing evidence changed")
+    recomputed = _d1024_staging_measurement(measurement_path)
+    if any(measurement.get(name) != value for name, value in recomputed.items()):
+        raise ValueError("qualified acceptance synthetic D1024 timing evidence differs")
+    staging_receipt = evidence.get("receipt")
+    if not isinstance(staging_receipt, dict):
+        raise ValueError("qualified acceptance synthetic D1024 receipt evidence is absent")
+    receipt_path = Path(staging_receipt.get("path", ""))
+    receipt_digest = _require_hex(
+        staging_receipt.get("sha256"), "synthetic staging receipt hash", 64
+    )
+    if not receipt_path.is_file() or sha256_file(receipt_path) != receipt_digest:
+        raise ValueError("qualified acceptance synthetic D1024 receipt changed")
+    l4_execution = executions["l4"]
+    if (
+        receipt_path.resolve() != l4_receipt_path
+        or l4_execution.get("receipt_sha256") != receipt_digest
+    ):
+        raise ValueError(
+            "qualified acceptance synthetic D1024 receipt is not the L4 acceptance receipt"
+        )
+    evidence_rows = evidence.get("inputs")
+    if not isinstance(evidence_rows, list):
+        raise ValueError("qualified acceptance synthetic D1024 input evidence is absent")
+    rows_by_dest: dict[str, list[dict[str, Any]]] = {}
+    for observed in evidence_rows:
+        if not isinstance(observed, dict) or not isinstance(observed.get("dest"), str):
+            raise ValueError("qualified acceptance synthetic D1024 input evidence is malformed")
+        rows_by_dest.setdefault(observed["dest"], []).append(observed)
+    expected_destinations = {row["dest"] for row in inventory["inputs"]}
+    if set(rows_by_dest) != expected_destinations:
+        raise ValueError("qualified acceptance synthetic D1024 input evidence destinations differ")
+    uploads_by_dest: dict[str, list[dict[str, Any]]] = {}
+    for transfer in l4_receipt.get("transfers", []):
+        if (
+            isinstance(transfer, dict)
+            and transfer.get("direction") == "upload"
+            and transfer.get("status") == "verified"
+            and isinstance(transfer.get("remote"), str)
+            and "/inputs/" in transfer["remote"]
+        ):
+            destination = transfer["remote"].split("/inputs/", 1)[1]
+            uploads_by_dest.setdefault(destination, []).append(transfer)
+    for row in inventory["inputs"]:
+        observed_rows = rows_by_dest.get(row["dest"], [])
+        if len(observed_rows) != 1:
+            raise ValueError(
+                "qualified acceptance has duplicate or missing synthetic input evidence "
+                f"for {row['dest']}"
+            )
+        observed = observed_rows[0]
+        if observed.get("transport") != row["transport"]:
+            raise ValueError(
+                f"qualified acceptance omitted synthetic input evidence for {row['dest']}"
+            )
+        if row["transport"] == "upload":
+            if (
+                observed.get("size_bytes") != row["size_bytes"]
+                or observed.get("status") != "verified"
+            ):
+                raise ValueError(f"qualified acceptance synthetic upload differs for {row['dest']}")
+            _require_hex(observed.get("sha256"), f"synthetic upload hash for {row['dest']}", 64)
+            transfers = uploads_by_dest.get(row["dest"], [])
+            if len(transfers) != 1:
+                raise ValueError(
+                    "qualified acceptance has duplicate or missing L4 upload receipt "
+                    f"for {row['dest']}"
+                )
+            transfer = transfers[0]
+            if any(
+                transfer.get(field) != observed.get(field)
+                for field in ("remote", "size_bytes", "sha256")
+            ):
+                raise ValueError(
+                    "qualified acceptance synthetic upload evidence conflicts with L4 receipt "
+                    f"for {row['dest']}"
+                )
+    return {
+        "qualified_commit": commit,
+        "tree_hash": tree,
+        "acceptance_result": str(result_path),
+        "acceptance_result_sha256": registry["acceptance_result_sha256"],
+        "d1024_synthetic_inventory_sha256": supplied_digest,
+    }
+
+
+def d1024_synthetic_staging_evidence(
+    plan: dict[str, Any], job: dict[str, Any], receipt: dict[str, Any], output: Path
+) -> dict[str, Any]:
+    """Require actual L4 staging evidence for every synthetic D1024 input role."""
+    inventory = plan.get("d1024_synthetic_inventory")
+    if not isinstance(inventory, dict):
+        return {"status": "NOT_REQUIRED"}
+    manifest = json.loads(Path(job["manifest"]).read_text())
+    requested = {row["dest"]: row for row in inventory.get("inputs", [])}
+    actual = {row.get("dest"): row for row in manifest.get("inputs", [])}
+    if not set(requested).issubset(actual):
+        raise supervisor.Refused("synthetic D1024 inventory is absent from acceptance manifest")
+    uploads = {
+        row["remote"].split("/inputs/", 1)[1]: row
+        for row in receipt.get("transfers", [])
+        if isinstance(row, dict)
+        and row.get("direction") == "upload"
+        and row.get("status") == "verified"
+        and isinstance(row.get("remote"), str)
+        and "/inputs/" in row["remote"]
+    }
+    observed: list[dict[str, Any]] = []
+    for dest, expected in requested.items():
+        row = actual[dest]
+        if row.get("size_bytes") != expected["size_bytes"]:
+            raise supervisor.Refused(f"synthetic D1024 size mismatch for {dest}")
+        if expected["transport"] == "https":
+            if row.get("url") != expected.get("url") or row.get("sha256") != expected.get("sha256"):
+                raise supervisor.Refused("synthetic D1024 public input role differs")
+            observed.append({"dest": dest, "transport": "https", "status": "manifest-bound"})
+            continue
+        path = Path(row.get("path", ""))
+        if not path.is_file() or path.stat().st_size != expected["size_bytes"]:
+            raise supervisor.Refused(f"synthetic D1024 local file differs for {dest}")
+        digest = sha256_file(path)
+        transfer = uploads.get(dest, {})
+        if (
+            row.get("sha256") != digest
+            or transfer.get("size_bytes") != expected["size_bytes"]
+            or transfer.get("sha256") != digest
+        ):
+            raise supervisor.Refused(f"synthetic D1024 verified upload is absent for {dest}")
+        observed.append(
+            {
+                "dest": dest,
+                "transport": "upload",
+                "size_bytes": expected["size_bytes"],
+                "sha256": digest,
+                "remote": transfer["remote"],
+                "status": "verified",
+            }
+        )
+    public_preflight = output / "public-input-preflight.json"
+    if not public_preflight.is_file():
+        raise supervisor.Refused("synthetic D1024 public-input preflight is absent")
+    measurement_path = output / "upload-measurement.json"
+    measurement = _d1024_staging_measurement(measurement_path)
+    receipt_path = output / "receipt.json"
+    if not receipt_path.is_file() or json.loads(receipt_path.read_text()) != receipt:
+        raise supervisor.Refused("synthetic D1024 staging receipt is absent")
+    return {
+        "status": "PASS",
+        "inventory_sha256": inventory.get("sha256"),
+        "inputs": observed,
+        "public_input_preflight": str(public_preflight),
+        "upload_measurement": {
+            "path": str(measurement_path),
+            "sha256": sha256_file(measurement_path),
+            **measurement,
+        },
+        "receipt": {"path": str(receipt_path), "sha256": sha256_file(receipt_path)},
+    }
+
+
+def _d1024_staging_measurement(path: Path) -> dict[str, float]:
+    """Read the persisted shared-clock measurement without relaxing either bar."""
+    if not path.is_file():
+        raise supervisor.Refused("synthetic D1024 upload measurement is absent")
+    raw = json.loads(path.read_text())
+    measured: dict[str, float] = {}
+    for name in ("elapsed_seconds", "transfer_seconds", "source_delivery_seconds"):
+        value = raw.get(name)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+        ):
+            raise supervisor.Refused(f"synthetic D1024 {name} is not finite")
+        measured[name] = float(value)
+    if measured["elapsed_seconds"] <= 0 or measured["elapsed_seconds"] > D1024_STAGING_CAP_SECONDS:
+        raise supervisor.Refused("synthetic D1024 staging exceeds the 300-second cap")
+    if (
+        measured["transfer_seconds"] <= 0
+        or measured["transfer_seconds"] > D1024_TRANSFER_BAR_SECONDS
+    ):
+        raise supervisor.Refused("synthetic D1024 transfer exceeds the 150-second bar")
+    if measured["source_delivery_seconds"] < 0 or (
+        measured["transfer_seconds"] + measured["source_delivery_seconds"]
+        > measured["elapsed_seconds"] + 1e-6
+    ):
+        raise supervisor.Refused("synthetic D1024 staging components exceed elapsed time")
+    return measured
+
+
 def verify_plan_sources(plan: dict[str, Any], repo: Path) -> None:
     """Refuse dirty or stale implementation bytes before a paid allocation."""
     current = source_manifest(repo)
@@ -254,6 +695,7 @@ def build_plan(
     other_assignments: dict[str, float] | None = None,
     l4_rate: float = L4_RATE_UNITS_PER_HOUR,
     profile: str = "final-only",
+    d1024_inventory: bool = False,
 ) -> dict[str, Any]:
     gates = review_gates(profile)
     if cpu_rate is None:
@@ -283,6 +725,12 @@ def build_plan(
     run_dir = fresh_dir(state_dir.resolve() / run_id)
     output_root = fresh_dir(run_dir / "outputs")
     manifests = fresh_dir(run_dir / "manifests")
+    synthetic_inputs: list[dict[str, Any]] = []
+    synthetic_inventory: dict[str, Any] | None = None
+    if d1024_inventory:
+        synthetic_inputs, synthetic_inventory = build_d1024_synthetic_inputs(
+            run_dir / "d1024-synthetic-inputs"
+        )
     probe = root / "research/colab_cli/acceptance_probe.py"
     wrapper = root / "research/colab_cli/acceptance_probe.sh"
     if not probe.is_file() or not wrapper.is_file():
@@ -310,6 +758,7 @@ def build_plan(
             priced_rate=rate,
             other_assignments={key: float(value) for key, value in other_assignments.items()},
             profile=profile,
+            synthetic_inputs=synthetic_inputs,
         )
         target = manifests / f"{name}.json"
         atomic_json(target, payload)
@@ -321,11 +770,28 @@ def build_plan(
                 "expected_units": payload["budget"]["unit_cap"],
             }
         )
+    plan_gates = [
+        {**gate, "status": "INCOMPLETE" if gate["required"] else "NOT_REQUIRED"} for gate in gates
+    ]
+    if synthetic_inventory is not None:
+        plan_gates.append(
+            {
+                "id": "d1024-synthetic-full-inventory-staging",
+                "evidence": (
+                    "L4 receipt verified every local synthetic input with the D1024 sizes and "
+                    "hashes; the B8 HTTPS role has its preflight evidence"
+                ),
+                "owner": "Mac supervisor + acceptance verifier",
+                "required": True,
+                "status": "INCOMPLETE",
+            }
+        )
     plan = {
         "schema": "snake-dqn-colab-cli-acceptance/v1",
         "status": "NOT_RUN",
         "profile": profile,
         "commit": commit,
+        "tree_hash": transport_tree(root),
         "source_manifest": source_manifest(root),
         "baseline_context": BASELINE,
         "limits": {
@@ -340,12 +806,11 @@ def build_plan(
             "total": cpu_expected + l4_expected,
         },
         "jobs": jobs,
-        "gates": [
-            {**gate, "status": "INCOMPLETE" if gate["required"] else "NOT_REQUIRED"}
-            for gate in gates
-        ],
+        "gates": plan_gates,
         "qualification": "INCOMPLETE until every gate has independently verified evidence",
     }
+    if synthetic_inventory is not None:
+        plan["d1024_synthetic_inventory"] = synthetic_inventory
     atomic_json(run_dir / "acceptance-plan.json", plan)
     return {"run_dir": str(run_dir), "plan": plan}
 
@@ -389,6 +854,11 @@ def execute(
             supervisor.Broker(state_dir.resolve() / "lanes", colab, observer=observer).run(payload)
             receipt = _clean_release_receipt(output)
             measurement = _calibration_evidence(receipt)
+            if job["name"] == "l4" and "d1024_synthetic_inventory" in plan:
+                observer._record(
+                    "d1024-synthetic-full-inventory-staging",
+                    **d1024_synthetic_staging_evidence(plan, job, receipt, output),
+                )
             observer._record("backend-stop-disappearance", receipt=str(output / "receipt.json"))
             results.append(
                 {
@@ -410,6 +880,11 @@ def execute(
             try:
                 receipt = _clean_release_receipt(output, require_success=False)
                 measurement = _calibration_evidence(receipt)
+                if job["name"] == "l4" and "d1024_synthetic_inventory" in plan:
+                    observer._record(
+                        "d1024-synthetic-full-inventory-staging",
+                        **d1024_synthetic_staging_evidence(plan, job, receipt, output),
+                    )
                 clean_cleanup = True
             except (OSError, ValueError, supervisor.Refused):
                 clean_cleanup = False
@@ -485,19 +960,24 @@ def execute(
             "PASS for this profile and source; independent review required for S1"
         )
     return_code = 0 if qualified else 1
-    create_json(
-        run_dir / "acceptance-result.json",
-        {
-            "schema": "snake-dqn-colab-cli-acceptance-result/v1",
-            "return_code": return_code,
-            "qualified": qualified,
-            "status": "PASS" if qualified else "INCOMPLETE",
-            "profile": profile,
-            "source_manifest": plan["source_manifest"],
-            "final_artifact_transfer": observer.records.get("final-artifact-download"),
-            "final_plan": plan,
-        },
-    )
+    result = {
+        "schema": "snake-dqn-colab-cli-acceptance-result/v1",
+        "return_code": return_code,
+        "qualified": qualified,
+        "status": "PASS" if qualified else "INCOMPLETE",
+        "profile": profile,
+        # These source identities are recorded even for an incomplete
+        # execution so a later registry cannot silently substitute them.
+        # The verifier separately requires PASS/true/0.
+        "qualified_commit": plan["commit"],
+        "qualified_tree_hash": plan["tree_hash"],
+        "source_manifest": plan["source_manifest"],
+        "final_artifact_transfer": observer.records.get("final-artifact-download"),
+        "final_plan": plan,
+    }
+    if "d1024_synthetic_inventory" in plan:
+        result["d1024_synthetic_inventory_sha256"] = plan["d1024_synthetic_inventory"]["sha256"]
+    create_json(run_dir / "acceptance-result.json", result)
     return return_code
 
 
@@ -571,8 +1051,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", choices=PROFILES, default="final-only")
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument(
-        "--state-dir", type=Path, required=True, help="absolute supervisor state parent"
+        "--verify-qualified-record",
+        type=Path,
+        help="fail closed unless this registry binds the current source to a reviewed PASS",
     )
+    parser.add_argument(
+        "--required-inventory-sha256",
+        default=D1024_F4_INVENTORY_SHA256,
+        help="D1024 synthetic input-inventory contract required by the caller",
+    )
+    parser.add_argument(
+        "--reject-tree",
+        help="known superseded CLI tree that this acceptance must not admit",
+    )
+    parser.add_argument(
+        "--d1024-inventory",
+        action="store_true",
+        help="stage the prospective synthetic D1024 input inventory in this acceptance only",
+    )
+    parser.add_argument("--state-dir", type=Path, help="absolute supervisor state parent")
     parser.add_argument(
         "--cpu-rate",
         "--cpu-rate-units-per-hour",
@@ -605,7 +1102,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--execute-after-review", action="store_true")
     parser.add_argument("--review-token", default="")
     args = parser.parse_args(argv)
-    if not args.state_dir.is_absolute():
+    if args.verify_qualified_record is not None:
+        try:
+            verified = verify_qualified_transport_record(
+                args.repo,
+                args.verify_qualified_record,
+                required_inventory_sha256=args.required_inventory_sha256,
+                reject_tree=args.reject_tree,
+            )
+            print(json.dumps(verified, indent=2, sort_keys=True))
+            return 0
+        except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+            parser.exit(1, f"REFUSE: {exc}\n")
+    if args.state_dir is None or not args.state_dir.is_absolute():
         parser.error("--state-dir must be absolute")
     try:
         record = build_plan(
@@ -615,6 +1124,7 @@ def main(argv: list[str] | None = None) -> int:
             load_other_assignments(args.other_assignments),
             args.l4_rate,
             profile=args.profile,
+            d1024_inventory=args.d1024_inventory,
         )
         print(json.dumps(record, indent=2, sort_keys=True))
         if args.execute_after_review:
