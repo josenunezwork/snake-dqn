@@ -10,6 +10,10 @@ import os
 import stat
 import subprocess
 import sys
+import threading
+import time as stdlib_time
+import types
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -78,6 +82,24 @@ def _assert_transport(tmp_path: Path) -> None:
         assert isinstance(argv, list)
         assert argv[:4] == ["--auth", "oauth2", "--config", event["config"]]
         assert event["config"]
+
+
+def _patch_virtual_clock(
+    monkeypatch: pytest.MonkeyPatch, now: list[float], *, advance_sleep: bool
+) -> None:
+    """Install a module-local clock without mutating stdlib time for child waits."""
+    from research.colab_cli import accounting, cli_guard, inputs, release, transfers
+
+    clock = types.SimpleNamespace(**vars(stdlib_time))
+    clock.monotonic = lambda: now[0]
+
+    def sleep(seconds: float) -> None:
+        if advance_sleep:
+            now[0] += seconds
+
+    clock.sleep = sleep
+    for module in (supervisor, transfers, cli_guard, accounting, inputs, release):
+        monkeypatch.setattr(module, "time", clock)
 
 
 def _manifest(
@@ -200,15 +222,12 @@ def test_normal_job_stops_and_verifies_backend_release(
 def test_cold_first_call_is_warmed_before_any_upload_and_staging_clock(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, slow_staging: bool
 ) -> None:
-    """A 134s startup is separate; a later 120s verify still counts as staging."""
+    """A 134s startup is separate; a later 30s-bounded verify counts as staging."""
     from research.colab_cli import canary, cli_guard
 
     binary = _fake_env(monkeypatch, tmp_path)
     now = [0.0]
-    monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(
-        supervisor.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds)
-    )
+    _patch_virtual_clock(monkeypatch, now, advance_sleep=True)
     monkeypatch.setattr(cli_guard, "runtime_ready", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(cli_guard, "kernel_idle", lambda *_args, **_kwargs: now[0] >= 134.1)
     original = supervisor.CLI._call_once
@@ -231,7 +250,25 @@ def test_cold_first_call_is_warmed_before_any_upload_and_staging_clock(
                 raise subprocess.TimeoutExpired("later verification", timeout)
         if args[0] == "upload":
             uploads_at.append(now[0])
-            now[0] += 42 if slow_staging else 2
+            remote = args[-1]
+            if slow_staging and remote.endswith(("bootstrap.sh", "source.py", "inputs/input.bin")):
+                # Three actual staged payloads take 45s each.  The foreground
+                # Contents renewal now adds 7s after each due payload, so the
+                # measured transfer remains over 150s but under the shared cap.
+                now[0] += 45
+            elif (
+                slow_staging
+                and remote.endswith("lease-heartbeat.json")
+                and threading.current_thread().name == "MainThread"
+            ):
+                # A due foreground renewal is real main-thread Contents work
+                # inside staged transfer timing; the independent watchdog is
+                # kept at its ordinary small control delay below.
+                now[0] += 7
+            else:
+                # The release credential and independent watchdog remain real
+                # Contents traffic, without borrowing the payload's slow path.
+                now[0] += 2
         return original(self, *args, timeout=timeout)
 
     monkeypatch.setattr(supervisor.CLI, "_call_once", cold_call)
@@ -262,8 +299,7 @@ def test_staging_separates_verified_transfers_from_source_delivery(
     """Source installation may exceed 150s without charging it to uploads."""
     binary = _fake_env(monkeypatch, tmp_path, mode=mode)
     now = [0.0]
-    monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(supervisor.time, "sleep", lambda _: None)
+    _patch_virtual_clock(monkeypatch, now, advance_sleep=False)
     original_call = supervisor.CLI._call_once
     original_rpc = supervisor.CLI.recoverable_rpc
     source_calls = []
@@ -290,8 +326,9 @@ def test_staging_separates_verified_transfers_from_source_delivery(
     receipt = json.loads((output / "receipt.json").read_text())
     transfers = 21 if mode == "normal" else 28
     assert measured["transfer_seconds"] == pytest.approx(transfers)
-    assert measured["source_delivery_seconds"] == pytest.approx(156.8)
-    assert measured["elapsed_seconds"] == pytest.approx(transfers + 156.8)
+    source_delivery = 163.8 if mode == "normal" else 170.8
+    assert measured["source_delivery_seconds"] == pytest.approx(source_delivery)
+    assert measured["elapsed_seconds"] == pytest.approx(transfers + source_delivery)
     assert len(source_calls) == (1 if mode == "normal" else 2)
     staged = [
         row
@@ -310,8 +347,7 @@ def test_whole_staging_over_300_seconds_cannot_qualify(
 ) -> None:
     binary = _fake_env(monkeypatch, tmp_path)
     now = [0.0]
-    monkeypatch.setattr(supervisor.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(supervisor.time, "sleep", lambda _: None)
+    _patch_virtual_clock(monkeypatch, now, advance_sleep=False)
     original_rpc = supervisor.CLI.recoverable_rpc
     original_call = supervisor.CLI._call_once
 
@@ -1249,8 +1285,11 @@ def test_chunk_retry_overwrites_partial_put_through_fake_binary(
     assert remote.read_bytes() == source.read_bytes()
     assert supervisor.sha256(remote) == digest
     uploads = [event for event in _events(tmp_path) if event["argv"][4] == "upload"]
-    assert uploads[0]["argv"][-1] == uploads[1]["argv"][-1]
     assert len(uploads) == 9
+    chunk_puts = Counter(event["argv"][-1] for event in uploads)
+    assert len(chunk_puts) == 8
+    assert sorted(chunk_puts.values()) == [1] * 7 + [2]
+    assert all(path.endswith(".part") for path in chunk_puts)
     assert max(event["upload_bytes"] for event in uploads) <= 2048
 
 
