@@ -30,6 +30,7 @@ def _report() -> dict:
         "synthetic": False,
         "ruling_sha256": timing.RULING_SHA,
         "amendment_sha256": timing.AMENDMENT_SHA,
+        "observability_ruling_sha256": timing.OBSERVABILITY_SHA,
         "config_sha256": "a" * 64,
         "source_commit": "b" * 40,
         "source_hashes": {path: "c" * 64 for path in identity_paths()},
@@ -221,6 +222,7 @@ def test_cli_bindings_reject_old_or_uninstrumented_manifest(tmp_path, field, bad
         "source_hashes": report["source_hashes"],
         "deadlines": timing.DEADLINES,
         "amendment_sha256": timing.AMENDMENT_SHA,
+        "observability_ruling_sha256": timing.OBSERVABILITY_SHA,
     }
     review = {"decision": "ACCEPT"}
     config_path, review_path, manifest_path = (
@@ -270,7 +272,9 @@ def test_forecast_rejects_oversized_or_malformed_native_export_size(size):
     report = _report()
     operational = _operational(report)
     operational["supervisor_receipt"]["exports"][0]["size"] = size
-    with pytest.raises(ValueError, match="timing export receipt binding differs"):
+    with pytest.raises(
+        ValueError, match="timing export receipt binding differs|timing output exceeds 512 KiB"
+    ):
         timing_forecast.forecast(report, operational)
 
 

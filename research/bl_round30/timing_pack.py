@@ -18,6 +18,7 @@ from research.bl_ppo.exports import digest, export_bytes, export_json
 from research.bl_round30.pack import SOURCE_PATHS as R30_SOURCE_PATHS
 from research.bl_round30.protocol import B8_SHA
 from research.bl_round30.timing import AMENDMENT_SHA, DEADLINES, TIMING_PAYLOAD_BYTES
+from research.bl_round30.timing_telemetry import OBSERVABILITY_SHA
 from tools.ops.qualification import OPS, check
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,6 +37,7 @@ FROZEN_BUNDLE_BYTES = 36_189_672
 TRANSPORT_BYTES = 67_108_864
 UPLOAD_RULING = RULING.with_name("JUDGMENT_R30_TIMING_UPLOAD_CAP_NONATTEMPT_20261025.md")
 UPLOAD_RULING_SHA256 = "de404ed2ec595ed60f506ca403e142ae0ee7e90666b2a6c49b64c457c103a51b"
+OBSERVABILITY_RULING = RULING.with_name("JUDGMENT_R30_PROBE02_INCOMPLETE_OBSERVABILITY_20261025.md")
 TRANSFER_BAR_SECONDS = 150
 STAGING_BAR_SECONDS = 300
 RATE_UNITS_PER_HOUR = 1.54
@@ -98,7 +100,8 @@ def load_timing_config(path: Path, *, commit: str, control: dict[str, Any]) -> d
     """Refuse anything except the ruling's exact timing-only schedule/bindings."""
     value = _read_json(path)
     if (
-        value.get("schema") != "r30-timing-config/v1"
+        value.get("schema") != "r30-timing-config/v2"
+        or value.get("observability_ruling_sha256") != OBSERVABILITY_SHA
         or value.get("ruling_sha256") != RULING_SHA256
         or value.get("amendment_sha256") != AMENDMENT_SHA
         or value.get("deadlines") != DEADLINES
@@ -159,10 +162,14 @@ def _published_clean(commit: str) -> str:
 
 def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[str, Any]:
     """Create one immutable timing-only packet; no provider operation occurs."""
+    if output.name != "timing-calibration-probe-03":
+        raise ValueError("only timing-calibration-probe-03 is authorized")
     if output.exists():
         raise FileExistsError(output)
     if digest(RULING) != RULING_SHA256 or digest(AMENDMENT) != AMENDMENT_SHA:
         raise ValueError("timing ruling hash differs")
+    if digest(OBSERVABILITY_RULING) != OBSERVABILITY_SHA:
+        raise ValueError("timing observability ruling hash differs")
     if digest(UPLOAD_RULING) != UPLOAD_RULING_SHA256:
         raise ValueError("timing upload ruling hash differs")
     if (
@@ -184,31 +191,36 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
     upload_ruling_copy = export_bytes(
         inputs / "timing-upload-ruling.md", UPLOAD_RULING.read_bytes()
     )
+    observability_copy = export_bytes(
+        inputs / "timing-observability-ruling.md", OBSERVABILITY_RULING.read_bytes()
+    )
     reservation = export_json(
         output / "accounting-reservation.json",
         {
             "schema": "r30-g5-timing-calibration-accounting/v1",
             "entry": f"r30-1-g5-{output.name}",
             "upload_ruling_sha256": UPLOAD_RULING_SHA256,
-            "prior_probe_disposition": "NON-ATTEMPT",
-            "additional_attempt_allowance": 0,
+            "prior_probe_disposition": "INCOMPLETE_CAUSE_UNKNOWN",
+            "observability_ruling_sha256": OBSERVABILITY_SHA,
+            "additional_attempt_allowance": 1,
             "amendment_sha256": AMENDMENT_SHA,
             "original_reservation": {
                 "path": str(OLD_RESERVATION),
                 "sha256": OLD_RESERVATION_SHA256,
             },
             "retained_liability_minutes": 40,
-            "unused_difference_minutes": 10,
             "reconciliation": (
-                "retain original 40-minute liability until verified stop/debit; "
-                "difference nontransferable"
+                "retain original 40-minute liability without reclaiming it; "
+                "add separate nontransferable 30-minute replacement reservation"
             ),
             "ruling_sha256": RULING_SHA256,
             "source_commit": pin,
             "base_minutes": BASE_MINUTES,
             "effective_minutes": EFFECTIVE_MINUTES,
-            "combined_effective_minutes_before": 432,
-            "combined_effective_minutes_after": 472,
+            "combined_effective_minutes_before": 472,
+            "combined_effective_minutes_after": 502,
+            "r30_1_allowance_minutes": 144,
+            "r30_2_allowance_minutes": 288,
             "nontransferable": True,
             "no_automatic_retry": True,
             "technical_rate": {
@@ -279,6 +291,12 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
                 "size_bytes": amendment_copy["size"],
             },
             {
+                "dest": "timing-observability-ruling.md",
+                "path": observability_copy["path"],
+                "sha256": observability_copy["sha256"],
+                "size_bytes": observability_copy["size"],
+            },
+            {
                 "dest": "timing-upload-ruling.md",
                 "path": upload_ruling_copy["path"],
                 "sha256": upload_ruling_copy["sha256"],
@@ -310,7 +328,8 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
             "timeout_minutes": EFFECTIVE_MINUTES,
         },
         "timing_calibration": {
-            "schema": "r30-g5-timing-calibration/v1",
+            "schema": "r30-g5-timing-calibration/v2",
+            "observability_ruling_sha256": OBSERVABILITY_SHA,
             "upload_ruling_sha256": UPLOAD_RULING_SHA256,
             "timing_payload_max_bytes": TIMING_PAYLOAD_BYTES,
             "amendment_sha256": AMENDMENT_SHA,
@@ -324,8 +343,10 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
             "accounting_reservation_sha256": reservation["sha256"],
             "base_minutes": BASE_MINUTES,
             "effective_minutes": EFFECTIVE_MINUTES,
-            "combined_effective_minutes_before": 432,
-            "combined_effective_minutes_after": 472,
+            "combined_effective_minutes_before": 472,
+            "combined_effective_minutes_after": 502,
+            "r30_1_allowance_minutes": 144,
+            "r30_2_allowance_minutes": 288,
             "nontransferable": True,
             "no_automatic_retry": True,
             "main_remaining_minutes": 106,
@@ -343,7 +364,11 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
             "independent_predispatch_review_required": True,
             "qualified_transport_status": "SOURCE_BOUND_PROBE_PENDING_ACCEPT",
             "scientific_admission": "not-applicable-timing-only",
-            "export_policy": "timing.json and its supervisor sidecars only",
+            "export_policy": (
+                "timing.json plus telemetry/[000000..000063].json and immutable sidecars; "
+                "all output including sidecars <=524288 bytes; "
+                "incomplete telemetry is diagnostic only"
+            ),
         },
     }
     export_json(output / "job.json", manifest)

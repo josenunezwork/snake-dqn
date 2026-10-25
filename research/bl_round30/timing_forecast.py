@@ -96,8 +96,34 @@ def _receipt(value: object) -> dict[str, Any]:
     ):
         raise ValueError("native supervisor terminal receipt differs")
     exports = value["exports"]
-    if not isinstance(exports, list) or len(exports) != 1:
+    if not isinstance(exports, list) or not 1 <= len(exports) <= 65:
         raise ValueError("native supervisor exports differ")
+    import re
+
+    names = [entry.get("path") for entry in exports if isinstance(entry, dict)]
+    if (
+        len(names) != len(exports)
+        or len(set(names)) != len(names)
+        or names.count("timing.json") != 1
+        or any(
+            name != "timing.json"
+            and not re.fullmatch(
+                r"telemetry/0000[0-5][0-9]\.json|telemetry/00006[0-3]\.json", str(name)
+            )
+            for name in names
+        )
+    ):
+        raise ValueError("native supervisor exports differ")
+    for entry in exports:
+        if entry["path"] != "timing.json":
+            _sha(entry.get("sha256"), "telemetry export")
+            if type(entry.get("size")) is not int or not 0 < entry["size"] <= 4096:
+                raise ValueError("telemetry export size differs")
+    if (
+        sum(entry.get("size", 0) for entry in exports if type(entry.get("size")) is int)
+        > timing.TIMING_PAYLOAD_BYTES
+    ):
+        raise ValueError("timing output exceeds 512 KiB")
     return value
 
 
@@ -156,7 +182,7 @@ def _operational(value: object, report: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("supervisor receipt source binding differs")
     if receipt["manifest_sha256"] != manifest_sha:
         raise ValueError("supervisor receipt manifest binding differs")
-    export = receipt["exports"][0]
+    export = next(entry for entry in receipt["exports"] if entry["path"] == "timing.json")
     if (
         not isinstance(export, dict)
         or export.get("path") != "timing.json"
@@ -344,6 +370,7 @@ def _validate_cli_bindings(
         or manifest.get("timing_calibration", {}).get("no_automatic_retry") is not True
         or config.get("deadlines") != timing.DEADLINES
         or config.get("amendment_sha256") != timing.AMENDMENT_SHA
+        or config.get("observability_ruling_sha256") != timing.OBSERVABILITY_SHA
     ):
         raise ValueError("calibration probe deadlines/amendment differ")
     if config.get("source_hashes") != report["source_hashes"]:
@@ -369,6 +396,22 @@ def main() -> None:
     report = json.loads(args.timing_json.read_text())
     operational = json.loads(args.operational.read_text())
     receipt = _read_native_receipt(args.supervisor_receipt)
+    from research.bl_round30.timing_telemetry import validate_inventory
+
+    records = validate_inventory(args.timing_json.parent, complete=True)
+    if records[-1]["completed_phase_seconds"] != report["phase_seconds"]:
+        raise ValueError("completed telemetry/report timings differ")
+    local_exports = {"timing.json": digest(args.timing_json)}
+    local_exports.update(
+        {
+            f"telemetry/{record['sequence']:06d}.json": digest(
+                args.timing_json.parent / "telemetry" / f"{record['sequence']:06d}.json"
+            )
+            for record in records
+        }
+    )
+    if {entry["path"]: entry["sha256"] for entry in receipt["exports"]} != local_exports:
+        raise ValueError("native telemetry inventory binding differs")
     manifest = _read_object(args.manifest, "calibration manifest")
     config = _read_object(args.config, "timing config")
     review = _read_object(args.review, "independent review")

@@ -1407,3 +1407,20 @@ Outcome-blind phase publication: F4 R5 natural-archive census frozen and hashed 
 
 | 2026-10-25 | **R30 timing upload-cap NON-ATTEMPT repair; offline preparation only** | Astra `JUDGMENT_R30_TIMING_UPLOAD_CAP_NONATTEMPT_20261025.md` SHA256 `de404ed2ec595ed60f506ca403e142ae0ee7e90666b2a6c49b64c457c103a51b` classifies probe-01 UPLOAD_CAP as local pre-allocation NON-ATTEMPT (null session/generation/endpoint, zero calls/time); its refusal evidence and accounting stay untouched. Sibling `research/bl_round30/TIMING_UPLOAD_CAP_NONATTEMPT_AMENDMENT_20261025.md` fixes only this timing builder's shared transport bound at 64 MiB and separately enforces 512 KiB timing-only payload/inventory in producer and report admission. Fresh probe-02 re-pins unchanged opaque af82651c bundle and full 2,000-batch schedule; offline staged/private sizes and output rejection tested. Keep 150/300-second bars, 15/30-minute envelope, deadline reserves, no automatic retry, native receipt and verified release. No additional attempt allowance, Colab calls or dispatch; independent packet acceptance still required; G5/main HOLD. |
 | 2026-10-25 16:10 PT | **R30-1 timing calibration: probe-01 pre-allocation refusal; probe-02 INCOMPLETE (cause erased); observability probe-03 commissioned** | Calibration fix round 8260c8fe (15/30 probe route, genuine B8 CUDA decision, no_automatic_retry) → Astra ACCEPT → probe-01 refused before allocation (UPLOAD_CAP: packet max_export_bytes 512 KiB also capped uploads; non-attempt per Astra JUDGMENT_R30_TIMING_UPLOAD_CAP_NONATTEMPT) → Sol 0f90a3c2 (64 MiB transport bound, separate 512 KiB output cap) → Astra ACCEPT → probe-02 ran 988 s: INCOMPLETE CHILD_NONZERO_EXIT {complete:false} after feature cache + CUDA argmax; blanket handler erased phase/cause. Astra JUDGMENT_R30_PROBE02_INCOMPLETE_OBSERVABILITY (bc5e471c…): neither main infeasibility nor an allowance increase established; R30-1 HOLD, R30-2 HOLD, T34 not closed; one observability-corrected probe (durable redacted phase telemetry) with a separate 15/30 reservation → sol-r30calibobs. |
+
+### 2026-10-25 — R30 probe-03 observability correction prepared; G5/main HOLD
+
+Astra `JUDGMENT_R30_PROBE02_INCOMPLETE_OBSERVABILITY_20261025.md`, SHA256
+`bc5e471c28ab824b1ed06abc86ba72a5f7e5e2d018c3f687a167d41389a74888`,
+verified in full: probe-02 is INCOMPLETE, original workload cause UNKNOWN. One
+prospective observability-corrected timing-only replacement is authorized,
+conditional on independent source-bound packet and offline failure/redaction
+acceptance. Durable immutable phase entry/exit snapshots and fixed redacted
+exception/deadline categories replace RAM-only diagnostics; no workload change.
+Separate base15/effective30 reservation adds 30 to 472 = 502 effective minutes;
+original 40-minute liability retained without reclaiming it, scientific R30-1/2
+144/288 and main estimate/timeout ceilings 53/106 unchanged. No automatic retry,
+allocated preliminary canary, scientific fit, main dispatch or serving change.
+Implementation scope is recorded in
+`research/bl_round30/TIMING_PROBE03_OBSERVABILITY_AMENDMENT_20261025.md`.
+No Colab calls or live dispatch; no excluded scientific payloads were opened.

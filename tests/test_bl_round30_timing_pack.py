@@ -21,6 +21,8 @@ def _fixture(tmp_path: Path, monkeypatch, timing_pack) -> dict:
     monkeypatch.setattr(timing_pack, "AMENDMENT_SHA", digest(amendment))
     monkeypatch.setattr(timing_pack, "OLD_RESERVATION", reservation)
     monkeypatch.setattr(timing_pack, "OLD_RESERVATION_SHA256", digest(reservation))
+    monkeypatch.setattr(timing_pack, "OBSERVABILITY_RULING", ruling)
+    monkeypatch.setattr(timing_pack, "OBSERVABILITY_SHA", digest(ruling))
     native = tmp_path / "native"
     (native / "inputs").mkdir(parents=True)
     bundle = tmp_path / "private-inputs.tar.gz"
@@ -52,9 +54,10 @@ def _config(tmp_path: Path, timing_pack, *, commit: str = "a" * 40) -> tuple[Pat
     config = tmp_path / "config.json"
     control = json.loads((timing_pack.FROZEN_NATIVE / "inputs/control.json").read_text())
     value = {
-        "schema": "r30-timing-config/v1",
+        "schema": "r30-timing-config/v2",
         "ruling_sha256": timing_pack.RULING_SHA256,
         "amendment_sha256": timing_pack.AMENDMENT_SHA,
+        "observability_ruling_sha256": timing_pack.OBSERVABILITY_SHA,
         "deadlines": timing_pack.DEADLINES,
         "source_commit": commit,
         "bundle_sha256": timing_pack.FROZEN_BUNDLE_SHA256,
@@ -84,7 +87,7 @@ def test_packet_is_timing_only_and_uses_opaque_frozen_bundle(tmp_path, monkeypat
     config, control = _config(tmp_path, timing_pack)
     _patch_admission(monkeypatch, timing_pack, control)
     manifest = timing_pack.make_timing_pack(
-        tmp_path / "packet", commit="a" * 40, timing_config=config
+        tmp_path / "timing-calibration-probe-03", commit="a" * 40, timing_config=config
     )
     assert manifest["timeout_minutes"] == 30
     assert manifest["max_export_bytes"] == 67_108_864
@@ -102,16 +105,17 @@ def test_packet_is_timing_only_and_uses_opaque_frozen_bundle(tmp_path, monkeypat
     assert manifest["timing_calibration"]["tested_dispatcher_sha256"] == digest(
         timing_pack.ROOT / "tools/ops/dispatch.py"
     )
-    reservation = json.loads((tmp_path / "packet/accounting-reservation.json").read_text())
+    reservation = json.loads(
+        (tmp_path / "timing-calibration-probe-03/accounting-reservation.json").read_text()
+    )
     assert reservation["retained_liability_minutes"] == 40
-    assert reservation["unused_difference_minutes"] == 10
     assert reservation["nontransferable"] is True
-    assert reservation["prior_probe_disposition"] == "NON-ATTEMPT"
-    assert reservation["additional_attempt_allowance"] == 0
+    assert reservation["prior_probe_disposition"] == "INCOMPLETE_CAUSE_UNKNOWN"
+    assert reservation["additional_attempt_allowance"] == 1
     assert manifest["required_exports"] == ["timing.json"]
     assert "resume" not in manifest
     assert manifest["resume_exemption"]["kind"] == "short-canary"
-    assert manifest["timing_calibration"]["combined_effective_minutes_after"] == 472
+    assert manifest["timing_calibration"]["combined_effective_minutes_after"] == 502
     assert manifest["timing_calibration"]["main_estimate_ceiling_minutes"] == 53
     assert manifest["inputs"][0]["dest"] == "b8.pth"
     assert manifest["inputs"][0]["sha256"] == timing_pack.B8_SHA

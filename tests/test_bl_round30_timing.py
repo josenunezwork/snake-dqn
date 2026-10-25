@@ -20,9 +20,10 @@ def config() -> dict:
     from research.bl_round30.timing_pack import identity_paths
 
     return {
-        "schema": "r30-timing-config/v1",
+        "schema": "r30-timing-config/v2",
         "ruling_sha256": timing.RULING_SHA,
         "amendment_sha256": timing.AMENDMENT_SHA,
+        "observability_ruling_sha256": timing.OBSERVABILITY_SHA,
         "deadlines": copy.deepcopy(timing.DEADLINES),
         "source_commit": "a" * 40,
         "source_hashes": {name: digest(timing.ROOT / name) for name in identity_paths()},
@@ -45,6 +46,7 @@ def report() -> dict:
         "synthetic": True,
         "ruling_sha256": timing.RULING_SHA,
         "amendment_sha256": timing.AMENDMENT_SHA,
+        "observability_ruling_sha256": timing.OBSERVABILITY_SHA,
         "deadlines": copy.deepcopy(timing.DEADLINES),
         "config_sha256": "e" * 64,
         **{
@@ -307,9 +309,20 @@ def test_cli_real_synthetic_workload_and_only_timing_export(tmp_path: Path) -> N
         "timing.json",
         "timing.json.sha256",
         "timing.json.complete",
+        "telemetry",
     }
     verify_export(output / "timing.json")
-    timing.validate_report(json.loads((output / "timing.json").read_text()))
+    value = json.loads((output / "timing.json").read_text())
+    timing.validate_report(value)
+    from research.bl_round30.timing_telemetry import validate_inventory
+
+    records = validate_inventory(output, complete=True)
+    assert records[-1]["completed_phase_seconds"] == value["phase_seconds"]
+    ended = {record["phase"] for record in records if record["event"] == "end"}
+    assert ended == {*timing.PHASES, "preflight", "publication"}
+    # Exercise the real CPU cache -> fixed masked decision -> objective path.
+    assert {"feature_cache", "b8_masked_action_decision", "plan_coefficients", "equality"} <= ended
+    assert sum(path.stat().st_size for path in output.rglob("*") if path.is_file()) <= 524_288
 
 
 def test_exception_native_logs_and_numerical_outputs_are_redacted(
@@ -330,7 +343,14 @@ def test_exception_native_logs_and_numerical_outputs_are_redacted(
             inputs, output, config_sha256=digest(inputs / "timing-config.json"), synthetic=True
         )
     assert capfd.readouterr() == ("", "")
-    assert list(output.iterdir()) == []
+    from research.bl_round30.timing_telemetry import validate_inventory
+
+    records = validate_inventory(output)
+    assert records[-1]["event"] == "failure"
+    assert records[-1]["diagnostic_code"] == "OTHER_EXCEPTION"
+    assert records[-1]["exception_type"] == "TimeoutError"
+    assert not (output / "timing.json").exists()
+    assert "SECRET" not in json.dumps(records) and "12345.6789" not in json.dumps(records)
 
 
 def test_schedule_change_refused_before_any_training_read(tmp_path: Path) -> None:
@@ -416,6 +436,10 @@ def test_producer_rejects_oversized_valid_metadata_before_publication(tmp_path, 
 
 
 def test_output_admission_rejects_oversize_and_extra_scientific_exports(tmp_path):
+    from research.bl_round30.timing_telemetry import Telemetry
+
+    telemetry = Telemetry(tmp_path)
+    telemetry.emit("complete")
     export_json(tmp_path / "timing.json", report())
     timing.validate_output_inventory(tmp_path)
     export_json(tmp_path / "scientific-unit.json", {"SECRET": 1})
@@ -424,5 +448,5 @@ def test_output_admission_rejects_oversize_and_extra_scientific_exports(tmp_path
     for path in tmp_path.glob("scientific-unit.json*"):
         path.unlink()
     (tmp_path / "timing.json").write_bytes(bytes(524_289))
-    with pytest.raises(ValueError, match="timing payload exceeds 512 KiB"):
+    with pytest.raises(ValueError, match="timing output exceeds 512 KiB"):
         timing.validate_output_inventory(tmp_path)

@@ -22,9 +22,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from research.bl_round30.timing_telemetry import OBSERVABILITY_SHA
+
 RULING_SHA = "9b07b66663d8a7ac168f80dbfc35889b3551df8797f347335c10d83a8d81801f"
 AMENDMENT_SHA = "447609b306bde15de4014640e1248a4349f8cb2feb811e455511a66886e943ff"
-SCHEMA = "r30-timing-only/v1"
+SCHEMA = "r30-timing-only/v2"
 TIMING_PAYLOAD_BYTES = 524_288
 DEADLINES = {
     "whole_session_seconds": 1800,
@@ -80,6 +82,7 @@ def validate_report(value: dict) -> None:
         "synthetic",
         "ruling_sha256",
         "amendment_sha256",
+        "observability_ruling_sha256",
         "deadlines",
         "config_sha256",
         "source_commit",
@@ -103,6 +106,7 @@ def validate_report(value: dict) -> None:
         or type(value["synthetic"]) is not bool
         or value["ruling_sha256"] != RULING_SHA
         or value["amendment_sha256"] != AMENDMENT_SHA
+        or value["observability_ruling_sha256"] != OBSERVABILITY_SHA
         or value["deadlines"] != DEADLINES
         or value["schedule"] != SCHEDULE
         or value["device"] not in {"cuda", "cpu"}
@@ -154,14 +158,20 @@ def validate_report(value: dict) -> None:
         raise ValueError("timing payload exceeds 512 KiB")
 
 
-def validate_output_inventory(output: Path) -> None:
+def validate_output_inventory(output: Path, *, complete: bool = True) -> None:
     """Admit exactly the timing payload and its immutable publication sidecars."""
     from research.bl_ppo.exports import verify_export
+    from research.bl_round30.timing_telemetry import MAX_BYTES, validate_inventory
 
-    expected = {"timing.json", "timing.json.sha256", "timing.json.complete"}
+    expected = {"timing.json", "timing.json.sha256", "timing.json.complete", "telemetry"}
     if output.is_symlink() or {p.name for p in output.iterdir()} != expected:
         raise ValueError("timing output inventory differs")
+    validate_inventory(output, complete=complete)
+    if sum(p.stat().st_size for p in output.rglob("*") if p.is_file()) > MAX_BYTES:
+        raise ValueError("timing output exceeds 512 KiB")
     for path in output.iterdir():
+        if path.name == "telemetry":
+            continue
         if path.is_symlink() or not path.is_file():
             raise ValueError("unsafe timing output")
     if (output / "timing.json").stat().st_size > TIMING_PAYLOAD_BYTES:
@@ -171,13 +181,14 @@ def validate_output_inventory(output: Path) -> None:
 
 def publish_report(output: Path, report: dict) -> None:
     """Enforce timing-only policy before publishing any payload or sidecar."""
-    from research.bl_ppo.exports import export_json
+    from research.bl_ppo.exports import export_json, limit_exports
 
     validate_report(report)
-    if any(output.iterdir()):
+    if any(p.name != "telemetry" for p in output.iterdir()):
         raise ValueError("timing output inventory differs")
-    export_json(output / "timing.json", report)
-    validate_output_inventory(output)
+    with limit_exports(output, total_bytes=TIMING_PAYLOAD_BYTES, file_bytes=TIMING_PAYLOAD_BYTES):
+        export_json(output / "timing.json", report)
+    validate_output_inventory(output, complete=False)
 
 
 @contextlib.contextmanager
@@ -203,7 +214,9 @@ def deadline(seconds: float) -> Iterator[None]:
     """Timeout never yields a partial completion-time report."""
 
     def expired(signum: int, frame: Any) -> None:
-        raise TimeoutError("timing-only incomplete")
+        from research.bl_round30.timing_telemetry import WorkerDeadline, deliver_signal
+
+        deliver_signal(WorkerDeadline())
 
     previous = signal.signal(signal.SIGALRM, expired)
     signal.setitimer(signal.ITIMER_REAL, seconds)
@@ -217,15 +230,22 @@ def deadline(seconds: float) -> Iterator[None]:
 class Timer:
     """Nonoverlapping phase timings, never numerical return values."""
 
-    def __init__(self) -> None:
-        self.seconds: dict[str, float] = {}
+    def __init__(self, output: Path | None = None) -> None:
+        from research.bl_round30.timing_telemetry import Telemetry
+
+        self.telemetry = Telemetry(output) if output is not None else None
+        self.seconds: dict[str, float] = {} if self.telemetry is None else self.telemetry.seconds
 
     def call(self, name: str, operation: Callable[[], Any]) -> Any:
         if name not in PHASES or name in self.seconds:
             raise ValueError("duplicate/foreign phase")
+        if self.telemetry is not None:
+            self.telemetry.start(name)
         started = time.monotonic()
         result = operation()
-        self.seconds[name] = time.monotonic() - started
+        self.seconds[name] = (
+            time.monotonic() - started if self.telemetry is None else self.telemetry.end()
+        )
         return result
 
 
@@ -487,7 +507,9 @@ def _worker_deadline_seconds(*, input_dir: Path, synthetic: bool, launch_age: fl
     return max(0.001, remaining)
 
 
-def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = False) -> dict:
+def _run(
+    input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool, timer: Timer
+) -> dict:
     """Only this function can publish; every phase must complete first."""
     from research.bl_ppo.exports import digest, export_json
 
@@ -495,15 +517,14 @@ def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = 
     launch_age = max(
         0.0, time.time() - float(os.environ.get("R30_TIMING_LAUNCH_EPOCH", time.time()))
     )
-    timer = Timer()
-    timer.seconds["imports"] = launch_age
     config = json.loads((input_dir / "timing-config.json").read_text())
     if digest(input_dir / "timing-config.json") != config_sha256:
         raise ValueError("config binding differs")
     if (
-        config["schema"] != "r30-timing-config/v1"
+        config["schema"] != "r30-timing-config/v2"
         or config["ruling_sha256"] != RULING_SHA
         or config.get("amendment_sha256") != AMENDMENT_SHA
+        or config.get("observability_ruling_sha256") != OBSERVABILITY_SHA
         or config.get("deadlines") != DEADLINES
         or config["schedule"] != SCHEDULE
         or config["synthetic"] is not synthetic
@@ -515,18 +536,13 @@ def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = 
         raise ValueError("source allowlist differs")
     if any(digest(ROOT / name) != sha for name, sha in config["source_hashes"].items()):
         raise ValueError("source binding differs")
-    if output.is_symlink():
-        raise ValueError("unsafe output")
-    output.mkdir(parents=True, exist_ok=True)
-    if any(output.iterdir()):
-        raise FileExistsError("nonempty timing output")
+    cutoff = _worker_deadline_seconds(
+        input_dir=input_dir, synthetic=synthetic, launch_age=launch_age
+    )
+    timer.telemetry.end()
     with (
         silence(),
-        deadline(
-            _worker_deadline_seconds(
-                input_dir=input_dir, synthetic=synthetic, launch_age=launch_age
-            )
-        ),
+        deadline(cutoff),
     ):
         import torch
 
@@ -563,6 +579,8 @@ def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = 
                 # Old control/source bytes stay frozen; the new source is bound separately.
                 if digest(input_dir / "control.json") != config["control_sha256"]:
                     raise ValueError("frozen control differs")
+                if digest(input_dir / "timing-observability-ruling.md") != OBSERVABILITY_SHA:
+                    raise ValueError("observability ruling differs")
                 if digest(input_dir / "timing-ruling.md") != RULING_SHA:
                     raise ValueError("ruling differs")
                 control = preflight_inputs(input_dir, mode="r30-1")
@@ -615,6 +633,7 @@ def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = 
         "synthetic": synthetic,
         "ruling_sha256": RULING_SHA,
         "amendment_sha256": AMENDMENT_SHA,
+        "observability_ruling_sha256": OBSERVABILITY_SHA,
         "deadlines": DEADLINES,
         "config_sha256": config_sha256,
         "source_commit": config["source_commit"],
@@ -631,8 +650,48 @@ def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = 
         "phase_seconds": timer.seconds,
         "worker_seconds": time.monotonic() - started + launch_age,
     }
+    timer.telemetry.start("publication")
     publish_report(output, report)
+    timer.telemetry.end()
+    timer.telemetry.emit("complete")
+    validate_output_inventory(output)
     return report
+
+
+def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = False) -> dict:
+    """Persist phase records even on BaseException; publish a forecast only on success."""
+    from research.bl_round30.timing_telemetry import Interrupted, deliver_signal
+
+    if output.is_symlink():
+        raise ValueError("unsafe output")
+    output.mkdir(parents=True, exist_ok=True)
+    if any(output.iterdir()):
+        raise FileExistsError("nonempty timing output")
+    timer = Timer(output)
+
+    def terminated(signum: int, frame: Any) -> None:
+        deliver_signal(Interrupted())
+
+    previous = signal.signal(signal.SIGTERM, terminated)
+    try:
+        # The launcher timestamp accounts for startup before this module could emit.
+        launch_age = max(
+            0.0, time.time() - float(os.environ.get("R30_TIMING_LAUNCH_EPOCH", time.time()))
+        )
+        timer.telemetry.phase = "imports"
+        timer.telemetry.started -= launch_age
+        timer.telemetry.wall_started -= launch_age
+        timer.telemetry.emit("start")
+        timer.telemetry.end()
+        timer.telemetry.start("preflight")
+        return _run(
+            input_dir, output, config_sha256=config_sha256, synthetic=synthetic, timer=timer
+        )
+    except BaseException as exc:
+        timer.telemetry.emit("failure", error=exc)
+        raise
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 def main() -> None:
