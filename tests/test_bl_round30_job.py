@@ -11,7 +11,13 @@ import torch
 
 from research.bl_ppo.exports import digest, export_json, verify_export
 from research.bl_round30.job import preflight_inputs, run
-from research.bl_round30.protocol import B8_SHA, JUDGMENT_SHA, NAMESPACE, require_series
+from research.bl_round30.protocol import (
+    AMENDMENT_SHA,
+    B8_SHA,
+    JUDGMENT_SHA,
+    NAMESPACE,
+    require_series,
+)
 from research.bl_round30.resume import build
 
 B8 = Path("/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth")
@@ -26,6 +32,7 @@ def synthetic_inputs(root: Path) -> Path:
         "namespace": NAMESPACE + "-synthetic",
         "commit": "a" * 40,
         "ruling_sha256": JUDGMENT_SHA,
+        "amendment_sha256": AMENDMENT_SHA,
         "b8_sha256": B8_SHA,
     }
     export_json(root / "control.json", control)
@@ -164,19 +171,19 @@ def test_real_entrypoint_three_tiny_units_and_exact_skip(tmp_path: Path) -> None
     print("R30 tiny real entrypoint seconds:", timings, flush=True)
     from research.bl_round30.pack import transport_inputs
 
-    archive = tmp_path / "metadata.tar"
+    archive = tmp_path / "private-inputs.tar.gz"
     transport = transport_inputs(source, archive)
     shell_inputs = tmp_path / "bash-inputs"
     shell_inputs.mkdir()
     # Model the supervisor's verified HTTPS delivery before the real launcher.
     shutil.copyfile(B8, shell_inputs / "b8.pth")
-    shutil.copyfile(archive, shell_inputs / "metadata.tar")
+    shutil.copyfile(archive, shell_inputs / "private-inputs.tar.gz")
     environment = {
         **os.environ,
         "COLAB_CLI_ROOT": str(tmp_path / "bash"),
         "COLAB_INPUT_DIR": str(shell_inputs),
-        "METADATA_ARCHIVE_SHA256": next(
-            row["sha256"] for row in transport if row["dest"] == "metadata.tar"
+        "R30_PRIVATE_BUNDLE_SHA256": next(
+            row["sha256"] for row in transport if row["dest"] == "private-inputs.tar.gz"
         ),
         "R30_DEVICE": "cpu",
         "R30_MODE": "smoke",
@@ -200,16 +207,14 @@ def test_stale_pin_and_partial_export_refuse(tmp_path: Path) -> None:
 def test_series_first_local_or_combined_cap_and_no_science_retry() -> None:
     value = {
         "ruling_sha256": JUDGMENT_SHA,
+        "amendment_sha256": AMENDMENT_SHA,
         "attempt": 0,
-        "stage_hours": 0.2,
-        "stage_units": 0.4,
-        "combined_hours": 0.2,
-        "combined_units": 0.4,
-        "unencumbered_reservation_verified": True,
+        "stage_minutes": 12,
+        "combined_minutes": 12,
     }
-    assert require_series(value, "r30-1")["remaining_units"] == pytest.approx(4.4)
+    assert require_series(value, "r30-1")["remaining_minutes"] == 132
     with pytest.raises(ValueError, match="cap"):
-        require_series({**value, "combined_units": 14.4}, "r30-1")
+        require_series({**value, "combined_minutes": 432}, "r30-1")
     with pytest.raises(ValueError, match="completion"):
         require_series({**value, "attempt": 1}, "r30-1")
 

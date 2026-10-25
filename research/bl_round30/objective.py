@@ -9,6 +9,8 @@ own pair-count denominator.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
 from time import monotonic
@@ -20,6 +22,42 @@ import torch.nn.functional as functional
 ACTION_COUNT = 6
 FEATURE_COUNT = 256
 PARAMETER_COUNT = ACTION_COUNT * (FEATURE_COUNT + 1)
+
+
+def _tensor_sha256(value: torch.Tensor) -> str:
+    tensor = value.detach().cpu().contiguous()
+    digest = hashlib.sha256()
+    digest.update(str(tensor.dtype).encode() + b"\0")
+    digest.update(json.dumps(list(tensor.shape)).encode() + b"\0")
+    digest.update(tensor.numpy().tobytes())
+    return digest.hexdigest()
+
+
+def _cache_sha256(cache: Mapping[str, torch.Tensor]) -> str:
+    digest = hashlib.sha256()
+    for name in sorted(cache):
+        value = cache[name]
+        if not isinstance(value, torch.Tensor):
+            raise ValueError("cache contains a non-tensor value")
+        digest.update(name.encode() + b"\0")
+        digest.update(_tensor_sha256(value).encode())
+    return digest.hexdigest()
+
+
+def _batch_plan_sha256(plan: "BatchPlan") -> str:
+    digest = hashlib.sha256()
+    digest.update(_tensor_sha256(plan.indices).encode())
+    digest.update(str(plan.seed).encode() + b"\0")
+    digest.update(plan.purpose.encode() + b"\0")
+    if plan.rng_state is not None:
+        digest.update(_tensor_sha256(plan.rng_state).encode())
+    return digest.hexdigest()
+
+
+def _recipe_sha256(recipe: "ObjectiveRecipe") -> str:
+    return hashlib.sha256(
+        json.dumps(asdict(recipe), sort_keys=True, allow_nan=False).encode()
+    ).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -915,6 +953,25 @@ def optimizer_decision(
     }
 
 
+def _procedure_binding(
+    procedure: str,
+    initializer: str,
+    initial_parameters: torch.Tensor,
+    cache: Mapping[str, torch.Tensor],
+    plan: BatchPlan,
+    recipe: ObjectiveRecipe,
+) -> dict[str, str]:
+    """Freeze every numerical input to a matched successor procedure."""
+    return {
+        "procedure": procedure,
+        "initializer": initializer,
+        "initializer_parameters_sha256": _tensor_sha256(initial_parameters),
+        "recipe_sha256": _recipe_sha256(recipe),
+        "batch_plan_sha256": _batch_plan_sha256(plan),
+        "cache_sha256": _cache_sha256(cache),
+    }
+
+
 def _endpoint(result: AdamFitResult) -> dict[str, Any]:
     return {
         "parameters": result.parameters,
@@ -955,21 +1012,38 @@ def execute_packet(
     if not equality.passed:
         raise RuntimeError("independent objective equality check failed")
     control: AdamFitResult | None = None
+    convergence_bindings: dict[str, dict[str, str]] = {}
     if successor:
         procedure = str(gate.get("convergence_procedure", "adam"))
         if procedure == "adam":
             control = fit_original_adam(cache, plan, recipe)
+            binding = _procedure_binding(
+                "adam", "zero-residual", zero_parameters(), cache, plan, recipe
+            )
+            if gate.get("convergence_binding") != binding:
+                raise ValueError(
+                    "R30-2 Adam procedure/initializer/recipe/cache differs from diagnosis"
+                )
             ranked = fit_original_adam(cache, plan, recipe, successor=True)
             endpoints = {"control": _endpoint(control), "successor": _endpoint(ranked)}
             diagnostic_theta = ranked.parameters.to(torch.float64)
+            control_parameters = control.parameters
         elif procedure == "lbfgs":
+            control = fit_original_adam(cache, plan, recipe)
+            binding = _procedure_binding(
+                "lbfgs", "r30-1-adam-endpoint", control.parameters, cache, plan, recipe
+            )
+            if gate.get("convergence_binding") != binding:
+                raise ValueError(
+                    "R30-2 L-BFGS procedure/initializer/recipe/cache differs from diagnosis"
+                )
             allowance = gate.get("numerical_allowance")
             basis = gate.get("numerical_allowance_basis")
             control_certificate = fit_float64_lbfgs(
                 cache,
                 plan,
                 recipe,
-                initial_parameters=zero_parameters(dtype=torch.float64),
+                initial_parameters=control.parameters,
                 max_evaluations=int(gate.get("lbfgs_max_evaluations", 500)),
                 max_seconds=float(gate.get("lbfgs_max_seconds", 3600.0)),
                 numerical_allowance=allowance,
@@ -979,7 +1053,7 @@ def execute_packet(
                 cache,
                 plan,
                 recipe,
-                initial_parameters=zero_parameters(dtype=torch.float64),
+                initial_parameters=control.parameters,
                 max_evaluations=int(gate.get("lbfgs_max_evaluations", 500)),
                 max_seconds=float(gate.get("lbfgs_max_seconds", 3600.0)),
                 numerical_allowance=allowance,
@@ -1001,11 +1075,18 @@ def execute_packet(
                 },
             }
             diagnostic_theta = successor_certificate.parameters
+            control_parameters = control_certificate.parameters
         else:
             raise ValueError("convergence_procedure must be adam or lbfgs")
         certificate_payload: dict[str, Any] = {}
+        expected_control_parameters = gate.get("control_parameters_sha256")
+        if expected_control_parameters != _tensor_sha256(control_parameters):
+            raise ValueError("R30-2 refit control parameters differ from diagnosed endpoint")
     else:
         control = fit_original_adam(cache, plan, recipe)
+        convergence_bindings["adam"] = _procedure_binding(
+            "adam", "zero-residual", zero_parameters(), cache, plan, recipe
+        )
         certificate = fit_float64_lbfgs(
             cache,
             plan,
@@ -1017,6 +1098,9 @@ def execute_packet(
             numerical_allowance_basis=(
                 "synthetic_rehearsal" if synthetic else gate.get("numerical_allowance_basis")
             ),
+        )
+        convergence_bindings["lbfgs"] = _procedure_binding(
+            "lbfgs", "r30-1-adam-endpoint", control.parameters, cache, plan, recipe
         )
         endpoints = {
             "adam": _endpoint(control),
@@ -1077,5 +1161,6 @@ def execute_packet(
             )
         ),
         "fit_diagnostics": component_diagnostics(diagnostic_theta, cache, plan, recipe),
+        "convergence_bindings": convergence_bindings,
         **certificate_payload,
     }

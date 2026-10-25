@@ -17,10 +17,12 @@ from research.bl_ppo.exports import digest, export_bytes, export_json, export_to
 from research.bl_residual.data import tensor_cache, validate_rows
 from research.bl_residual.model import FrozenB8Residual, fuse_residual
 from research.bl_round30.protocol import (
+    AMENDMENT_SHA,
     B8_SHA,
     JUDGMENT_SHA,
     NAMESPACE,
     bound_json,
+    require_amendment_binding,
     require_series,
     require_successor_gate,
 )
@@ -31,13 +33,18 @@ def preflight_inputs(input_dir: Path, *, mode: str, commit: str | None = None) -
     """Check metadata admission before reading or hashing any training outcomes."""
     control = json.loads((input_dir / "control.json").read_text())
     if (
-        control.get("schema") != "r30-control/v1"
+        control.get("schema") != "r30-control/v2"
         or control.get("stage") != mode
         or control.get("ruling_sha256") != JUDGMENT_SHA
+        or control.get("amendment_sha256") != AMENDMENT_SHA
         or control.get("namespace") != NAMESPACE
         or control.get("synthetic") is not False
     ):
         raise ValueError("foreign control/ruling/namespace")
+    try:
+        require_amendment_binding(control)
+    except ValueError as exc:
+        raise ValueError("foreign control/ruling/amendment") from exc
     if commit is not None and control.get("commit") != commit:
         raise ValueError("stale source pin")
     from research.bl_round30.admission import freeze_inventory, require_codex_v_approval
@@ -58,11 +65,33 @@ def preflight_inputs(input_dir: Path, *, mode: str, commit: str | None = None) -
         raise ValueError("H300 full-horizon dead-zero labels required")
     if not control.get("continuation_sha256"):
         raise ValueError("frozen continuation binding required")
+    manifest = bound_json(
+        input_dir / "partition-manifest.json", control["partition_manifest_sha256"]
+    )
+    coverage = bound_json(input_dir / "coverage-approval.json", control["coverage_approval_sha256"])
+    life_id_map = bound_json(input_dir / "life-id-map.json", control["life_id_map_sha256"])
+    if (
+        manifest.get("schema") != "r30-partition-manifest/v1"
+        or manifest.get("inventory_sha256") != admitted.inventory_sha256
+        or manifest.get("allocation_sha256") != admitted.allocation_sha256
+        or manifest.get("life_id_map_sha256") != control["life_id_map_sha256"]
+        or coverage.get("schema") != "r30-partition-coverage-approval/v1"
+        or coverage.get("approved") is not True
+        or coverage.get("reviewer_role") != "Codex-V"
+        or coverage.get("partition_manifest_sha256") != control["partition_manifest_sha256"]
+        or coverage.get("life_id_map_sha256") != control["life_id_map_sha256"]
+        or life_id_map.get("schema") != "r30-global-life-map/v1"
+        or life_id_map.get("inventory_sha256") != admitted.inventory_sha256
+    ):
+        raise ValueError("partition manifest/coverage approval/global life map differs")
     allowed = {
         "b8.pth",
         "train.npz",
         "inventory.json",
         "approval.json",
+        "partition-manifest.json",
+        "coverage-approval.json",
+        "life-id-map.json",
         "successor-gate.json",
         "diagnosis.json",
     }
@@ -92,6 +121,9 @@ def _load_training(input_dir: Path, control: dict) -> dict[str, np.ndarray]:
     with np.load(input_dir / "train.npz", allow_pickle=False) as archive:
         table = {key: archive[key] for key in archive.files}
     validate_rows(table)
+    from research.bl_round30.analyze import require_global_life_identity
+
+    require_global_life_identity(table, json.loads((input_dir / "life-id-map.json").read_text()))
     from research.bl_round30.admission import split_parent
 
     if any(
@@ -104,9 +136,31 @@ def _load_training(input_dir: Path, control: dict) -> dict[str, np.ndarray]:
     catalog = set(freeze_inventory(inventory).train_parents)
     if not set(table["parent_world"].tolist()) <= catalog:
         raise ValueError("foreign parent in training partition")
-    expected_sha = inventory.get("partition_sha256", {}).get("train")
+    manifest = json.loads((input_dir / "partition-manifest.json").read_text())
+    expected_sha = manifest.get("partitions", {}).get("train", {}).get("sha256")
     if expected_sha != digest(input_dir / "train.npz"):
         raise ValueError("training partition outside reuse authority")
+    source_life_ids = table.get("source_life_id")
+    global_life_indices = table.get("global_life_index")
+    if source_life_ids is None or global_life_indices is None:
+        raise ValueError("globally unique source life IDs and integer map are required")
+    source_to_life: dict[object, tuple[object, object, object]] = {}
+    for source_life, global_index, parent, life in zip(
+        source_life_ids.tolist(),
+        global_life_indices.tolist(),
+        table["parent_world"].tolist(),
+        table["life_id"].tolist(),
+    ):
+        if source_life != life or not isinstance(global_index, (int, np.integer)):
+            raise ValueError("global life identity/map schema differs from materialization")
+        identity = (parent, life, int(global_index))
+        if source_life in source_to_life and source_to_life[source_life] != identity:
+            raise ValueError("global source life ID maps to multiple parent/life identities")
+        source_to_life[source_life] = identity
+    if len(source_to_life) != len({(parent, life) for parent, life, _ in source_to_life.values()}):
+        raise ValueError("tranche-local parent/life identity collision")
+    if len(source_to_life) != len({index for _, _, index in source_to_life.values()}):
+        raise ValueError("global life integer map collision")
     return table
 
 
@@ -276,6 +330,11 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
                 name: _checkpoint(base.cpu(), endpoint["parameters"], endpoint["state"])
                 for name, endpoint in result.pop("endpoints").items()
             }
+            if mode == "r30-2":
+                from research.bl_round30.analyze import endpoint_sha256
+
+                if endpoint_sha256(endpoints["control"]) != gate["control_endpoint_sha256"]:
+                    raise ValueError("R30-2 refit fused control differs from diagnosed endpoint")
             unit = {
                 "schema": "r30-fit-unit/v1",
                 "namespace": control["namespace"],
@@ -283,6 +342,7 @@ def run(input_dir: Path, output: Path, *, mode: str, device: str = "cpu") -> dic
                 "index": 0,
                 "source_commit": control["commit"],
                 "ruling_sha256": JUDGMENT_SHA,
+                "amendment_sha256": AMENDMENT_SHA,
                 "synthetic": synthetic,
                 "stage": mode,
                 "endpoints": endpoints,

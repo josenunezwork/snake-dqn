@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 from collections import Counter
@@ -19,7 +20,12 @@ from research.bl_round30.metrics import (
     served_selection,
     summarize_training_rows,
 )
-from research.bl_round30.protocol import JUDGMENT_SHA, require_successor_gate
+from research.bl_round30.protocol import (
+    AMENDMENT_SHA,
+    JUDGMENT_SHA,
+    require_amendment_binding,
+    require_successor_gate,
+)
 from src.model.ego2s_network import Ego2sNet
 
 
@@ -53,6 +59,120 @@ def rowwise_q(endpoint: dict, table: dict) -> np.ndarray:
     if not np.isfinite(q).all():
         raise ValueError("INVALID: nonfinite fused Q")
     return q
+
+
+def endpoint_sha256(endpoint: dict) -> str:
+    """Hash one exported endpoint independent of its enclosing worker unit."""
+    state = endpoint.get("state_dict")
+    config = endpoint.get("config")
+    if not isinstance(state, dict) or not isinstance(config, dict):
+        raise ValueError("INVALID: endpoint lacks config/state_dict")
+    result = hashlib.sha256()
+    result.update(json.dumps(config, sort_keys=True, allow_nan=False).encode())
+    for name in sorted(state):
+        value = state[name]
+        if not isinstance(name, str) or not isinstance(value, torch.Tensor):
+            raise ValueError("INVALID: malformed endpoint state")
+        tensor = value.detach().cpu().contiguous()
+        result.update(name.encode() + b"\0")
+        result.update(str(tensor.dtype).encode() + b"\0")
+        result.update(json.dumps(list(tensor.shape)).encode() + b"\0")
+        result.update(tensor.numpy().tobytes())
+    return result.hexdigest()
+
+
+def parameters_sha256(endpoint: dict) -> str:
+    """Bind the unfused residual fit used to initialize a converged refit."""
+    parameters = endpoint.get("parameters")
+    if not isinstance(parameters, torch.Tensor):
+        raise ValueError("INVALID: endpoint lacks residual parameters")
+    tensor = parameters.detach().cpu().contiguous()
+    result = hashlib.sha256()
+    result.update(str(tensor.dtype).encode() + b"\0")
+    result.update(json.dumps(list(tensor.shape)).encode() + b"\0")
+    result.update(tensor.numpy().tobytes())
+    return result.hexdigest()
+
+
+def require_global_life_identity(table: dict, life_id_map: dict | None = None) -> None:
+    """Refuse tranche-local life IDs before a reducer can aggregate them."""
+    source_life_ids = table.get("source_life_id")
+    global_life_indices = table.get("global_life_index")
+    life_ids = table.get("life_id")
+    parents = table.get("parent_world")
+    if (
+        source_life_ids is None
+        or global_life_indices is None
+        or life_ids is None
+        or parents is None
+    ):
+        raise ValueError("INVALID: globally unique source life IDs/map missing")
+    row_count = len(table["q"])
+    if any(
+        len(values) != row_count
+        for values in (source_life_ids, global_life_indices, life_ids, parents)
+    ):
+        raise ValueError("INVALID: global life identity arrays have unequal lengths")
+    if (
+        not isinstance(source_life_ids, np.ndarray)
+        or source_life_ids.dtype.kind not in "US"
+        or not isinstance(life_ids, np.ndarray)
+        or life_ids.dtype.kind not in "US"
+        or not isinstance(global_life_indices, np.ndarray)
+        or global_life_indices.dtype.kind not in "iu"
+        or global_life_indices.dtype.kind == "b"
+        or np.any(global_life_indices < 0)
+    ):
+        raise ValueError("INVALID: global life identity arrays have invalid dtypes")
+    frozen_ids = None if life_id_map is None else life_id_map.get("ids")
+    if frozen_ids is not None and not isinstance(frozen_ids, dict):
+        raise ValueError("INVALID: life ID map is malformed")
+    source_to_identity: dict[object, tuple[object, object, int]] = {}
+    for source_life, global_index, parent, life in zip(
+        source_life_ids.tolist(),
+        global_life_indices.tolist(),
+        table["parent_world"].tolist(),
+        table["life_id"].tolist(),
+    ):
+        if source_life != life or not isinstance(global_index, (int, np.integer)):
+            raise ValueError(
+                "INVALID: global life identity/map schema differs from materialization"
+            )
+        identity = (parent, life, int(global_index))
+        if source_life in source_to_identity and source_to_identity[source_life] != identity:
+            raise ValueError("INVALID: source life ID maps to multiple identities")
+        source_to_identity[source_life] = identity
+        if frozen_ids is not None and frozen_ids.get(source_life) != int(global_index):
+            raise ValueError("INVALID: global life ID differs from frozen map")
+    if len(source_to_identity) != len(
+        {(parent, life) for parent, life, _ in source_to_identity.values()}
+    ):
+        raise ValueError("INVALID: tranche-local parent/life identity collision")
+    if len(source_to_identity) != len({index for _, _, index in source_to_identity.values()}):
+        raise ValueError("INVALID: global life integer map collision")
+
+
+def resolved_conversion(
+    rows: list[dict], optimizer_label: str, endpoint_hashes: dict[str, str]
+) -> dict:
+    """Run the decision-bearing conversion audit against the resolved control only."""
+    control_name = {
+        "OPTIMIZER_ADEQUATE": "adam",
+        "OPTIMIZER_MATERIAL": "lbfgs",
+    }.get(optimizer_label)
+    if control_name is None:
+        return {"label": "HOLD", "reason": "optimizer_unresolved", "control": None}
+    endpoint_sha = endpoint_hashes.get(control_name)
+    if not isinstance(endpoint_sha, str) or len(endpoint_sha) != 64:
+        raise ValueError("INVALID: resolved optimizer endpoint digest missing")
+    controlled_rows = [{**row, "control_action": row[control_name + "_action"]} for row in rows]
+    conversion = conversion_build_trigger(controlled_rows)
+    conversion["control"] = {
+        "name": control_name,
+        "procedure": control_name,
+        "endpoint_sha256": endpoint_sha,
+    }
+    return conversion
 
 
 def analyze(
@@ -92,12 +212,46 @@ def analyze(
     inventory = json.loads(inventory_path.read_text())
     admitted = freeze_inventory(inventory)
     require_codex_v_approval(admitted, json.loads(approval_path.read_text()))
+    life_id_map_path = Path(binding["life_id_map_path"])
+    if digest(life_id_map_path) != binding.get("life_id_map_sha256"):
+        raise ValueError("INVALID: stale global life ID map")
+    life_id_map = json.loads(life_id_map_path.read_text())
+    if (
+        life_id_map.get("schema") != "r30-global-life-map/v1"
+        or life_id_map.get("inventory_sha256") != admitted.inventory_sha256
+    ):
+        raise ValueError("INVALID: foreign global life ID map")
+    partition_manifest_path = Path(binding["partition_manifest_path"])
+    coverage_approval_path = Path(binding["coverage_approval_path"])
+    if digest(partition_manifest_path) != binding.get("partition_manifest_sha256") or digest(
+        coverage_approval_path
+    ) != binding.get("coverage_approval_sha256"):
+        raise ValueError("INVALID: stale partition manifest/coverage approval")
+    partition_manifest = json.loads(partition_manifest_path.read_text())
+    coverage_approval = json.loads(coverage_approval_path.read_text())
+    if (
+        partition_manifest.get("schema") != "r30-partition-manifest/v1"
+        or partition_manifest.get("inventory_sha256") != admitted.inventory_sha256
+        or partition_manifest.get("allocation_sha256") != admitted.allocation_sha256
+        or partition_manifest.get("life_id_map_sha256") != binding.get("life_id_map_sha256")
+        or coverage_approval.get("schema") != "r30-partition-coverage-approval/v1"
+        or coverage_approval.get("approved") is not True
+        or coverage_approval.get("reviewer_role") != "Codex-V"
+        or coverage_approval.get("partition_manifest_sha256")
+        != binding.get("partition_manifest_sha256")
+    ):
+        raise ValueError("INVALID: foreign partition manifest/coverage approval")
     if admitted.allocation_sha256 != binding["corpus_allocation"]:
         raise ValueError("INVALID: foreign corpus allocation")
     if binding.get("salt") != admitted.salt:
         raise ValueError("INVALID: foreign split salt")
+    try:
+        require_amendment_binding(binding)
+    except ValueError as exc:
+        raise ValueError("INVALID: foreign R30 authority/amendment binding") from exc
     if (
         binding.get("ruling_sha256") != JUDGMENT_SHA
+        or binding.get("amendment_sha256") != AMENDMENT_SHA
         or binding.get("analyzer_sha256") != digest(Path(__file__))
         or binding.get("unit_sha256") != verify_export(unit_path)
         or binding.get("table_sha256") != digest(table_path)
@@ -110,6 +264,7 @@ def analyze(
     if (
         unit.get("synthetic") is not False
         or unit.get("ruling_sha256") != JUDGMENT_SHA
+        or unit.get("amendment_sha256") != AMENDMENT_SHA
         or unit.get("heldout_outcomes_opened") is not False
         or unit.get("allocation") != binding.get("allocation")
         or unit.get("source_commit") != binding.get("source_commit")
@@ -140,6 +295,7 @@ def analyze(
     with np.load(table_path, allow_pickle=False) as archive:
         table = {key: archive[key] for key in archive.files}
     validate_rows(table)
+    require_global_life_identity(table, life_id_map)
     from research.bl_round30.admission import split_parent
 
     partition = "train" if stage == "r30-1" else "validation"
@@ -155,7 +311,9 @@ def analyze(
         raise ValueError("INVALID: foreign parent")
     if actual_parents != expected_parents:
         raise ValueError("INCOMPLETE: allocated parents missing")
-    if inventory.get("partition_sha256", {}).get(partition) != digest(table_path):
+    if partition_manifest.get("partitions", {}).get(partition, {}).get("sha256") != digest(
+        table_path
+    ):
         raise ValueError("INVALID: outcomes outside frozen inventory")
     if stage == "r30-2" and (
         len(admitted.validation_parents) < 32 or len(admitted.validation_rescue_parents) < 16
@@ -182,9 +340,6 @@ def analyze(
                 name: summarize_training_rows(unique_audit_rows, name + "_q") for name in q_values
             },
         }
-        for row in rows:
-            row["control_action"] = row["lbfgs_action"]
-        result["conversion"] = conversion_build_trigger(rows)
         # Optimizer resolution comes only from the certified objective + actual fp32 actions.
         result["served_action_disagreement"] = float(
             np.mean([row["adam_action"] != row["lbfgs_action"] for row in audit_rows])
@@ -193,6 +348,19 @@ def analyze(
         from research.bl_round30.objective import optimizer_decision
 
         result.update(optimizer_decision(diagnostics, audit_rows))
+        result["conversion"] = resolved_conversion(
+            rows,
+            result["label"],
+            {name: endpoint_sha256(endpoint) for name, endpoint in unit["endpoints"].items()},
+        )
+        control = result["conversion"].get("control")
+        if control is not None:
+            name = control["name"]
+            binding = diagnostics.get("convergence_bindings", {}).get(name)
+            if not isinstance(binding, dict):
+                raise ValueError("INVALID: resolved convergence binding is missing")
+            control["parameters_sha256"] = parameters_sha256(unit["endpoints"][name])
+            control["convergence_binding"] = binding
     else:
         # Archive membership is frozen independently and includes nonrescue parents.
         archive = [row for row in rows if row.get("ordinary") and row.get("natural_stream")]
@@ -215,6 +383,7 @@ def analyze(
     result.update(
         schema="r30-mac-result/v1",
         ruling_sha256=JUDGMENT_SHA,
+        amendment_sha256=AMENDMENT_SHA,
         corpus_allocation=admitted.allocation_sha256,
         binding_sha256=digest(binding_path),
         development_only=True,

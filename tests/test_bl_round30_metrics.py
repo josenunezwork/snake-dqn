@@ -1,5 +1,6 @@
 """Focused contract tests for the isolated Round-30 metrics reducer."""
 
+from research.bl_round30.analyze import resolved_conversion
 from research.bl_round30.metrics import (
     archive_harm_metrics,
     complete_h300,
@@ -78,6 +79,36 @@ def test_conversion_trigger_excludes_ordinary_and_b8_surviving_rows():
 def test_conversion_nonretention_is_reported_separately():
     result = conversion_build_trigger([_row(parent=index, control=0) for index in range(32)])
     assert result["control_nonretention"] == 1
+
+
+def test_conversion_uses_resolved_adam_or_lbfgs_control_and_holds_unresolved():
+    rows = [
+        {
+            **_row(parent=index, control=2),
+            "adam_action": 2,
+            "lbfgs_action": 1,
+        }
+        for index in range(32)
+    ]
+    hashes = {"adam": "a" * 64, "lbfgs": "b" * 64}
+    adequate = resolved_conversion(rows, "OPTIMIZER_ADEQUATE", hashes)
+    material = resolved_conversion(rows, "OPTIMIZER_MATERIAL", hashes)
+    unresolved = resolved_conversion(rows, "INCOMPLETE", hashes)
+    assert adequate["control"] == {
+        "name": "adam",
+        "procedure": "adam",
+        "endpoint_sha256": "a" * 64,
+    }
+    assert adequate["label"] == "GO" and material["label"] == "HOLD"
+    assert material["control"]["name"] == "lbfgs"
+    assert unresolved == {"label": "HOLD", "reason": "optimizer_unresolved", "control": None}
+
+
+def test_conversion_below_ten_percent_threshold_closes_ranking_route():
+    rows = [_row(parent=index, masses=(2, 9, 8.5, 0, 0, 0)) for index in range(32)]
+    result = conversion_build_trigger(rows)
+    assert result["ratio"] == 0.5 / 7
+    assert result["label"] == "HOLD"
 
 
 def test_heldout_reducer_retains_failed_selection_and_requires_archive():

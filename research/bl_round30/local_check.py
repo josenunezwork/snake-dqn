@@ -13,13 +13,9 @@ from research.bl_ppo.exports import export_json
 ROOT = Path(__file__).resolve().parents[2]
 PY = "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python"
 LAUNCH = str(ROOT / "tools/ops/agent_nice.sh")
-NODES = [
-    "tests/test_bl_round30_admission.py",
-    "tests/test_bl_round30_job.py",
-    "tests/test_bl_round30_metrics.py",
-    "tests/test_bl_round30_objective.py",
-    "tests/test_bl_round30_pack.py",
-    "tests/test_bl_round30_factory_check.py",
+NODES = sorted(
+    str(path.relative_to(ROOT)) for path in (ROOT / "tests").glob("test_bl_round30_*.py")
+) + [
     "tests/test_colab_cli_canary.py::test_actual_scanner_transport_release_admits",
     "tests/test_colab_cli_canary.py::test_receipt_cannot_admit_an_uncovered_dispatch",
     "tests/test_colab_cli_canary.py::test_gpu_job_without_cuda_decision_refuses",
