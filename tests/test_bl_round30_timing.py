@@ -401,3 +401,28 @@ def test_current_qualified_transport_has_no_forty_minute_calibration_route(
     manifest["canary"] = {"mode": "probe", "schema": canary.SCHEMA, "family": manifest["script"]}
     with pytest.raises(canary.CanaryError, match="<=30 minutes"):
         canary.check(manifest, timing.ROOT)
+
+
+def test_producer_rejects_oversized_valid_metadata_before_publication(tmp_path, monkeypatch):
+    from research.bl_round30 import timing_pack
+
+    value = report()
+    value["source_hashes"] = {f"source-{index}.py": "a" * 64 for index in range(8000)}
+    monkeypatch.setattr(timing_pack, "identity_paths", lambda: list(value["source_hashes"]))
+    assert len(json.dumps(value).encode()) > 524_288
+    with pytest.raises(ValueError, match="timing payload exceeds 512 KiB"):
+        timing.publish_report(tmp_path, value)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_output_admission_rejects_oversize_and_extra_scientific_exports(tmp_path):
+    export_json(tmp_path / "timing.json", report())
+    timing.validate_output_inventory(tmp_path)
+    export_json(tmp_path / "scientific-unit.json", {"SECRET": 1})
+    with pytest.raises(ValueError, match="inventory differs"):
+        timing.validate_output_inventory(tmp_path)
+    for path in tmp_path.glob("scientific-unit.json*"):
+        path.unlink()
+    (tmp_path / "timing.json").write_bytes(bytes(524_289))
+    with pytest.raises(ValueError, match="timing payload exceeds 512 KiB"):
+        timing.validate_output_inventory(tmp_path)

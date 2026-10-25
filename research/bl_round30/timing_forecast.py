@@ -161,7 +161,8 @@ def _operational(value: object, report: dict[str, Any]) -> dict[str, Any]:
         not isinstance(export, dict)
         or export.get("path") != "timing.json"
         or export.get("sha256") != value["timing_report_sha256"]
-        or _number(export.get("size_bytes"), "timing export size", positive=True) <= 0
+        or type(export.get("size")) is not int
+        or not 0 < export["size"] <= timing.TIMING_PAYLOAD_BYTES
     ):
         raise ValueError("timing export receipt binding differs")
     for name in ("teardown_upper_seconds", "calibration_teardown_seconds"):
@@ -361,7 +362,9 @@ def main() -> None:
     args = parser.parse_args()
     if args.output.exists():
         raise FileExistsError("forecast output is create-only")
-    verify_export(args.timing_json)
+    if args.timing_json.name != "timing.json":
+        raise ValueError("timing output filename differs")
+    timing.validate_output_inventory(args.timing_json.parent)
     verify_export(args.operational)
     report = json.loads(args.timing_json.read_text())
     operational = json.loads(args.operational.read_text())

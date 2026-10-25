@@ -25,6 +25,7 @@ from typing import Any, Callable, Iterator
 RULING_SHA = "9b07b66663d8a7ac168f80dbfc35889b3551df8797f347335c10d83a8d81801f"
 AMENDMENT_SHA = "447609b306bde15de4014640e1248a4349f8cb2feb811e455511a66886e943ff"
 SCHEMA = "r30-timing-only/v1"
+TIMING_PAYLOAD_BYTES = 524_288
 DEADLINES = {
     "whole_session_seconds": 1800,
     "worker_seconds": 1500,
@@ -146,6 +147,37 @@ def validate_report(value: dict) -> None:
         raise ValueError("incomplete calibration: timeout")
     if sum(phases.values()) > value["worker_seconds"] + 0.1:
         raise ValueError("overlapping timing phases")
+    if (
+        len((json.dumps(value, sort_keys=True, allow_nan=False) + "\n").encode())
+        > TIMING_PAYLOAD_BYTES
+    ):
+        raise ValueError("timing payload exceeds 512 KiB")
+
+
+def validate_output_inventory(output: Path) -> None:
+    """Admit exactly the timing payload and its immutable publication sidecars."""
+    from research.bl_ppo.exports import verify_export
+
+    expected = {"timing.json", "timing.json.sha256", "timing.json.complete"}
+    if output.is_symlink() or {p.name for p in output.iterdir()} != expected:
+        raise ValueError("timing output inventory differs")
+    for path in output.iterdir():
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("unsafe timing output")
+    if (output / "timing.json").stat().st_size > TIMING_PAYLOAD_BYTES:
+        raise ValueError("timing payload exceeds 512 KiB")
+    verify_export(output / "timing.json")
+
+
+def publish_report(output: Path, report: dict) -> None:
+    """Enforce timing-only policy before publishing any payload or sidecar."""
+    from research.bl_ppo.exports import export_json
+
+    validate_report(report)
+    if any(output.iterdir()):
+        raise ValueError("timing output inventory differs")
+    export_json(output / "timing.json", report)
+    validate_output_inventory(output)
 
 
 @contextlib.contextmanager
@@ -599,8 +631,7 @@ def run(input_dir: Path, output: Path, *, config_sha256: str, synthetic: bool = 
         "phase_seconds": timer.seconds,
         "worker_seconds": time.monotonic() - started + launch_age,
     }
-    validate_report(report)
-    export_json(output / "timing.json", report)
+    publish_report(output, report)
     return report
 
 

@@ -17,7 +17,7 @@ from typing import Any
 from research.bl_ppo.exports import digest, export_bytes, export_json
 from research.bl_round30.pack import SOURCE_PATHS as R30_SOURCE_PATHS
 from research.bl_round30.protocol import B8_SHA
-from research.bl_round30.timing import AMENDMENT_SHA, DEADLINES
+from research.bl_round30.timing import AMENDMENT_SHA, DEADLINES, TIMING_PAYLOAD_BYTES
 from tools.ops.qualification import OPS, check
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,6 +33,9 @@ FROZEN_NATIVE = Path(
 FROZEN_BUNDLE = FROZEN_NATIVE / "private-inputs.tar.gz"
 FROZEN_BUNDLE_SHA256 = "af82651cec44d3878b91b7410c3b844bf890d779e0bceb305ac3d93a70ef9455"
 FROZEN_BUNDLE_BYTES = 36_189_672
+TRANSPORT_BYTES = 67_108_864
+UPLOAD_RULING = RULING.with_name("JUDGMENT_R30_TIMING_UPLOAD_CAP_NONATTEMPT_20261025.md")
+UPLOAD_RULING_SHA256 = "de404ed2ec595ed60f506ca403e142ae0ee7e90666b2a6c49b64c457c103a51b"
 TRANSFER_BAR_SECONDS = 150
 STAGING_BAR_SECONDS = 300
 RATE_UNITS_PER_HOUR = 1.54
@@ -160,6 +163,8 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
         raise FileExistsError(output)
     if digest(RULING) != RULING_SHA256 or digest(AMENDMENT) != AMENDMENT_SHA:
         raise ValueError("timing ruling hash differs")
+    if digest(UPLOAD_RULING) != UPLOAD_RULING_SHA256:
+        raise ValueError("timing upload ruling hash differs")
     if (
         digest(FROZEN_BUNDLE) != FROZEN_BUNDLE_SHA256
         or FROZEN_BUNDLE.stat().st_size != FROZEN_BUNDLE_BYTES
@@ -176,11 +181,17 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
     config_copy = export_bytes(inputs / "timing-config.json", timing_config.read_bytes())
     ruling_copy = export_bytes(inputs / "timing-ruling.md", RULING.read_bytes())
     amendment_copy = export_bytes(inputs / "timing-amendment.md", AMENDMENT.read_bytes())
+    upload_ruling_copy = export_bytes(
+        inputs / "timing-upload-ruling.md", UPLOAD_RULING.read_bytes()
+    )
     reservation = export_json(
         output / "accounting-reservation.json",
         {
             "schema": "r30-g5-timing-calibration-accounting/v1",
-            "entry": "r30-1-g5-timing-calibration-probe-01",
+            "entry": f"r30-1-g5-{output.name}",
+            "upload_ruling_sha256": UPLOAD_RULING_SHA256,
+            "prior_probe_disposition": "NON-ATTEMPT",
+            "additional_attempt_allowance": 0,
             "amendment_sha256": AMENDMENT_SHA,
             "original_reservation": {
                 "path": str(OLD_RESERVATION),
@@ -228,7 +239,7 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
         "sha256": B8_SHA,
     }
     manifest = {
-        "job_id": f"r30-1-timing-calibration-probe-{pin[:8]}",
+        "job_id": f"r30-1-{output.name}-{pin[:8]}",
         "commit": pin,
         "script": "research/bl_round30/timing_colab.sh",
         "source_paths": SOURCE_PATHS,
@@ -267,6 +278,12 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
                 "sha256": amendment_copy["sha256"],
                 "size_bytes": amendment_copy["size"],
             },
+            {
+                "dest": "timing-upload-ruling.md",
+                "path": upload_ruling_copy["path"],
+                "sha256": upload_ruling_copy["sha256"],
+                "size_bytes": upload_ruling_copy["size"],
+            },
         ],
         "env": {
             "SNAKE_COLAB_CANARY": "1",
@@ -277,7 +294,7 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
             "COLAB_CLI_REQUIREMENTS": "research/bl_round30/requirements.txt",
         },
         "required_exports": ["timing.json"],
-        "max_export_bytes": 512 * 1024,
+        "max_export_bytes": TRANSPORT_BYTES,
         "budget": {
             "unit_cap": timeout_units,
             "rate_units_per_hour": RATE_UNITS_PER_HOUR,
@@ -294,6 +311,8 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
         },
         "timing_calibration": {
             "schema": "r30-g5-timing-calibration/v1",
+            "upload_ruling_sha256": UPLOAD_RULING_SHA256,
+            "timing_payload_max_bytes": TIMING_PAYLOAD_BYTES,
             "amendment_sha256": AMENDMENT_SHA,
             "deadlines": DEADLINES,
             "tested_dispatcher_sha256": digest(ROOT / "tools/ops/dispatch.py"),
@@ -340,6 +359,7 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
             "config_sha256": config_copy["sha256"],
             "amendment_sha256": AMENDMENT_SHA,
             "live_account_state": "NOT_CHECKED",
+            "upload_ruling_sha256": UPLOAD_RULING_SHA256,
         },
     )
     export_json(
@@ -359,6 +379,69 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
     return manifest
 
 
+def check_upload_sizes(manifest: dict[str, Any], staging: Path) -> dict[str, Any]:
+    """Check every prepared/control file and declared private input, without unpacking."""
+    bound = manifest["max_export_bytes"]
+    if type(bound) is not int or bound <= 0:
+        raise ValueError("invalid upload transport bound")
+    records = []
+    for path in sorted(staging.iterdir()):
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("unsafe staged artifact")
+        size = path.stat().st_size
+        if size > bound:
+            raise ValueError(f"UPLOAD_CAP: staged {path.name}")
+        records.append(
+            {"kind": "staged", "path": str(path), "size_bytes": size, "sha256": digest(path)}
+        )
+    for item in manifest["inputs"]:
+        if "path" not in item:
+            continue  # Public URL input is not privately uploaded.
+        path = Path(item["path"])
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("unsafe private input")
+        size = path.stat().st_size
+        if size != item["size_bytes"] or digest(path) != item["sha256"]:
+            raise ValueError("private input size/hash differs")
+        if size > bound:
+            raise ValueError(f"UPLOAD_CAP: private {item['dest']}")
+        records.append(
+            {
+                "kind": "private-input",
+                "path": str(path),
+                "size_bytes": size,
+                "sha256": item["sha256"],
+            }
+        )
+    return {
+        "schema": "r30-timing-upload-preflight/v1",
+        "status": "PASS",
+        "transport_max_bytes": bound,
+        "files": records,
+    }
+
+
+def prepare_upload_preflight(output: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    """Mirror qualified local preparation only; never construct a CLI or broker."""
+    from research.colab_cli.source import prepare
+    from research.colab_cli.supervisor import validate
+
+    manifest = validate(manifest, ROOT)
+    staging = output / "offline-staging"
+    staging.mkdir(exist_ok=False)
+    prepare(ROOT, manifest, staging)
+    for name in ("runtime.py", "bootstrap.sh", "release.py", "source.py"):
+        data = subprocess.check_output(
+            ["git", "show", f"{manifest['commit']}:research/colab_cli/{name}"],
+            cwd=ROOT,
+            timeout=10,
+        )
+        (staging / name).write_bytes(data)
+    result = check_upload_sizes(manifest, staging)
+    export_json(output / "UPLOAD_PREFLIGHT.json", result)
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -368,6 +451,7 @@ def main() -> None:
     manifest = make_timing_pack(
         args.output.resolve(), commit=args.commit, timing_config=args.timing_config
     )
+    prepare_upload_preflight(args.output.resolve(), manifest)
     print(json.dumps({"manifest": str(args.output / "job.json"), "job_id": manifest["job_id"]}))
 
 
