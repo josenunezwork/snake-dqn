@@ -95,6 +95,10 @@ def freeze_inventory(inventory: Mapping[str, Any]) -> Admission:
     if not isinstance(salt, str) or not salt:
         raise AdmissionRefused("R30 inventory lacks a declared split_salt")
     _require_corpus_authority(value.get("corpus"))
+    if value["corpus"].get("provenance", {}).get("kind") == "closed_f4_training":
+        from research.bl_round30.corpus import validate_life_inventory
+
+        validate_life_inventory(value)
     parents = value.get("parents")
     if not isinstance(parents, list) or not parents:
         raise AdmissionRefused("R30 inventory requires nonempty parent metadata")
@@ -105,7 +109,7 @@ def freeze_inventory(inventory: Mapping[str, Any]) -> Admission:
     rescue_validation: list[str] = []
     normalized: list[dict[str, Any]] = []
     for row in parents:
-        parent = _require_parent_record(row)
+        parent = _require_parent_record(row, value.get("corpus"))
         parent_id = parent["ultimate_parent_id"]
         if parent_id in seen:
             raise AdmissionRefused(f"duplicate ultimate parent: {parent_id}")
@@ -350,13 +354,22 @@ def _require_corpus_authority(value: Any) -> None:
     )
     if any(type(value.get(key)) is not bool for key in forbidden):
         raise AdmissionRefused("corpus protection status is incomplete")
-    if any(value.get(key) is True for key in forbidden):
+    closed = value.get("provenance", {}).get("kind") == "closed_f4_training"
+    if value.get("provenance") is not None and not closed:
+        raise AdmissionRefused("unsupported typed provenance")
+    if closed:
+        _require_closed_f4(value.get("provenance"))
+        if value.get("f4") is not True:
+            raise AdmissionRefused("closed F4 provenance must retain f4:true")
+    if any(value.get(key) is True for key in forbidden if key != "f4") or (
+        value.get("f4") is True and not closed
+    ):
         raise AdmissionRefused("corpus is protected, foreign, F4-bound, or stale")
     if value.get("pins_current") is not True:
         raise AdmissionRefused("corpus source/label/checkpoint pins are stale or unverified")
 
 
-def _require_parent_record(row: Any) -> dict[str, Any]:
+def _require_parent_record(row: Any, corpus: Any = None) -> dict[str, Any]:
     value = _copy_json_object(row, "parent record")
     parent_id = value.get("ultimate_parent_id")
     _require_parent(parent_id)
@@ -369,9 +382,43 @@ def _require_parent_record(row: Any) -> dict[str, Any]:
     status_keys = ("protected", "foreign", "f4", "stale")
     if any(type(value.get(key)) is not bool for key in status_keys):
         raise AdmissionRefused(f"ultimate parent lacks complete protection status: {parent_id}")
-    if any(value.get(key) is True for key in status_keys):
+    closed = (
+        isinstance(corpus, dict)
+        and corpus.get("provenance", {}).get("kind") == "closed_f4_training"
+    )
+    if closed:
+        _require_closed_f4(value.get("provenance"))
+        if value["provenance"] != corpus["provenance"] or value.get("f4") is not True:
+            raise AdmissionRefused("parent closed F4 provenance differs from corpus")
+    if any(value.get(key) is True for key in status_keys if key != "f4") or (
+        value.get("f4") is True and not closed
+    ):
         raise AdmissionRefused(f"protected, foreign, F4, or stale parent: {parent_id}")
     return value
+
+
+def _require_closed_f4(value: Any) -> None:
+    """The exception is typed and hash-bound; an arbitrary F4 false flag cannot admit it."""
+    from research.bl_round30.protocol import AMENDMENT_SHA
+
+    if not isinstance(value, dict) or value.get("kind") != "closed_f4_training":
+        raise AdmissionRefused("typed closed F4 provenance required")
+    if (
+        value.get("original_f4") is not True
+        or value.get("terminal_label") != "STOP_FUNDING"
+        or value.get("reuse_ruling_sha") != AMENDMENT_SHA
+        or value.get("eligible_life_count") != 960
+        or value.get("original_folds") != [1, 2, 3, 4]
+        or value.get("dose_allocation_sha")
+        != "31fe074d72c3fe7eaeb1d30c59622a6f5b4add4d3c6c2b8320048265d5986c4d"
+    ):
+        raise AdmissionRefused("closed F4 exception is forged, stale, or out of scope")
+    _require_sha(value.get("admitted_life_set_sha"), "admitted life set")
+    if (
+        value["admitted_life_set_sha"]
+        != "500daa506069ca01450b3dd6dd272b6e965b4e8207cae2620070b91cf0d9a250"
+    ):
+        raise AdmissionRefused("closed F4 admitted life set is foreign")
 
 
 def _verify_frozen_roundtrip(admission: Admission) -> None:
