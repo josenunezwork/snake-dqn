@@ -17,6 +17,7 @@ from research.bl_residual.data import validate_rows
 from research.bl_round30.metrics import (
     conversion_build_trigger,
     heldout_reducer,
+    r30_2_gate_reasons,
     served_selection,
     summarize_training_rows,
 )
@@ -361,6 +362,10 @@ def analyze(
             result["label"],
             {name: endpoint_sha256(endpoint) for name, endpoint in unit["endpoints"].items()},
         )
+        result["archive_status"] = admitted.r30_2_status
+        result.update(
+            r30_2_gate_reasons(result["label"], result["conversion"], result["archive_status"])
+        )
         control = result["conversion"].get("control")
         if control is not None:
             name = control["name"]
@@ -388,6 +393,7 @@ def analyze(
             raise ValueError("INCOMPLETE: frozen natural archive parents missing")
         rescue = [row for row in rows if not row.get("ordinary")]
         result = heldout_reducer(rescue, natural_rows=archive)
+        result["archive_status"] = admitted.r30_2_status
     result.update(
         schema="r30-mac-result/v1",
         ruling_sha256=JUDGMENT_SHA,

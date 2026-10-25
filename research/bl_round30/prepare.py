@@ -60,10 +60,15 @@ def prepare(
     output.mkdir(parents=True, exist_ok=False)
     export_json(output / "inventory.json", inventory)
     export_json(output / "approval.json", json.loads(approval_path.read_text()))
-    export_json(output / "partition-manifest.json", manifest)
-    export_json(output / "coverage-approval.json", coverage)
-    for suffix in ("", ".sha256", ".complete"):
-        shutil.copyfile(Path(str(life_id_map) + suffix), output / ("life-id-map.json" + suffix))
+    # Coverage approval is bound to the original manifest's *raw bytes*.  Do
+    # not canonicalize either side of that binding while staging the package.
+    for source, name in (
+        (partition_manifest, "partition-manifest.json"),
+        (coverage_approval, "coverage-approval.json"),
+        (life_id_map, "life-id-map.json"),
+    ):
+        for suffix in ("", ".sha256", ".complete"):
+            shutil.copyfile(Path(str(source) + suffix), output / (name + suffix))
     shutil.copyfile(train, output / "train.npz")
     shutil.copyfile(b8, output / "b8.pth")
     # Freeze only the original sampler's row identities and RNG-derived index

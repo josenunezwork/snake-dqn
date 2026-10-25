@@ -13,6 +13,7 @@ from typing import Any, Iterable, Mapping, Sequence
 HORIZON = 300
 EXACT = "EXACT"
 UNKNOWN = "UNKNOWN"
+CONVERSION_TRIGGER_RATIO = 0.10
 
 
 def _six(row: Mapping[str, Any], name: str) -> Sequence[Any]:
@@ -253,7 +254,7 @@ def conversion_build_trigger(
     numerator, denominator = _parent_life_mean(choice_loss), _parent_life_mean(advantage)
     insufficient = len(parents) < 32 or numerator is None or denominator is None or denominator <= 0
     ratio = None if insufficient else numerator / denominator
-    return {
+    result = {
         "eligible_parents": len(parents),
         "choice_loss": numerator,
         "available_advantage": denominator,
@@ -263,8 +264,45 @@ def conversion_build_trigger(
         "label": (
             "INVALID"
             if invalid_reasons
-            else ("INSUFFICIENT" if insufficient else ("GO" if ratio >= 0.10 else "HOLD"))
+            else (
+                "INSUFFICIENT"
+                if insufficient
+                else ("GO" if ratio >= CONVERSION_TRIGGER_RATIO else "HOLD")
+            )
         ),
+    }
+    # The fixed 10% trigger is retained.  A complete result below it closes
+    # this prospective ranking route; it is not an invitation to tune or rerun.
+    if result["label"] == "HOLD" and ratio is not None and ratio < CONVERSION_TRIGGER_RATIO:
+        result.update(disposition="CLOSE_RANKING", successor_allowed=False)
+    return result
+
+
+def r30_2_gate_reasons(
+    optimizer_label: str, conversion: Mapping[str, Any], archive_status: str
+) -> dict[str, Any]:
+    """Derive the R30-2 admission state without relaxing any gate criterion."""
+    optimizer_resolved = optimizer_label in {"OPTIMIZER_ADEQUATE", "OPTIMIZER_MATERIAL"}
+    conversion_trigger_passed = conversion.get("label") == "GO"
+    archive_admitted = archive_status == "READY_R30_2"
+    no_go_reasons = []
+    if not optimizer_resolved:
+        no_go_reasons.append("optimizer_unresolved")
+    if not conversion_trigger_passed:
+        no_go_reasons.append("conversion_trigger_not_met")
+    if not archive_admitted:
+        no_go_reasons.append("archive_absent")
+    return {
+        "optimizer_resolved": optimizer_resolved,
+        "conversion_trigger_passed": conversion_trigger_passed,
+        "archive_admitted": archive_admitted,
+        "successor_allowed": not no_go_reasons,
+        "r30_2_go_reasons": (
+            []
+            if no_go_reasons
+            else ["optimizer_resolved", "conversion_trigger_passed", "archive_admitted"]
+        ),
+        "r30_2_no_go_reasons": no_go_reasons,
     }
 
 

@@ -7,6 +7,7 @@ from research.bl_round30.metrics import (
     conversion_build_trigger,
     decision_label,
     heldout_reducer,
+    r30_2_gate_reasons,
     served_selection,
     summarize_training_rows,
     validate_input_rows,
@@ -109,6 +110,19 @@ def test_conversion_below_ten_percent_threshold_closes_ranking_route():
     result = conversion_build_trigger(rows)
     assert result["ratio"] == 0.5 / 7
     assert result["label"] == "HOLD"
+    assert result["disposition"] == "CLOSE_RANKING"
+    assert result["successor_allowed"] is False
+
+
+def test_r30_2_gate_reasons_report_each_unmet_admission_bar():
+    reasons = r30_2_gate_reasons("HOLD", {"label": "HOLD"}, "HOLD_R30_2")
+    assert reasons["successor_allowed"] is False
+    assert reasons["r30_2_go_reasons"] == []
+    assert reasons["r30_2_no_go_reasons"] == [
+        "optimizer_unresolved",
+        "conversion_trigger_not_met",
+        "archive_absent",
+    ]
 
 
 def test_heldout_reducer_retains_failed_selection_and_requires_archive():
