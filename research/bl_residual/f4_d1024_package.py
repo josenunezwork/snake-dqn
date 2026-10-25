@@ -89,16 +89,19 @@ PRIOR_SERIES_WALL_SECONDS = (
 PUBLIC_INPUTS = ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json"
 PUBLIC_INPUTS_STATUS = "PUBLIC_RELEASE_VERIFIED_BY_OWNER_ADDENDUM"
 B8_PUBLIC_ASSET = "B8_s3_final.pth"
-# Per-file upload model from the paired D256 canary receipt (ruling section 1):
-# fixed per-file RPC overhead plus 2.8 s per sequential 2 MiB chunk. It
-# reproduces the D256 canary (72.0 s modelled vs 72.6 s measured). The canary
-# evidence bar is transfer_seconds <= 150 (research/colab_cli/canary.py).
+# Historical upload model retained only as a diagnostic.  It is explicitly not
+# an admission clock: the prospective ruling freezes the observed replacement
+# acceptance timings below, while canary/acceptance enforce their measured
+# transfer and whole-staging gates independently.
 CHUNK_BYTES = 2 * 1024**2
 CHUNK_SECONDS = 2.8
 MULTI_CHUNK_OVERHEAD_SECONDS = 16.0
 SINGLE_CHUNK_OVERHEAD_SECONDS = 4.0
 TRANSPORT_FILE_SECONDS = {"bootstrap.sh": 4.0, "source.py": 4.0}
-CANARY_UPLOAD_BAR_SECONDS = 150.0
+HISTORICAL_OBSERVED_TRANSFER_SECONDS = 221.68512525002006
+HISTORICAL_OBSERVED_STAGING_SECONDS = 235.52283416606952
+TRANSFER_GATE_SECONDS = 300.0
+STAGING_GATE_SECONDS = 300.0
 
 
 def _attempt(value: str) -> str:
@@ -114,19 +117,24 @@ def output_names(attempt: str) -> tuple[str, str]:
     return f"d1024-output-l4-{attempt}", f"canary-output-l4-{attempt}"
 
 
-def require_repaired_transport(repo: Path, record: Path) -> dict[str, str]:
-    """Require a source-bound PASS for a new tree and D1024-size inventory."""
+def require_repaired_transport(repo: Path, record: Path) -> dict[str, Any]:
+    """Require source-bound acceptance under the one D1024 transfer authority."""
     from research.colab_cli.acceptance import (
         D1024_F4_INVENTORY_SHA256,
         verify_qualified_transport_record,
     )
+    from research.colab_cli.transfer_policy import RULING_SHA256, authority_binding
 
-    return verify_qualified_transport_record(
+    qualified = verify_qualified_transport_record(
         repo,
         record,
         required_inventory_sha256=D1024_F4_INVENTORY_SHA256,
         reject_tree=QUALIFIED_TREE,
+        required_transfer_authority_sha256=RULING_SHA256,
     )
+    if qualified.get("transfer_exception") != authority_binding("acceptance"):
+        raise ValueError("qualified transport lacks the D1024 acceptance transfer authority")
+    return qualified
 
 
 def require_publication(local: Path, relative: str, expected_sha: str | None) -> str:
@@ -253,7 +261,7 @@ def manifests(
     inventory: list[dict],
     *,
     attempt: str = "01",
-    qualified_transport: dict[str, str] | None = None,
+    qualified_transport: dict[str, Any] | None = None,
 ) -> tuple[dict, dict]:
     """Freeze D1024/canary reservations inside the registered 20-unit fit series.
 
@@ -261,6 +269,8 @@ def manifests(
     dose); effective = 2 x base, applied once.
     """
     attempt = _attempt(attempt)
+    from research.colab_cli.transfer_policy import authority_binding
+
     qualified_transport = qualified_transport or {"tree_hash": QUALIFIED_TREE}
     main_output, canary_output = output_names(attempt)
     reserved = 6
@@ -300,6 +310,9 @@ def manifests(
             "max_outcome_blind_retries": 2,
         },
         "max_export_bytes": 128 * 1024**2,
+        # The ruling is deliberately explicit and narrowly scoped.  Transport
+        # consumers validate this binding plus the frozen inventory and recipe.
+        "transfer_exception": authority_binding("fit"),
         "f4": {
             "dose": DOSE,
             "fit_series_base_units": 10,
@@ -403,7 +416,7 @@ def _row_seconds(size: int) -> tuple[int, float]:
 
 
 def upload_projection(inventory: list[dict[str, Any]]) -> dict[str, Any]:
-    """Per-file canary transfer model over uploaded rows only (HTTPS rows excluded)."""
+    """Return an obsolete diagnostic forecast; never use it as a transport gate."""
     rows = [
         {"dest": name, "kind": "transport", "seconds": seconds}
         for name, seconds in TRANSPORT_FILE_SECONDS.items()
@@ -425,16 +438,18 @@ def upload_projection(inventory: list[dict[str, Any]]) -> dict[str, Any]:
         )
     total = sum(row["seconds"] for row in rows)
     return {
-        "model": "per-file: 16 s multi-chunk / 4 s single-chunk + 2.8 s per 2 MiB chunk",
+        "model": (
+            "OBSOLETE_DIAGNOSTIC: per-file 16 s multi-chunk / 4 s single-chunk "
+            "+ 2.8 s per 2 MiB chunk"
+        ),
         "rows": rows,
         "upload_bytes": sum(row.get("bytes", 0) for row in rows),
         "projected_transfer_seconds": total,
-        "canary_transfer_bar_seconds": CANARY_UPLOAD_BAR_SECONDS,
-        "status": (
-            "WITHIN_CANARY_BAR"
-            if total <= CANARY_UPLOAD_BAR_SECONDS
-            else "HOLD_PROJECTED_ABOVE_CANARY_UPLOAD_BAR"
-        ),
+        "forecast_status": "DIAGNOSTIC_ONLY_NOT_AN_ADMISSION_GATE",
+        "historical_observed_transfer_seconds": HISTORICAL_OBSERVED_TRANSFER_SECONDS,
+        "historical_observed_whole_staging_seconds": HISTORICAL_OBSERVED_STAGING_SECONDS,
+        "transfer_gate_seconds": TRANSFER_GATE_SECONDS,
+        "whole_staging_gate_seconds": STAGING_GATE_SECONDS,
     }
 
 

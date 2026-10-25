@@ -27,7 +27,13 @@ def load_transport(repo: Path) -> tuple[ModuleType, ModuleType]:
 
 
 def plan(
-    repo: Path, parent: Path, account_map: Path, colab: str, *, d1024_inventory: bool = False
+    repo: Path,
+    parent: Path,
+    account_map: Path,
+    colab: str,
+    *,
+    d1024_inventory: bool = False,
+    transfer_authority_sha256: str | None = None,
 ) -> Path:
     """Use a unique state parent even for two plans in the same second."""
     acceptance, _ = load_transport(repo)
@@ -39,6 +45,7 @@ def plan(
         other_assignments=acceptance.load_other_assignments(account_map),
         profile="final-only",
         d1024_inventory=d1024_inventory,
+        transfer_authority_sha256=transfer_authority_sha256,
     )
     run = Path(record["run_dir"])
     saved = run / "ops-review.json"
@@ -54,6 +61,7 @@ def plan(
             for job in record["plan"]["jobs"]
         },
         "d1024_inventory": d1024_inventory,
+        "transfer_authority_sha256": transfer_authority_sha256,
     }
     # This file is create-only review material, separate from the broker's plan.
     with saved.open("x") as stream:
@@ -80,6 +88,17 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
         "d1024_synthetic_inventory" in prepared
     ):
         raise ValueError("reviewed D1024 synthetic-inventory selection differs from plan")
+    declared_authority = review.get("transfer_authority_sha256")
+    if declared_authority is not None and not isinstance(declared_authority, str):
+        raise ValueError("reviewed D1024 transfer authority is malformed")
+    if bool(declared_authority) != ("transfer_exception" in prepared):
+        raise ValueError("reviewed D1024 transfer authority differs from plan")
+    if declared_authority is not None and (
+        declared_authority != acceptance.transfer_policy.RULING_SHA256
+        or prepared.get("transfer_exception")
+        != acceptance.transfer_policy.authority_binding("acceptance")
+    ):
+        raise ValueError("reviewed D1024 transfer authority differs from ruling")
     acceptance.verify_plan_sources(prepared, repo)
     for job in prepared["jobs"]:
         manifest_bytes = Path(job["manifest"]).read_bytes()
@@ -139,6 +158,10 @@ def main() -> int:
         action="store_true",
         help="stage the prospective synthetic D1024 inventory in this acceptance plan",
     )
+    prepare.add_argument(
+        "--transfer-authority-sha256",
+        help="F4 ruling SHA-256 for the prospective D1024 transfer exception",
+    )
     run = actions.add_parser("execute")
     run.add_argument("--plan", required=True, type=Path)
     run.add_argument("--review-token", required=True)
@@ -154,6 +177,7 @@ def main() -> int:
                     args.other_assignments,
                     args.colab,
                     d1024_inventory=args.d1024_inventory,
+                    transfer_authority_sha256=args.transfer_authority_sha256,
                 )
             )
         else:

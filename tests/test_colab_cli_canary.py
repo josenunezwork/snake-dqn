@@ -441,3 +441,204 @@ def test_broker_refuses_science_before_any_allocator_call(tmp_path, monkeypatch)
         supervisor.Broker(tmp_path / "state", "never-run").run(template)
     assert calls == []
     assert not Path(template["output_dir"]).exists()
+
+
+def _d1024_fixture(tmp_path, monkeypatch):
+    from research.colab_cli import transfer_policy as policy
+
+    template, probe, receipt, output = _fixture(tmp_path, monkeypatch, "L4")
+    rows = []
+    for dest, (size, sha) in policy.FROZEN_INPUTS.items():
+        row = {"dest": dest, "sha256": sha}
+        if dest == "b8.pth":
+            row.update(url=policy.B8_URL, size_bytes=size)
+        else:
+            path = tmp_path / dest
+            with path.open("wb") as stream:
+                stream.truncate(size)
+            row["path"] = str(path)
+        rows.append(row)
+    for manifest, mode in ((template, "main"), (probe, "canary")):
+        manifest.update(
+            script=policy.FIT_SCRIPT,
+            device="cuda:0",
+            inputs=rows,
+            transfer_exception=policy.authority_binding("fit"),
+            f4={"dose": 1024, "registered_updates": 2000},
+            job_id=f"f4-d1024-{'fit' if mode == 'main' else 'canary'}-aaaaaaaa-04",
+            env={
+                "F4_MODE": mode,
+                "F4_DOSE": "1024",
+                "F4_DEVICE": "cuda:0",
+                "METADATA_ARCHIVE_SHA256": policy.FROZEN_INPUTS["metadata.tar"][1],
+            },
+        )
+    probe["env"].update(SNAKE_COLAB_CANARY="1", SNAKE_COLAB_CANARY_PACKAGE="research/bl_residual")
+    probe["canary"]["family"] = policy.FIT_SCRIPT
+    receipt["job_id"] = receipt["terminal"]["job_id"] = probe["job_id"]
+    receipt["transfers"] = [
+        {
+            "direction": "upload",
+            "status": "verified",
+            "remote": "/content/root/inputs/" + dest,
+            "size_bytes": size,
+            "sha256": sha,
+        }
+        for dest, (size, sha) in policy.FROZEN_INPUTS.items()
+        if dest != "b8.pth"
+    ]
+    receipt["terminal"]["canary_observations"] = [
+        {
+            "cuda_decisions": 1,
+            "device": "cuda:0",
+            "package": "research/bl_residual",
+            "caller": "research/bl_residual/f4_canary.py",
+            "operation": "Tensor.argmax",
+            "shape": [1, 6],
+            "root": "/content/snake-cli/testgen",
+        }
+    ]
+    _json(output / "manifest.json", probe)
+    receipt["manifest_sha256"] = canary.digest(output / "manifest.json")
+    _json(
+        output / "upload-measurement.json",
+        {
+            "elapsed_seconds": 236,
+            "transfer_seconds": 222,
+            "source_delivery_seconds": 10,
+        },
+    )
+    return template, probe, receipt, output
+
+
+def test_d1024_authorized_222_transfer_236_staging_and_consumer(tmp_path, monkeypatch):
+    template, probe, receipt, output = _d1024_fixture(tmp_path, monkeypatch)
+    _bind(template, probe, receipt, output, tmp_path)
+    proof = receipt["canary_evidence"]
+    assert proof["transfer_seconds"] == 222
+    assert proof["upload_elapsed_seconds"] == 236
+    assert proof["transfer_exception"] == template["transfer_exception"]
+    canary.check(template, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "transfer,staging,source,passes",
+    [
+        (300, 300, 0, True),
+        (222, 300.000001, 10, False),
+        (300.000001, 300, 0, False),
+        (222, 236, 15, False),
+    ],
+)
+def test_d1024_independent_caps_and_unmoved_clock(
+    tmp_path, monkeypatch, transfer, staging, source, passes
+):
+    _, probe, receipt, output = _d1024_fixture(tmp_path, monkeypatch)
+    _json(
+        output / "upload-measurement.json",
+        {
+            "elapsed_seconds": staging,
+            "transfer_seconds": transfer,
+            "source_delivery_seconds": source,
+        },
+    )
+    if passes:
+        canary.evidence(probe, receipt, output, tmp_path)
+    else:
+        with pytest.raises(canary.CanaryError):
+            canary.evidence(probe, receipt, output, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "foreign",
+        "malformed",
+        "malformed_context",
+        "other_family",
+        "dose",
+        "mode",
+        "hardware",
+        "device",
+        "recipe",
+        "inventory",
+        "hash",
+        "metadata",
+        "foreign_job",
+    ],
+)
+def test_d1024_exception_cannot_escape_its_authority(tmp_path, monkeypatch, fault):
+    _, probe, receipt, output = _d1024_fixture(tmp_path, monkeypatch)
+    if fault == "missing":
+        probe.pop("transfer_exception")
+    elif fault == "foreign":
+        probe["transfer_exception"]["ruling_sha256"] = "a" * 64
+    elif fault == "malformed":
+        probe["transfer_exception"] = None
+    elif fault == "malformed_context":
+        probe["transfer_exception"]["context"] = []
+    elif fault == "other_family":
+        probe["script"] = "research/bl_ppo/colab.sh"
+    elif fault == "dose":
+        probe["env"]["F4_DOSE"] = "4096"
+    elif fault == "mode":
+        probe["env"]["F4_MODE"] = "eval"
+    elif fault == "hardware":
+        probe["requirements"]["gpu"] = "A100"
+    elif fault == "device":
+        probe["env"]["F4_DEVICE"] = "cpu"
+    elif fault == "recipe":
+        probe["f4"]["registered_updates"] = 2001
+    elif fault == "inventory":
+        probe["inputs"].pop()
+    elif fault == "hash":
+        probe["inputs"][1]["sha256"] = "b" * 64
+    elif fault == "metadata":
+        probe["env"]["METADATA_ARCHIVE_SHA256"] = "b" * 64
+    else:
+        probe["job_id"] = "another-lane"
+    with pytest.raises(canary.CanaryError):
+        canary.evidence(probe, receipt, output, tmp_path)
+
+
+def test_other_lane_still_refuses_222_seconds(tmp_path, monkeypatch):
+    _, probe, receipt, output = _fixture(tmp_path, monkeypatch)
+    _json(
+        output / "upload-measurement.json",
+        {
+            "elapsed_seconds": 236,
+            "transfer_seconds": 222,
+            "source_delivery_seconds": 10,
+        },
+    )
+    with pytest.raises(canary.CanaryError, match="within 150"):
+        canary.evidence(probe, receipt, output, tmp_path)
+
+
+def test_d1024_consumer_refuses_authority_removed_from_main(tmp_path, monkeypatch):
+    template, probe, receipt, output = _d1024_fixture(tmp_path, monkeypatch)
+    _bind(template, probe, receipt, output, tmp_path)
+    template.pop("transfer_exception")
+    with pytest.raises(canary.CanaryError, match="authority differs"):
+        canary.check(template, tmp_path)
+
+
+def test_d1024_binding_cannot_disguise_a_main_as_excluded_canary(tmp_path, monkeypatch):
+    from research.colab_cli import transfer_policy as policy
+
+    _, probe, _, _ = _d1024_fixture(tmp_path, monkeypatch)
+    probe["env"]["F4_MODE"] = "main"
+    probe["job_id"] = "f4-d1024-fit-aaaaaaaa-04"
+    with pytest.raises(ValueError, match="package/mode/dose/recipe"):
+        policy.transfer_limit(probe)
+
+
+def test_d1024_binding_cannot_use_canary_workload_for_main(tmp_path, monkeypatch):
+    from research.colab_cli import transfer_policy as policy
+
+    main, _, _, _ = _d1024_fixture(tmp_path, monkeypatch)
+    main["env"]["F4_MODE"] = "canary"
+    main["job_id"] = "f4-d1024-canary-aaaaaaaa-04"
+    with pytest.raises(ValueError, match="package/mode/dose/recipe"):
+        policy.transfer_limit(main)

@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from research.colab_cli import supervisor
+from research.colab_cli import supervisor, transfer_policy
 from research.colab_cli.acceptance_faults import AcceptanceObserver
 
 MAX_UNITS = 4.0
@@ -35,8 +35,8 @@ FULL_STATE_GATES = {"busy-full-snapshot", "exact-resume", "checkpoint-overhead"}
 REVIEW_TOKEN = "COLAB_CLI_ACCEPTANCE_REVIEWED"
 QUALIFIED_RECORD_SCHEMA = "snake-dqn-colab-cli-qualified/v1"
 D1024_SYNTHETIC_INVENTORY_SCHEMA = "f4-d1024-synthetic-input-inventory/v1"
-D1024_TRANSFER_BAR_SECONDS = 150.0
-D1024_STAGING_CAP_SECONDS = 300.0
+D1024_TRANSFER_BAR_SECONDS = transfer_policy.DEFAULT_TRANSFER_SECONDS
+D1024_STAGING_CAP_SECONDS = transfer_policy.MAX_STAGING_SECONDS
 # These are size/count/transport-role facts from the failed D1024 canary's
 # immutable manifest plus metadata-only stat results.  They intentionally do
 # not contain a fit, label, or ledger payload digest.  The public B8 input
@@ -377,6 +377,7 @@ def verify_qualified_transport_record(
     record_path: Path,
     *,
     required_inventory_sha256: str = D1024_F4_INVENTORY_SHA256,
+    required_transfer_authority_sha256: str | None = None,
     reject_tree: str | None = None,
 ) -> dict[str, Any]:
     """Fail closed unless an operator-created PASS binds this exact CLI tree.
@@ -439,6 +440,17 @@ def verify_qualified_transport_record(
         raise ValueError("D1024 synthetic inventory digest is invalid")
     if result.get("d1024_synthetic_inventory_sha256") != supplied_digest:
         raise ValueError("acceptance result does not bind the D1024 synthetic inventory")
+    binding = plan.get("transfer_exception")
+    if required_transfer_authority_sha256 is not None:
+        expected_binding = transfer_policy.authority_binding("acceptance")
+        if (
+            required_transfer_authority_sha256 != transfer_policy.RULING_SHA256
+            or binding != expected_binding
+            or result.get("transfer_exception") != expected_binding
+        ):
+            raise ValueError("qualified acceptance lacks the required D1024 transfer authority")
+    elif binding is not None or result.get("transfer_exception") is not None:
+        raise ValueError("qualified acceptance has an unexpected D1024 transfer authority")
     gates = plan.get("gates")
     if not isinstance(gates, list):
         raise ValueError("qualified acceptance plan has no gate records")
@@ -472,6 +484,20 @@ def verify_qualified_transport_record(
             raise ValueError(f"qualified acceptance {arm} receipt is not from the qualified commit")
         receipts[arm] = (receipt_path.resolve(), receipt)
     l4_receipt_path, l4_receipt = receipts["l4"]
+    try:
+        actual_transfer_limit = transfer_policy.acceptance_limit(plan)
+        if binding is not None:
+            l4_job = next(job for job in plan["jobs"] if job["name"] == "l4")
+            l4_manifest = json.loads(Path(l4_job["manifest"]).read_text())
+            actual_transfer_limit = transfer_policy.receipt_limit(
+                l4_manifest, l4_receipt, l4_receipt_path.parent
+            )
+    except ValueError as exc:
+        raise ValueError("qualified acceptance L4 transfer authority is invalid") from exc
+    if required_transfer_authority_sha256 is not None and (
+        actual_transfer_limit != transfer_policy.EXCEPTION_TRANSFER_SECONDS
+    ):
+        raise ValueError("qualified acceptance did not apply the D1024 transfer exception")
     measurement = evidence.get("upload_measurement")
     if not isinstance(measurement, dict):
         raise ValueError("qualified acceptance synthetic D1024 timing evidence is absent")
@@ -482,9 +508,14 @@ def verify_qualified_transport_record(
         measurement.get("sha256"), "synthetic staging measurement hash", 64
     ):
         raise ValueError("qualified acceptance synthetic D1024 timing evidence changed")
-    recomputed = _d1024_staging_measurement(measurement_path)
+    recomputed = _d1024_staging_measurement(measurement_path, actual_transfer_limit)
     if any(measurement.get(name) != value for name, value in recomputed.items()):
         raise ValueError("qualified acceptance synthetic D1024 timing evidence differs")
+    if binding is not None and (
+        measurement.get("transfer_limit_seconds") != actual_transfer_limit
+        or measurement.get("transfer_exception") != binding
+    ):
+        raise ValueError("qualified acceptance synthetic D1024 transfer authority differs")
     staging_receipt = evidence.get("receipt")
     if not isinstance(staging_receipt, dict):
         raise ValueError("qualified acceptance synthetic D1024 receipt evidence is absent")
@@ -564,6 +595,7 @@ def verify_qualified_transport_record(
         "acceptance_result": str(result_path),
         "acceptance_result_sha256": registry["acceptance_result_sha256"],
         "d1024_synthetic_inventory_sha256": supplied_digest,
+        "transfer_exception": binding,
     }
 
 
@@ -623,7 +655,13 @@ def d1024_synthetic_staging_evidence(
     if not public_preflight.is_file():
         raise supervisor.Refused("synthetic D1024 public-input preflight is absent")
     measurement_path = output / "upload-measurement.json"
-    measurement = _d1024_staging_measurement(measurement_path)
+    if manifest.get("transfer_exception") != plan.get("transfer_exception"):
+        raise supervisor.Refused("synthetic D1024 transfer authority differs from plan")
+    try:
+        transfer_seconds = transfer_policy.receipt_limit(manifest, receipt, output)
+    except ValueError as exc:
+        raise supervisor.Refused(str(exc)) from exc
+    measurement = _d1024_staging_measurement(measurement_path, transfer_seconds)
     receipt_path = output / "receipt.json"
     if not receipt_path.is_file() or json.loads(receipt_path.read_text()) != receipt:
         raise supervisor.Refused("synthetic D1024 staging receipt is absent")
@@ -635,13 +673,17 @@ def d1024_synthetic_staging_evidence(
         "upload_measurement": {
             "path": str(measurement_path),
             "sha256": sha256_file(measurement_path),
+            "transfer_limit_seconds": transfer_seconds,
+            "transfer_exception": plan.get("transfer_exception"),
             **measurement,
         },
         "receipt": {"path": str(receipt_path), "sha256": sha256_file(receipt_path)},
     }
 
 
-def _d1024_staging_measurement(path: Path) -> dict[str, float]:
+def _d1024_staging_measurement(
+    path: Path, transfer_seconds: float = D1024_TRANSFER_BAR_SECONDS
+) -> dict[str, float]:
     """Read the persisted shared-clock measurement without relaxing either bar."""
     if not path.is_file():
         raise supervisor.Refused("synthetic D1024 upload measurement is absent")
@@ -658,11 +700,10 @@ def _d1024_staging_measurement(path: Path) -> dict[str, float]:
         measured[name] = float(value)
     if measured["elapsed_seconds"] <= 0 or measured["elapsed_seconds"] > D1024_STAGING_CAP_SECONDS:
         raise supervisor.Refused("synthetic D1024 staging exceeds the 300-second cap")
-    if (
-        measured["transfer_seconds"] <= 0
-        or measured["transfer_seconds"] > D1024_TRANSFER_BAR_SECONDS
-    ):
-        raise supervisor.Refused("synthetic D1024 transfer exceeds the 150-second bar")
+    if measured["transfer_seconds"] <= 0 or measured["transfer_seconds"] > transfer_seconds:
+        raise supervisor.Refused(
+            f"synthetic D1024 transfer exceeds the {transfer_seconds:g}-second bar"
+        )
     if measured["source_delivery_seconds"] < 0 or (
         measured["transfer_seconds"] + measured["source_delivery_seconds"]
         > measured["elapsed_seconds"] + 1e-6
@@ -673,6 +714,10 @@ def _d1024_staging_measurement(path: Path) -> dict[str, float]:
 
 def verify_plan_sources(plan: dict[str, Any], repo: Path) -> None:
     """Refuse dirty or stale implementation bytes before a paid allocation."""
+    try:
+        transfer_policy.acceptance_limit(plan)
+    except ValueError as exc:
+        raise supervisor.Refused("acceptance transfer authority is invalid") from exc
     current = source_manifest(repo)
     if plan["source_manifest"] != current:
         raise supervisor.Refused("acceptance plan source changed before execution")
@@ -696,6 +741,7 @@ def build_plan(
     l4_rate: float = L4_RATE_UNITS_PER_HOUR,
     profile: str = "final-only",
     d1024_inventory: bool = False,
+    transfer_authority_sha256: str | None = None,
 ) -> dict[str, Any]:
     gates = review_gates(profile)
     if cpu_rate is None:
@@ -704,6 +750,17 @@ def build_plan(
         raise ValueError("--cpu-rate must be finite and positive")
     if not math.isfinite(l4_rate) or l4_rate <= 0:
         raise ValueError("--l4-rate must be finite and positive")
+    transfer_exception: dict[str, Any] | None = None
+    if transfer_authority_sha256 is not None:
+        if (
+            transfer_authority_sha256 != transfer_policy.RULING_SHA256
+            or not d1024_inventory
+            or profile != "final-only"
+        ):
+            raise ValueError(
+                "D1024 transfer authority is only valid for final-only D1024 acceptance"
+            )
+        transfer_exception = transfer_policy.authority_binding("acceptance")
     other_assignments = other_assignments or {}
     if not all(
         isinstance(endpoint, str)
@@ -760,6 +817,9 @@ def build_plan(
             profile=profile,
             synthetic_inputs=synthetic_inputs,
         )
+        if name == "l4" and transfer_exception is not None:
+            payload["requirements"]["allowed_gpus"] = ["L4"]
+            payload["transfer_exception"] = transfer_exception
         target = manifests / f"{name}.json"
         atomic_json(target, payload)
         jobs.append(
@@ -811,6 +871,8 @@ def build_plan(
     }
     if synthetic_inventory is not None:
         plan["d1024_synthetic_inventory"] = synthetic_inventory
+    if transfer_exception is not None:
+        plan["transfer_exception"] = transfer_exception
     atomic_json(run_dir / "acceptance-plan.json", plan)
     return {"run_dir": str(run_dir), "plan": plan}
 
@@ -1010,6 +1072,8 @@ def execute(
     }
     if "d1024_synthetic_inventory" in plan:
         result["d1024_synthetic_inventory_sha256"] = plan["d1024_synthetic_inventory"]["sha256"]
+    if "transfer_exception" in plan:
+        result["transfer_exception"] = plan["transfer_exception"]
     create_json(run_dir / "acceptance-result.json", result)
     return return_code
 
@@ -1094,6 +1158,10 @@ def main(argv: list[str] | None = None) -> int:
         help="D1024 synthetic input-inventory contract required by the caller",
     )
     parser.add_argument(
+        "--required-transfer-authority-sha256",
+        help="F4 ruling SHA-256 required by a qualified D1024 acceptance consumer",
+    )
+    parser.add_argument(
         "--reject-tree",
         help="known superseded CLI tree that this acceptance must not admit",
     )
@@ -1101,6 +1169,10 @@ def main(argv: list[str] | None = None) -> int:
         "--d1024-inventory",
         action="store_true",
         help="stage the prospective synthetic D1024 input inventory in this acceptance only",
+    )
+    parser.add_argument(
+        "--transfer-authority-sha256",
+        help="F4 ruling SHA-256 authorizing the prospective D1024 transfer exception",
     )
     parser.add_argument("--state-dir", type=Path, help="absolute supervisor state parent")
     parser.add_argument(
@@ -1141,6 +1213,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.repo,
                 args.verify_qualified_record,
                 required_inventory_sha256=args.required_inventory_sha256,
+                required_transfer_authority_sha256=args.required_transfer_authority_sha256,
                 reject_tree=args.reject_tree,
             )
             print(json.dumps(verified, indent=2, sort_keys=True))
@@ -1158,6 +1231,7 @@ def main(argv: list[str] | None = None) -> int:
             args.l4_rate,
             profile=args.profile,
             d1024_inventory=args.d1024_inventory,
+            transfer_authority_sha256=args.transfer_authority_sha256,
         )
         print(json.dumps(record, indent=2, sort_keys=True))
         if args.execute_after_review:

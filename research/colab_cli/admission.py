@@ -28,6 +28,14 @@ def require_final_only(result: dict[str, Any], repo: Path) -> dict[str, Any]:
     current = source_manifest(repo)
     if result.get("source_manifest") != current or plan.get("source_manifest") != current:
         raise Refused("final-only acceptance is not bound to the current transport source")
+    from research.colab_cli import transfer_policy
+
+    if result.get("transfer_exception") != plan.get("transfer_exception"):
+        raise Refused("final-only acceptance transfer exception authority differs")
+    try:
+        transfer_policy.acceptance_limit(plan)
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        raise Refused(str(exc)) from exc
     gates = plan.get("gates")
     expected = review_gates("final-only")
     d1024_gate = "d1024-synthetic-full-inventory-staging"

@@ -141,7 +141,8 @@ def test_prepare_publishes_first_and_writes_nested_bound_d1024_partition(
     preflight = json.loads((pack / "main-input-preflight.json").read_text())
     assert preflight["doses"] == [1024] and preflight["allocation"] == control["allocation"]
     projection = json.loads((pack / "pack.json").read_text())["upload_projection"]
-    assert projection["status"] in ("WITHIN_CANARY_BAR", "HOLD_PROJECTED_ABOVE_CANARY_UPLOAD_BAR")
+    assert projection["forecast_status"] == "DIAGNOSTIC_ONLY_NOT_AN_ADMISSION_GATE"
+    assert projection["transfer_gate_seconds"] == projection["whole_staging_gate_seconds"] == 300
     qualified = json.loads((pack / "pack.json").read_text())["qualified_transport"]
     assert qualified["d1024_synthetic_inventory_sha256"] == "b" * 64
     assert json.loads((pack / "main-template.json").read_text())["f4"]["qualified_tree"] == (
@@ -345,7 +346,10 @@ def test_canary_covers_main_transport_with_dose_1024_exports_and_series_caps(
         {"path": "/fixture/metadata.tar", "dest": "metadata.tar", "sha256": "b" * 64},
     ]
     main, canary = package.manifests(tmp_path, "b" * 40, inventory)
+    from research.colab_cli.transfer_policy import authority_binding
+
     assert canary["inputs"] == main["inputs"] == inventory
+    assert main["transfer_exception"] == canary["transfer_exception"] == authority_binding("fit")
     assert canary["required_exports"] == main["required_exports"]
     assert "fit/fit-0001.pth" in main["required_exports"]
     assert canary["env"]["F4_DOSE"] == main["env"]["F4_DOSE"] == "1024"
@@ -455,13 +459,20 @@ def test_per_file_model_reproduces_the_d256_canary_and_flags_the_bar(tmp_path: P
     d256 = package.upload_projection(rows)
     # D256 canary receipt b9d53c5c: transfer_seconds 72.6 (ruling: about 71 +/- 5).
     assert d256["projected_transfer_seconds"] == pytest.approx(71, abs=5)
-    assert d256["status"] == "WITHIN_CANARY_BAR"
+    assert d256["forecast_status"] == "DIAGNOSTIC_ONLY_NOT_AN_ADMISSION_GATE"
+    assert d256["transfer_gate_seconds"] == 300
+    assert d256["whole_staging_gate_seconds"] == 300
+    assert d256["historical_observed_transfer_seconds"] == pytest.approx(221.68512525002006)
+    assert d256["historical_observed_whole_staging_seconds"] == pytest.approx(235.52283416606952)
     https = [{"dest": "b8.pth", "url": "https://x", "sha256": "a" * 64, "size_bytes": 6562005}]
     assert package.upload_projection(https + rows[1:])["projected_transfer_seconds"] == (
         pytest.approx(d256["projected_transfer_seconds"] - (16 + 4 * 2.8))
     )
     large = [{"dest": "train-1024.npz", "path": str(_sparse(tmp_path / "big", 140 * 1024**2))}]
-    assert package.upload_projection(large)["status"] == "HOLD_PROJECTED_ABOVE_CANARY_UPLOAD_BAR"
+    assert (
+        package.upload_projection(large)["forecast_status"]
+        == "DIAGNOSTIC_ONLY_NOT_AN_ADMISSION_GATE"
+    )
 
 
 REAL_B8 = Path("/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth")

@@ -18,10 +18,12 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from research.colab_cli import transfer_policy
+
 SCHEMA = "colab-family-canary/v1"
 ACCEPTANCE_SCRIPT = "research/colab_cli/acceptance_probe.sh"
-MAX_UPLOAD_SECONDS = 150.0  # half of the shared 300 second staging cap
-MAX_STAGING_SECONDS = 2 * MAX_UPLOAD_SECONDS
+MAX_UPLOAD_SECONDS = 150.0
+MAX_STAGING_SECONDS = 300.0  # independent of every transfer exception
 MAX_CANARY_MINUTES = 30.0
 FAMILIES = {
     "gpu_sim_spike": ("research/gpu_sim_spike/colab.sh",),
@@ -191,6 +193,10 @@ def job_device(manifest: dict[str, Any], repo: Path | None = None) -> str:
 
 def check(manifest: dict[str, Any], repo: Path) -> None:
     """Admission gate called by validate, and consequently again before run."""
+    try:
+        transfer_policy.transfer_limit(manifest)
+    except ValueError as exc:
+        raise CanaryError(str(exc)) from exc
     if manifest["script"] == ACCEPTANCE_SCRIPT:
         # The source qualification probe must be able to bootstrap qualification.
         if manifest.get("canary"):
@@ -254,6 +260,8 @@ def check(manifest: dict[str, Any], repo: Path) -> None:
         or proof.get("transport_identity") != executable_identity(repo, manifest["commit"])
     ):
         raise CanaryError("family canary source commit or transport identity differs")
+    if probe.get("transfer_exception") != manifest.get("transfer_exception"):
+        raise CanaryError("family canary transfer exception authority differs from dispatch")
     # Re-derive proof from the immutable broker receipt rather than trusting a
     # hand-written summary. Recovered exports are re-hashed on the Mac as well.
     actual = evidence(probe, receipt, path.parent, repo)
@@ -308,8 +316,12 @@ def evidence(
         raise CanaryError("staging must complete within 300 seconds")
     if transfer_seconds <= 0:
         raise CanaryError("transfer_seconds must be positive")
-    if transfer_seconds > MAX_UPLOAD_SECONDS:
-        raise CanaryError("transfers must complete within 150 seconds")
+    try:
+        transfer_cap = transfer_policy.transfer_limit(manifest)
+    except ValueError as exc:
+        raise CanaryError(str(exc)) from exc
+    if transfer_seconds > transfer_cap:
+        raise CanaryError(f"transfers must complete within {transfer_cap:g} seconds")
     if source_delivery_seconds < 0:
         raise CanaryError("source_delivery_seconds must be nonnegative")
     # The total includes setup/renewals as well as both measured portions.
@@ -397,6 +409,11 @@ def evidence(
         "hardware": hardware,
         "device": device,
         "cuda_observations": decisions,
+        **(
+            {"transfer_exception": manifest["transfer_exception"]}
+            if "transfer_exception" in manifest
+            else {}
+        ),
     }
 
 

@@ -24,6 +24,7 @@ from research.bl_residual.protocol import (
     canonical_sha,
     empty_ledger,
 )
+from research.colab_cli.transfer_policy import authority_binding
 
 ROOT = Path(__file__).resolve().parents[1]
 FAKE_B8 = b"synthetic B8 bytes; never a checkpoint"
@@ -251,6 +252,7 @@ def patch_package(monkeypatch: Any, world: dict[str, Any], calls: dict[str, Any]
             "acceptance_result": "/fixture/acceptance-result.json",
             "acceptance_result_sha256": "a" * 64,
             "d1024_synthetic_inventory_sha256": "b" * 64,
+            "transfer_exception": authority_binding("acceptance"),
         },
     )
     monkeypatch.setattr(package, "require_d256_fit_publication", lambda *_: None)

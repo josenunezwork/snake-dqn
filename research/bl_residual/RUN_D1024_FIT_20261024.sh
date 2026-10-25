@@ -7,7 +7,9 @@ set -euo pipefail
 
 SOURCE=${SOURCE:-/Users/josenunez/Projects/ml/snake-dqn-f4fix}
 # Create-only transport-attempt suffix for every D1024 Q/pack/canary/main path.
-ATTEMPT=${F4_D1024_ATTEMPT:-01}
+# The only pending F4 D1024 canary/main path is the judge-bound fresh attempt
+# 04.  Operators may not silently fall back to a historical create-only name.
+ATTEMPT=${F4_D1024_ATTEMPT:-04}
 Q=${Q:-/Users/josenunez/Projects/ml/snake-dqn-f4-d1024-qualified-${ATTEMPT}.noindex}
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 ART=/Users/josenunez/Projects/ml/snake-dqn-artifacts
@@ -17,6 +19,7 @@ D256_UNION="$ART/bl-labels-f0/d256-union-final-01/verified-ledger.json"
 D1024_UNION="$ART/bl-labels-f0-speed/d1024-union-final-01/verified-ledger.json"
 D1024_UNION_PUB=research/bl_labels/ledger/D1024_UNION_FINAL_20261024.json
 D256_PACK="$F4/d256-metadata-pack-02"
+TRANSFER_RULING_SHA256=f57080bdc08b6f0dc439adb0082ea5e00725d0cfd2521fdaffde6b864f1cc809
 PACK="$F4/d1024-pack-${ATTEMPT}"
 PREFLIGHT="$F4/d1024-preflight-${ATTEMPT}.json"
 CENSUS="$F4/r-a-archive-census-01"
@@ -63,7 +66,8 @@ verify_repaired_transport() {
   local repo=$1
   (cd -- "$repo" && "$PY" -m research.colab_cli.acceptance --repo "$repo" \
     --verify-qualified-record "$ART/ops/colab-cli-qualified.json" \
-    --reject-tree d0d92bdb572b770284a1fea6152417ffa5f06bea)
+    --reject-tree d0d92bdb572b770284a1fea6152417ffa5f06bea \
+    --required-transfer-authority-sha256 "$TRANSFER_RULING_SHA256")
 }
 push_main() {
   git -C "$SOURCE" diff --cached --check
@@ -197,8 +201,13 @@ import sys
 
 projection = json.load(open(sys.argv[1]))["upload_projection"]
 print(json.dumps(projection, indent=2))
-if projection["status"] != "WITHIN_CANARY_BAR":
-    raise SystemExit("HOLD: projected canary transfer > 150 s; do not dispatch; return byte counts to a judge")
+if projection.get("forecast_status") != "DIAGNOSTIC_ONLY_NOT_AN_ADMISSION_GATE":
+    raise SystemExit("HOLD: pack lacks the required diagnostic-only transport forecast")
+if projection.get("transfer_gate_seconds") != 300 or projection.get("whole_staging_gate_seconds") != 300:
+    raise SystemExit("HOLD: F4 D1024 requires independently enforced 300 s transfer and staging gates")
+if projection.get("historical_observed_transfer_seconds") != 221.68512525002006 or projection.get("historical_observed_whole_staging_seconds") != 235.52283416606952:
+    raise SystemExit("HOLD: pack does not disclose the ruling's observed replacement timings")
+print("FORECAST_ONLY: measured canary/acceptance transfer <=300 s and whole staging <=300 s remain required.")
 PY
     ;;
   canary-dry-run|canary)
