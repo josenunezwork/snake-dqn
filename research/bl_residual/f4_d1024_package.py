@@ -58,10 +58,9 @@ D256_UNION_SHA = d256.UNION_SHA
 D1024_UNION_PATH = "research/bl_labels/ledger/D1024_UNION_FINAL_20261024.json"
 D256_FIT_PUBLICATION_PATH = d256.FIT_PUBLICATION_PATH
 FIT_PUBLICATION_PATH = "research/bl_residual/ledger/F4_D1024_FIT_PHASE_20261024.json"
+FIT_BINDING_PATH = "research/bl_residual/ledger/F4_D1024_FIT_BINDING_20261024.json"
 STAGING = F4 / "d1024-metadata-staging-03/inputs"
 D256_PACK = F4 / "d256-metadata-pack-02"
-MAIN_OUTPUT = "d1024-output-l4-01"
-CANARY_OUTPUT = "canary-output-l4-01"
 PREFLIGHT_SCHEMA = "bl-residual-f4-d1024-nofit-preflight/v1"
 PREFLIGHT_FIXTURES = {
     "tests/test_bl_residual_factory_masks.py",
@@ -150,6 +149,53 @@ def require_publication(local: Path, relative: str, expected_sha: str | None) ->
     if (ROOT / relative).read_bytes() != published:
         raise ValueError(f"checkout ledger differs from origin/main: {relative}")
     return value
+
+
+def published_fit_output(pack: Path) -> Path:
+    """Resolve the sealed main output against its published fit binding, without a look."""
+    pack = pack.resolve()
+    binding_path = ROOT / FIT_BINDING_PATH
+    for suffix in ("", ".sha256", ".complete"):
+        relative = FIT_BINDING_PATH + suffix
+        require_publication(ROOT / relative, relative, None)
+    verify_export(binding_path)
+    binding = json.loads(binding_path.read_text())
+    phase = ROOT / FIT_PUBLICATION_PATH
+    require_publication(phase, FIT_PUBLICATION_PATH, None)
+    if (
+        binding.get("schema") != "bl-residual-metadata-fit-binding/v1"
+        or binding.get("pack") != str(pack)
+        or binding.get("phase") != FIT_PUBLICATION_PATH
+        or binding.get("phase_sha256") != digest(phase)
+    ):
+        raise ValueError("HOLD: D1024 pack/phase differs from the published fit binding")
+    files = binding.get("files", {})
+
+    def bound_file(name: str, path: Path) -> None:
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or files.get(name)
+            != {"path": str(path), "size": path.stat().st_size, "sha256": digest(path)}
+        ):
+            raise ValueError(f"HOLD: D1024 {name} differs from the published fit binding")
+
+    manifest_path = pack / "main.json"
+    bound_file("manifest", manifest_path)
+    verify_export(manifest_path)
+    manifest = json.loads(manifest_path.read_text())
+    output = Path(manifest.get("output_dir", ""))
+    if (
+        not output.is_absolute()
+        or output.parent != pack
+        or output.resolve() != output
+        or not re.fullmatch(r"[0-9a-f]{40}", str(binding.get("fit_pin", "")))
+        or manifest.get("commit") != binding.get("fit_pin")
+    ):
+        raise ValueError("HOLD: D1024 main output/source differs from the published fit binding")
+    bound_file("supervisor_receipt", output / "receipt.json")
+    bound_file("producer_receipt", output / "exports/fit/receipt.json")
+    return output
 
 
 def staged_inputs(staging: Path) -> dict[str, Any]:

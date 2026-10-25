@@ -45,15 +45,16 @@ def packs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, world: dict) -> dict:
     for name in ("d256", "d1024"):
         export_json(ledgers / f"{name}.json", {"synthetic_ledger": name})
     package._prepare(
-        tmp_path / "d1024-pack",
+        tmp_path / "d1024-pack-04",
         d256_ledger=ledgers / "d256.json",
         d1024_ledger=ledgers / "d1024.json",
         d1024_union_sha="d" * 64,
         staging=staging,
         commit="HEAD",
         preflight_receipt=tmp_path / "preflight.json",
+        attempt="04",
     )
-    packs = {"d256": d256_pack, "d1024": tmp_path / "d1024-pack", "ledgers": ledgers}
+    packs = {"d256": d256_pack, "d1024": tmp_path / "d1024-pack-04", "ledgers": ledgers}
     packs["repo"] = _publish_fits(monkeypatch, tmp_path, packs)
     return packs
 
@@ -71,7 +72,7 @@ def _publish_fits(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, packs: dict) 
     monkeypatch.setattr(package, "ROOT", repo)
     for pack, dose, run in (
         (packs["d256"], 256, "d256-output-l4-01"),
-        (packs["d1024"], 1024, package.MAIN_OUTPUT),
+        (packs["d1024"], 1024, package.output_names("04")[0]),
     ):
         control = json.loads((pack / "inputs/control.json").read_text())
         fit = pack / run / "exports/fit"
@@ -82,6 +83,33 @@ def _publish_fits(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, packs: dict) 
         _checkpoint(fit / f"fit-{(256, 1024).index(dose):04d}.pth", control, dose)
         publication = d256.FIT_PUBLICATION_PATH if dose == 256 else package.FIT_PUBLICATION_PATH
         build_ledger([fit], repo / publication, control["namespace"], control["allocation"])
+        if dose == 1024:
+            export_json(pack / "main.json", {"output_dir": str(pack / run), "commit": "c" * 40})
+            export_json(pack / run / "receipt.json", {"synthetic": "supervisor"})
+            export_json(fit / "receipt.json", {"synthetic": "producer"})
+            paths = {
+                "manifest": pack / "main.json",
+                "supervisor_receipt": pack / run / "receipt.json",
+                "producer_receipt": fit / "receipt.json",
+            }
+            export_json(
+                repo / package.FIT_BINDING_PATH,
+                {
+                    "schema": "bl-residual-metadata-fit-binding/v1",
+                    "fit_pin": "c" * 40,
+                    "pack": str(pack),
+                    "phase": publication,
+                    "phase_sha256": digest(repo / publication),
+                    "files": {
+                        name: {
+                            "path": str(path),
+                            "size": path.stat().st_size,
+                            "sha256": digest(path),
+                        }
+                        for name, path in paths.items()
+                    },
+                },
+            )
 
     def origin(argv: list[str], **_kwargs) -> bytes:
         return (repo / argv[-1].split(":", 1)[1]).read_bytes()
@@ -283,6 +311,10 @@ def test_ra_packet_lock_equals_funding_main_preflight_identity(
     packet = json.loads((tmp_path / "r-a/packet.json").read_text())
     assert packet["status"] == "PREPARED_NOT_RUN" and packet["f2_receipt"] is None
     assert "--f2-receipt" not in packet["argv"]
+    assert packet["invocation"]["--d1024-checkpoint"] == str(
+        ra_world["d1024"] / "d1024-output-l4-04/exports/fit/fit-0001.pth"
+    )
+    assert not (ra_world["d1024"] / "d1024-output-l4-01").exists()
     assert Path(packet["argv"][packet["argv"].index("--command-packet") + 1]) == (
         tmp_path / "r-a/packet.json"
     )
@@ -707,7 +739,7 @@ def test_ra_prepare_holds_on_existing_lock_or_unpublished_census(
 def test_ra_prepare_holds_when_checkpoint_is_not_the_published_unit(
     ra_world: dict, tmp_path: Path
 ) -> None:
-    fit = ra_world["d1024"] / package.MAIN_OUTPUT / "exports/fit"
+    fit = ra_world["d1024"] / package.output_names("04")[0] / "exports/fit"
     target = fit / "fit-0001.pth"
     for suffix in ("", ".sha256", ".complete"):
         Path(str(target) + suffix).chmod(0o600)

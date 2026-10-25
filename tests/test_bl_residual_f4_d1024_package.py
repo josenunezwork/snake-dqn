@@ -424,7 +424,7 @@ def test_attempt_three_is_a_fresh_full_inventory_canary_and_main_path(tmp_path: 
     assert main["f4"]["fit_series_effective_units"] == 20
     assert Path(canary["output_dir"]).name == "canary-output-l4-03"
     assert Path(main["output_dir"]).name == "d1024-output-l4-03"
-    assert package.output_names("01") == (package.MAIN_OUTPUT, package.CANARY_OUTPUT)
+    assert package.output_names("01") == ("d1024-output-l4-01", "canary-output-l4-01")
     with pytest.raises(ValueError, match="two-digit"):
         package.manifests(tmp_path, "b" * 40, inventory, attempt="3")
 

@@ -50,7 +50,13 @@ def _published_unit(publication: str, inputs: Path, checkpoint: Path, dose: int)
     units = read_ledger(d1024.ROOT / publication, control["namespace"], control["allocation"])
     index = DOSES.index(dose)
     sha = verify_export(checkpoint)
-    if set(units) != {index} or units[index]["sha256"] != sha or control.get("doses") != [dose]:
+    if (
+        set(units) != {index}
+        or units[index]["sha256"] != sha
+        or units[index]["path"] != str(checkpoint)
+        or units[index]["size"] != checkpoint.stat().st_size
+        or control.get("doses") != [dose]
+    ):
         raise ValueError(f"HOLD: D{dose} checkpoint is not its published fit unit")
     return sha
 
@@ -149,7 +155,9 @@ def prepare(
         raise FileExistsError("R-A packet and funding output are create-only")
     d256_inputs, d1024_inputs = d256_pack / "inputs", d1024_pack / "inputs"
     d256_checkpoint = d256_pack / "d256-output-l4-01/exports/fit/fit-0000.pth"
-    d1024_checkpoint = d1024_pack / f"{d1024.MAIN_OUTPUT}/exports/fit/fit-{d1024.INDEX:04d}.pth"
+    d1024_checkpoint = (
+        d1024.published_fit_output(d1024_pack) / f"exports/fit/fit-{d1024.INDEX:04d}.pth"
+    )
     receipt = census_dir / census_tool.RECEIPT
     table = census_dir / census_tool.TABLE
     left_sha = _published_unit(d256.FIT_PUBLICATION_PATH, d256_inputs, d256_checkpoint, 256)
