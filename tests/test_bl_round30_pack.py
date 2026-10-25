@@ -4,8 +4,37 @@ import json
 from pathlib import Path
 
 from research.bl_ppo.exports import digest, export_json
-from research.bl_round30.pack import make_pack
-from research.bl_round30.protocol import JUDGMENT_SHA
+from research.bl_round30.pack import make_pack, transport_inputs
+from research.bl_round30.protocol import AMENDMENT_SHA, JUDGMENT_SHA
+
+
+def _private_transport_fixture(destination, archive):
+    """Keep manifest tests independent of the repository's production B8 catalog."""
+    return [
+        {
+            "dest": "b8.pth",
+            "url": "https://fixture.invalid/b8",
+            "size_bytes": 1,
+            "sha256": "a" * 64,
+        },
+        {
+            "dest": "private-inputs.tar.gz",
+            "path": str(archive),
+            "sha256": "b" * 64,
+            "size_bytes": 1,
+            "r30_private_bundle": {
+                "schema": "bl-round30-private-input-bundle/v1",
+                "unpacked_bytes": 1,
+                "files": 1,
+                "forecast": {
+                    "projected_transfer_seconds": 1,
+                    "projected_staging_seconds": 2,
+                    "transfer_bar_seconds": 150,
+                    "staging_bar_seconds": 300,
+                },
+            },
+        },
+    ]
 
 
 def test_native_canary_covers_exact_main_inventory_and_reserves_liability(tmp_path, monkeypatch):
@@ -21,6 +50,7 @@ def test_native_canary_covers_exact_main_inventory_and_reserves_liability(tmp_pa
     )
     monkeypatch.setattr(pack.subprocess, "run", lambda *a, **k: None)
     monkeypatch.setattr(pack, "check", lambda *a, **k: "qualified fixture tree")
+    monkeypatch.setattr(pack, "transport_inputs", _private_transport_fixture)
     monkeypatch.setattr(
         job, "preflight_inputs", lambda *a, **k: {"input_hashes": {"train.npz": "b" * 64}}
     )
@@ -34,14 +64,12 @@ def test_native_canary_covers_exact_main_inventory_and_reserves_liability(tmp_pa
         json.dumps(
             {
                 "ruling_sha256": JUDGMENT_SHA,
+                "amendment_sha256": AMENDMENT_SHA,
                 "attempt": 0,
-                "stage_hours": 0,
-                "stage_units": 0,
-                "combined_hours": 0,
-                "combined_units": 0,
-                "unencumbered_reservation_verified": True,
-                "canary_allowance_hours": 1 / 3,
-                "canary_allowance_units": 2 / 3,
+                "stage_minutes": 0,
+                "combined_minutes": 0,
+                "verified_rate_units_per_hour": 1.54,
+                "measured_est_minutes": 10,
             }
         )
     )
@@ -53,8 +81,9 @@ def test_native_canary_covers_exact_main_inventory_and_reserves_liability(tmp_pa
     assert probe["inputs"] == manifest["inputs"]
     assert probe["source_paths"] == manifest["source_paths"]
     assert manifest["scientific_admission"] is False
-    assert probe["timeout_minutes"] + manifest["timeout_minutes"] <= 144
-    assert probe["budget"]["unit_cap"] + manifest["budget"]["unit_cap"] <= 4.8
+    assert probe["timeout_minutes"] + manifest["timeout_minutes"] == 144
+    assert manifest["budget"]["unit_cap"] == 124 / 60 * 1.54
+    assert manifest["budget"]["reserve_units"] == 124 / 60 * 1.54 * 0.20
     assert not any("validation" in row["dest"] for row in manifest["inputs"])
 
 
@@ -81,6 +110,7 @@ def test_synthetic_canary_declares_short_exemption_and_main_keeps_resume(tmp_pat
     )
     monkeypatch.setattr(pack.subprocess, "run", lambda *a, **k: None)
     monkeypatch.setattr(pack, "check", lambda *a, **k: "qualified fixture tree")
+    monkeypatch.setattr(pack, "transport_inputs", _private_transport_fixture)
     manifest = make_pack(tmp_path / "synthetic", "a" * 40, b8)
     assert "resume" not in manifest
     assert manifest["resume_exemption"]["kind"] == "short-canary"
@@ -89,3 +119,51 @@ def test_synthetic_canary_declares_short_exemption_and_main_keeps_resume(tmp_pat
     assert "resume_exemption" not in template
     assert template["resume"]["skip_verified"] is True
     assert template["resume"]["max_outcome_blind_retries"] == 2
+
+
+def test_private_transport_is_lossless_standard_bar_bound_and_excludes_public_b8(
+    tmp_path, monkeypatch
+):
+    from research.bl_round30 import pack
+    from research.bl_round30.private_bundle import unpack
+
+    source = tmp_path / "inputs"
+    source.mkdir()
+    b8 = source / "b8.pth"
+    b8.write_bytes(b"public checkpoint")
+    control = source / "control.json"
+    control.write_bytes(b'{"sealed":true}\n')
+    train = source / "train.npz"
+    train.write_bytes(b"private training bytes" * 1024)
+    monkeypatch.setattr(
+        pack,
+        "ROOT",
+        tmp_path,
+    )
+    (tmp_path / "research/t34_exit_b8").mkdir(parents=True)
+    (tmp_path / "research/t34_exit_b8/PUBLIC_INPUTS.json").write_text(
+        json.dumps(
+            {
+                "assets": [
+                    {"sha256": digest(b8), "size_bytes": b8.stat().st_size, "url": "https://x/b8"}
+                ]
+            }
+        )
+    )
+    rows = transport_inputs(source, tmp_path / "private-inputs.tar.gz")
+    assert rows[0] == {
+        "dest": "b8.pth",
+        "url": "https://x/b8",
+        "size_bytes": b8.stat().st_size,
+        "sha256": digest(b8),
+    }
+    private = rows[1]
+    assert private["dest"] == "private-inputs.tar.gz"
+    assert private["r30_private_bundle"]["forecast"]["transfer_bar_seconds"] == 150.0
+    assert private["r30_private_bundle"]["forecast"]["staging_bar_seconds"] == 300.0
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    unpack(Path(private["path"]), runtime, private["sha256"])
+    assert digest(runtime / "control.json") == digest(control)
+    assert digest(runtime / "train.npz") == digest(train)
+    assert not (runtime / "b8.pth").exists()

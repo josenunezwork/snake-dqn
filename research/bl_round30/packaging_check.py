@@ -20,7 +20,7 @@ from pathlib import Path
 
 from research.bl_ppo.exports import digest, export_json, verify_export
 from research.bl_round30.local_check import source_identity
-from research.metadata_archive import unpack
+from research.bl_round30.private_bundle import unpack
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE_PIN = "c1bf44c89e116bc29f27293895bbb9da326c00ff"
@@ -33,9 +33,11 @@ MECHANICAL_PATHS = {
     "research/bl_round30/pack.py",
     "research/bl_round30/colab.sh",
     "research/bl_round30/packaging_check.py",
+    "research/bl_round30/private_bundle.py",
     "tests/test_bl_round30_job.py",
+    "tests/test_bl_round30_pack.py",
 }
-EXTRA_PATHS = ("research/metadata_archive.py", "research/t34_exit_b8/PUBLIC_INPUTS.json")
+EXTRA_PATHS = ("research/t34_exit_b8/PUBLIC_INPUTS.json",)
 
 
 def identity() -> dict[str, str]:
@@ -102,8 +104,8 @@ def check_receipt(value: dict, commit: str) -> None:
 
 
 def run(output: Path, b8: Path) -> dict:
-    """Replay real archive CLI and verify exact URL/metadata bytes without models."""
-    from research.bl_round30.pack import make_pack, transport_inputs
+    """Replay private bundle extraction without loading numerical payloads."""
+    from research.bl_round30.pack import make_pack
 
     if os.getpriority(os.PRIO_PROCESS, 0) < 15:
         raise ValueError("packaging check requires nice >=15")
@@ -131,17 +133,17 @@ def run(output: Path, b8: Path) -> dict:
         }
         assert len(rows) == 2 and "path" not in public
         checks.append("registered B8 URL, exact size/SHA, no local checkpoint upload")
-        metadata = next(row for row in rows if row["dest"] == "metadata.tar")
+        metadata = next(row for row in rows if row["dest"] == "private-inputs.tar.gz")
         runtime = root / "runtime-inputs"
         runtime.mkdir()
         shutil.copyfile(b8, runtime / "b8.pth")
-        archive = runtime / "metadata.tar"
+        archive = runtime / "private-inputs.tar.gz"
         shutil.copyfile(metadata["path"], archive)
         result = subprocess.run(
             [
                 sys.executable,
                 "-m",
-                "research.metadata_archive",
+                "research.bl_round30.private_bundle",
                 "unpack",
                 "--archive",
                 str(archive),
@@ -156,12 +158,12 @@ def run(output: Path, b8: Path) -> dict:
             capture_output=True,
             timeout=20,
         )
-        assert json.loads(result.stdout)["files"] == 6
+        assert json.loads(result.stdout)["files"] == 2
         for original in (package / "inputs").iterdir():
             assert digest(runtime / original.name) == digest(original)
         verify_export(runtime / "control.json")
         verify_export(runtime / "verified-ledger.json")
-        checks.append("real archive CLI: six metadata files/sidecars exactly preserved")
+        checks.append("real private-bundle CLI: exact metadata files/sidecars preserved")
         try:
             unpack(archive, runtime, metadata["sha256"])
         except FileExistsError:
@@ -176,17 +178,7 @@ def run(output: Path, b8: Path) -> dict:
             assert not list(bad_root.iterdir())
         else:
             raise AssertionError("wrong outer digest did not refuse")
-        unknown = root / "unknown"
-        unknown.mkdir()
-        (unknown / "private.npz").write_bytes(b"x" * 1_000_001)
-        try:
-            transport_inputs(unknown, root / "unknown.tar")
-        except ValueError as exc:
-            assert "registered public URL" in str(exc)
-            assert not (root / "unknown.tar").exists()
-        else:
-            raise AssertionError("unknown large private input did not refuse")
-        checks.append("repeat extraction, corrupt archive SHA and private >1 MB refuse")
+        checks.append("repeat extraction and corrupt private-bundle SHA refuse")
         assert manifest["scientific_admission"] is False
         template = json.loads((package / "main-template.json").read_text())
         assert template["scientific_admission"] is False and template["resume"]["skip_verified"]

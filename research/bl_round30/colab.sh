@@ -7,8 +7,9 @@ set -euo pipefail
 export OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 export NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 CUBLAS_WORKSPACE_CONFIG=:4096:8
 export PYTHONUNBUFFERED=1
-: "${METADATA_ARCHIVE_SHA256:?requires hash-bound metadata archive}"
-python -m research.metadata_archive unpack --archive "$COLAB_INPUT_DIR/metadata.tar" \
-  --root "$COLAB_INPUT_DIR" --sha256 "$METADATA_ARCHIVE_SHA256"
+: "${R30_PRIVATE_BUNDLE_SHA256:?requires hash-bound private training bundle}"
+python -m research.bl_round30.private_bundle unpack \
+  --archive "$COLAB_INPUT_DIR/private-inputs.tar.gz" --root "$COLAB_INPUT_DIR" \
+  --sha256 "$R30_PRIVATE_BUNDLE_SHA256"
 python -m research.bl_round30.job --input-dir "$COLAB_INPUT_DIR" \
   --output "$COLAB_CLI_ROOT/output" --device "$R30_DEVICE" --mode "$R30_MODE"

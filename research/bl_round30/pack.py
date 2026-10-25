@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 import subprocess
 from pathlib import Path
 
 from research.bl_ppo.exports import digest, export_json, verify_export
-from research.bl_round30.protocol import B8_SHA, CAPS, JUDGMENT_SHA, NAMESPACE, require_series
-from research.metadata_archive import bundle_inputs
+from research.bl_round30.private_bundle import MAX_BUNDLE_BYTES, bundle
+from research.bl_round30.protocol import (
+    AMENDMENT_SHA,
+    B8_SHA,
+    JUDGMENT_SHA,
+    NAMESPACE,
+    require_series,
+)
 from tools.ops.qualification import OPS, check
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,38 +43,113 @@ SOURCE_PATHS = [
     "research/metadata_archive.py",
     "research/t34_exit_b8/PUBLIC_INPUTS.json",
 ]
-MAX_LOCAL_INPUT_BYTES = 1_000_000
+# Standard R30 bars.  No D1024 transfer exception belongs to this family.
+TRANSFER_BAR_SECONDS = 150.0
+STAGING_BAR_SECONDS = 300.0
+# Conservative metadata-only L4 transport model. The 47.9842 s transfer /
+# 57.4917 s staging values are a recent qualified sparse requalification. The
+# byte slope comes from the separate 45,397,643-byte D1024 canary upload: it
+# supplies only an observed transport rate; its 300 s exception is never
+# attached to R30. The exact-input native canary remains the required proof.
+FIXED_TRANSFER_SECONDS = 47.98416666581761
+FIXED_STAGING_SECONDS = 57.491733915987425
+LARGE_PRIVATE_BYTES = 45_397_643
+LARGE_PRIVATE_TRANSFER_SECONDS = 136.40460358303972
+LARGE_PRIVATE_BYTE_SECONDS = (
+    LARGE_PRIVATE_TRANSFER_SECONDS - FIXED_TRANSFER_SECONDS
+) / LARGE_PRIVATE_BYTES
+HISTORICAL_TRANSFER_UPPER_SECONDS = 136.40460358303972
+HISTORICAL_STAGING_UPPER_SECONDS = 183.58192350005265
+STAGE_WALL_CAP_MINUTES = {"r30-1": 144.0, "r30-2": 288.0}
+COMBINED_WALL_CAP_MINUTES = 432.0
+CANARY_WALL_MINUTES = 20.0
+TECHNICAL_RATE_RESERVE = 0.20
 
 
 def transport_inputs(destination: Path, archive: Path) -> list[dict]:
-    """Use registered HTTPS assets for large files and one verified metadata tar.
-
-    Preserve destinations and every original sidecar. Private/unknown large
-    inputs refuse preparation; this helper never publishes scientific inputs.
-    The unchanged supervisor verifies URL sizes/hashes on Mac and runtime.
-    """
+    """Keep B8 public and ship every other admitted byte in a private bundle."""
     catalog = json.loads((ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json").read_text())
     assets = {(row["sha256"], row["size_bytes"]): row for row in catalog["assets"]}
-    inventory = []
+    public: dict | None = None
     for path in sorted(destination.iterdir()):
         if path.is_symlink() or not path.is_file():
             raise ValueError("unsafe R30 input type")
         checksum, size = digest(path), path.stat().st_size
-        row = {"dest": path.name, "sha256": checksum}
-        if size > MAX_LOCAL_INPUT_BYTES:
+        if path.name == "b8.pth":
             asset = assets.get((checksum, size))
             if asset is None:
-                raise ValueError(f"input over 1 MB needs a registered public URL: {path.name}")
-            row.update(url=asset["url"], size_bytes=size)
-        else:
-            row["path"] = str(path.resolve())
-        inventory.append(row)
-    result = bundle_inputs(inventory, archive)
-    if any(
-        "path" in row and Path(row["path"]).stat().st_size > MAX_LOCAL_INPUT_BYTES for row in result
+                raise ValueError("B8 must use the registered public URL")
+            public = {"dest": "b8.pth", "url": asset["url"], "size_bytes": size, "sha256": checksum}
+    if public is None:
+        raise ValueError("private R30 packet requires the public B8 initializer")
+    packed = bundle(destination, archive, exclude={"b8.pth"})
+    projected = FIXED_TRANSFER_SECONDS + packed["size_bytes"] * LARGE_PRIVATE_BYTE_SECONDS
+    staging = FIXED_STAGING_SECONDS + projected
+    if (
+        packed["size_bytes"] > MAX_BUNDLE_BYTES
+        or projected >= TRANSFER_BAR_SECONDS
+        or staging >= STAGING_BAR_SECONDS
     ):
-        raise ValueError("R30 metadata archive exceeds 1 MB local upload bound")
-    return result
+        raise ValueError("private R30 bundle cannot meet the standard 150-second transfer bar")
+    return [
+        public,
+        {
+            "dest": "private-inputs.tar.gz",
+            "path": packed["path"],
+            "sha256": packed["sha256"],
+            "size_bytes": packed["size_bytes"],
+            "r30_private_bundle": {
+                "schema": packed["schema"],
+                "unpacked_bytes": packed["unpacked_bytes"],
+                "files": packed["files"],
+                "forecast": {
+                    "fixed_transfer_seconds": FIXED_TRANSFER_SECONDS,
+                    "fixed_staging_seconds": FIXED_STAGING_SECONDS,
+                    "large_private_bytes": LARGE_PRIVATE_BYTES,
+                    "large_private_transfer_seconds": LARGE_PRIVATE_TRANSFER_SECONDS,
+                    "historical_transfer_upper_seconds": HISTORICAL_TRANSFER_UPPER_SECONDS,
+                    "historical_staging_upper_seconds": HISTORICAL_STAGING_UPPER_SECONDS,
+                    "projected_transfer_seconds": projected,
+                    "projected_staging_seconds": staging,
+                    "transfer_bar_seconds": TRANSFER_BAR_SECONDS,
+                    "staging_bar_seconds": STAGING_BAR_SECONDS,
+                },
+            },
+        },
+    ]
+
+
+def _positive_number(value: object, name: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        raise ValueError(f"finite nonnegative {name} required")
+    return float(value)
+
+
+def _main_operational_guard(
+    accounting: dict, stage: str, remaining_before_canary: object
+) -> tuple[float, float, float]:
+    """Derive the only unit guard from remaining wall time and an observed rate."""
+    rate = _positive_number(accounting.get("verified_rate_units_per_hour"), "verified L4 rate")
+    if rate <= 0:
+        raise ValueError("verified positive L4 rate required for operational guard")
+    remaining = _positive_number(remaining_before_canary, "remaining series minutes")
+    measured_estimate = _positive_number(
+        accounting.get("measured_est_minutes"), "measured runtime estimate"
+    )
+    remaining -= CANARY_WALL_MINUTES
+    if remaining <= 0:
+        raise ValueError("INCOMPLETE: no wall allowance remains after exact-input canary liability")
+    if remaining < 2 * measured_estimate:
+        raise ValueError(
+            "INCOMPLETE: remaining wall allowance is below twice the measured estimate"
+        )
+    work_units = remaining / 60 * rate
+    return remaining, rate, work_units
 
 
 def make_pack(
@@ -139,16 +221,12 @@ def make_pack(
         if series is None:
             raise ValueError("main needs cumulative accounting")
         accounting = json.loads(series.read_text())
-        if (
-            accounting.get("canary_allowance_hours") != 1 / 3
-            or accounting.get("canary_allowance_units") != 2 / 3
-        ):
-            raise ValueError("freeze the exact-input canary liability before preparation")
-        remaining = require_series(accounting, stage)
-        cap_hours = remaining["remaining_hours"] - accounting["canary_allowance_hours"]
-        cap_units = remaining["remaining_units"] - accounting["canary_allowance_units"]
-        if cap_hours <= 0 or cap_units <= 0:
-            raise ValueError("INCOMPLETE: no budget after canary liability")
+        accounting_remaining = require_series(accounting, stage)["remaining_minutes"]
+        cap_minutes, rate, cap_units = _main_operational_guard(
+            accounting, stage, accounting_remaining
+        )
+        cap_hours = cap_minutes / 60
+        estimate_minutes = int(math.ceil(accounting["measured_est_minutes"]))
     else:
         control = {
             "schema": "r30-control/v1",
@@ -157,10 +235,12 @@ def make_pack(
             "namespace": NAMESPACE + "-synthetic",
             "commit": commit,
             "ruling_sha256": JUDGMENT_SHA,
+            "amendment_sha256": AMENDMENT_SHA,
             "b8_sha256": B8_SHA,
         }
         # Canary ceiling is a subset of the stage envelope, doubled once.
         cap_hours, cap_units = 20 / 60, 2 / 3
+        estimate_minutes = 5
     output.mkdir(parents=True)
     destination = output / "inputs"
     if synthetic:
@@ -207,8 +287,8 @@ def make_pack(
                 if source.is_file():
                     shutil.copyfile(source, destination / source.name)
         shutil.copyfile(series, destination / "series.json")
-    inventory = transport_inputs(destination, output / "metadata.tar")
-    metadata = next(row for row in inventory if row["dest"] == "metadata.tar")
+    inventory = transport_inputs(destination, output / "private-inputs.tar.gz")
+    private_bundle = next(row for row in inventory if row["dest"] == "private-inputs.tar.gz")
     manifest = {
         "job_id": f"r30-{stage}-{'canary' if synthetic else 'main'}-{commit[:8]}",
         "commit": commit,
@@ -219,7 +299,7 @@ def make_pack(
             "gpu": "L4",
             "allowed_gpus": ["L4"],
             "min_vcpu": 1,
-            "est_minutes": 5 if synthetic else (60 if stage == "r30-1" else 120),
+            "est_minutes": estimate_minutes,
         },
         "timeout_minutes": cap_hours * 60,
         "output_dir": str((output / "runtime-output").resolve()),
@@ -228,23 +308,25 @@ def make_pack(
             "R30_DEVICE": "cuda",
             "R30_MODE": "canary" if synthetic else stage,
             "COLAB_CLI_REQUIREMENTS": "research/bl_round30/requirements.txt",
-            "METADATA_ARCHIVE_SHA256": metadata["sha256"],
+            "R30_PRIVATE_BUNDLE_SHA256": private_bundle["sha256"],
         },
         "required_exports": ["receipt.json", "allocation.json", "unit-0000.pth"],
         "budget": {
             "unit_cap": cap_units,
-            "rate_units_per_hour": 1.54,
-            "reserve_units": cap_units / 6,
+            "rate_units_per_hour": 1.54 if synthetic else rate,
+            "reserve_units": cap_units * TECHNICAL_RATE_RESERVE,
             "other_assignments": {},
         },
         "resume": dict(RESUME_POLICY),
         "max_export_bytes": 128 * 1024**2,
         "r30": {
             "ruling_sha256": JUDGMENT_SHA,
+            "amendment_sha256": AMENDMENT_SHA,
             "stage": stage,
-            "caps": CAPS[stage],
-            "combined_effective_hours": 7.2,
-            "combined_effective_units": 14.4,
+            "operational_wall_cap_minutes": cap_hours * 60,
+            "combined_wall_cap_minutes": COMBINED_WALL_CAP_MINUTES,
+            "technical_rate_reserve": TECHNICAL_RATE_RESERVE,
+            "transport": private_bundle["r30_private_bundle"],
             "canary_base_minutes": 10,
             "canary_effective_minutes": 20,
             "synthetic": synthetic,
@@ -318,11 +400,11 @@ def make_pack(
         }
         template.pop("resume_exemption")
         template["resume"] = dict(RESUME_POLICY)
-        template["timeout_minutes"] = CAPS[stage]["hours"] * 60
+        template["timeout_minutes"] = STAGE_WALL_CAP_MINUTES[stage] - CANARY_WALL_MINUTES
         template["budget"] = {
             **manifest["budget"],
-            "unit_cap": CAPS[stage]["units"],
-            "reserve_units": CAPS[stage]["units"] / 6,
+            "unit_cap": template["timeout_minutes"] / 60 * 1.54,
+            "reserve_units": template["timeout_minutes"] / 60 * 1.54 * TECHNICAL_RATE_RESERVE,
         }
         export_json(output / "main-template.json", template)
     return manifest
@@ -333,7 +415,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--b8", type=Path, required=True)
-    parser.add_argument("--stage", choices=tuple(CAPS), default="r30-1")
+    parser.add_argument("--stage", choices=tuple(STAGE_WALL_CAP_MINUTES), default="r30-1")
     parser.add_argument("--inputs", type=Path)
     parser.add_argument("--series", type=Path)
     parser.add_argument("--canary-receipt", type=Path)
