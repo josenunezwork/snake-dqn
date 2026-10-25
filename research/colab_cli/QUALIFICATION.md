@@ -5,6 +5,17 @@ fixes included); T34 manifests may dispatch on these exact bytes. Any further co
 new final-only acceptance. Offline tests do not renew live qualification.
 No live Colab, pod or tmux action was taken by this implementation task.
 
+## Pending F4 D1024 transport-repair acceptance
+
+The current record above does **not** qualify the D1024 transport-repair tree.
+That tree changes executable control/staging code and therefore requires a new
+operator-run final-only acceptance before any F4 D1024 canary or main package
+can proceed. The source-bound operator plan, synthetic full-inventory contract,
+unchanged 150-second verified-transfer bar, unchanged 300-second staging cap,
+and fail-closed consumer verifier are in
+[F4_D1024_TRANSPORT_REQUALIFICATION.md](F4_D1024_TRANSPORT_REQUALIFICATION.md).
+It is a prospective plan, not PASS evidence.
+
 The 2026-10-19 carry-over correction also bounds broker-departed endpoints
 that linger in `sessions` even when provider rate/count agree: their known
 price remains charged, with `WARNING_BROKER_TRANSITION_LAG` for at most two

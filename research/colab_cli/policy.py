@@ -11,6 +11,10 @@ import subprocess
 
 READ_SECONDS = 120.0
 RPC_SECONDS = 120.0
+# Foreground staging controls must leave headroom for immutable payload PUTs.
+# These are attempt/recovery limits, not replacements for the 150/300s bars.
+STAGING_CONTROL_SECONDS = 30.0
+STAGING_RECOVERY_SECONDS = 60.0
 # One full exec timeout must leave room for independent idle proof and a read
 # retry. Contents heartbeats continue under the unchanged runtime lease.
 TELEMETRY_SECONDS = 300.0

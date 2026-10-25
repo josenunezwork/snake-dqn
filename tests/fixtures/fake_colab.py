@@ -499,7 +499,12 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
             )
             module = importlib.util.module_from_spec(module_spec)
             module_spec.loader.exec_module(module)
-            payload = base64.b64decode(os.environ["FAKE_COLAB_PUBLIC_INPUT_BYTES"])
+            payload_path = os.environ.get("FAKE_COLAB_PUBLIC_INPUT_PATH")
+            payload = (
+                Path(payload_path).read_bytes()
+                if payload_path
+                else base64.b64decode(os.environ["FAKE_COLAB_PUBLIC_INPUT_BYTES"])
+            )
             fault = os.environ.get("FAKE_COLAB_PUBLIC_INPUT_FAULT", "")
 
             def public_reply(*_args: Any, **_kwargs: Any) -> io.BytesIO:

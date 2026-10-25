@@ -121,7 +121,7 @@ def test_run8_l4_pre_download_exec_stall_recovers_and_finishes_final_only_path(
     assert all(fault["fault"] == "timeout" for fault in faults[4:])
     assert 1 <= len(faults[4:]) <= exec_timeouts
     assert [fault["virtual_latency_seconds"] for fault in faults[:5]] == pytest.approx(
-        [42, 0, 19.75, 39.4, 120]
+        [42, 0, 19.75, 39.4, 30]
     )
     assert state["allocation_count"] == 2
     assert receipt["stop_verified"] is True
@@ -131,13 +131,33 @@ def test_run8_l4_pre_download_exec_stall_recovers_and_finishes_final_only_path(
         assert rc == 1
         assert receipt["status"] == "INCOMPLETE"
         assert "deadline reached during telemetry recovery" in receipt["error"]
-        # Earlier uploads/renewals consume the same transfer clock, so the cap
-        # may prevent even dispatching the third scheduled timeout. Every
+        # Staging controls now share a 60s recovery allowance, so the cap
+        # prevents dispatching the third scheduled timeout. Every
         # dispatched retry must still have an independent idle prerequisite.
         assert len(faults[4:]) >= 2
         assert all(event == "exec" for event in order[::2])
         assert all(event == "idle" for event in order[1::2])
-        assert receipt["transfers"][-1]["elapsed_seconds"] == pytest.approx(300)
+        failed_verifications = [
+            operation
+            for operation in receipt["control_operations"]
+            if operation["operation"] == "verify" and operation["status"] == "failed"
+        ]
+        assert len(failed_verifications) == 1
+        verify_calls = [
+            call
+            for call in receipt["cli_calls"]
+            if call["operation"] == "verify" and call["command"] == "exec"
+        ]
+        assert len(verify_calls) == 2
+        assert all(0 < call["timeout_seconds"] <= 30 for call in verify_calls)
+        assert sum(call["timeout_seconds"] for call in verify_calls) <= 60
+        # The virtual scheduler serializes concurrent heartbeat work, adding
+        # its 0.25s PUT to measured elapsed. Assert the requested deadlines
+        # above rather than erase that truthful receipt time.
+        assert failed_verifications[0]["elapsed_seconds"] >= 60
+        # The whole-file timer truthfully retains preceding PUT/renewal time;
+        # it must never be reset to the shorter control-recovery allowance.
+        assert receipt["transfers"][-1]["elapsed_seconds"] > 60
         assert not state.get("watchdog_released")
         assert not (run_dir / "outputs/l4/exports/final-artifact.bin").exists()
         return

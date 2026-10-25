@@ -8,6 +8,7 @@ to the runtime.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import hashlib
 import inspect
@@ -96,7 +97,16 @@ def _observed_transfer(direction: str) -> Callable:
                 "status": "failed",
             }
             try:
-                result = function(cli, *args, **kwargs)
+                deadline = arguments.get("deadline")
+                context = (
+                    cli.staging_controls(deadline)
+                    if direction == "upload"
+                    and deadline is not None
+                    and hasattr(cli, "staging_controls")
+                    else contextlib.nullcontext()
+                )
+                with context:
+                    result = function(cli, *args, **kwargs)
                 record.update(status="verified", sha256=result)
                 return result
             except Exception as exc:
@@ -104,6 +114,8 @@ def _observed_transfer(direction: str) -> Callable:
             finally:
                 elapsed = max(time.monotonic() - started, 1e-9)
                 record.update(
+                    started_monotonic=started,
+                    ended_monotonic=time.monotonic(),
                     elapsed_seconds=elapsed,
                     bytes_per_second=size / elapsed if record["status"] == "verified" else None,
                 )
@@ -156,7 +168,10 @@ def _contents_call(
         if renew:
             renew()
         try:
-            cli.call(*args, timeout=_bounded_timeout(timeout, deadline, f"{args[0]} {args[-1]}"))
+            with _operation(cli, "PUT" if args[0] == "upload" else "GET"):
+                cli.call(
+                    *args, timeout=_bounded_timeout(timeout, deadline, f"{args[0]} {args[-1]}")
+                )
         except Exception as exc:
             failure = exc
             if not _is_retryable_contents_error(exc):
@@ -175,6 +190,11 @@ def _contents_call(
             return
     assert failure is not None
     raise TransferError("ContentsClient transient retry budget exhausted") from failure
+
+
+def _operation(cli: _CLI, tag: str) -> Any:
+    """Use broker interval tags without requiring them from standalone adapters."""
+    return cli.operation(tag) if hasattr(cli, "operation") else contextlib.nullcontext()
 
 
 def _rpc(cli: _CLI, operation: str, spec: dict[str, Any], timeout: float) -> Any:
@@ -265,11 +285,18 @@ result = {'sha256': hash_.hexdigest(), 'size': path.stat().st_size}
         raise AssertionError(operation)
     # These operations repeat the same fact/control state at a UUID path.
     # File assembly/splitting remains single-dispatch and fenced on ambiguity.
-    if operation in {"VERIFY_FILE", "CREATE_DIR", "REMOVE_TREE"} and hasattr(cli, "poll_rpc"):
-        return cli.poll_rpc(code, timeout=timeout)
-    if operation in {"UPLOAD_ASSEMBLE", "DOWNLOAD_SPLIT"} and hasattr(cli, "recoverable_rpc"):
-        return cli.recoverable_rpc(code, timeout=timeout)
-    return cli.rpc(code, timeout=timeout)
+    tag = {
+        "VERIFY_FILE": "verify",
+        "CREATE_DIR": "mkdir",
+        "UPLOAD_ASSEMBLE": "assemble",
+        "REMOVE_TREE": "cleanup",
+    }.get(operation, operation)
+    with _operation(cli, tag):
+        if operation in {"VERIFY_FILE", "CREATE_DIR", "REMOVE_TREE"} and hasattr(cli, "poll_rpc"):
+            return cli.poll_rpc(code, timeout=timeout)
+        if operation in {"UPLOAD_ASSEMBLE", "DOWNLOAD_SPLIT"} and hasattr(cli, "recoverable_rpc"):
+            return cli.recoverable_rpc(code, timeout=timeout)
+        return cli.rpc(code, timeout=timeout)
 
 
 def _verify_remote_file(
@@ -332,8 +359,8 @@ def upload_file(
         raise TransferError(f"upload source is not a file: {local}")
     size, digest = local.stat().st_size, _digest(local)
     transfer_deadline = time.monotonic() + transfer_timeout(size)
-    # The staging ceiling applies only to input PUTs. Renewals and kernel RPCs
-    # must retain their own/session bounds even when staging has expired.
+    # Every stage, including verification/recovery/cleanup, shares this deadline.
+    # A later file can never start a new staging allowance.
     deadline = min(deadline, transfer_deadline) if deadline is not None else transfer_deadline
     if size <= UPLOAD_CHUNK_BYTES:
         _contents_call(
@@ -345,7 +372,7 @@ def upload_file(
         )
         if _digest(local) != digest or local.stat().st_size != size:
             raise TransferError("upload source changed during transfer")
-        _verify_remote_file(cli, remote, size, digest, deadline=transfer_deadline)
+        _verify_remote_file(cli, remote, size, digest, deadline=deadline)
         return digest
     ident = uuid.uuid4().hex
     parts, temporary = _staging(remote, ident)
@@ -358,7 +385,7 @@ def upload_file(
             cli,
             "CREATE_DIR",
             {"path": parts},
-            _bounded_timeout(policy.TELEMETRY_SECONDS, transfer_deadline, "CREATE_DIR"),
+            _bounded_timeout(policy.TELEMETRY_SECONDS, deadline, "CREATE_DIR"),
         )
         renew()
         with tempfile.TemporaryDirectory(prefix="snake-colab-upload-") as directory:
@@ -390,7 +417,7 @@ def upload_file(
                 "sha256": digest,
                 "size": size,
             },
-            _bounded_timeout(policy.TELEMETRY_SECONDS, transfer_deadline, "UPLOAD_ASSEMBLE"),
+            _bounded_timeout(policy.TELEMETRY_SECONDS, deadline, "UPLOAD_ASSEMBLE"),
         )
         renew()
         if (
@@ -399,11 +426,12 @@ def upload_file(
             or reply.get("size") != size
         ):
             raise TransferError("kernel did not acknowledge immutable upload assembly")
-        _verify_remote_file(cli, remote, size, digest, deadline=transfer_deadline)
+        # Assembly acknowledged a digest-checked fsync + atomic publish. Do not
+        # repeat that same whole-file hash in another kernel/control round trip.
         return digest
     finally:
-        _cleanup(cli, parts, renew, deadline=transfer_deadline)
-        _cleanup(cli, temporary, renew, deadline=transfer_deadline)
+        _cleanup(cli, parts, renew, deadline=deadline)
+        _cleanup(cli, temporary, renew, deadline=deadline)
 
 
 def upload_contents(cli: _CLI, local: Path, remote: str, *, deadline: float | None = None) -> None:

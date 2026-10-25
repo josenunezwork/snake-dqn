@@ -60,6 +60,12 @@ class _TransportClock:
             at, cli, value = min(due, key=lambda item: item[0])
             self.now = max(self.now, at)
             value["at"] = float("inf")
+            # Production dispatches this on an independent thread. The virtual
+            # scheduler runs synchronously; emulate that thread's local control
+            # context so a foreground staging cap cannot leak into a heartbeat.
+            context = cli._control_context
+            previous = context.__dict__.copy()
+            context.__dict__.clear()
             try:
                 cli._put_lease(
                     value["root"],
@@ -68,6 +74,9 @@ class _TransportClock:
                 )
             except Exception:
                 pass  # Same fail-closed lease behavior as the production thread.
+            finally:
+                context.__dict__.clear()
+                context.__dict__.update(previous)
             if cli in self.beats:
                 value["at"] = self.now + 30
             end = max(end, self.now)
