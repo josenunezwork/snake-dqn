@@ -170,3 +170,33 @@ def test_fixed_selector_preserves_all_rows_and_global_identity() -> None:
     duplicate = [(lives[0], dict(row)), (lives[0], dict(row))]
     with pytest.raises(ValueError, match="duplicate row"):
         materialize._table(duplicate)
+
+
+def test_selector_source_pin_refuses_before_any_payload_read(tmp_path, monkeypatch) -> None:
+    """Metadata acceptance cannot authorize a subsequently edited selector."""
+    inventory = tmp_path / "inventory.json"
+    inventory.write_text("{}")
+    approval = tmp_path / "approval.json"
+    approval.write_text(
+        json.dumps(
+            {
+                "approval_scope": "closed-f4-exact-960-metadata",
+                "reviewer_role": "Codex-V",
+                "selector_sha256": "a" * 64,
+            }
+        )
+    )
+    monkeypatch.setattr(materialize, "freeze_inventory", lambda _: object())
+    monkeypatch.setattr(materialize, "require_codex_v_approval", lambda *_: None)
+    monkeypatch.setattr(materialize, "admission_status", lambda _: "HOLD_R30_2")
+    original = Path.read_bytes
+
+    def guarded_read(path):
+        if path != Path(materialize.__file__):
+            raise AssertionError("payload opener reached before selector pin refusal")
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", guarded_read)
+    with pytest.raises(admission.AdmissionRefused, match="selector source differs"):
+        materialize.materialize(inventory, approval, tmp_path / "output")
+    assert not (tmp_path / "output").exists()
