@@ -51,6 +51,17 @@ F5_TIMING_RECOVERY_SCHEMA = "bl-f5-timing-recovery/v1"
 F5_TIMING_RECOVERY_RULING_SHA256 = (
     "4f10f264fda3c7190e07f486803fa02cc10645741fb95ef215b1d1b0cc123439"
 )
+F5_TIMING_RECOVERY_ENV = {
+    "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+    "F5_DEVICE": "cuda:0",
+    "F5_MODE": "qualification",
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OMP_THREAD_LIMIT": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+}
 F5_PLAN_COMMIT = "c989f6738f6aad143eb97bc47f6bd9e6687057ce"
 # Named successor of held, unexecuted plan attempt02 after transport requalification.
 # This published source preserves c989f673's F5 bytes and contains CLI tree 6e8c1982.
@@ -1385,6 +1396,18 @@ def _require_recovery_authority(manifest: dict[str, Any], admission: dict[str, A
     ):
         raise Refused("F5 timing recovery source tree differs")
     try:
+        source_tree = subprocess.check_output(
+            ["git", "-C", str(HERE.parents[1]), "rev-parse", f"{manifest['commit']}^{{tree}}"],
+            text=True,
+            timeout=5,
+        ).strip()
+    except (KeyError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise Refused("F5 timing recovery source commit is unavailable") from exc
+    if authority["source_tree"] != source_tree:
+        raise Refused("F5 timing recovery source tree is not the committed source closure")
+    if manifest.get("f5_timing_source_tree") != source_tree:
+        raise Refused("F5 timing recovery manifest source tree differs")
+    try:
         from research.colab_cli.transfer_policy import transfer_limit
 
         limit = transfer_limit(manifest)
@@ -1394,7 +1417,9 @@ def _require_recovery_authority(manifest: dict[str, Any], admission: dict[str, A
         raise Refused("F5 timing recovery requires the scoped 300-second transfer allowance")
 
 
-def _require_f5_recovery_common(manifest: dict[str, Any], admission: dict[str, Any]) -> None:
+def _require_f5_recovery_common(
+    manifest: dict[str, Any], admission: dict[str, Any], *, canary: bool
+) -> None:
     """Validate source, L4 placement, inventory and non-scientific recovery scope."""
     if manifest.get("draft_only") is not None or manifest.get("substeps") is not None:
         raise Refused("F5 timing recovery has unauthorized draft or substeps")
@@ -1402,13 +1427,17 @@ def _require_f5_recovery_common(manifest: dict[str, Any], admission: dict[str, A
         raise Refused("F5 timing recovery requires the F5 Colab entrypoint")
     if manifest.get("device") != "cuda:0":
         raise Refused("F5 timing recovery requires device cuda:0")
-    env = manifest.get("env")
-    if (
-        not isinstance(env, dict)
-        or env.get("F5_MODE") != "qualification"
-        or env.get("F5_DEVICE") != "cuda:0"
-    ):
-        raise Refused("F5 timing recovery requires the exact qualification mode")
+    expected_env = dict(F5_TIMING_RECOVERY_ENV)
+    if canary:
+        expected_env.update(
+            {
+                "F5_MODE": "qualification-canary",
+                "SNAKE_COLAB_CANARY": "1",
+                "SNAKE_COLAB_CANARY_PACKAGE": "research/bl_residual",
+            }
+        )
+    if manifest.get("env") != expected_env:
+        raise Refused("F5 timing recovery requires its exact runtime environment")
     if (
         manifest.get("requirements", {}).get("gpu") != "L4"
         or manifest.get("requirements", {}).get("allowed_gpus") != ["L4"]
@@ -1430,15 +1459,52 @@ def _require_f5_recovery_common(manifest: dict[str, Any], admission: dict[str, A
     if recovery.get("ruling_sha256") != F5_TIMING_RECOVERY_RULING_SHA256:
         raise Refused("F5 timing recovery ruling differs")
     _require_recovery_authority(manifest, admission)
+    inputs = manifest.get("inputs")
+    if not isinstance(inputs, list):
+        raise Refused("F5 timing recovery inputs are malformed")
+    ledgers = [
+        item
+        for item in inputs
+        if isinstance(item, dict) and item.get("dest") == "verified-ledger.json"
+    ]
+    if len(ledgers) != 1:
+        raise Refused("F5 timing recovery requires one hash-bound verified ledger input")
+    ledger = ledgers[0]
+    ledger_path = Path(str(ledger.get("path", "")))
+    if (
+        not ledger_path.is_absolute()
+        or ledger_path.is_symlink()
+        or not ledger_path.is_file()
+        or not isinstance(ledger.get("sha256"), str)
+        or type(ledger.get("size_bytes")) is not int
+        or ledger_path.stat().st_size != ledger["size_bytes"]
+        or hashlib.sha256(ledger_path.read_bytes()).hexdigest() != ledger["sha256"]
+    ):
+        raise Refused("F5 timing recovery verified ledger input differs")
+    try:
+        from research.bl_ppo.exports import verify_export
+
+        if verify_export(ledger_path) != ledger["sha256"]:
+            raise Refused("F5 timing recovery verified ledger digest differs")
+    except ValueError as exc:
+        raise Refused("F5 timing recovery verified ledger lacks immutable sidecars") from exc
     f5 = manifest.get("f5")
     if not isinstance(f5, dict) or (
         f5.get("automatic_retries"),
-        f5.get("private_upload_cap_bytes"),
         f5.get("private_upload_bytes_max"),
-        f5.get("transfer_bar_seconds"),
-        f5.get("staging_bar_seconds"),
-    ) != (False, 45397643, 45397643, 300, 300):
+        f5.get("transfer_seconds"),
+        f5.get("staging_seconds"),
+    ) != (False, 45397643, 300, 300):
         raise Refused("F5 timing recovery requires bounded 300-second transport controls")
+    timing = manifest.get("timing_calibration")
+    retry_fields = (
+        "no_automatic_retry",
+        "no_allocation_retry",
+        "no_job_retry",
+        "no_completion_retry",
+    )
+    if not isinstance(timing, dict) or any(timing.get(field) is not True for field in retry_fields):
+        raise Refused("F5 timing recovery requires all timing retry fences")
 
 
 def require_f5_timing_recovery_admission(
@@ -1451,8 +1517,15 @@ def require_f5_timing_recovery_admission(
     exception untouched while making the timing-specific transport authority
     machine-checkable at the ops boundary.
     """
-    _require_f5_recovery_common(manifest, admission)
     status = admission.get("status")
+    if status not in {
+        "ACCEPTED_F5_TIMING_RECOVERY_ONLY",
+        "ACCEPTED_F5_TIMING_RECOVERY_CANARY_ONLY",
+    }:
+        raise Refused("F5 timing recovery admission status differs")
+    _require_f5_recovery_common(
+        manifest, admission, canary=status == "ACCEPTED_F5_TIMING_RECOVERY_CANARY_ONLY"
+    )
     recovery = admission["timing_recovery"]
     f5 = manifest["f5"]
     requirements = manifest["requirements"]
@@ -1462,28 +1535,39 @@ def require_f5_timing_recovery_admission(
         if requirements.get("est_minutes") != 120 or manifest.get("timeout_minutes") != 240:
             raise Refused("F5 timing recovery requires the 120/240-minute envelope")
         if (
-            f5.get("base_timeout_minutes"),
-            f5.get("effective_timeout_minutes"),
+            f5.get("base_minutes"),
+            f5.get("effective_minutes"),
             f5.get("sizing_basis"),
         ) != (120, 240, "UNMEASURED_ENGINEERING_PLANNING_ALLOWANCE"):
             raise Refused("F5 timing recovery requires labelled unmeasured 120/240 sizing")
         if "resume_exemption" in manifest or manifest.get("canary") is not None:
             raise Refused("F5 timing recovery long operation forbids exemption or canary controls")
-        if manifest.get("resume") != {
+        resume = manifest.get("resume")
+        if resume != {
             "unit_kind": "f5-timing-unit",
             "ledger_path": "inputs/verified-ledger.json",
             "skip_verified": True,
             "max_outcome_blind_retries": 2,
         }:
             raise Refused("F5 timing recovery requires its exact resumable unit declaration")
+        if (
+            type(resume["skip_verified"]) is not bool
+            or type(resume["max_outcome_blind_retries"]) is not int
+        ):
+            raise Refused("F5 timing recovery resume types differ")
+        expected_exports = [
+            "qualification/qualification.json",
+            *[f"timing-units/fixture-{index}.json" for index in range(672, 684)],
+            "timing-units/calibration.json",
+        ]
+        if manifest.get("required_exports") != expected_exports:
+            raise Refused("F5 timing recovery requires all thirteen unit exports")
         return
-    if status != "ACCEPTED_F5_TIMING_RECOVERY_CANARY_ONLY":
-        raise Refused("F5 timing recovery admission status differs")
     if recovery.get("scope") != "F5_W_TIMING04_FAMILY_CANARY_ONLY":
         raise Refused("F5 timing recovery scope differs")
     if requirements.get("est_minutes") != 15 or manifest.get("timeout_minutes") != 30:
         raise Refused("F5 timing recovery canary requires the 15/30-minute envelope")
-    if (f5.get("base_timeout_minutes"), f5.get("effective_timeout_minutes")) != (15, 30):
+    if (f5.get("base_minutes"), f5.get("effective_minutes")) != (15, 30):
         raise Refused("F5 timing recovery canary sizing differs")
     canary = manifest.get("canary")
     if canary != {
@@ -1494,11 +1578,25 @@ def require_f5_timing_recovery_admission(
         "tiny_workload": True,
     }:
         raise Refused("F5 timing recovery requires the exact CANARY_ONLY tiny-workload controls")
+    if manifest.get("resume") != {
+        "unit_kind": "f5-timing-unit",
+        "ledger_path": "inputs/verified-ledger.json",
+        "skip_verified": True,
+        "max_outcome_blind_retries": 2,
+    }:
+        raise Refused("F5 timing recovery canary requires the real resume declaration")
+    resume = manifest["resume"]
     if (
-        manifest.get("env", {}).get("SNAKE_COLAB_CANARY") != "1"
-        or manifest.get("env", {}).get("SNAKE_COLAB_CANARY_PACKAGE") != "research/bl_residual"
+        type(resume["skip_verified"]) is not bool
+        or type(resume["max_outcome_blind_retries"]) is not int
     ):
-        raise Refused("F5 timing recovery canary requires the family instrumentation")
+        raise Refused("F5 timing recovery resume types differ")
+    if manifest.get("required_exports") != [
+        "qualification/qualification.json",
+        "timing-canary/fixture-672.json",
+        "timing-canary/fixture-673.json",
+    ]:
+        raise Refused("F5 timing recovery canary requires its CANARY_ONLY unit exports")
 
 
 def require_f5_plan_live_assignment_match(original: dict[str, Any], live: dict[str, Any]) -> None:

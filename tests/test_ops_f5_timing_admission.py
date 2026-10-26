@@ -6,6 +6,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -223,37 +224,80 @@ def test_requalified_timing_keeps_existing_fences(tmp_path, monkeypatch, change)
 def recovery_manifest(tmp_path: Path, *, canary: bool = False) -> dict:
     """Build the separately-bound timing04 recovery shape without provider I/O."""
     import research.colab_cli.transfer_policy as transfer_policy
+    from research.bl_ppo.exports import export_json
 
     value = timing_manifest()
-    value["commit"] = "a" * 40
-    value["env"] = dict(dispatch.F5_TIMING_ENV)
-    if not canary:
-        value["env"].pop("SNAKE_COLAB_CANARY")
-        value["env"].pop("SNAKE_COLAB_CANARY_PACKAGE")
+    value["commit"] = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    value["env"] = dict(dispatch.F5_TIMING_RECOVERY_ENV)
+    if canary:
+        value["env"].update(
+            {
+                "F5_MODE": "qualification-canary",
+                "SNAKE_COLAB_CANARY": "1",
+                "SNAKE_COLAB_CANARY_PACKAGE": "research/bl_residual",
+            }
+        )
     value["requirements"]["est_minutes"] = 15 if canary else 120
     value["timeout_minutes"] = 30 if canary else 240
     value["f5"].update(
         {
-            "base_timeout_minutes": 15 if canary else 120,
-            "effective_timeout_minutes": 30 if canary else 240,
-            "transfer_bar_seconds": 300,
-            "staging_bar_seconds": 300,
+            "base_minutes": 15 if canary else 120,
+            "effective_minutes": 30 if canary else 240,
+            "transfer_seconds": 300,
+            "staging_seconds": 300,
         }
     )
     value["f5"]["sizing_basis"] = "UNMEASURED_ENGINEERING_PLANNING_ALLOWANCE"
+    value["timing_calibration"] = {
+        "no_automatic_retry": True,
+        "no_allocation_retry": True,
+        "no_job_retry": True,
+        "no_completion_retry": True,
+    }
+    input_root = tmp_path / "inputs"
+    control = export_json(input_root / "control.json", {"control": "test"})
+    ledger = export_json(input_root / "verified-ledger.json", {"units": []})
+    value["inputs"] = [
+        {
+            "dest": "b8.pth",
+            "url": dispatch.F5_B8_URL,
+            "sha256": dispatch.F5_B8_SHA256,
+            "size_bytes": 6562005,
+        },
+        {
+            "dest": "control.json",
+            "path": str(input_root / "control.json"),
+            "sha256": control["sha256"],
+            "size_bytes": control["size"],
+        },
+        {
+            "dest": "verified-ledger.json",
+            "path": str(input_root / "verified-ledger.json"),
+            "sha256": ledger["sha256"],
+            "size_bytes": ledger["size"],
+        },
+    ]
+    source_tree = subprocess.check_output(
+        ["git", "rev-parse", f"{value['commit']}^{{tree}}"], cwd=ROOT, text=True
+    ).strip()
+    value["f5_timing_source_tree"] = source_tree
     authority = {
         "schema": "f5-timing-recovery-synthetic-input-inventory/v1",
         "ruling_sha256": dispatch.F5_TIMING_RECOVERY_RULING_SHA256,
         "source_commit": value["commit"],
-        "source_tree": "b" * 40,
+        "source_tree": source_tree,
         "inputs": [
             {
-                "dest": "b8.pth",
-                "size_bytes": 6562005,
-                "transport": "https",
-                "url": dispatch.F5_B8_URL,
-                "sha256": dispatch.F5_B8_SHA256,
+                **{key: row[key] for key in ("dest", "size_bytes", "sha256")},
+                **(
+                    {"transport": "https", "url": row["url"], "sha256": row["sha256"]}
+                    if "url" in row
+                    else {"transport": "upload"}
+                ),
             }
+            for row in value["inputs"]
         ],
     }
     authority["sha256"] = hashlib.sha256(
@@ -286,6 +330,13 @@ def recovery_manifest(tmp_path: Path, *, canary: bool = False) -> dict:
         },
         "timing_recovery_authority": _reference(authority_path),
     }
+    value.pop("resume_exemption")
+    value["resume"] = {
+        "unit_kind": "f5-timing-unit",
+        "ledger_path": "inputs/verified-ledger.json",
+        "skip_verified": True,
+        "max_outcome_blind_retries": 2,
+    }
     if canary:
         value["canary"] = {
             "schema": "colab-family-canary/v1",
@@ -294,15 +345,18 @@ def recovery_manifest(tmp_path: Path, *, canary: bool = False) -> dict:
             "record_class": "CANARY_ONLY",
             "tiny_workload": True,
         }
+        value["required_exports"] = [
+            "qualification/qualification.json",
+            "timing-canary/fixture-672.json",
+            "timing-canary/fixture-673.json",
+        ]
     else:
         value.pop("canary")
-        value.pop("resume_exemption")
-        value["resume"] = {
-            "unit_kind": "f5-timing-unit",
-            "ledger_path": "inputs/verified-ledger.json",
-            "skip_verified": True,
-            "max_outcome_blind_retries": 2,
-        }
+        value["required_exports"] = [
+            "qualification/qualification.json",
+            *[f"timing-units/fixture-{index}.json" for index in range(672, 684)],
+            "timing-units/calibration.json",
+        ]
     return value
 
 
@@ -313,13 +367,21 @@ def test_timing_recovery_requires_the_exact_long_resumable_contract(tmp_path) ->
 @pytest.mark.parametrize(
     "mutate,match",
     [
-        (lambda value: value["f5"].update({"transfer_bar_seconds": 150}), "300-second"),
+        (lambda value: value["f5"].update({"transfer_seconds": 150}), "300-second"),
         (lambda value: value["f5"].update({"sizing_basis": "measured"}), "unmeasured"),
         (lambda value: value["requirements"].update({"est_minutes": 15}), "120/240"),
         (lambda value: value["requirements"].update({"min_vcpu": 5}), "L4 placement"),
         (lambda value: value.update({"timeout_minutes": 30}), "120/240"),
         (lambda value: value["resume"].update({"unit_kind": "episode"}), "resumable unit"),
+        (lambda value: value["resume"].update({"skip_verified": 1}), "resume types"),
         (lambda value: value.update({"resume_exemption": {}}), "forbids exemption"),
+        (lambda value: value["env"].update({"F5_LEDGER": "/tmp/foreign"}), "runtime environment"),
+        (
+            lambda value: value["env"].update({"F5_REQUIREMENTS_LOCK": "/tmp/foreign"}),
+            "runtime environment",
+        ),
+        (lambda value: value["timing_calibration"].update({"no_job_retry": False}), "retry fences"),
+        (lambda value: value["required_exports"].pop(), "all thirteen"),
         (
             lambda value: value["operational_admission"].update({"release_authorized": True}),
             "authority",
@@ -328,6 +390,7 @@ def test_timing_recovery_requires_the_exact_long_resumable_contract(tmp_path) ->
             lambda value: value["f5_timing_synthetic_inventory"].update({"source_tree": "c" * 40}),
             "inventory differs",
         ),
+        (lambda value: value.update({"f5_timing_source_tree": "c" * 40}), "manifest source tree"),
     ],
 )
 def test_timing_recovery_refuses_widening_or_drift(tmp_path, mutate, match: str) -> None:
@@ -339,6 +402,14 @@ def test_timing_recovery_refuses_widening_or_drift(tmp_path, mutate, match: str)
 
 def test_timing_recovery_canary_is_bounded_and_marked_canary_only(tmp_path) -> None:
     dispatch.require_scientific_or_f5_plan_admission(recovery_manifest(tmp_path, canary=True))
+
+
+def test_timing_recovery_refuses_markerless_ledger_input(tmp_path) -> None:
+    value = recovery_manifest(tmp_path)
+    ledger = next(item for item in value["inputs"] if item["dest"] == "verified-ledger.json")
+    Path(str(ledger["path"]) + ".complete").unlink()
+    with pytest.raises(dispatch.Refused, match="immutable sidecars"):
+        dispatch.require_scientific_or_f5_plan_admission(value)
 
 
 @pytest.mark.parametrize(
