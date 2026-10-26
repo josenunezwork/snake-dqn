@@ -70,7 +70,7 @@ def prepare(
     packet: Path, commit: str, checkpoint: Path, registry: Path, estimate_seconds: float
 ) -> None:
     """Write the full broker packet plus exactly ten physical sandbox JSON lines."""
-    if not math.isfinite(estimate_seconds) or estimate_seconds <= 0:
+    if not math.isfinite(2 * estimate_seconds) or estimate_seconds <= 0:
         raise ValueError("positive finite engineering forecast required")
     if digest(checkpoint) != B8_SHA:
         raise ValueError("published B8 s3 hash differs")
@@ -140,8 +140,7 @@ def prepare(
                 text=True,
             ).splitlines()
             if name.endswith((".py", ".sh", ".cu", ".cpp", ".txt"))
-        ]
-        + ["pyproject.toml"],
+        ],
         "requirements": {
             "gpu": "A100",
             "allowed_gpus": ["A100"],
@@ -172,8 +171,8 @@ def prepare(
         },
         "required_exports": required,
         "budget": {
-            "rate_units_per_hour": 5.3,
-            "unit_cap": 2 * estimate_seconds * 5.3 / 3600,
+            "rate_units_per_hour": 8.0,
+            "unit_cap": 2 * estimate_seconds * 8.0 / 3600,
             "reserve_units": 0,
             "other_assignments": {},
         },
@@ -183,11 +182,12 @@ def prepare(
             "skip_verified": True,
             "max_outcome_blind_retries": 2,
         },
-        "sandbox": {
-            "authority": "docs/research/governance_a100_sandbox_20261026/ADOPTED.md",
-            "manifest": str((packet / "sandbox.json").relative_to(ROOT)),
-            "no_per_job_canary": True,
+        "sandbox_admission": {
+            "schema": "standing-a100-development-sandbox-admission/v1",
+            "manifest_path": str((packet / "sandbox.json").resolve()),
         },
+        "sandbox_execution": "finite resident timing/parity assay; adopted sandbox admission",
+        "requirements_file": "research/sandbox_a_resident/requirements.txt",
         "sandbox_a": {
             "seed_allocations": seed_allocations(control),
             "parity_seed_allocation": {"offset": 9_000_000, "count": 48},
@@ -225,7 +225,11 @@ def prepare(
         ],
         "salt": "a100-dev/sandbox-a/",
         "endpoint": {"kind": "steps", "value": 3 * 128 * (128 + 1024) * 3},
-        "timeout": {"measured_estimate_seconds": estimate_seconds, "seconds": 2 * estimate_seconds},
+        "timeout": {
+            "base_seconds": estimate_seconds,
+            "seconds": 2 * estimate_seconds,
+            "purpose": "runaway-guard",
+        },
         "excluded_studies": [
             "F5",
             "F4-fold-0",
@@ -270,7 +274,9 @@ def main() -> int:
     parser.add_argument(
         "--registry", type=Path, default=ROOT / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json"
     )
-    parser.add_argument("--estimate-seconds", type=float, required=True)
+    parser.add_argument(
+        "--base-seconds", "--estimate-seconds", dest="estimate_seconds", type=float, required=True
+    )
     args = parser.parse_args()
     prepare(
         args.packet.resolve(), args.commit, args.checkpoint, args.registry, args.estimate_seconds

@@ -103,7 +103,7 @@ execution evidence.
 
 `LOCAL_VERIFICATION_02.json` binds the repaired runtime source hashes, B8 hash,
 command, platform, full-arena E2/E4 smoke and exact same-platform resume hashes.
-The 24 resident regression cases cover compact reset work and frozen-oracle world
+The 25 resident regression cases cover compact reset work and frozen-oracle world
 bytes, E == S constants, simultaneous death/truncation, time-limit reachability,
 boundary fault checks, nonfinite refusal, off-device restore, interrupted exports,
 foreign/duplicate inventory, protected paths and symlinks. Every test/smoke uses
@@ -115,9 +115,8 @@ historical evidence; their old source pins/timings do not qualify packet-02.
 
 The packet-02 base four-hour/effective eight-hour envelope is a generous
 prospective engineering allowance, including setup, compilation, export and
-release. There is no measured A100 whole-job forecast. The legacy broker fields
-`measured_estimate_seconds` and rate-priced budget fields carry this technical
-runaway guard only: Colab time/units are not a budget, and this package introduces
+release. There is no measured A100 whole-job forecast. The ten-line manifest explicitly labels the doubled base as a `runaway-guard`;
+legacy broker forecast/rate-priced budget fields carry that technical guard only: Colab time/units are not a budget, and this package introduces
 no economic unit ceiling or per-job timing-canary requirement. The finite endpoint
 remains one warmup plus three measured cycles per shape/phase; the timeout does
 not extend that endpoint.
@@ -144,7 +143,7 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREAD
   nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.prepare \
   --packet "$PWD/research/sandbox_a_resident/packet-02" --commit "$(git rev-parse HEAD)" \
   --checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth \
-  --estimate-seconds 14400
+  --base-seconds 14400
 ```
 
 Commit the ten-line `packet-02/sandbox.json` and its bound broker packet before
@@ -152,5 +151,8 @@ running `python -m research.sandbox_a_resident.preflight` on the packet director
 The operator handoff must record the actual shared preflight and real
 `tools/ops/dispatch.sh --dry-run` outputs. A blocked dry-run is not a PASS and does
 not introduce a judge requirement. Resolve any adoption/transport admission
-mismatch through the infrastructure owner, keeping `research/colab_cli` tree
-`5833e54e9c5396121cbbf99a5cd4e52006e564fd` unchanged.
+mismatch through the infrastructure owner, using the explicit `sandbox_admission` route from main commit `a4027fa3`, while
+keeping `research/colab_cli` tree `5833e54e9c5396121cbbf99a5cd4e52006e564fd`
+unchanged. The adapter replaces only the family timing-canary requirement; the
+qualified broker retains allocation, accounting, leases, transfer and release.
+Packet-02 declares no probe mode or fabricated canary receipt.
