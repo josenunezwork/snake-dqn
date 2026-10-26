@@ -1,0 +1,18 @@
+{
+  "kind": "A-2 successor seal; parent validation timeout preserved; no allocation",
+  "source_commit": "dad41e7dc9aebcf9d6504c04c40c7673682ef602",
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "files_sha256": {
+    "control.json": "cbf25e2c00c2c23e113921890ddda9cc91c55775f167750021b1ffbdf988027a",
+    "dispatch-manifest.json": "18a9d198ff9e7033721c6cd93d7f51ee86b98c8ece7acbde869ea890008ecf88",
+    "registry-check.json": "1e63cd71f1f1475501ceeb2957bc5234239fb857d9dd73125f8b095e2ca186e5",
+    "sandbox.json": "1aa6d3e324b96611c03094b82e626b28998162606dc50c093758ee2843aee0df",
+    "verified-ledger.json": "afc6d53c303cc277f5923b3722cb2a03a4f5e642e3abe060d14d80427ddbb373"
+  },
+  "runtime_changes_from_parent": false,
+  "admission_change": "all-root canonical SHA stream and uint64 array checks; same exclusions and aliases refused",
+  "endpoint": "12 cells E128/E1024 x limit64/512 x cached/collection/integrated; H128, one warmup, three measured cycles",
+  "runaway_base_seconds": 14400,
+  "runaway_effective_seconds": 28800,
+  "allocation_performed": false
+}
