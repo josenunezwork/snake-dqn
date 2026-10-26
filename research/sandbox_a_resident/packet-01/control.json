@@ -1,0 +1,22 @@
+{
+  "source_commit": "589af9db9fc487be247762877655cac2a40cba63",
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "recipe_parameters": {
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip": 0.2,
+    "learning_rate": 0.0003
+  },
+  "worlds": [
+    128,
+    1024
+  ],
+  "horizon": 128,
+  "minibatch": 256,
+  "epochs": 1,
+  "cycles": 3,
+  "warmups": 1,
+  "episode_limit": 5000,
+  "tiny": false,
+  "timeout_seconds": 7200.0
+}
