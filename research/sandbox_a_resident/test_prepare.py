@@ -48,3 +48,39 @@ def test_packet02_admission_and_generous_runaway_guard(monkeypatch, tmp_path: Pa
             prepare.prepare(
                 tmp_path / "invalid", commit, checkpoint, tmp_path / "registry.json", base
             )
+
+
+def test_all_root_registry_checks_keep_exact_uint64_and_refuse_overlap(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from tools.sandbox import registry
+
+    control = {
+        "worlds": [2],
+        "horizon": 2,
+        "cycles": 1,
+        "warmups": 0,
+        "episode_limits": [64, 512],
+        "seed_offset_base": 20_000_000,
+        "parity_seed_offset": 90_000_000,
+    }
+    root = prepare.seed64("a100-dev/sandbox-a", 20_000_000)
+    effective = root & 0x7FFF_FFFF_FFFF_FFFF
+    registry_data = {"excluded_seeds": [effective + 1]}
+    monkeypatch.setattr(registry, "load_registry", lambda p: registry_data)
+    monkeypatch.setattr(registry, "verify_sources", lambda r: None)
+    monkeypatch.setattr(registry, "validate_input", lambda *a: None)
+    checkpoint, registry_path = tmp_path / "b8", tmp_path / "registry"
+    checkpoint.write_bytes(b"checkpoint")
+    registry_path.write_text("{}")
+    result = prepare.registry_check(control, registry_path, checkpoint)
+    assert result["allocated_uint64_seeds"] == 84
+    # A neighboring 64-bit integer must not collapse through float64 conversion.
+    registry_data["excluded_seeds"] = [effective | (1 << 63)]
+    with pytest.raises(ValueError, match="excluded/aliased"):
+        prepare.registry_check(control, registry_path, checkpoint)
+    registry_data["excluded_seeds"] = []
+    allocations = prepare.seed_allocations(control)
+    monkeypatch.setattr(prepare, "seed_allocations", lambda c: allocations + allocations[:1])
+    with pytest.raises(ValueError, match="excluded/aliased"):
+        prepare.registry_check(control, registry_path, checkpoint)

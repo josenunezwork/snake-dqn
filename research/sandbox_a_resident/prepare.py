@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import subprocess
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from research.sandbox_a_resident.core import seed64
 from research.sandbox_a_resident.units import (
@@ -42,23 +45,38 @@ def registry_check(control: dict[str, Any], registry_path: Path, checkpoint: Pat
         registry,
     )
     excluded = {int(x) & 0x7FFF_FFFF_FFFF_FFFF for x in registry["excluded_seeds"]}
-    seen: set[int] = set()
-    count = 0
-    for row in [
+    allocations = [
         *seed_allocations(control),
         {"offset": control.get("parity_seed_offset", 9_000_000), "count": 48},
-    ]:
-        if row["count"] >= 1_000_000:
-            raise ValueError("frozen seed allocations overlap")
+    ]
+    if any(
+        type(row["count"]) is not int or not 0 < row["count"] < 1_000_000 for row in allocations
+    ):
+        raise ValueError("frozen seed allocations overlap or are nonpositive")
+    count = sum(row["count"] for row in allocations)
+    # Keep all-root checks, but avoid millions of Python set entries and repeated
+    # validation of the same literal study slug.  The independent canonical SHA
+    # stream is checked against the registry helper at its allocation boundaries.
+    prefix = hashlib.sha256(b"a100-dev/sandbox-a/")
+    values = np.empty(count, dtype=np.uint64)
+    cursor = 0
+    for row in allocations:
         for index in range(row["offset"], row["offset"] + row["count"]):
             value = seed64("a100-dev/sandbox-a", index)
-            if value != world_seed("sandbox-a", index):
+            canonical = prefix.copy()
+            canonical.update(str(index).encode())
+            expected = int.from_bytes(canonical.digest()[:8], "big")
+            if value != expected:
                 raise ValueError("canonical seed derivation drift")
-            effective = value & 0x7FFF_FFFF_FFFF_FFFF
-            if effective == 0 or effective in excluded or effective in seen:
-                raise ValueError("excluded/aliased development seed")
-            seen.add(effective)
-            count += 1
+            values[cursor] = value & 0x7FFF_FFFF_FFFF_FFFF
+            cursor += 1
+        for index in (row["offset"], row["offset"] + row["count"] - 1):
+            if seed64("a100-dev/sandbox-a", index) != world_seed("sandbox-a", index):
+                raise ValueError("registry canonical seed derivation drift")
+    unique = np.unique(values)
+    excluded_values = np.fromiter(excluded, dtype=np.uint64, count=len(excluded))
+    if (values == 0).any() or len(unique) != count or np.isin(unique, excluded_values).any():
+        raise ValueError("excluded/aliased development seed")
     return {
         "status": "PASS",
         "allocated_uint64_seeds": count,
