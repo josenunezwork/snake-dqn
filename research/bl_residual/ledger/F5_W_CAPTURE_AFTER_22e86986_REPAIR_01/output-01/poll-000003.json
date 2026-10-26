@@ -1,0 +1,15 @@
+{
+  "exports": [],
+  "job_log_tail": "Downloading cpython-3.12.15-linux-x86_64-gnu (download) (32.9MiB)\n Downloaded cpython-3.12.15-linux-x86_64-gnu (download)\nInstalled Python 3.12.15 in 956ms\n + cpython-3.12.15-linux-x86_64-gnu (python3.12)\nwarning: `/root/.local/bin` is not on your PATH. To use installed Python executables, run `export PATH=\"/root/.local/bin:$PATH\"` or `uv python update-shell`.\nwarning: The `--system` flag has no effect, `uv venv` always ignores virtual environments when finding a Python interpreter; did you mean `--no-managed-python`?\nUsing CPython 3.12.15\nCreating virtual environment with seed packages at: .venv\n + pip==26.2.2\nActivate with: source .venv/bin/activate\n",
+  "state": {
+    "generation": "375050f568514c1aaf545dc1e7ac52df",
+    "job_id": "bl-f5-w-capture-repair-22e86986-01",
+    "max_export_bytes": 2147483648,
+    "pid": 6955,
+    "started_at": 1792993810.6503067,
+    "status": "running",
+    "updated_at": 1792993886.179105
+  },
+  "supervisor_log_tail": "",
+  "terminal": null
+}

@@ -3,11 +3,62 @@
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 
 import pytest
 
 from research.bl_residual import f5_package as package
+
+
+def test_capture_attempt_two_retains_elapsed_and_debit(tmp_path: Path) -> None:
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "job_id": "bl-f5-w-capture-repair-22e86986-01",
+                "stop_verified": True,
+                "failure_class": "CHILD_NONZERO_EXIT",
+                "exports": [],
+                "elapsed_seconds": 421.83044687495567,
+                "accounting": {"last_crosscheck": {"observed_account_debit_units": 0.12}},
+            }
+        )
+    )
+    value = package.capture_remainder(receipt)
+    assert value["remaining_capture_seconds"] == 178.16955312504433
+    assert value["remaining_aggregate_seconds"] == 13978.169553125044
+    assert value["prior_accounting"]["last_crosscheck"]["observed_account_debit_units"] == 0.12
+    assert value["admission"] == "HOLD"
+    assert len(value["hold_reasons"]) == 2
+    assert value["allowance_reset"] is False
+    source_hash = package.digest(receipt)
+    assert value["prior_capture_receipt"]["sha256"] == source_hash
+    for key, bad in (
+        ("stop_verified", False),
+        ("elapsed_seconds", -1),
+        ("elapsed_seconds", float("nan")),
+        ("exports", ["science"]),
+        ("accounting", None),
+    ):
+        changed = json.loads(receipt.read_text())
+        changed[key] = bad
+        path = tmp_path / f"{key}.json"
+        path.write_text(json.dumps(changed))
+        with pytest.raises(ValueError, match="prior capture"):
+            package.capture_remainder(path)
+
+
+def test_rebuild_cannot_omit_published_failed_attempt(tmp_path: Path) -> None:
+    receipt = tmp_path / (
+        "research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/"
+        "output-01/receipt.json"
+    )
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text("{}")
+    with pytest.raises(ValueError, match="requires explicit --prior-capture-receipt"):
+        package.build(tmp_path / "new-packet", repo=tmp_path)
+    assert not (tmp_path / "new-packet").exists()
 
 
 def draft() -> dict:

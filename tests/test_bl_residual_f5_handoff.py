@@ -90,7 +90,7 @@ def _environment(
     return {
         "schema": f5_environment.SCHEMA,
         "schema_sha256": hashlib.sha256(
-            (Path(f5_environment.__file__).with_name("f5_environment_schema_v2.json")).read_bytes()
+            (Path(f5_environment.__file__).with_name("f5_environment_schema_v3.json")).read_bytes()
         ).hexdigest(),
         "platform": "Linux-6.1-x86_64-with-glibc2.35",
         "python": "3.12.3 (main, synthetic)",

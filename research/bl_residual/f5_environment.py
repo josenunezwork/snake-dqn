@@ -20,14 +20,14 @@ import platform
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 from urllib.parse import unquote, urlparse
 
 import numpy as np
 import torch
 
-SCHEMA = "bl-residual-f5-environment-receipt/v2"
+SCHEMA = "bl-residual-f5-environment-receipt/v3"
 AMENDMENT_SHA256 = "7eda19efb72f89a7e2269d40863288f9295358f2566f3a02d3ca4d3c11933359"
 ADOPTED_AMENDMENT_SHA256 = "a1dc92ffb8fa341fb51738a56fe0097d75e15b0aff7194940c12979adbb04d62"
 
@@ -89,7 +89,7 @@ PACKAGE_KEYS = frozenset(
 METADATA_KEYS = frozenset({"METADATA", "WHEEL", "RECORD", "direct_url.json"})
 METADATA_RECEIPT_KEYS = frozenset({"raw_base64", "raw_sha256", "canonical_sha256"})
 CONTENT_RECEIPT_KEYS = frozenset({"raw_sha256", "canonical_sha256"})
-ENTRYPOINT_CONTENT_RECEIPT_KEYS = frozenset({"raw_base64", "raw_sha256", "canonical_sha256"})
+ROOT_BOUND_SCRIPT_RECEIPT_KEYS = frozenset({"raw_base64", "raw_sha256", "canonical_sha256"})
 LOCKED_WHEEL_KEYS = frozenset({"filename", "raw_url", "canonical_url", "sha256"})
 OS_KERNEL_KEYS = frozenset({"system", "node", "release", "version", "machine", "processor"})
 GPU_DRIVER_KEYS = frozenset({"name", "uuid", "driver_version", "compute_cap", "memory_total"})
@@ -117,6 +117,10 @@ THREAD_ENV_KEYS = frozenset(
         "CUBLAS_WORKSPACE_CONFIG",
     }
 )
+# These are the reviewed F5 installation-prefix classes.  A new class is a
+# receipt-schema change, never an implicit extension of the captured
+# environment; the 69-wheel RECORD audit reports which reviewed classes occur.
+ROOT_BOUND_FILE_CLASSES = frozenset({"bin", "include", "share"})
 
 
 class F5EnvironmentRefusal(ValueError):
@@ -125,7 +129,7 @@ class F5EnvironmentRefusal(ValueError):
 
 def schema_path() -> Path:
     """Return the frozen, source-pinned classification schema."""
-    return Path(__file__).with_name("f5_environment_schema_v2.json")
+    return Path(__file__).with_name("f5_environment_schema_v3.json")
 
 
 def schema_sha256() -> str:
@@ -249,6 +253,41 @@ def _sha(value: Any, path: str) -> str:
     return value
 
 
+def _root_bound_content_kind(relative: str) -> str | None:
+    """Return the admitted root-bound class encoded by a receipt content key."""
+    prefix = "__root_bound__/"
+    if (
+        relative == "__root_bound__"
+        or relative.startswith("__root_bound__")
+        and not relative.startswith(prefix)
+    ):
+        raise F5EnvironmentRefusal("F5 root-bound installed content namespace is malformed")
+    if not relative.startswith(prefix):
+        return None
+    path = PurePosixPath(relative.removeprefix(prefix))
+    if (
+        path.is_absolute()
+        or len(path.parts) < 2
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or path.parts[0] not in ROOT_BOUND_FILE_CLASSES
+    ):
+        raise F5EnvironmentRefusal("F5 root-bound installed content class is unsafe or unknown")
+    return path.parts[0]
+
+
+def _canonical_root_bound_script(raw: bytes, installation_root: str) -> bytes | None:
+    """Canonicalize only a generated script with an exact root/bin interpreter."""
+    first, separator, rest = raw.partition(b"\n")
+    prefix = b"#!" + installation_root.encode("utf-8") + b"/"
+    if not first.startswith(prefix):
+        return None
+    interpreter = first[len(prefix) :].split(None, 1)[0]
+    parts = PurePosixPath(interpreter.decode("utf-8", "surrogateescape")).parts
+    if len(parts) < 2 or parts[0] != "bin" or any(part in {"", ".", ".."} for part in parts):
+        raise F5EnvironmentRefusal("F5 root-bound script interpreter is unsafe")
+    return b"#!<INSTALLATION_ROOT>/" + first[len(prefix) :] + separator + rest
+
+
 def _validate_package(name: str, value: Any, wheel: Mapping[str, str] | None = None) -> None:
     package = _exact_mapping(value, PACKAGE_KEYS, f"installed_numeric_packages.{name}")
     _text(package["version"], f"installed_numeric_packages.{name}.version")
@@ -266,9 +305,17 @@ def _validate_package(name: str, value: Any, wheel: Mapping[str, str] | None = N
             or ".." in Path(relative).parts
         ):
             raise F5EnvironmentRefusal(f"F5 environment installed contents path is unsafe: {name}")
+        root_bound_kind = _root_bound_content_kind(relative)
+        # v2 used __entrypoint__; reject it under v3 so a new path namespace
+        # cannot sneak through an otherwise valid receipt.
+        if relative.startswith("__entrypoint__/"):
+            raise F5EnvironmentRefusal("F5 v3 does not admit legacy entrypoint content keys")
+        # A bin entry may be a generated Python script (with root-bearing
+        # shebang evidence) or an ordinary executable/data byte stream.  Only
+        # the former has a permitted normalization; the latter is raw exact.
         keys = (
-            ENTRYPOINT_CONTENT_RECEIPT_KEYS
-            if relative.startswith("__entrypoint__/")
+            ROOT_BOUND_SCRIPT_RECEIPT_KEYS
+            if root_bound_kind == "bin" and isinstance(digest, dict) and "raw_base64" in digest
             else CONTENT_RECEIPT_KEYS
         )
         item = _exact_mapping(
@@ -279,20 +326,18 @@ def _validate_package(name: str, value: Any, wheel: Mapping[str, str] | None = N
             item["canonical_sha256"],
             f"installed_numeric_packages.{name}.contents.{relative}.canonical",
         )
-        if relative.startswith("__entrypoint__/"):
+        if root_bound_kind == "bin" and "raw_base64" in item:
             try:
                 raw = base64.b64decode(item["raw_base64"], validate=True)
             except (ValueError, TypeError) as exc:
                 raise F5EnvironmentRefusal(f"F5 entrypoint evidence is malformed: {name}") from exc
             if hashlib.sha256(raw).hexdigest() != item["raw_sha256"]:
                 raise F5EnvironmentRefusal(f"F5 entrypoint raw hash differs: {name}")
-            first, separator, rest = raw.partition(b"\n")
-            prefix = b"#!" + package["installation_root"].encode("utf-8")
-            if not first.startswith(prefix):
+            canonical = _canonical_root_bound_script(raw, package["installation_root"])
+            if canonical is None:
                 raise F5EnvironmentRefusal(
                     f"F5 entrypoint lacks exact installation-root shebang: {name}"
                 )
-            canonical = b"#!<INSTALLATION_ROOT>" + first[len(prefix) :] + separator + rest
             if hashlib.sha256(canonical).hexdigest() != item["canonical_sha256"]:
                 raise F5EnvironmentRefusal(f"F5 entrypoint canonical mapping differs: {name}")
         elif item["raw_sha256"] != item["canonical_sha256"]:
@@ -608,6 +653,73 @@ def _file_sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _refuse_symlink_components(path: Path, root: Path) -> Path:
+    """Return an absolute root-contained path after rejecting every symlink component."""
+    root_absolute = Path(os.path.abspath(root))
+    absolute = Path(os.path.abspath(path))
+    try:
+        relative = absolute.relative_to(root_absolute)
+    except ValueError as exc:
+        raise F5EnvironmentRefusal("F5 installed path escapes the installation root") from exc
+    if root_absolute.is_symlink():
+        raise F5EnvironmentRefusal("F5 installation root is a symlink")
+    cursor = root_absolute
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise F5EnvironmentRefusal("F5 installed path contains a symlink")
+    return absolute
+
+
+def _root_bound_content_key(
+    item: object, path: Path, site_root: Path, root: Path
+) -> tuple[str, str]:
+    """Classify a RECORD path installed outside site-packages without escapes.
+
+    Wheels sometimes install generated scripts under ``bin`` and ordinary
+    package bytes under ``share`` or ``include``.  Those bytes are evidence
+    just like Python modules, but their RECORD spelling climbs from
+    site-packages to the virtualenv root.  Accept only the exact three-parent
+    spelling and the reviewed root classes; resolve neither a symlink nor a
+    foreign prefix into the receipt namespace.
+    """
+    record_path = PurePosixPath(str(item))
+    if record_path.is_absolute() or record_path.parts[:3] != ("..", "..", ".."):
+        raise F5EnvironmentRefusal("F5 external package RECORD path is not root-bound")
+    tail = record_path.parts[3:]
+    if (
+        len(tail) < 2
+        or any(part in {"", ".", ".."} for part in tail)
+        or tail[0] not in ROOT_BOUND_FILE_CLASSES
+    ):
+        raise F5EnvironmentRefusal("F5 external package file has an unknown root-bound class")
+    # The textual RECORD path and the installed object must name precisely the
+    # same child of the venv root.  Check each component before reading bytes
+    # so a symlink in an ancestor cannot carry the capture outside the root.
+    root_absolute = Path(os.path.abspath(root))
+    expected = root_absolute.joinpath(*tail)
+    try:
+        if _refuse_symlink_components(path, root_absolute) != expected or expected.relative_to(
+            root_absolute
+        ) != Path(*tail):
+            raise ValueError
+    except ValueError as exc:
+        raise F5EnvironmentRefusal(
+            "F5 external package file escapes the installation root"
+        ) from exc
+    # ``site_root`` is deliberately an argument: the exact three-parent RECORD
+    # relation is part of the root-bound representation, rather than inferred
+    # from an arbitrary absolute path.
+    try:
+        if Path(os.path.abspath(site_root.parents[2])) != root_absolute:
+            raise ValueError
+    except (IndexError, ValueError) as exc:
+        raise F5EnvironmentRefusal(
+            "F5 package site root has unexpected installation geometry"
+        ) from exc
+    return "__root_bound__/" + "/".join(tail), tail[0]
+
+
 def _canonical_metadata_bytes(
     raw: bytes,
     installation_root: str,
@@ -654,19 +766,25 @@ def _canonical_metadata_bytes(
         rows = csv.reader(io.StringIO(normalized.decode("utf-8")))
         for row in rows:
             if len(row) == 3 and row[0].startswith("../../../bin/"):
-                item = contents.get("__entrypoint__/" + Path(row[0]).name)
-                if item is None or "raw_base64" not in item:
+                script_path = PurePosixPath(row[0])
+                if (
+                    script_path.parts[:4] != ("..", "..", "..", "bin")
+                    or len(script_path.parts) < 5
+                    or any(part in {"", ".", ".."} for part in script_path.parts[3:])
+                ):
+                    raise F5EnvironmentRefusal("F5 RECORD root-bound bin path is unsafe")
+                item = contents.get("__root_bound__/" + "/".join(script_path.parts[3:]))
+                if item is None:
                     raise F5EnvironmentRefusal(
-                        "F5 RECORD console-script row lacks raw entrypoint evidence"
+                        "F5 RECORD root-bound bin row lacks installed content evidence"
                     )
+                if "raw_base64" not in item:
+                    writer.writerow(row)
+                    continue
                 raw_script = base64.b64decode(item["raw_base64"], validate=True)
-                first, separator, rest = raw_script.partition(b"\n")
-                prefix = b"#!" + root
-                if not first.startswith(prefix):
+                canonical_script = _canonical_root_bound_script(raw_script, installation_root)
+                if canonical_script is None:
                     raise F5EnvironmentRefusal("F5 RECORD entrypoint shebang differs")
-                canonical_script = (
-                    b"#!<INSTALLATION_ROOT>" + first[len(prefix) :] + separator + rest
-                )
                 row[1] = "sha256=" + base64.urlsafe_b64encode(
                     hashlib.sha256(canonical_script).digest()
                 ).decode("ascii").rstrip("=")
@@ -682,35 +800,57 @@ def _package_receipt(name: str, wheel: Mapping[str, str] | None = None) -> dict[
         distribution = importlib.metadata.distribution(name)
     except importlib.metadata.PackageNotFoundError as exc:
         raise F5EnvironmentRefusal(f"F5 required numeric package is absent: {name}") from exc
+    # Anchor geometry at the direct dist-info METADATA row.  A nested
+    # ``licenses/`` entry can legally sort first in RECORD, but does not locate
+    # site-packages.
     dist_info = next(
-        (item for item in distribution.files or () if ".dist-info/" in str(item)), None
+        (
+            item
+            for item in distribution.files or ()
+            if item.name == "METADATA"
+            and len(PurePosixPath(str(item)).parts) == 2
+            and PurePosixPath(str(item)).parts[0].endswith(".dist-info")
+        ),
+        None,
     )
     if dist_info is None:
         raise F5EnvironmentRefusal(f"F5 package lacks dist-info evidence: {name}")
-    site_root = Path(distribution.locate_file(dist_info)).parents[1].resolve()
-    root = str(site_root.parents[2])
+    own_dist_info = PurePosixPath(str(dist_info)).parts[0]
+    dist_info_path = Path(distribution.locate_file(dist_info))
+    site_root = dist_info_path.parents[1]
+    root_path = site_root.parents[2]
+    _refuse_symlink_components(dist_info_path, root_path)
+    root = str(Path(os.path.abspath(root_path)))
     metadata_raw: dict[str, bytes] = {}
     for metadata_name in sorted(METADATA_KEYS):
         item = next(
             (
                 candidate
                 for candidate in distribution.files or ()
-                if candidate.name == metadata_name and ".dist-info/" in str(candidate)
+                if candidate.name == metadata_name
+                and PurePosixPath(str(candidate)).parts == (own_dist_info, metadata_name)
             ),
             None,
         )
-        raw = b"<ABSENT>" if item is None else Path(distribution.locate_file(item)).read_bytes()
+        if item is None:
+            raw = b"<ABSENT>"
+        else:
+            metadata_path = Path(distribution.locate_file(item))
+            _refuse_symlink_components(metadata_path, Path(root))
+            raw = metadata_path.read_bytes()
         metadata_raw[metadata_name] = raw
     contents: dict[str, dict[str, str]] = {}
     for item in distribution.files or ():
         path = Path(distribution.locate_file(item))
+        _refuse_symlink_components(path, Path(root))
         # dist-info paths are separately retained as raw metadata.  Do not
         # silently normalize them through this installed-library manifest.
-        if path.is_symlink():
-            raise F5EnvironmentRefusal(f"F5 package has an unproven symlink: {name}")
         if not path.is_file():
             raise F5EnvironmentRefusal(f"F5 package has a missing installed file: {name}")
-        if ".dist-info/" in str(item) and item.name in METADATA_KEYS:
+        if (
+            PurePosixPath(str(item)).parts == (own_dist_info, item.name)
+            and item.name in METADATA_KEYS
+        ):
             # These four bytes are retained separately with raw evidence and
             # the narrowly permitted canonical mapping where applicable.
             continue
@@ -720,34 +860,41 @@ def _package_receipt(name: str, wheel: Mapping[str, str] | None = None) -> dict[
                     "F5 locked environment must use pip --no-compile; pyc is root-dependent"
                 )
             try:
-                if ".dist-info/" in str(item):
-                    key = "__dist_info__/" + str(item)
-                else:
-                    relative = path.resolve().relative_to(site_root)
-                    key = str(relative)
                 raw = path.read_bytes()
                 canonical = raw
-            except ValueError:
-                # pip's RECORD legitimately lists console scripts as
-                # ../../../bin/foo.  Their generated shebang is an
-                # installation-root representation, not library code; retain
-                # its raw digest and canonicalize only that exact prefix.
-                key = "__entrypoint__/" + path.name
-                raw = path.read_bytes()
-                first, separator, rest = raw.partition(b"\n")
-                prefix = b"#!" + root.encode("utf-8")
-                if not first.startswith(prefix):
-                    raise F5EnvironmentRefusal(
-                        f"F5 external package file is not a root-bound console script: {name}"
+                record_path = PurePosixPath(str(item))
+                if record_path.is_absolute():
+                    raise F5EnvironmentRefusal("F5 package RECORD path is absolute")
+                try:
+                    relative = Path(os.path.abspath(path)).relative_to(
+                        Path(os.path.abspath(site_root))
                     )
-                canonical = b"#!<INSTALLATION_ROOT>" + first[len(prefix) :] + separator + rest
+                except ValueError:
+                    key, root_bound_kind = _root_bound_content_key(
+                        item, path, site_root, Path(root)
+                    )
+                    if root_bound_kind == "bin":
+                        canonical = _canonical_root_bound_script(raw, root) or raw
+                else:
+                    if record_path != PurePosixPath(relative.as_posix()):
+                        raise F5EnvironmentRefusal(
+                            "F5 package RECORD path is not site-root relative"
+                        )
+                    if ".dist-info/" in str(record_path):
+                        key = "__dist_info__/" + str(record_path)
+                    else:
+                        key = str(relative)
+            except ValueError:
+                raise F5EnvironmentRefusal(
+                    f"F5 package has unsafe installed path: {name}"
+                ) from None
             if key in contents:
                 raise F5EnvironmentRefusal(f"F5 package records duplicate installed path: {name}")
             contents[key] = {
                 "raw_sha256": hashlib.sha256(raw).hexdigest(),
                 "canonical_sha256": hashlib.sha256(canonical).hexdigest(),
             }
-            if key.startswith("__entrypoint__/"):
+            if _root_bound_content_kind(key) == "bin" and raw != canonical:
                 contents[key]["raw_base64"] = base64.b64encode(raw).decode("ascii")
     if not contents:
         raise F5EnvironmentRefusal(f"F5 package has no installed-content evidence: {name}")

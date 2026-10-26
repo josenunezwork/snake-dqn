@@ -11,6 +11,7 @@ import ast
 import dataclasses
 import hashlib
 import json
+import math
 import re
 import subprocess
 from pathlib import Path
@@ -289,7 +290,7 @@ def source_inventory(repo: Path = ROOT) -> dict[str, str]:
                     if source.is_file() and source not in seen:
                         pending.append(source)
     seen.add(repo / "research/bl_residual/f5_colab.sh")
-    seen.add(repo / "research/bl_residual/f5_environment_schema_v2.json")
+    seen.add(repo / "research/bl_residual/f5_environment_schema_v3.json")
     seen.add(repo / "research/bl_residual/f5_calibration_schema_v1.json")
     seen.add(repo / "research/apex_safety_20260926/deployment.yaml")
     seen.update((repo / "configs").glob("*.yaml"))
@@ -399,11 +400,58 @@ def bind_qualification_inventory(
     return result
 
 
+def capture_remainder(prior_receipt: Path | None) -> dict[str, Any]:
+    """Carry the failed capture debit forward without approving a new envelope."""
+    elapsed = 0.0
+    prior = None
+    debit = None
+    if prior_receipt is not None:
+        prior_receipt = prior_receipt.absolute()
+        prior = binding(prior_receipt)
+        receipt = json.loads(safe_metadata(prior_receipt))
+        elapsed = receipt.get("elapsed_seconds")
+        if (
+            receipt.get("job_id") != "bl-f5-w-capture-repair-22e86986-01"
+            or receipt.get("stop_verified") is not True
+            or receipt.get("failure_class") != "CHILD_NONZERO_EXIT"
+            or receipt.get("exports") != []
+            or isinstance(elapsed, bool)
+            or not isinstance(elapsed, (int, float))
+            or not math.isfinite(elapsed)
+            or elapsed <= 0
+            or not isinstance(receipt.get("accounting"), dict)
+            or not receipt["accounting"]
+        ):
+            raise ValueError("prior capture must be a stopped, failed attempt-01 receipt")
+        debit = receipt.get("accounting")
+    remaining = max(0.0, 600.0 - elapsed)
+    reasons = []
+    if remaining < 180:
+        reasons.append("remaining capture allowance is below supervisor 180-second minimum")
+    if remaining < 600:
+        reasons.append("remaining capture allowance is below twice inherited 300-second forecast")
+    return {
+        "schema": "bl-f5-capture-carry-forward/v1",
+        "original_capture_allowance_seconds": 600,
+        "prior_capture_receipt": prior,
+        "prior_elapsed_seconds": elapsed,
+        "prior_accounting": debit,
+        "remaining_capture_seconds": remaining,
+        "remaining_aggregate_seconds": max(0.0, 14400.0 - elapsed),
+        "inherited_estimate_seconds": 300,
+        "allowance_reset": False,
+        "automatic_retries": False,
+        "admission": "HOLD" if reasons else "DRAFT_PENDING_INDEPENDENT_REVIEW",
+        "hold_reasons": reasons,
+    }
+
+
 def build(
     output: Path,
     repo: Path = ROOT,
     artifacts: Path = ART,
     selected_package: Path | None = None,
+    prior_capture_receipt: Path | None = None,
 ) -> dict[str, Any]:
     """Seal a reviewable preparation packet; scientific manifests stay denied."""
     from research.bl_residual.f5_timing import qualification_plan
@@ -411,7 +459,16 @@ def build(
     output = output.absolute()
     if output.exists():
         raise FileExistsError("create-only packet output already exists")
+    published_failure = repo / (
+        "research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/"
+        "output-01/receipt.json"
+    )
+    if published_failure.exists() and prior_capture_receipt is None:
+        raise ValueError(
+            "published attempt-01 requires explicit --prior-capture-receipt accounting"
+        )
     authority = governance(repo, artifacts)
+    capture_accounting = capture_remainder(prior_capture_receipt)
     source = source_review(repo)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
     evaluation = json.loads(safe_metadata(repo / COLLISION / "allocation-evaluation.json"))
@@ -534,6 +591,7 @@ def build(
             45397643 - private_known
         )
     blocked = validate_draft_manifest(manifest)
+    blocked.extend(capture_accounting["hold_reasons"])
     timing = qualification_plan(allocation)
     output.mkdir(parents=True)
     files = {}
@@ -609,8 +667,14 @@ def build(
     files["prepare.draft.json"] = export_json(output / "prepare.draft.json", canary)
     capture = {
         **canary,
-        "job_id": f"bl-f5-w-capture-{commit[:8]}-01",
-        "output_dir": str(output / "capture-output-01"),
+        "job_id": (
+            f"bl-f5-w-capture-{commit[:8]}-01"
+            if prior_capture_receipt is None
+            else "bl-f5-w-capture-repair-22e86986-02"
+        ),
+        "output_dir": str(
+            output / ("capture-output-01" if prior_capture_receipt is None else "capture-output-02")
+        ),
         "inputs": [
             *[item for item in manifest["inputs"] if item["dest"] == "b8.pth"],
             fixture_input,
@@ -627,15 +691,16 @@ def build(
             *manifest["required_exports"],
         ],
         "substeps": ["RAW_ENVIRONMENT_CAPTURE", "DISJOINT_CUDA_TRANSPORT_QUALIFICATION"],
-        "timeout_minutes": 10,
+        "timeout_minutes": capture_accounting["remaining_capture_seconds"] / 60,
+        "capture_accounting": capture_accounting,
         "requirements": {**canary["requirements"], "est_minutes": 5},
         "resume_exemption": {
             "kind": "short-canary",
             "reason": (
-                "metadata-only initial environment capture; "
-                "shared 40-minute qualification allowance"
+                "Environment capture and disjoint transport only; all failed-attempt "
+                "elapsed debits the original 600-second capture allowance"
             ),
-            "timeout_minutes": 10,
+            "timeout_minutes": capture_accounting["remaining_capture_seconds"] / 60,
         },
     }
     files["environment-capture.draft.json"] = export_json(
@@ -805,6 +870,7 @@ def build(
             "all_remaining_qualification_substeps_minutes": 30,
             "paired_fit_minutes": 200,
             "aggregate_minutes": 240,
+            "capture_accounting": capture_accounting,
             "rule": (
                 "all attempts/substeps share original cumulative allowance; "
                 "never reset by a fresh job"
@@ -848,8 +914,18 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true", required=True)
     parser.add_argument("--selected-package", type=Path)
+    parser.add_argument("--prior-capture-receipt", type=Path)
     args = parser.parse_args()
-    print(json.dumps(build(args.output, selected_package=args.selected_package), sort_keys=True))
+    print(
+        json.dumps(
+            build(
+                args.output,
+                selected_package=args.selected_package,
+                prior_capture_receipt=args.prior_capture_receipt,
+            ),
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":

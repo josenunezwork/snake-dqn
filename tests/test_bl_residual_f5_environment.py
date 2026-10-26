@@ -229,7 +229,7 @@ def test_encoded_wheel_url_and_console_record_normalization_are_auditable() -> N
     environment.validate_environment(receipt)
     raw_script = b"#!/venv-a/bin/python\nprint('fixed')\n"
     contents = {
-        "__entrypoint__/fixture": {
+        "__root_bound__/bin/fixture": {
             "raw_base64": base64.b64encode(raw_script).decode(),
             "raw_sha256": _hash(raw_script),
             "canonical_sha256": _hash(b"#!<INSTALLATION_ROOT>/bin/python\nprint('fixed')\n"),
@@ -240,6 +240,40 @@ def test_encoded_wheel_url_and_console_record_normalization_are_auditable() -> N
     assert b"../../../bin/fixture,sha256=" in normalized
     assert b"old" not in normalized
     assert b"module.py,sha256=fixed,2" in normalized
+
+
+def test_v3_rejects_unknown_or_legacy_root_bound_content_classes() -> None:
+    receipt = _receipt()
+    package = receipt["installed_packages"]["torch"]
+    assert isinstance(package, dict)
+    contents = package["installed_contents"]
+    assert isinstance(contents, dict)
+    contents["__root_bound__/etc/f5.conf"] = {
+        "raw_sha256": _hash(b"fixed"),
+        "canonical_sha256": _hash(b"fixed"),
+    }
+    with pytest.raises(environment.F5EnvironmentRefusal, match="root-bound"):
+        environment.validate_environment(receipt)
+
+    legacy = _receipt()
+    legacy_package = legacy["installed_packages"]["torch"]
+    assert isinstance(legacy_package, dict)
+    legacy_contents = legacy_package["installed_contents"]
+    assert isinstance(legacy_contents, dict)
+    legacy_contents["__entrypoint__/old"] = {
+        "raw_base64": base64.b64encode(b"#!/venv-a/bin/python\n").decode(),
+        "raw_sha256": _hash(b"#!/venv-a/bin/python\n"),
+        "canonical_sha256": _hash(b"#!<INSTALLATION_ROOT>/bin/python\n"),
+    }
+    with pytest.raises(environment.F5EnvironmentRefusal, match="legacy entrypoint"):
+        environment.validate_environment(legacy)
+
+
+def test_root_script_canonicalization_refuses_a_sibling_installation_prefix() -> None:
+    """``/venv-a`` must never match a script from ``/venv-a-other``."""
+    assert (
+        environment._canonical_root_bound_script(b"#!/venv-a-other/bin/python\n", "/venv-a") is None
+    )
 
 
 def test_direct_url_uses_exact_verified_sibling_wheelhouse_url() -> None:

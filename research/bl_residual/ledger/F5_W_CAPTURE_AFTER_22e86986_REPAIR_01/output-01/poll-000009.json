@@ -1,0 +1,15 @@
+{
+  "exports": [],
+  "job_log_tail": "Downloading cpython-3.12.15-linux-x86_64-gnu (download) (32.9MiB)\n Downloaded cpython-3.12.15-linux-x86_64-gnu (download)\nInstalled Python 3.12.15 in 956ms\n + cpython-3.12.15-linux-x86_64-gnu (python3.12)\nwarning: `/root/.local/bin` is not on your PATH. To use installed Python executables, run `export PATH=\"/root/.local/bin:$PATH\"` or `uv python update-shell`.\nwarning: The `--system` flag has no effect, `uv venv` always ignores virtual environments when finding a Python interpreter; did you mean `--no-managed-python`?\nUsing CPython 3.12.15\nCreating virtual environment with seed packages at: .venv\n + pip==26.2.2\nActivate with: source .venv/bin/activate\n2.9.1+cu126 12.6 (8, 9)\nDownloading cpython-3.12.3-linux-x86_64-gnu (download) (64.2MiB)\n Downloaded cpython-3.12.3-linux-x86_64-gnu (download)\nInstalled Python 3.12.3 in 1.54s\n + cpython-3.12.3-linux-x86_64-gnu\nwarning: `/root/.local/bin` is not on your PATH. To use installed Python executables, run `export PATH=\"/root/.local/bin:$PATH\"` or `uv python update-shell`.\nwarning: The `--system` flag has no effect, `uv venv` always ignores virtual environments when finding a Python interpreter; did you mean `--no-managed-python`?\nUsing CPython 3.12.3\nCreating virtual environment with seed packages at: /content/snake-cli/375050f568514c1aaf545dc1e7ac52df/f5-cp3123\n + pip==26.2.2\nActivate with: source /content/snake-cli/375050f568514c1aaf545dc1e7ac52df/f5-cp3123/bin/activate\nLooking in indexes: https://download.pytorch.org/whl/cu126, https://pypi.org/simple\nCollecting absl-py==2.5.1 (from -r research/bl_residual/f5_adoption_environment_20261026_v6/requirements-f5-l4-cu126.lock (line 3))\n  Using cached absl_py-2.5.1-py3-none-any.whl (137 kB)\nCollecting annotated-doc==0.0.5 (from -r research/bl_residual/f5_adoption_environment_20261026_v6/requirements-f5-l4-cu126.lock (line 7))\n  Using cached annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)\nCollecting annotated-types==0.8.0 (from -r research/bl_residual/f5_adoption_environment_20261026_v6/requirements-f5-l4-cu126.lock (line 11))\n  Using cached annotated_types-0.8.0-py3-none-any.whl (13 kB)\n",
+  "state": {
+    "generation": "375050f568514c1aaf545dc1e7ac52df",
+    "job_id": "bl-f5-w-capture-repair-22e86986-01",
+    "max_export_bytes": 2147483648,
+    "pid": 6955,
+    "started_at": 1792993810.6503067,
+    "status": "running",
+    "updated_at": 1792993991.7682006
+  },
+  "supervisor_log_tail": "",
+  "terminal": null
+}
