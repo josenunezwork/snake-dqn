@@ -1,0 +1,133 @@
+{
+  "canary_observations": [
+    {
+      "caller": "research/bl_residual/f5_qualification.py:135:_select_cuda",
+      "cuda_decisions": 1,
+      "device": "cuda:0",
+      "operation": "Tensor.argmax",
+      "package": "research/bl_residual",
+      "pid": 4031,
+      "root": "/content/snake-cli/9372cde6452b4edab48200687c8f89f1",
+      "shape": [
+        1,
+        6
+      ],
+      "version": 1
+    }
+  ],
+  "export_scanner": {
+    "inventory": [
+      {
+        "path": "environment-diagnostic.json",
+        "sha256": "b57412e6debdf36b7aff13709622366d877eb30a9d178140d1e634a79a1af388",
+        "size": 13420207
+      },
+      {
+        "path": "environment-raw.json",
+        "sha256": "dc044ffdf76ad3d32633ef2058e48085b9dafd2b51cf8744d1bc194cc9f15794",
+        "size": 13419976
+      },
+      {
+        "path": "environment.json",
+        "sha256": "dc044ffdf76ad3d32633ef2058e48085b9dafd2b51cf8744d1bc194cc9f15794",
+        "size": 13419976
+      },
+      {
+        "path": "paired/assignment-environment.json",
+        "sha256": "dc044ffdf76ad3d32633ef2058e48085b9dafd2b51cf8744d1bc194cc9f15794",
+        "size": 13419976
+      },
+      {
+        "path": "paired/f5-state-C.pt",
+        "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+        "size": 1453
+      },
+      {
+        "path": "paired/f5-state-W.pt",
+        "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-C.pth",
+        "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-W.pth",
+        "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-receipt.json",
+        "sha256": "f4e1c02454193d53d1fedb99cae70448acb80298589ede6588f39f5ca07216cb",
+        "size": 224
+      },
+      {
+        "path": "qualification/qualification.json",
+        "sha256": "b79f23d4af56d24c923961ef2ac876460893b1cf914e911311f4dae4594145ce",
+        "size": 10754733
+      }
+    ],
+    "name": "runtime._exports"
+  },
+  "exports": [
+    {
+      "path": "environment-diagnostic.json",
+      "sha256": "b57412e6debdf36b7aff13709622366d877eb30a9d178140d1e634a79a1af388",
+      "size": 13420207
+    },
+    {
+      "path": "environment-raw.json",
+      "sha256": "dc044ffdf76ad3d32633ef2058e48085b9dafd2b51cf8744d1bc194cc9f15794",
+      "size": 13419976
+    },
+    {
+      "path": "environment.json",
+      "sha256": "dc044ffdf76ad3d32633ef2058e48085b9dafd2b51cf8744d1bc194cc9f15794",
+      "size": 13419976
+    },
+    {
+      "path": "paired/assignment-environment.json",
+      "sha256": "dc044ffdf76ad3d32633ef2058e48085b9dafd2b51cf8744d1bc194cc9f15794",
+      "size": 13419976
+    },
+    {
+      "path": "paired/f5-state-C.pt",
+      "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+      "size": 1453
+    },
+    {
+      "path": "paired/f5-state-W.pt",
+      "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+      "size": 1453
+    },
+    {
+      "path": "paired/fit-C.pth",
+      "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+      "size": 1453
+    },
+    {
+      "path": "paired/fit-W.pth",
+      "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+      "size": 1453
+    },
+    {
+      "path": "paired/fit-receipt.json",
+      "sha256": "f4e1c02454193d53d1fedb99cae70448acb80298589ede6588f39f5ca07216cb",
+      "size": 224
+    },
+    {
+      "path": "qualification/qualification.json",
+      "sha256": "b79f23d4af56d24c923961ef2ac876460893b1cf914e911311f4dae4594145ce",
+      "size": 10754733
+    }
+  ],
+  "finished_at": 1793006408.314011,
+  "generation": "9372cde6452b4edab48200687c8f89f1",
+  "job_id": "bl-f5-w-capture-repair-22e86986-04",
+  "last_traceback_line": "{\"path\": \"/content/snake-cli/9372cde6452b4edab48200687c8f89f1/output/environment.json\", \"sha256\": \"dc044ffdf76ad3d32633ef2058e48085b9dafd2b51cf8744d1bc194cc9f15794\", \"size\": 13419976}",
+  "reason": null,
+  "returncode": 0,
+  "started_at": 1793005521.8073282,
+  "status": "succeeded"
+}

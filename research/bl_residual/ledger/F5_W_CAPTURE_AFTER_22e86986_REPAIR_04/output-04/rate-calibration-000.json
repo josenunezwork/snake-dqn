@@ -1,0 +1,11 @@
+{
+  "elapsed_seconds": 1.0855974999722093,
+  "sessions": {
+    "gpu-l4-s-ass1a0-c7wvo5bf6jga": "snake-bl-f5-w-capture-repair-22e86986-04-9372cde6452b"
+  },
+  "usage": {
+    "assignments": 1.0,
+    "balance": 1066.65,
+    "rate": 1.54
+  }
+}
