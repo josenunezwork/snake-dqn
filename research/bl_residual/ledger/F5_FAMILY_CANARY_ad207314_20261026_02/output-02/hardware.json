@@ -1,0 +1,8 @@
+{
+  "hardware": {
+    "compute_cap": "8.9",
+    "kind": "L4",
+    "name": "NVIDIA L4"
+  },
+  "ready": true
+}

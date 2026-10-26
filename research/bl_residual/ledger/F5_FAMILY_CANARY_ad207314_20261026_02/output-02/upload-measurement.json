@@ -1,0 +1,18 @@
+{
+  "elapsed_seconds": 50.73830841702875,
+  "input_transfer_seconds": {
+    "best_apex_fs.pth": 3.1053753329906613,
+    "best_apex_pre_fs.pth": 3.097125541884452,
+    "best_apex_stage1_fs.pth": 3.1250021250452846,
+    "champion_a5_freespace_20260621.pth": 5.243084375048056,
+    "control.json": 9.18118245806545,
+    "frp3_m3_s12_u60000_20261005.pth": 5.04567916598171,
+    "timing-fixtures.json": 0.99966166599188,
+    "verified-ledger.json": 1.0237222498981282,
+    "verified-ledger.json.complete": 1.0054795000469312,
+    "verified-ledger.json.sha256": 1.354700249969028
+  },
+  "setup_seconds": 0.6766177909448743,
+  "source_delivery_seconds": 14.75111183396075,
+  "transfer_seconds": 35.309064497821964
+}

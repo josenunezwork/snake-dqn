@@ -1,0 +1,28 @@
+{
+  "canary_observations": [],
+  "export_scanner": {
+    "inventory": [
+      {
+        "path": "environment/cross-assignment-refusal.json",
+        "sha256": "ae157f89cce650d73bab192acb324987f97a50cc29fed44ee83bc8a09faf48b9",
+        "size": 13420754
+      }
+    ],
+    "name": "runtime._exports"
+  },
+  "exports": [
+    {
+      "path": "environment/cross-assignment-refusal.json",
+      "sha256": "ae157f89cce650d73bab192acb324987f97a50cc29fed44ee83bc8a09faf48b9",
+      "size": 13420754
+    }
+  ],
+  "finished_at": 1793037296.0336921,
+  "generation": "58fa0c60e595489fac29b15d38658c78",
+  "job_id": "bl-f5-family-canary-ad207314-20261026-02",
+  "last_traceback_line": "research.bl_residual.f5_environment.F5CrossAssignmentRefusal: F5 cross-assignment invariant environment differs",
+  "reason": null,
+  "returncode": 1,
+  "started_at": 1793036764.4284031,
+  "status": "failed"
+}

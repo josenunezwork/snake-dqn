@@ -1,0 +1,611 @@
+{
+  "acceptance": {
+    "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/ACCEPT_F5_FAMILY_CANARY_02.md",
+    "published_relative_path": "ACCEPT_F5_FAMILY_CANARY_02.md",
+    "sha256": "9bf076600686523e2d4c8fe1bb0c115474074731dacbde908a2b0ec5861e40fd",
+    "size": 8588
+  },
+  "admissibility": {
+    "reason": "INCOMPLETE v5 cross-assignment environment refusal; one non-admissible diagnostic, zero timing/scientific units",
+    "scientific_evidence": false,
+    "timing_qualification_evidence": false
+  },
+  "all_original_files": 70,
+  "created_utc": "2026-10-26T18:00:41.957236+00:00",
+  "credential_and_state_exclusion": {
+    "copied_source_scope": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02",
+    "json_key_scan": "refuses known credential and private lease key names in top-level operational JSON; external diagnostic is hash-bound only; staging source closure, opaque archive, and hashed artifact-path references are retained without parsing",
+    "not_copied": [
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/state-02",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/accounts",
+      "any runtime token, credential, or private lease state"
+    ]
+  },
+  "dispatches": 0,
+  "entries": [
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/accounting-baseline.json",
+      "relative_path": "accounting-baseline.json",
+      "sha256": "745350e42a76fc1ad783b69242b0152dfac8e2ce77b7bb98f71a24d362030c15",
+      "size": 174,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/accounting-baseline.json"
+    },
+    {
+      "publication": "EXTERNAL_HASH_BOUND_ARTIFACT",
+      "published_relative_path": null,
+      "relative_path": "exports/environment/cross-assignment-refusal.json",
+      "sha256": "ae157f89cce650d73bab192acb324987f97a50cc29fed44ee83bc8a09faf48b9",
+      "size": 13420754,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/exports/environment/cross-assignment-refusal.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/exports/environment/cross-assignment-refusal.json.complete",
+      "relative_path": "exports/environment/cross-assignment-refusal.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/exports/environment/cross-assignment-refusal.json.complete"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/exports/environment/cross-assignment-refusal.json.sha256",
+      "relative_path": "exports/environment/cross-assignment-refusal.json.sha256",
+      "sha256": "59bb546c8d91e987de287acb9c604e6109d92ad9af6873bb831116371e0e69ef",
+      "size": 96,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/exports/environment/cross-assignment-refusal.json.sha256"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/hardware.json",
+      "relative_path": "hardware.json",
+      "sha256": "20824d820b77e3559c87407ba02c919f438302f292eba0a00259699b16e1aa4a",
+      "size": 109,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/hardware.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/input-hashes.json",
+      "relative_path": "input-hashes.json",
+      "sha256": "244279bf13c586b3fb4620f0c2d6746c644166c780ed1132fe195faa4d9f302b",
+      "size": 1382,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/input-hashes.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/manifest.json",
+      "relative_path": "manifest.json",
+      "sha256": "896453737692cc4c3a47b016887d9c755d2b81d4b33accfba8eba9b33f5788f6",
+      "size": 18813,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/manifest.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000000.json",
+      "relative_path": "poll-000000.json",
+      "sha256": "dba66412dcb58b40a4b6552c70ffc3885a964b0e6d53d4ed248c972b4327b12c",
+      "size": 373,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000000.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000001.json",
+      "relative_path": "poll-000001.json",
+      "sha256": "998bbd17f4bc996334ec1d70069bf47dd2a24b20ba23c849dd59412ae529aa25",
+      "size": 1045,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000001.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000002.json",
+      "relative_path": "poll-000002.json",
+      "sha256": "3e02848689bc70f3841336627c2516aa5db2e82202ba709cfad33d91c4915199",
+      "size": 1046,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000002.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000003.json",
+      "relative_path": "poll-000003.json",
+      "sha256": "e4b7c6d0581f3029b6e41e2c1ade7e9b8894eaaf7aaea1564f9dd195cc5ceed7",
+      "size": 1046,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000003.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000004.json",
+      "relative_path": "poll-000004.json",
+      "sha256": "a3a666d0ae01b65f6ecdf4ace9b6f0adf25d98fae9fa1a0aefa2a143c2e2840a",
+      "size": 1045,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000004.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000005.json",
+      "relative_path": "poll-000005.json",
+      "sha256": "fd2c157462e9b8847dd9d24e83500a8527f6d670511fdb8374188b6f8a38b731",
+      "size": 1046,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000005.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000006.json",
+      "relative_path": "poll-000006.json",
+      "sha256": "76ccc4f4a615784944411e6581b58a38a0c31f595056b2ec9a95197c3d45c691",
+      "size": 1046,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000006.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000007.json",
+      "relative_path": "poll-000007.json",
+      "sha256": "ecdc70bb90746fa87339161c24646217b3a243f594e9be0055a77617388c4e4b",
+      "size": 1046,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000007.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000008.json",
+      "relative_path": "poll-000008.json",
+      "sha256": "2db03d761fc05ccb35981f119045152db961fda91846348805a8647d3f3542cf",
+      "size": 1046,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000008.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000009.json",
+      "relative_path": "poll-000009.json",
+      "sha256": "d992ea7580bf1126355f8e8410ca990b7bba7a8708ffb82b0777aa4f464edd44",
+      "size": 1837,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000009.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000010.json",
+      "relative_path": "poll-000010.json",
+      "sha256": "86d88ee92ed6ec65eaaeb348f732e8c0d033fad23307e93ba967b946a3512622",
+      "size": 4747,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000010.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000011.json",
+      "relative_path": "poll-000011.json",
+      "sha256": "ea3b8c35e00a96954d666ba8461e1a258ef19052452e4c5c8c07acc9fa2c7ce1",
+      "size": 5104,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000011.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000012.json",
+      "relative_path": "poll-000012.json",
+      "sha256": "2649ff7fddae98e016d111a617b8941d73730f7474c7664d87cf48e50243e5b6",
+      "size": 5461,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000012.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000013.json",
+      "relative_path": "poll-000013.json",
+      "sha256": "fcbd17a82bbcf6743c2f5fdb6f8bac050be010279ae5fb860fd5ad2b72c99b2e",
+      "size": 5691,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000013.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000014.json",
+      "relative_path": "poll-000014.json",
+      "sha256": "2faaf12fe9bc91bf2d80b979217f49ecf98649fca599f849f9e0163e2938ac7d",
+      "size": 5461,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000014.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000015.json",
+      "relative_path": "poll-000015.json",
+      "sha256": "5fc6ca7eef78b441663d7f98b3079baa6e18bb476fb0ce9da7bd336e4cdba79f",
+      "size": 4497,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000015.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000016.json",
+      "relative_path": "poll-000016.json",
+      "sha256": "7e2ca7b69e17c0eb73c4f63da05e64a0094c933572a57e754c2e69c37f4a2453",
+      "size": 4485,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000016.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000017.json",
+      "relative_path": "poll-000017.json",
+      "sha256": "d593a4f0dcc556f8e2addd21ea86caf53a2d3c0fe7b59eda6896bd645381328c",
+      "size": 4484,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000017.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000018.json",
+      "relative_path": "poll-000018.json",
+      "sha256": "c49bc34ef69d4a8d28a5b0c84dd0cd2c1e0c3cc132d4153c5f7e61fe479ae229",
+      "size": 4485,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000018.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000019.json",
+      "relative_path": "poll-000019.json",
+      "sha256": "1b0a7d3cf4838131f66821004a47c48d843415fce0f07fd3631f06719ece17dd",
+      "size": 4485,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000019.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000020.json",
+      "relative_path": "poll-000020.json",
+      "sha256": "8cba1233db016dd655431b90a5714327f5ed1e5931cca165b411aa2659683294",
+      "size": 4485,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000020.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000021.json",
+      "relative_path": "poll-000021.json",
+      "sha256": "ff9c618e63672af81bfc157424a9ae594e0a31f29d9625ea064be8f1fcc7349e",
+      "size": 4483,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000021.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000022.json",
+      "relative_path": "poll-000022.json",
+      "sha256": "87fe5caa61783d42a45d03f916b46b045b4df32d1c012f05ff61c66326453d10",
+      "size": 4485,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000022.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000023.json",
+      "relative_path": "poll-000023.json",
+      "sha256": "30091f3dde2087a076dd7445d33a914a942f0c4e7533367b0fb9e76dc5c3c8a3",
+      "size": 4608,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000023.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000024.json",
+      "relative_path": "poll-000024.json",
+      "sha256": "89e36cac6d07f980097ae78c5976b0383ada44a130e70114bba8c698d7fce201",
+      "size": 4639,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000024.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000025.json",
+      "relative_path": "poll-000025.json",
+      "sha256": "c7165ad0d436be6c3cf15d29a22f8ee69d6cff9af12e2ee83237dac77c550253",
+      "size": 4639,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000025.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000026.json",
+      "relative_path": "poll-000026.json",
+      "sha256": "126209a4fc96b27d46c87ef28d8df4b6d16ab62c7d0aa10bdee85fe3ac8fe543",
+      "size": 4639,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000026.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000027.json",
+      "relative_path": "poll-000027.json",
+      "sha256": "03a0cfeaedc04d526bb939314fe883ac4dab41e6af48ac7d7726b25e11b9f5e9",
+      "size": 4670,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000027.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/poll-000028.json",
+      "relative_path": "poll-000028.json",
+      "sha256": "9e3e3f156c8bfad9e025a38eace5fd57f7d322f42a778b0d1a96c2d3a396fab0",
+      "size": 5739,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/poll-000028.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/public-input-preflight.json",
+      "relative_path": "public-input-preflight.json",
+      "sha256": "d15b1b97bd3aadc2f75a501859a42178f24cc11ef3ee5ee4f27d77931b248a63",
+      "size": 368,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/public-input-preflight.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/rate-calibration-000.json",
+      "relative_path": "rate-calibration-000.json",
+      "sha256": "0e205bb7007ec38a3e13a289b0f38437cf0dc818510da0a974d5bf7214d6f605",
+      "size": 250,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/rate-calibration-000.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/rate-calibration-001.json",
+      "relative_path": "rate-calibration-001.json",
+      "sha256": "9b7d099226d9c86759f922d48867f9e0e9a03bea2fe3bf7af2b103b3f6e6edd6",
+      "size": 249,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/rate-calibration-001.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/rate-calibration-002.json",
+      "relative_path": "rate-calibration-002.json",
+      "sha256": "2348a1b8a2c6158a2fa8e42b1f8a0b9d89062a83dc305d7bec9dd2b4c2dce979",
+      "size": 249,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/rate-calibration-002.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/rate-calibration.json",
+      "relative_path": "rate-calibration.json",
+      "sha256": "3296e059143ad100188900062af56de0734a4c45567202a1842a91a1c62250da",
+      "size": 1123,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/rate-calibration.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/receipt.json",
+      "relative_path": "receipt.json",
+      "sha256": "41b390766a98f3f260d21d9e738b413367bc9cb199ba45db6c3ec1dd78c46037",
+      "size": 104929,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/receipt.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/source-delivery.json",
+      "relative_path": "source-delivery.json",
+      "sha256": "83d5df20eae8c1652d77bfacd00548ca76a1d96772dae6c8750e9a5e5ced4b46",
+      "size": 138,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/source-delivery.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/spend-000000.json",
+      "relative_path": "spend-000000.json",
+      "sha256": "9b85ac6c9187cb1c695c15dbeb22d2030bebb6e11ef54d934973a5c1a13b6650",
+      "size": 582,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/spend-000000.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/spend-000004.json",
+      "relative_path": "spend-000004.json",
+      "sha256": "de59110ba3cbdd6fe7f6358a3ecbe05d232436017fdb47542d6d06ffbb6b3ee5",
+      "size": 582,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/spend-000004.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/spend-000008.json",
+      "relative_path": "spend-000008.json",
+      "sha256": "00aaadd23d3802595fa2c140d26edc26a12533e137495ed74daae561168b2f78",
+      "size": 583,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/spend-000008.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/spend-000012.json",
+      "relative_path": "spend-000012.json",
+      "sha256": "908d3cda4845e13c4d58559bfb0baf0db51c3618a65a89f1138240c67a79752c",
+      "size": 582,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/spend-000012.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/spend-000016.json",
+      "relative_path": "spend-000016.json",
+      "sha256": "d64b9c503a035df3fee7eca23e5c00b940aa814a5588d26ac48c21439cf579ce",
+      "size": 612,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/spend-000016.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/spend-000020.json",
+      "relative_path": "spend-000020.json",
+      "sha256": "00b689035cb41b6530a5d0c5b651cb2037acb0e8e470bc65a7f6b9031c63c19a",
+      "size": 615,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/spend-000020.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/spend-000024.json",
+      "relative_path": "spend-000024.json",
+      "sha256": "18878aa0c8afe7e79661b53d98867a2c1ece7c302a4c0f2298e56b83a441d1d6",
+      "size": 613,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/spend-000024.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/spend-000028.json",
+      "relative_path": "spend-000028.json",
+      "sha256": "a76c1f921675b7d456167d0898540cf78d43fa7e00620b8936f8aa15e3dff0ed",
+      "size": 612,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/spend-000028.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/staging/bootstrap.sh",
+      "relative_path": "staging/bootstrap.sh",
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+      "size": 3244,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/staging/bootstrap.sh"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/staging/release.py",
+      "relative_path": "staging/release.py",
+      "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+      "size": 14677,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/staging/release.py"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/staging/runtime.py",
+      "relative_path": "staging/runtime.py",
+      "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+      "size": 30712,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/staging/runtime.py"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/staging/schema-validation.json",
+      "relative_path": "staging/schema-validation.json",
+      "sha256": "8e9e84e2444a84cabfafa5915e10f2b4b2eab4671af8bfd901f93cfc5dc63a6d",
+      "size": 317,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/staging/schema-validation.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/staging/source-plan.json",
+      "relative_path": "staging/source-plan.json",
+      "sha256": "3f523e3e8a71536565e98ea0415b8b9e537b7c193456bf8eb60fedd5b6167510",
+      "size": 44146,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/staging/source-plan.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/staging/source.py",
+      "relative_path": "staging/source.py",
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+      "size": 14511,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/staging/source.py"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/staging/source.tar.gz",
+      "relative_path": "staging/source.tar.gz",
+      "sha256": "f4a4a01944fce5ed9debb61639b2a186eae0b728c9581af38fa5a6fa39f07276",
+      "size": 961175,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/staging/source.tar.gz"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/terminal.json",
+      "relative_path": "terminal.json",
+      "sha256": "d3fb88d88e837aaed7fe10ca09fe5cac973d4ae613607aca7fb98625f3b80c1c",
+      "size": 882,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/terminal.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/upload-measurement.json",
+      "relative_path": "upload-measurement.json",
+      "sha256": "ee631dfac8e5c848e1c1566db8cb1965255a5093acd76f2ae235c8659ef011c2",
+      "size": 709,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/upload-measurement.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/usage-000000.json",
+      "relative_path": "usage-000000.json",
+      "sha256": "5bccd64721423bd5afc1aba7be3e52ed3d42b952b2efc8a6cb05aef77d9d8ca7",
+      "size": 63,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/usage-000000.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/usage-000004.json",
+      "relative_path": "usage-000004.json",
+      "sha256": "5bccd64721423bd5afc1aba7be3e52ed3d42b952b2efc8a6cb05aef77d9d8ca7",
+      "size": 63,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/usage-000004.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/usage-000008.json",
+      "relative_path": "usage-000008.json",
+      "sha256": "5bccd64721423bd5afc1aba7be3e52ed3d42b952b2efc8a6cb05aef77d9d8ca7",
+      "size": 63,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/usage-000008.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/usage-000012.json",
+      "relative_path": "usage-000012.json",
+      "sha256": "5bccd64721423bd5afc1aba7be3e52ed3d42b952b2efc8a6cb05aef77d9d8ca7",
+      "size": 63,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/usage-000012.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/usage-000016.json",
+      "relative_path": "usage-000016.json",
+      "sha256": "2754ecd61e632eaeec56beac8c3620d902cd7b013bcca7d229dc3c6f1cc9b738",
+      "size": 63,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/usage-000016.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/usage-000020.json",
+      "relative_path": "usage-000020.json",
+      "sha256": "2754ecd61e632eaeec56beac8c3620d902cd7b013bcca7d229dc3c6f1cc9b738",
+      "size": 63,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/usage-000020.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/usage-000024.json",
+      "relative_path": "usage-000024.json",
+      "sha256": "2754ecd61e632eaeec56beac8c3620d902cd7b013bcca7d229dc3c6f1cc9b738",
+      "size": 63,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/usage-000024.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/usage-000028.json",
+      "relative_path": "usage-000028.json",
+      "sha256": "2754ecd61e632eaeec56beac8c3620d902cd7b013bcca7d229dc3c6f1cc9b738",
+      "size": 63,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/usage-000028.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/usage-allocated.json",
+      "relative_path": "usage-allocated.json",
+      "sha256": "5bccd64721423bd5afc1aba7be3e52ed3d42b952b2efc8a6cb05aef77d9d8ca7",
+      "size": 63,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/usage-allocated.json"
+    },
+    {
+      "publication": "EXACT_BYTES",
+      "published_relative_path": "output-02/warmup-measurement.json",
+      "relative_path": "warmup-measurement.json",
+      "sha256": "af4ad8d45ccfaf0791bf317bbcf61c6c041451f2834e4262c264e2736b4fb681",
+      "size": 79,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02/warmup-measurement.json"
+    }
+  ],
+  "opaque_bytes_only": true,
+  "payloads_deserialized": false,
+  "provider_calls": 0,
+  "publication_scope": "SAVED_OUTPUT_02_OPERATIONAL_REFUSAL_ONLY",
+  "recorded_terminal_state": {
+    "cleanup_error": null,
+    "elapsed_seconds": 556.1637112910394,
+    "export_count": 1,
+    "failure_classification": "F5 cross-assignment invariant environment differs",
+    "job_id": "bl-f5-family-canary-ad207314-20261026-02",
+    "status": "INCOMPLETE",
+    "stop_verified": true
+  },
+  "schema": "bl-f5-family-canary-output-publication/v1",
+  "source": {
+    "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02",
+    "output_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-02/output-02",
+    "runtime_source_commit": "ad207314bcccc037121b6da03c3aa296d3e1c0ac",
+    "sealed_preparation_packet": {
+      "published_relative_path": "ARTIFACT_PACKET.json",
+      "sha256": "f709b72a39172cd66d37915bd6a3a54809f3a3539b5895d1a2cae73f19054c03",
+      "size": 21243
+    }
+  }
+}
