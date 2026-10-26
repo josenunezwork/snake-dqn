@@ -26,6 +26,64 @@ ROOT = Path(__file__).resolve().parents[2]
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 
 
+def runtime_source_paths(commit: str) -> list[str]:
+    """Ship the resident runtime and its audited CPU/CUDA dependency superset.
+
+    Admission binds every shipped byte. Excluding unrelated research fixtures and
+    benchmarks cuts repeated Git blob checks without skipping any admission check.
+    """
+    gpu_names = {
+        "__init__.py",
+        "device_sim.py",
+        "stage_timing.py",
+        "r2_cache.py",
+        "device_policy.py",
+        "anchors_device.py",
+        "ego_device.py",
+        "masks_device.py",
+        "v8_device.py",
+        "vector_device.py",
+        *(
+            f"{stem}.{suffix}"
+            for stem in ("flood_cuda", "move_cuda", "event_cuda", "vector_geometry", "v8_indexed")
+            for suffix in ("py", "cpp", "cu")
+        ),
+    }
+    resident_names = {
+        "__init__.py",
+        "run.py",
+        "core.py",
+        "proof.py",
+        "units.py",
+        "job.sh",
+        "requirements.txt",
+    }
+    tracked = subprocess.check_output(
+        ["git", "ls-tree", "-r", "--name-only", commit, "src", "research"],
+        cwd=ROOT,
+        text=True,
+    ).splitlines()
+    return [
+        name
+        for name in tracked
+        if (
+            name in {"src/__init__.py", "research/__init__.py"}
+            or (
+                name.startswith(("src/core/", "src/model/", "src/simd_env/", "src/evaluation/"))
+                and name.endswith(".py")
+            )
+            or (
+                Path(name).parent.as_posix() == "research/gpu_sim_spike"
+                and Path(name).name in gpu_names
+            )
+            or (
+                Path(name).parent.as_posix() == "research/sandbox_a_resident"
+                and Path(name).name in resident_names
+            )
+        )
+    ]
+
+
 def seed_allocations(control: dict) -> list[dict]:
     episodes = 1 + (control["cycles"] + control["warmups"]) * control["horizon"]
     return [
@@ -154,24 +212,7 @@ def prepare(
         "commit": commit,
         "script": "research/sandbox_a_resident/job.sh",
         "device": "cuda",
-        "source_paths": [
-            name
-            for name in subprocess.check_output(
-                [
-                    "git",
-                    "ls-tree",
-                    "-r",
-                    "--name-only",
-                    commit,
-                    "src",
-                    "research/gpu_sim_spike",
-                    "research/sandbox_a_resident",
-                ],
-                cwd=ROOT,
-                text=True,
-            ).splitlines()
-            if name.endswith((".py", ".sh", ".cu", ".cpp", ".txt"))
-        ],
+        "source_paths": runtime_source_paths(commit),
         "requirements": {
             "gpu": "A100",
             "allowed_gpus": ["A100"],

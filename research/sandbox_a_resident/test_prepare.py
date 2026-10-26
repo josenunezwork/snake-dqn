@@ -42,6 +42,13 @@ def test_packet02_admission_and_generous_runaway_guard(monkeypatch, tmp_path: Pa
     assert manifest["job_id"].endswith("-01")
     assert manifest["output_dir"].endswith("/a2-attempt-01/output")
     assert "pyproject.toml" not in manifest["source_paths"]
+    assert "research/gpu_sim_spike/masks_device.py" in manifest["source_paths"]
+    assert "research/gpu_sim_spike/event_cuda.cu" in manifest["source_paths"]
+    assert "src/model/ego2s_network.py" in manifest["source_paths"]
+    assert "src/main.py" not in manifest["source_paths"]
+    assert all(
+        "test_" not in path and "/fixtures/" not in path for path in manifest["source_paths"]
+    )
     assert json.loads(manifest["env"]["SANDBOX_A_CONTROL_JSON"])["episode_limits"] == [64, 512]
     for base in (0, float("nan"), float("inf"), 1e308):
         with pytest.raises(ValueError, match="positive finite"):
