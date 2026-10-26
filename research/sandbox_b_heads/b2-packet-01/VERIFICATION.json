@@ -1,0 +1,103 @@
+{
+  "schema": "sandbox-b2-local-verification/v1",
+  "label": "simulator-D",
+  "status": "PREPARED_NOT_RUN",
+  "runtime_commit": "cc125473f35330a7331ddf43102c93ac0a2fb217",
+  "packet_commit": "f4dd31a34d5b0a09dbf8cd7477095d97be19f681",
+  "configs": 48,
+  "thresholds": [
+    0,
+    0.1,
+    0.2,
+    0.4,
+    0.8
+  ],
+  "evaluation_points": 240,
+  "total_updates": 48000,
+  "runaway_timeout_minutes": {
+    "base": 60,
+    "effective": 120
+  },
+  "training_batch_size": 512,
+  "seed": 3403,
+  "learning_rate": 0.003,
+  "salt": "a100-dev/sandbox-b/split-v1",
+  "worker_threads": 1,
+  "nice": 15,
+  "focused_tests": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu venv/bin/python -m pytest -q -p no:xdist tools/sandbox/tests research/sandbox_b_heads/tests",
+    "passed": 85,
+    "failed": 0
+  },
+  "broader_regressions": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu venv/bin/python -m pytest -q -p no:xdist tools/sandbox/tests research/sandbox_b_heads/tests tests/test_colab_cli_supervisor.py tests/test_colab_cli_runtime.py tests/test_colab_cli_canary.py tests/test_ops_dispatch.py tests/test_ops_calendar_lint.py",
+    "passed": 365,
+    "failed": 1,
+    "seconds": 688.02,
+    "failure": "test_repository_launchers_contain_no_calendar_windows: unchanged factory_interim_launcher.py:1 historical docstring date; reproduced identically from d2d55570"
+  },
+  "baseline_calendar_lint": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b2-20261026/baseline-calendar-lint-01.json",
+    "sha256": "026ca2d990ca406fd067fc8c503137d6ed8a8c5176aa4b836ab5a03f2e23ce74"
+  },
+  "preflight": {
+    "status": "PASS",
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b2-20261026/preflight-01.log",
+    "sha256": "bc7f3e001c20a2d27ff3426a7bf51842d47cf88b251e612249b7eb18e6f15d4d"
+  },
+  "dispatch_dry_run": {
+    "status": "PASS_DRY_RUN",
+    "allocations": 0,
+    "live_accounting": "NOT_CHECKED",
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b2-20261026/dispatch-dry-run-01.log",
+    "sha256": "7b822479e173f393019b93ece3926daa00676cf5fcdb588ad31bfd27691ab030"
+  },
+  "clean_import_preflight": {
+    "status": "PASS",
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b2-20261026/clean-import-preflight-01.json",
+    "sha256": "5f7ef4a2cc74a9bef4980688762022707e9ecce0b517ebf7140c783de1b9a502"
+  },
+  "real_entrypoint_smoke": {
+    "device": "cpu",
+    "rows": 20,
+    "updates_per_config": 3,
+    "checkpoints": 48,
+    "evaluation_points": 240,
+    "seconds": 1.1512337500462309,
+    "payload_sha_sidecars": "all verified",
+    "timing": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b2-20261026/local-smoke-02/timing.json",
+      "sha256": "6b0cede8ff784c0c8a3ac601054727b1ab65103cfd37f53228679c83ac529e4f"
+    },
+    "log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b2-20261026/local-smoke-02.log",
+      "sha256": "233b88d6387939e9eb70a3ef1ba98fd590966e9998d2c2866440b813e5daff78"
+    }
+  },
+  "style": {
+    "black@100": "PASS (14 files)",
+    "isort": "PASS",
+    "flake8": "PASS",
+    "bash_n": "PASS",
+    "git_diff_check": "PASS"
+  },
+  "review": {
+    "unresolved_findings": 0,
+    "resolved": "B2 partial-resume bundle registry admission; exact index/config inventory now enforced and tested"
+  },
+  "broker_manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b2-packet-01/dispatch-manifest.json",
+    "sha256": "684c98290e8654e7e0c013f9b00bd49f20e477f2c54fa0681c63879743e8e127"
+  },
+  "sandbox_manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b2-packet-01/sandbox-manifest.json",
+    "sha256": "3990c5d2149d3ce9a9928c088fdbfcdebf99def3525c721c264c8d2631a0fd16"
+  },
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "qualified_transport_unchanged": true,
+  "not_done": [
+    "No A100 allocation/execution",
+    "No candidate crossing, gate, serving or release",
+    "No live account/coexistence check"
+  ]
+}

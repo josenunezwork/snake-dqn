@@ -1,0 +1,19 @@
+READY: Sandbox B-2, simulator-D development evidence only.
+Authority: docs/research/governance_a100_sandbox_20261026/ADOPTED.md.
+Runtime pin: cc125473f35330a7331ddf43102c93ac0a2fb217 (published on main).
+Finite endpoint: 48 configs, 48,000 updates; 5 post-hoc thresholds = 240 points.
+Same B-1 registry and split salt: a100-dev/sandbox-b/split-v1.
+Runaway guard: 60-minute base, 120-minute effective; Colab time is not a budget.
+Empty first-attempt ledger; per-config sealed exports; at most 2 mechanical completion attempts.
+Committed preflight PASS (85 tests); clean-venv imports PASS; dispatch dry-run PASS allocations=0.
+No live A100 allocation or execution was performed by this preparation.
+Live assignment isolation, accounting and protected-study coexistence remain dispatch checks.
+
+Preflight:
+nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/venv/bin/python -m tools.sandbox.preflight /Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b2-packet-01/sandbox-manifest.json
+
+Offline dry-run:
+nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/ops/dispatch.sh sandbox-b-heads-v2-01 /Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b2-packet-01/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxB --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxB --dry-run
+
+Dispatch (operator):
+nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/ops/dispatch.sh sandbox-b-heads-v2-01 /Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b2-packet-01/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxB --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxB
