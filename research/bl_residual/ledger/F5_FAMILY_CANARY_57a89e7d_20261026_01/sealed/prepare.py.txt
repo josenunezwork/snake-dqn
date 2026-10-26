@@ -1,0 +1,270 @@
+"""Create-only step-8 preparation; no dispatch or mutating provider operations."""
+
+import copy
+import datetime
+import hashlib
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import tarfile
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+BASE = ROOT.parent
+ASTRA = BASE.parent / "astra-20261024"
+BROKER = Path("/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-57a89e7d-20261026-01.noindex")
+PYTHON = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python")
+OPS = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops")
+PRIOR = BASE / "seal-03/package"
+PIN = "57a89e7df09687432228978ca162207051f9efdb"
+JOB = "bl-f5-family-canary-57a89e7d-20261026-01"
+sys.path.insert(0, str(BROKER))
+from research.bl_ppo.exports import export_bytes, export_json, verify_export
+from research.colab_cli import admission, canary, supervisor, transfer_policy
+from tools.ops import dispatch, qualification
+
+
+def now():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def sha(path):
+    with path.open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def bind(path):
+    assert path.is_absolute() and path.is_file() and not path.is_symlink(), path
+    return {"path": str(path), "sha256": sha(path), "size": path.stat().st_size}
+
+
+def load(path):
+    return json.loads(path.read_text())
+
+
+def run(argv, *, timeout=60, env=None):
+    started = now()
+    result = subprocess.run([str(a) for a in argv], cwd=BROKER, env=env,
+                            capture_output=True, text=True, timeout=timeout)
+    row = {"argv": [str(a) for a in argv], "started_utc": started,
+           "finished_utc": now(), "return_code": result.returncode,
+           "stdout": result.stdout, "stderr": result.stderr}
+    assert result.returncode == 0, row
+    return row
+
+
+def git(*args):
+    return run(["git", *args])["stdout"].strip()
+
+
+def verify_reference(reference):
+    actual = bind(Path(reference["path"]))
+    assert actual["sha256"] == reference["sha256"], reference
+    expected_size = reference.get("size", reference.get("size_bytes"))
+    assert expected_size is None or actual["size"] == expected_size, reference
+    return actual
+
+
+def main():
+    assert os.getpriority(os.PRIO_PROCESS, 0) == 15
+    assert git("rev-parse", "HEAD") == PIN
+    assert not git("branch", "--show-current")
+    assert not git("status", "--porcelain", "--untracked-files=all")
+    assert git("rev-parse", "origin/main") == PIN
+    assert not (ROOT / "manifest.json").exists()
+    registry = load(OPS / "colab-cli-qualified.json")
+    assert registry["qualified_commit"] == PIN
+    cli_tree = qualification.check(BROKER, OPS / "colab-cli-qualified.json")
+    result_path = Path(registry["acceptance_result"])
+    assert sha(result_path) == registry["acceptance_result_sha256"]
+    result = load(result_path)
+    admission.require_final_only(result, BROKER)
+
+    # Preserve the previously reviewed exact bytes, rather than rebuilding control/ledger.
+    template = load(PRIOR / "family-canary.draft.json")
+    m = copy.deepcopy(template)
+    for item in m["inputs"]:
+        if "path" not in item:
+            continue
+        source = Path(item["path"])
+        assert sha(source) == item["sha256"]
+        assert source.stat().st_size == item["size_bytes"]
+        if source.is_relative_to(PRIOR):
+            target = ROOT / "inputs" / source.name
+            target.parent.mkdir(exist_ok=True)
+            with target.open("xb") as handle:
+                handle.write(source.read_bytes())
+            item["path"] = str(target)
+    for name in ("control.json", "timing-fixtures.json"):
+        # These sidecars are local integrity evidence, not extra runtime inputs.
+        for suffix in (".sha256", ".complete"):
+            with (ROOT / "inputs" / (name + suffix)).open("xb") as handle:
+                handle.write((PRIOR / "inputs" / (name + suffix)).read_bytes())
+    for name in ("control.json", "timing-fixtures.json", "verified-ledger.json"):
+        assert verify_export(ROOT / "inputs" / name) == sha(PRIOR / "inputs" / name)
+    authority_path = ROOT / "f5-timing-synthetic-inventory.json"
+    export_bytes(authority_path, (PRIOR / authority_path.name).read_bytes())
+    assert load(authority_path) == template["f5_timing_synthetic_inventory"]
+    m["operational_admission"]["timing_recovery_authority"] = bind(authority_path)
+    m.update(job_id=JOB, output_dir=str(ROOT / "output-01"),
+             supervisor_state_dir=str(ROOT / "state-01"),
+             status="SEALED_FAMILY_CANARY_ONLY_PENDING_ASTRA_OPERATIONAL_REVIEW")
+    # The old builder's 100,000-unit placeholder would fail balance admission.
+    # Use the existing reviewed base50/effective100 technical guard; wall wins first.
+    m["budget"]["unit_cap"] = 100.0
+    m["f5"].update(useful_foreground_seconds=1755,
+                   sizing_basis="REVIEWED_EXCLUDED_TINY_WORKLOAD_CANARY_ONLY",
+                   technical_budget="Base50/effective100 units, reserve0/0: nonbinding runaway guard; 30-minute wall controls.",
+                   technical_guards={"base_unit_cap": 50.0, "effective_unit_cap": 100.0,
+                                     "base_reserve_units": 0.0, "effective_reserve_units": 0.0,
+                                     "base_timeout_minutes": 15, "effective_timeout_minutes": 30,
+                                     "units_are_scientific_budget_gate": False})
+
+    # Snapshot provider inventory/rates/pending under the same normal account lock.
+    accounts = ROOT / "accounts"
+    accounts.mkdir()
+    seed = accounts / "seed.json"
+    export_json(seed, {"budget": {"other_assignments": {}}})
+    with dispatch.allocation_lock(OPS / "alloc.lock", 180) as deadline:
+        before = run(["/Users/josenunez/.local/bin/colab", "--auth", "oauth2", "sessions"])
+        refreshed = dispatch.refresh_assignments(seed, accounts / "broker-session-review.json", deadline)
+        rates = load(refreshed)["budget"]["other_assignments"]
+        usage = run(["/Users/josenunez/.local/bin/colab", "--auth", "oauth2", "usage"])
+        after = run(["/Users/josenunez/.local/bin/colab", "--auth", "oauth2", "sessions"])
+        assert before["stdout"] == after["stdout"], "sessions changed during preflight"
+        numbers = {}
+        for key, label in (("balance", "Current balance"), ("rate", "Usage rate"), ("assignments", "Active assignments")):
+            match = re.search(rf"{label}:\s*([0-9]+(?:\.[0-9]+)?)", usage["stdout"])
+            assert match, usage
+            numbers[key] = float(match[1])
+        account_dir = Path.home() / ".config/colab-cli/snake"
+        pending = [bind(p) for p in sorted(account_dir.glob("pending-*.json"))]
+        active = [bind(p) for p in sorted(account_dir.glob("active-*.json"))]
+        assert not pending, "unresolved pending broker assignment"
+        assert numbers["assignments"] == len(rates) < 3
+        assert abs(numbers["rate"] - sum(rates.values())) < 0.05
+        # Stale active records are refused rather than interpreted as released.
+        assert len(active) == len(rates)
+        reservations = [load(Path(r["path"])) for r in active]
+        committed = sum(r["unit_cap"] for r in reservations)
+        assert numbers["balance"] > 100 + committed
+        account = {"schema": "bl-f5-step8-account-preflight/v1", "status": "PASS",
+                   "observed_utc": now(), "normal_allocation_lock": str(OPS / "alloc.lock"),
+                   "calls": [before, usage, after], "broker_session_review": bind(accounts / "broker-session-review.json"),
+                   "usage": numbers, "other_assignments": rates, "active_records": active,
+                   "pending_records": pending, "committed_units": committed,
+                   "account_assignment_cap": 3, "allocation_calls": 0,
+                   "dispatch_refresh_required": True}
+    export_json(accounts / "preflight.json", account)
+    m["budget"]["other_assignments"] = rates
+
+    old = load(ASTRA / "F5_W_TIMING_OPERATIONAL_20261026_ROUND08_02_REQUAL/manifest-03.json")
+    old_admission = old["operational_admission"]
+    references = {k: v for k, v in old_admission.items() if isinstance(v, dict) and "path" in v}
+    references.pop("live_account_preflight")
+    references.update({"historical_ruling_" + k: v for k, v in old_admission["rulings"].items()})
+    references["capture05_environment"] = old["f5"]["environment_capture_reference"]
+    for name in ("PLAN_SEAL_VERIFICATION.json", "PLAN_SEAL_REVALIDATION.json", "FIRST_PUBLICATION_VERIFICATION.json", "PREFIT_STAGE_CLAIM.json"):
+        references["plan_seal_" + name] = bind(ASTRA / "F5_W_PLAN_SEAL_VERIFICATION_20261026" / name)
+    for name in ("QUALIFIED_TRANSPORT_F5ONLY_57a89e7d.md", "F5_W_TIMING04_FIX_RULING_20261026.md", "ACCEPT_F5_TIMING_RECOVERY_57a89e7d.md", "OWNER_RULING_COLAB_BUDGET_20261025.txt", "F5ONLY_57a89e7d_TRANSPORT_REVIEW_20261026.json", "F5_W_TIMING03_DISPOSITION_20261026.md"):
+        references[name] = bind(ASTRA / name)
+    references["qualified_registry"] = bind(OPS / "colab-cli-qualified.json")
+    references["qualified_acceptance_result"] = bind(result_path)
+    references["previous_recovery_package"] = bind(PRIOR / "PACKAGE.json")
+    references["attempt04_receipt"] = bind(BROKER / "research/bl_residual/ledger/F5_W_TIMING04_FAILURE_20261026/output-03/receipt.json")
+    references["accounting_history"] = bind(PRIOR / "attempt04-append-only-accounting.json")
+    references = {key: verify_reference(value) for key, value in references.items()}
+    assert load(Path(references["capture05_environment"]["path"])) == load(ROOT / "inputs/control.json")["environment_capture"]
+    export_json(ROOT / "bindings.json", references)
+    m["operational_admission"].update(bindings=bind(ROOT / "bindings.json"),
+                                       live_account_preflight=bind(accounts / "preflight.json"))
+    manifest = export_json(ROOT / "manifest.json", m)
+    # Source archive is unchanged and every member must equal the pinned Git blob.
+    export_bytes(ROOT / "source.tar", (PRIOR / "source.tar").read_bytes())
+    count = 0
+    with tarfile.open(ROOT / "source.tar") as archive:
+        members = {p.name: p for p in archive.getmembers() if p.isfile()}
+        assert set(members) == set(m["source_paths"])
+        for relative, member in members.items():
+            expected = subprocess.check_output(["git", "show", f"{PIN}:{relative}"], cwd=BROKER)
+            assert archive.extractfile(member).read() == expected
+            count += 1
+    assert "research/bl_residual/f5_progress.py" in members
+    dispatch.require_resume_policy(m)
+    dispatch.require_scientific_or_f5_plan_admission(m)
+    supervisor.validate(m, BROKER)
+    assert transfer_policy.transfer_limit(m) == 300
+    assert canary.input_inventory(m) == canary.input_inventory(template)
+
+    # This future manifest deliberately has no immutable-export sidecars/seal.
+    draft = copy.deepcopy(load(PRIOR / "timing-operation.draft.json"))
+    draft.update(inputs=copy.deepcopy(m["inputs"]), job_id="bl-f5-timing-recovery-57a89e7d-20261026-01",
+                 output_dir=str(BASE / "timing-operation-01/output-01"),
+                 supervisor_state_dir=str(BASE / "timing-operation-01/state-01"),
+                 draft_only=True, status="DRAFT_PENDING_VERIFIED_CANARY_RECEIPT_AND_SEPARATE_REVIEW",
+                 canary={"receipt": {"path": str(ROOT / "output-01/receipt.json"), "sha256": None}})
+    draft["operational_admission"] = copy.deepcopy(m["operational_admission"])
+    draft["operational_admission"]["status"] = "ACCEPTED_F5_TIMING_RECOVERY_ONLY"
+    draft["operational_admission"]["timing_recovery"]["scope"] = "F5_W_TIMING04_FULL_RESUMABLE_OPERATION_ONLY"
+    draft["budget"] = copy.deepcopy(m["budget"])
+    draft["f5"]["technical_guards"] = {**m["f5"]["technical_guards"], "base_timeout_minutes": 120, "effective_timeout_minutes": 240}
+    draft_path = BASE / "timing-operation-01.draft.json"
+    with draft_path.open("x") as handle:
+        json.dump(draft, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    assert canary.input_inventory(draft) == canary.input_inventory(m)
+    assert not any(k.startswith("SNAKE_COLAB_CANARY") for k in draft["env"])
+    try:
+        dispatch.require_scientific_or_f5_plan_admission(draft)
+    except dispatch.Refused as exc:
+        draft_refusal = str(exc)
+        assert "draft" in draft_refusal
+    else:
+        raise AssertionError("long draft admitted")
+
+    argv = [str(BROKER / "tools/ops/dispatch.sh"), JOB, str(ROOT / "manifest.json"),
+            "--broker", str(BROKER), "--cwd", str(BROKER), "--state-dir", str(ROOT / "state-01"),
+            "--dispatch-txt", str(ROOT / "DISPATCH.txt")]
+    command = shlex.join(argv)
+    instructions = (
+        "SEALED FAMILY CANARY ONLY; preparation did not dispatch.\n"
+        "Astra must separately approve these concrete package and source identities before operator execution.\n"
+        "Operator: rehash SHA256SUMS.json and bindings; verify clean detached broker and registry; refresh live inventory under normal allocation lock.\n"
+        "Any drift requires a fresh successor; never edit this sealed package.\n"
+        "The wrapper refreshes account ownership/rates under ops/alloc.lock and refuses sealed account-map drift; maximum three assignments.\n"
+        "Exact dry-run:\n" + command + " --dry-run\n"
+        "Exact dispatch, only after separate operational review:\n" + command + "\n"
+        "Verify terminal PASS, CUDA device/parity and actual producer/scanner CANARY_ONLY skip672 + new672/673, all required exports with SHA/markers, transfer<=300s and staging<=300s, backend release and account disappearance.\n"
+        "This family proof never counts as a full timing unit. No fit/science/release authority.\n"
+        "Future operation is DRAFT only, unsealed at " + str(draft_path) + ". Bind actual verified receipt SHA before separately sealing.\n"
+    )
+    export_bytes(ROOT / "DISPATCH.txt", instructions.encode())
+    dry = run([*argv, "--dry-run"], timeout=90)
+    assert "PASS_DRY_RUN" in dry["stdout"] and "allocations=0" in dry["stdout"]
+    export_json(ROOT / "dry-run.json", dry)
+    for path in (ROOT / "output-01", ROOT / "state-01", OPS / "dispatch" / JOB,
+                 OPS / "manifests" / (JOB + ".json"), OPS / "logs" / (JOB + ".log")):
+        assert not path.exists(), path
+    assert not git("status", "--porcelain", "--untracked-files=all")
+    preparation = {"schema": "bl-f5-step8-family-canary-preparation/v1", "status": "SEALED_PENDING_ASTRA_OPERATIONAL_REVIEW",
+                   "created_utc": now(), "source_commit": PIN, "whole_tree": git("rev-parse", "HEAD^{tree}"),
+                   "cli_tree": cli_tree, "broker": str(BROKER), "broker_clean_detached": True,
+                   "manifest": manifest, "inventory_sha256": m["f5_timing_synthetic_inventory"]["sha256"],
+                   "source_archive": bind(ROOT / "source.tar"), "source_archive_members_verified": count,
+                   "bindings": bind(ROOT / "bindings.json"), "account_preflight": bind(accounts / "preflight.json"),
+                   "dry_run": bind(ROOT / "dry-run.json"), "dispatch_argv": argv,
+                   "dispatches": 0, "allocations": 0, "scientific_payload_deserialized": False,
+                   "base_minutes": 15, "effective_minutes": 30, "useful_foreground_seconds": 1755,
+                   "prior_exposure_seconds": 6811.840706833173,
+                   "long_draft_path_only_not_sealed": str(draft_path), "long_draft_refusal": draft_refusal,
+                   "receipt_exists": False, "producer_scanner_live_proof": "PENDING_CANARY_EXECUTION"}
+    export_json(ROOT / "PREPARATION.json", preparation)
+    print(json.dumps(preparation, indent=2))
+
+
+if __name__ == "__main__":
+    main()

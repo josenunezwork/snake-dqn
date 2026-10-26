@@ -1,0 +1,27 @@
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-57a89e7d-20261026-01.noindex
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 232 items
+
+tests/test_bl_residual_f5_resume_integration.py ...........              [  4%]
+tests/test_bl_residual_f5_timing_resume.py ..................            [ 12%]
+tests/test_bl_residual_f5_timing_recovery_package.py ....                [ 14%]
+tests/test_ops_f5_timing_admission.py .................................. [ 28%]
+...........................                                              [ 40%]
+tests/test_colab_cli_f5_timing_transfer.py ..........                    [ 44%]
+tests/test_colab_cli_canary.py ......................................... [ 62%]
+.........................................................                [ 87%]
+tests/test_colab_cli_canary_observer.py .....                            [ 89%]
+tests/test_bl_residual_f5_qualification.py .........s.                   [ 93%]
+tests/test_bl_residual_f5_calibration.py .......s                        [ 97%]
+tests/test_bl_residual_f5_progress.py ......                             [100%]
+
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_bl_residual_f5_qualification.py:103: requires a real CUDA runtime
+SKIPPED [1] tests/test_bl_residual_f5_calibration.py:185: requires a real CUDA runtime, uploaded checkpoint pool, and F5_QUALIFICATION_B8
+======================== 230 passed, 2 skipped in 9.57s ========================
+Exit: macOS OpenMP-isolated pytest finished
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!

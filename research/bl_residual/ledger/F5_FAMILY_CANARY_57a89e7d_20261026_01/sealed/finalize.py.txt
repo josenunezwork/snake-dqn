@@ -1,0 +1,141 @@
+"""Recheck all bindings and create the exhaustive immutable canary seal."""
+
+import datetime
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+BROKER = Path("/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-57a89e7d-20261026-01.noindex")
+sys.path.insert(0, str(BROKER))
+from research.bl_ppo.exports import export_bytes, export_json, verify_export
+from research.bl_residual import f5_package, f5_timing_resume
+from research.colab_cli import canary, supervisor
+from tools.ops import dispatch, qualification
+
+
+def load(path):
+    return json.loads(path.read_text())
+
+
+def bind(path):
+    assert path.is_file() and not path.is_symlink(), path
+    with path.open("rb") as handle:
+        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+    return {"path": str(path), "sha256": digest, "size": path.stat().st_size}
+
+
+def main():
+    assert os.getpriority(os.PRIO_PROCESS, 0) == 15
+    assert not (ROOT / "SHA256SUMS.json").exists()
+    prep = load(ROOT / "PREPARATION.json")
+    m = load(ROOT / "manifest.json")
+    verified = load(ROOT / "VERIFICATION.json")
+    assert verified["return_code"] == 0 and verified["effective_niceness"] == 15
+    assert "230 passed, 2 skipped" in (ROOT / "verified-tests.log").read_text()
+    assert subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=BROKER) == b""
+    assert subprocess.check_output(["git", "branch", "--show-current"], cwd=BROKER).strip() == b""
+    assert subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=BROKER).decode().strip() == m["commit"]
+    qualification.check(BROKER, Path(load(ROOT / "bindings.json")["qualified_registry"]["path"]))
+    dispatch.require_resume_policy(m)
+    dispatch.require_scientific_or_f5_plan_admission(m)
+    supervisor.validate(m, BROKER)
+    for reference in load(ROOT / "bindings.json").values():
+        assert bind(Path(reference["path"])) == reference
+    for reference in (prep["manifest"], prep["source_archive"], prep["bindings"], prep["account_preflight"], prep["dry_run"], verified["log"]):
+        assert bind(Path(reference["path"])) == reference
+    for item in m["inputs"]:
+        if "path" in item:
+            observed = bind(Path(item["path"]))
+            assert observed["sha256"] == item["sha256"] and observed["size"] == item["size_bytes"]
+    control = load(ROOT / "inputs/control.json")
+    assert control["source_hashes"] == f5_package.source_inventory(BROKER)
+    binding = f5_timing_resume.identity(namespace="bl-residual-f5-timing-recovery-20261026",
+                                      allocation=control["identity"]["allocation_sha256"],
+                                      source_sha256=control["identity"]["source_sha256"],
+                                      environment_sha256=control["identity"]["environment_sha256"],
+                                      input_sha256=control["timing_input_sha256"])
+    assert not f5_timing_resume.load_ledger(ROOT / "inputs/verified-ledger.json", binding)
+    draft_path = Path(prep["long_draft_path_only_not_sealed"])
+    draft = load(draft_path)
+    assert draft["draft_only"] is True and draft["timeout_minutes"] == 240
+    assert draft["requirements"]["est_minutes"] == 120
+    assert draft["f5"]["useful_foreground_seconds"] == 14355
+    assert draft["canary"]["receipt"]["sha256"] is None
+    assert not Path(str(draft_path) + ".sha256").exists()
+    assert not Path(str(draft_path) + ".complete").exists()
+    assert canary.input_inventory(draft) == canary.input_inventory(m)
+    registry = load(Path(load(ROOT / "bindings.json")["qualified_registry"]["path"]))
+    acceptance = load(Path(registry["acceptance_result"]))
+    rows = []
+    for execution in acceptance["final_plan"]["execution"]:
+        receipt_path = Path(execution["receipt"])
+        receipt = load(receipt_path)
+        reference = bind(receipt_path)
+        assert reference["sha256"] == execution["receipt_sha256"]
+        assert receipt["stop_verified"] is True and receipt["cleanup_error"] is None
+        rows.append({"job": execution["job"], "receipt": reference,
+                     "raw_status": receipt["status"], "acceptance_fault_verdict": execution["status"],
+                     "elapsed_seconds": receipt["elapsed_seconds"],
+                     "observed_rate_units_per_hour": execution["measured_rate_units_per_hour"],
+                     "observed_elapsed_rate_exposure_units": receipt["elapsed_seconds"] * execution["measured_rate_units_per_hour"] / 3600,
+                     "stop_verified": True})
+    export_json(ROOT / "ACCOUNTING_APPENDIX.json", {
+        "schema": "bl-f5-step8-append-only-accounting/v1",
+        "prior_timing_elapsed_seconds": 6811.840706833173,
+        "timing03_elapsed_seconds": 5055.5119253752055,
+        "timing04_elapsed_seconds": 1756.3287814579671,
+        "qualified_transport_acceptance_separate_exposure": rows,
+        "qualified_transport_acceptance_elapsed_seconds": sum(row["elapsed_seconds"] for row in rows),
+        "canary_exposure_seconds": 0, "canary_allocations": 0,
+        "interpretation": "Prior timing aggregate and separate qualified transport costs are retained; no precise provider billing or scientific budget inference. Intentional L4 watchdog fault keeps raw INCOMPLETE/ACCOUNTING receipt unchanged.",
+        "historical_bindings": {key: value for key, value in load(ROOT / "bindings.json").items() if "account" in key or "disposition" in key.lower() or "attempt04" in key},
+    })
+    export_json(ROOT / "PACKAGE.json", {
+        "schema": "bl-f5-step8-family-canary-package/v1",
+        "status": "SEALED_PENDING_ASTRA_OPERATIONAL_REVIEW",
+        "created_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "source_commit": m["commit"], "whole_tree": prep["whole_tree"], "cli_tree": prep["cli_tree"],
+        "manifest": bind(ROOT / "manifest.json"), "preparation": bind(ROOT / "PREPARATION.json"),
+        "bindings": bind(ROOT / "bindings.json"), "verification": bind(ROOT / "VERIFICATION.json"),
+        "accounting": bind(ROOT / "ACCOUNTING_APPENDIX.json"), "dry_run": bind(ROOT / "dry-run.json"),
+        "local_requirements_review": bind(ROOT / "LOCAL_REVIEW.json"),
+        "source_archive": bind(ROOT / "source.tar"), "source_archive_members_verified": 197,
+        "inventory_sha256": prep["inventory_sha256"], "runtime_input_destinations": len(m["inputs"]),
+        "dispatch_instructions": bind(ROOT / "DISPATCH.txt"), "dispatch_argv": prep["dispatch_argv"],
+        "allocations": 0, "dispatches": 0, "canary_receipt_exists": False,
+        "draft_unsealed_path_only": str(draft_path),
+        "draft_excluded_from_package_and_seal": True,
+        "canary_producer_records": "CANARY_ONLY; fixture672 exported, scanner verifies ledger, revisit skips672, then exports673; live proof pending",
+        "required_next_review": "Astra separate operational review of this concrete seal before operator dispatch. This local packaging review is not an Astra ruling.",
+    })
+    # Exhaustive membership: the only excluded paths are this inventory and its two sidecars.
+    # Future output/state evidence is intentionally fresh and outside the static prepared-file set.
+    members = {}
+    for path in sorted(ROOT.rglob("*")):
+        assert not path.is_symlink(), path
+        if path.is_file():
+            row = bind(path)
+            members[path.relative_to(ROOT).as_posix()] = {"size": row["size"], "sha256": row["sha256"]}
+    exported = export_json(ROOT / "SHA256SUMS.json", {
+        "schema": "bl-f5-exhaustive-static-package-seal/v1",
+        "scope": str(ROOT), "files": members,
+        "excluded_self_components": ["SHA256SUMS.json", "SHA256SUMS.json.sha256", "SHA256SUMS.json.complete"],
+        "draft_outside_scope": str(draft_path),
+    })
+    verify_export(ROOT / "SHA256SUMS.json")
+    expected = set(members) | {"SHA256SUMS.json", "SHA256SUMS.json.sha256", "SHA256SUMS.json.complete"}
+    actual = {p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*") if p.is_file()}
+    assert actual == expected
+    for name, row in members.items():
+        observed = bind(ROOT / name)
+        assert (observed["sha256"], observed["size"]) == (row["sha256"], row["size"])
+    print(json.dumps({"seal": exported, "member_count": len(members),
+                      "manifest": bind(ROOT / "manifest.json"), "package": bind(ROOT / "PACKAGE.json")}, indent=2))
+
+
+if __name__ == "__main__":
+    main()
