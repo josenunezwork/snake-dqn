@@ -143,3 +143,77 @@ def test_timing_live_assignment_drift_requires_a_sealed_successor() -> None:
     live["budget"]["other_assignments"] = {}
     with pytest.raises(dispatch.Refused, match="seal a successor"):
         dispatch.require_f5_plan_live_assignment_match(original, live)
+
+
+def requalified_timing_manifest(tmp_path: Path, monkeypatch) -> dict:
+    """Keep evidence tests hermetic while exercising every successor binding."""
+    value = timing_manifest()
+    value["commit"] = dispatch.F5_PLAN_REQUAL_COMMIT
+    bindings = {}
+    for key in dispatch.F5_TIMING_REQUAL_BINDINGS:
+        path = tmp_path / key
+        path.write_bytes(f"reviewed timing evidence for {key}".encode())
+        reference = _reference(path)
+        bindings[key] = reference["sha256"]
+        value["operational_admission"][key] = reference
+    monkeypatch.setattr(dispatch, "F5_TIMING_REQUAL_BINDINGS", bindings)
+    return value
+
+
+def test_requalified_timing_requires_all_immutable_evidence_bindings(tmp_path, monkeypatch) -> None:
+    value = requalified_timing_manifest(tmp_path, monkeypatch)
+    dispatch.require_scientific_or_f5_plan_admission(value)
+    for key in dispatch.F5_TIMING_REQUAL_BINDINGS:
+        missing = copy.deepcopy(value)
+        missing["operational_admission"].pop(key)
+        with pytest.raises(dispatch.Refused, match="exact evidence binding"):
+            dispatch.require_scientific_or_f5_plan_admission(missing)
+
+
+@pytest.mark.parametrize("key", list(dispatch.F5_TIMING_REQUAL_BINDINGS))
+@pytest.mark.parametrize("change", ["payload", "sha", "size", "symlink", "relative", "missing"])
+def test_requalified_timing_rejects_evidence_drift(tmp_path, monkeypatch, key, change) -> None:
+    value = requalified_timing_manifest(tmp_path, monkeypatch)
+    reference = value["operational_admission"][key]
+    match = "evidence bytes differ"
+    if change == "payload":
+        Path(reference["path"]).write_bytes(b"unreviewed")
+    elif change == "sha":
+        reference["sha256"] = "0" * 64
+    elif change == "size":
+        reference["size"] = 0
+    elif change == "symlink":
+        link = tmp_path / "link"
+        link.symlink_to(reference["path"])
+        reference["path"] = str(link)
+        match = "regular absolute file"
+    elif change == "relative":
+        reference["path"] = key
+        match = "regular absolute file"
+    elif change == "missing":
+        Path(reference["path"]).unlink()
+        match = "regular absolute file"
+    with pytest.raises(dispatch.Refused, match=match):
+        dispatch.require_scientific_or_f5_plan_admission(value)
+
+
+@pytest.mark.parametrize("change", ["source", "scope", "retry", "account"])
+def test_requalified_timing_keeps_existing_fences(tmp_path, monkeypatch, change) -> None:
+    value = requalified_timing_manifest(tmp_path, monkeypatch)
+    if change == "source":
+        value["commit"] = "f" * 40
+        match = "accepted implementation commit"
+    elif change == "scope":
+        value["env"]["F5_MODE"] = "transport-qualification"
+        match = "qualification environment"
+    elif change == "retry":
+        value["timing_calibration"]["no_completion_retry"] = False
+        match = "retry fences"
+    else:
+        live = copy.deepcopy(value)
+        live["budget"]["other_assignments"] = {}
+        with pytest.raises(dispatch.Refused, match="seal a successor"):
+            dispatch.require_f5_plan_live_assignment_match(value, live)
+        return
+    with pytest.raises(dispatch.Refused, match=match):
+        dispatch.require_scientific_or_f5_plan_admission(value)
