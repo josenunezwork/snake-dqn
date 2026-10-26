@@ -14,7 +14,10 @@ RPC_SECONDS = 120.0
 # Foreground staging controls must leave headroom for immutable payload PUTs.
 # These are attempt/recovery limits, not replacements for the 150/300s bars.
 STAGING_CONTROL_SECONDS = 30.0
-STAGING_RECOVERY_SECONDS = 60.0
+# A 30s exec stall followed by a 30s idle-helper stall must leave room for
+# fresh idle proof and a retry. All work still shares the 300s staging cap.
+STAGING_RECOVERY_SECONDS = 120.0
+STAGING_HEARTBEAT_SECONDS = 60.0
 # One full exec timeout must leave room for independent idle proof and a read
 # retry. Contents heartbeats continue under the unchanged runtime lease.
 TELEMETRY_SECONDS = 300.0
