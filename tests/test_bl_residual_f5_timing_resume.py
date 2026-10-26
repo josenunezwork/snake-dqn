@@ -20,15 +20,32 @@ def _binding():
 
 
 def _fixture(index: int):
-    return {"allocation_index": index, "elapsed_seconds": 1.0}
+    return {
+        "allocation_index": index,
+        "elapsed_seconds": 1.0,
+        "parity": "PASS",
+        "q_shape": [1, 6],
+        "full_h300": True,
+        "long_body": True,
+        "full_h5000_natural": True,
+        "watch_fixture_frames": 14400,
+    }
 
 
 def _calibration():
     return {
         "elapsed_seconds": 2.0,
         "arms": {
-            "C": {"serialized_continuation_exact": True},
-            "W": {"serialized_continuation_exact": True},
+            "C": {
+                "serialized_continuation_exact": True,
+                "full_seconds": 1.0,
+                "serialized_continuation_seconds": 1.0,
+            },
+            "W": {
+                "serialized_continuation_exact": True,
+                "full_seconds": 1.0,
+                "serialized_continuation_seconds": 1.0,
+            },
         },
     }
 
@@ -73,7 +90,7 @@ def test_calibration_restarts_as_one_whole_unit_and_mac_reducer_requires_13(tmp_
         tmp_path / "complete-ledger.json", binding, all_attempt_overhead_seconds=[1.0, 3.0]
     )
     assert reduced["unit_count"] == 13
-    assert reduced["conservative_setup_io_imbalance_seconds"] == 3.0
+    assert reduced["conservative_setup_io_imbalance_seconds"] == 4.0
 
 
 def test_canary_only_unit_uses_same_export_but_cannot_enter_ledger_or_reducer(tmp_path: Path):
@@ -81,3 +98,7 @@ def test_canary_only_unit_uses_same_export_but_cannot_enter_ledger_or_reducer(tm
     assert entry["path"] == "timing-canary/fixture-673.json"
     with pytest.raises(subject.ResumeRefusal):
         subject.build_ledger(tmp_path, _binding(), [entry])
+    subject.build_ledger(tmp_path, _binding(), [entry], name="canary-ledger.json", canary_only=True)
+    assert set(
+        subject.load_ledger(tmp_path / "canary-ledger.json", _binding(), canary_only=True)
+    ) == {673}

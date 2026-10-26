@@ -498,14 +498,20 @@ def run(
         if not isinstance(input_sha256, str) or len(input_sha256) != 64:
             _refuse("full timing requires a sealed non-ledger input inventory digest")
         resume_binding = f5_timing_resume.identity(
-            namespace="bl-residual-f5-timing-recovery-20261026",
+            namespace=(
+                "bl-residual-f5-timing-recovery-20261026/canary"
+                if canary_tiny_workload
+                else "bl-residual-f5-timing-recovery-20261026"
+            ),
             allocation=sealed.allocation_sha256,
             source_sha256=sealed.source_sha256,
             environment_sha256=sealed.environment_sha256,
             input_sha256=input_sha256,
         )
         try:
-            verified_units = f5_timing_resume.load_ledger(ledger, resume_binding)
+            verified_units = f5_timing_resume.load_ledger(
+                ledger, resume_binding, canary_only=canary_tiny_workload
+            )
         except f5_timing_resume.ResumeRefusal as exc:
             _refuse(str(exc))
     samples: list[dict[str, Any]] = []

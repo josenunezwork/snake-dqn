@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import platform
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -65,18 +66,42 @@ def empty_ledger(binding: Mapping[str, str]) -> dict[str, Any]:
     return {"schema": SCHEMA, "unit_kind": UNIT_KIND, "identity": dict(binding), "units": []}
 
 
-def _validate_payload(key: int | str, payload: Mapping[str, Any]) -> None:
+def _validate_payload(
+    key: int | str, payload: Mapping[str, Any], *, canary_only: bool = False
+) -> None:
     elapsed = payload.get("elapsed_seconds")
     if not isinstance(elapsed, (int, float)) or isinstance(elapsed, bool) or elapsed <= 0:
         raise ResumeRefusal("completed unit lacks a full uninterrupted duration")
+    if canary_only:
+        if payload.get("canary_only") is not True or payload.get("allocation_index") != key:
+            raise ResumeRefusal("CANARY_ONLY unit classification differs")
+        return
     if key != CALIBRATION_KEY:
-        if payload.get("allocation_index") != key or payload.get("canary_only") is True:
+        required = {
+            "allocation_index",
+            "elapsed_seconds",
+            "parity",
+            "q_shape",
+            "full_h300",
+            "long_body",
+            "full_h5000_natural",
+            "watch_fixture_frames",
+        }
+        if (
+            not required <= set(payload)
+            or payload.get("allocation_index") != key
+            or payload.get("parity") != "PASS"
+            or payload.get("q_shape") != [1, 6]
+            or payload.get("canary_only") is True
+        ):
             raise ResumeRefusal("fixture completed-unit payload differs")
         return
     arms = payload.get("arms")
     if not isinstance(arms, Mapping) or not all(
         isinstance(arms.get(arm), Mapping)
         and arms[arm].get("serialized_continuation_exact") is True
+        and isinstance(arms[arm].get("full_seconds"), (int, float))
+        and isinstance(arms[arm].get("serialized_continuation_seconds"), (int, float))
         for arm in ("C", "W")
     ):
         raise ResumeRefusal("coupled calibration record lacks both exact continuation checks")
@@ -104,11 +129,13 @@ def _read_unit(
     payload = raw.get("payload")
     if not isinstance(payload, dict):
         raise ResumeRefusal("completed timing unit payload malformed")
-    _validate_payload(key, payload)
+    _validate_payload(key, payload, canary_only=bool(payload.get("canary_only")))
     return key, payload
 
 
-def load_ledger(path: Path, binding: Mapping[str, str]) -> dict[int | str, dict[str, Any]]:
+def load_ledger(
+    path: Path, binding: Mapping[str, str], *, canary_only: bool = False
+) -> dict[int | str, dict[str, Any]]:
     """Mac and runtime scanner verifies ledger plus every path/sidecar/marker."""
     try:
         verify_export(path)
@@ -128,6 +155,8 @@ def load_ledger(path: Path, binding: Mapping[str, str]) -> dict[int | str, dict[
         if not isinstance(item, dict) or set(item) != {"key", "path", "sha256", "size"}:
             raise ResumeRefusal("malformed timing ledger path entry")
         key, payload = _read_unit(path.parent / _safe_relative(item["path"]), binding, item)
+        if bool(payload.get("canary_only")) != canary_only:
+            raise ResumeRefusal("ledger mixes CANARY_ONLY and full timing units")
         if key != item["key"] or key in result:
             raise ResumeRefusal("duplicate timing ledger unit")
         result[key] = payload
@@ -150,8 +179,7 @@ def publish_unit(
         copy["canary_only"] = True
     elif copy.get("canary_only") is True:
         raise ResumeRefusal("CANARY_ONLY record cannot be a timing unit")
-    if not canary_only:
-        _validate_payload(key, copy)
+    _validate_payload(key, copy, canary_only=canary_only)
     name = "calibration" if key == CALIBRATION_KEY else f"fixture-{key}"
     folder = "timing-canary" if canary_only else "timing-units"
     path = output / folder / f"{name}.json"
@@ -180,13 +208,16 @@ def build_ledger(
     entries: Sequence[Mapping[str, Any]],
     *,
     name: str = "verified-ledger.json",
+    canary_only: bool = False,
 ) -> dict[str, Any]:
     ledger = empty_ledger(binding)
     seen: set[int | str] = set()
     for entry in entries:
         if not isinstance(entry, Mapping):
             raise ResumeRefusal("malformed completed-unit entry")
-        key, _ = _read_unit(output / _safe_relative(entry.get("path")), binding, entry)
+        key, payload = _read_unit(output / _safe_relative(entry.get("path")), binding, entry)
+        if bool(payload.get("canary_only")) != canary_only:
+            raise ResumeRefusal("ledger mixes CANARY_ONLY and full timing units")
         if key in seen:
             raise ResumeRefusal("duplicate completed-unit entry")
         seen.add(key)
@@ -200,6 +231,8 @@ def reduce_ledger(
     path: Path, binding: Mapping[str, str], *, all_attempt_overhead_seconds: Sequence[float]
 ) -> dict[str, Any]:
     """Mac-only reducer requires the exact 13 units and all-attempt overhead."""
+    if platform.system() != "Darwin":
+        raise ResumeRefusal("timing reducer is Mac-only")
     records = load_ledger(path, binding)
     if set(records) != _keys():
         raise ResumeRefusal("Mac reducer requires all thirteen completed units")
@@ -212,5 +245,5 @@ def reduce_ledger(
         "fixtures": [records[index] for index in range(672, 684)],
         "calibration": records[CALIBRATION_KEY],
         "unit_count": 13,
-        "conservative_setup_io_imbalance_seconds": max(overhead),
+        "conservative_setup_io_imbalance_seconds": sum(overhead),
     }
