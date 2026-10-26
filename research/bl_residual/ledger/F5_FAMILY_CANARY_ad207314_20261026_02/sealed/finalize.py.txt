@@ -1,0 +1,187 @@
+"""Append failure accounting, then create-only seal all static canary-02 files."""
+
+import datetime
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+BROKER = Path("/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-ad207314-20261026-02.noindex")
+sys.path.insert(0, str(BROKER))
+from research.bl_ppo.exports import export_bytes, export_json, verify_export
+from research.bl_residual import f5_job, f5_package, f5_timing_resume
+from research.colab_cli import admission, supervisor
+from tools.ops import dispatch, qualification
+
+
+def load(path):
+    return json.loads(path.read_text())
+
+
+def bind(path):
+    assert path.is_absolute() and path.is_file() and not path.is_symlink(), path
+    with path.open("rb") as handle:
+        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+    return {"path": str(path), "sha256": digest, "size": path.stat().st_size}
+
+
+def git(*args):
+    return subprocess.check_output(["git", *args], cwd=BROKER, text=True).strip()
+
+
+def accounting():
+    prior = ROOT.parent / "canary-01"
+    historical = load(prior / "ACCOUNTING_APPENDIX.json")
+    receipt = load(prior / "output-01/receipt.json")
+    terminal = load(prior / "output-01/terminal.json")
+    assert receipt["status"] == "INCOMPLETE" and receipt["failure_class"] == "CHILD_NONZERO_EXIT"
+    assert receipt["stop_verified"] is True and receipt["cleanup_error"] is None
+    assert receipt["exports"] == [] and terminal["exports"] == []
+    assert terminal["returncode"] == 1
+    rate = receipt["accounting"]["observed_rate_units_per_hour"]
+    value = {
+        "schema": "bl-f5-canary02-append-only-accounting/v1",
+        "historical_accounting": bind(prior / "ACCOUNTING_APPENDIX.json"),
+        "prior_timing_elapsed_seconds": historical["prior_timing_elapsed_seconds"],
+        "timing03_elapsed_seconds": historical["timing03_elapsed_seconds"],
+        "timing04_elapsed_seconds": historical["timing04_elapsed_seconds"],
+        "qualified_transport_acceptance_elapsed_seconds": historical["qualified_transport_acceptance_elapsed_seconds"],
+        "qualified_transport_acceptance_separate_exposure": historical["qualified_transport_acceptance_separate_exposure"],
+        "canary01": {
+            "job_id": receipt["job_id"], "receipt": bind(prior / "output-01/receipt.json"),
+            "terminal": bind(prior / "output-01/terminal.json"),
+            "status": receipt["status"], "failure_class": receipt["failure_class"],
+            "elapsed_seconds": receipt["elapsed_seconds"], "stop_verified": True,
+            "cleanup_error": None, "export_count": 0, "completed_fixture_count": 0,
+            "observed_rate_units_per_hour": rate,
+            "observed_elapsed_rate_exposure_units": receipt["elapsed_seconds"] * rate / 3600,
+            "priced_rate_units_per_hour": receipt["accounting"]["priced_rate_units_per_hour"],
+            "last_provider_crosscheck": receipt["accounting"]["last_crosscheck"],
+            "saved_poststop_assignments": receipt["accounting"]["assignments"],
+            "authorization_consumed": True,
+            "failure": terminal["last_traceback_line"],
+            "exact_differing_keys": "NOT_EXPORTED_BY_CANARY01; successor diagnostic is prospective",
+            "retry_authorized": False,
+        },
+        "canary01_elapsed_seconds": receipt["elapsed_seconds"],
+        "prior_timing_plus_canary01_elapsed_seconds": historical["prior_timing_elapsed_seconds"] + receipt["elapsed_seconds"],
+        "canary02_exposure_seconds": 0, "canary02_allocations": 0, "canary02_dispatches": 0,
+        "interpretation": "Timing03+04, transport acceptance and failed canary01 remain distinct historical exposures. Elapsed-rate exposure is a measured-rate estimate, not exact provider billing. Canary02 has no runtime outcome. No failed evidence was overwritten or relabeled.",
+    }
+    export_json(ROOT / "ACCOUNTING_APPENDIX.json", value)
+    export_bytes(ROOT / "README.md", (
+        "# F5 family canary-02: sealed preparation\n\n"
+        "Status: SEALED_PENDING_ASTRA_OPERATIONAL_REVIEW. No dispatch or allocation.\n\n"
+        "Source ad207314bcccc037121b6da03c3aa296d3e1c0ac contains diagnostic fix d313736f. "
+        "The fresh clean detached broker is named in PREPARATION.json. CLI subtree "
+        "5833e54e9c5396121cbbf99a5cd4e52006e564fd matches the unchanged 57a89e7d registry. "
+        "Actual tree and final-only source-inventory admission passed; no exact enclosing-commit transport rule blocks this successor.\n\n"
+        "The source archive, control/source identity, empty ledger and its sidecars, transfer authority and manifest are rebound to current source. "
+        "Capture-05 reference, environment descriptor/schema/comparator, fixed scientific identities, fixtures and checkpoint bytes remain as accepted. "
+        "Only f5_environment.py, f5_job.py and f5_qualification.py differ within the source inventory. "
+        "No label/outcome payload, D4096 output, scientific fit or gameplay look was opened.\n\n"
+        "Canary-01 consumed its once-only authorization and returned INCOMPLETE/CHILD_NONZERO_EXIT after "
+        "650.3527150410227 seconds with verified stop and zero exports. The canonical keys were not exported. "
+        "Its receipt, terminal, accounting, acceptance, output publication and diagnosis remain hash-bound in bindings.json. "
+        "This successor keeps the exact comparator and can export non-admissible mismatch diagnostics; it does not change equality policy.\n\n"
+        "Envelope mirrors accepted canary-01: L4-only, cuda:0, base15/effective30 minutes, useful foreground1755 seconds; "
+        "transfer<=300 and independently staging<=300 seconds. Technical base50/effective100 units, reserve0/0 at2u/h; "
+        "no automatic allocation/job/completion retry. CANARY_ONLY tiny [672,672,673] export/verified-skip path must be observed live. "
+        "Required success exports remain qualification, skip proof, before and after environment receipts. "
+        "A cross-assignment refusal remains INCOMPLETE/HOLD and may additionally export environment/cross-assignment-refusal.json.\n\n"
+        "Fresh locked account evidence is in accounts/preflight.json; wrapper dry-run PASS is saved and explicitly does not check live accounting. "
+        "The real wrapper refreshes account/rate ownership under the normal lock before any allocation. "
+        "No replacement long-operation draft is prepared. Separate Astra review must accept this concrete successor before operator execution. "
+        "Exact operator commands and post-canary requirements are in DISPATCH.txt.\n\n"
+        "VERIFICATION.json records effective nice15, all numerical threads1, serial pytest, actual argv and saved log digest. "
+        "The inherited parent was already nice15: an initial additive nice15 invocation refused before any payload publication at the scheduling assertion; "
+        "the recorded successful run uses and verifies inherited nice15. No package payload was overwritten.\n"
+    ).encode())
+
+
+def seal():
+    assert not (ROOT / "SHA256SUMS.json").exists()
+    prep = load(ROOT / "PREPARATION.json")
+    m = load(ROOT / "manifest.json")
+    verified = load(ROOT / "VERIFICATION.json")
+    local = load(ROOT / "LOCAL_REVIEW.json")
+    assert local["status"] == "NO_BLOCKING_FINDINGS"
+    assert verified["return_code"] == 0 and verified["effective_niceness"] == 15
+    assert all(v == "1" for v in verified["numeric_threads"].values())
+    assert "255 passed, 2 skipped" in (ROOT / "verified-tests.log").read_text()
+    assert not git("status", "--porcelain", "--untracked-files=all")
+    assert not git("branch", "--show-current") and git("rev-parse", "HEAD") == m["commit"]
+    references = load(ROOT / "bindings.json")
+    for reference in references.values():
+        assert bind(Path(reference["path"])) == reference
+    registry = load(Path(references["qualified_registry"]["path"]))
+    assert qualification.check(BROKER, Path(references["qualified_registry"]["path"])) == prep["cli_tree"]
+    admission.require_final_only(load(Path(registry["acceptance_result"])), BROKER)
+    for reference in (prep["manifest"], prep["source_archive"], prep["bindings"], prep["account_preflight"], prep["dry_run"], verified["log"]):
+        assert bind(Path(reference["path"])) == reference
+    for item in m["inputs"]:
+        if "path" in item:
+            observed = bind(Path(item["path"]))
+            assert observed["sha256"] == item["sha256"] and observed["size"] == item["size_bytes"]
+    control = load(ROOT / "inputs/control.json")
+    assert control["source_hashes"] == f5_package.source_inventory(BROKER)
+    f5_job._source_admission(control)
+    binding = f5_timing_resume.identity(namespace="bl-residual-f5-timing-recovery-20261026",
+        allocation=control["identity"]["allocation_sha256"], source_sha256=control["identity"]["source_sha256"],
+        environment_sha256=control["identity"]["environment_sha256"], input_sha256=control["timing_input_sha256"])
+    assert not f5_timing_resume.load_ledger(ROOT / "inputs/verified-ledger.json", binding)
+    dispatch.require_resume_policy(m)
+    dispatch.require_scientific_or_f5_plan_admission(m)
+    supervisor.validate(m, BROKER)
+    for path in prep["fresh_paths"]:
+        assert not Path(path).exists(), path
+    for path in ROOT.rglob("*.complete"):
+        verify_export(Path(str(path).removesuffix(".complete")))
+    export_json(ROOT / "PACKAGE.json", {
+        "schema": "bl-f5-step8-family-canary-package/v1", "status": "SEALED_PENDING_ASTRA_OPERATIONAL_REVIEW",
+        "created_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "source_commit": m["commit"], "whole_tree": prep["whole_tree"], "cli_tree": prep["cli_tree"],
+        "transport_qualified_commit": registry["qualified_commit"], "registry_unchanged": True,
+        "manifest": bind(ROOT / "manifest.json"), "preparation": bind(ROOT / "PREPARATION.json"),
+        "bindings": bind(ROOT / "bindings.json"), "verification": bind(ROOT / "VERIFICATION.json"),
+        "accounting": bind(ROOT / "ACCOUNTING_APPENDIX.json"), "dry_run": bind(ROOT / "dry-run.json"),
+        "local_requirements_review": bind(ROOT / "LOCAL_REVIEW.json"),
+        "source_archive": bind(ROOT / "source.tar"), "source_archive_members_verified": prep["source_archive_members_verified"],
+        "inventory_sha256": prep["inventory_sha256"], "runtime_input_destinations": len(m["inputs"]),
+        "dispatch_instructions": bind(ROOT / "DISPATCH.txt"), "dispatch_argv": prep["dispatch_argv"],
+        "allocations": 0, "dispatches": 0, "canary_receipt_exists": False,
+        "canary01_authorization_consumed": True, "successor_dispatch_authorized": False,
+        "canary_producer_records": "CANARY_ONLY; fixture672 exported, scanner verifies ledger, revisit skips672, then exports673; live proof pending",
+        "required_next_review": "Separate Astra operational review of this concrete successor before operator dispatch. Local reviewer does not grant Astra approval.",
+    })
+    members = {}
+    for path in sorted(ROOT.rglob("*")):
+        assert not path.is_symlink(), path
+        if path.is_file():
+            observed = bind(path)
+            members[path.relative_to(ROOT).as_posix()] = {"size": observed["size"], "sha256": observed["sha256"]}
+    self_parts = ["SHA256SUMS.json", "SHA256SUMS.json.sha256", "SHA256SUMS.json.complete"]
+    result = export_json(ROOT / "SHA256SUMS.json", {
+        "schema": "bl-f5-exhaustive-static-package-seal/v1", "scope": str(ROOT),
+        "files": members, "excluded_self_components": self_parts,
+        "fresh_output_state_outside_static_membership": prep["fresh_paths"],
+    })
+    verify_export(ROOT / "SHA256SUMS.json")
+    assert {p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*") if p.is_file()} == set(members) | set(self_parts)
+    for name, row in members.items():
+        observed = bind(ROOT / name)
+        assert observed["sha256"] == row["sha256"] and observed["size"] == row["size"]
+    print(json.dumps({"seal": result, "members": len(members), "manifest": bind(ROOT / "manifest.json"),
+                      "package": bind(ROOT / "PACKAGE.json")}, indent=2))
+
+
+if __name__ == "__main__":
+    assert os.getpriority(os.PRIO_PROCESS, 0) == 15
+    if sys.argv[1:] == ["--accounting-only"]:
+        accounting()
+    else:
+        assert not sys.argv[1:]
+        seal()

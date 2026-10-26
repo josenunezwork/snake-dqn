@@ -1,0 +1,68 @@
+"""Create-only repository mirror of the sealed canary; no runtime dispatch."""
+
+import hashlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+REPO = Path("/Users/josenunez/Projects/ml/snake-dqn-f5envdiag")
+TARGET = REPO / "research/bl_residual/ledger/F5_FAMILY_CANARY_ad207314_20261026_02"
+sys.path.insert(0, str(REPO))
+from research.bl_ppo.exports import export_json, verify_export
+
+
+def bind(path):
+    with path.open("rb") as handle:
+        sha = hashlib.file_digest(handle, "sha256").hexdigest()
+    return {"path": str(path), "sha256": sha, "size": path.stat().st_size}
+
+
+def main():
+    assert not TARGET.exists()
+    assert not subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=REPO)
+    verify_export(ROOT / "SHA256SUMS.json")
+    seal = json.loads((ROOT / "SHA256SUMS.json").read_text())
+    files = dict(seal["files"])
+    for name in seal["excluded_self_components"]:
+        row = bind(ROOT / name)
+        files[name] = {"sha256": row["sha256"], "size": row["size"]}
+    actual = {p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*") if p.is_file()}
+    assert actual == set(files)
+    TARGET.mkdir(parents=True)
+    records = {}
+    for name, row in sorted(files.items()):
+        source = ROOT / name
+        observed = bind(source)
+        assert observed["sha256"] == row["sha256"] and observed["size"] == row["size"]
+        record = {"external_path": str(source), **row}
+        if row["size"] > 2_000_000:
+            record.update(publication="EXTERNAL_HASH_BOUND_ARTIFACT",
+                          reason="Payload exceeds Git file limit; create-only artifact bytes remain bound by exhaustive seal.")
+        else:
+            relative = "sealed/" + name + (".txt" if name.endswith(".py") else "")
+            destination = TARGET / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("xb") as handle:
+                handle.write(source.read_bytes())
+            copied = bind(destination)
+            assert copied["sha256"] == row["sha256"] and copied["size"] == row["size"]
+            record["published_relative_path"] = relative
+        records[name] = record
+    result = export_json(TARGET / "ARTIFACT_PACKET.json", {
+        "schema": "bl-f5-family-canary-publication-packet/v1",
+        "scope": "PREPARATION_ONLY_NO_DISPATCH_PENDING_SUCCESSOR_ASTRA_REVIEW",
+        "package_root": str(ROOT), "runtime_source_commit": "ad207314bcccc037121b6da03c3aa296d3e1c0ac",
+        "exhaustive_seal": bind(ROOT / "SHA256SUMS.json"), "files": records,
+        "script_snapshots": "Preparation scripts archived byte-for-byte as .py.txt; no runtime source changes.",
+        "canary01_authorization_consumed": True, "allocations": 0, "dispatches": 0,
+        "no_existing_repository_files_changed": True,
+    })
+    verify_export(TARGET / "ARTIFACT_PACKET.json")
+    print(json.dumps({"publication": result, "package_files": len(records),
+                      "external_large_payloads": [n for n, r in records.items() if "publication" in r]}, indent=2))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,58 @@
+"""One serial offline verification lane with recorded effective scheduling."""
+
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+BROKER = Path("/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-ad207314-20261026-02.noindex")
+sys.path.insert(0, str(BROKER))
+from research.bl_ppo.exports import export_json
+
+names = ("OMP_NUM_THREADS", "OMP_THREAD_LIMIT", "OPENBLAS_NUM_THREADS",
+         "MKL_NUM_THREADS", "NUMBA_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
+assert os.getpriority(os.PRIO_PROCESS, 0) == 15
+assert all(os.environ.get(name) == "1" for name in names)
+argv = [sys.executable, "-m", "pytest", "-q", "-p", "no:xdist",
+        "tests/test_bl_residual_f5_resume_integration.py",
+        "tests/test_bl_residual_f5_timing_resume.py",
+        "tests/test_bl_residual_f5_timing_recovery_package.py",
+        "tests/test_ops_f5_timing_admission.py",
+        "tests/test_colab_cli_f5_timing_transfer.py",
+        "tests/test_colab_cli_canary.py",
+        "tests/test_colab_cli_canary_observer.py",
+        "tests/test_bl_residual_f5_qualification.py",
+        "tests/test_bl_residual_f5_calibration.py",
+        "tests/test_bl_residual_f5_progress.py",
+        "tests/test_bl_residual_f5_environment.py",
+        "tests/test_bl_residual_f5_job.py"]
+started = time.monotonic()
+with (ROOT / "verified-tests.log").open("x") as handle:
+    result = subprocess.run(argv, cwd=BROKER, stdout=handle, stderr=subprocess.STDOUT,
+                            env=os.environ.copy(), timeout=180)
+assert result.returncode == 0
+checks = []
+for command in (["git", "diff", "--check"], ["bash", "-n", "research/bl_residual/f5_colab.sh"],
+                ["bash", "-n", "tools/ops/dispatch.sh"]):
+    item = subprocess.run(command, cwd=BROKER, text=True, capture_output=True, timeout=30)
+    assert item.returncode == 0
+    checks.append({"argv": command, "return_code": item.returncode,
+                   "stdout": item.stdout, "stderr": item.stderr})
+log = ROOT / "verified-tests.log"
+record = {"schema": "bl-f5-canary-offline-verification/v1", "cwd": str(BROKER),
+          "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=BROKER, text=True).strip(),
+          "effective_niceness": os.getpriority(os.PRIO_PROCESS, 0),
+          "numeric_threads": {name: os.environ[name] for name in names},
+          "parallel_workers": 0, "argv": argv, "return_code": result.returncode,
+          "elapsed_seconds_including_checks": time.monotonic() - started,
+          "log": {"path": str(log), "sha256": hashlib.sha256(log.read_bytes()).hexdigest(),
+                  "size": log.stat().st_size}, "checks": checks,
+          "cuda_execution_claimed": False,
+          "scheduling_note": "Parent already nice15; no additive nice increment",
+          "verification_script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+export_json(ROOT / "VERIFICATION.json", record)
+print(json.dumps(record, indent=2))
