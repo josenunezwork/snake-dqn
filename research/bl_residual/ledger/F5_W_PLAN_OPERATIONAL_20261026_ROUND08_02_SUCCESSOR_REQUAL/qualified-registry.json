@@ -1,0 +1,8 @@
+{
+  "acceptance_id": "acceptance-1793011701",
+  "acceptance_result": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3/acceptance-1793011701/acceptance-result.json",
+  "acceptance_result_sha256": "8356217255f0e4e8f40e27c2fbfcd4785b991d9e594ffc4eed83419063d8847f",
+  "qualified_commit": "3b32d755ee3e22ed5ebf71b5f64af543b40c5ccb",
+  "schema": "snake-dqn-colab-cli-qualified/v1",
+  "tree_hash": "6e8c1982b5c9ed115bfebd3145ad0720b15522fa"
+}

@@ -1,0 +1,16 @@
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-f5w
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 116 items
+
+tests/test_ops_dispatch.py ............................................. [ 38%]
+...........................................                              [ 75%]
+tests/test_ops_f5_plan_admission.py ..................                   [ 91%]
+tests/test_ops_f5_timing_admission.py ..........                         [100%]
+
+============================= 116 passed in 51.34s =============================
+Exit: macOS OpenMP-isolated pytest finished
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!

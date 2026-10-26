@@ -1907,3 +1907,72 @@ scientific fit, outcome look or release occurred. If plan02 repeats this failure
 stop unchanged repetition and return both operational receipts for transport
 diagnosis/repair/requalification. Science still waits for both verified branches,
 Mac evidence, matching final canary/inventory and separate ACCEPT_F5_FIT.
+
+
+## 2026-10-26 F5 capture05 publication and requalified plan02 successor
+
+Capture `bl-f5-w-capture-requal-3b32d755-05` saved output was published FIRST at
+`75b1442768f37ce83188a2990c9ef0026ee806b5`; local HEAD equalled origin/main and
+all75 output files plus5 saved release-state files reconstructed exactly from229
+ledger components before POST_CAPTURE_VERIFICATION_05.json was created. Its
+create-only report, latency summary, independent audit/method-timestamp erratum,
+and narrow plan-only dispatch admission were published at
+`97f066ce106000ae0264c27f88da38e1b894a860` (audit erratum/tooling follow here).
+Evidence lives under `research/bl_residual/ledger/F5_W_CAPTURE_AFTER_TRANSPORT_REQUAL_05/`.
+
+Capture-only verdict PASS: receipt974.6836456250167s, admitted v5 L4 environment
+SHA2b5e0713cc907a08688e1d27bcd171669f345a2f25478a4e6e07be9ce2a29e6d,
+12/12 saved CPU/CUDA parity PASS rows (allclose and exact selected action predicates),
+source-native CUDA Tensor.argmax observer,10/10 exports rehashed with sidecars,
+verified transfer57.352172708837315s<=150 and staging76.89912299998105s<=300.
+Saved stop/sessions/usage prove release; no current provider query was performed.
+Latency was retained: successful CLI max40.41663054190576s, failed renewal max
+120.01223687501624s, whole control max262.8373576669255s, four poststaging idle
+recoveries max8.396584625006653s; no staging recovery-idle call. Completion survived
+stalls; this does not isolate repair causality or establish future reliability.
+Report SHA8a06712f6700420562016e048f7983b0c633eb7d5cbc291b79e91c65d0fcfa1b.
+
+Create-only named successor of the held UNEXECUTED plan02 (not a third execution):
+`F5_W_PLAN_OPERATIONAL_20261026_ROUND08_02_SUCCESSOR_REQUAL/` under the external
+astra-20261024 artifact root, mirrored in the main ledger. Fresh job
+`bl-f5-w-plan-r08-sr75b14427-01`; source75b1442768f37ce83188a2990c9ef0026ee806b5,
+clean detached broker `/Users/josenunez/Projects/ml/snake-dqn-f5-plan02-requal`
+at97f066ce106000ae0264c27f88da38e1b894a860. CLI subtree remains
+6e8c1982b5c9ed115bfebd3145ad0720b15522fa; all nontransport F5 closure bytes equal
+c989f6738f6aad143eb97bc47f6bd9e6687057ce. The plan-only wrapper exception accepts
+only that exact source plus exact repair ruling and capture05 report; timing's
+original source fence is unchanged. No research/colab_cli bytes were changed.
+
+The authoritative control embeds the exact capture05 raw environment. Shared
+ordered2000x256 CPU-generator plan/RNG contract, seed3403, selected-training identity,
+namespace/four fixed science identities, scientific scope, base15/effective30min
+runaway timeout and inherited caps remain unchanged. Operative allocation and empty
+ledger were recomputed. Both mechanical receipts and all7 historical sessions/raw
+accounting are bound:3782.8593037500978s, observed balance decreases1.2100000000000364u;
+observed balances, last crosschecks and elapsed-rate exposure remain distinct, not
+precise billing claims. No cumulative envelope reset/redoubling. Saved postrelease
+account snapshot is explicitly NOT_LIVE; local active/pending records were empty.
+Future wrapper must refresh under lock and refuse endpoint/rate drift.
+
+Fresh actual environment/control/source/governance/opaque input/HTTPS B8/schema/
+qualified-consumer/broker preflights passed.192pins/194paths/200archive members match
+Git and clean broker.7inputs/9exports, private40368127bytes<=45397643. Exact output:
+`PASS_DRY_RUN bl-f5-w-plan-r08-sr75b14427-01 allocations=0 live_accounting=NOT_CHECKED`.
+Exhaustive verification rehashed1401 external bindings,153 held-plan02 files and148
+plan01 files. Independent operative review found no blocking findings after
+MANIFEST_ANNOTATION_ERRATUM.json superseded two inherited NONRUNTIME capture04/
+preflight-filename annotations; actual runtime control always used capture05.
+Original manifest stays immutable; erratum is explicitly bound by seal/publication.
+Initial metadata preparation's stale path refusal and draft helpers remain
+nonoperative provenance; no runtime attempt was consumed.
+
+116 dispatch/admission regression tests and23 package/broker tests passed;1 real
+CUDA test skipped. Independent reviewer reran28 admission tests and actual-manifest
+admission/missing-evidence/drift refusals. Black/isort/flake8/diff checks passed.
+Seal39c2cc23892e73d080f09a595a2438e0fc13741f022eb2ec6d69d8b5dfd75279
+covers171 files; publication77d3fc4a51c5e998f1d8f5d4c04b9b99f0e31325596614c28efb690f78b212e4
+represents174 source files in209 ledger files. DISPATCH.txt contains the exact future
+operator command. No dispatch, Colab/account/provider call, scientific payload
+inspection, fit, outcome look, serving/release change or timing seal occurred in
+this work. Final science still requires the separate verified branches, Mac evidence,
+exact eventual-input family canary and ACCEPT_F5_FIT.

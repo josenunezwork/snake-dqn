@@ -1,0 +1,33 @@
+{
+  "schema": "bl-f5-attempt05-independent-audit-erratum/v1",
+  "status": "PASS_METADATA_CORRECTION",
+  "created_utc": "2026-10-26T11:48:07.076345000Z",
+  "original_audit": {
+    "path": "POST_CAPTURE_INDEPENDENT_AUDIT_05.json",
+    "sha256": "07b90f39f02d27a40fbf54707dfbc665dd659883cc3342a6dc4cd103d65f0faf",
+    "original_created_utc": "2026-10-26T12:00:00Z",
+    "correction": "The original created_utc was a hardcoded metadata value and must not be treated as the audit observation or execution time."
+  },
+  "latency_wording_correction": {
+    "original_interpretation": "The repair did not absorb or eliminate the spikes.",
+    "corrected_interpretation": "The saved run contains retained latency spikes and completion survived them. This audit cannot attribute the spikes or their survival to the transport repair, cannot establish a counterfactual repair effect, and cannot claim future reliability. No spike elimination was observed in this run."
+  },
+  "audit_method_correction": {
+    "validation_api_use_by_this_audit": false,
+    "validation_apis_run_by_this_audit": [],
+    "basis_used_by_this_audit": [
+      "Saved receipt, environment, qualification, publication inventory, release-state, and latency-summary metadata",
+      "SHA-256 and size comparisons for 229 publication inventory records against git HEAD blobs",
+      "SHA-256 and completion-marker checks for 121 published data blobs",
+      "Saved qualification row/status counts and source predicate inspection at f5_qualification.py lines 462-465",
+      "Saved transfer/staging/latency scalar comparisons against the stated bars"
+    ],
+    "scope": "This erratum records the independent audit method only. It does not replace or restate any validation API result run separately by the root agent."
+  },
+  "unchanged_references": {
+    "job_id": "bl-f5-w-capture-requal-3b32d755-05",
+    "publication_commit": "75b1442768f37ce83188a2990c9ef0026ee806b5",
+    "original_post_capture_verification_sha256": "8a06712f6700420562016e048f7983b0c633eb7d5cbc291b79e91c65d0fcfa1b",
+    "latency_summary_sha256": "54f59308818cb41972b0d63b7fd5726ae8db18a8fc0969e88af54c33854a2e20"
+  }
+}
