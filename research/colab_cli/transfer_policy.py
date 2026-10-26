@@ -383,16 +383,24 @@ def acceptance_limit(plan: dict[str, Any]) -> float:
                 if manifest.get("f5_timing_synthetic_inventory") != inventory:
                     raise ValueError("F5 timing acceptance manifest inventory differs")
                 cap = transfer_limit(manifest)
-            elif "f5_timing_transfer_exception" in manifest:
-                raise ValueError("CPU acceptance cannot claim the F5 timing exception")
+            elif any(
+                key in manifest for key in ("transfer_exception", "f5_timing_transfer_exception")
+            ):
+                raise ValueError("CPU acceptance cannot claim an L4 transfer exception")
         if cap is not None:
             return cap
         raise ValueError("F5 timing acceptance lacks L4 manifest")
     if "transfer_exception" not in plan:
         for job in plan.get("jobs", []):
             path = Path(job.get("manifest", ""))
-            if path.is_file() and "transfer_exception" in json.loads(path.read_text()):
-                raise ValueError("D1024 acceptance manifest has undeclared transfer authority")
+            if path.is_file():
+                manifest = json.loads(path.read_text())
+                if "transfer_exception" in manifest:
+                    raise ValueError("D1024 acceptance manifest has undeclared transfer authority")
+                if "f5_timing_transfer_exception" in manifest:
+                    raise ValueError(
+                        "F5 timing acceptance manifest has undeclared transfer authority"
+                    )
         return DEFAULT_TRANSFER_SECONDS
     if plan["transfer_exception"] != authority_binding("acceptance"):
         raise ValueError("foreign or malformed D1024 acceptance transfer authority")
@@ -411,8 +419,8 @@ def acceptance_limit(plan: dict[str, Any]) -> float:
             if manifest.get("transfer_exception") != plan["transfer_exception"]:
                 raise ValueError("D1024 acceptance manifest transfer authority differs")
             cap = transfer_limit(manifest)
-        elif "transfer_exception" in manifest:
-            raise ValueError("CPU acceptance cannot claim the D1024 L4 transfer exception")
+        elif any(key in manifest for key in ("transfer_exception", "f5_timing_transfer_exception")):
+            raise ValueError("CPU acceptance cannot claim an L4 transfer exception")
     return cap
 
 

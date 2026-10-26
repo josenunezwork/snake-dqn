@@ -256,6 +256,37 @@ def test_f5_only_admission_requires_its_fifteenth_gate(combined: tuple) -> None:
     assert admission.require_final_only(result, repo) == result["final_artifact_transfer"]
 
 
+def test_plan_cannot_hide_saved_manifest_f5_authority(combined: tuple) -> None:
+    repo, _, result = combined
+    plan = result["final_plan"]
+    for key in ("f5_timing_synthetic_inventory", "f5_timing_transfer_exception"):
+        plan.pop(key)
+    for key in ("f5_timing_synthetic_inventory_sha256", "f5_timing_transfer_exception"):
+        result.pop(key)
+    plan["gates"] = [
+        gate for gate in plan["gates"] if gate["id"] != "f5-timing-synthetic-full-inventory-staging"
+    ]
+    with pytest.raises(ValueError, match="undeclared transfer authority"):
+        acceptance.transfer_policy.acceptance_limit(plan)
+    with pytest.raises(supervisor.Refused, match="transfer authority is invalid"):
+        acceptance.verify_plan_sources(plan, repo)
+    with pytest.raises(supervisor.Refused, match="undeclared transfer authority"):
+        admission.require_final_only(result, repo)
+
+
+@pytest.mark.parametrize("authority_key", ["transfer_exception", "f5_timing_transfer_exception"])
+def test_cpu_cannot_borrow_either_l4_authority(combined: tuple, authority_key: str) -> None:
+    _, _, result = combined
+    plan = result["final_plan"]
+    cpu = next(job for job in plan["jobs"] if job["name"] == "cpu")
+    path = Path(cpu["manifest"])
+    manifest = json.loads(path.read_text())
+    manifest[authority_key] = {}
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="CPU acceptance"):
+        acceptance.transfer_policy.acceptance_limit(plan)
+
+
 def test_saved_review_cannot_omit_f5_authority(
     combined: tuple, monkeypatch: pytest.MonkeyPatch
 ) -> None:
