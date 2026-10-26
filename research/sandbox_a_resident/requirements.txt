@@ -1,0 +1,4 @@
+# CUDA torch and numpy are installed/pinned by the qualified bootstrap.
+PyYAML>=6.0,<7
+numba>=0.61,<0.62
+ninja>=1.11,<2
