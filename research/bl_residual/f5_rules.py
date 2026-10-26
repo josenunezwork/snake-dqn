@@ -611,9 +611,9 @@ def r9_disposition(flags: Iterable[str], *, ub_change: float = 20.0, all_pass: b
         if label in items:
             return label
     bound = _ordered(ub_change, "change upper90")
-    if bound <= 0:
+    if "KILL_CHANGE_CLOSED" in items or bound <= 0:
         return "KILL_CHANGE_CLOSED"
-    if bound < 20:
+    if "KILL_CHANGE_FUTILE" in items or bound < 20:
         return "KILL_CHANGE_FUTILE"
     if "KILL_PRODUCT" in items:
         return "KILL_PRODUCT"

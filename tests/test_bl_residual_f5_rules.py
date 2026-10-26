@@ -131,6 +131,8 @@ def test_r7_welch_holm_guards_and_r9_precedence() -> None:
     assert rules.r9_disposition(set(), ub_change=20, all_pass=False) == "INCONCLUSIVE"
     assert rules.r9_disposition(set(), ub_change=Fraction(20), all_pass=True) == "GO_F5_DEV"
     assert rules.r9_disposition({"KILL_PRODUCT"}) == "KILL_PRODUCT"
+    assert rules.r9_disposition({"KILL_CHANGE_CLOSED", "KILL_PRODUCT"}) == "KILL_CHANGE_CLOSED"
+    assert rules.r9_disposition({"KILL_CHANGE_FUTILE", "KILL_PRODUCT"}) == "KILL_CHANGE_FUTILE"
 
 
 def test_r7_nextafter_bar_boundaries_and_absolute_survival_floor() -> None:

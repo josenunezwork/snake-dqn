@@ -76,7 +76,6 @@ def _small_plan() -> BatchPlan:
         torch.tensor([[0, 1, 2, 3], [2, 3, 0, 1]], dtype=torch.long),
         state,
         state.clone(),
-        (state.clone(), state.clone(), state.clone()),
         boundary,
         boundary,
         _identity(),
@@ -97,7 +96,7 @@ def _f4_matching_small_plan(cache: dict[str, torch.Tensor]) -> BatchPlan:
     )
     generator = torch.Generator().manual_seed(3403)
     initial = generator.get_state().clone()
-    rows, states = [], [initial.clone()]
+    rows = []
     for _ in range(2):
         rows.append(
             torch.cat(
@@ -107,13 +106,11 @@ def _f4_matching_small_plan(cache: dict[str, torch.Tensor]) -> BatchPlan:
                 )
             )
         )
-        states.append(generator.get_state().clone())
     boundary = RngBoundary(random.getstate(), np.random.get_state(), torch.get_rng_state(), ())
     return BatchPlan(
         torch.stack(rows),
         initial,
-        states[-1],
-        tuple(states),
+        generator.get_state(),
         boundary,
         boundary,
         _identity(),
@@ -198,6 +195,16 @@ def test_synthetic_resume_reuses_plan_and_refuses_identity_mismatch() -> None:
     )
     assert len(boundaries) == 1 and boundaries[0].updates_completed == 1
     assert boundaries[0].plan_generator_state.dtype == torch.uint8
+    assert torch.equal(boundaries[0].plan_generator_state, _small_plan().final_generator_state)
+    all_boundaries = []
+    fit_f5_synthetic(
+        _model(), cache, _small_plan(), recipe, boundary_callback=all_boundaries.append
+    )
+    assert [item.updates_completed for item in all_boundaries] == [1, 2]
+    assert all(
+        torch.equal(item.plan_generator_state, _small_plan().final_generator_state)
+        for item in all_boundaries
+    )
     resumed = fit_f5_synthetic(_model(), cache, _small_plan(), recipe, partial)
     uninterrupted = fit_f5_synthetic(_model(), cache, _small_plan(), recipe)
     assert resumed.losses == uninterrupted.losses

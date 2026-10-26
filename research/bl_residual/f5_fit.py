@@ -97,7 +97,6 @@ class BatchPlan:
     indices: torch.Tensor
     initial_generator_state: torch.Tensor
     final_generator_state: torch.Tensor
-    generator_states: tuple[torch.Tensor, ...]
     initial_rng: "RngBoundary"
     final_rng: "RngBoundary"
     identity: F5Identity
@@ -192,12 +191,11 @@ def _digest_plan(
     indices: torch.Tensor,
     initial: torch.Tensor,
     final: torch.Tensor,
-    generator_states: tuple[torch.Tensor, ...],
     identity: F5Identity,
     recipe: F5Recipe,
 ) -> str:
     hasher = hashlib.sha256()
-    for value in (indices, initial, final, *generator_states):
+    for value in (indices, initial, final):
         hasher.update(value.detach().cpu().contiguous().numpy().tobytes())
     for value in (
         identity.source_sha256,
@@ -222,7 +220,6 @@ def materialize_batch_plan(metadata: Mapping[str, torch.Tensor], identity: F5Ide
     initial = generator.get_state().clone()
     initial_rng = _capture_rng()
     rows = []
-    states = [initial.clone()]
     for _ in range(recipe.updates):
         rows.append(
             torch.cat(
@@ -232,15 +229,11 @@ def materialize_batch_plan(metadata: Mapping[str, torch.Tensor], identity: F5Ide
                 )
             )
         )
-        states.append(generator.get_state().clone())
     indices = torch.stack(rows)
     final = generator.get_state().clone()
     final_rng = _capture_rng()
-    generator_states = tuple(states)
-    sha256 = _digest_plan(indices, initial, final, generator_states, identity, recipe)
-    return BatchPlan(
-        indices, initial, final, generator_states, initial_rng, final_rng, identity, recipe, sha256
-    )
+    sha256 = _digest_plan(indices, initial, final, identity, recipe)
+    return BatchPlan(indices, initial, final, initial_rng, final_rng, identity, recipe, sha256)
 
 
 def sampler_symbol_sha256() -> str:
@@ -292,17 +285,12 @@ def verify_batch_plan(plan: BatchPlan, metadata: Mapping[str, torch.Tensor]) -> 
         plan.indices,
         plan.initial_generator_state,
         plan.final_generator_state,
-        plan.generator_states,
         plan.identity,
         plan.recipe,
     ):
         raise F5FitRefusal("batch plan digest mismatch")
     generated = materialize_batch_plan(metadata, plan.identity)
-    if (
-        not torch.equal(plan.indices, generated.indices)
-        or plan.sha256 != generated.sha256
-        or len(plan.generator_states) != 2001
-    ):
+    if not torch.equal(plan.indices, generated.indices) or plan.sha256 != generated.sha256:
         raise F5FitRefusal("batch plan is not the pinned CPU-generator plan")
 
 
@@ -355,10 +343,7 @@ def _restore_rng(state: F5FitState, plan: BatchPlan) -> None:
 
     import numpy as np
 
-    if state.updates_completed >= len(plan.generator_states):
-        raise F5FitRefusal("resume counter has no sealed plan-generator boundary")
-    expected_generator = plan.generator_states[state.updates_completed]
-    if not torch.equal(state.plan_generator_state.cpu(), expected_generator.cpu()):
+    if not torch.equal(state.plan_generator_state.cpu(), plan.final_generator_state.cpu()):
         raise F5FitRefusal("resume plan-generator boundary differs from sealed plan")
     random.setstate(state.python_rng_state)
     np.random.set_state(state.numpy_rng_state)
@@ -391,7 +376,7 @@ def _state_at_boundary(
         numpy_rng_state=copy.deepcopy(boundary.numpy_rng_state),
         torch_cpu_rng_state=boundary.torch_cpu_rng_state.clone(),
         torch_cuda_rng_states=tuple(value.clone() for value in boundary.torch_cuda_rng_states),
-        plan_generator_state=plan.generator_states[completed].clone(),
+        plan_generator_state=plan.final_generator_state.clone(),
     )
 
 
