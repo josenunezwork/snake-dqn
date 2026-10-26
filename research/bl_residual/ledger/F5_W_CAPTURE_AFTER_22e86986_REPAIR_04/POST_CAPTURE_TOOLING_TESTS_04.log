@@ -1,0 +1,20 @@
+nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -p no:xdist -p no:cacheprovider tests/test_f5_environment_memory_v5.py tests/test_bl_residual_f5_qualification.py tests/test_colab_cli_canary.py tests/test_colab_cli_canary_observer.py
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-f5w
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 119 items
+
+tests/test_f5_environment_memory_v5.py .....                             [  4%]
+tests/test_bl_residual_f5_qualification.py .........s.                   [ 13%]
+tests/test_colab_cli_canary.py ......................................... [ 47%]
+.........................................................                [ 95%]
+tests/test_colab_cli_canary_observer.py .....                            [100%]
+
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_bl_residual_f5_qualification.py:103: requires a real CUDA runtime
+======================== 118 passed, 1 skipped in 6.26s ========================
+Exit: macOS OpenMP-isolated pytest finished
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!
