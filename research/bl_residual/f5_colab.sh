@@ -54,6 +54,10 @@ elif [ "$F5_MODE" = "qualification-transport" ]; then
   "$F5_PYTHON" -m research.bl_residual.f5_qualification --inputs "$COLAB_INPUT_DIR" \
     --fixtures "$COLAB_INPUT_DIR/timing-fixtures.json" --output "$COLAB_CLI_ROOT/output" \
     --device "$F5_DEVICE" --transport-only
+elif [ "$F5_MODE" = "qualification-canary" ]; then
+  "$F5_PYTHON" -m research.bl_residual.f5_qualification --inputs "$COLAB_INPUT_DIR" \
+    --fixtures "$COLAB_INPUT_DIR/timing-fixtures.json" --output "$COLAB_CLI_ROOT/output" \
+    --device "$F5_DEVICE" --transport-only --canary-tiny-workload
 elif [ "$F5_MODE" = "qualification" ]; then
   F5_LEDGER=${F5_LEDGER:-$COLAB_INPUT_DIR/verified-ledger.json}
   "$F5_PYTHON" -m research.bl_residual.f5_qualification --inputs "$COLAB_INPUT_DIR" \

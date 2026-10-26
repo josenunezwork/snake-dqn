@@ -64,3 +64,9 @@ def test_mac_reducer_requires_all_thirteen_and_coupled_calibration(tmp_path: Pat
         )
     )
     assert subject.reduce_units(units, binding)["unit_count"] == 13
+
+
+def test_tiny_canary_is_sealed_but_never_a_timing_ledger_unit(tmp_path: Path):
+    record = subject.publish_canary_record(tmp_path, _binding(), exercised_keys=[672])
+    assert record["classification"] == "CANARY_ONLY"
+    assert (tmp_path / "timing-canary/CANARY_ONLY.json.complete").is_file()

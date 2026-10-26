@@ -413,6 +413,7 @@ def run(
     bootstrap: bool = False,
     transport_only: bool = False,
     ledger: Path | None = None,
+    canary_tiny_workload: bool = False,
     progress: QualificationProgress | None = None,
 ) -> dict[str, Any]:
     """Execute all twelve timing-only source-native CUDA fixture workloads."""
@@ -477,13 +478,15 @@ def run(
     if spec_for(model) != "ego2s-bv8":
         _refuse("qualification requires the served ego2s-bv8 B8 checkpoint")
     root.mkdir(parents=True, exist_ok=True)
+    if canary_tiny_workload and not transport_only:
+        _refuse("tiny workload is CANARY_ONLY and cannot be a timing operation")
     # The full timing operation is resumable at the registered completed-unit
     # boundaries only.  Transport-only probes intentionally have no timing
     # units and cannot be mistaken for completed timing evidence.
     completed_units: list[dict[str, Any]] = []
     verified_units: dict[int | str, dict[str, Any]] = {}
     resume_binding: dict[str, str] | None = None
-    if not transport_only:
+    if not transport_only or canary_tiny_workload:
         from research.bl_residual import f5_timing_resume
 
         if ledger is None:
@@ -509,7 +512,8 @@ def run(
             _refuse(str(exc))
     samples: list[dict[str, Any]] = []
     started = time.monotonic()
-    for completed, row in enumerate(rows):
+    active_rows = rows[:1] if canary_tiny_workload else rows
+    for completed, row in enumerate(active_rows):
         key = int(row["allocation_index"])
         if key in verified_units:
             payload = verified_units[key].get("payload")
@@ -554,7 +558,7 @@ def run(
             **timing,
         }
         samples.append(sample)
-        if resume_binding is not None:
+        if resume_binding is not None and not canary_tiny_workload:
             from research.bl_residual import f5_timing_resume
 
             completed_units.append(f5_timing_resume.publish_unit(root, resume_binding, key, sample))
@@ -626,6 +630,28 @@ def run(
             "NOT_MEASURED_TRANSPORT_ONLY" if transport_only else "HOLD_REQUIRES_MAC_COMPANION"
         ),
     }
+    if canary_tiny_workload:
+        # This path deliberately uses the real scanner admission and real CUDA
+        # producer seam, but marks its shortened record ineligible for either
+        # a ledger or the 13-unit reducer.
+        from research.bl_residual import f5_timing_resume
+
+        canary_binding = f5_timing_resume.identity(
+            namespace="bl-residual-f5-timing-recovery-20261026",
+            allocation=f5_job._identity(control).allocation_sha256,
+            source_sha256=f5_job._identity(control).source_sha256,
+            environment_sha256=hashlib.sha256(
+                json.dumps(assignment, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            input_sha256=hashlib.sha256(
+                json.dumps(
+                    control.get("input_hashes"), sort_keys=True, separators=(",", ":")
+                ).encode()
+            ).hexdigest(),
+        )
+        report["canary_only"] = f5_timing_resume.publish_canary_record(
+            root, canary_binding, exercised_keys=[int(active_rows[0]["allocation_index"])]
+        )
     receipt_dir.mkdir(parents=True)
     export_json(receipt_dir / "qualification.json", report)
     return report
@@ -640,6 +666,7 @@ def main() -> None:
     parser.add_argument("--bootstrap", action="store_true")
     parser.add_argument("--transport-only", action="store_true")
     parser.add_argument("--ledger", type=Path)
+    parser.add_argument("--canary-tiny-workload", action="store_true")
     args = parser.parse_args()
     progress = QualificationProgress()
     progress.start()
@@ -653,6 +680,7 @@ def main() -> None:
             bootstrap=args.bootstrap,
             transport_only=args.transport_only,
             ledger=args.ledger,
+            canary_tiny_workload=args.canary_tiny_workload,
             progress=progress,
         )
         success = True

@@ -139,6 +139,25 @@ def publish_unit(
     return unit
 
 
+def publish_canary_record(
+    output: Path, binding: Mapping[str, str], *, exercised_keys: Sequence[int | str]
+) -> dict[str, Any]:
+    """Seal a tiny-workload record that the timing ledger will never accept."""
+    if not exercised_keys or any(key not in _expected_keys() for key in exercised_keys):
+        raise ResumeRefusal("invalid tiny canary unit coverage")
+    payload = {
+        "schema": "bl-f5-timing-canary-record/v1",
+        "classification": "CANARY_ONLY",
+        "tiny_workload": True,
+        "identity": dict(binding),
+        "exercised_unit_keys": list(exercised_keys),
+        "eligible_for_timing_reducer": False,
+    }
+    export_json(output / "timing-canary" / "CANARY_ONLY.json", payload)
+    verify_export(output / "timing-canary" / "CANARY_ONLY.json")
+    return payload
+
+
 def reduce_units(units: Sequence[Mapping[str, Any]], binding: Mapping[str, str]) -> dict[str, Any]:
     """Mac-side operational reducer: require all twelve fixtures and full C/W checks."""
     records: dict[int | str, dict[str, Any]] = {}
