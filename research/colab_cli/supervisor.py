@@ -1674,17 +1674,26 @@ class Broker:
                     or delivery.get("tree") != plan["tree"]
                 ):
                     raise Refused("source delivery commit/tree identity mismatch")
-            write_once(
-                output / "upload-measurement.json",
-                {
-                    "elapsed_seconds": time.monotonic() - upload_started,
-                    "transfer_seconds": transfer_seconds,
-                    "source_delivery_seconds": source_delivery_seconds,
-                    "setup_seconds": setup_seconds,
-                },
-            )
+            measurement = {
+                "elapsed_seconds": time.monotonic() - upload_started,
+                "transfer_seconds": transfer_seconds,
+                "source_delivery_seconds": source_delivery_seconds,
+                "setup_seconds": setup_seconds,
+            }
+            write_once(output / "upload-measurement.json", measurement)
             write_once(output / "source-delivery.json", delivery)
             write_once(output / "input-hashes.json", checks)
+            # A probe's upload/staging bars are admission controls, not a
+            # post-success qualification check. Preserve all measurements for
+            # diagnosis, then refuse before ready.json releases the child.
+            from research.colab_cli.canary import StagingCapError, is_canary, staging_measurement
+            from research.colab_cli.failures import ClassifiedFailure, FailureClass
+
+            if is_canary(m):
+                try:
+                    staging_measurement(m, measurement)
+                except StagingCapError as exc:
+                    raise ClassifiedFailure(FailureClass.UPLOAD_CAP, str(exc)) from exc
             # Hardware admission and process launch are short RPCs. Bootstrap
             # runs in the lease-fenced child, never in the notebook kernel.
             code = (

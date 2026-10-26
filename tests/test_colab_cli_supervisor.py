@@ -379,6 +379,76 @@ def test_whole_staging_over_300_seconds_cannot_qualify(
     assert not receipt["exports"]
 
 
+def test_probe_staging_cap_refusal_preserves_evidence_and_stops_before_ready(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A probe saves its measured transfer evidence before its bar can refuse it."""
+    from research.colab_cli import canary
+
+    binary = _fake_env(monkeypatch, tmp_path)
+    original_measurement = canary.staging_measurement
+    original_rpc = supervisor.CLI.recoverable_rpc
+    ready_controls = []
+    calls = []
+
+    def reject_probe(
+        manifest: dict[str, object], measurement: dict[str, object]
+    ) -> dict[str, float]:
+        calls.append(measurement)
+        original_measurement(manifest, measurement)
+        raise canary.StagingCapError("transfers must complete within 150 seconds")
+
+    def observe_rpc(self, code: str, timeout: float = 120) -> object:
+        if "(root/'ready.json').write_text" in code:
+            ready_controls.append(code)
+        return original_rpc(self, code, timeout=timeout)
+
+    monkeypatch.setattr(canary, "is_canary", lambda _manifest: True)
+    monkeypatch.setattr(canary, "staging_measurement", reject_probe)
+    monkeypatch.setattr(supervisor.CLI, "recoverable_rpc", observe_rpc)
+    manifest = _manifest(tmp_path)
+
+    with pytest.raises(supervisor.Refused, match="INCOMPLETE.*within 150"):
+        supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+
+    output = Path(manifest["output_dir"])
+    measurement = json.loads((output / "upload-measurement.json").read_text())
+    assert calls == [measurement]
+    assert (output / "source-delivery.json").is_file()
+    assert (output / "input-hashes.json").is_file()
+    receipt = json.loads((output / "receipt.json").read_text())
+    assert receipt["failure_class"] == "UPLOAD_CAP"
+    assert receipt["stop_verified"] is True
+    assert receipt["terminal"] is None
+    assert not ready_controls
+    _assert_transport(tmp_path)
+
+
+def test_probe_staging_within_cap_releases_child_normally(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A measured in-cap probe still reaches the ordinary child path."""
+    from research.colab_cli import canary
+
+    binary = _fake_env(monkeypatch, tmp_path)
+    probe_checks = iter((True, False))
+    monkeypatch.setattr(canary, "is_canary", lambda _manifest: next(probe_checks))
+    manifest = _manifest(tmp_path)
+
+    supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+
+    receipt = json.loads((Path(manifest["output_dir"]) / "receipt.json").read_text())
+    assert receipt["status"] == "PASS"
+    assert receipt["stop_verified"] is True
+    assert (
+        json.loads((Path(manifest["output_dir"]) / "upload-measurement.json").read_text())[
+            "transfer_seconds"
+        ]
+        <= 150
+    )
+    _assert_transport(tmp_path)
+
+
 def test_warmup_failure_stops_runtime_without_uploading_or_launching(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

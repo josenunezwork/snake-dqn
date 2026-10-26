@@ -43,6 +43,10 @@ class CanaryError(ValueError):
     """A dispatch lacks target-platform transport/execution proof."""
 
 
+class StagingCapError(CanaryError):
+    """Measured input staging exceeded its prospective transport allowance."""
+
+
 def digest(path: Path) -> str:
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
@@ -291,11 +295,13 @@ def check(manifest: dict[str, Any], repo: Path) -> None:
         raise CanaryError("canary scanner did not recover every required producer export")
 
 
-def evidence(
-    manifest: dict[str, Any], receipt: dict[str, Any], output: Path, repo: Path
-) -> dict[str, Any]:
-    """Construct proof only from measured transfers, scanner output and CUDA calls."""
-    measured = json.loads((output / "upload-measurement.json").read_text())
+def staging_measurement(manifest: dict[str, Any], measured: dict[str, Any]) -> dict[str, float]:
+    """Validate persisted staging measurements before bootstrap or qualification.
+
+    The broker calls this for probe canaries immediately after it records the
+    measurements.  ``evidence`` calls the same function later when binding a
+    completed receipt, so the timing contract has one implementation.
+    """
 
     def duration(name: str) -> float:
         value = measured.get(name)
@@ -313,7 +319,7 @@ def evidence(
     if elapsed <= 0:
         raise CanaryError("staging elapsed_seconds must be positive")
     if elapsed > MAX_STAGING_SECONDS:
-        raise CanaryError("staging must complete within 300 seconds")
+        raise StagingCapError("staging must complete within 300 seconds")
     if transfer_seconds <= 0:
         raise CanaryError("transfer_seconds must be positive")
     try:
@@ -321,7 +327,7 @@ def evidence(
     except ValueError as exc:
         raise CanaryError(str(exc)) from exc
     if transfer_seconds > transfer_cap:
-        raise CanaryError(f"transfers must complete within {transfer_cap:g} seconds")
+        raise StagingCapError(f"transfers must complete within {transfer_cap:g} seconds")
     if source_delivery_seconds < 0:
         raise CanaryError("source_delivery_seconds must be nonnegative")
     # The total includes setup/renewals as well as both measured portions.
@@ -332,6 +338,23 @@ def evidence(
         or transfer_seconds + source_delivery_seconds > elapsed + 1e-6
     ):
         raise CanaryError("staging timing components exceed elapsed_seconds")
+    return {
+        "elapsed_seconds": elapsed,
+        "transfer_seconds": transfer_seconds,
+        "source_delivery_seconds": source_delivery_seconds,
+    }
+
+
+def evidence(
+    manifest: dict[str, Any], receipt: dict[str, Any], output: Path, repo: Path
+) -> dict[str, Any]:
+    """Construct proof only from measured transfers, scanner output and CUDA calls."""
+    measured = staging_measurement(
+        manifest, json.loads((output / "upload-measurement.json").read_text())
+    )
+    elapsed = measured["elapsed_seconds"]
+    transfer_seconds = measured["transfer_seconds"]
+    source_delivery_seconds = measured["source_delivery_seconds"]
     terminal = receipt.get("terminal") or {}
     if (
         receipt.get("commit") != manifest["commit"]
