@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
-from research.bl_ppo.exports import export_json, verify_export
+from research.bl_ppo.exports import export_bytes, export_json, verify_export
 from research.bl_residual import f5_package
 from research.bl_residual.f5_r10a_annex import allocate
 from research.bl_residual.f5_timing_resume import empty_ledger, identity
@@ -259,6 +259,17 @@ def build(
         if hashlib.sha256(_git_bytes(repo, "show", f"{commit}:{relative}")).hexdigest() != expected:
             raise ValueError("source closure is not committed at HEAD")
     output.mkdir(parents=True)
+    source_paths = sorted(
+        set(hashes)
+        | {
+            f"{f5_package.ENV}/requirements-f5-l4-cu126.lock",
+            f"{f5_package.ENV}/f5-common-environment-v6.json",
+        }
+    )
+    archive = subprocess.check_output(
+        ["git", "archive", "--format=tar", commit, "--", *source_paths], cwd=repo
+    )
+    source_archive = export_bytes(output / "source.tar", archive)
     input_sha = hashlib.sha256(
         canonical([{k: row[k] for k in ("dest", "sha256", "size_bytes")} for row in runtime_inputs])
     ).hexdigest()
@@ -321,7 +332,7 @@ def build(
         "timeout_minutes": 240,
         "supervisor_state_dir": str(output / "state-01"),
         "inputs": inputs,
-        "source_paths": sorted(hashes),
+        "source_paths": source_paths,
         "env": {
             **THREADS,
             "F5_MODE": "qualification",
@@ -346,6 +357,10 @@ def build(
             "max_outcome_blind_retries": 2,
         },
         "f5": {
+            "transfer_seconds": 300,
+            "staging_seconds": 300,
+            "base_minutes": 120,
+            "effective_minutes": 240,
             "transfer_bar_seconds": 300,
             "staging_bar_seconds": 300,
             "private_upload_cap_bytes": 45_397_643,
@@ -361,8 +376,7 @@ def build(
         },
         "required_exports": [
             "qualification/qualification.json",
-            *[f"timing-units/fixture-{index}.json" for index in range(672, 684)],
-            "timing-units/calibration.json",
+            "resume/verified-skip-proof.json",
         ],
         "timing_calibration": {
             "no_automatic_retry": True,
@@ -412,12 +426,12 @@ def build(
         },
         "required_exports": [
             "qualification/qualification.json",
-            "timing-canary/fixture-672.json",
-            "timing-canary/fixture-673.json",
-            "timing-canary/verified-ledger.json",
+            "resume/verified-skip-proof.json",
         ],
         "f5": {
             **base["f5"],
+            "base_minutes": 15,
+            "effective_minutes": 30,
             "base_timeout_minutes": 15,
             "effective_timeout_minutes": 30,
         },
@@ -441,6 +455,8 @@ def build(
         "source_tree": tree,
         "ruling_sha256": RULING_SHA256,
         "source_inventory": hashes,
+        "source_archive": source_archive,
+        "source_paths": source_paths,
         "predecessor_source_paths": prior.get("source_paths"),
         "authority": {
             "path": str(authority_path),

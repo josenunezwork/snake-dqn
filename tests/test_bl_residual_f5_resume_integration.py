@@ -125,6 +125,7 @@ def _control() -> dict[str, Any]:
         "qualification_checkpoint_pool": {},
         "timing_input_sha256": "f" * 64,
         "source_hashes": {"research/bl_residual/f5_qualification.py": "0" * 64},
+        "ledger_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
     }
 
 
@@ -309,7 +310,7 @@ def test_run_exports_prefix_skips_exact_units_restarts_coupled_calibration_and_c
 
     # The actual CANARY_ONLY path starts from its empty ledger, publishes 672,
     # scans it, skips it, then exports 673.
-    canary_ledger = _empty_ledger(tmp_path / "canary-inputs", canary=True)
+    canary_ledger = _empty_ledger(tmp_path / "canary-inputs")
     canary = qualification.run(
         inputs,
         inputs / "unused-fixtures.json",

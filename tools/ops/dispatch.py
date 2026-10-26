@@ -1540,7 +1540,15 @@ def require_f5_timing_recovery_admission(
             f5.get("sizing_basis"),
         ) != (120, 240, "UNMEASURED_ENGINEERING_PLANNING_ALLOWANCE"):
             raise Refused("F5 timing recovery requires labelled unmeasured 120/240 sizing")
-        if "resume_exemption" in manifest or manifest.get("canary") is not None:
+        family_receipt = manifest.get("canary")
+        if family_receipt is not None and (
+            not isinstance(family_receipt, dict)
+            or set(family_receipt) != {"receipt"}
+            or not isinstance(family_receipt["receipt"], dict)
+            or set(family_receipt["receipt"]) != {"path", "sha256"}
+        ):
+            raise Refused("F5 timing recovery permits only a bound family receipt")
+        if "resume_exemption" in manifest:
             raise Refused("F5 timing recovery long operation forbids exemption or canary controls")
         resume = manifest.get("resume")
         if resume != {
@@ -1597,7 +1605,7 @@ def require_f5_timing_recovery_admission(
         raise Refused("F5 timing recovery resume types differ")
     if manifest.get("required_exports") != [
         "qualification/qualification.json",
-        "timing-canary/verified-skip-proof.json",
+        "resume/verified-skip-proof.json",
     ]:
         raise Refused("F5 timing recovery canary requires its CANARY_ONLY coverage proof")
 

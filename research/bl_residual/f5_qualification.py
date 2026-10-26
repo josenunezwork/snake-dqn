@@ -493,25 +493,28 @@ def run(
             ledger = inputs / "verified-ledger.json"
         if ledger.is_symlink() or not ledger.is_file():
             _refuse("full timing requires a hash-bound verified ledger")
+        if control.get("ledger_sha256") != digest(ledger):
+            _refuse("timing ledger differs from the sealed control")
         sealed = f5_job._identity(control)
         input_sha256 = control.get("timing_input_sha256")
         if not isinstance(input_sha256, str) or len(input_sha256) != 64:
             _refuse("full timing requires a sealed non-ledger input inventory digest")
         resume_binding = f5_timing_resume.identity(
-            namespace=(
-                "bl-residual-f5-timing-recovery-20261026/canary"
-                if canary_tiny_workload
-                else "bl-residual-f5-timing-recovery-20261026"
-            ),
+            namespace="bl-residual-f5-timing-recovery-20261026",
             allocation=sealed.allocation_sha256,
             source_sha256=sealed.source_sha256,
             environment_sha256=sealed.environment_sha256,
             input_sha256=input_sha256,
         )
         try:
-            verified_units = f5_timing_resume.load_ledger(
-                ledger, resume_binding, canary_only=canary_tiny_workload
-            )
+            verified_units = f5_timing_resume.load_ledger(ledger, resume_binding)
+            if canary_tiny_workload:
+                if verified_units:
+                    _refuse("family canary requires the shared empty initial ledger")
+                resume_binding = {
+                    **resume_binding,
+                    "namespace": resume_binding["namespace"] + "/canary",
+                }
         except f5_timing_resume.ResumeRefusal as exc:
             _refuse(str(exc))
     samples: list[dict[str, Any]] = []
@@ -519,7 +522,11 @@ def run(
     # The canary uses two tiny units: a preverified one exercises the scanner
     # skip path and the following missing unit exercises the real producer.
     active_rows = rows[:2] if canary_tiny_workload else rows
-    for completed, row in enumerate(active_rows):
+    skipped_keys = list(verified_units)
+    # Revisit the first produced tiny fixture after scanning it. This proves an
+    # actual skip through the ordinary loop, then produces the second fixture.
+    loop_rows = [active_rows[0], *active_rows] if canary_tiny_workload else active_rows
+    for completed, row in enumerate(loop_rows):
         if canary_tiny_workload and completed == 1:
             # Exercise the identical producer -> immutable ledger -> scanner
             # path in this assignment.  The original uploaded ledger is empty;
@@ -545,7 +552,10 @@ def run(
             payload = verified_units[key]
             if payload.get("allocation_index") != key:
                 _refuse("verified fixture record differs from allocation")
-            samples.append(payload)
+            if key not in skipped_keys:
+                skipped_keys.append(key)
+            if not canary_tiny_workload:
+                samples.append(payload)
             continue
         if progress is not None:
             progress.phase("cuda-parity", completed=completed)
@@ -632,6 +642,32 @@ def run(
         count=len(samples),
         assignment_environment=assignment,
     )
+    if resume_binding is not None:
+        new_keys = [entry["key"] for entry in completed_units]
+        required_keys = (
+            {672, 673}
+            if canary_tiny_workload
+            else {*range(672, 684), f5_timing_resume.CALIBRATION_KEY}
+        )
+        if set(skipped_keys) | set(new_keys) != required_keys:
+            _refuse("completed-unit union does not cover the registered operation")
+        export_json(
+            root / "resume" / "verified-skip-proof.json",
+            {
+                "schema": "bl-f5-timing-verified-skip-proof/v1",
+                "classification": "CANARY_ONLY" if canary_tiny_workload else "FULL_TIMING_UNITS",
+                "identity": resume_binding,
+                "input_ledger_sha256": digest(ledger),
+                "skipped_keys": skipped_keys,
+                "new_unit_exports": completed_units,
+                "complete_keys": (
+                    [*range(672, 674)]
+                    if canary_tiny_workload
+                    else [*range(672, 684), f5_timing_resume.CALIBRATION_KEY]
+                ),
+                "all_completed_durations_are_uninterrupted": True,
+            },
+        )
     report = {
         "schema": SCHEMA,
         "status": (

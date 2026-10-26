@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import platform
 import math
+import platform
+import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -40,7 +40,9 @@ def identity(
         "input_sha256": input_sha256,
     }
     if not namespace or any(
-        not isinstance(v, str) or len(v) != 64 for k, v in answer.items() if k != "namespace"
+        not isinstance(v, str) or re.fullmatch(r"[0-9a-f]{64}", v) is None
+        for k, v in answer.items()
+        if k != "namespace"
     ):
         raise ResumeRefusal("malformed timing unit identity")
     return answer
@@ -81,7 +83,12 @@ def _validate_payload(
     key: int | str, payload: Mapping[str, Any], *, canary_only: bool = False
 ) -> None:
     elapsed = payload.get("elapsed_seconds")
-    if not isinstance(elapsed, (int, float)) or isinstance(elapsed, bool) or elapsed <= 0:
+    if (
+        not isinstance(elapsed, (int, float))
+        or isinstance(elapsed, bool)
+        or not math.isfinite(elapsed)
+        or elapsed <= 0
+    ):
         raise ResumeRefusal("completed unit lacks a full uninterrupted duration")
     if canary_only:
         if payload.get("canary_only") is not True or payload.get("allocation_index") != key:
@@ -109,12 +116,15 @@ def _validate_payload(
             or payload.get("q_shape") != [1, 6]
             or payload.get("timing_only") is not True
             or payload.get("canary_only") is True
-            or payload.get("full_h300") is not True
-            or payload.get("long_body") is not True
-            or payload.get("full_h5000_natural") is not True
-            or (key in {672, 673, 674} and payload.get("watch_fixture_frames") != 14_400)
+            or any(
+                type(payload.get(flag)) is not bool
+                for flag in ("full_h300", "long_body", "full_h5000_natural")
+            )
         ):
             raise ResumeRefusal("fixture completed-unit payload differs")
+        # A completed measurement may expose failed coverage. Preserve that
+        # result; the Mac reducer applies the registered per-stream rule and
+        # never authorizes a completion retry for an unfavorable observation.
         return
     arms = payload.get("arms")
     if not isinstance(arms, Mapping) or not all(
@@ -122,6 +132,12 @@ def _validate_payload(
         and arms[arm].get("serialized_continuation_exact") is True
         and isinstance(arms[arm].get("full_seconds"), (int, float))
         and isinstance(arms[arm].get("serialized_continuation_seconds"), (int, float))
+        and all(
+            not isinstance(arms[arm][field], bool)
+            and math.isfinite(arms[arm][field])
+            and arms[arm][field] > 0
+            for field in ("full_seconds", "serialized_continuation_seconds")
+        )
         for arm in ("C", "W")
     ):
         raise ResumeRefusal("coupled calibration record lacks both exact continuation checks")
@@ -136,7 +152,11 @@ def _read_unit(
         raw = json.loads(path.read_text())
     except (ValueError, json.JSONDecodeError) as exc:
         raise ResumeRefusal("completed timing unit is not a verified immutable export") from exc
-    if not isinstance(raw, dict) or set(raw) != {"schema", "unit_id", "key", "identity", "payload"}:
+    if (
+        not isinstance(raw, dict)
+        or raw.get("schema") != "bl-f5-timing-unit-record/v2"
+        or set(raw) != {"schema", "unit_id", "key", "identity", "payload"}
+    ):
         raise ResumeRefusal("malformed completed timing unit")
     key = raw.get("key")
     if (
@@ -279,7 +299,8 @@ def reduce_ledger(
             raise ResumeRefusal("Mac reducer fixture allocation identity differs")
     maxima: dict[str, float] = {}
     for key in ("t_root", "t_branch", "t_nat", "watch_seconds"):
-        values = [item.get(key) for item in fixtures]
+        measured = fixtures[:3] if key == "watch_seconds" else fixtures
+        values = [item.get(key) for item in measured]
         if any(
             not isinstance(value, (int, float))
             or isinstance(value, bool)
@@ -319,10 +340,19 @@ def reduce_ledger(
         for arm in calibration["arms"].values()
         for key in ("full_seconds", "serialized_continuation_seconds")
     )
+    covered = all(
+        all(
+            any(row.get(flag) is True for row in fixtures[start : start + 3])
+            for flag in ("full_h300", "long_body", "full_h5000_natural")
+        )
+        for start in range(0, 12, 3)
+    ) and any(row.get("watch_fixture_frames") == 14_400 for row in fixtures[:3])
     return {
         "schema": "bl-f5-timing-mac-reducer/v2",
-        "status": "COMPLETE",
-        "status": "COMPLETE_UNITS_PENDING_MAC_FORECAST",
+        "status": (
+            "COMPLETE_UNITS_PENDING_MAC_FORECAST" if covered else "HOLD_REGISTERED_COVERAGE_FAILED"
+        ),
+        "registered_coverage_passed": covered,
         "fixtures": fixtures,
         "calibration": calibration,
         "unit_count": 13,

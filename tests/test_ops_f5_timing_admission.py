@@ -347,7 +347,7 @@ def recovery_manifest(tmp_path: Path, *, canary: bool = False) -> dict:
         }
         value["required_exports"] = [
             "qualification/qualification.json",
-            "timing-canary/verified-skip-proof.json",
+            "resume/verified-skip-proof.json",
         ]
     else:
         value.pop("canary")

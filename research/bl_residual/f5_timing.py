@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 ALLOCATION_SHA256 = "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7"
@@ -203,6 +204,9 @@ def validate_operational_proof(
     environment_identity: Mapping[str, Any],
     batch_identity: Mapping[str, Any],
     allocation: Sequence[Mapping[str, Any]] | None = None,
+    recovery_manifest: Mapping[str, Any] | None = None,
+    recovery_receipt: Mapping[str, Any] | None = None,
+    recovery_output: Path | None = None,
 ) -> dict[str, Any]:
     """Accept only a complete redacted timing proof; otherwise raise ``TimingHold``.
 
@@ -230,7 +234,7 @@ def validate_operational_proof(
     transfer_bound = 150
     authority = transport.get("f5_timing_transfer_exception")
     if authority is not None:
-        from research.colab_cli.transfer_policy import f5_timing_authority_binding
+        from research.colab_cli.transfer_policy import f5_timing_authority_binding, receipt_limit
 
         inventory_sha256 = (
             authority.get("inventory_sha256") if isinstance(authority, Mapping) else None
@@ -240,7 +244,47 @@ def validate_operational_proof(
             authority == f5_timing_authority_binding(inventory_sha256, "timing"),
             "timing transfer authority drift",
         )
-        transfer_bound = F5_TIMING_TRANSFER_SECONDS
+        _require(
+            isinstance(recovery_manifest, Mapping)
+            and isinstance(recovery_receipt, Mapping)
+            and isinstance(recovery_output, Path),
+            "timing allowance requires actual broker manifest and receipt",
+        )
+        _require(
+            recovery_manifest.get("f5_timing_transfer_exception") == authority,
+            "timing receipt authority differs",
+        )
+        _require(
+            source_identity.get("commit") == recovery_manifest.get("commit"),
+            "timing receipt source differs",
+        )
+        _require(
+            recovery_receipt.get("stop_verified") is True
+            and recovery_receipt.get("status") in {"PASS", "INCOMPLETE"},
+            "timing receipt lacks verified release",
+        )
+        try:
+            transfer_bound = receipt_limit(
+                dict(recovery_manifest), dict(recovery_receipt), recovery_output
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            raise TimingHold(
+                "HOLD_TIMING_QUALIFICATION: timing receipt inventory authority differs"
+            ) from exc
+        bound_inventory = recovery_manifest["f5_timing_synthetic_inventory"]["inputs"]
+        supplied_inventory = {
+            row.get("name"): row
+            for row in proof.get("input_inventory", [])
+            if isinstance(row, Mapping)
+        }
+        _require(
+            len(supplied_inventory) == len(bound_inventory)
+            and all(
+                supplied_inventory.get(row["dest"], {}).get("size") == row["size_bytes"]
+                for row in bound_inventory
+            ),
+            "timing allowance inventory does not cover exact operation",
+        )
     for key, bound in (
         ("max_call_seconds", 60),
         ("transfer_seconds", transfer_bound),

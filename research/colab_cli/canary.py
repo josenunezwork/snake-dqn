@@ -279,6 +279,21 @@ def check(manifest: dict[str, Any], repo: Path) -> None:
         raise CanaryError("family canary source commit or transport identity differs")
     if probe.get("transfer_exception") != manifest.get("transfer_exception"):
         raise CanaryError("family canary transfer exception authority differs from dispatch")
+    if "f5_timing_transfer_exception" in manifest or "f5_timing_transfer_exception" in probe:
+        # Only the context differs: a tiny family probe never becomes a full
+        # timing operation. Inventory, ruling, source and bounds stay exact.
+        main_authority = dict(manifest.get("f5_timing_transfer_exception", {}))
+        probe_authority = dict(probe.get("f5_timing_transfer_exception", {}))
+        if (
+            main_authority.pop("context", None) != "timing"
+            or probe_authority.pop("context", None) != "canary"
+            or main_authority != probe_authority
+        ):
+            raise CanaryError("F5 timing family canary scoped authority differs")
+        if probe.get("f5_timing_synthetic_inventory") != manifest.get(
+            "f5_timing_synthetic_inventory"
+        ):
+            raise CanaryError("F5 timing family canary inventory authority differs")
     # Re-derive proof from the immutable broker receipt rather than trusting a
     # hand-written summary. Recovered exports are re-hashed on the Mac as well.
     actual = evidence(probe, receipt, path.parent, repo)
