@@ -17,7 +17,13 @@ from typing import Any
 from research.bl_ppo.exports import digest, export_bytes, export_json
 from research.bl_round30.pack import SOURCE_PATHS as R30_SOURCE_PATHS
 from research.bl_round30.protocol import B8_SHA
-from research.bl_round30.timing import AMENDMENT_SHA, DEADLINES, TIMING_PAYLOAD_BYTES
+from research.bl_round30.timing import (
+    AMENDMENT_SHA,
+    CERTIFICATE_AMENDMENT_SHA,
+    DEADLINES,
+    SCHEDULE,
+    TIMING_PAYLOAD_BYTES,
+)
 from research.bl_round30.timing_telemetry import OBSERVABILITY_SHA
 from tools.ops.qualification import OPS, check
 
@@ -44,19 +50,16 @@ RATE_UNITS_PER_HOUR = 1.54
 AMENDMENT = RULING.with_name("JUDGMENT_R30_TIMING_185D8395_FIX_FIRST_20261025.md")
 OLD_RESERVATION = FROZEN_NATIVE.parent / "timing-calibration-01/accounting-reservation.json"
 OLD_RESERVATION_SHA256 = "621fc26028b93fc5be0fe933f642ebaac8ef79ab48277129e03091e041aad6c6"
-BASE_MINUTES = 15
-EFFECTIVE_MINUTES = 30
+CERTIFICATE_AMENDMENT = RULING.with_name("JUDGMENT_R30_PROBE03_CERTIFICATE_AMENDMENT_20261025.md")
+PRIOR_PROBE_RESERVATION = (
+    FROZEN_NATIVE.parent / "timing-calibration-probe-03/accounting-reservation.json"
+)
+PRIOR_PROBE_RESERVATION_SHA256 = "765347652319cac2f377f35691ec2192165a70fd67c6705ec1a1ad30c7b1223a"
+BASE_MINUTES = 20
+EFFECTIVE_MINUTES = 40
 RESERVE_FRACTION = 0.20
 SOURCE_PATHS = [*R30_SOURCE_PATHS, "tools/ops/qualification.py", "tools/ops/dispatch.py"]
-EXPECTED_SCHEDULE = {
-    "adam_blocks": [[0, 10], [10, 20], [20, 30]],
-    "closure_updates": [0, 10, 30],
-    "fit_batches": 2000,
-    "fit_seed": 3403,
-    "audit_seed": 3404,
-    "certificate_update": 30,
-    "certificate_cap_seconds": 600,
-}
+EXPECTED_SCHEDULE = SCHEDULE.copy()
 
 
 def identity_paths() -> list[str]:
@@ -104,6 +107,7 @@ def load_timing_config(path: Path, *, commit: str, control: dict[str, Any]) -> d
         or value.get("observability_ruling_sha256") != OBSERVABILITY_SHA
         or value.get("ruling_sha256") != RULING_SHA256
         or value.get("amendment_sha256") != AMENDMENT_SHA
+        or value.get("certificate_amendment_sha256") != CERTIFICATE_AMENDMENT_SHA
         or value.get("deadlines") != DEADLINES
         or value.get("source_commit") != commit
         or value.get("bundle_sha256") != FROZEN_BUNDLE_SHA256
@@ -162,8 +166,8 @@ def _published_clean(commit: str) -> str:
 
 def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[str, Any]:
     """Create one immutable timing-only packet; no provider operation occurs."""
-    if output.name != "timing-calibration-probe-03":
-        raise ValueError("only timing-calibration-probe-03 is authorized")
+    if output.name != "timing-calibration-probe-04":
+        raise ValueError("only timing-calibration-probe-04 is authorized")
     if output.exists():
         raise FileExistsError(output)
     if digest(RULING) != RULING_SHA256 or digest(AMENDMENT) != AMENDMENT_SHA:
@@ -179,6 +183,10 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
         raise ValueError("frozen private bundle identity differs")
     if digest(OLD_RESERVATION) != OLD_RESERVATION_SHA256:
         raise ValueError("original calibration reservation differs")
+    if digest(CERTIFICATE_AMENDMENT) != CERTIFICATE_AMENDMENT_SHA:
+        raise ValueError("certificate amendment hash differs")
+    if digest(PRIOR_PROBE_RESERVATION) != PRIOR_PROBE_RESERVATION_SHA256:
+        raise ValueError("prior probe reservation differs")
     pin = _published_clean(commit)
     control = _read_json(FROZEN_NATIVE / "inputs/control.json")
     load_timing_config(timing_config, commit=pin, control=control)
@@ -194,31 +202,40 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
     observability_copy = export_bytes(
         inputs / "timing-observability-ruling.md", OBSERVABILITY_RULING.read_bytes()
     )
+    certificate_copy = export_bytes(
+        inputs / "timing-certificate-amendment.md", CERTIFICATE_AMENDMENT.read_bytes()
+    )
     reservation = export_json(
         output / "accounting-reservation.json",
         {
             "schema": "r30-g5-timing-calibration-accounting/v1",
             "entry": f"r30-1-g5-{output.name}",
             "upload_ruling_sha256": UPLOAD_RULING_SHA256,
-            "prior_probe_disposition": "INCOMPLETE_CAUSE_UNKNOWN",
+            "prior_probe_disposition": "INCOMPLETE_CERTIFICATE_DEADLINE",
             "observability_ruling_sha256": OBSERVABILITY_SHA,
             "additional_attempt_allowance": 1,
             "amendment_sha256": AMENDMENT_SHA,
+            "certificate_amendment_sha256": CERTIFICATE_AMENDMENT_SHA,
+            "certificate_cap_seconds": {"base": 600, "effective": 1200},
             "original_reservation": {
                 "path": str(OLD_RESERVATION),
                 "sha256": OLD_RESERVATION_SHA256,
             },
-            "retained_liability_minutes": 40,
+            "retained_liability_minutes": 70,
+            "prior_probe_reservation": {
+                "path": str(PRIOR_PROBE_RESERVATION),
+                "sha256": PRIOR_PROBE_RESERVATION_SHA256,
+            },
             "reconciliation": (
-                "retain original 40-minute liability without reclaiming it; "
-                "add separate nontransferable 30-minute replacement reservation"
+                "retain all prior liabilities without reclaiming any; "
+                "add separate nontransferable 40-minute calibration reservation"
             ),
             "ruling_sha256": RULING_SHA256,
             "source_commit": pin,
             "base_minutes": BASE_MINUTES,
             "effective_minutes": EFFECTIVE_MINUTES,
-            "combined_effective_minutes_before": 472,
-            "combined_effective_minutes_after": 502,
+            "combined_effective_minutes_before": 502,
+            "combined_effective_minutes_after": 542,
             "r30_1_allowance_minutes": 144,
             "r30_2_allowance_minutes": 288,
             "nontransferable": True,
@@ -272,6 +289,12 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
         "inputs": [
             public_b8,
             bundle,
+            {
+                "dest": "timing-certificate-amendment.md",
+                "path": certificate_copy["path"],
+                "sha256": certificate_copy["sha256"],
+                "size_bytes": certificate_copy["size"],
+            },
             {
                 "dest": "timing-config.json",
                 "path": config_copy["path"],
@@ -333,6 +356,8 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
             "upload_ruling_sha256": UPLOAD_RULING_SHA256,
             "timing_payload_max_bytes": TIMING_PAYLOAD_BYTES,
             "amendment_sha256": AMENDMENT_SHA,
+            "certificate_amendment_sha256": CERTIFICATE_AMENDMENT_SHA,
+            "certificate_cap_seconds": {"base": 600, "effective": 1200},
             "deadlines": DEADLINES,
             "tested_dispatcher_sha256": digest(ROOT / "tools/ops/dispatch.py"),
             "ruling_sha256": RULING_SHA256,
@@ -343,8 +368,8 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
             "accounting_reservation_sha256": reservation["sha256"],
             "base_minutes": BASE_MINUTES,
             "effective_minutes": EFFECTIVE_MINUTES,
-            "combined_effective_minutes_before": 472,
-            "combined_effective_minutes_after": 502,
+            "combined_effective_minutes_before": 502,
+            "combined_effective_minutes_after": 542,
             "r30_1_allowance_minutes": 144,
             "r30_2_allowance_minutes": 288,
             "nontransferable": True,
@@ -383,6 +408,8 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
             "manifest_sha256": digest(output / "job.json"),
             "config_sha256": config_copy["sha256"],
             "amendment_sha256": AMENDMENT_SHA,
+            "certificate_amendment_sha256": CERTIFICATE_AMENDMENT_SHA,
+            "certificate_cap_seconds": {"base": 600, "effective": 1200},
             "live_account_state": "NOT_CHECKED",
             "upload_ruling_sha256": UPLOAD_RULING_SHA256,
         },
@@ -397,7 +424,7 @@ def make_timing_pack(output: Path, *, commit: str, timing_config: Path) -> dict[
                 "independent implementation/redaction review",
                 "timing schedule and source closure review",
                 "qualified supervisor and current account review",
-                "source-bound 30-minute family probe; no live account state established",
+                "source-bound 40-minute family probe; no live account state established",
             ],
         },
     )

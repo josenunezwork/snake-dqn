@@ -23,6 +23,7 @@ def config() -> dict:
         "schema": "r30-timing-config/v2",
         "ruling_sha256": timing.RULING_SHA,
         "amendment_sha256": timing.AMENDMENT_SHA,
+        "certificate_amendment_sha256": timing.CERTIFICATE_AMENDMENT_SHA,
         "observability_ruling_sha256": timing.OBSERVABILITY_SHA,
         "deadlines": copy.deepcopy(timing.DEADLINES),
         "source_commit": "a" * 40,
@@ -46,6 +47,7 @@ def report() -> dict:
         "synthetic": True,
         "ruling_sha256": timing.RULING_SHA,
         "amendment_sha256": timing.AMENDMENT_SHA,
+        "certificate_amendment_sha256": timing.CERTIFICATE_AMENDMENT_SHA,
         "observability_ruling_sha256": timing.OBSERVABILITY_SHA,
         "deadlines": copy.deepcopy(timing.DEADLINES),
         "config_sha256": "e" * 64,
@@ -98,7 +100,7 @@ def test_export_rejects_every_scientific_field(key: str) -> None:
     [
         (("phase_seconds", "certificate"), {"loss": 12345.6789}),
         (("phase_seconds", "certificate"), float("nan")),
-        (("phase_seconds", "certificate"), 600.0),
+        (("phase_seconds", "certificate"), 1200.0),
         (("phase_seconds", "certificate"), True),
         (("input_hashes", "train.npz"), "SECRET_SCIENTIFIC_SENTINEL"),
         (("source_hashes", "foreign-path"), "a" * 64),
@@ -153,7 +155,7 @@ def test_fixed_full_plan_schedule_and_no_scientific_return(monkeypatch: pytest.M
     def cert(
         theta: torch.Tensor, cache: dict, plan: object, recipe: object, **kwargs: object
     ) -> dict:
-        assert updates == 30 and kwargs["max_seconds"] == 600
+        assert updates == 30 and kwargs["max_seconds"] == 1200
         assert tuple(plan.indices.shape) == (2000, 256)
         original_certificate(theta, cache, plan, recipe, **kwargs)
         return {"SECRET_SCIENTIFIC_SENTINEL": 12345.6789, "certified": False}
@@ -263,7 +265,7 @@ def test_real_deadline_reserves_cleanup_export_from_supervisor_session(
     assert (
         timing._worker_deadline_seconds(input_dir=tmp_path, synthetic=False, launch_age=0) == 1242.5
     )
-    assert timing._worker_deadline_seconds(input_dir=tmp_path, synthetic=True, launch_age=0) == 1500
+    assert timing._worker_deadline_seconds(input_dir=tmp_path, synthetic=True, launch_age=0) == 2100
 
 
 @pytest.mark.parametrize("field,bad", [("amendment_sha256", "0" * 64), ("deadlines", {})])

@@ -725,6 +725,7 @@ def fit_float64_lbfgs(
     initial_parameters: torch.Tensor | None = None,
     max_evaluations: int = 500,
     max_seconds: float = 3600.0,
+    certificate_max_seconds: float = 600.0,
     numerical_allowance: float | None = None,
     numerical_allowance_basis: str | None = None,
     successor: bool = False,
@@ -733,6 +734,7 @@ def fit_float64_lbfgs(
     if (
         max_evaluations <= 0
         or max_seconds <= 0
+        or certificate_max_seconds <= 0
         or (numerical_allowance is not None and numerical_allowance < 0)
     ):
         raise ValueError("L-BFGS caps must be positive and numerical_allowance non-negative")
@@ -793,7 +795,12 @@ def fit_float64_lbfgs(
 
     try:
         interval_report = gradient_certificate(
-            theta.detach(), cache, batch_plan, recipe, successor=successor, max_seconds=600.0
+            theta.detach(),
+            cache,
+            batch_plan,
+            recipe,
+            successor=successor,
+            max_seconds=certificate_max_seconds,
         )
     except TimeoutError as error:
         interval_report = {
@@ -1093,6 +1100,7 @@ def execute_packet(
             recipe,
             initial_parameters=control.parameters,
             max_evaluations=2 if synthetic else int(gate.get("lbfgs_max_evaluations", 500)),
+            certificate_max_seconds=600.0 if synthetic else 1200.0,  # R30-1 only.
             max_seconds=float(gate.get("lbfgs_max_seconds", 3600.0)),
             numerical_allowance=(0.0 if synthetic else gate.get("numerical_allowance")),
             numerical_allowance_basis=(

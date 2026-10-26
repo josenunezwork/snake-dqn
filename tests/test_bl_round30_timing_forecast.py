@@ -30,6 +30,7 @@ def _report() -> dict:
         "synthetic": False,
         "ruling_sha256": timing.RULING_SHA,
         "amendment_sha256": timing.AMENDMENT_SHA,
+        "certificate_amendment_sha256": timing.CERTIFICATE_AMENDMENT_SHA,
         "observability_ruling_sha256": timing.OBSERVABILITY_SHA,
         "config_sha256": "a" * 64,
         "source_commit": "b" * 40,
@@ -186,7 +187,7 @@ def test_exact_main_ceiling_is_accepted():
     assert result["within_main_ceiling"] is True
 
 
-@pytest.mark.parametrize("elapsed", [1800.0, 1800.1, 2400.0])
+@pytest.mark.parametrize("elapsed", [2400.0, 2400.1, 3000.0])
 def test_forecast_refuses_whole_session_deadline(elapsed):
     report = _report()
     operational = _operational(report)
@@ -209,7 +210,7 @@ def test_probe_only_decision_overhead_is_excluded_from_main_forecast():
 @pytest.mark.parametrize(
     "field,bad",
     [
-        ("timeout_minutes", 40),
+        ("timeout_minutes", 30),
         ("canary", {}),
         ("timing_calibration", {"no_automatic_retry": False}),
     ],
@@ -222,6 +223,7 @@ def test_cli_bindings_reject_old_or_uninstrumented_manifest(tmp_path, field, bad
         "source_hashes": report["source_hashes"],
         "deadlines": timing.DEADLINES,
         "amendment_sha256": timing.AMENDMENT_SHA,
+        "certificate_amendment_sha256": timing.CERTIFICATE_AMENDMENT_SHA,
         "observability_ruling_sha256": timing.OBSERVABILITY_SHA,
     }
     review = {"decision": "ACCEPT"}
@@ -236,9 +238,9 @@ def test_cli_bindings_reject_old_or_uninstrumented_manifest(tmp_path, field, bad
         "output_dir": str(tmp_path / "output"),
         "required_exports": ["timing.json"],
         "env": {"R30_TIMING_CONFIG_SHA256": report["config_sha256"]},
-        "timeout_minutes": 30,
-        "requirements": {"est_minutes": 15},
-        "resume_exemption": {"timeout_minutes": 30},
+        "timeout_minutes": 40,
+        "requirements": {"est_minutes": 20},
+        "resume_exemption": {"timeout_minutes": 40},
         "canary": {
             "schema": "colab-family-canary/v1",
             "mode": "probe",
