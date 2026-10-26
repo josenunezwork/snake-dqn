@@ -1,0 +1,39 @@
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-f5envdiag
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 2 items
+
+tests/test_ops_calendar_lint.py F                                        [ 50%]
+tests/test_ops_retention.py F                                            [100%]
+
+=================================== FAILURES ===================================
+____________ test_repository_launchers_contain_no_calendar_windows _____________
+
+    def test_repository_launchers_contain_no_calendar_windows() -> None:
+>       assert calendar_lint.lint(REPO) == []
+E       assert ["research/co...'2026-10-23'"] == []
+E         
+E         Left contains one more item: "research/compute/factory_interim_launcher.py:1: hard-coded calendar literal '2026-10-23'"
+E         Use -v to get more diff
+
+tests/test_ops_calendar_lint.py:19: AssertionError
+______ test_retained_main_allows_resumable_packet_longer_than_acceptance _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x106e5ee40>
+
+    def test_retained_main_allows_resumable_packet_longer_than_acceptance(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+>       from research.colab_cli import canary, retention
+E       ImportError: cannot import name 'retention' from 'research.colab_cli' (/Users/josenunez/Projects/ml/snake-dqn-f5envdiag/research/colab_cli/__init__.py)
+
+tests/test_ops_retention.py:32: ImportError
+=========================== short test summary info ============================
+FAILED tests/test_ops_calendar_lint.py::test_repository_launchers_contain_no_calendar_windows
+FAILED tests/test_ops_retention.py::test_retained_main_allows_resumable_packet_longer_than_acceptance
+============================== 2 failed in 0.57s ===============================
+Exit: macOS OpenMP-isolated pytest finished
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!

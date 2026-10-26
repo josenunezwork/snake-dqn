@@ -1,0 +1,17 @@
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-f5envdiag
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+created: 2/2 workers
+2 workers [111 items]
+
+.................................................!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/subprocess.py:2011: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/_pytest/main.py:353: PluggyTeardownRaisedWarning: A plugin raised an exception during an old-style hookwrapper teardown.
+Plugin: 4333584704, Hook: pytest_sessionfinish
+OSError: cannot send (already closed?)
+For more information see https://pluggy.readthedocs.io/en/stable/api_reference.html#pluggy.PluggyTeardownRaisedWarning
+  config.hook.pytest_sessionfinish(
