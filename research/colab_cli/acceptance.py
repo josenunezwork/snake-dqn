@@ -727,7 +727,13 @@ def d1024_synthetic_staging_evidence(
     if manifest.get("transfer_exception") != plan.get("transfer_exception"):
         raise supervisor.Refused("synthetic D1024 transfer authority differs from plan")
     try:
-        transfer_seconds = transfer_policy.receipt_limit(manifest, receipt, output)
+        # The F5 timing allowance can coexist in a combined final-only
+        # acceptance, but it never widens this independent D1024 observation.
+        transfer_seconds = (
+            transfer_policy.receipt_limit(manifest, receipt, output)
+            if "transfer_exception" in manifest
+            else D1024_TRANSFER_BAR_SECONDS
+        )
     except ValueError as exc:
         raise supervisor.Refused(str(exc)) from exc
     measurement = _d1024_staging_measurement(measurement_path, transfer_seconds)
