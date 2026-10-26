@@ -97,7 +97,7 @@ def test_deadline_arms_hard_cap_before_and_after_blocking_host_probes() -> None:
         now[0] = 30.0
         with pytest.raises(runtime.PostmortemRuntimeDeadline, match="finalization"):
             active.checkpoint()
-        assert signals.timer == (30.0, 0.0)
+        assert signals.timer == (0.0, 0.0)
 
 
 def test_three_ten_second_host_probes_cannot_consume_the_finalization_reserve() -> None:
@@ -123,8 +123,8 @@ def test_three_ten_second_host_probes_cannot_consume_the_finalization_reserve() 
         ):
             pass
     # Initial soft timer is armed before the probes.  The post-probe check
-    # converts it to a remaining absolute hard timer before propagating.
-    assert signals.timer_history == [(30.0, 0.0), (30.0, 0.0), (0.0, 0.0)]
+    # disables worker alarms for finalization; the parent owns the hard cutoff.
+    assert signals.timer_history == [(30.0, 0.0), (0.0, 0.0), (0.0, 0.0)]
 
 
 def test_periodic_alarm_rechecks_host_and_rearms_before_the_probe() -> None:
@@ -171,19 +171,9 @@ def test_periodic_alarm_rechecks_host_and_rearms_before_the_probe() -> None:
         active._checking_host = False
 
 
-def test_hard_alarm_forces_exit_without_real_timer(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_finalization_defers_hard_cutoff_to_independent_parent() -> None:
     now = [0.0]
     signals = _Signals()
-    exits: list[int] = []
-
-    class SyntheticHardExit(BaseException):
-        pass
-
-    def fake_exit(code: int) -> None:
-        exits.append(code)
-        raise SyntheticHardExit
-
-    monkeypatch.setattr(runtime.os, "_exit", fake_exit)
     deadline = runtime.ClaimDeadline(
         seconds=60.0,
         guard=_CleanGuard(),
@@ -195,12 +185,9 @@ def test_hard_alarm_forces_exit_without_real_timer(monkeypatch: pytest.MonkeyPat
         now[0] = 30.0
         with pytest.raises(runtime.PostmortemRuntimeDeadline):
             active._alarm(signals.SIGALRM, None)
-        assert exits == []
-        assert signals.timer == (30.0, 0.0)
+        assert signals.timer == (0.0, 0.0)
         now[0] = 60.0
-        with pytest.raises(SyntheticHardExit):
-            active._alarm(signals.SIGALRM, None)
-        assert exits == [124]
+        active._alarm(signals.SIGALRM, None)
 
 
 def test_deadline_fails_closed_for_lid_or_thermal_changes() -> None:

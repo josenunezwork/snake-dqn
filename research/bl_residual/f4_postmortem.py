@@ -9,9 +9,9 @@ import platform
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from research.bl_ppo.exports import digest, export_json
+from research.bl_ppo.exports import digest, export_json, verify_export
 from research.bl_residual import f4_postmortem_guard as guard
 
 
@@ -107,9 +107,57 @@ def compute_doses(
 
 def run(pin: str) -> None:
     """Publish-before-read and exclusive runtime surround the one spent attempt."""
-    from research.bl_residual.f4_postmortem_runtime import exclusive_runtime
+    from research.bl_residual.f4_postmortem_watchdog import kill_receipt_path, supervise
 
     publication = guard.publication(pin)
+    output = guard.OUTPUT
+    if output.exists() or output.is_symlink():
+        raise FileExistsError("the sole post-mortem bundle is already reserved/spent")
+    supervise(
+        lambda arm: _run_worker(pin, publication, arm),
+        kill_receipt=kill_receipt_path(output),
+        on_kill=lambda record: _record_watchdog_failure(pin, publication, output, record),
+    )
+
+
+def _record_watchdog_failure(
+    pin: str, publication: dict[str, Any], output: Path, record: dict[str, object]
+) -> None:
+    """After the durable kill record, seal INCOMPLETE if the spent claim permits.
+
+    Never inspect an outcome or repair partial immutable writes. A complete
+    diagnostic plus a later cleanup stall must still verify as INCOMPLETE.
+    """
+    claim = output / "claim.json"
+    claim_sha = verify_export(claim)
+    claimed_at = json.loads(claim.read_bytes())["claimed_at"]
+    failure = output / "failure.json"
+    if not failure.exists():
+        export_json(
+            failure,
+            {
+                "schema": "bl-residual-f4-postmortem-failure/v1",
+                "status": "INCOMPLETE",
+                "purpose": "DEVELOPMENT_ONLY",
+                "f4_disposition": "STOP_FUNDING",
+                "ruling_sha256": guard.RULING_SHA,
+                "implementation_commit": pin,
+                "claim_sha256": claim_sha,
+                "started_at": claimed_at,
+                "finished_at": utc_now(),
+                "wall_seconds": float(record["elapsed_seconds"] or 0),
+                "failure_class": "IndependentWatchdogKill",
+                "retry_authorized": False,
+            },
+        )
+    if not (output / "development-parents.json").exists():
+        export_json(output / "development-parents.json", publication["metadata"]["parents"])
+
+
+def _run_worker(pin: str, publication: dict[str, Any], arm_watchdog: Callable[[], None]) -> None:
+    """The sole inference worker; independent parent remains until this returns."""
+    from research.bl_residual.f4_postmortem_runtime import exclusive_runtime
+
     manifest = publication["manifest"]
     metadata = publication["metadata"]
     output = guard.OUTPUT
@@ -118,6 +166,9 @@ def run(pin: str) -> None:
     # Publication happens before lease waiting and before any real input is
     # opened. The detached worktree remains pinned and locked by dispatch.sh.
     with exclusive_runtime() as host:
+        # Parent ACKs its monotonic ceiling before any claim or payload access.
+        # Its SIGKILL remains active through deadline/host context cleanup too.
+        arm_watchdog()
         with host.deadline() as deadline:
             started_at = utc_now()
             started = time.monotonic()

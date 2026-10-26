@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import shutil
@@ -22,7 +23,12 @@ RESULT_WORKTREE = guard.ROOT.parent / "snake-dqn-f4pm-result-20261025.noindex"
 
 
 def _json(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_bytes())
+    return _json_bytes(path.read_bytes())
+
+
+def _json_bytes(payload: bytes) -> dict[str, Any]:
+    """Decode already-proved JSON bytes as an object."""
+    value = json.loads(payload)
     if not isinstance(value, dict):
         raise ValueError("expected JSON object")
     return value
@@ -199,15 +205,17 @@ def verify(root: Path = RESULT_WORKTREE, *, publication_commit: str) -> str:
     _git(root, "fetch", "--no-tags", "origin", "main")
     destination = Path(root) / RESULT_RELATIVE
     binding_path = destination / "result-binding.json"
-    if binding_path.read_bytes() != _origin_bytes(root, RESULT_RELATIVE / "result-binding.json"):
+    binding_bytes = binding_path.read_bytes()
+    if binding_bytes != _origin_bytes(root, RESULT_RELATIVE / "result-binding.json"):
         raise ValueError("local result binding differs from origin/main")
     for suffix in (".sha256", ".complete"):
         if Path(str(binding_path) + suffix).read_bytes() != _origin_bytes(
             root, RESULT_RELATIVE / ("result-binding.json" + suffix)
         ):
             raise ValueError("result binding sidecar differs from origin/main")
-    verify_export(binding_path)
-    binding = _json(binding_path)
+    if hashlib.sha256(binding_bytes).hexdigest() != verify_export(binding_path):
+        raise ValueError("binding snapshot differs from its seal")
+    binding = _json_bytes(binding_bytes)
     allowed = set(BASE_NAMES) | set(OUTCOME_NAMES)
     if set(binding) != {
         "schema",
@@ -229,29 +237,59 @@ def verify(root: Path = RESULT_WORKTREE, *, publication_commit: str) -> str:
         or binding.get("ruling_sha256") != guard.RULING_SHA
     ):
         raise ValueError("publication binding mismatch")
+    # Before even static metadata is read from the local result directory, prove
+    # that its complete sealed inventory is precisely the published binding.  In
+    # particular, a locally added, otherwise well-sealed terminal receipt must
+    # never be available for later parsing merely because it was not named by
+    # the published result binding.
+    if not all(isinstance(info, dict) for info in binding["bundle"].values()):
+        raise ValueError("unsafe result binding")
+    bound_names = set(binding["bundle"])
+    expected_files = {
+        f"{name}{suffix}"
+        for name in (*bound_names, "result-binding.json")
+        for suffix in ("", ".sha256", ".complete")
+    }
+    actual_files = _safe_files(destination, allow_binding=True)
+    if actual_files != expected_files:
+        raise ValueError("local sealed result inventory differs from published binding")
+    proved_bytes: dict[str, bytes] = {}
     for name, info in binding.get("bundle", {}).items():
         if Path(name).name != name or not isinstance(info, dict):
             raise ValueError("unsafe result binding path")
         path = destination / name
-        if path.read_bytes() != _origin_bytes(root, RESULT_RELATIVE / name):
+        local_bytes = path.read_bytes()
+        if local_bytes != _origin_bytes(root, RESULT_RELATIVE / name):
             raise ValueError("local outcome bytes differ from origin/main")
-        if digest(path) != info.get("sha256") or path.stat().st_size != info.get("size"):
+        proved_bytes[name] = local_bytes
+        if hashlib.sha256(local_bytes).hexdigest() != info.get("sha256") or len(
+            local_bytes
+        ) != info.get("size"):
             raise ValueError("published result hash/size mismatch")
         for suffix in (".sha256", ".complete"):
             sidecar = Path(str(path) + suffix)
             if sidecar.read_bytes() != _origin_bytes(root, RESULT_RELATIVE / sidecar.name):
                 raise ValueError("local result sidecar differs from origin/main")
         verify_export(path)
-    # Only now is static plan/claim metadata parsed; diagnostic/failure remains unread.
-    verify_seal(
+    sealed = verify_seal(
         destination,
         publication_commit=publication_commit,
         package_root=guard.ROOT / guard.PACKAGE,
         allow_binding=True,
     )
+    expected_hashes = {name: info.get("sha256") for name, info in binding["bundle"].items()}
+    expected_sizes = {name: info.get("size") for name, info in binding["bundle"].items()}
+    if (
+        sealed["outcomes"] != binding["outcomes"]
+        or sealed["hashes"] != expected_hashes
+        or sealed["sizes"] != expected_sizes
+    ):
+        raise ValueError("local sealed result inventory differs from published binding")
+    # All local sealed bytes now exactly match origin/main and its binding.
+    # Diagnostic/failure payloads remain unread until their schema checks below.
     diagnostic = destination / "diagnostic.json"
     if (destination / "failure.json").exists():
-        failure = _json(destination / "failure.json")
+        failure = _json_bytes(proved_bytes["failure.json"])
         if (
             set(failure)
             != {
@@ -278,7 +316,11 @@ def verify(root: Path = RESULT_WORKTREE, *, publication_commit: str) -> str:
             or failure.get("retry_authorized") is not False
             or type(failure.get("wall_seconds")) not in (float, int)
             or not math.isfinite(failure["wall_seconds"])
-            or not 0 <= failure["wall_seconds"] <= 3600
+            or failure["wall_seconds"] < 0
+            or (
+                failure["wall_seconds"] > 3600
+                and failure.get("failure_class") != "IndependentWatchdogKill"
+            )
             or not isinstance(failure.get("failure_class"), str)
             or not failure["failure_class"]
         ):
@@ -286,12 +328,12 @@ def verify(root: Path = RESULT_WORKTREE, *, publication_commit: str) -> str:
     if not diagnostic.exists():
         print("VERIFIED_INCOMPLETE")
         return "INCOMPLETE"
-    value = _json(diagnostic)
+    value = _json_bytes(proved_bytes["diagnostic.json"])
     # Import is deliberately after origin/main bytes are proved; this module imports torch.
     from research.bl_residual.f4_postmortem_counts import dose_shape_valid, valid_dose
 
-    parents = _json(destination / "development-parents.json")["parent_worlds"]
-    plan = _json(destination / "plan.json")
+    parents = _json_bytes(proved_bytes["development-parents.json"])["parent_worlds"]
+    plan = _json_bytes(proved_bytes["plan.json"])
     claim_sha = binding["bundle"]["claim.json"]["sha256"]
     expected_inputs = {**plan["inputs"], "--original-joint-claim": plan["original_joint_claim"]}
 

@@ -173,6 +173,11 @@ def test_failing_real_input_gate_is_after_claim_and_never_retried(tmp_path, monk
         yield SimpleNamespace(deadline=deadline, lease={}, threads=1)
 
     monkeypatch.setattr(runtime, "exclusive_runtime", exclusive)
+    from research.bl_residual import f4_postmortem_watchdog
+
+    monkeypatch.setattr(
+        f4_postmortem_watchdog, "supervise", lambda worker, **_kwargs: worker(lambda: None)
+    )
     with pytest.raises(RuntimeError, match="no retry"):
         entry.run("a" * 40)
     with pytest.raises(FileExistsError):

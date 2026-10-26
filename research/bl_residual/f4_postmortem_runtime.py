@@ -155,7 +155,7 @@ class RuntimeEvidence:
 
 
 class ClaimDeadline:
-    """Main-process SIGALRM deadline and periodic host guard without a watcher."""
+    """Worker soft compute deadline and host guard; parent owns the hard cutoff."""
 
     def __init__(
         self,
@@ -204,14 +204,11 @@ class ClaimDeadline:
         return self.clock() - self.started
 
     def _arm_hard_deadline(self) -> None:
-        """Keep the absolute 60-minute kill switch active through finalization."""
+        """Enter finalization; the independent parent retains the hard ceiling."""
         if self._hard_deadline_armed:
             return
-        remaining = self.seconds - self._elapsed()
-        if remaining <= 0:
-            os._exit(124)
         self._hard_deadline_armed = True
-        self.signal.setitimer(self.signal.ITIMER_REAL, max(0.001, remaining))
+        self.signal.setitimer(self.signal.ITIMER_REAL, 0.0)
 
     def _stop_compute(self, reason: str) -> None:
         self._arm_hard_deadline()
@@ -253,7 +250,7 @@ class ClaimDeadline:
 
     def _alarm(self, _signum: int, _frame: object) -> None:
         if self._hard_deadline_armed:
-            os._exit(124)
+            return
         if self._compute_remaining() <= 0:
             self._stop_compute("F4 post-mortem compute window expired; finalization reserve only")
         self.progress(

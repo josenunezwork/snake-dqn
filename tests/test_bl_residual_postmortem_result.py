@@ -17,6 +17,10 @@ PIN = "a" * 40
 
 def _sealed(root: Path, name: str, value: object) -> None:
     payload = json.dumps(value, sort_keys=True).encode() + b"\n"
+    _sealed_bytes(root, name, payload)
+
+
+def _sealed_bytes(root: Path, name: str, payload: bytes) -> None:
     path = root / name
     path.write_bytes(payload)
     sha = hashlib.sha256(payload).hexdigest()
@@ -76,6 +80,7 @@ def _bundle(tmp_path: Path) -> tuple[Path, Path]:
             "plan_sha256": plan_sha,
             "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
             "retry_authorized": False,
+            "claimed_at": "2026-10-25T00:00:00+00:00",
         },
     )
     _sealed(bundle, "development-parents.json", development)
@@ -207,20 +212,27 @@ def _diagnostic(bundle: Path) -> dict:
     }
 
 
-def _published(tmp_path, monkeypatch, mutate=lambda value: None):
+def _published(tmp_path, monkeypatch, mutate=lambda value: None, outcome="diagnostic"):
     bundle, package = _bundle(tmp_path)
-    diagnostic = _diagnostic(bundle)
-    mutate(diagnostic)
-    _sealed(bundle, "diagnostic.json", diagnostic)
+    if outcome == "diagnostic":
+        terminal = _diagnostic(bundle)
+        mutate(terminal)
+        terminal_name = "diagnostic.json"
+    elif outcome == "failure":
+        terminal = {"opaque": True}
+        terminal_name = "failure.json"
+    else:
+        raise ValueError("synthetic test outcome must be diagnostic or failure")
+    _sealed(bundle, terminal_name, terminal)
     root = tmp_path / "repo"
     destination = root / result.RESULT_RELATIVE
     shutil.copytree(bundle, destination)
-    names = (*result.BASE_NAMES, "diagnostic.json")
+    names = (*result.BASE_NAMES, terminal_name)
     binding = {
         "schema": "bl-residual-f4-postmortem-result-binding/v1",
         "implementation_commit": PIN,
         "ruling_sha256": result.guard.RULING_SHA,
-        "outcomes": ["diagnostic.json"],
+        "outcomes": [terminal_name],
         "bundle": {
             name: {
                 "sha256": hashlib.sha256((destination / name).read_bytes()).hexdigest(),
@@ -235,7 +247,7 @@ def _published(tmp_path, monkeypatch, mutate=lambda value: None):
     monkeypatch.setattr(result, "_origin_bytes", lambda root, path: original[path.name])
     monkeypatch.setattr(result.guard, "ROOT", package.parent)
     monkeypatch.setattr(result.guard, "PACKAGE", package.name)
-    return root, destination, diagnostic
+    return root, destination, terminal
 
 
 def test_published_exporter_compatible_bundle_binds_original_joint_claim_and_all_doses(
@@ -252,6 +264,37 @@ def test_invalid_harm_boolean_disagreement_remains_invalid(tmp_path, monkeypatch
 
     root, _, _ = _published(tmp_path, monkeypatch, invalidate)
     assert result.verify(root, publication_commit=PIN) == "INVALID"
+
+
+@pytest.mark.parametrize("failure_class", ["IndependentWatchdogKill", "RuntimeError"])
+def test_published_finalization_kill_is_incomplete_with_honest_elapsed(
+    tmp_path, monkeypatch, failure_class
+):
+    from research.bl_residual import f4_postmortem as entry
+
+    root, destination, _ = _published(tmp_path, monkeypatch)
+    parents = json.loads((destination / "development-parents.json").read_bytes())
+    entry._record_watchdog_failure(
+        PIN, {"metadata": {"parents": parents}}, destination, {"elapsed_seconds": 3600.02}
+    )
+    failure = json.loads((destination / "failure.json").read_bytes())
+    assert failure["wall_seconds"] == 3600.02
+    failure["failure_class"] = failure_class
+    _sealed(destination, "failure.json", failure)
+    binding = json.loads((destination / "result-binding.json").read_bytes())
+    binding["outcomes"].append("failure.json")
+    binding["bundle"]["failure.json"] = {
+        "sha256": hashlib.sha256((destination / "failure.json").read_bytes()).hexdigest(),
+        "size": (destination / "failure.json").stat().st_size,
+    }
+    _sealed(destination, "result-binding.json", binding)
+    remote = {path.name: path.read_bytes() for path in destination.iterdir()}
+    monkeypatch.setattr(result, "_origin_bytes", lambda root, path: remote[path.name])
+    if failure_class == "IndependentWatchdogKill":
+        assert result.verify(root, publication_commit=PIN) == "INCOMPLETE"
+    else:
+        with pytest.raises(ValueError, match="failure receipt schema"):
+            result.verify(root, publication_commit=PIN)
 
 
 @pytest.mark.parametrize(
@@ -286,12 +329,63 @@ def test_no_outcome_parsed_until_all_origin_bytes_match(tmp_path, monkeypatch):
     root, destination, value = _published(tmp_path, monkeypatch)
     value["status"] = "INVALID"
     _sealed(destination, "diagnostic.json", value)
-    original = result._json
+    original = result._json_bytes
+    outcome_bytes = (destination / "diagnostic.json").read_bytes()
 
-    def parsed(path):
-        assert path.name != "diagnostic.json", "outcome parsed before publication proof"
-        return original(path)
+    def parsed(payload):
+        assert payload != outcome_bytes, "outcome parsed before publication proof"
+        return original(payload)
 
-    monkeypatch.setattr(result, "_json", parsed)
+    monkeypatch.setattr(result, "_json_bytes", parsed)
     with pytest.raises(ValueError, match="origin/main"):
+        result.verify(root, publication_commit=PIN)
+
+
+@pytest.mark.parametrize(
+    ("published_outcome", "extra_outcome"),
+    [("diagnostic", "failure"), ("failure", "diagnostic")],
+)
+def test_extra_locally_sealed_outcome_is_refused_before_any_outcome_parse(
+    tmp_path, monkeypatch, published_outcome, extra_outcome
+):
+    root, destination, _ = _published(tmp_path, monkeypatch, outcome=published_outcome)
+    _sealed_bytes(destination, f"{extra_outcome}.json", b"not-json-outcome\n")
+    original = result._json_bytes
+    outcome_bytes = {
+        (destination / f"{name}.json").read_bytes() for name in (published_outcome, extra_outcome)
+    }
+
+    def parsed(payload):
+        assert payload not in outcome_bytes, "outcome parsed before inventory proof"
+        return original(payload)
+
+    monkeypatch.setattr(result, "_json_bytes", parsed)
+    with pytest.raises(ValueError, match="local sealed result inventory"):
+        result.verify(root, publication_commit=PIN)
+
+
+def test_parsed_snapshot_itself_must_match_binding_despite_concurrent_swap(tmp_path, monkeypatch):
+    root, destination, value = _published(tmp_path, monkeypatch)
+    origin = result._origin_bytes
+    unbound = b"unbound-outcome-not-json\n"
+    _sealed_bytes(destination, "diagnostic.json", unbound)
+
+    def swapping_origin(root, path):
+        if path.name == "diagnostic.json":
+            # The first snapshot matches origin's reported bytes B, while a
+            # different disk snapshot A matches the published binding. Hashing
+            # the path again must not authenticate the cached B for parsing.
+            _sealed(destination, "diagnostic.json", value)
+            return unbound
+        return origin(root, path)
+
+    parse = result._json_bytes
+
+    def decoding(payload):
+        assert payload != unbound, "unbound outcome snapshot decoded"
+        return parse(payload)
+
+    monkeypatch.setattr(result, "_origin_bytes", swapping_origin)
+    monkeypatch.setattr(result, "_json_bytes", decoding)
+    with pytest.raises(ValueError, match="published result hash/size mismatch"):
         result.verify(root, publication_commit=PIN)
