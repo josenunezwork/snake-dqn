@@ -1,0 +1,33 @@
+{
+ "created_by": "Claude (operator) per Astra F5_STEP1_ATTEMPT01_DISPOSITION_20261026.md",
+ "failed_receipt": {
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/sol-20261026/f5-hold-corrections-v4/step3-package/qualification-output-attempt01/receipt.json",
+  "sha256": "0a8e758c996348f5923e5bbc8f2502c486c4d726a8f031e49b56b4e7f94640a6"
+ },
+ "normalized_attempt01_manifest": {
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/sol-20261026/f5-hold-corrections-v4/step3-package/qualification-output-attempt01/manifest.json",
+  "sha256": "de2a5eeaa2878f444291ae8c6588e187d7218e2e4a640bf8b1ef36e112ad3470"
+ },
+ "original_manifest": {
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/sol-20261026/f5-hold-corrections-v4/step3-package/qualification-manifest.json",
+  "sha256": "dd390beace928c4a15c39e4ba314bf61155a0c3575a87b561b7fde60406741b4"
+ },
+ "package_seal": {
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/sol-20261026/f5-hold-corrections-v4/step3-package/PACKAGE_SEAL.json",
+  "sha256": "72e739989e13a1adbee19cbf40e13f280092fe1d11bca43464a0cf0a4417ffa4"
+ },
+ "ruling": {
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_STEP1_ATTEMPT01_DISPOSITION_20261026.md",
+  "sha256": "1d9a57f9a8dfc870917fdedab045adba5e4aeaf31360a3d0d31757e3b583f45f"
+ },
+ "schema": "f5-step1-mechanical-successor-seal/v1",
+ "semantic_diff": [
+  "/job_id",
+  "/output_dir",
+  "/supervisor_state_dir"
+ ],
+ "successor_manifest": {
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/sol-20261026/f5-hold-corrections-v4/step3-package/qualification-manifest-attempt02.json",
+  "sha256": "b64a33b3cac214fa323766ea7332c2321f3def38003a3d27e93b422905f2de69"
+ }
+}

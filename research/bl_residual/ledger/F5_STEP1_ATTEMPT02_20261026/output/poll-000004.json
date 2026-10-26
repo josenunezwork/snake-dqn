@@ -1,0 +1,15 @@
+{
+  "exports": [],
+  "job_log_tail": "Downloading cpython-3.12.15-linux-x86_64-gnu (download) (32.9MiB)\n Downloaded cpython-3.12.15-linux-x86_64-gnu (download)\nInstalled Python 3.12.15 in 918ms\n + cpython-3.12.15-linux-x86_64-gnu (python3.12)\nwarning: `/root/.local/bin` is not on your PATH. To use installed Python executables, run `export PATH=\"/root/.local/bin:$PATH\"` or `uv python update-shell`.\nwarning: The `--system` flag has no effect, `uv venv` always ignores virtual environments when finding a Python interpreter; did you mean `--no-managed-python`?\nUsing CPython 3.12.15\nCreating virtual environment with seed packages at: .venv\n + pip==26.2.2\nActivate with: source .venv/bin/activate\n",
+  "state": {
+    "generation": "ca696eb28bb44f388a93721c70118f3c",
+    "job_id": "f5-step3-qualification-v4-attempt02",
+    "max_export_bytes": 67108864,
+    "pid": 2300,
+    "started_at": 1793057819.5625048,
+    "status": "running",
+    "updated_at": 1793058136.689715
+  },
+  "supervisor_log_tail": "",
+  "terminal": null
+}

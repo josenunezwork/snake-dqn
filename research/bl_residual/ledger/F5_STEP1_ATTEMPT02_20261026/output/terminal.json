@@ -1,0 +1,16 @@
+{
+  "canary_observations": [],
+  "export_scanner": {
+    "inventory": [],
+    "name": "runtime._exports"
+  },
+  "exports": [],
+  "finished_at": 1793058404.0759904,
+  "generation": "ca696eb28bb44f388a93721c70118f3c",
+  "job_id": "f5-step3-qualification-v4-attempt02",
+  "last_traceback_line": "Step3Refusal: F5 step-3 refused: attempt output must be fresh",
+  "reason": null,
+  "returncode": 1,
+  "started_at": 1793057819.5625048,
+  "status": "failed"
+}
