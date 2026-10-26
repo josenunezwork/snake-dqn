@@ -90,6 +90,78 @@ def test_source_or_input_mutation_refuses_before_runtime(tmp_path: Path) -> None
         subject.validate_control(control, fixtures, inputs)
 
 
+@pytest.mark.parametrize("precreated", [False, True])
+def test_qualification_accepts_fresh_supervisor_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, precreated: bool
+) -> None:
+    control, fixtures, inputs, _ = _control(tmp_path)
+    # Match runtime.main: root/inputs and an empty root/output exist before
+    # launching the real non-dry-run driver path. Stub only the CUDA workload.
+    output = tmp_path / "output"
+    if precreated:
+        output.mkdir()
+    calls = []
+
+    def qualification(*args: Any, **kwargs: Any) -> tuple[dict, dict]:
+        assert output.is_dir() and not list(output.iterdir())
+        calls.append(True)
+        export_json(output / "environment.json", {"synthetic": True})
+        return {"status": "PASS", "synthetic": True}, {}
+
+    monkeypatch.setattr(subject, "_qualification", qualification)
+    kwargs = dict(
+        control_path=control,
+        fixtures=fixtures,
+        inputs=inputs,
+        output=output,
+        ledger=tmp_path / "verified-ledger.json",
+        mode="qualify",
+    )
+    assert subject.run(**kwargs)["status"] == "QUALIFIED"
+    assert calls == [True]
+    before = {p.name: p.read_bytes() for p in output.iterdir()}
+    assert "qualification.json" in before and "environment.json" in before
+    with pytest.raises(subject.Step3Refusal, match="attempt output must be fresh"):
+        subject.run(**kwargs)
+    assert {p.name: p.read_bytes() for p in output.iterdir()} == before
+    assert calls == [True]
+
+
+@pytest.mark.parametrize("kind", ["file", "hidden-file", "directory", "symlink", "dangling"])
+def test_qualification_refuses_populated_or_unsafe_supervisor_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    control, fixtures, inputs, _ = _control(tmp_path)
+    output = tmp_path / "output"
+    if kind == "file":
+        output.write_bytes(b"prior evidence")
+    elif kind in {"symlink", "dangling"}:
+        target = tmp_path / "target"
+        if kind == "symlink":
+            target.mkdir()
+        output.symlink_to(target)
+    else:
+        output.mkdir()
+        if kind == "hidden-file":
+            (output / ".prior-evidence").write_bytes(b"prior evidence")
+        else:
+            (output / "prior-directory").mkdir()
+
+    def unexpected_qualification(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("unsafe output reached CUDA qualification")
+
+    monkeypatch.setattr(subject, "_qualification", unexpected_qualification)
+    with pytest.raises(subject.Step3Refusal, match="attempt output must be fresh"):
+        subject.run(
+            control_path=control,
+            fixtures=fixtures,
+            inputs=inputs,
+            output=output,
+            ledger=tmp_path / "verified-ledger.json",
+            mode="qualify",
+        )
+
+
 def _record(fixture_id: int) -> dict[str, Any]:
     fixture = next(
         x for x in f5_timing._canonical_timing_parents() if x["allocation_index"] == fixture_id

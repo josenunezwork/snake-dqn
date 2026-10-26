@@ -233,6 +233,11 @@ def build(repo: Path = ROOT) -> dict[str, Any]:
     )
     if v3["sha256"] != "76d707a9d52473a50f7f2b9b1cfa7644eddb1e2344f051d9f4bc47e703f5ff72":
         raise ValueError("V3 engineering predecessor digest changed")
+    v4 = reference(
+        repo, "research/bl_residual/ledger/F5_ENGINEERING_SEAL_20261026_V4/ENGINEERING_SEAL.json"
+    )
+    if v4["sha256"] != "e73b2d24144cd3e375aeffca1706dd5c677c3b23da95dce49db30d15ba3f9038":
+        raise ValueError("V4 engineering predecessor digest changed")
     return {
         "schema": "bl-f5-engineering-source-closure/v1",
         "status": "SEALED_ENGINEERING_ONLY_HOLD",
@@ -248,6 +253,13 @@ def build(repo: Path = ROOT) -> dict[str, Any]:
         "predecessor_engineering_seal": predecessor_seal,
         "interim_engineering_predecessor": interim,
         "v3_engineering_predecessor": v3,
+        "v4_engineering_predecessor": v4,
+        "v5_engineering_correction_contract": reference(
+            repo, "research/bl_residual/f5_hold_correction_20261026/ENGINEERING_V5.md"
+        ),
+        "attempt02_evidence": reference(
+            repo, "research/bl_residual/ledger/F5_STEP1_ATTEMPT02_20261026/PUBLICATION.json"
+        ),
         "v4_engineering_correction_contract": reference(
             repo, "research/bl_residual/f5_hold_correction_20261026/ENGINEERING_V4.md"
         ),

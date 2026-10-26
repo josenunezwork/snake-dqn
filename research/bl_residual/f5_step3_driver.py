@@ -431,11 +431,13 @@ def run(
             _acceptance(control, inputs, control_path)
         return {"status": "DRY_RUN_VALID", "fixtures": list(FIXTURE_IDS), "runtime_calls": False}
     completed = load_verified_units(ledger, control)
-    if output.exists():
-        _refuse("attempt output must be fresh")
+    # The supervisor creates its output root before launching the child. Only
+    # that empty directory (or an absent path) is fresh; never reuse evidence.
+    if output.is_symlink() or (output.exists() and (not output.is_dir() or any(output.iterdir()))):
+        _refuse("attempt output must be fresh (absent or an empty directory)")
     if admitted:
         _acceptance(control, inputs, control_path)
-    output.mkdir(parents=True)
+    output.mkdir(parents=True, exist_ok=True)
     qualification, actual_environment = _qualification(
         control, inputs, output, fixture_seed=int(frozen[0]["seed"])
     )
