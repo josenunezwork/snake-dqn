@@ -1,0 +1,63 @@
+{
+  "accounting": null,
+  "cleanup_error": null,
+  "cli_calls": [
+    {
+      "attempt": 1,
+      "command": "version",
+      "elapsed_seconds": 0.2237329580821097,
+      "ended_monotonic": 744034.426111958,
+      "operation": "control",
+      "started_monotonic": 744034.202388,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999816704076
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.5875320829218253,
+      "ended_monotonic": 744035.277385291,
+      "operation": "control",
+      "started_monotonic": 744034.6898615,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999141599983
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.45475587504915893,
+      "ended_monotonic": 744035.7322665,
+      "operation": "control",
+      "started_monotonic": 744035.277525416,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999841698445
+    }
+  ],
+  "commit": "911426dbace94ca2925d737d00d5d8ca8456cb6a",
+  "contents_transfers": [],
+  "control_operations": [],
+  "elapsed_seconds": 1.5318486669566482,
+  "endpoint": null,
+  "error": "Refused('insufficient balance for cap plus study reserve')",
+  "exports": [],
+  "failure_class": "SUPERVISOR",
+  "generation": "b0e49e7619194a368a06072641ebd956",
+  "job_id": "bl-f5-timing-recovery-911426db-01",
+  "manifest_sha256": "9ef9ad80f7baf3b22af75e05642746fd5e6eb776a5657850eb24d742b2245d06",
+  "session": "snake-bl-f5-timing-recovery-911426db-01-b0e49e761919",
+  "status": "INCOMPLETE",
+  "stop_verified": false,
+  "supervisor_sha256": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+  "terminal": null,
+  "transfers": [],
+  "usage_after": null,
+  "usage_before": {
+    "assignments": 0.0,
+    "balance": 1062.71,
+    "rate": 0.0
+  },
+  "warmup_seconds": 0.0
+}
