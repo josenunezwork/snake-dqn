@@ -1,0 +1,13 @@
+{
+  "schema": "sandbox-a-packet-seal/v1",
+  "packet": "packet-02",
+  "source_commit": "ea3e7494e9132fcc6272a921a8fcaed3739d1a74",
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "files": {
+    "control.json": "db2874100bc06ef3c0d5e87b57f6ee4d0e54de7a3413246345d66af09c8275b4",
+    "dispatch-manifest.json": "e19f0e1b652272322195d5f0693666b7b7fff3f044db21f7efc7d9f11d4afe37",
+    "registry-check.json": "4205215761e125137f39fd6ee21dd73708d73b25d84dff9f4724650c5cb9ff41",
+    "sandbox.json": "2bf61c25ae75572b28150111551866db93d1764e485c8c65ea00756ffa83dbb5",
+    "verified-ledger.json": "3ff716dc70a8cce2e843ca729a0f5a8f85bd289d6996c7100d1e5b063aaa894b"
+  }
+}

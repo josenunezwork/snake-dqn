@@ -1,0 +1,30 @@
+Sandbox A packet-02: prepared for Claude dispatch. No allocation performed.
+Source pin: ea3e7494e9132fcc6272a921a8fcaed3739d1a74 (published).
+Broker manifest SHA256: e19f0e1b652272322195d5f0693666b7b7fff3f044db21f7efc7d9f11d4afe37
+Sandbox manifest SHA256: 2bf61c25ae75572b28150111551866db93d1764e485c8c65ea00756ffa83dbb5
+Packet seal SHA256: 32f1830b767fc381520253d2f23b56857f621b04fded9543274709190a780afc
+Admission: adopted standing sandbox route from a4027fa3; no probe/canary controls.
+Endpoint: E128 and E1024, H128, three phases, one warmup plus three measured cycles per cell.
+Time limit: 64 ticks; production collection phases require measured truncation coverage.
+Runaway guard: base 14400/effective 28800 seconds (4/8 hours), inclusive engineering allowance.
+Legacy prospective price: 8 units/hour; 64-unit technical guard, no economic allocation cap.
+Outputs: simulator-D timing/parity only. No F5 or release/serving changes.
+Verification outcomes: ../VERIFICATION_02.txt (recorded after the sealed packet).
+
+Automated committed preflight:
+cd /Users/josenunez/Projects/ml/snake-dqn-sbxA
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.preflight research/sandbox_a_resident/packet-02
+
+Offline dispatch validation:
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-20261026-02 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-02/state --dry-run
+
+Claude's exact dispatch command (fresh live inventory/coexistence checks remain enforced):
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-20261026-02 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-02/state
+
+After terminal receipt and independently verified release:
+./venv/bin/python -m research.sandbox_a_resident.postprocess aggregate --control research/sandbox_a_resident/packet-02/control.json --output /absolute/fresh/timing-decision.json /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-02/output/receipt.json
+
+No automatic completion retries. Keep packet-01 and all previous evidence immutable.
+After verified mechanical failure and verified stop, build a path/size/hash-only ledger,
+then create a fresh packet/manifest/output/receipt for missing units only. At most two
+outcome-blind completion attempts. Registered study isolation remains enforced by dispatch.
