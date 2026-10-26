@@ -48,6 +48,16 @@ CONTROL_OAUTH_INTERPRETER = Path("/Users/josenunez/.venvs/colab-cli/bin/python")
 F5_PLAN_ADMISSION_SCHEMA = "bl-f5-plan-operational-admission/v1"
 F5_TIMING_ADMISSION_SCHEMA = "bl-f5-timing-operational-admission/v1"
 F5_PLAN_COMMIT = "c989f6738f6aad143eb97bc47f6bd9e6687057ce"
+# Named successor of held, unexecuted plan attempt02 after transport requalification.
+# This published source preserves c989f673's F5 bytes and contains CLI tree 6e8c1982.
+# Timing admission retains its separate original commit fence below.
+F5_PLAN_REQUAL_COMMIT = "75b1442768f37ce83188a2990c9ef0026ee806b5"
+F5_PLAN_REQUAL_BINDINGS = {
+    "transport_repair_ruling": "cf283cf1f4ebd0e6575275621594b2c96b5b59e7d8f0da640cd553db0291ab1b",
+    "capture05_postpublication_verification": (
+        "8a06712f6700420562016e048f7983b0c633eb7d5cbc291b79e91c65d0fcfa1b"
+    ),
+}
 F5_PLAN_RULINGS = {
     "acceptance": "ebef9f754d0ea4c143226332f53be8a2705ad5fb050291047c94a35944d8f25a",
     "capture_qualification": "8f376c53a2150db018c529b2d75796f1ed4bbd564b31630d082fb1012780539f",
@@ -1049,7 +1059,24 @@ def require_scientific_or_f5_plan_admission(manifest: dict[str, Any]) -> None:
         raise Refused("manifest scientific_admission=false")
     if manifest.get("draft_only") is not None:
         raise Refused("F5 plan admission forbids draft_only")
-    if manifest.get("commit") != F5_PLAN_COMMIT:
+    if manifest.get("commit") == F5_PLAN_REQUAL_COMMIT:
+        for key, expected_sha in F5_PLAN_REQUAL_BINDINGS.items():
+            reference = admission.get(key)
+            if not isinstance(reference, dict) or not isinstance(reference.get("path"), str):
+                raise Refused(f"F5 requalified plan requires its exact evidence binding: {key}")
+            path = Path(reference["path"])
+            if not path.is_absolute() or path.is_symlink() or not path.is_file():
+                raise Refused(
+                    f"F5 requalified plan evidence must be a regular absolute file: {key}"
+                )
+            payload = path.read_bytes()
+            if (
+                reference.get("sha256") != expected_sha
+                or reference.get("size") != len(payload)
+                or hashlib.sha256(payload).hexdigest() != expected_sha
+            ):
+                raise Refused(f"F5 requalified plan evidence bytes differ: {key}")
+    elif manifest.get("commit") != F5_PLAN_COMMIT:
         raise Refused("F5 plan admission requires the accepted implementation commit")
     if manifest.get("script") != "research/bl_residual/f5_colab.sh":
         raise Refused("F5 plan admission requires the F5 Colab entrypoint")

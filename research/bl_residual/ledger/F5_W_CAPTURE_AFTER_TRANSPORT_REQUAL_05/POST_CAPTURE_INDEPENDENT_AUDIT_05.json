@@ -1,0 +1,104 @@
+{
+  "schema": "bl-f5-attempt05-independent-audit/v1",
+  "verdict": "PASS_INDEPENDENT_CAPTURE_AUDIT",
+  "created_utc": "2026-10-26T12:00:00Z",
+  "scope": "Read-only local audit of published capture05 evidence; no dispatch, Colab/provider calls, source edits, immutable evidence edits, or science-payload deserialization.",
+  "job_id": "bl-f5-w-capture-requal-3b32d755-05",
+  "publication": {
+    "commit": "75b1442768f37ce83188a2990c9ef0026ee806b5",
+    "origin_equal_at_audit": true,
+    "inventory_records": 229,
+    "inventory_records_missing": 0,
+    "inventory_records_mismatched": 0,
+    "data_blobs_checked": 121,
+    "data_blob_hash_failures": 0,
+    "missing_sidecars": 0,
+    "missing_completion_markers": 0,
+    "publication_inventory_sha256": "d2118b68e3e2defab59ebfa3bacce5d2e4fdbd73352b3e06ea926e33eca8d072",
+    "post_report_sha256": "8a06712f6700420562016e048f7983b0c633eb7d5cbc291b79e91c65d0fcfa1b",
+    "latency_summary_sha256": "54f59308818cb41972b0d63b7fd5726ae8db18a8fc0969e88af54c33854a2e20"
+  },
+  "receipt": {
+    "status": "PASS",
+    "stop_verified": true,
+    "failure_class": null,
+    "elapsed_seconds": 974.6836456250167,
+    "receipt_sha256": "44d8a673490d627d5cc5ba24b697fb1e2e99d344678d865a5e85a7881c32e78e",
+    "source_commit": "e25f889b742764d29313340eecb41703e323d0dc",
+    "qualified_transport_tree": "6e8c1982b5c9ed115bfebd3145ad0720b15522fa"
+  },
+  "environment": {
+    "schema": "bl-residual-f5-environment-receipt/v5",
+    "capture_status": "SUCCESS",
+    "gpu": "NVIDIA L4",
+    "cuda": "12.6",
+    "cpu_count": 12,
+    "environment_sha256": "2b5e0713cc907a08688e1d27bcd171669f345a2f25478a4e6e07be9ce2a29e6d",
+    "diagnostic_failures": 0,
+    "same_assignment_canonical_and_raw_hashes_match_expected": true,
+    "source_native_cuda_observer": {
+      "count": 1,
+      "caller": "research/bl_residual/f5_qualification.py:135:_select_cuda",
+      "device": "cuda:0",
+      "operation": "Tensor.argmax",
+      "shape": [1, 6]
+    }
+  },
+  "qualification": {
+    "status": "COMPLETE_TRANSPORT_ONLY_NOT_TIMING_QUALIFIED",
+    "device": "cuda:0",
+    "samples": 12,
+    "pass_rows": 12,
+    "all_cuda_cpu_q_allclose": true,
+    "all_exact_selected_actions_equal": true,
+    "atol": 0.0002,
+    "rtol": 0.0002,
+    "raw_q_actions_exported": false,
+    "qualification_sha256": "ccfca738baff0319d640d1e3fef7a7b0b0f8bb272f4d05cb7afb4b1389096c14"
+  },
+  "transport": {
+    "required_exports": 10,
+    "exports_verified": true,
+    "transfer_seconds": 57.352172708837315,
+    "transfer_bar_seconds": 150,
+    "staging_seconds": 76.89912299998105,
+    "staging_source_delivery_seconds": 17.268560542026535,
+    "staging_bar_seconds": 300,
+    "transfer_pass": true,
+    "staging_pass": true
+  },
+  "latency": {
+    "max_cli_seconds": 120.01223687501624,
+    "max_successful_cli_seconds": 40.41663054190576,
+    "max_control_operation_seconds": 262.8373576669255,
+    "max_poststaging_recovery_idle_seconds": 8.396584625006653,
+    "failed_background_heartbeat_seconds": 37.72717287496198,
+    "successful_bootstrap_put_seconds": 30.67660312494263,
+    "poststaging_recovery_idle_count": 4,
+    "staging_recovery_idle_count": 0,
+    "interpretation": "Completion survived retained nonterminal latency spikes. The repair did not absorb or eliminate the spikes; no staging recovery-idle call was observed, so this capture does not establish repair causality or a future reliability probability."
+  },
+  "release": {
+    "saved_sessions_empty": true,
+    "saved_usage_after_assignments": 0.0,
+    "saved_usage_after_rate": 0.0,
+    "stop_verified": true
+  },
+  "scope_boundaries": [
+    "Capture and disjoint CUDA transport only.",
+    "No fit, optimizer, numerical outcome look, serving qualification, or release authorization.",
+    "Qualification action equality is established by the saved PASS rows and pinned source predicate; raw Q/action values were not exported for independent replay."
+  ],
+  "commands": [
+    "git rev-parse HEAD && git rev-parse origin/main",
+    "inventory published_files sha/size records against git HEAD blobs",
+    "verify every published data blob against its .sha256 and .complete marker",
+    "jq scalar checks on output-05/receipt.json, environment.json, qualification.json, POST_CAPTURE_VERIFICATION_05.json, POST_CAPTURE_LATENCY_SUMMARY_05.json",
+    "nl -ba research/bl_residual/f5_qualification.py | sed -n '440,480p'"
+  ],
+  "coverage_gaps": [
+    "No current provider query was performed; release evidence is the saved terminal stop/sessions/usage state.",
+    "No new CUDA execution or timing run was performed.",
+    "No science payloads were deserialized."
+  ]
+}
