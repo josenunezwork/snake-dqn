@@ -158,24 +158,48 @@ def _bound_inputs(inputs: Path, control: Mapping[str, Any], *, names: set[str]) 
             raise ValueError("F5 input hash mismatch")
 
 
-def _environment_admission(control: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Set and attest the prospective common L4 fp32 environment before any work."""
-    if sys.platform != "linux" or sys.version_info[:3] != (3, 12, 3):
-        raise F5FitRefusal("F5 requires the pinned Linux CPython 3.12.3 L4 environment")
-    if (
-        torch.__version__ != L4_TORCH
-        or torch.version.cuda != L4_CUDA
-        or not torch.cuda.is_available()
-    ):
-        raise F5FitRefusal("F5 requires torch 2.9.1+cu126 with CUDA 12.6")
-    device = torch.cuda.get_device_properties(0)
-    available = (
-        len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 0)
+def _environment_configuration_failures() -> list[str]:
+    """Apply pinned numeric controls and collect every independent runtime refusal."""
+    failures: list[str] = []
+
+    def check(condition: bool, reason: str) -> None:
+        if not condition:
+            failures.append(reason)
+
+    def attempt(label: str, operation: Any) -> Any:
+        try:
+            return operation()
+        except Exception as exc:
+            failures.append(f"F5 {label}: {type(exc).__name__}: {exc}")
+            return None
+
+    check(
+        sys.platform == "linux" and sys.version_info[:3] == (3, 12, 3),
+        "F5 requires the pinned Linux CPython 3.12.3 L4 environment",
     )
-    if "L4" not in device.name or available < 6 or torch.cuda.device_count() != 1:
-        raise F5FitRefusal("F5 requires one L4 and at least six vCPUs")
-    if os.environ.get("CUBLAS_WORKSPACE_CONFIG") != ":4096:8":
-        raise F5FitRefusal("F5 requires CUBLAS_WORKSPACE_CONFIG=:4096:8")
+    check(torch.__version__ == L4_TORCH, "F5 requires torch 2.9.1+cu126")
+    check(torch.version.cuda == L4_CUDA, "F5 requires CUDA build 12.6")
+    available = attempt("CUDA availability", torch.cuda.is_available)
+    check(available is True, "F5 requires CUDA availability")
+    count = attempt("CUDA device count", torch.cuda.device_count)
+    check(count == 1, "F5 requires exactly one CUDA device")
+    if available and count:
+        device = attempt("CUDA device properties", lambda: torch.cuda.get_device_properties(0))
+        if device is not None:
+            check(getattr(device, "name", None) == "NVIDIA L4", "F5 requires exact NVIDIA L4 name")
+    affinity = attempt(
+        "allocated CPU affinity",
+        lambda: (
+            len(os.sched_getaffinity(0))
+            if hasattr(os, "sched_getaffinity")
+            else (os.cpu_count() or 0)
+        ),
+    )
+    check(isinstance(affinity, int) and affinity >= 6, "F5 requires at least six allocated vCPUs")
+    check(
+        os.environ.get("CUBLAS_WORKSPACE_CONFIG") == ":4096:8",
+        "F5 requires CUBLAS_WORKSPACE_CONFIG=:4096:8",
+    )
     for name in (
         "OMP_NUM_THREADS",
         "OMP_THREAD_LIMIT",
@@ -184,31 +208,75 @@ def _environment_admission(control: Mapping[str, Any] | None) -> dict[str, Any]:
         "NUMBA_NUM_THREADS",
         "VECLIB_MAXIMUM_THREADS",
     ):
-        if os.environ.get(name) != "1":
-            raise F5FitRefusal(f"F5 requires {name}=1")
-    torch.set_num_threads(1)
-    if torch.get_num_interop_threads() != 1:
-        torch.set_num_interop_threads(1)
-    torch.use_deterministic_algorithms(True)
+        check(os.environ.get(name) == "1", f"F5 requires {name}=1")
+    attempt("set intra-op threads", lambda: torch.set_num_threads(1))
+    if attempt("read inter-op threads", torch.get_num_interop_threads) != 1:
+        attempt("set inter-op threads", lambda: torch.set_num_interop_threads(1))
+    attempt("set deterministic algorithms", lambda: torch.use_deterministic_algorithms(True))
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
-    if torch.get_default_dtype() != torch.float32 or torch.is_autocast_enabled("cuda"):
-        raise F5FitRefusal("F5 requires default fp32 with CUDA autocast disabled")
-    capture = capture_environment()
-    if control is None:
-        return capture
-    expected = control.get("environment_capture")
-    from research.bl_residual.f5_environment import compare_environment, policy_binding
+    check(torch.get_default_dtype() == torch.float32, "F5 requires default fp32")
+    check(not torch.is_autocast_enabled("cuda"), "F5 requires CUDA autocast disabled")
+    return failures
 
-    if control.get("environment_policy") != policy_binding() or not isinstance(expected, dict):
-        raise F5FitRefusal("F5 environment policy/capture differs from sealed control")
-    try:
-        compare_environment(expected, capture, mode="cross-assignment")
-    except ValueError as exc:
-        raise F5FitRefusal(str(exc)) from exc
+
+def _environment_admission(
+    control: Mapping[str, Any] | None, *, diagnostic: bool = False
+) -> dict[str, Any]:
+    """Attest the common L4 environment, retaining all refusal evidence for capture."""
+    from research.bl_residual.f5_environment import (
+        capture_environment_diagnostic,
+        compare_environment,
+        policy_binding,
+    )
+
+    failures = _environment_configuration_failures()
+    if diagnostic:
+        evidence = capture_environment_diagnostic()
+        capture = evidence["raw_receipt"]
+        failures.extend(evidence["acquisition_failures"])
+        failures.extend(evidence["validation_failures"])
+    else:
+        try:
+            capture = capture_environment()
+        except ValueError as exc:
+            failures.append(str(exc))
+            capture = {}
+    if control is not None:
+        expected = control.get("environment_capture")
+        if control.get("environment_policy") != policy_binding() or not isinstance(expected, dict):
+            failures.append("F5 environment policy/capture differs from sealed control")
+        elif capture:
+            try:
+                compare_environment(expected, capture, mode="cross-assignment")
+            except ValueError as exc:
+                failures.append(str(exc))
+    if diagnostic:
+        return {
+            "schema": "bl-residual-f5-environment-diagnostic/v1",
+            **evidence,
+            "admission_failures": list(dict.fromkeys(failures)),
+            "admissible": not failures,
+            "evidence_only": True,
+            "scientific_use_authorized": False,
+        }
+    if failures:
+        raise F5FitRefusal("; ".join(dict.fromkeys(failures)))
     return capture
+
+
+def export_environment_capture(output: Path) -> dict[str, Any]:
+    """Publish complete raw diagnostics before refusing; never publish invalid admission."""
+    evidence = _environment_admission(None, diagnostic=True)
+    # These exports are collected by the unchanged supervisor even on child failure.
+    # The admissible environment filename is deliberately absent on refusal.
+    export_json(output.with_name("environment-raw.json"), evidence["raw_receipt"])
+    export_json(output.with_name("environment-diagnostic.json"), evidence)
+    if not evidence["admissible"]:
+        raise F5FitRefusal("; ".join(evidence["admission_failures"]))
+    return export_json(output, evidence["raw_receipt"])
 
 
 def _assignment_boundary(reference: Mapping[str, Any]) -> dict[str, Any]:
@@ -620,7 +688,7 @@ def main() -> None:
     fit_parser.add_argument("--resume-w", type=Path)
     args = parser.parse_args()
     if args.mode == "capture-environment":
-        print(json.dumps(export_json(args.output, _environment_admission(None)), sort_keys=True))
+        print(json.dumps(export_environment_capture(args.output), sort_keys=True))
         return
     value = (
         prepare(args.inputs, args.output)

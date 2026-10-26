@@ -27,7 +27,7 @@ from urllib.parse import unquote, urlparse
 import numpy as np
 import torch
 
-SCHEMA = "bl-residual-f5-environment-receipt/v3"
+SCHEMA = "bl-residual-f5-environment-receipt/v4"
 AMENDMENT_SHA256 = "7eda19efb72f89a7e2269d40863288f9295358f2566f3a02d3ca4d3c11933359"
 ADOPTED_AMENDMENT_SHA256 = "a1dc92ffb8fa341fb51738a56fe0097d75e15b0aff7194940c12979adbb04d62"
 
@@ -129,7 +129,7 @@ class F5EnvironmentRefusal(ValueError):
 
 def schema_path() -> Path:
     """Return the frozen, source-pinned classification schema."""
-    return Path(__file__).with_name("f5_environment_schema_v3.json")
+    return Path(__file__).with_name("f5_environment_schema_v4.json")
 
 
 def schema_sha256() -> str:
@@ -240,6 +240,313 @@ def _exact_mapping(value: Any, keys: frozenset[str], path: str) -> Mapping[str, 
     return value
 
 
+def normalize_smi_uuid(smi_uuid: str) -> str:
+    """Return the one permitted SMI-to-Torch UUID normalization.
+
+    ``nvidia-smi`` prints a case-sensitive ``GPU-`` prefix that PyTorch device
+    properties omit.  This deliberately strips exactly that single prefix from
+    the SMI value only; lower-case, absent, doubled, and empty forms are
+    evidence failures rather than aliases.
+    """
+    if not isinstance(smi_uuid, str) or not smi_uuid.startswith("GPU-"):
+        raise F5EnvironmentRefusal("F5 environment SMI UUID lacks exact GPU- prefix")
+    normalized = smi_uuid.removeprefix("GPU-")
+    if not normalized or normalized.startswith("GPU-"):
+        raise F5EnvironmentRefusal("F5 environment SMI UUID has invalid GPU- prefix count")
+    return normalized
+
+
+def _source_consistency_failures(receipt: Mapping[str, Any]) -> list[str]:
+    """Collect independent real-runtime source agreement failures.
+
+    The fields originate in APIs with intentionally different representations:
+    Torch reports UUID without ``GPU-`` and memory in bytes, while SMI reports
+    UUID with the prefix, capacity in MiB, and a dotted capability string.
+    Keep every raw observation and report every independently checkable
+    disagreement so an L4 diagnostic run is not consumed one bug at a time.
+    """
+    failures: list[str] = []
+    driver = receipt.get("gpu_driver_query")
+    raw_driver = receipt.get("gpu_driver_query_raw")
+    if not isinstance(driver, Mapping):
+        return ["F5 environment GPU driver query is unavailable for source comparison"]
+    required = ("name", "uuid", "driver_version", "compute_cap", "memory_total")
+    for key in required:
+        if not isinstance(driver.get(key), str) or not driver[key]:
+            failures.append(
+                f"F5 environment GPU driver query {key} is malformed for source comparison"
+            )
+    if not isinstance(raw_driver, str):
+        failures.append("F5 environment raw GPU query is malformed")
+    else:
+        raw_parts = [part.strip() for part in raw_driver.split(",")]
+        expected_parts = [driver.get(key) for key in required]
+        if len(raw_parts) != 5 or raw_parts != expected_parts:
+            failures.append("F5 environment raw GPU query disagrees with parsed fields")
+
+    torch_uuid = receipt.get("gpu_uuid")
+    if not isinstance(torch_uuid, str) or not torch_uuid:
+        failures.append("F5 environment Torch GPU UUID is malformed")
+    else:
+        try:
+            smi_uuid = normalize_smi_uuid(driver.get("uuid"))
+        except F5EnvironmentRefusal as exc:
+            failures.append(str(exc))
+        else:
+            if smi_uuid != torch_uuid:
+                failures.append("F5 environment GPU UUID provenance fields disagree")
+
+    torch_name = receipt.get("gpu")
+    if not isinstance(torch_name, str) or not torch_name:
+        failures.append("F5 environment Torch GPU name is malformed")
+    elif driver.get("name") != torch_name:
+        failures.append("F5 environment GPU name provenance fields disagree")
+
+    capability = receipt.get("gpu_capability")
+    try:
+        parsed_capability = [int(part) for part in driver.get("compute_cap", "").split(".")]
+    except (ValueError, TypeError, AttributeError):
+        failures.append("F5 environment parsed SMI GPU capability is malformed")
+    else:
+        if len(parsed_capability) != 2 or capability != parsed_capability:
+            failures.append("F5 environment parsed GPU capability differs")
+
+    memory_bytes = receipt.get("gpu_memory")
+    try:
+        memory_mib = int(driver.get("memory_total"))
+    except (ValueError, TypeError):
+        failures.append("F5 environment parsed SMI GPU memory is malformed")
+    else:
+        if (
+            memory_mib <= 0
+            or isinstance(memory_bytes, bool)
+            or not isinstance(memory_bytes, int)
+            or abs(memory_mib * MIB_BYTES - memory_bytes) >= MIB_BYTES
+        ):
+            failures.append("F5 environment parsed GPU memory differs")
+    return failures
+
+
+def collect_environment_failures(receipt: Mapping[str, Any]) -> list[str]:
+    """Return all independently observable receipt failures for diagnostics.
+
+    The complete structural validator remains authoritative.  Source agreement
+    checks are collected separately even when that validator already refused,
+    allowing a non-admissible raw diagnostic receipt to expose every remaining
+    Torch/SMI representation defect from the same L4 allocation.
+    """
+    failures: list[str] = []
+    try:
+        _validate_environment_first(receipt)
+    except (F5EnvironmentRefusal, KeyError, TypeError, AttributeError, ValueError) as exc:
+        failures.append(str(exc))
+    # Probe independent leaf groups after the authoritative whole-receipt
+    # validator stops.  Each probe is bounded and read-only; it never repairs
+    # or normalizes evidence, so a diagnostic list cannot weaken admission.
+    top = receipt if isinstance(receipt, Mapping) else {}
+    if set(top) != REQUIRED_TOP_LEVEL:
+        failures.append("F5 environment receipt has unknown or missing fields")
+    if top.get("schema") != SCHEMA:
+        failures.append("F5 environment receipt schema differs")
+    if top.get("schema_sha256") != schema_sha256():
+        failures.append("F5 environment schema source pin differs")
+    if top.get("memory_units") != MEMORY_UNITS:
+        failures.append("F5 environment GPU memory units differ")
+    for name in (
+        "platform",
+        "python",
+        "cpu",
+        "torch",
+        "cuda",
+        "gpu",
+        "gpu_uuid",
+        "python_compiler",
+        "python_cache_tag",
+        "cudnn",
+        "torch_git_version",
+        "torch_build",
+        "numpy",
+        "numpy_blas_lapack_build",
+        "environment_lock_sha256",
+        "environment_descriptor_sha256",
+    ):
+        if not isinstance(top.get(name), str) or not top.get(name):
+            failures.append(f"F5 environment {name} must be a nonempty string")
+    if (
+        isinstance(top.get("cpu_count"), bool)
+        or not isinstance(top.get("cpu_count"), int)
+        or top.get("cpu_count", 0) < 1
+    ):
+        failures.append("F5 environment cpu_count is malformed")
+    if (
+        isinstance(top.get("gpu_memory"), bool)
+        or not isinstance(top.get("gpu_memory"), int)
+        or top.get("gpu_memory", 0) <= 0
+    ):
+        failures.append("F5 environment gpu_memory is malformed")
+    capability = top.get("gpu_capability")
+    if (
+        not isinstance(capability, list)
+        or len(capability) != 2
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in capability
+        )
+    ):
+        failures.append("F5 environment gpu_capability is malformed")
+    build = top.get("python_build")
+    if (
+        not isinstance(build, list)
+        or len(build) != 2
+        or any(not isinstance(value, str) or not value for value in build)
+    ):
+        failures.append("F5 environment python_build is malformed")
+    affinity = top.get("allocated_cpu_affinity")
+    if (
+        not isinstance(affinity, list)
+        or not affinity
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in affinity
+        )
+        or (
+            isinstance(affinity, list)
+            and (len(affinity) != len(set(affinity)) or len(affinity) < 6)
+        )
+    ):
+        failures.append("F5 environment allocated_cpu_affinity is malformed")
+    os_kernel = top.get("os_kernel")
+    if (
+        not isinstance(os_kernel, dict)
+        or set(os_kernel) != OS_KERNEL_KEYS
+        or any(not isinstance(value, str) for value in os_kernel.values())
+    ):
+        failures.append("F5 environment os_kernel is malformed")
+    controls = top.get("numeric_controls")
+    if (
+        not isinstance(controls, dict)
+        or set(controls) != NUMERIC_CONTROL_KEYS
+        or any(
+            (key != "default_dtype" and not isinstance(value, bool))
+            or (key == "default_dtype" and (not isinstance(value, str) or not value))
+            for key, value in controls.items()
+        )
+    ):
+        failures.append("F5 environment numeric controls are malformed")
+    threads = top.get("torch_threads")
+    if (
+        not isinstance(threads, dict)
+        or set(threads) != THREAD_KEYS
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 1
+            for value in threads.values()
+        )
+    ):
+        failures.append("F5 environment torch thread value is malformed")
+    thread_env = top.get("thread_env")
+    if (
+        not isinstance(thread_env, dict)
+        or set(thread_env) != THREAD_ENV_KEYS
+        or any(not isinstance(value, str) or not value for value in thread_env.values())
+    ):
+        failures.append("F5 environment thread environment is malformed")
+    packages = top.get("installed_packages")
+    wheels = top.get("locked_wheels")
+    if isinstance(packages, dict):
+        wheel_map = wheels if isinstance(wheels, dict) else {}
+        for name, package in packages.items():
+            failures.extend(collect_package_failures(str(name), package, wheel_map.get(str(name))))
+    else:
+        failures.append("F5 environment installed package closure is incomplete")
+
+    def probe(operation: Any) -> None:
+        try:
+            operation()
+        except (F5EnvironmentRefusal, KeyError, TypeError, ValueError, AttributeError) as exc:
+            failures.append(str(exc))
+
+    for key in (
+        "schema_sha256",
+        "installed_versions_sha256",
+        "environment_lock_sha256",
+        "environment_descriptor_sha256",
+    ):
+        probe(lambda: _sha(top.get(key), key))
+    for group, keys in (
+        ("os_kernel", OS_KERNEL_KEYS),
+        ("torch_threads", THREAD_KEYS),
+        ("numeric_controls", NUMERIC_CONTROL_KEYS),
+        ("thread_env", THREAD_ENV_KEYS),
+    ):
+        value = top.get(group)
+        if not isinstance(value, dict):
+            continue
+        for key in keys:
+            item = value.get(key)
+            if group == "torch_threads":
+                valid = isinstance(item, int) and not isinstance(item, bool) and item >= 1
+            elif group == "numeric_controls" and key != "default_dtype":
+                valid = isinstance(item, bool)
+            else:
+                valid = isinstance(item, str) and (group == "os_kernel" or bool(item))
+            if not valid:
+                failures.append(f"F5 environment {group}.{key} is malformed")
+    isa = top.get("cpu_isa")
+    if (
+        not isinstance(isa, dict)
+        or not isa
+        or set(isa) - {"model name", "flags", "Features", "Hardware"}
+    ):
+        failures.append("F5 environment cpu_isa has unknown fields or is missing")
+    if isinstance(isa, dict):
+        for key, value in isa.items():
+            probe(lambda: _text(value, f"cpu_isa.{key}"))
+    driver = top.get("gpu_driver_query")
+    probe(lambda: _exact_mapping(driver, GPU_DRIVER_KEYS, "gpu_driver_query"))
+    if isinstance(driver, dict):
+        for key, value in driver.items():
+            probe(lambda: _text(value, f"gpu_driver_query.{key}"))
+    probe(lambda: _text(top.get("gpu_driver_query_raw"), "gpu_driver_query_raw"))
+    aliases = top.get("installed_numeric_packages")
+    probe(lambda: _exact_mapping(aliases, NUMERIC_PACKAGES, "packages"))
+    if isinstance(packages, dict):
+        if not set(packages) >= REQUIRED_NUMERIC_PACKAGES:
+            failures.append("F5 environment installed package closure is incomplete")
+        if {name: packages.get(name) for name in NUMERIC_PACKAGES} != aliases:
+            failures.append("F5 numeric package receipt disagrees with installed closure")
+        for key in ("torch", "numpy"):
+            package = packages.get(key)
+            if isinstance(package, dict) and top.get(key) != package.get("version"):
+                failures.append(f"F5 {key} version disagrees with installed closure")
+        for name in packages:
+            if not isinstance(name, str) or not name or name != name.lower() or "_" in name:
+                failures.append(f"F5 environment installed package name is malformed: {name}")
+    if isinstance(wheels, dict):
+        if not set(wheels) >= REQUIRED_NUMERIC_PACKAGES:
+            failures.append("F5 locked wheel closure is incomplete")
+        if isinstance(packages, dict):
+            if not set(packages) >= set(wheels):
+                failures.append("F5 installed closure omits a locked wheel package")
+            if ("scipy" in packages) != ("scipy" in wheels):
+                failures.append("F5 optional scipy installed/locked presence differs")
+        for name, wheel in wheels.items():
+            probe(lambda: _exact_mapping(wheel, LOCKED_WHEEL_KEYS, f"locked_wheels.{name}"))
+            if not isinstance(wheel, dict):
+                continue
+            for key in ("filename", "raw_url", "canonical_url"):
+                probe(lambda: _text(wheel.get(key), f"locked_wheels.{name}.{key}"))
+            probe(lambda: _sha(wheel.get("sha256"), f"locked_wheels.{name}.sha256"))
+            if isinstance(wheel.get("raw_url"), str) and isinstance(wheel.get("filename"), str):
+                url = urlparse(wheel["raw_url"])
+                if url.scheme != "file" or not unquote(url.path).endswith("/" + wheel["filename"]):
+                    failures.append(f"F5 locked wheel URL is not a wheelhouse file: {name}")
+                if wheel.get("canonical_url") != "file://<WHEELHOUSE>/" + wheel["filename"]:
+                    failures.append(f"F5 locked wheel canonical URL differs: {name}")
+    for failure in _source_consistency_failures(receipt):
+        if failure not in failures:
+            failures.append(failure)
+    return list(dict.fromkeys(failures))
+
+
 def _text(value: Any, path: str) -> str:
     if not isinstance(value, str) or not value:
         raise F5EnvironmentRefusal(f"F5 environment {path} must be a nonempty string")
@@ -288,92 +595,119 @@ def _canonical_root_bound_script(raw: bytes, installation_root: str) -> bytes | 
     return b"#!<INSTALLATION_ROOT>/" + first[len(prefix) :] + separator + rest
 
 
-def _validate_package(name: str, value: Any, wheel: Mapping[str, str] | None = None) -> None:
-    package = _exact_mapping(value, PACKAGE_KEYS, f"installed_numeric_packages.{name}")
-    _text(package["version"], f"installed_numeric_packages.{name}.version")
-    _text(package["installation_root"], f"installed_numeric_packages.{name}.installation_root")
-    contents = package["installed_contents"]
+def collect_package_failures(
+    name: str, value: Any, wheel: Mapping[str, str] | None = None
+) -> list[str]:
+    """Inspect every package leaf in linear time without copying file inventories."""
+    failures: list[str] = []
+
+    def probe(operation: Any) -> Any:
+        try:
+            return operation()
+        except (F5EnvironmentRefusal, KeyError, TypeError, ValueError, AttributeError) as exc:
+            failures.append(str(exc))
+            return None
+
+    probe(lambda: _exact_mapping(value, PACKAGE_KEYS, f"installed_numeric_packages.{name}"))
+    if not isinstance(value, dict):
+        return failures
+    for key in ("version", "installation_root"):
+        probe(lambda: _text(value.get(key), f"installed_numeric_packages.{name}.{key}"))
+    contents = value.get("installed_contents")
     if not isinstance(contents, dict) or not contents:
-        raise F5EnvironmentRefusal(
-            f"F5 environment installed_numeric_packages.{name}.contents missing"
-        )
-    for relative, digest in contents.items():
+        failures.append(f"F5 environment installed_numeric_packages.{name}.contents missing")
+        contents = {}
+    for relative, item in contents.items():
+        path = f"installed_numeric_packages.{name}.contents.{relative}"
         if (
             not isinstance(relative, str)
             or not relative
             or relative.startswith("/")
             or ".." in Path(relative).parts
         ):
-            raise F5EnvironmentRefusal(f"F5 environment installed contents path is unsafe: {name}")
-        root_bound_kind = _root_bound_content_kind(relative)
-        # v2 used __entrypoint__; reject it under v3 so a new path namespace
-        # cannot sneak through an otherwise valid receipt.
+            failures.append(f"F5 environment installed contents path is unsafe: {name}")
+            continue
+        kind = probe(lambda: _root_bound_content_kind(relative))
         if relative.startswith("__entrypoint__/"):
-            raise F5EnvironmentRefusal("F5 v3 does not admit legacy entrypoint content keys")
-        # A bin entry may be a generated Python script (with root-bearing
-        # shebang evidence) or an ordinary executable/data byte stream.  Only
-        # the former has a permitted normalization; the latter is raw exact.
-        keys = (
-            ROOT_BOUND_SCRIPT_RECEIPT_KEYS
-            if root_bound_kind == "bin" and isinstance(digest, dict) and "raw_base64" in digest
-            else CONTENT_RECEIPT_KEYS
+            failures.append("F5 v3 does not admit legacy entrypoint content keys")
+        script = kind == "bin" and isinstance(item, dict) and "raw_base64" in item
+        probe(
+            lambda: _exact_mapping(
+                item, ROOT_BOUND_SCRIPT_RECEIPT_KEYS if script else CONTENT_RECEIPT_KEYS, path
+            )
         )
-        item = _exact_mapping(
-            digest, keys, f"installed_numeric_packages.{name}.contents.{relative}"
-        )
-        _sha(item["raw_sha256"], f"installed_numeric_packages.{name}.contents.{relative}.raw")
-        _sha(
-            item["canonical_sha256"],
-            f"installed_numeric_packages.{name}.contents.{relative}.canonical",
-        )
-        if root_bound_kind == "bin" and "raw_base64" in item:
-            try:
-                raw = base64.b64decode(item["raw_base64"], validate=True)
-            except (ValueError, TypeError) as exc:
-                raise F5EnvironmentRefusal(f"F5 entrypoint evidence is malformed: {name}") from exc
-            if hashlib.sha256(raw).hexdigest() != item["raw_sha256"]:
-                raise F5EnvironmentRefusal(f"F5 entrypoint raw hash differs: {name}")
-            canonical = _canonical_root_bound_script(raw, package["installation_root"])
-            if canonical is None:
-                raise F5EnvironmentRefusal(
-                    f"F5 entrypoint lacks exact installation-root shebang: {name}"
+        if not isinstance(item, dict):
+            continue
+        for key in ("raw_sha256", "canonical_sha256"):
+            probe(lambda: _sha(item.get(key), f"{path}.{key}"))
+        if script:
+            raw = probe(lambda: base64.b64decode(item.get("raw_base64"), validate=True))
+            if raw is not None:
+                if hashlib.sha256(raw).hexdigest() != item.get("raw_sha256"):
+                    failures.append(f"F5 entrypoint raw hash differs: {name}: {relative}")
+                canonical = probe(
+                    lambda: _canonical_root_bound_script(raw, value.get("installation_root"))
                 )
-            if hashlib.sha256(canonical).hexdigest() != item["canonical_sha256"]:
-                raise F5EnvironmentRefusal(f"F5 entrypoint canonical mapping differs: {name}")
-        elif item["raw_sha256"] != item["canonical_sha256"]:
-            raise F5EnvironmentRefusal(f"F5 installed library content was normalized: {name}")
-    canonical_contents = {relative: item["canonical_sha256"] for relative, item in contents.items()}
-    if (
-        hashlib.sha256(canonical_json(canonical_contents).encode()).hexdigest()
-        != package["installed_contents_sha256"]
-    ):
-        raise F5EnvironmentRefusal(f"F5 environment installed contents digest differs: {name}")
-    metadata = _exact_mapping(
-        package["installed_metadata"], METADATA_KEYS, f"installed_numeric_packages.{name}.metadata"
+                if canonical is None:
+                    failures.append(
+                        f"F5 entrypoint lacks exact installation-root shebang: {name}: {relative}"
+                    )
+                elif hashlib.sha256(canonical).hexdigest() != item.get("canonical_sha256"):
+                    failures.append(f"F5 entrypoint canonical mapping differs: {name}: {relative}")
+        elif item.get("raw_sha256") != item.get("canonical_sha256"):
+            failures.append(f"F5 installed library content was normalized: {name}: {relative}")
+    canonical_contents = {
+        relative: item.get("canonical_sha256") if isinstance(item, dict) else None
+        for relative, item in contents.items()
+    }
+    aggregate = probe(
+        lambda: hashlib.sha256(canonical_json(canonical_contents).encode()).hexdigest()
     )
+    if aggregate != value.get("installed_contents_sha256"):
+        failures.append(f"F5 environment installed contents digest differs: {name}")
+    metadata = value.get("installed_metadata")
+    probe(
+        lambda: _exact_mapping(
+            metadata, METADATA_KEYS, f"installed_numeric_packages.{name}.metadata"
+        )
+    )
+    if not isinstance(metadata, dict):
+        return list(dict.fromkeys(failures))
     for metadata_name, item in metadata.items():
-        hashes = _exact_mapping(
-            item, METADATA_RECEIPT_KEYS, f"installed_numeric_packages.{name}.{metadata_name}"
+        path = f"installed_numeric_packages.{name}.{metadata_name}"
+        probe(lambda: _exact_mapping(item, METADATA_RECEIPT_KEYS, path))
+        if not isinstance(item, dict):
+            continue
+        for key in ("raw_sha256", "canonical_sha256"):
+            probe(lambda: _sha(item.get(key), f"{path}.{key}"))
+        raw = probe(lambda: base64.b64decode(item.get("raw_base64"), validate=True))
+        if raw is None:
+            failures.append(f"F5 environment raw metadata is malformed: {name}: {metadata_name}")
+            continue
+        if hashlib.sha256(raw).hexdigest() != item.get("raw_sha256"):
+            failures.append(f"F5 environment raw metadata hash differs: {name}: {metadata_name}")
+        canonical = probe(
+            lambda: _canonical_metadata_bytes(
+                raw, value.get("installation_root"), metadata_name, contents, wheel
+            )
         )
-        _sha(hashes["raw_sha256"], f"installed_numeric_packages.{name}.{metadata_name}.raw")
-        _sha(
-            hashes["canonical_sha256"],
-            f"installed_numeric_packages.{name}.{metadata_name}.canonical",
-        )
-        try:
-            raw = base64.b64decode(hashes["raw_base64"], validate=True)
-        except (ValueError, TypeError) as exc:
-            raise F5EnvironmentRefusal(f"F5 environment raw metadata is malformed: {name}") from exc
-        if hashlib.sha256(raw).hexdigest() != hashes["raw_sha256"]:
-            raise F5EnvironmentRefusal(f"F5 environment raw metadata hash differs: {name}")
-        canonical = _canonical_metadata_bytes(
-            raw, package["installation_root"], metadata_name, contents, wheel
-        )
-        if hashlib.sha256(canonical).hexdigest() != hashes["canonical_sha256"]:
-            raise F5EnvironmentRefusal(f"F5 environment canonical metadata hash differs: {name}")
+        if canonical is not None and hashlib.sha256(canonical).hexdigest() != item.get(
+            "canonical_sha256"
+        ):
+            failures.append(
+                f"F5 environment canonical metadata hash differs: {name}: {metadata_name}"
+            )
+    return list(dict.fromkeys(failures))
 
 
-def validate_environment(receipt: Mapping[str, Any]) -> None:
+def _validate_package(name: str, value: Any, wheel: Mapping[str, str] | None = None) -> None:
+    """Refuse package evidence only after inspecting every independent item."""
+    failures = collect_package_failures(name, value, wheel)
+    if failures:
+        raise F5EnvironmentRefusal("; ".join(failures))
+
+
+def _validate_environment_first(receipt: Mapping[str, Any]) -> None:
     """Refuse every receipt whose fully nested schema cannot be classified."""
     validate_schema_artifact()
     top = _exact_mapping(receipt, REQUIRED_TOP_LEVEL, "receipt")
@@ -461,34 +795,7 @@ def validate_environment(receipt: Mapping[str, Any]) -> None:
     driver = _exact_mapping(top["gpu_driver_query"], GPU_DRIVER_KEYS, "gpu_driver_query")
     for key, value in driver.items():
         _text(value, f"gpu_driver_query.{key}")
-    raw_driver = _text(top["gpu_driver_query_raw"], "gpu_driver_query_raw")
-    raw_parts = [part.strip() for part in raw_driver.split(",")]
-    if len(raw_parts) != 5 or raw_parts != [
-        driver["name"],
-        driver["uuid"],
-        driver["driver_version"],
-        driver["compute_cap"],
-        driver["memory_total"],
-    ]:
-        raise F5EnvironmentRefusal("F5 environment raw GPU query disagrees with parsed fields")
-    if driver["uuid"] != top["gpu_uuid"] or driver["name"] != top["gpu"]:
-        raise F5EnvironmentRefusal("F5 environment GPU provenance fields disagree")
-    try:
-        capability = [int(part) for part in driver["compute_cap"].split(".")]
-        memory = int(driver["memory_total"])
-    except ValueError as exc:
-        raise F5EnvironmentRefusal(
-            "F5 environment parsed GPU capability/memory is malformed"
-        ) from exc
-    # SMI reports integer MiB; Torch reports bytes. Admit only a sub-MiB
-    # quantization discrepancy, never a larger accounting difference. Each raw
-    # observation remains an exact invariant in cross-assignment comparison.
-    if (
-        capability != top["gpu_capability"]
-        or memory <= 0
-        or abs(memory * MIB_BYTES - top["gpu_memory"]) >= MIB_BYTES
-    ):
-        raise F5EnvironmentRefusal("F5 environment parsed GPU capability/memory differs")
+    _text(top["gpu_driver_query_raw"], "gpu_driver_query_raw")
     packages = _exact_mapping(top["installed_numeric_packages"], NUMERIC_PACKAGES, "packages")
     all_packages = top["installed_packages"]
     if not isinstance(all_packages, dict) or not set(all_packages) >= REQUIRED_NUMERIC_PACKAGES:
@@ -538,6 +845,19 @@ def validate_environment(receipt: Mapping[str, Any]) -> None:
     thread_env = _exact_mapping(top["thread_env"], THREAD_ENV_KEYS, "thread_env")
     for key, value in thread_env.items():
         _text(value, f"thread_env.{key}")
+    # Keep source comparisons after the independent typed/build validation so
+    # diagnostic collection can return both a structural failure and every
+    # Torch/SMI disagreement from the same receipt.
+    source_failures = _source_consistency_failures(top)
+    if source_failures:
+        raise F5EnvironmentRefusal(source_failures[0])
+
+
+def validate_environment(receipt: Mapping[str, Any]) -> None:
+    """Refuse only after collecting every independently observable defect."""
+    failures = collect_environment_failures(receipt)
+    if failures:
+        raise F5EnvironmentRefusal("; ".join(failures))
 
 
 def _canonical_package(package: Mapping[str, Any]) -> dict[str, Any]:
@@ -995,9 +1315,10 @@ def _wheel_manifest() -> dict[str, dict[str, str]]:
     return found
 
 
-def _driver_query() -> tuple[dict[str, str], str]:
+def _driver_query_raw() -> str:
+    """Capture raw SMI stdout before parsing it into the strict receipt form."""
     try:
-        raw = subprocess.check_output(
+        return subprocess.check_output(
             [
                 "nvidia-smi",
                 "--query-gpu=name,uuid,driver_version,compute_cap,memory.total",
@@ -1005,123 +1326,228 @@ def _driver_query() -> tuple[dict[str, str], str]:
             ],
             text=True,
             timeout=15,
+            stderr=subprocess.PIPE,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise F5EnvironmentRefusal("F5 cannot capture parsed nvidia-smi identity") from exc
+        raise F5EnvironmentRefusal("F5 cannot capture nvidia-smi identity") from exc
+
+
+def _parse_driver_query(raw: str) -> dict[str, str]:
+    """Parse one previously retained SMI stdout value without rereading it."""
     parts = [part.strip() for part in raw.split(",")]
     if len(parts) != 5 or not all(parts):
         raise F5EnvironmentRefusal("F5 nvidia-smi query is malformed")
-    return (
-        dict(
-            zip(
-                ("name", "uuid", "driver_version", "compute_cap", "memory_total"),
-                parts,
-                strict=True,
-            )
-        ),
-        raw,
+    return dict(
+        zip(
+            ("name", "uuid", "driver_version", "compute_cap", "memory_total"),
+            parts,
+            strict=True,
+        )
     )
+
+
+def _driver_query() -> tuple[dict[str, str], str]:
+    """Capture then strictly parse SMI identity for admissible receipts."""
+    raw = _driver_query_raw()
+    return _parse_driver_query(raw), raw
+
+
+def _capture_environment_raw() -> dict[str, Any]:
+    """Observe each source once, retaining successful fields after any refusal.
+
+    The private acquisition-error key is moved into the diagnostic envelope
+    before schema validation. Unavailable fields remain null and can never
+    become admissible evidence. No failed read suppresses independent reads.
+    """
+    receipt: dict[str, Any] = {"schema": SCHEMA, "memory_units": dict(MEMORY_UNITS)}
+    errors: list[str] = []
+    acquisition_evidence: dict[str, Any] = {}
+
+    def observe(name: str, operation: Any) -> Any:
+        try:
+            return operation()
+        except Exception as exc:
+            errors.append(f"F5 environment acquisition {name}: {type(exc).__name__}: {exc}")
+            cause = exc.__cause__ or exc
+            evidence = {"exception_type": type(cause).__name__, "message": str(cause)}
+            for key in ("stdout", "stderr", "output"):
+                value = getattr(cause, key, None)
+                if isinstance(value, bytes):
+                    evidence[key + "_base64"] = base64.b64encode(value).decode("ascii")
+                elif isinstance(value, str):
+                    evidence[key] = value
+            acquisition_evidence[name] = evidence
+            if name == "gpu_driver_query_raw":
+                stdout = getattr(cause, "stdout", None) or getattr(cause, "output", None)
+                return stdout if isinstance(stdout, str) else None
+            return None
+
+    def field(name: str, operation: Any) -> Any:
+        receipt[name] = observe(name, operation)
+        return receipt[name]
+
+    field("schema_sha256", schema_sha256)
+    field("platform", platform.platform)
+    field("python", lambda: sys.version)
+    field("cpu_count", lambda: os.cpu_count() or 0)
+    field("torch", lambda: str(torch.__version__))
+    field("cuda", lambda: torch.version.cuda or "none")
+    field("python_build", lambda: list(platform.python_build()))
+    field("python_compiler", platform.python_compiler)
+    field("python_cache_tag", lambda: sys.implementation.cache_tag)
+    field("allocated_cpu_affinity", lambda: sorted(os.sched_getaffinity(0)))
+
+    def cpu_isa() -> dict[str, str]:
+        fields: dict[str, str] = {}
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            key, separator, value = line.partition(":")
+            if separator and key.strip() in {"model name", "flags", "Features", "Hardware"}:
+                fields.setdefault(key.strip(), value.strip())
+        if not fields:
+            raise F5EnvironmentRefusal("F5 capture requires CPU model/ISA evidence")
+        return fields
+
+    cpu_fields = field("cpu_isa", cpu_isa)
+    field("cpu", lambda: platform.processor() or (cpu_fields or {}).get("model name", "unknown"))
+
+    def kernel() -> dict[str, str]:
+        uname = platform.uname()._asdict()
+        return {
+            key: uname[key] or ("unknown" if key == "processor" else "") for key in OS_KERNEL_KEYS
+        }
+
+    field("os_kernel", kernel)
+    available = observe("CUDA availability", torch.cuda.is_available)
+    count = observe("CUDA device count", torch.cuda.device_count)
+    if available is not True or count != 1:
+        errors.append("F5 capture requires exactly one CUDA device")
+    device = observe("CUDA properties", lambda: torch.cuda.get_device_properties(0))
+    field("gpu", lambda: device.name)
+    field("gpu_uuid", lambda: str(device.uuid))
+    field("gpu_memory", lambda: int(device.total_memory))
+    field("gpu_capability", lambda: list(torch.cuda.get_device_capability(0)))
+    # Store stdout before parsing; malformed CSV still survives in diagnostics.
+    raw_smi = field("gpu_driver_query_raw", _driver_query_raw)
+    field("gpu_driver_query", lambda: _parse_driver_query(raw_smi))
+    field("cudnn", lambda: str(torch.backends.cudnn.version()))
+    field("torch_git_version", lambda: torch.version.git_version or "unknown")
+    field("torch_build", torch.__config__.show)
+    field("numpy", lambda: np.__version__)
+
+    def numpy_build() -> str:
+        stream = io.StringIO()
+        with contextlib.redirect_stdout(stream):
+            np.__config__.show()
+        return stream.getvalue()
+
+    field("numpy_blas_lapack_build", numpy_build)
+    distributions = observe(
+        "distribution inventory", lambda: list(importlib.metadata.distributions())
+    )
+    installed: list[tuple[str, str]] = []
+    names: set[str] = set()
+    for index, dist in enumerate(distributions or []):
+        identity = observe(
+            f"distribution[{index}]",
+            lambda: (str(dist.metadata.get("Name", "")).lower(), dist.version),
+        )
+        if identity is not None:
+            installed.append(identity)
+            if identity[0]:
+                names.add(identity[0].replace("_", "-"))
+    field(
+        "installed_versions_sha256",
+        lambda: hashlib.sha256(canonical_json(sorted(installed)).encode()).hexdigest(),
+    )
+    environment_dir = Path(__file__).with_name("f5_adoption_environment_20261026_v6")
+    for key, filename, expected in (
+        (
+            "environment_lock_sha256",
+            "requirements-f5-l4-cu126.lock",
+            "2577ed9dd9fe34468f5562262def7bccb352c9c0bdce06b293bb4b12a0ea5301",
+        ),
+        (
+            "environment_descriptor_sha256",
+            "f5-common-environment-v6.json",
+            "bc05167c188680478663235f2b3dcfb70d7959e9d392071384409ef958b0f0f5",
+        ),
+    ):
+        observed = field(key, lambda: _file_sha(environment_dir / filename))
+        if observed != expected:
+            errors.append(f"F5 environment acquisition {key}: pinned artifact differs")
+    wheels = field("locked_wheels", _wheel_manifest)
+    wheel_map = wheels if isinstance(wheels, dict) else {}
+    packages: dict[str, Any] = {}
+    for name in sorted(names):
+        packages[name] = observe(
+            f"package {name}", lambda: _package_receipt(name, wheel_map.get(name))
+        )
+    receipt["installed_packages"] = packages
+    receipt["installed_numeric_packages"] = {
+        name: packages.get(name) for name in sorted(NUMERIC_PACKAGES)
+    }
+    receipt["torch_threads"] = {
+        "intra": observe("torch_threads.intra", torch.get_num_threads),
+        "inter": observe("torch_threads.inter", torch.get_num_interop_threads),
+    }
+    controls = {
+        "deterministic": torch.are_deterministic_algorithms_enabled,
+        "cudnn_deterministic": lambda: torch.backends.cudnn.deterministic,
+        "cudnn_benchmark": lambda: torch.backends.cudnn.benchmark,
+        "matmul_tf32": lambda: torch.backends.cuda.matmul.allow_tf32,
+        "cudnn_tf32": lambda: torch.backends.cudnn.allow_tf32,
+        "default_dtype": lambda: str(torch.get_default_dtype()),
+        "amp": lambda: torch.is_autocast_enabled("cuda"),
+        "bf16": lambda: torch.is_autocast_enabled("cuda")
+        and torch.get_autocast_dtype("cuda") == torch.bfloat16,
+    }
+    receipt["numeric_controls"] = {
+        name: observe(f"numeric_controls.{name}", read) for name, read in controls.items()
+    }
+    receipt["thread_env"] = {name: os.environ.get(name, "") for name in sorted(THREAD_ENV_KEYS)}
+    if errors:
+        receipt["_acquisition_failures"] = errors
+        receipt["_acquisition_evidence"] = acquisition_evidence
+    return receipt
+
+
+def capture_environment_diagnostic() -> dict[str, Any]:
+    """Return all available raw observations and failures without admitting them."""
+    try:
+        receipt = dict(_capture_environment_raw())
+    except Exception as exc:
+        # Defensive last resort for an unexpected collector-level programming
+        # error; ordinary source failures are retained field by field above.
+        return {
+            "raw_receipt": {},
+            "acquisition_failures": [str(exc)],
+            "validation_failures": [],
+            "admissible": False,
+        }
+    acquisition = receipt.pop("_acquisition_failures", [])
+    details = receipt.pop("_acquisition_evidence", {})
+    failures = collect_environment_failures(receipt)
+    result = {
+        "raw_receipt": receipt,
+        "acquisition_failures": acquisition,
+        "validation_failures": failures,
+        "admissible": not acquisition and not failures,
+    }
+    if details:
+        result["acquisition_evidence"] = details
+    return result
 
 
 def capture_environment() -> dict[str, Any]:
-    """Capture full raw L4 provenance plus portable build identity evidence."""
-    if not torch.cuda.is_available() or torch.cuda.device_count() != 1:
-        raise F5EnvironmentRefusal("F5 capture requires exactly one CUDA device")
-    device = torch.cuda.get_device_properties(0)
-    cpu_fields: dict[str, str] = {}
-    cpuinfo = Path("/proc/cpuinfo")
-    if cpuinfo.is_file():
-        for line in cpuinfo.read_text().splitlines():
-            key, separator, value = line.partition(":")
-            if separator and key.strip() in {"model name", "flags", "Features", "Hardware"}:
-                cpu_fields.setdefault(key.strip(), value.strip())
-    if not cpu_fields:
-        raise F5EnvironmentRefusal("F5 capture requires CPU model/ISA evidence")
-    numpy_build = io.StringIO()
-    with contextlib.redirect_stdout(numpy_build):
-        np.__config__.show()
-    installed = sorted(
-        (str(dist.metadata.get("Name", "")).lower(), dist.version)
-        for dist in importlib.metadata.distributions()
-    )
-    environment_dir = Path(__file__).with_name("f5_adoption_environment_20261026_v6")
-    lock = environment_dir / "requirements-f5-l4-cu126.lock"
-    descriptor = environment_dir / "f5-common-environment-v6.json"
-    if _file_sha(lock) != "2577ed9dd9fe34468f5562262def7bccb352c9c0bdce06b293bb4b12a0ea5301":
-        raise F5EnvironmentRefusal("F5 environment lock differs")
-    if _file_sha(descriptor) != "bc05167c188680478663235f2b3dcfb70d7959e9d392071384409ef958b0f0f5":
-        raise F5EnvironmentRefusal("F5 common environment descriptor differs")
-    uname = platform.uname()._asdict()
-    driver, driver_raw = _driver_query()
-    wheels = _wheel_manifest()
-    all_packages = {
-        name: _package_receipt(name, wheels.get(name))
-        for name in sorted(
-            {
-                str(dist.metadata.get("Name", "")).lower().replace("_", "-")
-                for dist in importlib.metadata.distributions()
-                if str(dist.metadata.get("Name", ""))
-            }
-        )
-    }
-    receipt = {
-        "schema": SCHEMA,
-        "schema_sha256": schema_sha256(),
-        "platform": platform.platform(),
-        "python": sys.version,
-        "cpu": platform.processor() or cpu_fields.get("model name", "unknown"),
-        "cpu_count": os.cpu_count() or 0,
-        "torch": torch.__version__,
-        "cuda": torch.version.cuda or "none",
-        "gpu": device.name,
-        "gpu_uuid": str(device.uuid),
-        "gpu_capability": list(torch.cuda.get_device_capability(0)),
-        "gpu_memory": int(device.total_memory),
-        "memory_units": dict(MEMORY_UNITS),
-        "os_kernel": {
-            "system": uname["system"],
-            "node": uname["node"],
-            "release": uname["release"],
-            "version": uname["version"],
-            "machine": uname["machine"],
-            "processor": uname["processor"] or "unknown",
-        },
-        "python_build": list(platform.python_build()),
-        "python_compiler": platform.python_compiler(),
-        "python_cache_tag": sys.implementation.cache_tag,
-        "cpu_isa": cpu_fields,
-        "allocated_cpu_affinity": sorted(os.sched_getaffinity(0)),
-        "gpu_driver_query": driver,
-        "gpu_driver_query_raw": driver_raw,
-        "cudnn": str(torch.backends.cudnn.version()),
-        "torch_git_version": torch.version.git_version or "unknown",
-        "torch_build": torch.__config__.show(),
-        "numpy": np.__version__,
-        "numpy_blas_lapack_build": numpy_build.getvalue(),
-        "installed_numeric_packages": {
-            name: all_packages.get(name) for name in sorted(NUMERIC_PACKAGES)
-        },
-        "installed_packages": all_packages,
-        "installed_versions_sha256": hashlib.sha256(canonical_json(installed).encode()).hexdigest(),
-        "environment_lock_sha256": _file_sha(lock),
-        "environment_descriptor_sha256": _file_sha(descriptor),
-        "locked_wheels": wheels,
-        "torch_threads": {
-            "intra": torch.get_num_threads(),
-            "inter": torch.get_num_interop_threads(),
-        },
-        "numeric_controls": {
-            "deterministic": torch.are_deterministic_algorithms_enabled(),
-            "cudnn_deterministic": torch.backends.cudnn.deterministic,
-            "cudnn_benchmark": torch.backends.cudnn.benchmark,
-            "matmul_tf32": torch.backends.cuda.matmul.allow_tf32,
-            "cudnn_tf32": torch.backends.cudnn.allow_tf32,
-            "default_dtype": str(torch.get_default_dtype()),
-            "amp": torch.is_autocast_enabled("cuda"),
-            "bf16": torch.is_autocast_enabled("cuda")
-            and torch.get_autocast_dtype("cuda") == torch.bfloat16,
-        },
-        "thread_env": {name: os.environ.get(name, "") for name in sorted(THREAD_ENV_KEYS)},
-    }
-    validate_environment(receipt)
+    """Capture only an admissible receipt; diagnostics retain refusal evidence."""
+    diagnostic = capture_environment_diagnostic()
+    if not diagnostic["admissible"]:
+        failures = [
+            *diagnostic["acquisition_failures"],
+            *diagnostic["validation_failures"],
+        ]
+        raise F5EnvironmentRefusal("; ".join(failures))
+    receipt = diagnostic["raw_receipt"]
+    if not isinstance(receipt, dict):  # Defensive, for the typed public surface.
+        raise F5EnvironmentRefusal("F5 environment diagnostic receipt is malformed")
     return receipt

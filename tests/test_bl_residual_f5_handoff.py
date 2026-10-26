@@ -77,7 +77,7 @@ def _package(name: str, root: str) -> dict[str, Any]:
 
 
 def _environment(
-    *, uuid: str = "GPU-A", node: str = "host-a", affinity: list[int] | None = None
+    *, uuid: str = "A", node: str = "host-a", affinity: list[int] | None = None
 ) -> dict[str, Any]:
     """Return a complete synthetic receipt accepted by the frozen schema."""
     affinity = [0, 1, 2, 3, 4, 5] if affinity is None else affinity
@@ -90,7 +90,7 @@ def _environment(
     return {
         "schema": f5_environment.SCHEMA,
         "schema_sha256": hashlib.sha256(
-            (Path(f5_environment.__file__).with_name("f5_environment_schema_v3.json")).read_bytes()
+            (Path(f5_environment.__file__).with_name("f5_environment_schema_v4.json")).read_bytes()
         ).hexdigest(),
         "platform": "Linux-6.1-x86_64-with-glibc2.35",
         "python": "3.12.3 (main, synthetic)",
@@ -98,7 +98,7 @@ def _environment(
         "cpu_count": 8,
         "torch": "2.9.1+cu126",
         "cuda": "12.6",
-        "gpu": "L4 Synthetic",
+        "gpu": "NVIDIA L4",
         "gpu_uuid": uuid,
         "gpu_capability": [8, 9],
         "gpu_memory": 24576 * f5_environment.MIB_BYTES,
@@ -117,13 +117,13 @@ def _environment(
         "cpu_isa": {"model name": "Synthetic Xeon", "flags": "avx2"},
         "allocated_cpu_affinity": affinity,
         "gpu_driver_query": {
-            "name": "L4 Synthetic",
-            "uuid": uuid,
+            "name": "NVIDIA L4",
+            "uuid": f"GPU-{uuid}",
             "driver_version": "550.54.15",
             "compute_cap": "8.9",
             "memory_total": "24576",
         },
-        "gpu_driver_query_raw": (f"L4 Synthetic, {uuid}, 550.54.15, 8.9, 24576"),
+        "gpu_driver_query_raw": (f"NVIDIA L4, GPU-{uuid}, 550.54.15, 8.9, 24576"),
         "cudnn": "9.8",
         "torch_git_version": "synthetic-git",
         "torch_build": "USE_CUDA=1; USE_ROCM=0",
@@ -181,7 +181,7 @@ def _runtime_capture(monkeypatch: pytest.MonkeyPatch, receipt: dict[str, Any]) -
     monkeypatch.setattr(
         f5_job.torch.cuda,
         "get_device_properties",
-        lambda _: SimpleNamespace(name="NVIDIA L4 Synthetic"),
+        lambda _: SimpleNamespace(name="NVIDIA L4"),
     )
     monkeypatch.setattr(f5_job.os, "sched_getaffinity", lambda _: set(range(6)), raising=False)
     monkeypatch.setattr(f5_job.torch, "set_num_threads", lambda _: None)
@@ -266,12 +266,12 @@ def test_environment_schema_is_exhaustive_and_nested_unknown_fields_refuse() -> 
 
 def test_legitimate_distinct_assignment_provenance_passes_invariant_comparison() -> None:
     first = _environment()
-    second = _environment(uuid="GPU-B", node="host-b", affinity=[6, 7, 8, 9, 10, 11])
+    second = _environment(uuid="B", node="host-b", affinity=[6, 7, 8, 9, 10, 11])
     result = f5_environment.compare_environment(first, second, mode="cross-assignment")
     assert result["mode"] == "cross-assignment"
     assert result["expected_raw_sha256"] != result["actual_raw_sha256"]
     assert result["expected_canonical_sha256"] == result["actual_canonical_sha256"]
-    assert result["assignment_provenance"]["actual"]["gpu_uuid"] == "GPU-B"
+    assert result["assignment_provenance"]["actual"]["gpu_uuid"] == "B"
 
 
 @pytest.mark.parametrize(
@@ -285,7 +285,7 @@ def test_legitimate_distinct_assignment_provenance_passes_invariant_comparison()
 )
 def test_cross_assignment_build_or_numerical_drift_refuses(path: tuple[str, ...]) -> None:
     first = _environment()
-    second = _environment(uuid="GPU-B", node="host-b", affinity=[6, 7, 8, 9, 10, 11])
+    second = _environment(uuid="B", node="host-b", affinity=[6, 7, 8, 9, 10, 11])
     cursor: Any = second
     for key in path[:-1]:
         cursor = cursor[key]

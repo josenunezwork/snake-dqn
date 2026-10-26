@@ -52,7 +52,7 @@ def _package(root: str) -> dict[str, Any]:
     }
 
 
-def _receipt(*, uuid: str = "GPU-A", node: str = "host-a", root: str = "/venv-a") -> dict[str, Any]:
+def _receipt(*, uuid: str = "A", node: str = "host-a", root: str = "/venv-a") -> dict[str, Any]:
     packages = {name: _package(root) for name in sorted(environment.NUMERIC_PACKAGES)}
     packages["torch"]["version"] = "2.9.1+cu126"
     packages["numpy"]["version"] = "2.1"
@@ -94,12 +94,12 @@ def _receipt(*, uuid: str = "GPU-A", node: str = "host-a", root: str = "/venv-a"
         "allocated_cpu_affinity": [0, 1, 2, 3, 4, 5, 6, 7],
         "gpu_driver_query": {
             "name": "NVIDIA L4",
-            "uuid": uuid,
+            "uuid": f"GPU-{uuid}",
             "driver_version": "550",
             "compute_cap": "8.9",
             "memory_total": "23034",
         },
-        "gpu_driver_query_raw": f"NVIDIA L4, {uuid}, 550, 8.9, 23034",
+        "gpu_driver_query_raw": f"NVIDIA L4, GPU-{uuid}, 550, 8.9, 23034",
         "cudnn": "90100",
         "torch_git_version": "fixture-git",
         "torch_build": "fixed build",
@@ -131,16 +131,16 @@ def _receipt(*, uuid: str = "GPU-A", node: str = "host-a", root: str = "/venv-a"
 
 def test_cross_assignment_allows_only_documented_provenance() -> None:
     first = _receipt()
-    second = _receipt(uuid="GPU-B", node="host-b", root="/venv-b")
+    second = _receipt(uuid="B", node="host-b", root="/venv-b")
     report = environment.compare_environment(first, second, mode="cross-assignment")
     assert report["expected_raw_sha256"] != report["actual_raw_sha256"]
     assert report["expected_canonical_sha256"] == report["actual_canonical_sha256"]
-    assert report["assignment_provenance"]["actual"]["gpu_uuid"] == "GPU-B"
+    assert report["assignment_provenance"]["actual"]["gpu_uuid"] == "B"
 
 
 def test_same_assignment_requires_complete_raw_identity() -> None:
     first = _receipt()
-    changed = _receipt(uuid="GPU-B")
+    changed = _receipt(uuid="B")
     with pytest.raises(environment.F5EnvironmentRefusal, match="same-assignment"):
         environment.compare_environment(first, changed, mode="same-assignment")
 
@@ -158,7 +158,7 @@ def test_cross_assignment_refuses_genuine_build_or_numerical_drift(
     path: tuple[str, ...], value: Any
 ) -> None:
     first = _receipt()
-    changed = _receipt(uuid="GPU-B", node="host-b", root="/venv-b")
+    changed = _receipt(uuid="B", node="host-b", root="/venv-b")
     target: Any = changed
     for key in path[:-1]:
         target = target[key]
@@ -180,6 +180,43 @@ def test_unknown_nested_field_and_malformed_boolean_refuse() -> None:
     receipt["gpu_driver_query_raw"] = "NVIDIA L4, forged, 550, 8.9, 23034"
     with pytest.raises(environment.F5EnvironmentRefusal, match="raw GPU query"):
         environment.validate_environment(receipt)
+
+
+@pytest.mark.parametrize("smi_uuid", ["gpu-A", "A", "GPU-GPU-A", "GPU-"])
+def test_v4_requires_the_exact_single_smi_uuid_prefix(smi_uuid: str) -> None:
+    receipt = _receipt()
+    receipt["gpu_driver_query"]["uuid"] = smi_uuid
+    receipt["gpu_driver_query_raw"] = f"NVIDIA L4, {smi_uuid}, 550, 8.9, 23034"
+    with pytest.raises(environment.F5EnvironmentRefusal, match="SMI UUID"):
+        environment.validate_environment(receipt)
+
+
+def test_v4_retains_raw_torch_and_smi_identity_and_refuses_name_aliases() -> None:
+    receipt = _receipt(uuid="aBc-123")
+    assert receipt["gpu_uuid"] == "aBc-123"
+    assert receipt["gpu_driver_query"]["uuid"] == "GPU-aBc-123"
+    assert environment.normalize_smi_uuid("GPU-aBc-123") == "aBc-123"
+    environment.validate_environment(receipt)
+
+    receipt["gpu_driver_query"]["name"] = "NVIDIA  L4"
+    receipt["gpu_driver_query_raw"] = "NVIDIA  L4, GPU-aBc-123, 550, 8.9, 23034"
+    with pytest.raises(environment.F5EnvironmentRefusal, match="GPU name"):
+        environment.validate_environment(receipt)
+
+
+def test_v4_collects_all_real_runtime_source_agreement_failures() -> None:
+    receipt = _receipt()
+    receipt["gpu_uuid"] = "B"
+    receipt["gpu"] = "Tesla L4"
+    receipt["gpu_capability"] = [8, 6]
+    receipt["gpu_memory"] = 23036 * environment.MIB_BYTES
+    failures = environment.collect_environment_failures(receipt)
+    assert set(failures) >= {
+        "F5 environment GPU UUID provenance fields disagree",
+        "F5 environment GPU name provenance fields disagree",
+        "F5 environment parsed GPU capability differs",
+        "F5 environment parsed GPU memory differs",
+    }
 
 
 def test_raw_metadata_is_auditable_and_cannot_claim_false_canonical_mapping() -> None:

@@ -33,6 +33,8 @@ ASSIGNMENT_AMENDMENT_SHA = "a1dc92ffb8fa341fb51738a56fe0097d75e15b0aff7194940c12
 ASSIGNMENT_DRAFT_SHA = "7eda19efb72f89a7e2269d40863288f9295358f2566f3a02d3ca4d3c11933359"
 REJECTION_SHA = "b672b7b62bd7744e3226aabbd516a8a3a562b6d57f97c128b16c7f130d1e5aed"
 CAPTURE_REJECTION_SHA = "f1b0244d36f9cef541a3293a4749fa0cd7f6ef49b7de31fc056ca9c0ad8bd6e8"
+OWNER_RULING_CAPTURE_PATH = ART / "OWNER_RULING_COLAB_BUDGET_20261025.txt"
+OWNER_RULING_CAPTURE_SHA = "48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d"
 ALLOCATION_SHA = "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7"
 SEMANTIC_COMMIT = "124dd22cd560a74a210a61f0ba473461328e82f8"
 FIT_SHA = "85c7e77d34e14a3b5036984cc1af92df4e3724f4c9fe453d813a56c1963822a7"
@@ -290,7 +292,7 @@ def source_inventory(repo: Path = ROOT) -> dict[str, str]:
                     if source.is_file() and source not in seen:
                         pending.append(source)
     seen.add(repo / "research/bl_residual/f5_colab.sh")
-    seen.add(repo / "research/bl_residual/f5_environment_schema_v3.json")
+    seen.add(repo / "research/bl_residual/f5_environment_schema_v4.json")
     seen.add(repo / "research/bl_residual/f5_calibration_schema_v1.json")
     seen.add(repo / "research/apex_safety_20260926/deployment.yaml")
     seen.update((repo / "configs").glob("*.yaml"))
@@ -446,12 +448,102 @@ def capture_remainder(prior_receipt: Path | None) -> dict[str, Any]:
     }
 
 
+def capture_history(prior_receipts: list[Path]) -> dict[str, Any]:
+    """Bind all stopped failed captures and retain their raw accounting evidence.
+
+    This is disclosure only.  It does not treat historical unit debits or the
+    superseded 600-second capture allowance as an operational admission rule.
+    """
+    expected_jobs = (
+        "bl-f5-w-capture-repair-22e86986-01",
+        "bl-f5-w-capture-repair-22e86986-02",
+    )
+    if len(prior_receipts) != len(expected_jobs):
+        raise ValueError("capture history requires both published stopped attempts")
+    rows = []
+    for expected_job, path in zip(expected_jobs, prior_receipts, strict=True):
+        absolute = path.absolute()
+        receipt = json.loads(safe_metadata(absolute))
+        elapsed = receipt.get("elapsed_seconds")
+        accounting = receipt.get("accounting")
+        if (
+            receipt.get("job_id") != expected_job
+            or receipt.get("stop_verified") is not True
+            or receipt.get("failure_class") != "CHILD_NONZERO_EXIT"
+            or receipt.get("exports") != []
+            or isinstance(elapsed, bool)
+            or not isinstance(elapsed, (int, float))
+            or not math.isfinite(elapsed)
+            or elapsed <= 0
+            or not isinstance(accounting, dict)
+            or not isinstance(accounting.get("last_crosscheck"), dict)
+        ):
+            raise ValueError("prior capture history must contain stopped non-science failures")
+        crosscheck = accounting["last_crosscheck"]
+        debit = crosscheck.get("attributable_account_debit_units")
+        observed = crosscheck.get("observed_account_debit_units")
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            for value in (debit, observed)
+        ):
+            raise ValueError("prior capture accounting debit is malformed")
+        rows.append(
+            {
+                "receipt": binding(absolute),
+                "job_id": expected_job,
+                "actual_elapsed_seconds": elapsed,
+                "accounting_debit_units": debit,
+                "observed_account_debit_units": observed,
+                "raw_accounting": accounting,
+            }
+        )
+    return {
+        "schema": "bl-f5-capture-history/v1",
+        "attempts": rows,
+        "cumulative_actual_elapsed_seconds": sum(row["actual_elapsed_seconds"] for row in rows),
+        "cumulative_accounting_debit_units": sum(row["accounting_debit_units"] for row in rows),
+        "cumulative_observed_account_debit_units": sum(
+            row["observed_account_debit_units"] for row in rows
+        ),
+        "budget_status": "DISCLOSED_NOT_AN_ADMISSION_BLOCKER",
+        "rate_status": "STALE_HISTORICAL_OBSERVATIONS_REQUIRE_CURRENT_ACCOUNT_REFRESH",
+    }
+
+
+def capture_owner_override(ruling: Path | None) -> dict[str, Any] | None:
+    """Bind the only owner ruling that permits the generous capture timeout."""
+    if ruling is None:
+        return None
+    absolute = ruling.absolute()
+    if (
+        absolute != OWNER_RULING_CAPTURE_PATH
+        or not absolute.is_file()
+        or any(part.is_symlink() for part in (absolute, *absolute.parents))
+    ):
+        raise ValueError("capture owner ruling must be the exact known owner file")
+    payload = absolute.read_bytes()
+    sha = hashlib.sha256(payload).hexdigest()
+    if sha != OWNER_RULING_CAPTURE_SHA:
+        raise ValueError("capture owner ruling digest mismatch")
+    bound = {"path": str(absolute), "sha256": sha, "size": len(payload)}
+    return {
+        "binding": bound,
+        "capture_runaway_timeout_minutes": 30,
+        "technical_budget": "generous runaway timeout only; no unit-budget admission blocker",
+        "rate_status": "historical pricing is stale; refresh the current account before operation",
+    }
+
+
 def build(
     output: Path,
     repo: Path = ROOT,
     artifacts: Path = ART,
     selected_package: Path | None = None,
     prior_capture_receipt: Path | None = None,
+    prior_capture_receipts: list[Path] | None = None,
+    capture_owner_ruling: Path | None = None,
 ) -> dict[str, Any]:
     """Seal a reviewable preparation packet; scientific manifests stay denied."""
     from research.bl_residual.f5_timing import qualification_plan
@@ -463,12 +555,22 @@ def build(
         "research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/"
         "output-01/receipt.json"
     )
-    if published_failure.exists() and prior_capture_receipt is None:
+    if (
+        published_failure.exists()
+        and prior_capture_receipt is None
+        and prior_capture_receipts is None
+    ):
         raise ValueError(
             "published attempt-01 requires explicit --prior-capture-receipt accounting"
         )
     authority = governance(repo, artifacts)
+    if prior_capture_receipt is not None and prior_capture_receipts is not None:
+        raise ValueError("use either singular or plural prior capture receipts")
     capture_accounting = capture_remainder(prior_capture_receipt)
+    capture_history_value = (
+        None if prior_capture_receipts is None else capture_history(prior_capture_receipts)
+    )
+    capture_override = capture_owner_override(capture_owner_ruling)
     source = source_review(repo)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
     evaluation = json.loads(safe_metadata(repo / COLLISION / "allocation-evaluation.json"))
@@ -591,7 +693,8 @@ def build(
             45397643 - private_known
         )
     blocked = validate_draft_manifest(manifest)
-    blocked.extend(capture_accounting["hold_reasons"])
+    if capture_override is None:
+        blocked.extend(capture_accounting["hold_reasons"])
     timing = qualification_plan(allocation)
     output.mkdir(parents=True)
     files = {}
@@ -665,16 +768,22 @@ def build(
     canary["substeps"] = ["CPU_PLAN_MATERIALIZATION", "DISJOINT_CUDA_TRANSPORT_QUALIFICATION"]
     del canary["resume"]
     files["prepare.draft.json"] = export_json(output / "prepare.draft.json", canary)
+    capture_timeout_minutes = (
+        30 if capture_override is not None else capture_accounting["remaining_capture_seconds"] / 60
+    )
+    capture_attempt = (
+        "03"
+        if capture_history_value is not None
+        else ("01" if prior_capture_receipt is None else "02")
+    )
     capture = {
         **canary,
         "job_id": (
             f"bl-f5-w-capture-{commit[:8]}-01"
-            if prior_capture_receipt is None
-            else "bl-f5-w-capture-repair-22e86986-02"
+            if capture_attempt == "01"
+            else f"bl-f5-w-capture-repair-22e86986-{capture_attempt}"
         ),
-        "output_dir": str(
-            output / ("capture-output-01" if prior_capture_receipt is None else "capture-output-02")
-        ),
+        "output_dir": str(output / f"capture-output-{capture_attempt}"),
         "inputs": [
             *[item for item in manifest["inputs"] if item["dest"] == "b8.pth"],
             fixture_input,
@@ -687,20 +796,24 @@ def build(
         "env": {**canary["env"], "F5_MODE": "capture-qualification"},
         "required_exports": [
             "environment.json",
+            "environment-raw.json",
+            "environment-diagnostic.json",
             "qualification/qualification.json",
             *manifest["required_exports"],
         ],
         "substeps": ["RAW_ENVIRONMENT_CAPTURE", "DISJOINT_CUDA_TRANSPORT_QUALIFICATION"],
-        "timeout_minutes": capture_accounting["remaining_capture_seconds"] / 60,
+        "timeout_minutes": capture_timeout_minutes,
         "capture_accounting": capture_accounting,
+        "prior_capture_history": capture_history_value,
+        "capture_owner_override": capture_override,
         "requirements": {**canary["requirements"], "est_minutes": 5},
         "resume_exemption": {
             "kind": "short-canary",
             "reason": (
-                "Environment capture and disjoint transport only; all failed-attempt "
-                "elapsed debits the original 600-second capture allowance"
+                "Environment capture and disjoint transport only; prior stopped attempts are "
+                "disclosed as accounting evidence and do not block owner-approved runaway timeout"
             ),
-            "timeout_minutes": capture_accounting["remaining_capture_seconds"] / 60,
+            "timeout_minutes": capture_timeout_minutes,
         },
     }
     files["environment-capture.draft.json"] = export_json(
@@ -872,8 +985,13 @@ def build(
             "aggregate_minutes": 240,
             "capture_accounting": capture_accounting,
             "rule": (
-                "all attempts/substeps share original cumulative allowance; "
-                "never reset by a fresh job"
+                "all elapsed and accounting evidence is retained; the exact owner ruling "
+                "sets the capture runaway timeout and unit history never blocks admission"
+                if capture_override is not None
+                else (
+                    "all attempts/substeps share original cumulative allowance; "
+                    "never reset by a fresh job"
+                )
             ),
             "final_operational_gate": (
                 "bind all actual elapsed receipts and remaining timeout before execution"
@@ -915,6 +1033,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", required=True)
     parser.add_argument("--selected-package", type=Path)
     parser.add_argument("--prior-capture-receipt", type=Path)
+    parser.add_argument("--prior-capture-receipts", type=Path, nargs="+")
+    parser.add_argument("--capture-owner-ruling", type=Path)
     args = parser.parse_args()
     print(
         json.dumps(
@@ -922,6 +1042,8 @@ def main() -> None:
                 args.output,
                 selected_package=args.selected_package,
                 prior_capture_receipt=args.prior_capture_receipt,
+                prior_capture_receipts=args.prior_capture_receipts,
+                capture_owner_ruling=args.capture_owner_ruling,
             ),
             sort_keys=True,
         )

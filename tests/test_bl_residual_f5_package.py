@@ -49,6 +49,59 @@ def test_capture_attempt_two_retains_elapsed_and_debit(tmp_path: Path) -> None:
             package.capture_remainder(path)
 
 
+def _stopped_capture(job_id: str, elapsed: float, debit: float, observed: float) -> dict:
+    return {
+        "job_id": job_id,
+        "stop_verified": True,
+        "failure_class": "CHILD_NONZERO_EXIT",
+        "exports": [],
+        "elapsed_seconds": elapsed,
+        "accounting": {
+            "last_crosscheck": {
+                "attributable_account_debit_units": debit,
+                "observed_account_debit_units": observed,
+            },
+            "raw_usage_preserved": True,
+        },
+    }
+
+
+def test_capture_history_binds_both_stopped_attempts_and_discloses_all_debits(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "attempt-01.json"
+    second = tmp_path / "attempt-02.json"
+    first.write_text(
+        json.dumps(_stopped_capture("bl-f5-w-capture-repair-22e86986-01", 421.0, 0.12, 0.12))
+    )
+    second.write_text(
+        json.dumps(_stopped_capture("bl-f5-w-capture-repair-22e86986-02", 558.0, 0.10, 0.10))
+    )
+    value = package.capture_history([first, second])
+    assert value["cumulative_actual_elapsed_seconds"] == 979.0
+    assert value["cumulative_accounting_debit_units"] == pytest.approx(0.22)
+    assert value["cumulative_observed_account_debit_units"] == pytest.approx(0.22)
+    assert value["attempts"][1]["raw_accounting"]["raw_usage_preserved"] is True
+    assert value["budget_status"] == "DISCLOSED_NOT_AN_ADMISSION_BLOCKER"
+    with pytest.raises(ValueError, match="both published"):
+        package.capture_history([first])
+    second.write_text(json.dumps(_stopped_capture("foreign", 558.0, 0.10, 0.10)))
+    with pytest.raises(ValueError, match="stopped non-science"):
+        package.capture_history([first, second])
+
+
+def test_exact_owner_ruling_binds_a_30_minute_capture_runaway_timeout(tmp_path: Path) -> None:
+    ruling = tmp_path / "OWNER_RULING_COLAB_BUDGET_20261025.txt"
+    ruling.write_text("different")
+    with pytest.raises(ValueError, match="exact known"):
+        package.capture_owner_override(ruling)
+    value = package.capture_owner_override(package.OWNER_RULING_CAPTURE_PATH)
+    assert value is not None
+    assert value["binding"]["sha256"] == package.OWNER_RULING_CAPTURE_SHA
+    assert value["capture_runaway_timeout_minutes"] == 30
+    assert "current account" in value["rate_status"]
+
+
 def test_rebuild_cannot_omit_published_failed_attempt(tmp_path: Path) -> None:
     receipt = tmp_path / (
         "research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/"

@@ -28,8 +28,11 @@ from research.bl_residual import f5_environment as environment
 
 L4_MIB = 23034
 L4_BYTES = L4_MIB * 1024 * 1024
-L4_UUID = "GPU-01234567-89ab-cdef-0123-456789abcdef"
-RAW_SMI = f"NVIDIA L4, {L4_UUID}, 550.54.15, 8.9, {L4_MIB}\n"
+# PyTorch exposes the bare device-properties UUID.  ``nvidia-smi`` exposes
+# the same UUID with exactly one, case-sensitive ``GPU-`` prefix.
+L4_TORCH_UUID = "01234567-89ab-cdef-0123-456789abcdef"
+L4_SMI_UUID = f"GPU-{L4_TORCH_UUID}"
+RAW_SMI = f"NVIDIA L4, {L4_SMI_UUID}, 550.54.15, 8.9, {L4_MIB}\n"
 REAL_LOCKED_RECORD_FIXTURE_SHA256 = (
     "5220c1fb006527e098509c04b99db2e560ec5b0022b6a5517450287e39a318ed"
 )
@@ -194,7 +197,7 @@ def _install_isolated_l4(
             return "model name\t: isolated L4 host\nflags\t: avx2 fma\n"
         return original_read_text(path, *args, **kwargs)
 
-    props = SimpleNamespace(name="NVIDIA L4", uuid=L4_UUID, total_memory=torch_bytes)
+    props = SimpleNamespace(name="NVIDIA L4", uuid=L4_TORCH_UUID, total_memory=torch_bytes)
     uname = SimpleNamespace(
         _asdict=lambda: {
             "system": "Linux",
@@ -209,7 +212,7 @@ def _install_isolated_l4(
 
     def check_output(command: list[str], **kwargs: object) -> str:
         seen_commands.append(command)
-        assert kwargs == {"text": True, "timeout": 15}
+        assert kwargs == {"text": True, "timeout": 15, "stderr": subprocess.PIPE}
         return RAW_SMI
 
     monkeypatch.setattr(environment.importlib.metadata, "distributions", distributions)
@@ -267,7 +270,17 @@ def test_capture_uses_exact_isolated_lock_closure_without_optional_scipy(
     assert "scipy" not in receipt["installed_packages"]
     assert "scipy" not in receipt["locked_wheels"]
     assert receipt["gpu_memory"] == L4_BYTES
+    assert receipt["gpu_uuid"] == L4_TORCH_UUID
+    assert receipt["gpu"] == "NVIDIA L4"
+    assert receipt["gpu_capability"] == [8, 9]
     assert receipt["gpu_driver_query"]["memory_total"] == str(L4_MIB)
+    assert receipt["gpu_driver_query"] == {
+        "name": "NVIDIA L4",
+        "uuid": L4_SMI_UUID,
+        "driver_version": "550.54.15",
+        "compute_cap": "8.9",
+        "memory_total": str(L4_MIB),
+    }
     assert receipt["memory_units"] == {
         "gpu_memory": "bytes",
         "gpu_driver_query.memory_total": "MiB",
@@ -626,14 +639,60 @@ def test_capture_normalizes_torch_bytes_against_smi_mib(
             environment.capture_environment()
 
 
-def _assigned_copy(receipt: dict[str, object], *, uuid: str) -> dict[str, object]:
+def test_capture_diagnostic_retains_raw_receipt_and_all_independent_l4_mismatches(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One refused L4 allocation reports every cross-source defect together."""
+    receipt = _capture_isolated_l4(monkeypatch, tmp_path)
+    malformed = copy.deepcopy(receipt)
+    malformed["gpu_uuid"] = "different-torch-uuid"
+    malformed["gpu"] = "Tesla L4"
+    malformed["gpu_capability"] = [8, 6]
+    malformed["gpu_memory"] = L4_BYTES + 2 * 1024 * 1024
+
+    monkeypatch.setattr(environment, "_capture_environment_raw", lambda: malformed)
+    diagnostic = environment.capture_environment_diagnostic()
+
+    assert diagnostic["admissible"] is False
+    assert diagnostic["acquisition_failures"] == []
+    assert diagnostic["raw_receipt"] == malformed
+    assert set(diagnostic["validation_failures"]) >= {
+        "F5 environment GPU UUID provenance fields disagree",
+        "F5 environment GPU name provenance fields disagree",
+        "F5 environment parsed GPU capability differs",
+        "F5 environment parsed GPU memory differs",
+    }
+    with pytest.raises(environment.F5EnvironmentRefusal, match="; .*GPU name.*capability.*memory"):
+        environment.capture_environment()
+
+
+def test_capture_diagnostic_reports_acquisition_refusal_without_forging_a_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        environment,
+        "_capture_environment_raw",
+        lambda: (_ for _ in ()).throw(environment.F5EnvironmentRefusal("no CUDA device")),
+    )
+    assert environment.capture_environment_diagnostic() == {
+        "raw_receipt": {},
+        "acquisition_failures": ["no CUDA device"],
+        "validation_failures": [],
+        "admissible": False,
+    }
+
+
+def _assigned_copy(receipt: dict[str, object], *, torch_uuid: str) -> dict[str, object]:
     """Make the documented assignment-local GPU identity change consistently."""
     changed = copy.deepcopy(receipt)
-    changed["gpu_uuid"] = uuid
+    smi_uuid = f"GPU-{torch_uuid}"
+    changed["gpu_uuid"] = torch_uuid
     driver = changed["gpu_driver_query"]
     assert isinstance(driver, dict)
-    driver["uuid"] = uuid
-    changed["gpu_driver_query_raw"] = str(changed["gpu_driver_query_raw"]).replace(L4_UUID, uuid)
+    driver["uuid"] = smi_uuid
+    changed["gpu_driver_query_raw"] = str(changed["gpu_driver_query_raw"]).replace(
+        L4_SMI_UUID, smi_uuid
+    )
     return changed
 
 
@@ -643,7 +702,7 @@ def test_cross_assignment_keeps_each_raw_memory_measurement_invariant(
 ) -> None:
     baseline = _capture_isolated_l4(monkeypatch, tmp_path, torch_bytes=L4_BYTES + 512 * 1024)
     assert isinstance(baseline["gpu_memory"], int)
-    fractional = _assigned_copy(baseline, uuid="GPU-fedcba98-7654-3210-fedc-ba9876543210")
+    fractional = _assigned_copy(baseline, torch_uuid="fedcba98-7654-3210-fedc-ba9876543210")
     accepted = environment.compare_environment(baseline, fractional, mode="cross-assignment")
     assert accepted["actual_raw_sha256"] != accepted["expected_raw_sha256"]
     if memory_field == "gpu_memory":

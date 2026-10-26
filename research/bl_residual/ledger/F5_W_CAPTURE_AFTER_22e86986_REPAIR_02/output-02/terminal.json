@@ -1,0 +1,16 @@
+{
+  "canary_observations": [],
+  "export_scanner": {
+    "inventory": [],
+    "name": "runtime._exports"
+  },
+  "exports": [],
+  "finished_at": 1792998574.5650477,
+  "generation": "a3c6b18c423c4570ba8edea18da14f47",
+  "job_id": "bl-f5-w-capture-repair-22e86986-02",
+  "last_traceback_line": "research.bl_residual.f5_fit.F5FitRefusal: F5 environment GPU provenance fields disagree",
+  "reason": null,
+  "returncode": 1,
+  "started_at": 1792998042.3027017,
+  "status": "failed"
+}
