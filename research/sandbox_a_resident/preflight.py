@@ -20,7 +20,11 @@ def main() -> int:
     packet = args.packet.resolve()
     from tools.sandbox.preflight import preflight
 
-    payload = preflight(packet / "sandbox.json", run_tests=True)
+    # The dispatch adapter runs the shared sandbox suite before this entrypoint.
+    # Repeat every static binding/schema/registry check here, then run Job A's
+    # complete suite below. Re-running the unrelated Job B/shared test suite here
+    # doubled admission work and exceeded dispatch's 60-second validation bound.
+    payload = preflight(packet / "sandbox.json", run_tests=False)
     control = json.loads((packet / "control.json").read_text())
     broker = json.loads((packet / "dispatch-manifest.json").read_text())
     if json.loads(broker["env"]["SANDBOX_A_CONTROL_JSON"]) != control:
