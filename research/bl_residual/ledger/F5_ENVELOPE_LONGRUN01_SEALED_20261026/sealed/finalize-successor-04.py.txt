@@ -1,0 +1,137 @@
+"""Create-only offline successor; no provider or dispatch execution."""
+import copy
+import datetime
+import hashlib
+import json
+import os
+import shlex
+import subprocess
+import sys
+import tarfile
+from pathlib import Path
+
+BASE = Path('/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026')
+DRAFT = BASE / 'longrun-01'
+ROOT = BASE / 'longrun-01-sealed'
+CANARY = BASE / 'canary-04'
+BROKER = Path('/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex')
+REPO = Path('/Users/josenunez/Projects/ml/snake-dqn-f5rawenv')
+OPS = Path('/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops')
+ASTRA = BASE.parent / 'astra-20261024'
+PIN = '911426dbace94ca2925d737d00d5d8ca8456cb6a'
+ACCEPTED = '4181fc3b815fe6fcea3d9f552caa73acea9d8a63'
+CLI = '5833e54e9c5396121cbbf99a5cd4e52006e564fd'
+sys.path.insert(0, str(BROKER))
+from research.bl_ppo.exports import export_bytes, export_json, verify_export
+from research.bl_residual import f5_package, f5_job, f5_timing_resume, f5_environment_reference
+from research.colab_cli import admission, supervisor
+from tools.ops import dispatch, qualification
+
+def load(p):
+    return json.loads(p.read_bytes())
+
+def bind(p):
+    assert p.is_absolute() and p.is_file() and not p.is_symlink(), p
+    with p.open('rb') as f:
+        sha = hashlib.file_digest(f, 'sha256').hexdigest()
+    return dict(path=str(p), sha256=sha, size=p.stat().st_size)
+
+def git(*args):
+    return subprocess.check_output(['git', *args], cwd=BROKER, text=True, timeout=30).strip()
+
+def verify_seal(root):
+    p = root / 'SHA256SUMS.json'
+    verify_export(p)
+    seal = load(p)
+    expected = set(seal['files']) | set(seal['excluded_self_components'])
+    actual = {p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file()}
+    assert actual == expected, (actual - expected, expected - actual)
+    for name, row in seal['files'].items():
+        observed = bind(root / name)
+        assert (observed['sha256'], observed['size']) == (row['sha256'], row['size']), name
+    return seal
+
+def refs(obj, found):
+    if isinstance(obj, dict):
+        if isinstance(obj.get('path'), str) and 'sha256' in obj:
+            p = Path(obj['path'])
+            if p.is_absolute():
+                if obj['sha256']=='0'*64:
+                    assert p==CANARY/'output-04/receipt.json',p
+                    return  # Preserved draft placeholder is expressly non-authority.
+                row = bind(p)
+                assert row['sha256'] == obj['sha256'], p
+                if 'size' in obj:
+                    assert row['size'] == obj['size'], p
+                if 'size_bytes' in obj:
+                    assert row['size'] == obj['size_bytes'], p
+                found[str(p)] = row
+        for v in obj.values():
+            refs(v, found)
+    elif isinstance(obj, list):
+        for v in obj:
+            refs(v, found)
+
+def differences(a, b, pointer=''):
+    if isinstance(a, dict) and isinstance(b, dict):
+        result=[]
+        for k in sorted(set(a) | set(b)):
+            p = pointer + '/' + k.replace('~', '~0').replace('/', '~1')
+            if k not in a or k not in b:
+                result.append(dict(pointer=p, before=a.get(k), after=b.get(k)))
+            else:
+                result.extend(differences(a[k], b[k], p))
+        return result
+    if isinstance(a, list) and isinstance(b, list) and len(a)==len(b):
+        return [d for i,(x,y) in enumerate(zip(a,b)) for d in differences(x,y,pointer+'/'+str(i))]
+    return [] if a==b else [dict(pointer=pointer, before=a, after=b)]
+
+def seal():
+    manifest=load(ROOT/'manifest.json')
+    for row in load(ROOT/'DEPENDENCIES.json')['files'].values():
+        assert bind(Path(row['path']))==row,row['path']
+    for row in load(ROOT/'DEPENDENCIES-SUPPLEMENT01.json')['files'].values():
+        assert bind(Path(row['path']))==row,row['path']
+    assert f5_package.source_inventory(BROKER)==load(ROOT/'SOURCE_FREEZE.json')['source_inventory']
+    assert qualification.check(BROKER,OPS/'colab-cli-qualified.json')==CLI
+    assert git('rev-parse','HEAD')==PIN and not git('status','--porcelain','--untracked-files=all')
+    assert all(not Path(p).exists() for p in load(ROOT/'IDENTITY_RECHECK.json')['fresh_paths'])
+    assert differences(load(DRAFT/'timing-operation.seal-draft.json'),manifest)==load(ROOT/'DRAFT_TO_SEALED_MANIFEST_DIFF.json')['diff']
+    supervisor.validate(manifest,BROKER)
+    assert load(ROOT/'INDEPENDENT_REVIEW.json')['status']=='NO_BLOCKING_FINDINGS'
+    assert load(ROOT/'IDENTITY_RECHECK.json')['status']=='PASS'
+    assert load(ROOT/'dry-run.json')['return_code']==0
+    verify_seal(DRAFT)
+    export_json(ROOT/'PACKAGE.json',dict(schema='bl-f5-longrun01-sealed-successor/v1',status='SEALED_PENDING_ASTRA_EXACT_PACKAGE_ADMISSION',runtime_source_commit=PIN,cli_tree=CLI,manifest=bind(ROOT/'manifest.json'),accepted_draft=bind(DRAFT/'PACKAGE.json'),canary_receipt=bind(CANARY/'output-04/receipt.json'),canary_verification=bind(CANARY/'POST_CANARY04_VERIFICATION.json'),source_freeze=bind(ROOT/'SOURCE_FREEZE.json'),series_freeze=bind(ROOT/'SERIES_FREEZE.json'),manifest_diff=bind(ROOT/'DRAFT_TO_SEALED_MANIFEST_DIFF.json'),identity_recheck=bind(ROOT/'IDENTITY_RECHECK.json'),bindings=bind(ROOT/'bindings.json'),dependencies=bind(ROOT/'DEPENDENCIES.json'),dependency_supplement=bind(ROOT/'DEPENDENCIES-SUPPLEMENT01.json'),dispatch_instructions=bind(ROOT/'DISPATCH.txt'),dry_run=bind(ROOT/'dry-run.json'),independent_review=bind(ROOT/'INDEPENDENT_REVIEW.json'),private_upload_bytes=42078922,private_upload_cap_bytes=45397643,scientific_or_release_authority=False,exact_package_admission='PENDING',allocations=0,dispatches=0,provider_calls=0))
+    for marker in ROOT.rglob('*.complete'):
+        verify_export(Path(str(marker).removesuffix('.complete')))
+    files={p.relative_to(ROOT).as_posix():{k:v for k,v in bind(p).items() if k!='path'} for p in sorted(ROOT.rglob('*')) if p.is_file()}
+    export_json(ROOT/'SHA256SUMS.json',dict(schema='bl-f5-exhaustive-static-package-seal/v1',scope=str(ROOT),files=files,excluded_self_components=['SHA256SUMS.json','SHA256SUMS.json.sha256','SHA256SUMS.json.complete'],external_dependencies=bind(ROOT/'DEPENDENCIES.json'),external_dependency_supplement=bind(ROOT/'DEPENDENCIES-SUPPLEMENT01.json'),fresh_output_state_outside_static_membership=load(ROOT/'IDENTITY_RECHECK.json')['fresh_paths']))
+    verify_seal(ROOT)
+    print(json.dumps(dict(seal=bind(ROOT/'SHA256SUMS.json'),package=bind(ROOT/'PACKAGE.json'),manifest=bind(ROOT/'manifest.json'),files=len(files)),indent=2))
+
+def publish():
+    seal=verify_seal(ROOT)
+    target=REPO/'research/bl_residual/ledger/F5_ENVELOPE_LONGRUN01_SEALED_20261026'
+    assert not target.exists()
+    target.mkdir()
+    records={}
+    for p in sorted(ROOT.rglob('*')):
+        if not p.is_file():continue
+        row=bind(p); name=p.relative_to(ROOT).as_posix()
+        record=dict(external_path=str(p),sha256=row['sha256'],size=row['size'])
+        if row['size']>2_000_000:
+            record['publication']='EXTERNAL_HASH_BOUND_ARTIFACT'
+        else:
+            relative='sealed/'+name+('.txt' if name.endswith('.py') else '')
+            destination=target/relative
+            destination.parent.mkdir(parents=True,exist_ok=True)
+            with destination.open('xb') as f:f.write(p.read_bytes())
+            assert bind(destination)['sha256']==row['sha256']
+            record['published_relative_path']=relative
+        records[name]=record
+    export_json(target/'ARTIFACT_PACKET.json',dict(schema='bl-f5-longrun01-successor-publication/v1',package_root=str(ROOT),exhaustive_seal=bind(ROOT/'SHA256SUMS.json'),runtime_source_commit=PIN,files=records,script_snapshots='Byte-identical .py.txt; no runtime changes',allocations=0,dispatches=0,provider_calls=0))
+    print(json.dumps(dict(publication=bind(target/'ARTIFACT_PACKET.json'),files=len(records)),indent=2))
+
+if __name__=='__main__':
+    {'seal':seal,'publish':publish}[sys.argv[1]]()

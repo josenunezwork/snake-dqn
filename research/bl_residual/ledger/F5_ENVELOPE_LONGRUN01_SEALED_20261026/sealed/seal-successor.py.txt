@@ -1,0 +1,244 @@
+"""Create-only offline successor; no provider or dispatch execution."""
+import copy
+import datetime
+import hashlib
+import json
+import os
+import shlex
+import subprocess
+import sys
+import tarfile
+from pathlib import Path
+
+BASE = Path('/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026')
+DRAFT = BASE / 'longrun-01'
+ROOT = BASE / 'longrun-01-sealed'
+CANARY = BASE / 'canary-04'
+BROKER = Path('/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex')
+REPO = Path('/Users/josenunez/Projects/ml/snake-dqn-f5rawenv')
+OPS = Path('/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops')
+ASTRA = BASE.parent / 'astra-20261024'
+PIN = '911426dbace94ca2925d737d00d5d8ca8456cb6a'
+ACCEPTED = '4181fc3b815fe6fcea3d9f552caa73acea9d8a63'
+CLI = '5833e54e9c5396121cbbf99a5cd4e52006e564fd'
+sys.path.insert(0, str(BROKER))
+from research.bl_ppo.exports import export_bytes, export_json, verify_export
+from research.bl_residual import f5_package, f5_job, f5_timing_resume, f5_environment_reference
+from research.colab_cli import admission, supervisor
+from tools.ops import dispatch, qualification
+
+def load(p):
+    return json.loads(p.read_bytes())
+
+def bind(p):
+    assert p.is_absolute() and p.is_file() and not p.is_symlink(), p
+    with p.open('rb') as f:
+        sha = hashlib.file_digest(f, 'sha256').hexdigest()
+    return dict(path=str(p), sha256=sha, size=p.stat().st_size)
+
+def git(*args):
+    return subprocess.check_output(['git', *args], cwd=BROKER, text=True, timeout=30).strip()
+
+def verify_seal(root):
+    p = root / 'SHA256SUMS.json'
+    verify_export(p)
+    seal = load(p)
+    expected = set(seal['files']) | set(seal['excluded_self_components'])
+    actual = {p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file()}
+    assert actual == expected, (actual - expected, expected - actual)
+    for name, row in seal['files'].items():
+        observed = bind(root / name)
+        assert (observed['sha256'], observed['size']) == (row['sha256'], row['size']), name
+    return seal
+
+def refs(obj, found):
+    if isinstance(obj, dict):
+        if isinstance(obj.get('path'), str) and 'sha256' in obj:
+            p = Path(obj['path'])
+            if p.is_absolute():
+                row = bind(p)
+                assert row['sha256'] == obj['sha256'], p
+                if 'size' in obj:
+                    assert row['size'] == obj['size'], p
+                if 'size_bytes' in obj:
+                    assert row['size'] == obj['size_bytes'], p
+                found[str(p)] = row
+        for v in obj.values():
+            refs(v, found)
+    elif isinstance(obj, list):
+        for v in obj:
+            refs(v, found)
+
+def differences(a, b, pointer=''):
+    if isinstance(a, dict) and isinstance(b, dict):
+        result=[]
+        for k in sorted(set(a) | set(b)):
+            p = pointer + '/' + k.replace('~', '~0').replace('/', '~1')
+            if k not in a or k not in b:
+                result.append(dict(pointer=p, before=a.get(k), after=b.get(k)))
+            else:
+                result.extend(differences(a[k], b[k], p))
+        return result
+    if isinstance(a, list) and isinstance(b, list) and len(a)==len(b):
+        return [d for i,(x,y) in enumerate(zip(a,b)) for d in differences(x,y,pointer+'/'+str(i))]
+    return [] if a==b else [dict(pointer=pointer, before=a, after=b)]
+
+def prepare():
+    assert os.getpriority(os.PRIO_PROCESS, 0) == 15
+    assert not ROOT.exists(), 'successor exists; never overwrite'
+    assert git('rev-parse', 'HEAD') == PIN
+    assert not git('branch', '--show-current')
+    assert not git('status', '--porcelain', '--untracked-files=all')
+    verify_seal(DRAFT)
+    assert bind(DRAFT/'timing-operation.seal-draft.json')['sha256']=='1cb4a5a351babdf7c31c8ab9ed606e6ead3b81c6e41795ac4f73b06f835758ff'
+    report = load(CANARY/'POST_CANARY04_VERIFICATION.json')
+    assert report['status']=='PASS_EXERCISED_CANARY_COMPATIBILITY_RESUME_PATH_ONLY'
+    assert report['publication_gate']['authoring_head']==report['publication_gate']['origin_main']==report['publication_commit']
+    assert report['runtime_source_commit']==PIN
+    receipt = load(CANARY/'output-04/receipt.json')
+    assert receipt['status']=='PASS' and receipt['stop_verified'] is True
+    assert receipt['cleanup_error'] is None and receipt['failure_class'] is None
+    ROOT.mkdir()
+    export_bytes(ROOT/'seal-successor.py', Path(__file__).read_bytes())
+    # Frozen records copied verbatim; their original absolute paths remain authority.
+    names=['SOURCE_FREEZE.json','SOURCE_BINDING.json','environment-policy.json','reference-seal.json','SERIES_FREEZE.json']
+    names += [str(p.relative_to(DRAFT)) for p in sorted((DRAFT/'package').rglob('*')) if p.is_file()]
+    names += ['timing-operation.seal-draft.json','PACKAGE.json','SHA256SUMS.json','bindings.json','REVIEW_EVIDENCE.json']
+    for name in names:
+        target = ROOT / ('accepted-draft/'+name if name in {'timing-operation.seal-draft.json','PACKAGE.json','SHA256SUMS.json','bindings.json','REVIEW_EVIDENCE.json'} else name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open('xb') as f:
+            f.write((DRAFT/name).read_bytes())
+        for suffix in ('.sha256','.complete'):
+            original = Path(str(DRAFT/name)+suffix)
+            if original.is_file():
+                with Path(str(target)+suffix).open('xb') as f:
+                    f.write(original.read_bytes())
+    old = load(DRAFT/'timing-operation.seal-draft.json')
+    manifest = copy.deepcopy(old)
+    manifest['canary']['receipt']['sha256'] = bind(CANARY/'output-04/receipt.json')['sha256']
+    manifest['output_dir'] = str(ROOT/'output-01')
+    manifest['supervisor_state_dir'] = str(ROOT/'state-01')
+    manifest['status'] = 'SEALED_PENDING_ASTRA_EXACT_PACKAGE_ADMISSION'
+    export_json(ROOT/'manifest.json', manifest)
+    diff = differences(old, manifest)
+    assert {r['pointer'] for r in diff} == {'/canary/receipt/sha256','/output_dir','/supervisor_state_dir','/status'}
+    protocol = load(DRAFT/'SERIES_FREEZE.json')
+    fresh = [Path(manifest['output_dir']),Path(manifest['supervisor_state_dir'])]
+    for attempt in protocol['attempts']:
+        assert attempt['job_id'] == (manifest['job_id'] if attempt['attempt_index']==0 else attempt['job_id'])
+        fresh += [Path(attempt['output_dir']),Path(attempt['state_dir']),OPS/'dispatch'/attempt['job_id'],OPS/'logs'/(attempt['job_id']+'.log'),OPS/'manifests'/(attempt['job_id']+'.json')]
+    assert all(not p.exists() for p in fresh), fresh
+    registry = OPS/'colab-cli-qualified.json'
+    registry_ref=bind(registry)
+    reg=load(registry)
+    assert reg['qualified_commit']=='57a89e7df09687432228978ca162207051f9efdb'
+    assert qualification.check(BROKER,registry)==qualification.check(BROKER,registry,PIN)==CLI
+    assert bind(Path(reg['acceptance_result']))['sha256']==reg['acceptance_result_sha256']
+    admission.require_final_only(load(Path(reg['acceptance_result'])),BROKER)
+    with dispatch.allocation_lock(OPS/'alloc.lock',60):
+        account=Path.home()/'.config/colab-cli/snake'
+        active=[bind(p) for p in sorted(account.glob('active-*.json'))]
+        pending=[bind(p) for p in sorted(account.glob('pending-*.json'))]
+        assert not active and not pending, 'offline local ownership requires review'
+        preflight=dict(schema='bl-f5-offline-account-preflight/v1',status='PASS_OFFLINE_LOCAL_RECORDS_ONLY',observed_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),active_records=active,pending_records=pending,normal_lock=str(OPS/'alloc.lock'),provider_calls=0,allocation_calls=0,assignment_cap=3,other_assignments={},live_account_state='UNMEASURED_OFFLINE_NO_PROVIDER_CALLS',saved_verified_release=bind(CANARY/'POST_CANARY04_VERIFICATION.json'),required_before_allocation='Normal wrapper locked live provider refresh, ownership/rate/map checks and supervisor live admission. Saved snapshot is not live evidence.')
+    export_json(ROOT/'accounts/preflight.json',preflight)
+    freeze=load(DRAFT/'SOURCE_FREEZE.json')
+    source=f5_package.source_inventory(BROKER)
+    assert len(source)==199 and source==freeze['source_inventory']
+    inv=hashlib.sha256(json.dumps(source,sort_keys=True,allow_nan=False).encode()).hexdigest()
+    assert inv==freeze['source_inventory_sha256']=='742acb9fa034f14e81a9d390da3ed5ef86c9450a83419884cf4df71924dfbe92'
+    for name,sha in source.items():
+        for pin in (PIN,ACCEPTED):
+            assert hashlib.sha256(subprocess.check_output(['git','show',pin+':'+name],cwd=BROKER)).hexdigest()==sha,name
+    archive=ROOT/'package/source.tar'
+    assert bind(archive)['sha256']==bind(DRAFT/'package/source.tar')['sha256']==bind(CANARY/'source.tar')['sha256']
+    with tarfile.open(archive) as tar:
+        members=[m for m in tar.getmembers() if m.isfile()]
+        assert {m.name for m in members}==set(manifest['source_paths'])
+        for member in members:
+            assert tar.extractfile(member).read()==subprocess.check_output(['git','show',PIN+':'+member.name],cwd=BROKER),member.name
+    control=load(DRAFT/'package/inputs/control.json')
+    assert control['source_hashes']==source
+    f5_job._source_admission(control)
+    f5_environment_reference.validate_capture05_reference(control['environment_reference'])
+    ledger=DRAFT/'package/inputs/verified-ledger.json'
+    assert not f5_timing_resume.load_ledger(ledger,freeze['stable_timing_binding'])
+    observed = {r['dest']:(r['sha256'],r['size_bytes']) for r in load(CANARY/'manifest.json')['inputs']}
+    assert observed=={r['dest']:(r['sha256'],r['size_bytes']) for r in manifest['inputs']}
+    private_bytes=sum(r['size_bytes'] for r in manifest['inputs'] if 'path' in r)
+    assert private_bytes==42078922 and private_bytes<=45397643
+    dependencies={}
+    for obj in [manifest,freeze,load(DRAFT/'bindings.json'),load(CANARY/'bindings.json'),protocol,reg]:
+        refs(obj,dependencies)
+    for p in [registry,Path(reg['acceptance_result']),CANARY/'output-04/receipt.json',CANARY/'output-04/manifest.json',CANARY/'output-04/terminal.json',CANARY/'POST_CANARY04_VERIFICATION.json',ASTRA/'ACCEPT_F5_FAMILY_CANARY_04.md',ASTRA/'F5_LONGRUN_AND_ENVELOPE_RULING_20261026.md']:
+        dependencies[str(p)]=bind(p)
+    for p in sorted((CANARY/'output-04/exports').rglob('*')):
+        if p.is_file(): dependencies[str(p)]=bind(p)
+    export_json(ROOT/'DEPENDENCIES.json',dict(schema='bl-f5-successor-exhaustive-external-dependencies/v1',files=dependencies,opaque_payloads_hashed_only=True))
+    bindings=dict(accepted_draft_manifest=bind(DRAFT/'timing-operation.seal-draft.json'),accepted_draft_package=bind(DRAFT/'PACKAGE.json'),accepted_draft_seal=bind(DRAFT/'SHA256SUMS.json'),unchanged_series_freeze=bind(DRAFT/'SERIES_FREEZE.json'),canary04_receipt=bind(CANARY/'output-04/receipt.json'),canary04_verification=bind(CANARY/'POST_CANARY04_VERIFICATION.json'),canary04_acceptance=bind(ASTRA/'ACCEPT_F5_FAMILY_CANARY_04.md'),controlling_ruling=bind(ASTRA/'F5_LONGRUN_AND_ENVELOPE_RULING_20261026.md'),qualified_registry=registry_ref,fresh_offline_account_preflight=bind(ROOT/'accounts/preflight.json'),dependency_inventory=bind(ROOT/'DEPENDENCIES.json'))
+    export_json(ROOT/'bindings.json',bindings)
+    export_json(ROOT/'DRAFT_TO_SEALED_MANIFEST_DIFF.json',dict(schema='bl-f5-exhaustive-manifest-diff/v1',draft=bindings['accepted_draft_manifest'],sealed=bind(ROOT/'manifest.json'),diff=diff,diff_count=len(diff),only_substantive_authority_change='/canary/receipt/sha256',unchanged_top_level_keys=sorted(k for k in old if old[k]==manifest[k]),unchanged_inputs=True,unchanged_source_archive=True,unchanged_source_inventory=True,unchanged_policy_reference_ledger=True,unchanged_series_freeze=True,job_id_preserved_fresh=manifest['job_id'],source_commit=PIN,scientific_design_changes=[]))
+    export_json(ROOT/'SUCCESSOR_PATH_MAPPING.json',dict(schema='bl-f5-derived-execution-path-map/v1',immutable_series_freeze=bindings['unchanged_series_freeze'],attempt_index=0,job_id=manifest['job_id'],manifest={'draft':str(DRAFT/'timing-operation.seal-draft.json'),'sealed':str(ROOT/'manifest.json')},output_dir={'draft':old['output_dir'],'sealed':manifest['output_dir']},supervisor_state_dir={'draft':old['supervisor_state_dir'],'sealed':manifest['supervisor_state_dir']},remaining_attempts_unchanged=True,scientific_design_changes=[],explanation='Derived fresh execution locations only. Original SERIES_FREEZE remains byte-identical; source, units, namespace/allocation, attempt index, envelopes and retry/science rules unchanged.'))
+    dispatch.require_resume_policy(manifest)
+    dispatch.require_scientific_or_f5_plan_admission(manifest)
+    supervisor.validate(manifest,BROKER)
+    argv=[str(BROKER/'tools/ops/dispatch.sh'),manifest['job_id'],str(ROOT/'manifest.json'),'--broker',str(BROKER),'--cwd',str(BROKER),'--state-dir',manifest['supervisor_state_dir'],'--dispatch-txt',str(ROOT/'DISPATCH.txt')]
+    command=shlex.join(argv)
+    text=('SEALED LONGRUN-01 SUCCESSOR. Separate Astra exact-package admission is required before operator execution. No dispatch performed.\n'
+          'Rehash exhaustive seal and external dependencies. Account preflight is OFFLINE local records only; normal wrapper locked live provider refresh, ownership/map/rate checks, account cap3 and supervisor admission remain mandatory.\n'
+          'Timing only: one frozen base120/effective240-minute empty-ledger attempt. Full timing and coupled calibration are unmeasured engineering allowances; no fit, numerical look, serving or release authority. No automatic retries.\n'
+          'Exact dry-run:\n'+command+' --dry-run\nExact operator dispatch after separate Astra exact-package admission:\n'+command+'\n'
+          'Preserve all original exports/accounting. See unchanged SERIES_FREEZE and SUCCESSOR_PATH_MAPPING for derived attempt0 locations; no source migration, recomputation, unit replacement or cap escalation. Mac reducer and separate fit-admission review remain required.\n')
+    export_bytes(ROOT/'DISPATCH.txt',text.encode())
+    result=subprocess.run([*argv,'--dry-run'],cwd=BROKER,capture_output=True,text=True,timeout=90)
+    dry=dict(argv=[*argv,'--dry-run'],return_code=result.returncode,stdout=result.stdout,stderr=result.stderr,allocations=0,dispatches=0,provider_calls=0)
+    assert result.returncode==0 and 'PASS_DRY_RUN' in result.stdout and 'allocations=0' in result.stdout,dry
+    export_json(ROOT/'dry-run.json',dry)
+    assert bind(registry)==registry_ref
+    assert all(not p.exists() for p in fresh)
+    export_json(ROOT/'IDENTITY_RECHECK.json',dict(schema='bl-f5-longrun-successor-offline-identity-recheck/v1',status='PASS',runtime_source_commit=PIN,accepted_envelope_commit=ACCEPTED,source_inventory_sha256=inv,source_files=199,archive_regular_files=len(members),archive=bind(archive),source_control_admission='PASS',native_v6_policy_reference='PASS_UNCHANGED',genuine_empty_verified_ledger='PASS',stable_timing_binding=freeze['stable_timing_binding'],all_input_hashes_sizes_verified=True,shared_exact_canary_inventory=True,private_upload_bytes=private_bytes,private_upload_cap_bytes=45397643,qualified_commit=reg['qualified_commit'],qualified_cli_tree=CLI,registry=registry_ref,fresh_paths=[str(p) for p in fresh],fresh_offline_account_preflight=bind(ROOT/'accounts/preflight.json'),broker_clean_detached=True,effective_niceness=os.getpriority(os.PRIO_PROCESS,0),allocations=0,dispatches=0,provider_calls=0))
+    export_bytes(ROOT/'README.md',('F5 longrun-01 create-only successor, pending separate Astra exact-package admission.\nOnly receipt SHA adds substantive authority; DRAFT_TO_SEALED_MANIFEST_DIFF.json exhaustively enumerates four leaf differences. Source/input/policy/ledger/science/envelope fields are unchanged. Original manifests and inputs remain immutable authority at their accepted paths; byte-identical package copies are preserved here. SOURCE_FREEZE and SERIES_FREEZE copies retain their original bindings. SUCCESSOR_PATH_MAPPING maps only derived attempt0 execution locations. DEPENDENCIES inventories all selected external authority and canary export bytes.\nOffline local account preflight is fresh but provider membership/rate are NOT_CHECKED until normal locked wrapper refresh. No dispatch/Colab/provider calls occurred. Full workload/calibration feasibility remains unmeasured; this is timing preparation only.\n').encode())
+    print(json.dumps(dict(status='PREPARED_FOR_INDEPENDENT_REVIEW',manifest=bind(ROOT/'manifest.json'),diff=diff,dry_run=dry['stdout']),indent=2))
+
+def seal():
+    manifest=load(ROOT/'manifest.json')
+    for row in load(ROOT/'DEPENDENCIES.json')['files'].values():
+        assert bind(Path(row['path']))==row,row['path']
+    assert load(ROOT/'INDEPENDENT_REVIEW.json')['status']=='NO_BLOCKING_FINDINGS'
+    assert load(ROOT/'IDENTITY_RECHECK.json')['status']=='PASS'
+    assert load(ROOT/'dry-run.json')['return_code']==0
+    verify_seal(DRAFT)
+    export_json(ROOT/'PACKAGE.json',dict(schema='bl-f5-longrun01-sealed-successor/v1',status='SEALED_PENDING_ASTRA_EXACT_PACKAGE_ADMISSION',runtime_source_commit=PIN,cli_tree=CLI,manifest=bind(ROOT/'manifest.json'),accepted_draft=bind(DRAFT/'PACKAGE.json'),canary_receipt=bind(CANARY/'output-04/receipt.json'),canary_verification=bind(CANARY/'POST_CANARY04_VERIFICATION.json'),source_freeze=bind(ROOT/'SOURCE_FREEZE.json'),series_freeze=bind(ROOT/'SERIES_FREEZE.json'),manifest_diff=bind(ROOT/'DRAFT_TO_SEALED_MANIFEST_DIFF.json'),identity_recheck=bind(ROOT/'IDENTITY_RECHECK.json'),bindings=bind(ROOT/'bindings.json'),dispatch_instructions=bind(ROOT/'DISPATCH.txt'),dry_run=bind(ROOT/'dry-run.json'),independent_review=bind(ROOT/'INDEPENDENT_REVIEW.json'),private_upload_bytes=42078922,private_upload_cap_bytes=45397643,scientific_or_release_authority=False,exact_package_admission='PENDING',allocations=0,dispatches=0,provider_calls=0))
+    for marker in ROOT.rglob('*.complete'):
+        verify_export(Path(str(marker).removesuffix('.complete')))
+    files={p.relative_to(ROOT).as_posix():{k:v for k,v in bind(p).items() if k!='path'} for p in sorted(ROOT.rglob('*')) if p.is_file()}
+    export_json(ROOT/'SHA256SUMS.json',dict(schema='bl-f5-exhaustive-static-package-seal/v1',scope=str(ROOT),files=files,excluded_self_components=['SHA256SUMS.json','SHA256SUMS.json.sha256','SHA256SUMS.json.complete'],external_dependencies=bind(ROOT/'DEPENDENCIES.json'),fresh_output_state_outside_static_membership=load(ROOT/'IDENTITY_RECHECK.json')['fresh_paths']))
+    verify_seal(ROOT)
+    print(json.dumps(dict(seal=bind(ROOT/'SHA256SUMS.json'),package=bind(ROOT/'PACKAGE.json'),manifest=bind(ROOT/'manifest.json'),files=len(files)),indent=2))
+
+def publish():
+    seal=verify_seal(ROOT)
+    target=REPO/'research/bl_residual/ledger/F5_ENVELOPE_LONGRUN01_SEALED_20261026'
+    assert not target.exists()
+    target.mkdir()
+    records={}
+    for p in sorted(ROOT.rglob('*')):
+        if not p.is_file():continue
+        row=bind(p); name=p.relative_to(ROOT).as_posix()
+        record=dict(external_path=str(p),sha256=row['sha256'],size=row['size'])
+        if row['size']>2_000_000:
+            record['publication']='EXTERNAL_HASH_BOUND_ARTIFACT'
+        else:
+            relative='sealed/'+name+('.txt' if name.endswith('.py') else '')
+            destination=target/relative
+            destination.parent.mkdir(parents=True,exist_ok=True)
+            with destination.open('xb') as f:f.write(p.read_bytes())
+            assert bind(destination)['sha256']==row['sha256']
+            record['published_relative_path']=relative
+        records[name]=record
+    export_json(target/'ARTIFACT_PACKET.json',dict(schema='bl-f5-longrun01-successor-publication/v1',package_root=str(ROOT),exhaustive_seal=bind(ROOT/'SHA256SUMS.json'),runtime_source_commit=PIN,files=records,script_snapshots='Byte-identical .py.txt; no runtime changes',allocations=0,dispatches=0,provider_calls=0))
+    print(json.dumps(dict(publication=bind(target/'ARTIFACT_PACKET.json'),files=len(records)),indent=2))
+
+if __name__=='__main__':
+    {'prepare':prepare,'seal':seal,'publish':publish}[sys.argv[1]]()

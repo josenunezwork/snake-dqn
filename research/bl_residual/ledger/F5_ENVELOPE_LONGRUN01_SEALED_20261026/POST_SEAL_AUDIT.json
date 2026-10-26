@@ -1,0 +1,50 @@
+{
+  "allocations": 0,
+  "created_utc": "2026-10-26T20:09:53.901458+00:00",
+  "dependency_rows_verified": 157,
+  "diff_leaf_count": 4,
+  "dispatches": 0,
+  "fresh_paths_absent": 17,
+  "label_or_outcome_payloads_opened": false,
+  "locked_live_account_state": "NOT_CHECKED_OFFLINE_ONLY",
+  "manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed/manifest.json",
+    "sha256": "284319102367cb45b711ceca7fa50fb1eee97595f8b5beab1b869c653995d456",
+    "size": 16281
+  },
+  "manifest_diff": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed/DRAFT_TO_SEALED_MANIFEST_DIFF.json",
+    "sha256": "da3457852ca112b7349f2bd52ae11ccb66ad3577203879b61c6c2ebc445535b7",
+    "size": 2274
+  },
+  "only_substantive_authority_change": "verified canary04 receipt SHA",
+  "original_draft_members": 63,
+  "original_draft_self_files": 3,
+  "original_draft_unchanged": true,
+  "package": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed/PACKAGE.json",
+    "sha256": "48dc028d7a27bb8e8eb3dda59283a2d5f9a8d2893dfd057a4c207edb7d6d0c30",
+    "size": 4078
+  },
+  "payload_sha_completion_triples_verified": 39,
+  "provider_calls": 0,
+  "publication_copies_and_external_refs_rehashed": true,
+  "publication_packet": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-f5rawenv/research/bl_residual/ledger/F5_ENVELOPE_LONGRUN01_SEALED_20261026/ARTIFACT_PACKET.json",
+    "sha256": "22a14ab34a2c40fc0586a856ffc3be7fb4f39d26b8774af2f94159dee7ab57de",
+    "size": 42909
+  },
+  "reviewer": "/root/successor_review, reviewer role",
+  "schema": "bl-f5-independent-final-seal-publication-audit/v1",
+  "seal": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed/SHA256SUMS.json",
+    "sha256": "c86ff29e44b95cc9914fa58be66c6b9c6761e823f83f1abf4e853a056f0f5be2",
+    "size": 17209
+  },
+  "self_files": 3,
+  "separate_astra_exact_package_admission": "PENDING",
+  "static_members": 114,
+  "status": "PASS_NO_BLOCKING_FINDINGS",
+  "total_static_files": 117,
+  "zero_symlinks_extra_or_missing_files": true
+}

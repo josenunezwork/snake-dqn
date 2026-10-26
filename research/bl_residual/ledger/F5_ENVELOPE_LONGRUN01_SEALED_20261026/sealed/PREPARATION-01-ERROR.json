@@ -1,0 +1,7 @@
+{
+  "status": "OFFLINE_PREPARATION_COPY_LOOP_ERROR",
+  "reason": "First script copied package sidecars twice; exclusive creation correctly refused identical existing marker before manifest was created. No payload changed or provider call occurred. First script retained; script02 resumes by checking exact byte identity of existing accepted-draft copies, avoiding duplicate sidecar enumeration.",
+  "allocations": 0,
+  "dispatches": 0,
+  "provider_calls": 0
+}
