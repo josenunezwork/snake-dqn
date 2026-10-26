@@ -139,6 +139,11 @@ def validate_input(record: dict, registry: dict | None = None) -> None:
         value = json.loads(path.read_text())
         if not isinstance(value, dict) or not isinstance(value.get("units"), list):
             raise ValueError("verified ledger object/units required")
+    elif kind == "verified-unit":
+        if not re.fullmatch(
+            r"[0-9]{2}-(linear|gated_mlp|cosine)-kl(1|2|4|8|16)-survival(1|2|4|8)\.tar", path.name
+        ):
+            raise ValueError("verified unit must have canonical unit-NNN.tar name")
     elif kind == "registry":
         if claimed != digest(DEFAULT_REGISTRY):
             raise ValueError("registry identity differs")

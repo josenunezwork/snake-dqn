@@ -84,6 +84,61 @@ def _validate_registry_inputs(payload: dict[str, Any], registry_path: Path) -> N
         # manifest validation has already rejected protected strings, before any
         # record path is opened by the registry loader/validator.
         validate_input(record, registry)
+    # Resume payloads are admitted only by the hash-bound verified ledger. Never
+    # open their checkpoint/report contents during Mac admission.
+    unit_records = [r for r in payload["inputs"] if r["kind"] == "verified-unit"]
+    ledger_records = [r for r in payload["inputs"] if r["kind"] == "verified-ledger"]
+    if payload["study"] == "sandbox-b-heads-v1":
+        from research.sandbox_b_heads.resume import ALLOCATION, NAMESPACE, fingerprint, identity
+
+        if len(ledger_records) != 1:
+            raise PreflightError("Job B requires one verified ledger")
+        ledger = json.loads(Path(ledger_records[0]["path"]).read_text())
+        recipe = ledger.get("recipe", {})
+        if (
+            ledger.get("schema") != "sandbox-b-verified-ledger/v3"
+            or ledger.get("namespace") != NAMESPACE
+            or ledger.get("allocation") != ALLOCATION
+            or ledger.get("fingerprint") != fingerprint(recipe)
+        ):
+            raise PreflightError("foreign resume ledger identity")
+        rows = [r for r in payload["inputs"] if r["kind"] == "closed-f0"]
+        b8 = [r for r in payload["inputs"] if r["kind"] == "frozen-checkpoint"]
+        if (
+            len(rows) != 1
+            or len(b8) != 1
+            or recipe.get("data_sha256") != rows[0]["sha256"]
+            or recipe.get("b8_sha256") != b8[0]["sha256"]
+            or recipe.get("salt") != payload["salt"]
+            or recipe.get("smoke_rows") != 0
+            or recipe.get("updates", 0) * 60 != payload["endpoint"]["value"]
+        ):
+            raise PreflightError("resume recipe differs from admitted endpoint or inputs")
+        packet_path = Path(payload["outputs"]["broker_manifest"]["path"])
+        packet = json.loads(packet_path.read_text())
+        uploads = {r["dest"]: r for r in packet["inputs"]}
+        admitted_units = {(r["sha256"], str(Path(r["path"]).resolve())) for r in unit_records}
+        referenced = set()
+        indices = set()
+        for unit in ledger["units"]:
+            expected = identity(
+                unit.get("allocation_index"), NAMESPACE, ALLOCATION, ledger["fingerprint"]
+            )
+            if any(unit.get(key) != value for key, value in expected.items()):
+                raise PreflightError("foreign resume unit identity")
+            index = unit["allocation_index"]
+            if index in indices:
+                raise PreflightError("duplicate resume unit")
+            indices.add(index)
+            artifact = unit["bundle"]
+            upload = uploads.get(artifact["path"], {})
+            source = Path(upload.get("path", ""))
+            pair = (artifact["sha256"], str(source.resolve()))
+            if pair not in admitted_units or source.stat().st_size != artifact["size"]:
+                raise PreflightError("resume bundle is not an admitted upload")
+            referenced.add(pair)
+        if referenced != admitted_units:
+            raise PreflightError("unreferenced resume bundle input")
 
 
 def _verify_broker_binding(payload: dict[str, Any]) -> None:
@@ -104,6 +159,7 @@ def _verify_broker_binding(payload: dict[str, Any]) -> None:
     _forbidden(
         {key: packet.get(key) for key in ("script", "source_paths", "env", "output_dir")}, "broker"
     )
+    _assert_safe_path(Path(packet.get("output_dir", "")).resolve(), "broker output")
     script = packet.get("script", "")
     if not isinstance(script, str) or not script.startswith(
         ("research/sandbox_b_heads/", "research/sandbox_a_resident/")
@@ -212,7 +268,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         preflight(args.manifest, registry_path=args.registry, run_tests=not args.skip_tests)
-    except (ManifestError, PreflightError, ValueError) as exc:
+    except (ManifestError, PreflightError, ValueError, OSError, KeyError, TypeError) as exc:
         print(f"PREFLIGHT REFUSED: {exc}", file=sys.stderr)
         return 2
     if args.skip_tests:

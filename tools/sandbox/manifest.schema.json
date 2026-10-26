@@ -2,18 +2,246 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Standing A100 Development Sandbox manifest",
   "type": "object",
-  "required": ["schema", "study", "inputs", "salt", "endpoint", "timeout", "excluded_studies", "owner_rule", "outputs", "crossing"],
+  "required": [
+    "schema",
+    "study",
+    "inputs",
+    "salt",
+    "endpoint",
+    "timeout",
+    "excluded_studies",
+    "owner_rule",
+    "outputs",
+    "crossing"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema": {"const": "standing-a100-development-sandbox/v1"},
-    "study": {"type": "string", "minLength": 1},
-    "inputs": {"type": "array", "minItems": 1},
-    "salt": {"type": "string", "pattern": "^a100-dev/"},
-    "endpoint": {"type": "object"},
-    "timeout": {"type": "object"},
-    "excluded_studies": {"type": "array", "minItems": 1},
-    "owner_rule": {"type": "string", "minLength": 1},
-    "outputs": {"type": "object"},
-    "crossing": {"type": "object"}
+    "schema": {
+      "const": "standing-a100-development-sandbox/v1"
+    },
+    "study": {
+      "type": "string",
+      "minLength": 1
+    },
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "closed-f0",
+                  "frozen-checkpoint",
+                  "verified-ledger",
+                  "verified-unit",
+                  "registry"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "dose": {
+                "enum": [
+                  "D256",
+                  "D1024"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "study",
+              "indices",
+              "seeds"
+            ],
+            "properties": {
+              "kind": {
+                "const": "worlds"
+              },
+              "study": {
+                "type": "string",
+                "minLength": 1
+              },
+              "indices": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "seeds": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "salt": {
+      "type": "string",
+      "pattern": "^a100-dev/"
+    },
+    "endpoint": {
+      "type": "object",
+      "required": [
+        "kind",
+        "value"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "updates",
+            "steps",
+            "hours"
+          ]
+        },
+        "value": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "broker_manifest": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "timeout": {
+      "type": "object",
+      "required": [
+        "measured_estimate_seconds",
+        "seconds"
+      ],
+      "properties": {
+        "measured_estimate_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "excluded_studies": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      },
+      "allOf": [
+        {
+          "contains": {
+            "const": "F5"
+          }
+        },
+        {
+          "contains": {
+            "const": "F4-fold-0"
+          }
+        },
+        {
+          "contains": {
+            "const": "R30"
+          }
+        },
+        {
+          "contains": {
+            "const": "strict"
+          }
+        },
+        {
+          "contains": {
+            "const": "probe"
+          }
+        },
+        {
+          "contains": {
+            "const": "serving"
+          }
+        }
+      ]
+    },
+    "owner_rule": {
+      "type": "string",
+      "pattern": "^docs/research/governance_a100_sandbox_20261026/ADOPTED.md"
+    },
+    "outputs": {
+      "type": "object",
+      "required": [
+        "label",
+        "paths",
+        "broker_manifest"
+      ],
+      "properties": {
+        "label": {
+          "const": "simulator-D"
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "broker_manifest": {
+          "type": "object",
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "crossing": {
+      "type": "object",
+      "required": [
+        "max_frozen_checkpoint_shas"
+      ],
+      "properties": {
+        "max_frozen_checkpoint_shas": {
+          "const": 1
+        }
+      },
+      "additionalProperties": false
+    }
   }
 }

@@ -94,7 +94,13 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
         if not isinstance(record, dict) or not isinstance(record.get("kind"), str):
             raise ManifestError(f"inputs[{index}] must be an input record with kind")
         kind = record["kind"]
-        if kind in {"closed-f0", "frozen-checkpoint", "verified-ledger", "registry"}:
+        if kind in {
+            "closed-f0",
+            "frozen-checkpoint",
+            "verified-ledger",
+            "verified-unit",
+            "registry",
+        }:
             if not isinstance(record.get("path"), str) or not record["path"]:
                 raise ManifestError(f"inputs[{index}].path is required for {kind}")
             _sha256(record.get("sha256"), f"inputs[{index}].sha256")

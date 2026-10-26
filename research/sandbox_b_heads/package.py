@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
+import math
 import subprocess
 from pathlib import Path
 
@@ -12,6 +12,7 @@ import numpy as np
 
 from research.bl_residual.data import validate_rows as validate_projection
 from research.sandbox_b_heads.job import SALT, parent_split, sha256
+from research.sandbox_b_heads.resume import recipe, verify_ledger
 
 
 def _git_commit() -> str:
@@ -26,6 +27,7 @@ def _write_ten_line_sandbox_manifest(
     ledger: Path,
     broker: Path,
     estimated_minutes: float,
+    prior_bundles: list[dict] | None = None,
 ) -> None:
     """Emit the human-reviewable ten-physical-line sandbox manifest."""
     payload = {
@@ -53,7 +55,10 @@ def _write_ten_line_sandbox_manifest(
             "seconds": estimated_minutes * 120,
         },
         "excluded_studies": ["F5", "F4-fold-0", "R30", "strict", "probe", "serving"],
-        "owner_rule": "docs/research/governance_a100_sandbox_20261026/ADOPTED.md#2-governance-adopt-this-rule-text",
+        "owner_rule": (
+            "docs/research/governance_a100_sandbox_20261026/ADOPTED.md"
+            "#2-governance-adopt-this-rule-text"
+        ),
         "outputs": {
             "label": "simulator-D",
             "paths": ["checkpoints", "results.json", "timing.json"],
@@ -61,6 +66,7 @@ def _write_ten_line_sandbox_manifest(
         },
         "crossing": {"max_frozen_checkpoint_shas": 1},
     }
+    payload["inputs"].extend(prior_bundles or [])
     groups = [
         ("schema", "study"),
         ("inputs",),
@@ -86,15 +92,19 @@ def build(
     registry: Path,
     b8: Path,
     ledger: Path,
-    output: Path,
+    manifest_output: Path,
+    output_dir: Path,
     estimated_minutes: float,
     sandbox_manifest: Path | None = None,
 ) -> Path:
     """Validate a filtered input against the canonical registry and write a packet."""
     # Registry admission is intentionally before loading any projected outcome arrays.
-    from tools.sandbox.registry import load_registry, validate_rows
+    from tools.sandbox.registry import load_registry, validate_npz, validate_rows
 
     admitted = load_registry(registry)
+    # This verifies the registered file hash and exact row/life/parent admission
+    # before this package opens any numerical or outcome-bearing arrays.
+    validate_npz(data, registry=admitted, dose="D1024")
     with np.load(data, allow_pickle=False) as archive:
         identity = {key: archive[key] for key in ("row_id", "life_id", "parent_world")}
         table = {key: archive[key] for key in archive.files}
@@ -112,9 +122,35 @@ def build(
     validation = parent_split(table["parent_world"])
     if not validation.any() or validation.all():
         raise ValueError("filtered D1024 input does not support the committed parent split")
-    if estimated_minutes <= 0 or not ledger.is_file():
+    if not math.isfinite(estimated_minutes) or estimated_minutes <= 0 or not ledger.is_file():
         raise ValueError("measured estimate and an initial verified ledger are required")
-    output.parent.mkdir(parents=True, exist_ok=True)
+    if not output_dir.is_absolute() or output_dir.exists():
+        raise ValueError("output must be a fresh absolute output directory path")
+    manifest_output.parent.mkdir(parents=True, exist_ok=True)
+    verified = verify_ledger(ledger, recipe(data, b8))
+    runtime_ledger = manifest_output.with_name(manifest_output.stem + "-runtime-ledger.json")
+    prior_inputs, sandbox_prior = [], []
+    for unit in verified["units"]:
+        original = Path(unit["bundle"]["path"])
+        if not original.is_absolute():
+            original = ledger.parent / original
+        destination = f"resume-{unit['allocation_index']:02d}-{unit['id']}.tar"
+        prior_inputs.append(
+            {
+                "path": str(original.resolve()),
+                "dest": destination,
+                "sha256": unit["bundle"]["sha256"],
+            }
+        )
+        sandbox_prior.append(
+            {
+                "kind": "verified-unit",
+                "path": str(original.resolve()),
+                "sha256": unit["bundle"]["sha256"],
+            }
+        )
+        unit["bundle"]["path"] = destination
+    runtime_ledger.write_text(json.dumps(verified, sort_keys=True, indent=2) + "\n")
     manifest = {
         "job_id": "sandbox-b-heads-v1",
         "commit": _git_commit(),
@@ -123,9 +159,21 @@ def build(
             "research/sandbox_b_heads/__init__.py",
             "research/sandbox_b_heads/model.py",
             "research/sandbox_b_heads/job.py",
+            "research/sandbox_b_heads/resume.py",
             "research/sandbox_b_heads/run_job.sh",
+            "research/sandbox_b_heads/requirements.txt",
             "research/a100_a2/model.py",
             "research/bl_residual/data.py",
+            "src/__init__.py",
+            "src/model/__init__.py",
+            "src/model/base_network.py",
+            "src/model/apex_network.py",
+            "src/model/checkpoint_manager.py",
+            "src/model/checkpoint_io.py",
+            "src/model/ego2s_network.py",
+            "src/model/obs_spec.py",
+            "tools/sandbox/__init__.py",
+            "tools/sandbox/registry.py",
         ],
         "requirements": {
             "gpu": "A100",
@@ -134,41 +182,75 @@ def build(
             "est_minutes": estimated_minutes,
         },
         "timeout_minutes": estimated_minutes * 2,
-        "output_dir": "REPLACE_WITH_FRESH_ABSOLUTE_OUTPUT_DIR",
+        "output_dir": str(output_dir),
         "inputs": [
             {
                 "path": str(data.resolve()),
-                "dest": "inputs/d1024-admitted.npz",
+                "dest": "d1024-admitted.npz",
                 "sha256": sha256(data),
             },
-            {"path": str(b8.resolve()), "dest": "inputs/b8.pth", "sha256": sha256(b8)},
+            {"path": str(b8.resolve()), "dest": "b8.pth", "sha256": sha256(b8)},
             {
                 "path": str(registry.resolve()),
-                "dest": "inputs/SANDBOX_INPUT_REGISTRY.json",
+                "dest": "SANDBOX_INPUT_REGISTRY.json",
                 "sha256": sha256(registry),
             },
             {
-                "path": str(ledger.resolve()),
-                "dest": "inputs/verified-ledger.json",
-                "sha256": sha256(ledger),
+                "path": str(runtime_ledger.resolve()),
+                "dest": "verified-ledger.json",
+                "sha256": sha256(runtime_ledger),
             },
         ],
-        "required_exports": ["results.json", "results.json.sha256", "verified-ledger.json"],
+        "required_exports": [
+            "checkpoints.tar",
+            "results.json",
+            "results.csv",
+            "verified-ledger.json",
+            "timing.json",
+        ],
         "resume": {
             "unit_kind": "head-loss-config",
             "ledger_path": "inputs/verified-ledger.json",
             "skip_verified": True,
             "max_outcome_blind_retries": 2,
         },
-        "env": {"SANDBOX_B_SALT": SALT, "SNAKE_DQN_DEVICE": "cuda"},
+        "env": {
+            "SANDBOX_B_SALT": SALT,
+            "SNAKE_DQN_DEVICE": "cuda",
+            "COLAB_CLI_REQUIREMENTS": "research/sandbox_b_heads/requirements.txt",
+        },
+        "requirements_file": "research/sandbox_b_heads/requirements.txt",
+        # The qualified supervisor requires unit_cap.  This is the doubled wall-time
+        # runaway guard at a prospective A100 pricing ceiling, not an economic allocation cap.
+        "budget": {
+            "rate_units_per_hour": 8.0,
+            "unit_cap": estimated_minutes * 2 * 8.0 / 60,
+            "reserve_units": 0,
+            "other_assignments": {},
+        },
+        "technical_envelope": {
+            "base_timeout_minutes": estimated_minutes,
+            "effective_timeout_minutes": estimated_minutes * 2,
+            "includes_setup_and_export": True,
+        },
     }
-    output.write_text(json.dumps(manifest, indent=2) + "\n")
-    output.with_suffix(output.suffix + ".sha256").write_text(f"{sha256(output)}  {output.name}\n")
+    manifest["inputs"].extend(prior_inputs)
+    manifest_output.write_text(json.dumps(manifest, indent=2) + "\n")
+    manifest_output.with_suffix(manifest_output.suffix + ".sha256").write_text(
+        f"{sha256(manifest_output)}  {manifest_output.name}\n"
+    )
     if sandbox_manifest is not None:
         _write_ten_line_sandbox_manifest(
-            sandbox_manifest, data, registry, b8, ledger, output, estimated_minutes
+            sandbox_manifest,
+            data,
+            registry,
+            b8,
+            runtime_ledger,
+            manifest_output,
+            estimated_minutes,
+            sandbox_prior,
         )
-    return output
+    return manifest_output
 
 
 def main() -> None:
@@ -180,6 +262,7 @@ def main() -> None:
     parser.add_argument("--b8", required=True, type=Path)
     parser.add_argument("--ledger", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--sandbox-manifest", type=Path)
     parser.add_argument("--estimated-minutes", required=True, type=float)
     args = parser.parse_args()
@@ -190,6 +273,7 @@ def main() -> None:
             args.b8,
             args.ledger,
             args.output,
+            args.output_dir,
             args.estimated_minutes,
             args.sandbox_manifest,
         )
