@@ -23,11 +23,24 @@ def allowed_path(path: Path) -> Path:
     return resolved
 
 
-def ledger(control: dict, directories: list[Path]) -> dict:
-    """Read completion/hash metadata only, not checkpoint or timing contents."""
+def ledger(control: dict, receipts: list[Path]) -> dict:
+    """Verify prior broker metadata, then hash payloads without opening outcomes."""
     found = {}
-    for directory in directories:
-        directory = allowed_path(directory)
+    for receipt_path in receipts:
+        receipt_path = allowed_path(receipt_path)
+        receipt = json.loads(receipt_path.read_text())
+        manifest_path = receipt_path.parent / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        if (
+            receipt.get("stop_verified") is not True
+            or digest(manifest_path) != receipt.get("manifest_sha256")
+            or json.loads(manifest.get("env", {}).get("SANDBOX_A_CONTROL_JSON", "null")) != control
+            or receipt.get("commit") != control.get("source_commit")
+            or manifest.get("commit") != control.get("source_commit")
+        ):
+            raise ValueError("ledger source/allocation/release metadata differs")
+        exports = {r["path"]: r for r in receipt.get("exports", [])}
+        directory = receipt_path.parent / "exports" / "assay"
         for worlds in control["worlds"]:
             for phase in PHASES:
                 path = directory / f"e{worlds}-{phase}.tar"
@@ -36,9 +49,14 @@ def ledger(control: dict, directories: list[Path]) -> dict:
                 identity = unit_id(worlds, phase)
                 if identity in found:
                     raise ValueError("duplicate completed unit")
-                found[identity] = verified_descriptor(path, identity)
+                checkpoint = verified_descriptor(path, identity)
                 timing = verified_descriptor(path.with_suffix(".json"), identity)
-                found[identity]["timing"] = timing
+                for descriptor in (checkpoint, timing):
+                    relative = "assay/" + Path(descriptor["path"]).name
+                    entry = exports.get(relative)
+                    if entry is None or any(entry[k] != descriptor[k] for k in ("size", "sha256")):
+                        raise ValueError("unit absent from verified broker export inventory")
+                found[identity] = {**checkpoint, "timing": timing}
     return {
         "schema": "sandbox-a-ledger/v1",
         "namespace": "a100-dev/sandbox-a",
@@ -106,7 +124,10 @@ def aggregate(control: dict, receipts: list[Path]) -> dict:
         raise ValueError("INCOMPLETE: missing complete fixed-cycle units")
     integrated_rows = sum(r["hero_rows"] for r in found.values() if r["phase"] == "integrated")
     return {
-        "status": "PASS",
+        "status": (
+            "PASS" if len(seen_sessions) == 1 else "TIMING_UNION_COMPLETE_COMPARISON_INCOMPLETE"
+        ),
+        "same_allocation_comparison": len(seen_sessions) == 1,
         "label": "simulator-D",
         "results": list(found.values()),
         "allocation_seconds_including_bootstrap_transfer_release": elapsed,

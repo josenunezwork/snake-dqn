@@ -1,0 +1,193 @@
+{
+  "kind": "Mac CPU preparation only; E2/E4 full production arena; not A100 performance",
+  "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.run --checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth --control research/sandbox_a_resident/.local/control-fullarena.json --ledger research/sandbox_a_resident/.local/ledger-fullarena.json --output research/sandbox_a_resident/.local/smoke-fullarena-03 --device cpu",
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "torch": "2.9.1",
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "parity": {
+    "status": "PASS",
+    "kind": "same-platform bit equality",
+    "worlds": 2,
+    "horizon": 3,
+    "state_sha256": "4cc12ae075247198f12fc31fe06a1fd6cd5a20d724fd144bfc6039f6961899a3",
+    "next_rows_sha256": "d8d43cc791132c4197ab48630e47696df029be74a4b9e90b1cf900d494c22473",
+    "cross_platform_claim": false
+  },
+  "seconds": 4.449601750005968,
+  "results": [
+    {
+      "id": "a100-dev/sandbox-a/e2/cached",
+      "hero_rows": 18,
+      "cycles": [
+        {
+          "cycle": 0,
+          "collection_gae_resets_seconds": 3.7497375160455704e-07,
+          "learner_seconds": 0.0074966250685974956,
+          "seconds": 0.0074970000423491
+        },
+        {
+          "cycle": 1,
+          "collection_gae_resets_seconds": 2.0791776478290558e-07,
+          "learner_seconds": 0.0067005830351263285,
+          "seconds": 0.006700790952891111
+        },
+        {
+          "cycle": 2,
+          "collection_gae_resets_seconds": 2.0791776478290558e-07,
+          "learner_seconds": 0.006619584048166871,
+          "seconds": 0.006619791965931654
+        }
+      ],
+      "export_seconds": 0.043769125011749566,
+      "steady_rows_per_second": 864.6536936383484,
+      "rows_per_second_with_export": 278.69511490733765,
+      "reset_count": 0
+    },
+    {
+      "id": "a100-dev/sandbox-a/e2/collection",
+      "hero_rows": 18,
+      "cycles": [
+        {
+          "cycle": 0,
+          "collection_gae_resets_seconds": 0.15852245897985995,
+          "learner_seconds": 1.6600824892520905e-07,
+          "seconds": 0.15852262498810887
+        },
+        {
+          "cycle": 1,
+          "collection_gae_resets_seconds": 0.1562783329281956,
+          "learner_seconds": 1.25030055642128e-07,
+          "seconds": 0.15627845795825124
+        },
+        {
+          "cycle": 2,
+          "collection_gae_resets_seconds": 0.1689206660958007,
+          "learner_seconds": 2.4994369596242905e-07,
+          "seconds": 0.16892091603949666
+        }
+      ],
+      "export_seconds": 0.022876416915096343,
+      "steady_rows_per_second": 37.211456244987296,
+      "rows_per_second_with_export": 35.53110202286784,
+      "reset_count": 6
+    },
+    {
+      "id": "a100-dev/sandbox-a/e2/integrated",
+      "hero_rows": 18,
+      "cycles": [
+        {
+          "cycle": 0,
+          "collection_gae_resets_seconds": 0.1581391249783337,
+          "learner_seconds": 0.007460666005499661,
+          "seconds": 0.16559979098383337
+        },
+        {
+          "cycle": 1,
+          "collection_gae_resets_seconds": 0.15409716602880508,
+          "learner_seconds": 0.007275708951056004,
+          "seconds": 0.16137287497986108
+        },
+        {
+          "cycle": 2,
+          "collection_gae_resets_seconds": 0.15395058400463313,
+          "learner_seconds": 0.006670500035397708,
+          "seconds": 0.16062108404003084
+        }
+      ],
+      "export_seconds": 0.060281582991592586,
+      "steady_rows_per_second": 36.91597769631476,
+      "rows_per_second_with_export": 32.854189476995174,
+      "reset_count": 6
+    },
+    {
+      "id": "a100-dev/sandbox-a/e4/cached",
+      "hero_rows": 36,
+      "cycles": [
+        {
+          "cycle": 0,
+          "collection_gae_resets_seconds": 1.25030055642128e-07,
+          "learner_seconds": 0.013425542041659355,
+          "seconds": 0.013425667071714997
+        },
+        {
+          "cycle": 1,
+          "collection_gae_resets_seconds": 2.0791776478290558e-07,
+          "learner_seconds": 0.014382667024619877,
+          "seconds": 0.01438287494238466
+        },
+        {
+          "cycle": 2,
+          "collection_gae_resets_seconds": 1.6600824892520905e-07,
+          "learner_seconds": 0.014051959034986794,
+          "seconds": 0.01405212504323572
+        }
+      ],
+      "export_seconds": 0.056122666923329234,
+      "steady_rows_per_second": 859.9958512532019,
+      "rows_per_second_with_export": 367.40942094401487,
+      "reset_count": 0
+    },
+    {
+      "id": "a100-dev/sandbox-a/e4/collection",
+      "hero_rows": 36,
+      "cycles": [
+        {
+          "cycle": 0,
+          "collection_gae_resets_seconds": 0.26141575002111495,
+          "learner_seconds": 1.25030055642128e-07,
+          "seconds": 0.2614158750511706
+        },
+        {
+          "cycle": 1,
+          "collection_gae_resets_seconds": 0.25452462502289563,
+          "learner_seconds": 2.0791776478290558e-07,
+          "seconds": 0.2545248329406604
+        },
+        {
+          "cycle": 2,
+          "collection_gae_resets_seconds": 0.2526367499958724,
+          "learner_seconds": 2.0803418010473251e-07,
+          "seconds": 0.2526369580300525
+        }
+      ],
+      "export_seconds": 0.02194087498355657,
+      "steady_rows_per_second": 46.839768564098485,
+      "rows_per_second_with_export": 45.5397288395191,
+      "reset_count": 12
+    },
+    {
+      "id": "a100-dev/sandbox-a/e4/integrated",
+      "hero_rows": 36,
+      "cycles": [
+        {
+          "cycle": 0,
+          "collection_gae_resets_seconds": 0.2566646250197664,
+          "learner_seconds": 0.013966290978714824,
+          "seconds": 0.2706309159984812
+        },
+        {
+          "cycle": 1,
+          "collection_gae_resets_seconds": 0.24632487492635846,
+          "learner_seconds": 0.013668500003404915,
+          "seconds": 0.2599933749297634
+        },
+        {
+          "cycle": 2,
+          "collection_gae_resets_seconds": 0.2429816669318825,
+          "learner_seconds": 0.013791625038720667,
+          "seconds": 0.25677329197060317
+        }
+      ],
+      "export_seconds": 0.05894245801027864,
+      "steady_rows_per_second": 45.720231788703245,
+      "rows_per_second_with_export": 42.536094548155035,
+      "reset_count": 12
+    }
+  ],
+  "source_sha256": {
+    "core.py": "7707f83d87bf68d490a54415333434471dd36c719ca356d1b4cacc3ceba9a08a",
+    "run.py": "01a89289f6763edf0b9bf482ab5b26065514787a15cc8dbd670ce0b85288d2b7",
+    "units.py": "c20db54838b4c1ca4ab6cef8bc6e3ed8b7afe46f48f622447b21af8eb46dbc5a",
+    "proof.py": "088c3def55427ad2a2822bbe3ccd0ad5bfada186c63d0acb54f22782dfe3d0cf"
+  }
+}

@@ -46,13 +46,49 @@ def test_immutable_publication_and_metadata_only_ledger(tmp_path: object) -> Non
         load_ledger(ledger, control)
 
 
-def test_partial_export_pair_cannot_become_verified_unit(tmp_path: object) -> None:
+def test_partial_export_pair_and_old_source_cannot_become_verified(tmp_path: object) -> None:
     from research.sandbox_a_resident.postprocess import ledger
+    from research.sandbox_a_resident.units import digest
 
-    control = {"worlds": [2]}
-    path = tmp_path / "e2-integrated.tar"
-    publish(path, lambda p: p.write_bytes(b"opaque-checkpoint"))
+    control = {"worlds": [2], "source_commit": "a" * 40}
+    directory = tmp_path / "exports" / "assay"
+    directory.mkdir(parents=True)
+    path = directory / "e2-integrated.tar"
+    descriptor = publish(path, lambda p: p.write_bytes(b"opaque-checkpoint"))
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "commit": control["source_commit"],
+                "env": {"SANDBOX_A_CONTROL_JSON": json.dumps(control)},
+            }
+        )
+    )
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "commit": control["source_commit"],
+                "stop_verified": True,
+                "manifest_sha256": digest(manifest),
+                "exports": [{**descriptor, "path": "assay/e2-integrated.tar"}],
+            }
+        )
+    )
     with pytest.raises(FileNotFoundError):
-        ledger(control, [tmp_path])
+        ledger(control, [receipt])
+    with pytest.raises(ValueError, match="metadata differs"):
+        ledger({**control, "source_commit": "b" * 40}, [receipt])
     with pytest.raises(ValueError, match="protected"):
         ledger(control, [tmp_path / "f5-state"])
+
+
+def test_source_or_recipe_drift_changes_verified_allocation() -> None:
+    control = {
+        "worlds": [128, 1024],
+        "source_commit": "a" * 40,
+        "checkpoint_sha256": "b" * 64,
+        "recipe_parameters": {"gamma": 0.99},
+    }
+    assert allocation(control) != allocation({**control, "source_commit": "c" * 40})
+    assert allocation(control) != allocation({**control, "recipe_parameters": {"gamma": 0.9}})

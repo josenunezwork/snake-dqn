@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -69,7 +70,7 @@ def prepare(
     packet: Path, commit: str, checkpoint: Path, registry: Path, estimate_seconds: float
 ) -> None:
     """Write the full broker packet plus exactly ten physical sandbox JSON lines."""
-    if estimate_seconds <= 0 or estimate_seconds > 3600:
+    if not math.isfinite(estimate_seconds) or estimate_seconds <= 0 or estimate_seconds > 3600:
         raise ValueError("positive measured estimate within base one-hour envelope required")
     if digest(checkpoint) != B8_SHA:
         raise ValueError("published B8 s3 hash differs")
@@ -187,6 +188,11 @@ def prepare(
             "manifest": str((packet / "sandbox.json").relative_to(ROOT)),
             "no_per_job_canary": True,
         },
+        "sandbox_a": {
+            "seed_allocations": seed_allocations(control),
+            "parity_seed_allocation": {"offset": 9_000_000, "count": 48},
+            "numerical_outputs": "timing/parity only",
+        },
         "technical_envelope": {
             "base_seconds": estimate_seconds,
             "effective_seconds": 2 * estimate_seconds,
@@ -218,15 +224,7 @@ def prepare(
             {"kind": "registry", "path": str(registry.resolve()), "sha256": digest(registry)},
         ],
         "salt": "a100-dev/sandbox-a/",
-        "endpoint": {
-            "kind": "steps",
-            "value": 3 * 128 * (128 + 1024) * 3,
-            "cycles_per_cell": 3,
-            "warmup_cycles_per_cell": 1,
-            "seed_allocations": seed_allocations(control),
-            "parity_seed_allocation": {"offset": 9_000_000, "count": 48},
-            "use": "timing/parity only",
-        },
+        "endpoint": {"kind": "steps", "value": 3 * 128 * (128 + 1024) * 3},
         "timeout": {"measured_estimate_seconds": estimate_seconds, "seconds": 2 * estimate_seconds},
         "excluded_studies": [
             "F5",
@@ -248,7 +246,7 @@ def prepare(
                 "sha256": digest(packet / "dispatch-manifest.json"),
             },
         },
-        "crossing": {"max_frozen_checkpoint_shas": 1, "this_assay_crossings": 0},
+        "crossing": {"max_frozen_checkpoint_shas": 1},
     }
     pairs = list(payload.items())
     # Ten keys, ten lines: opening brace shares first key; closing shares last.
