@@ -1,0 +1,24 @@
+READY: Sandbox B-2 packet-02, simulator-D development evidence only.
+Authority: docs/research/governance_a100_sandbox_20261026/ADOPTED.md.
+Supersedes packet-01 for dispatch; packet-01 bytes remain preserved.
+Runtime pin: c6e034b952a6ddc286261d71dfabbeaf208fc8f1 (published on main).
+Argon's two MAJORs and three MINORs fixed; see B2_PACKET_02.md.
+Finite endpoint: 48 configs, 48,000 updates; 5 post-hoc thresholds = 240 points.
+Same input registry and split salt: a100-dev/sandbox-b/split-v1.
+Gate: identical detached sigmoid in train/eval; balanced BCE; ungated ordinary body loss.
+Runaway guard: 60-minute base, 120-minute effective.
+Fresh empty source-bound ledger; at most 2 mechanical completion attempts.
+Committed ten-line manifest preflight PASS (101 tests).
+Sandbox dispatch dry-run PASS allocations=0 live_accounting=NOT_CHECKED.
+CPU smoke: 600 rows, 3 updates per config, 48 checkpoints, 240 evaluation points.
+No live A100 allocation/execution was performed by this preparation.
+Current capacity, accounting and protected-study coexistence remain live dispatch checks.
+
+Preflight:
+nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/venv/bin/python -m tools.sandbox.preflight /Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b2-packet-02/sandbox-manifest.json
+
+Offline dry-run:
+nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/ops/dispatch.sh sandbox-b-heads-v2-02 /Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b2-packet-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxB --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxB --dry-run
+
+Dispatch (operator):
+nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/ops/dispatch.sh sandbox-b-heads-v2-02 /Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b2-packet-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxB --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxB
