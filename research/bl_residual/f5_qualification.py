@@ -412,6 +412,7 @@ def run(
     device: str = "cuda:0",
     bootstrap: bool = False,
     transport_only: bool = False,
+    ledger: Path | None = None,
     progress: QualificationProgress | None = None,
 ) -> dict[str, Any]:
     """Execute all twelve timing-only source-native CUDA fixture workloads."""
@@ -476,9 +477,46 @@ def run(
     if spec_for(model) != "ego2s-bv8":
         _refuse("qualification requires the served ego2s-bv8 B8 checkpoint")
     root.mkdir(parents=True, exist_ok=True)
+    # The full timing operation is resumable at the registered completed-unit
+    # boundaries only.  Transport-only probes intentionally have no timing
+    # units and cannot be mistaken for completed timing evidence.
+    completed_units: list[dict[str, Any]] = []
+    verified_units: dict[int | str, dict[str, Any]] = {}
+    resume_binding: dict[str, str] | None = None
+    if not transport_only:
+        from research.bl_residual import f5_timing_resume
+
+        if ledger is None:
+            ledger = inputs / "verified-ledger.json"
+        if ledger.is_symlink() or not ledger.is_file():
+            _refuse("full timing requires a hash-bound verified ledger")
+        resume_binding = f5_timing_resume.identity(
+            namespace="bl-residual-f5-timing-recovery-20261026",
+            allocation=f5_job._identity(control).allocation_sha256,
+            source_sha256=f5_job._identity(control).source_sha256,
+            environment_sha256=hashlib.sha256(
+                json.dumps(assignment, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            input_sha256=hashlib.sha256(
+                json.dumps(
+                    control.get("input_hashes"), sort_keys=True, separators=(",", ":")
+                ).encode()
+            ).hexdigest(),
+        )
+        try:
+            verified_units = f5_timing_resume.load_ledger(ledger, resume_binding)
+        except f5_timing_resume.ResumeRefusal as exc:
+            _refuse(str(exc))
     samples: list[dict[str, Any]] = []
     started = time.monotonic()
     for completed, row in enumerate(rows):
+        key = int(row["allocation_index"])
+        if key in verified_units:
+            payload = verified_units[key].get("payload")
+            if not isinstance(payload, dict) or payload.get("allocation_index") != key:
+                _refuse("verified fixture record differs from allocation")
+            samples.append(payload)
+            continue
         if progress is not None:
             progress.phase("cuda-parity", completed=completed)
         fixture_started = time.monotonic()
@@ -504,38 +542,51 @@ def run(
         # All fields are elapsed measurements of this exact fixture.  Forecast
         # expansion remains the validator's job; this runner never invents a
         # feasibility claim from a missing fixture.
-        samples.append(
-            {
-                **row,
-                "stream": str(row["group"]).split("/", 1)[1],
-                "feature_seconds": feature_seconds,
-                "cuda_selection_seconds": cuda_seconds,
-                "cpu_parity_seconds": cpu_seconds,
-                "elapsed_seconds": total,
-                "parity": "PASS",
-                "q_shape": [1, ACTION_COUNT],
-                **timing,
-            }
-        )
+        sample = {
+            **row,
+            "stream": str(row["group"]).split("/", 1)[1],
+            "feature_seconds": feature_seconds,
+            "cuda_selection_seconds": cuda_seconds,
+            "cpu_parity_seconds": cpu_seconds,
+            "elapsed_seconds": total,
+            "parity": "PASS",
+            "q_shape": [1, ACTION_COUNT],
+            **timing,
+        }
+        samples.append(sample)
+        if resume_binding is not None:
+            from research.bl_residual import f5_timing_resume
+
+            completed_units.append(f5_timing_resume.publish_unit(root, resume_binding, key, sample))
         if progress is not None:
             progress.phase("fixture-complete", completed=completed + 1)
     calibration = None
     if not transport_only:
+        from research.bl_residual import f5_timing_resume
         from research.bl_residual.f5_calibration import run as run_calibration
 
-        if progress is not None:
-            progress.phase("calibration-source")
-        calibration = run_calibration(
-            model,
-            checkpoint,
-            rows,
-            fixture_sha256,
-            source_hashes=control["source_hashes"],
-            environment_sha256=hashlib.sha256(
-                json.dumps(assignment, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest(),
-            progress=progress,
-        )
+        existing = verified_units.get(f5_timing_resume.CALIBRATION_KEY)
+        if existing is not None:
+            calibration = existing.get("payload")
+            if not isinstance(calibration, dict):
+                _refuse("verified coupled calibration record differs")
+        else:
+            if progress is not None:
+                progress.phase("calibration-source")
+            calibration = run_calibration(
+                model,
+                checkpoint,
+                rows,
+                fixture_sha256,
+                source_hashes=control["source_hashes"],
+                environment_sha256=resume_binding["environment_sha256"],
+                progress=progress,
+            )
+            completed_units.append(
+                f5_timing_resume.publish_unit(
+                    root, resume_binding, f5_timing_resume.CALIBRATION_KEY, calibration
+                )
+            )
     # The after-boundary covers every actual qualification workload, including
     # the calibration fit; transport-only performs no calibration workload.
     if progress is not None:
@@ -570,6 +621,7 @@ def run(
         "producer_exports": exports,
         "fit_or_optimizer_executed": calibration is not None,
         "timing_only_calibration": calibration,
+        "completed_timing_units": completed_units,
         "mac_timing_status": (
             "NOT_MEASURED_TRANSPORT_ONLY" if transport_only else "HOLD_REQUIRES_MAC_COMPANION"
         ),
@@ -587,6 +639,7 @@ def main() -> None:
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--bootstrap", action="store_true")
     parser.add_argument("--transport-only", action="store_true")
+    parser.add_argument("--ledger", type=Path)
     args = parser.parse_args()
     progress = QualificationProgress()
     progress.start()
@@ -599,6 +652,7 @@ def main() -> None:
             device=args.device,
             bootstrap=args.bootstrap,
             transport_only=args.transport_only,
+            ledger=args.ledger,
             progress=progress,
         )
         success = True

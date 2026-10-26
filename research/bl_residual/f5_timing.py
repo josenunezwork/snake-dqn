@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 ALLOCATION_SHA256 = "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7"
 SOURCE_BYTES = 45_397_643
 UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024
+F5_TIMING_TRANSFER_SECONDS = 300
 TIMING_GROUPS = ("watch6", "scripted", "frozen", "mixed")
 SEMANTIC_COMMIT = "124dd22cd560a74a210a61f0ba473461328e82f8"
 
@@ -154,7 +155,9 @@ def build_plan(allocation: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "upload_workers": 2,
             "export_readers": 1,
             "max_call_seconds": 60,
-            "transfer_seconds_inclusive": 150,
+            # This plan is the separately scoped timing-recovery operation;
+            # generic broker admission still defaults to 150 seconds.
+            "transfer_seconds_inclusive": F5_TIMING_TRANSFER_SECONDS,
             "staging_seconds_inclusive": 300,
         },
         "stage_envelopes_hours": {
@@ -228,7 +231,7 @@ def validate_operational_proof(
         _require(transport.get(key) == expected, "transport configuration drift")
     for key, bound in (
         ("max_call_seconds", 60),
-        ("transfer_seconds", 150),
+        ("transfer_seconds", F5_TIMING_TRANSFER_SECONDS),
         ("staging_seconds", 300),
     ):
         value = transport.get(key)

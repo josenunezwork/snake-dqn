@@ -47,7 +47,7 @@ def _proof():
             "upload_workers": 2,
             "export_readers": 1,
             "max_call_seconds": 60,
-            "transfer_seconds": 150,
+            "transfer_seconds": timing.F5_TIMING_TRANSFER_SECONDS,
             "staging_seconds": 300,
             "private_input_bytes": 100,
         },
@@ -93,7 +93,7 @@ def test_plan_seals_exact_twelve_parent_allocation_and_bounds():
     plan = timing.build_plan(_allocation())
     assert plan["status"] == "PREPARED_NOT_MEASURED"
     assert len(plan["timing_parents"]) == 12
-    assert plan["transport"]["transfer_seconds_inclusive"] == 150
+    assert plan["transport"]["transfer_seconds_inclusive"] == timing.F5_TIMING_TRANSFER_SECONDS
     assert plan["stage_envelopes_hours"]["paired_fit_including_canary"] == {
         "base": 2,
         "effective": 4,
@@ -106,7 +106,9 @@ def test_plan_seals_exact_twelve_parent_allocation_and_bounds():
     [
         lambda p: p.__setitem__("status", "PREPARED_NOT_MEASURED"),
         lambda p: p["source_identity"].__setitem__("sha", "drift"),
-        lambda p: p["transport"].__setitem__("transfer_seconds", 150.001),
+        lambda p: p["transport"].__setitem__(
+            "transfer_seconds", timing.F5_TIMING_TRANSFER_SECONDS + 0.001
+        ),
         lambda p: p["placement"].__setitem__("cuda_processes", 2),
         lambda p: p["samples"].pop(),
         lambda p: p.__setitem__("loss", 0.0),
