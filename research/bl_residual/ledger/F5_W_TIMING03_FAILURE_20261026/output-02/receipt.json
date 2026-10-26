@@ -1,0 +1,136 @@
+{
+  "accounting": {
+    "allocated_endpoint": null,
+    "assignments": [],
+    "baseline_balance_units": 1065.08,
+    "baseline_rate_units_per_hour": 0.0,
+    "calibration": null,
+    "declared_other_rate_units_per_hour": 0,
+    "integrated_accounted_other_units": 0.0,
+    "last_crosscheck": null,
+    "observed_rate_units_per_hour": null,
+    "own_rate_units_per_hour": 2.0,
+    "priced_rate_units_per_hour": 2.0,
+    "unaccounted_endpoints": [],
+    "unit_cap": 100.0
+  },
+  "cleanup_error": null,
+  "cli_calls": [
+    {
+      "attempt": 1,
+      "command": "version",
+      "elapsed_seconds": 0.22472895903047174,
+      "ended_monotonic": 718322.547726333,
+      "operation": "control",
+      "started_monotonic": 718322.323006041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999829207081
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.4102856250246987,
+      "ended_monotonic": 718323.215783583,
+      "operation": "control",
+      "started_monotonic": 718322.805505458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999012495391
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.6639146659290418,
+      "ended_monotonic": 718323.879795166,
+      "operation": "control",
+      "started_monotonic": 718323.215894625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999879207462
+    },
+    {
+      "attempt": 1,
+      "command": "new",
+      "elapsed_seconds": 3.176229832926765,
+      "ended_monotonic": 718327.059017458,
+      "operation": "control",
+      "started_monotonic": 718323.882802583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 179.99999937496614
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 12.3978304999182,
+      "ended_monotonic": 718340.4204265,
+      "operation": "control",
+      "started_monotonic": 718328.022604458,
+      "status": "failed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999250052497
+    },
+    {
+      "attempt": 1,
+      "command": "stop",
+      "elapsed_seconds": 0.8042129999957979,
+      "ended_monotonic": 718341.226086416,
+      "operation": "control",
+      "started_monotonic": 718340.421880541,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 74.99999954202212
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.41317449999041855,
+      "ended_monotonic": 718341.639264625,
+      "operation": "control",
+      "started_monotonic": 718341.226104708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 59.9999978330452
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.6394104589708149,
+      "ended_monotonic": 718342.279033791,
+      "operation": "control",
+      "started_monotonic": 718341.639632291,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999604199547
+    }
+  ],
+  "commit": "75b1442768f37ce83188a2990c9ef0026ee806b5",
+  "contents_transfers": [],
+  "control_operations": [],
+  "elapsed_seconds": 19.956755583989434,
+  "endpoint": "gpu-l4-s-ass1a1-27c28cout51dt",
+  "error": "Refused('colab exec failed (1): \u2502   117 \u2502   \u2502   if str(method).upper() == \"POST\" and str(url).endswith(\"/api/kernels\"):                                                                                                                                                        \u2502\\n\u2502   118 \u2502   \u2502   \u2502   capture = _kernel_creation_target(url, kwargs, record_path)                                                                                                                                                                \u2502\\n\u2502   119 \u2502   \u2502   \u2502   if kernel_creation_attempted:                                                                                                                                                                                              \u2502\\n\u2502 \u2771 120 \u2502   \u2502   \u2502   \u2502   raise GuardError(\"kernel creation already attempted; refusing uncertain retry\")                                                                                                                                        \u2502\\n\u2502   121 \u2502   \u2502   \u2502   kernel_creation_attempted = True                                                                                                                                                                                           \u2502\\n\u2502   122 \u2502   \u2502   response = original_session_request(self, *args, **_timeout_kwargs(kwargs))                                                                                                                                                    \u2502\\n\u2502   123 \u2502   \u2502   if capture is not None:                                                                                                                                                                                                        \u2502\\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\\nGuardError: kernel creation already attempted; refusing uncertain retry\\n')",
+  "exports": [],
+  "failure_class": "SUPERVISOR",
+  "generation": "b5e7630ee36f47fd8548b5844e2822aa",
+  "job_id": "bl-f5-w-timing-r08-sr75b14427-03",
+  "manifest_sha256": "5d29b4b8dccadfe68d5e8046a0928c2266211291b0025de6bdc63c2d47127d5e",
+  "session": "snake-bl-f5-w-timing-r08-sr75b14427-03-b5e7630ee36f",
+  "status": "INCOMPLETE",
+  "stop_verified": true,
+  "supervisor_sha256": "8ca6ebaafeb26886c65b309ad5bd3f5f89cf8a3ea9b433ecc93d900464e38e35",
+  "terminal": null,
+  "transfers": [],
+  "usage_after": {
+    "assignments": 0.0,
+    "balance": 1065.08,
+    "rate": 0.0
+  },
+  "usage_before": {
+    "assignments": 0.0,
+    "balance": 1065.08,
+    "rate": 0.0
+  },
+  "warmup_seconds": 13.357349875033833
+}
