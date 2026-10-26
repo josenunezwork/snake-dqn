@@ -1,0 +1,12 @@
+{
+  "bootstrap.sh": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+  "inputs/control.json": "8bf30369ae632ce1e9917936ec853fa56c2e133cde50d5ac0b31551bef8684f8",
+  "inputs/selected-training.tar.xz": "2c033750b0d25568b19ba81aec7bd0e9b0583bdd32a994a9a1984a409e45c46c",
+  "inputs/selected-training.tar.xz.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+  "inputs/selected-training.tar.xz.sha256": "e685b20b86e523054d536de199708fdd358703eaddbf54541348457d952973ab",
+  "inputs/timing-fixtures.json": "737b2c61eabeb570456c8d7c287a5e615ac642a71d320db44925c58c252201aa",
+  "inputs/verified-ledger.json": "e500fcae255c260dc774675b579d60c3ff1cb32d3a25207bca7e17ae491bd4a6",
+  "release.py": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+  "runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+  "source.py": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f"
+}

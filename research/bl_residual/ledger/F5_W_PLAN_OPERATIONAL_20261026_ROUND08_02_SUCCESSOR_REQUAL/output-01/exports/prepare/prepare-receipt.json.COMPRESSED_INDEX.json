@@ -1,0 +1,41 @@
+{
+  "compressed_sha256": "e2dad53ef0bd38ef3b33f88c1e4510575a4d0f8d78e189c49214aaa5937bcdd8",
+  "encoding": "gzip-concatenated-parts",
+  "original": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_02_SUCCESSOR_REQUAL/output-01/exports/prepare/prepare-receipt.json",
+    "sha256": "fed208d3f7fd69426e3f3bdf53a2f356af8a2ab4804a6af2a30945b35e9966b5",
+    "size": 48336930
+  },
+  "parts": [
+    {
+      "path": "exports/prepare/prepare-receipt.json.gz.part-000",
+      "sha256": "57426d942b7842d8ef54444d1abb48d1f25cd1eeb29c020b975b0ed8be78629e",
+      "size": 1500000
+    },
+    {
+      "path": "exports/prepare/prepare-receipt.json.gz.part-001",
+      "sha256": "4ea3e4ba715e685a7c844e536109d88a450549f37aa09dab73e93dbfdb2a72bd",
+      "size": 1500000
+    },
+    {
+      "path": "exports/prepare/prepare-receipt.json.gz.part-002",
+      "sha256": "4825a69917699ad049b59077110bfb484f7ce6837ed434179e64b811152b2012",
+      "size": 1500000
+    },
+    {
+      "path": "exports/prepare/prepare-receipt.json.gz.part-003",
+      "sha256": "a5ccd419707e66117e55652b2c69e4d5017b81b71b9370265e362e86d74c202b",
+      "size": 1500000
+    },
+    {
+      "path": "exports/prepare/prepare-receipt.json.gz.part-004",
+      "sha256": "73032b133bbd40a8551e844344908225ded720fa177a5fceff9cdfb23ee18af7",
+      "size": 1500000
+    },
+    {
+      "path": "exports/prepare/prepare-receipt.json.gz.part-005",
+      "sha256": "7c31959b877e06eea3effae05abfbb2b23b4b0da88d38e001f462181a664c9ea",
+      "size": 1293350
+    }
+  ]
+}

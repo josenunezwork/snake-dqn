@@ -1,0 +1,123 @@
+{
+  "canary_observations": [
+    {
+      "caller": "research/bl_residual/f5_qualification.py:135:_select_cuda",
+      "cuda_decisions": 1,
+      "device": "cuda:0",
+      "operation": "Tensor.argmax",
+      "package": "research/bl_residual",
+      "pid": 10581,
+      "root": "/content/snake-cli/9e3072385fc8480da1467a0bcf5e788e",
+      "shape": [
+        1,
+        6
+      ],
+      "version": 1
+    }
+  ],
+  "export_scanner": {
+    "inventory": [
+      {
+        "path": "paired/assignment-environment.json",
+        "sha256": "a87e1d64548ad73d71c6df75280578a5cd2fa1b9ffae6700dee9ec38f83cda91",
+        "size": 13419976
+      },
+      {
+        "path": "paired/f5-state-C.pt",
+        "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+        "size": 1453
+      },
+      {
+        "path": "paired/f5-state-W.pt",
+        "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-C.pth",
+        "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-W.pth",
+        "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-receipt.json",
+        "sha256": "f4e1c02454193d53d1fedb99cae70448acb80298589ede6588f39f5ca07216cb",
+        "size": 224
+      },
+      {
+        "path": "prepare/f5-batch-plan.pt",
+        "sha256": "520f10de905219b90188091f6c4047e1fd80197a1fb4f846d8e9eac9c87599ab",
+        "size": 4135633
+      },
+      {
+        "path": "prepare/prepare-receipt.json",
+        "sha256": "fed208d3f7fd69426e3f3bdf53a2f356af8a2ab4804a6af2a30945b35e9966b5",
+        "size": 48336930
+      },
+      {
+        "path": "qualification/qualification.json",
+        "sha256": "78efb03d4597c6f395ba17651536fa1ea5386e733b797e76a9e5b2d121337c98",
+        "size": 37594955
+      }
+    ],
+    "name": "runtime._exports"
+  },
+  "exports": [
+    {
+      "path": "paired/assignment-environment.json",
+      "sha256": "a87e1d64548ad73d71c6df75280578a5cd2fa1b9ffae6700dee9ec38f83cda91",
+      "size": 13419976
+    },
+    {
+      "path": "paired/f5-state-C.pt",
+      "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+      "size": 1453
+    },
+    {
+      "path": "paired/f5-state-W.pt",
+      "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+      "size": 1453
+    },
+    {
+      "path": "paired/fit-C.pth",
+      "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+      "size": 1453
+    },
+    {
+      "path": "paired/fit-W.pth",
+      "sha256": "c7503aa31c1206472550ebf3f713996a28af8999064f78f05f0cd817fe5fd3fc",
+      "size": 1453
+    },
+    {
+      "path": "paired/fit-receipt.json",
+      "sha256": "f4e1c02454193d53d1fedb99cae70448acb80298589ede6588f39f5ca07216cb",
+      "size": 224
+    },
+    {
+      "path": "prepare/f5-batch-plan.pt",
+      "sha256": "520f10de905219b90188091f6c4047e1fd80197a1fb4f846d8e9eac9c87599ab",
+      "size": 4135633
+    },
+    {
+      "path": "prepare/prepare-receipt.json",
+      "sha256": "fed208d3f7fd69426e3f3bdf53a2f356af8a2ab4804a6af2a30945b35e9966b5",
+      "size": 48336930
+    },
+    {
+      "path": "qualification/qualification.json",
+      "sha256": "78efb03d4597c6f395ba17651536fa1ea5386e733b797e76a9e5b2d121337c98",
+      "size": 37594955
+    }
+  ],
+  "finished_at": 1793017653.1327813,
+  "generation": "9e3072385fc8480da1467a0bcf5e788e",
+  "job_id": "bl-f5-w-plan-r08-sr75b14427-01",
+  "last_traceback_line": "{\"kind\": \"PREPARED_COMMON_BATCH_PLAN\", \"status\": \"COMPLETE\"}",
+  "reason": null,
+  "returncode": 0,
+  "started_at": 1793016552.9525578,
+  "status": "succeeded"
+}
