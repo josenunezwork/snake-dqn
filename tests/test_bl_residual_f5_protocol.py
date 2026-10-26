@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from research.bl_residual.f5_protocol import (
+    claim_supersession_path,
     completion_attempt,
     eligible_snapshot,
     stage_claim,
@@ -32,6 +33,57 @@ def test_claim_once_and_identity(tmp_path: Path) -> None:
     expected["source_sha256"] = h("wrong")
     with pytest.raises(ValueError, match="binding"):
         verify_claim(path, expected)
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    (
+        ".consumed.json",
+        ".consumed.json.partial",
+        ".consumed.json.sha256",
+        ".consumed.json.complete",
+    ),
+)
+def test_claim_refuses_consumption_marker_or_sidecar(tmp_path: Path, suffix: str) -> None:
+    values = {
+        key: h(key)
+        for key in ("allocation_sha256", "source_sha256", "selection_sha256", "batch_plan_sha256")
+    }
+    path = tmp_path / "claim.json"
+    stage_claim(path, namespace="f5", **values)
+    Path(str(path) + suffix).touch()
+    with pytest.raises(ValueError, match="already consumed"):
+        verify_claim(path, {"namespace": "f5", **values})
+
+
+def test_claim_refuses_suffix_only_supersession_path(tmp_path: Path) -> None:
+    values = {
+        key: h(key)
+        for key in ("allocation_sha256", "source_sha256", "selection_sha256", "batch_plan_sha256")
+    }
+    path = tmp_path / "claim.json"
+    stage_claim(path, namespace="f5", **values)
+    with pytest.raises(ValueError, match="noncanonical"):
+        verify_claim(
+            path,
+            {"namespace": "f5", **values},
+            supersession_path=tmp_path / "unrelated.supersession.json",
+        )
+
+
+def test_claim_refuses_absent_supplied_canonical_supersession_path(tmp_path: Path) -> None:
+    values = {
+        key: h(key)
+        for key in ("allocation_sha256", "source_sha256", "selection_sha256", "batch_plan_sha256")
+    }
+    path = tmp_path / "claim.json"
+    stage_claim(path, namespace="f5", **values)
+    with pytest.raises(ValueError, match="noncanonical"):
+        verify_claim(
+            path,
+            {"namespace": "f5", **values},
+            supersession_path=claim_supersession_path(path),
+        )
 
 
 def test_ledger_refuses_duplicate_and_foreign() -> None:

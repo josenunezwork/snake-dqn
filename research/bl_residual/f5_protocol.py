@@ -65,6 +65,15 @@ def claim_supersession_path(path: Path) -> Path:
     return Path(str(path) + ".supersession.json")
 
 
+def _artifact_exists(path: Path) -> bool:
+    """Return whether an immutable artifact or any partial/export sidecar exists."""
+    return any(
+        candidate.exists() or candidate.is_symlink()
+        for suffix in ("", ".partial", ".sha256", ".complete")
+        for candidate in (Path(str(path) + suffix),)
+    )
+
+
 @contextmanager
 def _claim_transition_lock(predecessor_path: Path):
     """Serialize retirement/issuance/consumption on a permanent anchor inode."""
@@ -126,13 +135,38 @@ def verify_claim(
         )
     ):
         raise ValueError("F5 stage claim binding mismatch")
+    if _artifact_exists(claim_consumption_path(path)):
+        raise ValueError("F5 stage claim is already consumed")
+    supplied: Path | None = None
+    supplied_lineage: dict[str, Any] | None = None
+    if supersession_path is not None:
+        supplied = Path(supersession_path)
+        if not _artifact_exists(supplied):
+            raise ValueError("F5 noncanonical stage claim supersession path")
+        supplied_lineage = _read_supersession(supplied)
     canonical = claim_supersession_path(path)
-    if canonical.exists():
+    if _artifact_exists(canonical):
         lineage = _read_supersession(canonical)
+        marker = str(lineage["predecessor_consumption_marker"])
+        if (
+            not marker.endswith(".consumed.json")
+            or Path(marker.removesuffix(".consumed.json")) != path
+        ):
+            raise ValueError("F5 noncanonical stage claim supersession path")
         if claim["claim_sha256"] == lineage["predecessor_claim_sha256"]:
             raise ValueError("F5 predecessor stage claim was superseded and is not operative")
-    if supersession_path is not None:
-        if not str(supersession_path).endswith(".supersession.json"):
+    if supplied is not None and supplied != canonical:
+        assert supplied_lineage is not None
+        lineage = supplied_lineage
+        marker = str(lineage["predecessor_consumption_marker"])
+        if not marker.endswith(".consumed.json"):
+            raise ValueError("F5 lineage has malformed predecessor consumption marker")
+        predecessor = Path(marker.removesuffix(".consumed.json"))
+        if (
+            supplied != claim_supersession_path(predecessor)
+            or Path(path) != successor_claim_path(predecessor, expected)
+            or _claim_bindings(claim) != dict(lineage["successor"])
+        ):
             raise ValueError("F5 noncanonical stage claim supersession path")
     return claim
 
@@ -165,7 +199,7 @@ def supersede_unconsumed_claim(
     path = claim_supersession_path(predecessor_path)
     with _claim_transition_lock(predecessor_path):
         consumed = claim_consumption_path(predecessor_path)
-        if consumed.exists():
+        if _artifact_exists(consumed):
             raise ValueError("F5 predecessor stage claim is already consumed")
         predecessor_raw = json.loads(predecessor_path.read_text())
         if not isinstance(predecessor_raw, dict):
@@ -264,7 +298,7 @@ def issue_successor_claim(
             predecessor_path
         ):
             raise ValueError("F5 successor claim lineage has foreign consumption marker")
-        if claim_consumption_path(predecessor_path).exists():
+        if _artifact_exists(claim_consumption_path(predecessor_path)):
             raise ValueError("F5 predecessor stage claim is already consumed")
         return stage_claim(successor_claim_path(predecessor_path, successor), **dict(successor))
 
@@ -282,6 +316,8 @@ def consume_operative_claim(
         raise ValueError("F5 lineage has malformed predecessor consumption marker")
     predecessor = Path(marker_path.removesuffix(".consumed.json"))
     with _claim_transition_lock(predecessor):
+        if _artifact_exists(claim_consumption_path(predecessor)):
+            raise ValueError("F5 predecessor stage claim is already consumed")
         claim = verify_operative_claim(claim_path, expected, supersession_path=supersession_path)
         marker = claim_consumption_path(claim_path)
         value = {
@@ -315,12 +351,14 @@ def verify_operative_claim(
         raise ValueError("F5 noncanonical stage claim supersession path")
     if verify_export(predecessor) != lineage["predecessor_export_sha256"]:
         raise ValueError("F5 predecessor claim export differs from successor lineage")
+    if _artifact_exists(claim_consumption_path(predecessor)):
+        raise ValueError("F5 predecessor stage claim is already consumed")
     if Path(path) != successor_claim_path(predecessor, expected):
         raise ValueError("F5 copied or noncanonical successor stage claim")
     claim = verify_claim(path, expected, supersession_path=supersession_path)
     if _claim_bindings(claim) != dict(lineage["successor"]):
         raise ValueError("F5 operative stage claim does not match successor lineage")
-    if claim_consumption_path(path).exists():
+    if _artifact_exists(claim_consumption_path(path)):
         raise ValueError("F5 operative stage claim is already consumed")
     return claim
 

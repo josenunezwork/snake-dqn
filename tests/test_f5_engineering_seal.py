@@ -30,12 +30,30 @@ def test_final_inventory_covers_new_executable_seams_and_native_v6() -> None:
     ):
         path = "research/bl_residual/" + name
         assert pins[path] == hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
+    observer = "research/colab_cli/canary_observer.py"
+    assert pins[observer] == hashlib.sha256((ROOT / observer).read_bytes()).hexdigest()
+    for path in (
+        "research/bl_residual/f5_adoption_environment_20261026_v6/requirements-f5-l4-cu126.lock",
+        "research/bl_residual/f5_adoption_environment_20261026_v6/f5-common-environment-v6.json",
+    ):
+        assert pins[path] == hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
 
 
 def test_bridge_refuses_changed_measured_computation() -> None:
     pins = source_inventory(ROOT)
-    seal.source_bridge(ROOT, pins)
-    pins["research/bl_residual/f5_qualification.py"] = "f" * 64
+    bridge = seal.source_bridge(ROOT, pins)
+    comparison = bridge["historical_source_comparison"]["src/model/__init__.py"]
+    assert set(comparison) == {seal.OLD_PLAN_COMMIT, seal.TIMING_COMMIT}
+    pins["src/model/__init__.py"] = "f" * 64
+    with pytest.raises(ValueError, match="unreviewed measured source drift"):
+        seal.source_bridge(ROOT, pins)
+
+
+def test_bridge_refuses_mutated_transitive_package_initializer() -> None:
+    pins = source_inventory(ROOT)
+    initializer = "src/model/__init__.py"
+    assert initializer in pins
+    pins[initializer] = "f" * 64
     with pytest.raises(ValueError, match="unreviewed measured source drift"):
         seal.source_bridge(ROOT, pins)
 
@@ -46,6 +64,13 @@ def test_unsafe_reference_refused(tmp_path: Path) -> None:
     (tmp_path / "alias").symlink_to(payload)
     with pytest.raises(ValueError, match="unsafe"):
         seal.reference(tmp_path, "alias")
+
+
+def test_correction_and_rejection_bindings_are_exact() -> None:
+    correction = seal.reference(ROOT, seal.CORRECTION_CONTRACT)
+    assert correction["sha256"] == seal.CORRECTION_CONTRACT_SHA256
+    rejection = seal.external_reference(seal.ASTRA_REJECTION)
+    assert rejection["sha256"] == seal.ASTRA_REJECTION_SHA256
 
 
 def test_original_hold_and_thirteen_unit_payloads_remain_bound() -> None:

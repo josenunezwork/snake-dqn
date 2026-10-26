@@ -28,7 +28,9 @@ def _coverage() -> dict:
     roles = {}
     for role in subject.REQUIRED_ROLES:
         fixtures = [675] if role == "common_natural_h5000" else [673]
-        if role in ("h300_continuation", "watch_respawn_14400"):
+        if role == "h300_continuation":
+            fixtures = [672, 675, 678, 681]
+        elif role == "watch_respawn_14400":
             fixtures = [672]
         row = {"complete": True, "fixture_indices": fixtures, "source_review_sha256": _sha("c")}
         if role == "h300_continuation":
@@ -99,13 +101,19 @@ def _supplement() -> dict:
                     "legal_action_count": 3,
                     "legal_actions": [0, 1, 2],
                     "branch_units": [
-                        {"action": action, "seconds": 0.01, "frames": 300, "full_h300": True}
+                        {
+                            "action": action,
+                            "seconds": 0.01,
+                            "clone_seconds": 0.001,
+                            "frames": 300,
+                            "full_h300": True,
+                        }
                         for action in (0, 1, 2)
                     ],
                     "all_actions_units": [
                         {"action": action, "frames": 300, "full_h300": True} for action in (0, 1, 2)
                     ],
-                    "individual_actions_seconds": 0.03,
+                    "individual_actions_seconds": 0.033,
                 }
             )
     result = {
@@ -120,27 +128,48 @@ def _supplement() -> dict:
 
 
 def _schedule() -> dict:
+    def shard(index: int) -> dict:
+        components = {
+            "setup": 0.625,
+            "qualification": 0.625,
+            "plan_cache": 0.625,
+            "export_io": 0.625,
+            "imbalance": 0.625,
+        }
+        return {
+            "ordinal": index,
+            "natural": 8,
+            "root": 920,
+            "branch_action": 5520,
+            "natural_range": [index * 8, index * 8 + 8],
+            "root_range": [index * 920, index * 920 + 920],
+            "branch_action_range": [index * 5520, index * 5520 + 5520],
+            "base_hours": 6,
+            "effective_hours": 12,
+            "reserved_setup_export_imbalance_seconds": 1639.9866971273159,
+            "attributable_new_overhead_seconds": components,
+            "attributable_overhead_evidence": {
+                "status": "QUALIFIED",
+                "reference": {
+                    "path": f"evidence/shard-{index:02d}-overhead.json",
+                    "sha256": _sha("a"),
+                    "size": 1,
+                },
+                "shard_ordinal": index,
+                "source_identity_sha256": subject.FROZEN_EXECUTION_PLAN_SHA256,
+                "attributed_components_sha256": subject._canonical_sha256(components),
+            },
+        }
+
     return {
         "l4_assignments_at_once": 1,
         "host_workers": 6,
         "math_threads": 1,
         "global_max_completion_rounds": 2,
         "runtime_constraints_status": "PENDING_QUALIFICATION",
-        "shards": [
-            {
-                "ordinal": index,
-                "natural": 8,
-                "root": 920,
-                "branch_action": 5520,
-                "natural_range": [index * 8, index * 8 + 8],
-                "root_range": [index * 920, index * 920 + 920],
-                "branch_action_range": [index * 5520, index * 5520 + 5520],
-                "base_hours": 6,
-                "effective_hours": 12,
-                "reserved_setup_export_imbalance_seconds": 1639.9866971273159,
-            }
-            for index in range(16)
-        ],
+        "frozen_execution_plan_sha256": subject.FROZEN_EXECUTION_PLAN_SHA256,
+        "global_once_overhead_seconds": subject.FROZEN_CARRIED_OVERHEAD_SECONDS,
+        "shards": [shard(index) for index in range(16)],
     }
 
 
@@ -233,6 +262,26 @@ def test_conservative_branch_charge_and_complete_accounting_are_explicit() -> No
     assert result["scheduled_execution"]["shards"][0]["effective_hours"] == 12
 
 
+def test_old_rate_headroom_and_89ms_bundle_delta_use_max_not_sum_or_divisor() -> None:
+    baseline = subject.reduce_amended(_legacy(), **_kwargs())["archive_forecast"]
+    assert baseline["total_seconds"] / 3600 == pytest.approx(95.6358829251)
+    args = _kwargs()
+    old_branch = float(_legacy()["max_seconds"]["t_branch"])
+    for record in args["supplement"]["records"]:
+        if record["crossing"] == "PRESENT_FIRST_WITHIN_H5000":
+            record["all_actions_seconds"] = old_branch + 0.089
+            record["operational_payload_sha256"] = subject._canonical_sha256(
+                record, "operational_payload_sha256"
+            )
+    args["provenance"]["supplement_content_sha256"] = subject._canonical_sha256(args["supplement"])
+    forecast = subject.reduce_amended(_legacy(), **args)["archive_forecast"]
+    assert forecast["amended_max_seconds"]["t_branch"] == pytest.approx(old_branch + 0.089)
+    assert forecast["compute_seconds"] - baseline["compute_seconds"] == pytest.approx(
+        subject.WORKLOAD["branch_action"] * 0.089 / subject.WORKERS
+    )
+    assert subject.primitive_definitions()["t_branch_bundle"]["default_divisor"] == 1
+
+
 def test_actual_all_actions_bundle_can_raise_the_conservative_branch_bound() -> None:
     args = _kwargs()
     for record in args["supplement"]["records"]:
@@ -277,6 +326,13 @@ def _rehash_supplement(args: dict) -> None:
     args["provenance"]["supplement_content_sha256"] = subject._canonical_sha256(args["supplement"])
 
 
+def _rehash_shard_overhead_evidence(args: dict) -> None:
+    for shard in args["schedule"]["shards"]:
+        shard["attributable_overhead_evidence"]["attributed_components_sha256"] = (
+            subject._canonical_sha256(shard["attributable_new_overhead_seconds"])
+        )
+
+
 @pytest.mark.parametrize("field", ["environment_sha256", "source_sha256"])
 def test_rehashed_foreign_identity_is_still_refused(field: str) -> None:
     args = _kwargs()
@@ -290,6 +346,42 @@ def test_role_cannot_claim_an_absent_crossing() -> None:
     args = _kwargs()
     args["coverage"]["roles"]["long_body_root"]["fixture_indices"] = [672]
     with pytest.raises(subject.AmendedReductionHold, match="absent"):
+        subject.reduce_amended(_legacy(), **args)
+
+
+def test_h300_role_requires_complete_evidence_in_each_frozen_stream() -> None:
+    args = _kwargs()
+    args["coverage"]["roles"]["h300_continuation"]["fixture_indices"] = [672, 675, 678]
+    with pytest.raises(subject.AmendedReductionHold, match="every frozen stream"):
+        subject.reduce_amended(_legacy(), **args)
+
+
+def test_rehashed_bundle_frames_cannot_disagree_with_individual_primitives() -> None:
+    args = _kwargs()
+    record = args["supplement"]["records"][1]
+    record["all_actions_units"][0].update(frames=1, full_h300=False)
+    _rehash_supplement(args)
+    with pytest.raises(subject.AmendedReductionHold, match="frame mappings differ"):
+        subject.reduce_amended(_legacy(), **args)
+
+
+def test_long_body_branch_role_cannot_claim_only_terminal_actions() -> None:
+    args = _kwargs()
+    record = args["supplement"]["records"][1]
+    for unit in record["branch_units"] + record["all_actions_units"]:
+        unit.update(frames=1, full_h300=False)
+    _rehash_supplement(args)
+    with pytest.raises(subject.AmendedReductionHold, match="long_body_all_legal_branches"):
+        subject.reduce_amended(_legacy(), **args)
+
+
+def test_absent_crossing_kernel_stratum_cannot_evade_complete_pair_coverage() -> None:
+    args = _kwargs()
+    absent = args["supplement"]["records"][0]
+    absent["kernel_provenance"]["platform"] = "foreign-platform"
+    absent["kernel_provenance"]["release"] = "foreign-release"
+    _rehash_supplement(args)
+    with pytest.raises(subject.AmendedReductionHold, match="kernel stratum"):
         subject.reduce_amended(_legacy(), **args)
 
 
@@ -323,10 +415,55 @@ def test_one_new_unbounded_kernel_cannot_borrow_another_stratum() -> None:
 
 def test_whole_stage_carries_all_scheduled_overhead_reservations_once() -> None:
     args = _kwargs()
-    for key in args["forecast"]["new_overhead_seconds"]:
-        args["forecast"]["new_overhead_seconds"][key] = 0.0
     result = subject.reduce_amended(_legacy(), **args)["archive_forecast"]
     assert result["charged_new_overhead_seconds"] == pytest.approx(24000)
     assert result["total_seconds"] == pytest.approx(
         result["compute_seconds"] + 2239.787154037055 + 24000
     )
+
+
+def test_frozen_execution_plan_identity_and_reservation_floor_are_not_caller_reducible() -> None:
+    args = _kwargs()
+    args["schedule"]["frozen_execution_plan_sha256"] = _sha("f")
+    with pytest.raises(subject.AmendedReductionHold, match="execution-plan identity"):
+        subject.reduce_amended(_legacy(), **args)
+    args = _kwargs()
+    args["schedule"]["shards"][0]["reserved_setup_export_imbalance_seconds"] = 0.0
+    with pytest.raises(subject.AmendedReductionHold, match="frozen reservation floor"):
+        subject.reduce_amended(_legacy(), **args)
+
+
+def test_concentrated_new_overhead_refuses_even_when_global_total_fits_reserve() -> None:
+    args = _kwargs()
+    for shard in args["schedule"]["shards"]:
+        for key in shard["attributable_new_overhead_seconds"]:
+            shard["attributable_new_overhead_seconds"][key] = 0.0
+    args["schedule"]["shards"][0]["attributable_new_overhead_seconds"]["setup"] = 7000.0
+    for key in args["forecast"]["new_overhead_seconds"]:
+        args["forecast"]["new_overhead_seconds"][key] = 0.0
+    args["forecast"]["new_overhead_seconds"]["setup"] = 7000.0
+    _rehash_shard_overhead_evidence(args)
+    with pytest.raises(subject.AmendedReductionHold, match="shard measured or reserved overhead"):
+        subject.reduce_amended(_legacy(), **args)
+
+
+def test_unknown_or_unreconciled_shard_attribution_refuses() -> None:
+    args = _kwargs()
+    del args["schedule"]["shards"][0]["attributable_new_overhead_seconds"]["imbalance"]
+    with pytest.raises(subject.AmendedReductionHold, match="attribution"):
+        subject.reduce_amended(_legacy(), **args)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda evidence: evidence.update(status="PENDING"),
+        lambda evidence: evidence.update(attributed_components_sha256=_sha("f")),
+        lambda evidence: evidence["reference"].update(path="../foreign.json"),
+    ],
+)
+def test_shard_overhead_requires_qualified_immutable_component_bound_evidence(mutate) -> None:
+    args = _kwargs()
+    mutate(args["schedule"]["shards"][0]["attributable_overhead_evidence"])
+    with pytest.raises(subject.AmendedReductionHold, match="overhead evidence"):
+        subject.reduce_amended(_legacy(), **args)

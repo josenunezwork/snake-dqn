@@ -60,7 +60,7 @@ def metadata() -> dict[str, torch.Tensor]:
 def identity(prefix: str) -> F5Identity:
     return F5Identity(
         source_sha256=h(f"{prefix}-source"),
-        loss_sha256=h("loss"),
+        loss_sha256=hashlib.sha256(registered_source().encode("utf-8")).hexdigest(),
         environment_sha256=h(f"{prefix}-environment"),
         allocation_sha256=h("allocation"),
         corpus_sha256=h("corpus"),
@@ -73,8 +73,8 @@ def registered_source() -> str:
 
 def build_proof(predecessor: F5Identity, successor: F5Identity) -> dict[str, str]:
     return {
-        "predecessor_torch_build": "testbuild-v6",
-        "successor_torch_build": "testbuild-v6",
+        "predecessor_torch_build": str(torch.__version__),
+        "successor_torch_build": str(torch.__version__),
         "predecessor_source_sha256": predecessor.source_sha256,
         "successor_source_sha256": successor.source_sha256,
         "predecessor_environment_sha256": predecessor.environment_sha256,
@@ -213,6 +213,28 @@ def test_supersession_makes_the_old_unconsumed_claim_nonoperative(tmp_path: Path
     )
 
 
+def test_operative_claim_refuses_predecessor_consumption_sidecars(tmp_path: Path) -> None:
+    predecessor = {
+        "namespace": "f5",
+        "allocation_sha256": h("allocation"),
+        "source_sha256": h("old-source"),
+        "selection_sha256": h("selection"),
+        "batch_plan_sha256": h("old-plan"),
+    }
+    successor = {**predecessor, "source_sha256": h("new"), "batch_plan_sha256": h("plan")}
+    old = tmp_path / "old.json"
+    stage_claim(old, **predecessor)
+    supersede_unconsumed_claim(old, successor=successor)
+    lineage = Path(str(old) + ".supersession.json")
+    issue_successor_claim(predecessor_path=old, supersession_path=lineage, successor=successor)
+    current = successor_claim_path(old, successor)
+    Path(str(old) + ".consumed.json.complete").touch()
+    with pytest.raises(ValueError, match="predecessor stage claim is already consumed"):
+        verify_operative_claim(current, successor, supersession_path=lineage)
+    with pytest.raises(ValueError, match="predecessor stage claim is already consumed"):
+        consume_operative_claim(current, successor, supersession_path=lineage)
+
+
 def test_production_successor_refuses_wrong_file_sha_and_build_proof(tmp_path: Path) -> None:
     predecessor, values = sealed_plan()
     plan_path = tmp_path / "old-plan.pt"
@@ -226,6 +248,30 @@ def test_production_successor_refuses_wrong_file_sha_and_build_proof(tmp_path: P
             metadata=values,
             registered_fit_source=registered_source(),
             build_proof=build_proof(predecessor.identity, final),
+        )
+
+
+def test_successor_refuses_unbound_fit_source_and_nonruntime_torch_build() -> None:
+    predecessor, values = sealed_plan()
+    final = identity("final")
+    with pytest.raises(F5FitRefusal, match="fit source differs"):
+        create_successor(
+            predecessor,
+            successor_identity=final,
+            metadata=values,
+            registered_fit_source=registered_source() + "\n# different frozen source\n",
+            build_proof=build_proof(predecessor.identity, final),
+        )
+    proof = build_proof(predecessor.identity, final)
+    proof["predecessor_torch_build"] = "other-runtime"
+    proof["successor_torch_build"] = "other-runtime"
+    with pytest.raises(F5FitRefusal, match="executing torch runtime"):
+        create_successor(
+            predecessor,
+            successor_identity=final,
+            metadata=values,
+            registered_fit_source=registered_source(),
+            build_proof=proof,
         )
 
 

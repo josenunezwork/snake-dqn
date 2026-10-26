@@ -272,57 +272,121 @@ def corpus_review(artifacts: Path = ART) -> dict[str, Any]:
     }
 
 
-def source_inventory(repo: Path = ROOT) -> dict[str, str]:
-    """Freeze local executable dependencies without importing their runtime code."""
-    pending = [
-        repo / "research/bl_residual" / name
-        for name in (
-            "f5_package.py",
-            "f5_fit.py",
-            "f5_data.py",
-            "f5_job.py",
-            "f5_timing.py",
-            "f5_rules.py",
-            "f5_protocol.py",
-            "f5_environment.py",
-            "f5_environment_v5.py",
-            "f5_environment_reference.py",
-            "f5_qualification.py",
-            "f5_progress.py",
-            "f5_timing_resume.py",
-            "f5_timing_recovery_package.py",
-            "f5_plan_successor.py",
-            "f5_timing_supplement.py",
-            "f5_amended_reduction.py",
-            "f5_engineering_seal.py",
-        )
-    ]
+SOURCE_ROOTS = (
+    "research/bl_residual/f5_package.py",
+    "research/bl_residual/f5_fit.py",
+    "research/bl_residual/f5_data.py",
+    "research/bl_residual/f5_job.py",
+    "research/bl_residual/f5_timing.py",
+    "research/bl_residual/f5_rules.py",
+    "research/bl_residual/f5_protocol.py",
+    "research/bl_residual/f5_environment.py",
+    "research/bl_residual/f5_environment_v5.py",
+    "research/bl_residual/f5_environment_reference.py",
+    "research/bl_residual/f5_qualification.py",
+    "research/bl_residual/f5_progress.py",
+    "research/bl_residual/f5_timing_resume.py",
+    "research/bl_residual/f5_timing_recovery_package.py",
+    "research/bl_residual/f5_plan_successor.py",
+    "research/bl_residual/f5_timing_supplement.py",
+    "research/bl_residual/f5_amended_reduction.py",
+    "research/bl_residual/f5_engineering_seal.py",
+    # Step-3 sources are root-owned.  Include them automatically as each is
+    # introduced, rather than allowing an otherwise valid future package to
+    # escape the same executable closure.
+    "research/bl_residual/f5_step3_driver.py",
+    "research/bl_residual/f5_step3_package.py",
+    "research/colab_cli/canary_observer.py",
+)
+SOURCE_SHELL_ROOTS = ("research/bl_residual/f5_colab.sh", "research/bl_residual/f5_step3.sh")
+SOURCE_AUXILIARY_ROOTS = (
+    "research/bl_residual/f5_adoption_environment_20261026_v6/requirements-f5-l4-cu126.lock",
+    "research/bl_residual/f5_adoption_environment_20261026_v6/f5-common-environment-v6.json",
+)
+
+
+def _module_sources(repo: Path, module: str) -> list[Path]:
+    """Return local source files that Python may execute to load ``module``."""
+    candidate = repo.joinpath(*module.split("."))
+    candidates = (candidate.with_suffix(".py"), candidate / "__init__.py")
+    return [path for path in candidates if path.is_file()]
+
+
+def _ancestor_initializers(repo: Path, path: Path) -> list[Path]:
+    """Return every executable package initializer on ``path``'s import route."""
+    relative = path.relative_to(repo)
+    directory = relative.parent
+    ancestors: list[Path] = []
+    while directory != Path("."):
+        initializer = repo / directory / "__init__.py"
+        if initializer.is_file():
+            ancestors.append(initializer)
+        directory = directory.parent
+    return ancestors
+
+
+def _imported_modules(path: Path, repo: Path, tree: ast.AST) -> set[str]:
+    """Resolve local absolute and relative imports without importing their code."""
+    relative = path.relative_to(repo)
+    package = list(relative.with_suffix("").parts[:-1])
+    if path.name == "__init__.py":
+        package = list(relative.parent.parts)
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+            continue
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.level:
+            up = node.level - 1
+            if up >= len(package):
+                raise ValueError("relative import escapes source root: " + str(relative))
+            base = package[: len(package) - up]
+            if node.module:
+                base.extend(node.module.split("."))
+        elif node.module:
+            base = node.module.split(".")
+        else:
+            continue
+        module = ".".join(base)
+        modules.add(module)
+        # ``from package import child`` may execute child as a submodule;
+        # include the local candidate conservatively and recurse if present.
+        modules.update(module + "." + alias.name for alias in node.names)
+    return {module for module in modules if module.split(".")[0] in {"src", "research"}}
+
+
+def source_inventory(repo: Path = ROOT, roots: tuple[str, ...] = SOURCE_ROOTS) -> dict[str, str]:
+    """Freeze the complete local executable import closure without runtime imports."""
+    pending = [repo / relative for relative in roots if (repo / relative).is_file()]
     seen: set[Path] = set()
     while pending:
         path = pending.pop()
         if path in seen or not path.is_file():
             continue
+        if path.is_symlink():
+            raise ValueError("unsafe source closure symlink: " + str(path.relative_to(repo)))
         seen.add(path)
-        tree = ast.parse(path.read_bytes())
-        for node in ast.walk(tree):
-            modules: list[str] = []
-            if isinstance(node, ast.ImportFrom) and node.module:
-                modules = [node.module]
-                modules.extend(f"{node.module}.{alias.name}" for alias in node.names)
-            elif isinstance(node, ast.Import):
-                modules = [alias.name for alias in node.names]
-            for module in modules:
-                if module.split(".")[0] not in {"src", "research"}:
-                    continue
-                candidate = repo.joinpath(*module.split("."))
-                for source in (candidate.with_suffix(".py"), candidate / "__init__.py"):
-                    if source.is_file() and source not in seen:
-                        pending.append(source)
-    seen.add(repo / "research/bl_residual/f5_colab.sh")
-    seen.add(repo / "research/bl_residual/f5_environment_schema_v5.json")
-    seen.add(repo / "research/bl_residual/f5_environment_schema_v6.json")
-    seen.add(repo / "research/bl_residual/f5_calibration_schema_v1.json")
-    seen.add(repo / "research/apex_safety_20260926/deployment.yaml")
+        pending.extend(
+            initializer
+            for initializer in _ancestor_initializers(repo, path)
+            if initializer not in seen
+        )
+        tree = ast.parse(path.read_bytes(), filename=str(path))
+        for module in _imported_modules(path, repo, tree):
+            pending.extend(source for source in _module_sources(repo, module) if source not in seen)
+    seen.update(repo / relative for relative in SOURCE_SHELL_ROOTS if (repo / relative).is_file())
+    seen.update(
+        repo / relative for relative in SOURCE_AUXILIARY_ROOTS if (repo / relative).is_file()
+    )
+    static_metadata = (
+        "research/bl_residual/f5_environment_schema_v5.json",
+        "research/bl_residual/f5_environment_schema_v6.json",
+        "research/bl_residual/f5_calibration_schema_v1.json",
+        "research/apex_safety_20260926/deployment.yaml",
+    )
+    seen.update(repo / relative for relative in static_metadata if (repo / relative).is_file())
     seen.update((repo / "configs").glob("*.yaml"))
     return {str(path.relative_to(repo)): digest(path) for path in sorted(seen)}
 

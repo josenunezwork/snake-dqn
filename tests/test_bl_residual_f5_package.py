@@ -12,6 +12,34 @@ import pytest
 from research.bl_residual import f5_package as package
 
 
+def test_source_inventory_recurses_relative_imports_and_package_initializers(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    files = {
+        "research/__init__.py": "",
+        "research/bl_residual/__init__.py": "",
+        "research/bl_residual/entry.py": "from research.model import Model\n",
+        "research/model/__init__.py": "from .base import Model\n",
+        "research/model/base.py": "from .checkpoint_manager import Checkpoint\nclass Model: pass\n",
+        "research/model/checkpoint_manager.py": (
+            "from .checkpoint_io import load\nclass Checkpoint: pass\n"
+        ),
+        "research/model/checkpoint_io.py": "def load(): pass\n",
+    }
+    for relative, contents in files.items():
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents)
+
+    inventory = package.source_inventory(repo, roots=("research/bl_residual/entry.py",))
+    assert set(files) <= set(inventory)
+    before = inventory["research/model/checkpoint_io.py"]
+    (repo / "research/model/checkpoint_io.py").write_text("def load(): return 'mutated'\n")
+    updated = package.source_inventory(repo, roots=("research/bl_residual/entry.py",))
+    assert updated["research/model/checkpoint_io.py"] != before
+
+
 def test_capture_attempt_two_retains_elapsed_and_debit(tmp_path: Path) -> None:
     receipt = tmp_path / "receipt.json"
     receipt.write_text(

@@ -53,15 +53,27 @@ def _present_record() -> dict:
         "legal_action_count": 2,
         "legal_actions": [1, 4],
         "branch_units": [
-            {"action": 1, "seconds": 0.1, "frames": 300, "full_h300": True},
-            {"action": 4, "seconds": 0.2, "frames": 299, "full_h300": False},
+            {
+                "action": 1,
+                "seconds": 0.1,
+                "clone_seconds": 0.01,
+                "frames": 300,
+                "full_h300": True,
+            },
+            {
+                "action": 4,
+                "seconds": 0.2,
+                "clone_seconds": 0.02,
+                "frames": 299,
+                "full_h300": False,
+            },
         ],
         "all_actions_seconds": 0.3,
         "all_actions_units": [
             {"action": 1, "frames": 300, "full_h300": True},
             {"action": 4, "frames": 299, "full_h300": False},
         ],
-        "individual_actions_seconds": 0.3,
+        "individual_actions_seconds": 0.33,
     }
     record["operational_payload_sha256"] = subject.operational_payload_sha256(record)
     return record
@@ -161,6 +173,14 @@ def test_operational_record_preserves_per_action_mapping_and_terminal_branch_sta
         subject.validate_operational_record(bad)
 
 
+def test_operational_record_refuses_rehashed_bundle_individual_frame_mismatch() -> None:
+    record = _present_record()
+    record["all_actions_units"][0].update(frames=1, full_h300=False)
+    record["operational_payload_sha256"] = subject.operational_payload_sha256(record)
+    with pytest.raises(subject.SupplementHold, match="frame mappings differ"):
+        subject.validate_operational_record(record)
+
+
 @pytest.mark.parametrize("field", ["loss", "label", "outcome", "strict_ledger"])
 def test_operational_record_refuses_science_or_strict_ledger_fields(field: str) -> None:
     record = _present_record()
@@ -181,7 +201,8 @@ def test_crossing_root_captures_the_selector_prepared_state_before_the_natural_a
 
     class Runtime:
         def prepare(self, prepared: object) -> None:
-            prepared.length[0, 0] = 700
+            if prepared.length[0, 0] < 700:
+                prepared.length[0, 0] = 700
 
     class World:
         def __init__(self) -> None:
@@ -206,6 +227,8 @@ def test_crossing_root_captures_the_selector_prepared_state_before_the_natural_a
     def step(value: World, decision: int) -> dict[str, int]:
         value.runtime.prepare(value.sim)
         length = int(value.sim.length[0, 0])
+        value.sim.length[0, 0] = 701
+        value.runtime.prepare(value.sim)  # A later prepare must not replace the capture.
         value.sim.length[0, 0] = 1  # Natural dispatch would mutate after the capture seam.
         observed["post_dispatch_length"] = int(value.sim.length[0, 0])
         return {"hero_length": length}

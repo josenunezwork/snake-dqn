@@ -205,6 +205,8 @@ def _build_proof_sha256(
         raise F5FitRefusal("F5 successor sampler build proof malformed")
     if proof["predecessor_torch_build"] != proof["successor_torch_build"]:
         raise F5FitRefusal("F5 successor sampler build differs between identities")
+    if proof["successor_torch_build"] != str(torch.__version__):
+        raise F5FitRefusal("F5 successor sampler build differs from the executing torch runtime")
     if any(
         proof[name] != value
         for name, value in (
@@ -216,6 +218,18 @@ def _build_proof_sha256(
     ):
         raise F5FitRefusal("F5 successor sampler build proof identity differs")
     return hashlib.sha256(json.dumps(dict(proof), sort_keys=True).encode()).hexdigest()
+
+
+def _require_registered_fit_source(
+    registered_fit_source: str, predecessor_identity: F5Identity
+) -> str:
+    """Bind the supplied frozen sampler source to the registered loss identity."""
+    if not isinstance(registered_fit_source, str):
+        raise F5FitRefusal("F5 registered fit source must be text")
+    observed = hashlib.sha256(registered_fit_source.encode("utf-8")).hexdigest()
+    if observed != predecessor_identity.loss_sha256:
+        raise F5FitRefusal("F5 registered fit source differs from the frozen loss identity")
+    return require_registered_sampler_semantics(registered_fit_source)
 
 
 def create_successor(
@@ -240,7 +254,7 @@ def create_successor(
         for name in ("loss_sha256", "allocation_sha256", "corpus_sha256")
     ):
         raise F5FitRefusal("F5 successor may not change recipe/loss/corpus/allocation identity")
-    sampler = require_registered_sampler_semantics(registered_fit_source)
+    sampler = _require_registered_fit_source(registered_fit_source, predecessor.identity)
     build_sha = _build_proof_sha256(build_proof, predecessor.identity, successor_identity)
     # Deterministic replay supplies the identity-bound plan digest without a
     # duplicate implementation of f5_fit's internal digest.
@@ -314,7 +328,7 @@ def verify_successor(
         plan.final_rng, predecessor.final_rng
     ):
         raise F5FitRefusal("F5 successor changed typed RNG bytes")
-    sampler = require_registered_sampler_semantics(registered_fit_source)
+    sampler = _require_registered_fit_source(registered_fit_source, predecessor.identity)
     if successor.sampler_sha256 != sampler:
         raise F5FitRefusal("F5 successor sampler implementation/build differs")
     if successor.sampler_build_sha256 != _build_proof_sha256(

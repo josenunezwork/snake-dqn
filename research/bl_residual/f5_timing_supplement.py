@@ -185,7 +185,11 @@ def _crossing_root(
             # fixed raster/Q/dispatch sequence, which is the trace's reported
             # hero-length boundary rather than a pre-prepare approximation.
             original_prepare(prepared)
-            if bool(prepared.alive[0, 0]) and int(prepared.length[0, 0]) >= LONG_BODY_MINIMUM:
+            if (
+                "root" not in captured
+                and bool(prepared.alive[0, 0])
+                and int(prepared.length[0, 0]) >= LONG_BODY_MINIMUM
+            ):
                 # CapturedWorld.clone is the registered selector-prepared seam:
                 # it retains the policy lifecycle marker that a raw exact clone
                 # from inside step_with_policy would otherwise normalize away.
@@ -263,12 +267,17 @@ def _crossing_primitives(root: Any) -> dict[str, Any]:
 
     branches = []
     for action in legal:
+        # Clone construction is an independently attributable root/setup cost;
+        # measure it separately rather than hiding it in the rollout duration.
+        clone_started = time.monotonic()
+        individual_root = clone_world_exact(branch_root)
+        clone_seconds = time.monotonic() - clone_started
         started = time.monotonic()
         # Passing one action deliberately records a primitive action continuation.
         # The scripted engine's one-action batch and the nonscripted native branch
         # both remain their ordinary frozen rollout_all implementations.
         result = bank_engine.rollout_all(
-            clone_world_exact(branch_root), [action], depth=BRANCH_HORIZON, record_outcomes=False
+            individual_root, [action], depth=BRANCH_HORIZON, record_outcomes=False
         )
         if set(result) != {action}:
             _hold("one-action branch primitive returned an unexpected action set")
@@ -279,10 +288,17 @@ def _crossing_primitives(root: Any) -> dict[str, Any]:
             {
                 "action": action,
                 "seconds": time.monotonic() - started,
+                "clone_seconds": clone_seconds,
                 "frames": frames,
                 "full_h300": frames == BRANCH_HORIZON,
             }
         )
+    expected_bundle_units = [
+        {"action": unit["action"], "frames": unit["frames"], "full_h300": unit["full_h300"]}
+        for unit in branches
+    ]
+    if bundle_units != expected_bundle_units:
+        _hold("all-actions bundle and individual continuation frame mappings differ")
     return {
         "snapshot_restore_seconds": snapshot_seconds,
         "feature_seconds": feature_seconds,
@@ -296,7 +312,9 @@ def _crossing_primitives(root: Any) -> dict[str, Any]:
         "branch_units": branches,
         "all_actions_seconds": all_actions_seconds,
         "all_actions_units": bundle_units,
-        "individual_actions_seconds": sum(item["seconds"] for item in branches),
+        "individual_actions_seconds": sum(
+            item["clone_seconds"] + item["seconds"] for item in branches
+        ),
     }
 
 
@@ -504,9 +522,11 @@ def validate_operational_record(record: Mapping[str, Any]) -> None:
         if not _finite_positive(record.get(field)):
             _hold("primitive timing is not finite")
     for unit in units:
-        if set(unit) != {"action", "seconds", "frames", "full_h300"}:
+        if set(unit) != {"action", "seconds", "clone_seconds", "frames", "full_h300"}:
             _hold("individual branch has unknown fields")
-        if not _finite_positive(unit.get("seconds")):
+        if not (
+            _finite_positive(unit.get("seconds")) and _finite_positive(unit.get("clone_seconds"))
+        ):
             _hold("branch timing is not finite")
         if type(unit.get("frames")) is not int or not 1 <= unit["frames"] <= BRANCH_HORIZON:
             _hold("branch frame accounting is invalid")
@@ -523,9 +543,15 @@ def validate_operational_record(record: Mapping[str, Any]) -> None:
             unit["frames"] == BRANCH_HORIZON
         ):
             _hold("all-actions bundle continuation status differs from frames")
+    expected_bundle_units = [
+        {"action": unit["action"], "frames": unit["frames"], "full_h300": unit["full_h300"]}
+        for unit in units
+    ]
+    if bundle_units != expected_bundle_units:
+        _hold("all-actions bundle and individual continuation frame mappings differ")
     if not math.isclose(
         record["individual_actions_seconds"],
-        sum(unit["seconds"] for unit in units),
+        sum(unit["clone_seconds"] + unit["seconds"] for unit in units),
         rel_tol=1e-12,
         abs_tol=1e-12,
     ):

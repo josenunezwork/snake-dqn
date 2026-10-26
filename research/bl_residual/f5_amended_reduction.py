@@ -31,6 +31,13 @@ WORKLOAD = {"natural": 128, "root": 14_720, "branch_action": 88_320}
 WORKERS = 6
 ARCHIVE_BASE_HOURS = 96
 ARCHIVE_EFFECTIVE_HOURS = 192
+FROZEN_EXECUTION_PLAN_SHA256 = "6f3610824dea181dac6d7dee7fda2cfd69282e25e142dfffebc3b17726d0d32b"
+FROZEN_NEW_OVERHEAD_PER_SHARD_SECONDS = 1500.0
+FROZEN_CARRIED_OVERHEAD_SECONDS = 2239.787154037055
+FROZEN_CARRIED_OVERHEAD_PER_SHARD_SECONDS = FROZEN_CARRIED_OVERHEAD_SECONDS / 16
+FROZEN_SHARD_OVERHEAD_FLOOR_SECONDS = (
+    FROZEN_NEW_OVERHEAD_PER_SHARD_SECONDS + FROZEN_CARRIED_OVERHEAD_PER_SHARD_SECONDS
+)
 PUBLISHED_TIMING_REDUCTION_SHA256 = (
     "4d5aa3012ddb0002e2faadfea53a57998eba12cd3fa0dbf1a869c410fc26428e"
 )
@@ -45,6 +52,7 @@ REQUIRED_ROLES = (
     "long_body_features",
     "long_body_all_legal_branches",
 )
+H300_STREAMS = frozenset(("watch6", "scripted", "frozen", "mixed"))
 
 
 def _hold(reason: str) -> None:
@@ -66,6 +74,22 @@ def _canonical_sha256(value: Mapping[str, Any], field: str = "content_sha256") -
     return hashlib.sha256(
         json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def _immutable_reference(value: Any) -> bool:
+    """Validate a create-only evidence reference without opening its payload."""
+    return (
+        isinstance(value, Mapping)
+        and set(value) == {"path", "sha256", "size"}
+        and isinstance(value.get("path"), str)
+        and bool(value["path"])
+        and not value["path"].startswith("/")
+        and ".." not in Path(value["path"]).parts
+        and _sha(value.get("sha256"))
+        and isinstance(value.get("size"), int)
+        and not isinstance(value["size"], bool)
+        and value["size"] > 0
+    )
 
 
 def _published_body(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -110,6 +134,17 @@ def primitive_definitions() -> dict[str, Any]:
             "default_divisor": 1,
             "automatic_division_by_legal_action_count_forbidden": True,
             "tighter_mapping_requires": "explicit reviewed source-bound primitive mapping",
+        },
+        "t_branch_individual": {
+            "meaning": "one clone plus one legal-action H300 continuation",
+            "measured_unit": "max_actual_individual_action_primitive",
+            "registered_workload_count": WORKLOAD["branch_action"],
+            "clone_seconds_recorded_separately": True,
+        },
+        "t_branch_conservative": {
+            "meaning": "max of actual bundle and individual primitive bounds",
+            "charge": "one conservative branch bound per individual action continuation",
+            "legal_count_divisor_forbidden": True,
         },
     }
 
@@ -227,7 +262,7 @@ def _validate_roles(coverage: Mapping[str, Any], legacy: Mapping[str, Any]) -> d
         if role == "common_natural_h5000":
             _require(fixtures <= NON_WATCH_FIXTURES, "natural role cannot claim Watch substitution")
             _require(
-                any(
+                all(
                     fixtures_by_index[index].get("full_h5000_natural") is True for index in fixtures
                 ),
                 "natural role has no original complete H5000 evidence",
@@ -236,7 +271,7 @@ def _validate_roles(coverage: Mapping[str, Any], legacy: Mapping[str, Any]) -> d
             _require(fixtures <= WATCH_FIXTURES, "Watch must be independently measured")
             _require(row.get("frames") == 14_400, "Watch horizon differs")
             _require(
-                any(
+                all(
                     fixtures_by_index[index].get("watch_fixture_frames") == 14_400
                     for index in fixtures
                 ),
@@ -245,9 +280,14 @@ def _validate_roles(coverage: Mapping[str, Any], legacy: Mapping[str, Any]) -> d
         elif role == "h300_continuation":
             _require(row.get("horizon") == 300, "H300 role horizon differs")
             _require(
-                any(fixtures_by_index[index].get("full_h300") is True for index in fixtures),
-                "H300 role has no original complete continuation evidence",
+                all(fixtures_by_index[index].get("full_h300") is True for index in fixtures),
+                "H300 role includes incomplete continuation evidence",
             )
+            streams = {
+                str(fixtures_by_index[index].get("group", "")).split("/", 1)[-1]
+                for index in fixtures
+            }
+            _require(streams == H300_STREAMS, "H300 role must cover every frozen stream")
     return copied
 
 
@@ -267,8 +307,9 @@ def _validate_supplement(supplement: Mapping[str, Any]) -> tuple[dict[str, Any],
     seams: set[str] = set()
     complete_seams: set[str] = set()
     complete_pairs: set[tuple[str, str, str]] = set()
+    complete_present: set[int] = set()
     kernel_strata: set[tuple[str, str]] = set()
-    maxima = {"t_root": 0.0, "t_branch": 0.0}
+    maxima = {"t_root": 0.0, "t_branch_bundle": 0.0, "t_branch_individual": 0.0}
     for row in crossings:
         _require(isinstance(row, Mapping), "supplement crossing is malformed")
         from research.bl_residual import f5_timing_supplement
@@ -277,7 +318,8 @@ def _validate_supplement(supplement: Mapping[str, Any]) -> tuple[dict[str, Any],
             f5_timing_supplement.validate_operational_record(row)
         except f5_timing_supplement.SupplementHold as exc:
             raise AmendedReductionHold(
-                "HOLD_AMENDED_REDUCTION: supplement record is not operationally admissible"
+                "HOLD_AMENDED_REDUCTION: supplement record is not operationally admissible: "
+                + str(exc)
             ) from exc
         _require(_sha(row.get("fixture_descriptor_sha256")), "fixture descriptor is not bound")
         source = row.get("source_provenance")
@@ -318,13 +360,13 @@ def _validate_supplement(supplement: Mapping[str, Any]) -> tuple[dict[str, Any],
             "supplement scientific or horizon contract differs",
         )
         crossing = row.get("crossing")
+        kernel_strata.add((str(kernel["platform"]), str(kernel["release"])))
         if crossing == "ABSENT_WITHIN_H5000":
             _require(row.get("crossing_decision") is None, "absent crossing is not explicit")
             continue
         _require(crossing == "PRESENT_FIRST_WITHIN_H5000", "crossing enum differs")
         present.add(index)
         seams.add(str(row.get("branch_source_seam")))
-        kernel_strata.add((str(kernel["platform"]), str(kernel["release"])))
         _require(
             isinstance(row.get("crossing_decision"), int) and row["crossing_decision"] >= 0,
             "crossing index is malformed",
@@ -351,6 +393,12 @@ def _validate_supplement(supplement: Mapping[str, Any]) -> tuple[dict[str, Any],
             isinstance(all_action_units, Sequence) and len(all_action_units) == legal,
             "all-actions bundle inventory differs",
         )
+        _require(
+            [unit.get("action") for unit in units if isinstance(unit, Mapping)] == list(actions)
+            and [unit.get("action") for unit in all_action_units if isinstance(unit, Mapping)]
+            == list(actions),
+            "long-body legal-action order differs",
+        )
         seen_actions: set[int] = set()
         for unit in units:
             _require(isinstance(unit, Mapping), "long-body branch unit is malformed")
@@ -360,6 +408,7 @@ def _validate_supplement(supplement: Mapping[str, Any]) -> tuple[dict[str, Any],
                 and action in actions
                 and action not in seen_actions
                 and _positive(unit.get("seconds"))
+                and _positive(unit.get("clone_seconds"))
                 and isinstance(unit.get("frames"), int)
                 and 1 <= unit["frames"] <= 300
                 and unit.get("full_h300") is (unit["frames"] == 300),
@@ -379,7 +428,16 @@ def _validate_supplement(supplement: Mapping[str, Any]) -> tuple[dict[str, Any],
             and _positive(row.get("individual_actions_seconds")),
             "all-actions bundle coverage missing",
         )
-        if any(unit["full_h300"] is True for unit in units):
+        expected_bundle_units = [
+            {"action": unit["action"], "frames": unit["frames"], "full_h300": unit["full_h300"]}
+            for unit in units
+        ]
+        _require(
+            list(all_action_units) == expected_bundle_units,
+            "all-actions bundle and individual continuation frame mappings differ",
+        )
+        if any(unit["full_h300"] is True for unit in all_action_units):
+            complete_present.add(index)
             complete_seams.add(str(row.get("branch_source_seam")))
             complete_pairs.add(
                 (
@@ -394,14 +452,18 @@ def _validate_supplement(supplement: Mapping[str, Any]) -> tuple[dict[str, Any],
             + float(row["feature_seconds"])
             + float(row["setup_seconds"]),
         )
-        maxima["t_branch"] = max(
-            maxima["t_branch"],
-            float(row["setup_seconds"])
-            + max(
-                float(row["all_actions_seconds"]),
-                sum(float(unit["seconds"]) for unit in units),
-            ),
+        # Setup belongs to the root construction charge once. The individual
+        # primitive is a maximum, never the sum of separately cloned actions;
+        # the real bundle remains a conservative per-action bound without a
+        # legal-count divisor.
+        maxima["t_branch_bundle"] = max(
+            maxima["t_branch_bundle"], float(row["all_actions_seconds"])
         )
+        maxima["t_branch_individual"] = max(
+            maxima["t_branch_individual"],
+            max(float(unit["clone_seconds"]) + float(unit["seconds"]) for unit in units),
+        )
+    maxima["t_branch"] = max(maxima["t_branch_bundle"], maxima["t_branch_individual"])
     _require(seen == set(ORIGINAL_FIXTURES), "supplement crossing enumeration differs")
     _require(maxima["t_root"] > 0 and maxima["t_branch"] > 0, "no frozen fixture reached long body")
     _require(
@@ -419,6 +481,7 @@ def _validate_supplement(supplement: Mapping[str, Any]) -> tuple[dict[str, Any],
     )
     copied = copy.deepcopy(dict(supplement))
     copied["_validated_present_indices"] = sorted(present)
+    copied["_validated_complete_present_indices"] = sorted(complete_present)
     copied["_validated_kernel_strata"] = sorted(kernel_strata)
     return copied, maxima
 
@@ -427,9 +490,17 @@ def _validate_long_body_roles(
     roles: Mapping[str, Any], supplement: Mapping[str, Any], legacy: Mapping[str, Any]
 ) -> None:
     present = set(supplement["_validated_present_indices"])
-    for role in ("long_body_root", "long_body_features", "long_body_all_legal_branches"):
+    complete_present = set(supplement["_validated_complete_present_indices"])
+    for role in ("long_body_root", "long_body_features"):
         claimed = _fixture_set(roles[role]["fixture_indices"], role)
         _require(claimed <= present, role + " claims an absent long-body crossing")
+    claimed = _fixture_set(
+        roles["long_body_all_legal_branches"]["fixture_indices"], "long_body_all_legal_branches"
+    )
+    _require(
+        claimed <= complete_present,
+        "long_body_all_legal_branches claims a crossing without complete H300 evidence",
+    )
     expected_strata = {
         (str(row.get("platform")), str(row.get("release")))
         for row in legacy["kernel_strata"]
@@ -492,13 +563,18 @@ def _forecast(
     _require(total <= ARCHIVE_BASE_HOURS * 3600, "amended 96-hour base guard exceeded")
     return {
         "equation": (
-            "(128*t_nat + 14720*t_root + 88320*t_branch_bundle)/6 "
+            "(128*t_nat + 14720*t_root + 88320*max(t_branch_bundle,t_branch_individual))/6 "
             "+ historical_liabilities + new_overhead"
         ),
         "workload": dict(WORKLOAD),
         "workers": WORKERS,
         "compute_seconds": compute,
         "amended_max_seconds": maxima,
+        "long_body_primitive_bounds": {
+            "t_branch_bundle": float(supplement_maxima["t_branch_bundle"]),
+            "t_branch_individual": float(supplement_maxima["t_branch_individual"]),
+            "t_branch_conservative": float(supplement_maxima["t_branch"]),
+        },
         "forecast_charged_historical_seconds": copy.deepcopy(dict(historical)),
         "separate_historical_exposure_seconds": copy.deepcopy(dict(exposure)),
         "new_overhead_seconds": copy.deepcopy(dict(overhead)),
@@ -511,6 +587,10 @@ def _forecast(
 
 def _validate_schedule(schedule: Mapping[str, Any], maxima: Mapping[str, Any]) -> dict[str, Any]:
     _require(isinstance(schedule, Mapping), "schedule is malformed")
+    _require(
+        schedule.get("frozen_execution_plan_sha256") == FROZEN_EXECUTION_PLAN_SHA256,
+        "schedule does not bind the frozen execution-plan identity",
+    )
     _require(schedule.get("l4_assignments_at_once") == 1, "multi-L4 placement is not admitted")
     _require(schedule.get("host_workers") == WORKERS, "host worker count differs")
     _require(schedule.get("math_threads") == 1, "math thread count differs")
@@ -547,7 +627,13 @@ def _validate_schedule(schedule: Mapping[str, Any], maxima: Mapping[str, Any]) -
         _require(shard.get("base_hours") == 6, "shard base envelope differs")
         _require(shard.get("effective_hours") == 12, "shard guard not doubled once")
         overhead = shard.get("reserved_setup_export_imbalance_seconds")
-        _require(_positive(overhead, allow_zero=True), "shard reserved overhead is absent")
+        _require(
+            _positive(overhead)
+            and math.isclose(
+                float(overhead), FROZEN_SHARD_OVERHEAD_FLOOR_SECONDS, rel_tol=0, abs_tol=1e-9
+            ),
+            "shard reserved overhead differs from frozen reservation floor",
+        )
         _require(
             frozen_shard_compute_seconds + float(overhead) <= 6 * 3600,
             "shard maximum compute and reserved overhead exceed base envelope",
@@ -559,6 +645,59 @@ def _validate_schedule(schedule: Mapping[str, Any], maxima: Mapping[str, Any]) -
     frozen["max_shard_compute_seconds"] = frozen_shard_compute_seconds
     frozen["max_shard_base_seconds"] = 6 * 3600
     return frozen
+
+
+def _validate_attributable_overheads(
+    schedule: Mapping[str, Any], forecast: Mapping[str, Any]
+) -> list[float]:
+    """Require complete per-shard attribution while charging the old series once."""
+    _require(
+        schedule.get("global_once_overhead_seconds") == FROZEN_CARRIED_OVERHEAD_SECONDS,
+        "global once-only carried overhead differs",
+    )
+    named = forecast["new_overhead_seconds"]
+    per_shard: list[float] = []
+    totals = {key: 0.0 for key in named}
+    for shard in schedule["shards"]:
+        attributed = shard.get("attributable_new_overhead_seconds")
+        _require(
+            isinstance(attributed, Mapping) and set(attributed) == set(named),
+            "shard overhead attribution is incomplete or unknown",
+        )
+        _require(
+            all(_positive(value, allow_zero=True) for value in attributed.values()),
+            "shard overhead attribution is malformed",
+        )
+        evidence = shard.get("attributable_overhead_evidence")
+        _require(
+            isinstance(evidence, Mapping)
+            and set(evidence)
+            == {
+                "status",
+                "reference",
+                "shard_ordinal",
+                "source_identity_sha256",
+                "attributed_components_sha256",
+            }
+            and evidence.get("status") == "QUALIFIED"
+            and _immutable_reference(evidence.get("reference"))
+            and evidence.get("shard_ordinal") == shard.get("ordinal")
+            and evidence.get("source_identity_sha256") == FROZEN_EXECUTION_PLAN_SHA256
+            and evidence.get("attributed_components_sha256") == _canonical_sha256(attributed),
+            "shard overhead evidence is absent, unqualified, or not bound to its components",
+        )
+        amount = sum(float(value) for value in attributed.values())
+        per_shard.append(amount)
+        for key, value in attributed.items():
+            totals[key] += float(value)
+    _require(
+        all(
+            math.isclose(totals[key], float(value), rel_tol=0, abs_tol=1e-9)
+            for key, value in named.items()
+        ),
+        "per-shard overhead attribution does not reconcile to the global forecast",
+    )
+    return per_shard
 
 
 def reduce_amended(
@@ -609,6 +748,7 @@ def reduce_amended(
     _validate_long_body_roles(roles, sealed_supplement, old)
     amended_forecast = _forecast(old, forecast, supplement_maxima)
     frozen_schedule = _validate_schedule(schedule, amended_forecast["amended_max_seconds"])
+    per_shard_new = _validate_attributable_overheads(frozen_schedule, amended_forecast)
     reserved_overhead = sum(
         float(shard["reserved_setup_export_imbalance_seconds"])
         for shard in frozen_schedule["shards"]
@@ -625,6 +765,16 @@ def reduce_amended(
         amended_forecast["total_seconds"] <= ARCHIVE_BASE_HOURS * 3600,
         "amended 96-hour base guard exceeded after shard reservations",
     )
+    for shard, attributable_new in zip(frozen_schedule["shards"], per_shard_new):
+        _require(
+            float(frozen_schedule["max_shard_compute_seconds"])
+            + max(
+                float(shard["reserved_setup_export_imbalance_seconds"]),
+                FROZEN_CARRIED_OVERHEAD_PER_SHARD_SECONDS + attributable_new,
+            )
+            <= 6 * 3600,
+            "shard measured or reserved overhead exceeds base envelope",
+        )
     return {
         "schema": "bl-f5-amended-reduction/v1",
         "status": "HOLD_PENDING_INDEPENDENT_TARGETED_TIMING_ACCEPTANCE",
