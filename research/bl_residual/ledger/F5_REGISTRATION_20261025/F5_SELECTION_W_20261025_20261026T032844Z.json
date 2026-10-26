@@ -1,0 +1,5026 @@
+{
+  "access_record": {
+    "D4096_outputs_opened": false,
+    "commits_edits_dispatch_tmux": false,
+    "only_outcome_read": "Published F4 aggregate diagnostic at f4a7d8dc",
+    "other_payloads_opened": false,
+    "protected_study_opened": false,
+    "scientific_execution": false,
+    "writes": "Only this create-only receipt and SHA256 sidecar in authorized Astra directory."
+  },
+  "aggregate_report": {
+    "census": {
+      "eligible_lives": 71,
+      "natural_rows": 560,
+      "parents": 29,
+      "reserve_lives": 64,
+      "total_rows": 5936
+    },
+    "denominator_note": "541 and 493 changed rows are also both-exact and B8-surviving/selected-exact denominators for D1024 and D256 respectively; 560 natural rows each. Counts are historical development diagnostics, not population estimates.",
+    "doses": [
+      {
+        "checkpoint_sha256": "103d02e9953a45e4c0ea3a7413dac0f56d96d99a0a18c27aeff01a4e90cf0360",
+        "dose": 256,
+        "margin_bins": [
+          {
+            "counts": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 2,
+              "N_changed_B8_exact_survives_selected_exact": 2,
+              "N_changed_both_exact": 2,
+              "N_natural": 69,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            },
+            "lower": 0.0,
+            "upper": 0.01
+          },
+          {
+            "counts": {
+              "C_confirmed": 3,
+              "H": 3,
+              "N_changed": 42,
+              "N_changed_B8_exact_survives_selected_exact": 42,
+              "N_changed_both_exact": 42,
+              "N_natural": 42,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            },
+            "lower": 0.01,
+            "upper": 0.1
+          },
+          {
+            "counts": {
+              "C_confirmed": 6,
+              "H": 6,
+              "N_changed": 294,
+              "N_changed_B8_exact_survives_selected_exact": 294,
+              "N_changed_both_exact": 294,
+              "N_natural": 294,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            },
+            "lower": 0.1,
+            "upper": 0.5
+          },
+          {
+            "counts": {
+              "C_confirmed": 11,
+              "H": 11,
+              "N_changed": 155,
+              "N_changed_B8_exact_survives_selected_exact": 155,
+              "N_changed_both_exact": 155,
+              "N_natural": 155,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            },
+            "lower": 0.5,
+            "upper": null
+          }
+        ],
+        "parents": [
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-008",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 7,
+                  "N_changed_B8_exact_survives_selected_exact": 7,
+                  "N_changed_both_exact": 7,
+                  "N_natural": 7,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-026",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-034",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-046",
+            "totals": {
+              "C_confirmed": 1,
+              "H": 1,
+              "N_changed": 6,
+              "N_changed_B8_exact_survives_selected_exact": 6,
+              "N_changed_both_exact": 6,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 7,
+                  "N_changed_B8_exact_survives_selected_exact": 7,
+                  "N_changed_both_exact": 7,
+                  "N_natural": 7,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-057",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 7,
+                  "N_changed_B8_exact_survives_selected_exact": 7,
+                  "N_changed_both_exact": 7,
+                  "N_natural": 7,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-078",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 7,
+                  "N_changed_B8_exact_survives_selected_exact": 7,
+                  "N_changed_both_exact": 7,
+                  "N_natural": 7,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-140",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 7,
+                  "N_changed_B8_exact_survives_selected_exact": 7,
+                  "N_changed_both_exact": 7,
+                  "N_natural": 7,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-154",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-173",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 5,
+                  "N_changed_B8_exact_survives_selected_exact": 5,
+                  "N_changed_both_exact": 5,
+                  "N_natural": 5,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-181",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-187",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 5,
+              "N_changed_B8_exact_survives_selected_exact": 5,
+              "N_changed_both_exact": 5,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-190",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 7,
+                  "N_changed_B8_exact_survives_selected_exact": 7,
+                  "N_changed_both_exact": 7,
+                  "N_natural": 7,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-191",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 7,
+              "N_changed_B8_exact_survives_selected_exact": 7,
+              "N_changed_both_exact": 7,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-208",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 7,
+              "N_changed_B8_exact_survives_selected_exact": 7,
+              "N_changed_both_exact": 7,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 5,
+                  "N_changed_B8_exact_survives_selected_exact": 5,
+                  "N_changed_both_exact": 5,
+                  "N_natural": 5,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-220",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 7,
+              "N_changed_B8_exact_survives_selected_exact": 7,
+              "N_changed_both_exact": 7,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-225",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 5,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 9,
+                  "N_changed_B8_exact_survives_selected_exact": 9,
+                  "N_changed_both_exact": 9,
+                  "N_natural": 9,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 20,
+                  "N_changed_B8_exact_survives_selected_exact": 20,
+                  "N_changed_both_exact": 20,
+                  "N_natural": 20,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 6,
+                  "N_changed_B8_exact_survives_selected_exact": 6,
+                  "N_changed_both_exact": 6,
+                  "N_natural": 6,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-002",
+            "totals": {
+              "C_confirmed": 2,
+              "H": 2,
+              "N_changed": 35,
+              "N_changed_B8_exact_survives_selected_exact": 35,
+              "N_changed_both_exact": 35,
+              "N_natural": 40,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 16,
+                  "N_changed_B8_exact_survives_selected_exact": 16,
+                  "N_changed_both_exact": 16,
+                  "N_natural": 16,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 2,
+                  "H": 2,
+                  "N_changed": 12,
+                  "N_changed_B8_exact_survives_selected_exact": 12,
+                  "N_changed_both_exact": 12,
+                  "N_natural": 12,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-009",
+            "totals": {
+              "C_confirmed": 3,
+              "H": 3,
+              "N_changed": 29,
+              "N_changed_B8_exact_survives_selected_exact": 29,
+              "N_changed_both_exact": 29,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 17,
+                  "N_changed_B8_exact_survives_selected_exact": 17,
+                  "N_changed_both_exact": 17,
+                  "N_natural": 17,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 12,
+                  "N_changed_B8_exact_survives_selected_exact": 12,
+                  "N_changed_both_exact": 12,
+                  "N_natural": 12,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-015",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 29,
+              "N_changed_B8_exact_survives_selected_exact": 29,
+              "N_changed_both_exact": 29,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 8,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 15,
+                  "N_changed_B8_exact_survives_selected_exact": 15,
+                  "N_changed_both_exact": 15,
+                  "N_natural": 15,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 8,
+                  "N_changed_B8_exact_survives_selected_exact": 8,
+                  "N_changed_both_exact": 8,
+                  "N_natural": 8,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-018",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 24,
+              "N_changed_B8_exact_survives_selected_exact": 24,
+              "N_changed_both_exact": 24,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 5,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 14,
+                  "N_changed_B8_exact_survives_selected_exact": 14,
+                  "N_changed_both_exact": 14,
+                  "N_natural": 14,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-035",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 19,
+              "N_changed_B8_exact_survives_selected_exact": 19,
+              "N_changed_both_exact": 19,
+              "N_natural": 24,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 9,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 22,
+                  "N_changed_B8_exact_survives_selected_exact": 22,
+                  "N_changed_both_exact": 22,
+                  "N_natural": 22,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 8,
+                  "N_changed_B8_exact_survives_selected_exact": 8,
+                  "N_changed_both_exact": 8,
+                  "N_natural": 8,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-039",
+            "totals": {
+              "C_confirmed": 1,
+              "H": 1,
+              "N_changed": 31,
+              "N_changed_B8_exact_survives_selected_exact": 31,
+              "N_changed_both_exact": 31,
+              "N_natural": 40,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 16,
+                  "N_changed_B8_exact_survives_selected_exact": 16,
+                  "N_changed_both_exact": 16,
+                  "N_natural": 16,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 2,
+                  "H": 2,
+                  "N_changed": 6,
+                  "N_changed_B8_exact_survives_selected_exact": 6,
+                  "N_changed_both_exact": 6,
+                  "N_natural": 6,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-045",
+            "totals": {
+              "C_confirmed": 2,
+              "H": 2,
+              "N_changed": 22,
+              "N_changed_B8_exact_survives_selected_exact": 22,
+              "N_changed_both_exact": 22,
+              "N_natural": 24,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 7,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 14,
+                  "N_changed_B8_exact_survives_selected_exact": 14,
+                  "N_changed_both_exact": 14,
+                  "N_natural": 14,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 10,
+                  "N_changed_B8_exact_survives_selected_exact": 10,
+                  "N_changed_both_exact": 10,
+                  "N_natural": 10,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-048",
+            "totals": {
+              "C_confirmed": 1,
+              "H": 1,
+              "N_changed": 25,
+              "N_changed_B8_exact_survives_selected_exact": 25,
+              "N_changed_both_exact": 25,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 5,
+                  "N_changed_B8_exact_survives_selected_exact": 5,
+                  "N_changed_both_exact": 5,
+                  "N_natural": 5,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 14,
+                  "N_changed_B8_exact_survives_selected_exact": 14,
+                  "N_changed_both_exact": 14,
+                  "N_natural": 14,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 10,
+                  "N_changed_B8_exact_survives_selected_exact": 10,
+                  "N_changed_both_exact": 10,
+                  "N_natural": 10,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-059",
+            "totals": {
+              "C_confirmed": 2,
+              "H": 2,
+              "N_changed": 30,
+              "N_changed_B8_exact_survives_selected_exact": 30,
+              "N_changed_both_exact": 30,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 20,
+                  "N_changed_B8_exact_survives_selected_exact": 20,
+                  "N_changed_both_exact": 20,
+                  "N_natural": 20,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 8,
+                  "N_changed_B8_exact_survives_selected_exact": 8,
+                  "N_changed_both_exact": 8,
+                  "N_natural": 8,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-061",
+            "totals": {
+              "C_confirmed": 1,
+              "H": 1,
+              "N_changed": 30,
+              "N_changed_B8_exact_survives_selected_exact": 30,
+              "N_changed_both_exact": 30,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 21,
+                  "N_changed_B8_exact_survives_selected_exact": 21,
+                  "N_changed_both_exact": 21,
+                  "N_natural": 21,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 6,
+                  "N_changed_B8_exact_survives_selected_exact": 6,
+                  "N_changed_both_exact": 6,
+                  "N_natural": 6,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-088",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 30,
+              "N_changed_B8_exact_survives_selected_exact": 30,
+              "N_changed_both_exact": 30,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 18,
+                  "N_changed_B8_exact_survives_selected_exact": 18,
+                  "N_changed_both_exact": 18,
+                  "N_natural": 18,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 2,
+                  "H": 2,
+                  "N_changed": 12,
+                  "N_changed_B8_exact_survives_selected_exact": 12,
+                  "N_changed_both_exact": 12,
+                  "N_natural": 12,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-090",
+            "totals": {
+              "C_confirmed": 4,
+              "H": 4,
+              "N_changed": 32,
+              "N_changed_B8_exact_survives_selected_exact": 32,
+              "N_changed_both_exact": 32,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 11,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 2,
+                  "H": 2,
+                  "N_changed": 22,
+                  "N_changed_B8_exact_survives_selected_exact": 22,
+                  "N_changed_both_exact": 22,
+                  "N_natural": 22,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 12,
+                  "N_changed_B8_exact_survives_selected_exact": 12,
+                  "N_changed_both_exact": 12,
+                  "N_natural": 12,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-095",
+            "totals": {
+              "C_confirmed": 3,
+              "H": 3,
+              "N_changed": 37,
+              "N_changed_B8_exact_survives_selected_exact": 37,
+              "N_changed_both_exact": 37,
+              "N_natural": 48,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          }
+        ],
+        "totals": {
+          "C_confirmed": 20,
+          "H": 20,
+          "N_changed": 493,
+          "N_changed_B8_exact_survives_selected_exact": 493,
+          "N_changed_both_exact": 493,
+          "N_natural": 560,
+          "U_B8_only": 0,
+          "U_both": 0,
+          "U_selected_only": 0,
+          "U_unknown": 0
+        }
+      },
+      {
+        "checkpoint_sha256": "da1d265608d7dbb2a68b285c3394cd080cc2653b4e767139dac918076a265093",
+        "dose": 1024,
+        "margin_bins": [
+          {
+            "counts": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 1,
+              "N_changed_B8_exact_survives_selected_exact": 1,
+              "N_changed_both_exact": 1,
+              "N_natural": 20,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            },
+            "lower": 0.0,
+            "upper": 0.01
+          },
+          {
+            "counts": {
+              "C_confirmed": 1,
+              "H": 1,
+              "N_changed": 33,
+              "N_changed_B8_exact_survives_selected_exact": 33,
+              "N_changed_both_exact": 33,
+              "N_natural": 33,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            },
+            "lower": 0.01,
+            "upper": 0.1
+          },
+          {
+            "counts": {
+              "C_confirmed": 11,
+              "H": 11,
+              "N_changed": 327,
+              "N_changed_B8_exact_survives_selected_exact": 327,
+              "N_changed_both_exact": 327,
+              "N_natural": 327,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            },
+            "lower": 0.1,
+            "upper": 0.5
+          },
+          {
+            "counts": {
+              "C_confirmed": 7,
+              "H": 7,
+              "N_changed": 180,
+              "N_changed_B8_exact_survives_selected_exact": 180,
+              "N_changed_both_exact": 180,
+              "N_natural": 180,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            },
+            "lower": 0.5,
+            "upper": null
+          }
+        ],
+        "parents": [
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 6,
+                  "N_changed_B8_exact_survives_selected_exact": 6,
+                  "N_changed_both_exact": 6,
+                  "N_natural": 6,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-008",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 8,
+                  "N_changed_B8_exact_survives_selected_exact": 8,
+                  "N_changed_both_exact": 8,
+                  "N_natural": 8,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-026",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-034",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-046",
+            "totals": {
+              "C_confirmed": 1,
+              "H": 1,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-057",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 8,
+                  "N_changed_B8_exact_survives_selected_exact": 8,
+                  "N_changed_both_exact": 8,
+                  "N_natural": 8,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-078",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 7,
+                  "N_changed_B8_exact_survives_selected_exact": 7,
+                  "N_changed_both_exact": 7,
+                  "N_natural": 7,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-140",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 6,
+                  "N_changed_B8_exact_survives_selected_exact": 6,
+                  "N_changed_both_exact": 6,
+                  "N_natural": 6,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-154",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 5,
+                  "N_changed_B8_exact_survives_selected_exact": 5,
+                  "N_changed_both_exact": 5,
+                  "N_natural": 5,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-173",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 5,
+                  "N_changed_B8_exact_survives_selected_exact": 5,
+                  "N_changed_both_exact": 5,
+                  "N_natural": 5,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-181",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 6,
+                  "N_changed_B8_exact_survives_selected_exact": 6,
+                  "N_changed_both_exact": 6,
+                  "N_natural": 6,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-187",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 7,
+                  "N_changed_B8_exact_survives_selected_exact": 7,
+                  "N_changed_both_exact": 7,
+                  "N_natural": 7,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-190",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 7,
+                  "N_changed_B8_exact_survives_selected_exact": 7,
+                  "N_changed_both_exact": 7,
+                  "N_natural": 7,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-191",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-208",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-220",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 6,
+                  "N_changed_B8_exact_survives_selected_exact": 6,
+                  "N_changed_both_exact": 6,
+                  "N_natural": 6,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-gate-frozen-225",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 8,
+              "N_changed_B8_exact_survives_selected_exact": 8,
+              "N_changed_both_exact": 8,
+              "N_natural": 8,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 28,
+                  "N_changed_B8_exact_survives_selected_exact": 28,
+                  "N_changed_both_exact": 28,
+                  "N_natural": 28,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 9,
+                  "N_changed_B8_exact_survives_selected_exact": 9,
+                  "N_changed_both_exact": 9,
+                  "N_natural": 9,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-002",
+            "totals": {
+              "C_confirmed": 1,
+              "H": 1,
+              "N_changed": 39,
+              "N_changed_B8_exact_survives_selected_exact": 39,
+              "N_changed_both_exact": 39,
+              "N_natural": 40,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 3,
+                  "H": 3,
+                  "N_changed": 20,
+                  "N_changed_B8_exact_survives_selected_exact": 20,
+                  "N_changed_both_exact": 20,
+                  "N_natural": 20,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 9,
+                  "N_changed_B8_exact_survives_selected_exact": 9,
+                  "N_changed_both_exact": 9,
+                  "N_natural": 9,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-009",
+            "totals": {
+              "C_confirmed": 4,
+              "H": 4,
+              "N_changed": 31,
+              "N_changed_B8_exact_survives_selected_exact": 31,
+              "N_changed_both_exact": 31,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 14,
+                  "N_changed_B8_exact_survives_selected_exact": 14,
+                  "N_changed_both_exact": 14,
+                  "N_natural": 14,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 16,
+                  "N_changed_B8_exact_survives_selected_exact": 16,
+                  "N_changed_both_exact": 16,
+                  "N_natural": 16,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-015",
+            "totals": {
+              "C_confirmed": 1,
+              "H": 1,
+              "N_changed": 31,
+              "N_changed_B8_exact_survives_selected_exact": 31,
+              "N_changed_both_exact": 31,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 15,
+                  "N_changed_B8_exact_survives_selected_exact": 15,
+                  "N_changed_both_exact": 15,
+                  "N_natural": 15,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 9,
+                  "N_changed_B8_exact_survives_selected_exact": 9,
+                  "N_changed_both_exact": 9,
+                  "N_natural": 9,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-018",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 28,
+              "N_changed_B8_exact_survives_selected_exact": 28,
+              "N_changed_both_exact": 28,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 5,
+                  "N_changed_B8_exact_survives_selected_exact": 5,
+                  "N_changed_both_exact": 5,
+                  "N_natural": 5,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 14,
+                  "N_changed_B8_exact_survives_selected_exact": 14,
+                  "N_changed_both_exact": 14,
+                  "N_natural": 14,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-035",
+            "totals": {
+              "C_confirmed": 1,
+              "H": 1,
+              "N_changed": 21,
+              "N_changed_B8_exact_survives_selected_exact": 21,
+              "N_changed_both_exact": 21,
+              "N_natural": 24,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 27,
+                  "N_changed_B8_exact_survives_selected_exact": 27,
+                  "N_changed_both_exact": 27,
+                  "N_natural": 27,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 10,
+                  "N_changed_B8_exact_survives_selected_exact": 10,
+                  "N_changed_both_exact": 10,
+                  "N_natural": 10,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-039",
+            "totals": {
+              "C_confirmed": 2,
+              "H": 2,
+              "N_changed": 38,
+              "N_changed_B8_exact_survives_selected_exact": 38,
+              "N_changed_both_exact": 38,
+              "N_natural": 40,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 13,
+                  "N_changed_B8_exact_survives_selected_exact": 13,
+                  "N_changed_both_exact": 13,
+                  "N_natural": 13,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 2,
+                  "H": 2,
+                  "N_changed": 10,
+                  "N_changed_B8_exact_survives_selected_exact": 10,
+                  "N_changed_both_exact": 10,
+                  "N_natural": 10,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-045",
+            "totals": {
+              "C_confirmed": 2,
+              "H": 2,
+              "N_changed": 23,
+              "N_changed_B8_exact_survives_selected_exact": 23,
+              "N_changed_both_exact": 23,
+              "N_natural": 24,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 17,
+                  "N_changed_B8_exact_survives_selected_exact": 17,
+                  "N_changed_both_exact": 17,
+                  "N_natural": 17,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 13,
+                  "N_changed_B8_exact_survives_selected_exact": 13,
+                  "N_changed_both_exact": 13,
+                  "N_natural": 13,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-048",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 32,
+              "N_changed_B8_exact_survives_selected_exact": 32,
+              "N_changed_both_exact": 32,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 4,
+                  "N_changed_B8_exact_survives_selected_exact": 4,
+                  "N_changed_both_exact": 4,
+                  "N_natural": 4,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 14,
+                  "N_changed_B8_exact_survives_selected_exact": 14,
+                  "N_changed_both_exact": 14,
+                  "N_natural": 14,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 12,
+                  "N_changed_B8_exact_survives_selected_exact": 12,
+                  "N_changed_both_exact": 12,
+                  "N_natural": 12,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-059",
+            "totals": {
+              "C_confirmed": 2,
+              "H": 2,
+              "N_changed": 31,
+              "N_changed_B8_exact_survives_selected_exact": 31,
+              "N_changed_both_exact": 31,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 2,
+                  "N_changed_B8_exact_survives_selected_exact": 2,
+                  "N_changed_both_exact": 2,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 21,
+                  "N_changed_B8_exact_survives_selected_exact": 21,
+                  "N_changed_both_exact": 21,
+                  "N_natural": 21,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 9,
+                  "N_changed_B8_exact_survives_selected_exact": 9,
+                  "N_changed_both_exact": 9,
+                  "N_natural": 9,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-061",
+            "totals": {
+              "C_confirmed": 1,
+              "H": 1,
+              "N_changed": 32,
+              "N_changed_B8_exact_survives_selected_exact": 32,
+              "N_changed_both_exact": 32,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 2,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 17,
+                  "N_changed_B8_exact_survives_selected_exact": 17,
+                  "N_changed_both_exact": 17,
+                  "N_natural": 17,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 10,
+                  "N_changed_B8_exact_survives_selected_exact": 10,
+                  "N_changed_both_exact": 10,
+                  "N_natural": 10,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-088",
+            "totals": {
+              "C_confirmed": 0,
+              "H": 0,
+              "N_changed": 30,
+              "N_changed_B8_exact_survives_selected_exact": 30,
+              "N_changed_both_exact": 30,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 0,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 1,
+                  "N_changed_B8_exact_survives_selected_exact": 1,
+                  "N_changed_both_exact": 1,
+                  "N_natural": 1,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 18,
+                  "N_changed_B8_exact_survives_selected_exact": 18,
+                  "N_changed_both_exact": 18,
+                  "N_natural": 18,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 1,
+                  "H": 1,
+                  "N_changed": 13,
+                  "N_changed_B8_exact_survives_selected_exact": 13,
+                  "N_changed_both_exact": 13,
+                  "N_natural": 13,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-090",
+            "totals": {
+              "C_confirmed": 2,
+              "H": 2,
+              "N_changed": 32,
+              "N_changed_B8_exact_survives_selected_exact": 32,
+              "N_changed_both_exact": 32,
+              "N_natural": 32,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          },
+          {
+            "margin_bins": [
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 0,
+                  "N_changed_B8_exact_survives_selected_exact": 0,
+                  "N_changed_both_exact": 0,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.0,
+                "upper": 0.01
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 3,
+                  "N_changed_B8_exact_survives_selected_exact": 3,
+                  "N_changed_both_exact": 3,
+                  "N_natural": 3,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.01,
+                "upper": 0.1
+              },
+              {
+                "counts": {
+                  "C_confirmed": 2,
+                  "H": 2,
+                  "N_changed": 27,
+                  "N_changed_B8_exact_survives_selected_exact": 27,
+                  "N_changed_both_exact": 27,
+                  "N_natural": 27,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "counts": {
+                  "C_confirmed": 0,
+                  "H": 0,
+                  "N_changed": 15,
+                  "N_changed_B8_exact_survives_selected_exact": 15,
+                  "N_changed_both_exact": 15,
+                  "N_natural": 15,
+                  "U_B8_only": 0,
+                  "U_both": 0,
+                  "U_selected_only": 0,
+                  "U_unknown": 0
+                },
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "parent_world": "d256-mac-watch6-095",
+            "totals": {
+              "C_confirmed": 2,
+              "H": 2,
+              "N_changed": 45,
+              "N_changed_B8_exact_survives_selected_exact": 45,
+              "N_changed_both_exact": 45,
+              "N_natural": 48,
+              "U_B8_only": 0,
+              "U_both": 0,
+              "U_selected_only": 0,
+              "U_unknown": 0
+            }
+          }
+        ],
+        "totals": {
+          "C_confirmed": 19,
+          "H": 19,
+          "N_changed": 541,
+          "N_changed_B8_exact_survives_selected_exact": 541,
+          "N_changed_both_exact": 541,
+          "N_natural": 560,
+          "U_B8_only": 0,
+          "U_both": 0,
+          "U_selected_only": 0,
+          "U_unknown": 0
+        }
+      }
+    ],
+    "harm_definition": "changed served action AND (selected exact death with B8 exact survival OR either selected/B8 outcome nonexact)",
+    "margin_definition": "abs(candidate_Q[selected]-candidate_Q[B8_action])"
+  },
+  "confirmatory_efficacy_claim": false,
+  "created_at_utc": "2026-10-26T03:28:44.524219+00:00",
+  "decision": "SELECT_W",
+  "draft_sha256": "6aeda9e66fbe67da41e0abf3549880a16f33bd52b448964b933234bbfb94f34d",
+  "f4_disposition": "STOP_FUNDING",
+  "interpretation": "EXPLORATORY_SCREENING",
+  "job_id": "f4-postmortem-harm-20261025-01",
+  "judge": "Astra, independent F5 judge",
+  "limitations": {
+    "all_29_parents_and_descendants": "Development forever; excluded from successor validation and from F5 fitting under adopted R2.",
+    "optimizer_adequacy": "Not independently inspected in this turn; no R30 outcome opened or adequacy claim made. Frozen Adam unchanged.",
+    "unresolved_historical_overlap_risk_accepted_for": [
+      "treatment-minus-control",
+      "treatment-minus-B8",
+      "treatment-versus-B8-product"
+    ]
+  },
+  "next_sol_build": {
+    "build_scope": "Selected W loss/one-difference adapter, matched-control path, immutable batch-plan and full-state resume/unit accounting, frozen stage analyzers and oracle tests, source closure, sealed timing/feasibility and packet preparation. No alternate arm, coefficient sweep, new data top-up, coverage completion or optimizer change.",
+    "common": "Frozen B8 plus zero Linear(256,6) residual on F4 b8_features; fuse_residual; original labels and eligible deduplicated selected-960 corpus/exclusions; KL=1, growth=1, L2=1e-4; Adam fp32 lr=.001, seed 3403, exactly 2000 updates of 128 doom+128 ordinary; one shared 512000-row plan under bound CPU Torch generator; common amended environment and deterministic settings; C then T on same runtime; one final checkpoint each.",
+    "control": "New matched F4-recipe fit C, not old D1024 checkpoint; all survival-pair weights 1.",
+    "precondition": "Operator publishes this receipt and sidecar; verify publication before F5-specific implementation.",
+    "review_gates": [
+      "Synthetic actual-adapter parity against frozen decision oracle including exact/nextafter boundaries, all labels and reason sets, survival operating-characteristic suite; served masks/ties, exact eligibility, weighting denominator, ordinary-only condition, zero residual/fused export fidelity and unchanged control losses.",
+      "Independently review and accept one-difference machine record, source/recipe/environment identities, original corpus eligibility/exclusions and sealed common batch plan with lossless RNG states before either fit.",
+      "Current-source sealed disjoint timing/parity qualification and complete forecasts within frozen stage allowances; capture actual common hardware/build identities; transfer <=150s and staging <=300s; source-native canary and independent packet acceptance; failed feasibility means HOLD.",
+      "Offline-test immutable units, hashes/completion-last, verified-ledger skipping, duplicate/foreign refusal and full-state resume. Stage claims and prerequisite decisions before each scientific stage; no automatic retries.",
+      "S1 paired final fits -> S2 one joint offline harm/retention and fixed drift look; either control or treatment fit drift kills matched study; T harm must be zero and retention >=.70 and >=C -> S3 fixed H5000 T/C/B8 -> conditional S4 Watch6 T/B8 -> exploratory GO only. Later independently audited genuinely fresh Mac strict gate and serving qualification, then owner release approval."
+    ],
+    "treatment": "W: multiply survival-pair weight by 4 only on ordinary rows where B8 served action is an EXACT survivor, the survivor in that pair is that B8 action, and the paired alternative is an EXACT dier. All other survival pairs weight 1. Divide by original eligible-pair count, not sum of weights."
+  },
+  "ordering": {
+    "adopted_at_utc": "2026-10-26T03:19:11.997098+00:00",
+    "aggregate_verification_and_read_completed_at_utc": "2026-10-26T03:28:44.524208+00:00",
+    "diagnostic_completed_at_utc": "2026-10-26T03:24:43.518012+00:00",
+    "diagnostic_started_at_utc": "2026-10-26T03:24:35.308784+00:00",
+    "first_aggregate_read_exact_timestamp": null,
+    "first_read_note": "Read published aggregate in this turn after owner supplied publication authorization; no retrospective exact timestamp invented.",
+    "operator_must_publish_before_any_f5_specific_work": true,
+    "selection_publication_status": "ISSUED_LOCALLY_NOT_GIT_PUBLISHED"
+  },
+  "postmortem_bindings": {
+    "claim.json": {
+      "repository_path": "research/bl_residual/ledger/F4_POSTMORTEM_20261025/claim.json",
+      "sha256": "2701318ca721fc2a58b95ee90cdcba36e118e10e27d411d94540687e56015847",
+      "size": 810
+    },
+    "development-parents.json": {
+      "repository_path": "research/bl_residual/ledger/F4_POSTMORTEM_20261025/development-parents.json",
+      "sha256": "81ab3ce899a9fc764c7de5fd5b309c93f2c6f4e549a854058ecae4a041c52ab5",
+      "size": 1680
+    },
+    "diagnostic.json": {
+      "repository_path": "research/bl_residual/ledger/F4_POSTMORTEM_20261025/diagnostic.json",
+      "sha256": "b015c03e529292da34312e4c020c7bad4c746996cc320f1ac1064e5e0af9f79f",
+      "size": 88614
+    },
+    "plan.json": {
+      "repository_path": "research/bl_residual/ledger/F4_POSTMORTEM_20261025/plan.json",
+      "sha256": "30747e0f6111682d4c7af4ed6ab82f71395c87c7bf8c4d6b78bd1d6682a414e7",
+      "size": 15132
+    },
+    "result-binding.json": {
+      "repository_path": "research/bl_residual/ledger/F4_POSTMORTEM_20261025/result-binding.json",
+      "sha256": "7b4b64c7b76f4ac99eb21d4f38df379c3d41e204a79c56daca18b4396c56b4c8",
+      "size": 708
+    }
+  },
+  "postmortem_publication_commit": "f4a7d8dcf67cdc26cdb233ad7f3e65c12e14a592",
+  "publication_evidence": {
+    "adoption_is_ancestor_of_postmortem_publication": true,
+    "exact_historical_remote_publication_timestamp": null,
+    "live_remote_main": "f4a7d8dcf67cdc26cdb233ad7f3e65c12e14a592\trefs/heads/main",
+    "live_remote_observed_at_utc": "2026-10-26T03:28:44.523368+00:00",
+    "owner_attests_postmortem_publication_before_inspection": true,
+    "timestamp_note": "Git commit time is not treated as remote publication time. Owner supplies prior ordering; live read-only ls-remote confirms publication. Local main is at adoption commit; origin/main and remote main are at postmortem publication."
+  },
+  "reference_bindings": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_DRAFT_PREDATA_REGISTRATION_20261025_v2.md": "6aeda9e66fbe67da41e0abf3549880a16f33bd52b448964b933234bbfb94f34d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/JUDGMENT_F4_POSTMORTEM_EXCEPTION_20261025.md": "8c4480a5e80f63ec500abd7baa6062adc757866937ce560291cbbaab68b5eeec",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/JUDGMENT_F5_ADOPTION_REMAINING_20261026T015527Z.md": "e74e8f32cd1312da9949902a0376f4ed77724966bb6c9377b801596aeff276cb",
+    "/Users/josenunez/Projects/ml/snake-dqn/research/bl_residual/f5_adoption_environment_20261026_v6/F5_BATCH_PLAN_ORDERING_ERRATUM_20261026.md": "6696d70224afc307502fc7585d52c77db65ebdffb1e45cf7cd728256b110e62d",
+    "/Users/josenunez/Projects/ml/snake-dqn/research/bl_residual/f5_adoption_environment_20261026_v6/F5_COMMON_ENVIRONMENT_RNG_AMENDMENT_20261026.md": "20df1c5ec2a80d2f81ce4711c8bbb163814c181a0fe3de29573042465ef28064"
+  },
+  "registration_bindings": {
+    "F5_ADOPTION_RECORD_20261025.json": {
+      "repository_path": "research/bl_residual/ledger/F5_REGISTRATION_20261025/F5_ADOPTION_RECORD_20261025.json",
+      "sha256": "d36c407524b662c25449c36a637cd8b6d37494f6c21a062036763a6d4f169130"
+    },
+    "F5_EXPLORATORY_SCREENING_AMENDMENT_20261025.md": {
+      "repository_path": "research/bl_residual/ledger/F5_REGISTRATION_20261025/F5_EXPLORATORY_SCREENING_AMENDMENT_20261025.md",
+      "sha256": "9b2ad9e7507d73dc34a971dfaa43eb360f5bbd215f4697459c4abecd6fbd43f9"
+    },
+    "F5_REGISTRATION_ADOPTED_20261025.md": {
+      "repository_path": "research/bl_residual/ledger/F5_REGISTRATION_20261025/F5_REGISTRATION_ADOPTED_20261025.md",
+      "sha256": "4e218263f169334415968f02eb2d767e1ff136dfc3ccf470090dd474b31dd6a8"
+    }
+  },
+  "registration_publication_commit": "1e968236c23fc908623ddb7b2ea63723e4854186",
+  "release_authorized": false,
+  "schema": "f5-selection-receipt/v1",
+  "selected_id": "W",
+  "selector": {
+    "C_confirmed": 19,
+    "C_low": 1,
+    "H": 19,
+    "U_scan": 0,
+    "U_scan_source": "hash-verified JUDGMENT_F5_ADOPTION_REMAINING; not inferred from diagnostic",
+    "U_unknown": 0,
+    "comparison": "H=19>0; U=0<C=19; 2*C_low=2<C=19 -> W",
+    "cov_zero_scan_rule": "If COV selected and U_scan=0, HOLD_NO_TARGET; no fallback. Not reached.",
+    "descriptive_values_do_not_select": [
+      "D256",
+      "parent concentration",
+      "unknown subtypes",
+      "other margin bins"
+    ],
+    "dose": 1024
+  },
+  "source_commit": "69b14c95e4a7943853f28cc42c750a3e0277bdd6",
+  "verification": {
+    "checks": [
+      "all five published SHA sidecars and completion markers",
+      "bundle sizes and SHA identities",
+      "claim-plan-manifest and implementation-ruling links",
+      "every source hash against pinned implementation git objects",
+      "input metadata equality with frozen plan and hashes in exception ruling; no payload reads",
+      "both original checkpoint identities",
+      "all count partitions, denominators, bin/parent sums and exact census",
+      "adoption byte hashes and incorporated governing references",
+      "live remote main and adoption ancestry"
+    ],
+    "original_f4_postmortem_result_verify": "VERIFIED_COMPLETE per owner; not rerun to avoid opening payload paths",
+    "result": "VERIFIED_COMPLETE_AGGREGATE_AND_BINDINGS"
+  }
+}
