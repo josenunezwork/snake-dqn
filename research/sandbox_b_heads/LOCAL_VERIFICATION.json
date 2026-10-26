@@ -1,0 +1,51 @@
+{
+  "schema": "sandbox-b-local-verification/v1",
+  "checked_head": "ae5ecac763614061006c5d6a5fd6cd10ce8d688a",
+  "runtime_pin": "4eaf9c0c8d3b42931824b29348e1ad079631041e",
+  "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "manifest_sha256": "c3ce74c565edb4d929b8cce7ea0470888823aed27a39a54cf1b6934ecc73eb34",
+  "sandbox_manifest_sha256": "2c63c4af21378a76fff34516ad4f4a1ca3cc56a4d8c6c844b95220c09fc9e8ed",
+  "registry_sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+  "manifest_physical_lines": 10,
+  "focused_tests": {
+    "command": "env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -p no:xdist tools/sandbox/tests research/sandbox_b_heads/tests",
+    "passed": 31,
+    "final_preflight_test_seconds": 2.17
+  },
+  "preflight_command": "./venv/bin/python -m tools.sandbox.preflight research/sandbox_b_heads/sandbox-manifest.json",
+  "preflight_stdout": "PREFLIGHT PASS: schema, registry, committed manifest, qualified transport, focused tests",
+  "dry_run_stdout": "PASS_DRY_RUN sandbox-b-heads-v1-01 allocations=0 live_accounting=NOT_CHECKED",
+  "clean_import": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/clean-import-4eaf.json",
+    "sha256": "98f3d44b90c734e5d3b1ee04251f837f85145bd158028bc1f480d2ac284369b4",
+    "status": "PASS",
+    "python": "3.12.15",
+    "roots": 3,
+    "import_statements": 58,
+    "local_modules": 21,
+    "system_site_packages": false,
+    "user_site": false
+  },
+  "static_checks": {
+    "black": "PASS --check --workers 1 --line-length 100 tools/sandbox research/sandbox_b_heads",
+    "isort": "PASS --check-only --profile black tools/sandbox research/sandbox_b_heads",
+    "flake8": "PASS --jobs 1 tools/sandbox research/sandbox_b_heads",
+    "bash_syntax": "PASS research/sandbox_b_heads/run_job.sh",
+    "diff_check": "PASS"
+  },
+  "independent_review": {
+    "focused_tests_passed": 30,
+    "partial_fresh_runtime_resume": "2 restored + 58 fitted; all 60 result rows/checkpoints matched; original runtime removed"
+  },
+  "execution": {
+    "mode": "entire sweep once through native instrumented probe; no separate prerequisite timing job",
+    "provider_calls": 0,
+    "allocations": 0,
+    "a100_executed": false,
+    "live_accounting_checked": false,
+    "output_path_fresh": true
+  },
+  "estimate_minutes": 10.35,
+  "timeout_minutes": 20.7,
+  "input_bytes": 42230229
+}
