@@ -1,0 +1,11 @@
+{
+  "manifest_sha256": "6ddb12b3cdfe642d9031150cb0ffaab8bc5e9de3ee0380bb034342c29d19e34c",
+  "required_exports": [
+    "qualification/qualification.json",
+    "resume/verified-skip-proof.json",
+    "environment/before.json",
+    "environment/after.json"
+  ],
+  "schema": "colab-cli-manifest/v1",
+  "status": "PASS"
+}

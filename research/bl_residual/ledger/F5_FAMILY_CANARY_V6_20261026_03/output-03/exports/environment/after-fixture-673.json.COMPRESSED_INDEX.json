@@ -1,0 +1,10 @@
+{
+  "encoding": "gzip-concatenated-parts",
+  "parts": [
+    "output-03/exports/environment/after-fixture-673.json.gz.part-000",
+    "output-03/exports/environment/after-fixture-673.json.gz.part-001",
+    "output-03/exports/environment/after-fixture-673.json.gz.part-002"
+  ],
+  "sha256": "561971e14c6bf7cee1da3e435d3ad96ffc29b7d771fc2be14120105646725f3a",
+  "size": 13420032
+}

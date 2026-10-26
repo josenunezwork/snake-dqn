@@ -1,0 +1,11 @@
+{
+  "elapsed_seconds": 7.1142002500128,
+  "sessions": {
+    "gpu-l4-s-ass1a1-hf18z4ny45n6": "snake-bl-f5-family-canary-7ddc7f78-20261026-03-65aceaeb6041"
+  },
+  "usage": {
+    "assignments": 1.0,
+    "balance": 1063.74,
+    "rate": 1.54
+  }
+}
