@@ -199,6 +199,7 @@ def run(
     surrogate cache below and it never returns model state, loss values, Q
     values, labels, or an acceptance artifact.
     """
+    started = time.monotonic()
     if not isinstance(fixture_sha256, str) or len(fixture_sha256) != 64:
         raise CalibrationRefusal("fixture digest is malformed")
     rows = _fixture_rows(fixture_rows, fixture_sha256)
@@ -321,4 +322,5 @@ def run(
         "state_export_timing": "HOLD_NOT_A_PRODUCER_EXPORT_MEASUREMENT",
         "fit_usable": False,
         "production_cache_feasibility": "HOLD_REQUIRES_ACTUAL_PLAN_AND_CACHE",
+        "elapsed_seconds": time.monotonic() - started,
     }

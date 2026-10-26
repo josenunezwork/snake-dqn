@@ -155,9 +155,7 @@ def build_plan(allocation: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "upload_workers": 2,
             "export_readers": 1,
             "max_call_seconds": 60,
-            # This plan is the separately scoped timing-recovery operation;
-            # generic broker admission still defaults to 150 seconds.
-            "transfer_seconds_inclusive": F5_TIMING_TRANSFER_SECONDS,
+            "transfer_seconds_inclusive": 150,
             "staging_seconds_inclusive": 300,
         },
         "stage_envelopes_hours": {
@@ -229,9 +227,23 @@ def validate_operational_proof(
         ("export_readers", 1),
     ):
         _require(transport.get(key) == expected, "transport configuration drift")
+    transfer_bound = 150
+    authority = transport.get("f5_timing_transfer_exception")
+    if authority is not None:
+        from research.colab_cli.transfer_policy import f5_timing_authority_binding
+
+        inventory_sha256 = (
+            authority.get("inventory_sha256") if isinstance(authority, Mapping) else None
+        )
+        _require(isinstance(inventory_sha256, str), "timing transfer authority malformed")
+        _require(
+            authority == f5_timing_authority_binding(inventory_sha256, "timing"),
+            "timing transfer authority drift",
+        )
+        transfer_bound = F5_TIMING_TRANSFER_SECONDS
     for key, bound in (
         ("max_call_seconds", 60),
-        ("transfer_seconds", F5_TIMING_TRANSFER_SECONDS),
+        ("transfer_seconds", transfer_bound),
         ("staging_seconds", 300),
     ):
         value = transport.get(key)

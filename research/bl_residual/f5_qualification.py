@@ -493,18 +493,16 @@ def run(
             ledger = inputs / "verified-ledger.json"
         if ledger.is_symlink() or not ledger.is_file():
             _refuse("full timing requires a hash-bound verified ledger")
+        sealed = f5_job._identity(control)
+        input_sha256 = control.get("timing_input_sha256")
+        if not isinstance(input_sha256, str) or len(input_sha256) != 64:
+            _refuse("full timing requires a sealed non-ledger input inventory digest")
         resume_binding = f5_timing_resume.identity(
             namespace="bl-residual-f5-timing-recovery-20261026",
-            allocation=f5_job._identity(control).allocation_sha256,
-            source_sha256=f5_job._identity(control).source_sha256,
-            environment_sha256=hashlib.sha256(
-                json.dumps(assignment, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest(),
-            input_sha256=hashlib.sha256(
-                json.dumps(
-                    control.get("input_hashes"), sort_keys=True, separators=(",", ":")
-                ).encode()
-            ).hexdigest(),
+            allocation=sealed.allocation_sha256,
+            source_sha256=sealed.source_sha256,
+            environment_sha256=sealed.environment_sha256,
+            input_sha256=input_sha256,
         )
         try:
             verified_units = f5_timing_resume.load_ledger(ledger, resume_binding)
@@ -512,12 +510,14 @@ def run(
             _refuse(str(exc))
     samples: list[dict[str, Any]] = []
     started = time.monotonic()
-    active_rows = rows[:1] if canary_tiny_workload else rows
+    # The canary uses two tiny units: a preverified one exercises the scanner
+    # skip path and the following missing unit exercises the real producer.
+    active_rows = rows[:2] if canary_tiny_workload else rows
     for completed, row in enumerate(active_rows):
         key = int(row["allocation_index"])
         if key in verified_units:
-            payload = verified_units[key].get("payload")
-            if not isinstance(payload, dict) or payload.get("allocation_index") != key:
+            payload = verified_units[key]
+            if payload.get("allocation_index") != key:
                 _refuse("verified fixture record differs from allocation")
             samples.append(payload)
             continue
@@ -558,10 +558,14 @@ def run(
             **timing,
         }
         samples.append(sample)
-        if resume_binding is not None and not canary_tiny_workload:
+        if resume_binding is not None:
             from research.bl_residual import f5_timing_resume
 
-            completed_units.append(f5_timing_resume.publish_unit(root, resume_binding, key, sample))
+            completed_units.append(
+                f5_timing_resume.publish_unit(
+                    root, resume_binding, key, sample, canary_only=canary_tiny_workload
+                )
+            )
         if progress is not None:
             progress.phase("fixture-complete", completed=completed + 1)
     calibration = None
@@ -571,9 +575,7 @@ def run(
 
         existing = verified_units.get(f5_timing_resume.CALIBRATION_KEY)
         if existing is not None:
-            calibration = existing.get("payload")
-            if not isinstance(calibration, dict):
-                _refuse("verified coupled calibration record differs")
+            calibration = existing
         else:
             if progress is not None:
                 progress.phase("calibration-source")
@@ -636,22 +638,9 @@ def run(
         # a ledger or the 13-unit reducer.
         from research.bl_residual import f5_timing_resume
 
-        canary_binding = f5_timing_resume.identity(
-            namespace="bl-residual-f5-timing-recovery-20261026",
-            allocation=f5_job._identity(control).allocation_sha256,
-            source_sha256=f5_job._identity(control).source_sha256,
-            environment_sha256=hashlib.sha256(
-                json.dumps(assignment, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest(),
-            input_sha256=hashlib.sha256(
-                json.dumps(
-                    control.get("input_hashes"), sort_keys=True, separators=(",", ":")
-                ).encode()
-            ).hexdigest(),
-        )
-        report["canary_only"] = f5_timing_resume.publish_canary_record(
-            root, canary_binding, exercised_keys=[int(active_rows[0]["allocation_index"])]
-        )
+        if not completed_units:
+            _refuse("tiny canary must execute a missing producer unit")
+        report["canary_only"] = completed_units
     receipt_dir.mkdir(parents=True)
     export_json(receipt_dir / "qualification.json", report)
     return report

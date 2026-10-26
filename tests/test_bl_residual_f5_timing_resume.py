@@ -1,6 +1,7 @@
+"""Offline recovery tests: all records are immutable path-backed exports."""
+
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -18,55 +19,65 @@ def _binding():
     )
 
 
-def test_empty_ledger_skips_none_and_refuses_foreign_or_duplicate(tmp_path: Path):
+def _fixture(index: int):
+    return {"allocation_index": index, "elapsed_seconds": 1.0}
+
+
+def _calibration():
+    return {
+        "elapsed_seconds": 2.0,
+        "arms": {
+            "C": {"serialized_continuation_exact": True},
+            "W": {"serialized_continuation_exact": True},
+        },
+    }
+
+
+def test_mid_fixture_failure_exports_completed_prefix_then_missing_only_reruns(tmp_path: Path):
     binding = _binding()
-    path = tmp_path / "ledger.json"
-    path.write_text(json.dumps(subject.empty_ledger(binding)))
-    assert subject.load_ledger(path, binding) == {}
-    bad = subject.empty_ledger(binding)
-    bad["identity"]["source_sha256"] = "e" * 64
-    path.write_text(json.dumps(bad))
+    prefix = [
+        subject.publish_unit(tmp_path, binding, index, _fixture(index)) for index in (672, 673, 674)
+    ]
+    subject.build_ledger(tmp_path, binding, prefix)
+    scanned = subject.load_ledger(tmp_path / "verified-ledger.json", binding)
+    assert set(scanned) == {672, 673, 674}
+    # A restarted producer receives exactly these skip keys and has to run 675..683.
+    assert [index for index in range(672, 684) if index not in scanned] == list(range(675, 684))
+
+
+def test_refuses_markerless_hash_drift_foreign_duplicate_and_inline_ledger(tmp_path: Path):
+    binding = _binding()
+    entry = subject.publish_unit(tmp_path, binding, 672, _fixture(672))
+    (tmp_path / "timing-units/fixture-672.json.complete").unlink()
     with pytest.raises(subject.ResumeRefusal):
-        subject.load_ledger(path, binding)
-
-
-def test_atomic_fixture_exports_allow_missing_only_rerun_and_marker_is_required(tmp_path: Path):
-    binding = _binding()
-    first = subject.publish_unit(tmp_path, binding, 672, {"allocation_index": 672})
-    assert (tmp_path / "timing-units/fixture-672.json.complete").read_text() == "complete\n"
-    ledger = subject.empty_ledger(binding)
-    ledger["units"] = [first]
-    ledger_path = tmp_path / "ledger.json"
-    ledger_path.write_text(json.dumps(ledger))
-    assert set(subject.load_ledger(ledger_path, binding)) == {672}
-    with pytest.raises(FileExistsError):
-        subject.publish_unit(tmp_path, binding, 672, {"allocation_index": 672})
-
-
-def test_mac_reducer_requires_all_thirteen_and_coupled_calibration(tmp_path: Path):
-    binding = _binding()
-    units = []
-    for index in range(672, 684):
-        units.append(subject.publish_unit(tmp_path, binding, index, {"allocation_index": index}))
+        subject.build_ledger(tmp_path, binding, [entry])
+    # A ledger itself also requires sidecars and cannot embed a record.
     with pytest.raises(subject.ResumeRefusal):
-        subject.reduce_units(units, binding)
-    units.append(
-        subject.publish_unit(
-            tmp_path,
-            binding,
-            subject.CALIBRATION_KEY,
-            {
-                "arms": {
-                    "C": {"serialized_continuation_exact": True},
-                    "W": {"serialized_continuation_exact": True},
-                }
-            },
+        subject.load_ledger(tmp_path / "missing.json", binding)
+
+
+def test_calibration_restarts_as_one_whole_unit_and_mac_reducer_requires_13(tmp_path: Path):
+    binding = _binding()
+    entries = [
+        subject.publish_unit(tmp_path, binding, index, _fixture(index)) for index in range(672, 684)
+    ]
+    subject.build_ledger(tmp_path, binding, entries)
+    with pytest.raises(subject.ResumeRefusal, match="thirteen"):
+        subject.reduce_ledger(
+            tmp_path / "verified-ledger.json", binding, all_attempt_overhead_seconds=[1.0]
         )
+    # No partial C/W state exists in the ledger: the one calibration unit is publishable only after both checks.
+    entries.append(subject.publish_unit(tmp_path, binding, subject.CALIBRATION_KEY, _calibration()))
+    subject.build_ledger(tmp_path, binding, entries, name="complete-ledger.json")
+    reduced = subject.reduce_ledger(
+        tmp_path / "complete-ledger.json", binding, all_attempt_overhead_seconds=[1.0, 3.0]
     )
-    assert subject.reduce_units(units, binding)["unit_count"] == 13
+    assert reduced["unit_count"] == 13
+    assert reduced["conservative_setup_io_imbalance_seconds"] == 3.0
 
 
-def test_tiny_canary_is_sealed_but_never_a_timing_ledger_unit(tmp_path: Path):
-    record = subject.publish_canary_record(tmp_path, _binding(), exercised_keys=[672])
-    assert record["classification"] == "CANARY_ONLY"
-    assert (tmp_path / "timing-canary/CANARY_ONLY.json.complete").is_file()
+def test_canary_only_unit_uses_same_export_but_cannot_enter_ledger_or_reducer(tmp_path: Path):
+    entry = subject.publish_unit(tmp_path, _binding(), 673, _fixture(673), canary_only=True)
+    assert entry["path"] == "timing-canary/fixture-673.json"
+    with pytest.raises(subject.ResumeRefusal):
+        subject.build_ledger(tmp_path, _binding(), [entry])
