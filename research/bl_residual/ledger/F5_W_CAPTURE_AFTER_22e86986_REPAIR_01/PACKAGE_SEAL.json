@@ -1,0 +1,92 @@
+{
+  "allocations": 0,
+  "created_utc": "2026-10-26T05:48:27.185329+00:00",
+  "dispatches": 0,
+  "files": {
+    "DISPATCH.txt": {
+      "sha256": "fb8c60c192215a1d297ca909f193a4d6cae766a7ff6cc7698e8286def986d867",
+      "size": 2892
+    },
+    "DISPATCH.txt.sha256": {
+      "sha256": "db75cbc944d58974beca8faed243b2905ac9ae8f20ea6212e877b0f2357193b2",
+      "size": 79
+    },
+    "accounting.json": {
+      "sha256": "e4c028c6a37bfff6dfdc275af2cc7c0a51e84eb7d4b5f11b047f349a06e5c035",
+      "size": 4168
+    },
+    "accounting.json.sha256": {
+      "sha256": "f4ea7ad6b726475ed844fd16d1cf960024dc916f958a47b80e95f8ba93bfe59c",
+      "size": 82
+    },
+    "bindings.json": {
+      "sha256": "366a53816c3eb10bbad6bd056c1e9b1ecad6d6170f52acfc3b385116cdb8bb47",
+      "size": 2615
+    },
+    "bindings.json.sha256": {
+      "sha256": "f748e515b0d53bb316f8204a9f4228439990d295b72654ccb1b5fa18e3506571",
+      "size": 80
+    },
+    "broker-validation.json": {
+      "sha256": "ab6358809e60e1e26af1a5a0ff595b78f1e82bdb8fdc04306bfdd5f0811623d4",
+      "size": 16731
+    },
+    "broker-validation.json.sha256": {
+      "sha256": "97d39bf70a6aaea7056bebd1bfae10d17b7e246431ac41004e8889cb097a08b4",
+      "size": 89
+    },
+    "cumulative-envelope.json": {
+      "sha256": "b6effe05b70c9d42a556beafa77c16c8fb9d58b68ea6d62f03bcaf7170f32c46",
+      "size": 4435
+    },
+    "cumulative-envelope.json.sha256": {
+      "sha256": "528f20728d61fa31b39d47b30cf2d5a6039e4d38e58c2f504822616e656f0fbc",
+      "size": 91
+    },
+    "dispatch-dry-run.json": {
+      "sha256": "c6ad3f76eb3e8d914cfd62e8946f598988fbb1ab7f20967ca8bce895f08e07e2",
+      "size": 869
+    },
+    "dispatch-dry-run.json.sha256": {
+      "sha256": "1faee5861112c682ba31c21c699a3703afa9a041908187492ce149de9778592b",
+      "size": 88
+    },
+    "environment-capture.json": {
+      "sha256": "c5b607287a430cec94d1af697c259515e32a43020419d034c24812e63baa81d0",
+      "size": 15188
+    },
+    "environment-capture.json.sha256": {
+      "sha256": "302081ce9b337fbd73e7554d226503e217fa76884077aeab91c5b1afe7c82c8c",
+      "size": 91
+    },
+    "live-account-preflight.json": {
+      "sha256": "4f952afe00dea6d76c9eeb03c17747bb3281ab57e7f79f80b9e208a3e6b43268",
+      "size": 2612
+    },
+    "live-account-preflight.json.sha256": {
+      "sha256": "d96e1a362acecaa5d34c11711ada6caeca26b4e7226ca4c52803dddf8a8a3dcb",
+      "size": 94
+    },
+    "source-preflight.json": {
+      "sha256": "9c9da93227d2873aaee21ecd39f7e044e5ca665288c5f58a008f544b3eee8502",
+      "size": 35721
+    },
+    "source-preflight.json.sha256": {
+      "sha256": "34179ccf2dbdd82aa37f792ce96af9bbb73e78f8b607bb5ae98b60033e023bc9",
+      "size": 88
+    },
+    "verification.json": {
+      "sha256": "2444913e2b749922c354e7b203236e2628f0d085b991b711f9566629d0c452fa",
+      "size": 3966
+    },
+    "verification.json.sha256": {
+      "sha256": "af3cbed0cdd8d72067e88c2158cc385f65a26f51aac5b1343eb7d1e24e96295e",
+      "size": 84
+    }
+  },
+  "package_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01",
+  "publication_ledger": "research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01",
+  "schema": "bl-f5-operational-package-seal/v1",
+  "scientific_fits": 0,
+  "status": "SEALED_CAPTURE_TRANSPORT_ONLY"
+}

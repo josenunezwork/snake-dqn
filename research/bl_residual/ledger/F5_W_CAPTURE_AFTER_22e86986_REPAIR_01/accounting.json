@@ -1,0 +1,126 @@
+{
+  "accounted_assignments": {
+    "assignments": [],
+    "baseline_balance_units": 1067.2,
+    "baseline_rate_units_per_hour": 0.0,
+    "declared_other_rate_units_per_hour": 0,
+    "unaccounted_endpoints": []
+  },
+  "active_records": [],
+  "admission": "PASS",
+  "allocation_calls": 0,
+  "balance_admission": {
+    "balance_units": 1067.2,
+    "required_units": 0.6,
+    "status": "PASS"
+  },
+  "base_reserve_units": 0.05,
+  "base_unit_guard": 0.25,
+  "broker_calls": [
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.7160547089297324,
+      "ended_monotonic": 691925.755579958,
+      "operation": "control",
+      "started_monotonic": 691925.039538791,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999745795503
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.4034530840581283,
+      "ended_monotonic": 691926.159184333,
+      "operation": "control",
+      "started_monotonic": 691925.755737791,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999629205558
+    }
+  ],
+  "budget": {
+    "other_assignments": {},
+    "rate_units_per_hour": 2.0,
+    "reserve_units": 0.1,
+    "unit_cap": 0.5
+  },
+  "dispatch_account_refresh_required": true,
+  "effective_reserve_units": 0.1,
+  "effective_unit_guard": 0.5,
+  "finished_utc": "2026-10-26T05:46:42.680550+00:00",
+  "method": "research.colab_cli.supervisor.CLI.usage/sessions + research.colab_cli.accounting.admit_account",
+  "pricing": {
+    "calibration": {
+      "observed_rate_units_per_hour": 1.54,
+      "priced_rate_units_per_hour": 2.0,
+      "samples": [
+        {
+          "elapsed_seconds": 1.069017916917801,
+          "sessions": {
+            "gpu-l4-s-kkb-usw4c0-2f82gj2yok5wu": "snake-acceptance-1792902941-l4-549fd28ad230"
+          },
+          "usage": {
+            "assignments": 1.0,
+            "balance": 1068.77,
+            "rate": 1.54
+          }
+        },
+        {
+          "elapsed_seconds": 7.165924625005573,
+          "sessions": {
+            "gpu-l4-s-kkb-usw4c0-2f82gj2yok5wu": "snake-acceptance-1792902941-l4-549fd28ad230"
+          },
+          "usage": {
+            "assignments": 1.0,
+            "balance": 1068.77,
+            "rate": 1.54
+          }
+        },
+        {
+          "elapsed_seconds": 13.45120033400599,
+          "sessions": {
+            "gpu-l4-s-kkb-usw4c0-2f82gj2yok5wu": "snake-acceptance-1792902941-l4-549fd28ad230"
+          },
+          "usage": {
+            "assignments": 1.0,
+            "balance": 1068.77,
+            "rate": 1.54
+          }
+        }
+      ],
+      "status": "PASS"
+    },
+    "fresh_L4_rate_measurement": false,
+    "note": "Current broker-registered L4 price verified against registry-linked calibration. No L4 allocated. Broker recalibrates actual assignment before execution.",
+    "qualification_registry": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json",
+      "sha256": "579e9638c23692352a5f0c0467a9abbe093cc820cc45cd52ec4f77900dbdd5bb",
+      "size": 521
+    },
+    "qualified_acceptance_result": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/transfer-exception-20261024-01/acceptance-plan/requalify-cev8fihv/acceptance-1792902941/acceptance-result.json",
+      "sha256": "239e04d77a91b4e59b22c10d9c7d990c23432abaa07447f56237b178bac3e2fa",
+      "size": 28407
+    },
+    "registered_L4_rate_units_per_hour": 1.54,
+    "registered_price_source": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.py",
+      "sha256": "4148c663a3451b90ffab76bd368cbb121a6fa64f493ad4cc2ee80ea30f77544e",
+      "size": 56557
+    },
+    "technical_rate_ceiling_units_per_hour": 2.0
+  },
+  "runtime_calls": 0,
+  "schema": "bl-f5-capture-operational-accounting/v1",
+  "scope": "Technical runaway guards only; no scientific unit ceiling; base guard and reserve doubled before data.",
+  "sessions": {},
+  "started_utc": "2026-10-26T05:46:41.560560+00:00",
+  "unresolved_allocations": [],
+  "usage": {
+    "assignments": 0.0,
+    "balance": 1067.2,
+    "rate": 0.0
+  }
+}

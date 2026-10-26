@@ -1,0 +1,1025 @@
+{
+  "allocations": 0,
+  "archive_size": 924006,
+  "commit": "5546b6d38b02a4d05d608c3f126f5cc03ef36814",
+  "manifest_sha256": "c5b607287a430cec94d1af697c259515e32a43020419d034c24812e63baa81d0",
+  "method": "research.colab_cli.source.prepare",
+  "required_exports": [
+    "environment.json",
+    "qualification/qualification.json",
+    "paired/assignment-environment.json",
+    "paired/fit-receipt.json",
+    "paired/fit-C.pth",
+    "paired/fit-W.pth",
+    "paired/f5-state-C.pt",
+    "paired/f5-state-W.pt"
+  ],
+  "schema": "bl-f5-source-preflight/v1",
+  "source_archive_retained": false,
+  "source_file_count": 200,
+  "source_files": {
+    "configs/default.yaml": {
+      "mode": "0644",
+      "sha256": "d3c254eced9023b1820100c29a55fa8559f86dac593ce7c34876c4a3c6c1b1a1",
+      "size": 6638
+    },
+    "configs/diag_arm_a.yaml": {
+      "mode": "0644",
+      "sha256": "42ce5e6e2571ccec1944f8e97b99b561f5fe98c480f2b2b3dcfed8b14a2bdf05",
+      "size": 1357
+    },
+    "configs/diag_arm_b.yaml": {
+      "mode": "0644",
+      "sha256": "fa8d0475b693f4b667cd387e26d6fccbb6898f1cfbfb561247ff1965322f9a82",
+      "size": 1414
+    },
+    "configs/diag_arm_c.yaml": {
+      "mode": "0644",
+      "sha256": "60cb1d8aced19bc76ce93ce8989f86994df775ac059b943b164c7ddd972e9671",
+      "size": 1199
+    },
+    "configs/eval_free_space.yaml": {
+      "mode": "0644",
+      "sha256": "78ee6d13fc67bf1c25a40f450b1f7ef992697ad4a03d6f3d70d12e19610befcb",
+      "size": 328
+    },
+    "configs/free_space_v2.yaml": {
+      "mode": "0644",
+      "sha256": "41c590461b3179ddbf9ce0ed7fdfb754fc84b188c38790077b7e1cd159335624",
+      "size": 1557
+    },
+    "configs/mechanics_v2.yaml": {
+      "mode": "0644",
+      "sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+      "size": 1686
+    },
+    "configs/production.yaml": {
+      "mode": "0644",
+      "sha256": "18adb20d19d428c16ac563a6c1e41f70b36b0cb32c538d9202bbfec6b6e2e4db",
+      "size": 610
+    },
+    "configs/promotion_mechanics_v2.yaml": {
+      "mode": "0644",
+      "sha256": "2acc555a7b99e7c1a241d96f2bdacee4054e793823e3f15c73989d637ff178eb",
+      "size": 678
+    },
+    "configs/training_fast.yaml": {
+      "mode": "0644",
+      "sha256": "72bcf53ff182944ba2adece79352fe2eafbe7cbe78a3afeeae8a3e6329c4d016",
+      "size": 729
+    },
+    "pyproject.toml": {
+      "mode": "0644",
+      "sha256": "e4f1a0471a12e638c2acc67719488abcbb94a74916ef870843c425c3501f710e",
+      "size": 2770
+    },
+    "requirements.txt": {
+      "mode": "0644",
+      "sha256": "5b53777a8e526b9d91a19cb129ae88ff36d62d418864f3222bb649a1c767e6c3",
+      "size": 852
+    },
+    "research/a100_a2/model.py": {
+      "mode": "0644",
+      "sha256": "ea257e88b9021d2075e7c9437c7f2d9fe8eb26f061fd17744eee4766e5ca65aa",
+      "size": 4644
+    },
+    "research/apex_safety_20260926/deployment.yaml": {
+      "mode": "0644",
+      "sha256": "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292c3eb71715aa5",
+      "size": 1860
+    },
+    "research/apex_safety_20260926/dev_screen.py": {
+      "mode": "0644",
+      "sha256": "50374f4f236ecac208f250eaacfc94d5142cce99b96989dae231744dd30211fe",
+      "size": 55223
+    },
+    "research/apex_veto_serving_20261001/__init__.py": {
+      "mode": "0644",
+      "sha256": "562ad5ef6db4262ebcbd3956451a487d355b3487217b0a7a80a90b385445303e",
+      "size": 81
+    },
+    "research/apex_veto_serving_20261001/serving_run.py": {
+      "mode": "0644",
+      "sha256": "fd229bdba600ecd278c64bb5170418bae9b002f0485afe73aff1a30e9058117c",
+      "size": 31442
+    },
+    "research/apex_veto_strict_20260927/__init__.py": {
+      "mode": "0644",
+      "sha256": "b786fbd72c87bbe218aebdef0883a3e7fbf0de01ffb21bca1ea147ff80307d90",
+      "size": 80
+    },
+    "research/apex_veto_strict_20260927/strict_run.py": {
+      "mode": "0644",
+      "sha256": "e14fd167f226cbd8706e650f289f4bbeeaeda4ff542ada475a1d340a543b3c6d",
+      "size": 89984
+    },
+    "research/b8_death_census_20261014/__init__.py": {
+      "mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "research/b8_death_census_20261014/census.py": {
+      "mode": "0644",
+      "sha256": "368d11a31da77424a1ec5a84b95cb1727161564b9e3d72e11f28b4422fad616a",
+      "size": 62596
+    },
+    "research/bl_k1/native.py": {
+      "mode": "0644",
+      "sha256": "4a7ae4f95a707e878e4a0472c21079ac0f8da3bc08f78609f289f0fbcd34371c",
+      "size": 5917
+    },
+    "research/bl_ppo/exports.py": {
+      "mode": "0644",
+      "sha256": "4ee586e5c7690f1e6d5d5523107b39567279f8d74a44ca845f6d20f5b6595647",
+      "size": 4305
+    },
+    "research/bl_residual/__init__.py": {
+      "mode": "0644",
+      "sha256": "090b8f982bb9cd4bd8a612fe99e5e65ac55b6755f1b60e36560d8199a7734a51",
+      "size": 78
+    },
+    "research/bl_residual/data.py": {
+      "mode": "0644",
+      "sha256": "7273c09302bce5c2e09bb8abe92424e70df2b142d83c0a33ec42c36b8026a980",
+      "size": 11296
+    },
+    "research/bl_residual/f5_adoption_environment_20261026_v6/f5-common-environment-v6.json": {
+      "mode": "0644",
+      "sha256": "bc05167c188680478663235f2b3dcfb70d7959e9d392071384409ef958b0f0f5",
+      "size": 10017
+    },
+    "research/bl_residual/f5_adoption_environment_20261026_v6/requirements-f5-l4-cu126.lock": {
+      "mode": "0644",
+      "sha256": "2577ed9dd9fe34468f5562262def7bccb352c9c0bdce06b293bb4b12a0ea5301",
+      "size": 129738
+    },
+    "research/bl_residual/f5_calibration.py": {
+      "mode": "0644",
+      "sha256": "05e1bdc810c9681ee7cec0a4ca33766d50b80821c593bc79fad64e816f93a0a4",
+      "size": 12272
+    },
+    "research/bl_residual/f5_calibration_schema_v1.json": {
+      "mode": "0644",
+      "sha256": "102c78435abcf49c57c6400b0a6983d07117766c84a09d3b19d28debd011f33c",
+      "size": 947
+    },
+    "research/bl_residual/f5_colab.sh": {
+      "mode": "0644",
+      "sha256": "448c037c4fbf2af95febfe278895d2c619660d2f07bfc1a8b1faf6794827ee03",
+      "size": 4292
+    },
+    "research/bl_residual/f5_data.py": {
+      "mode": "0644",
+      "sha256": "8cda84310ace854b1143239bb80711b86151a71327c53b4b345a71a248ee1f9f",
+      "size": 28362
+    },
+    "research/bl_residual/f5_environment.py": {
+      "mode": "0644",
+      "sha256": "d60e0f0a96303209c1b3a2bb13baa11c93e3524a2ec1d3697eba3d26434438b9",
+      "size": 43682
+    },
+    "research/bl_residual/f5_environment_schema_v2.json": {
+      "mode": "0644",
+      "sha256": "23053e65f20e7fd9f0d931fcb29b397377d6781886cea958bee686cb91ac9f1b",
+      "size": 18189
+    },
+    "research/bl_residual/f5_fit.py": {
+      "mode": "0644",
+      "sha256": "5559f96c83741bcb2e97025a30eed457ca86e3f5556edab7e11ff5ce50440460",
+      "size": 20148
+    },
+    "research/bl_residual/f5_job.py": {
+      "mode": "0644",
+      "sha256": "871c877c323645fb037bea136e31e61f8baad8641da4fa9d0c657ddd39233db8",
+      "size": 26318
+    },
+    "research/bl_residual/f5_package.py": {
+      "mode": "0644",
+      "sha256": "a5ec940bc872f9f8957eaf3d2cfcaa51d3782e843daff9fac86296e7ae6ebd57",
+      "size": 36813
+    },
+    "research/bl_residual/f5_protocol.py": {
+      "mode": "0644",
+      "sha256": "34ba9233feebbe81daac76a7d9753a67a037e5039919f4fb88287a3815eb5ccc",
+      "size": 8452
+    },
+    "research/bl_residual/f5_qualification.py": {
+      "mode": "0644",
+      "sha256": "8dee14d185efe40f09a62752a2cb01cd31f2595e10cd70daee1806faf1b381af",
+      "size": 23071
+    },
+    "research/bl_residual/f5_r10a_annex.py": {
+      "mode": "0644",
+      "sha256": "055cb66b5b7e270328c4ba67b83ff133a5ce9cb289d1857d2bfa9c361e0cc9ee",
+      "size": 30999
+    },
+    "research/bl_residual/f5_rules.py": {
+      "mode": "0644",
+      "sha256": "41491605f7cbac6a5971070c9b1580a0a137a66bcaabb945ba9a1ec0bca70174",
+      "size": 25248
+    },
+    "research/bl_residual/f5_timing.py": {
+      "mode": "0644",
+      "sha256": "a449048c99a840b16181ac2e6939834374474e7c8b6e898f78089d741852b983",
+      "size": 16010
+    },
+    "research/bl_residual/fit.py": {
+      "mode": "0644",
+      "sha256": "33558d90f43553c8dd54da2b1a5c0ceb7e9faa45d41e1757e7ec246c4c631ec9",
+      "size": 27792
+    },
+    "research/bl_residual/gameplay.py": {
+      "mode": "0644",
+      "sha256": "9f8e2c5ccf04024458a44a52eae0885df1ea5cef23b3ceee596e72ff1a56f4f4",
+      "size": 40520
+    },
+    "research/bl_residual/model.py": {
+      "mode": "0644",
+      "sha256": "e00d30e0fd2e752bcd634676a364e0750f316c9ab3fb47251edcd50d87f66c04",
+      "size": 2626
+    },
+    "research/bl_residual/protocol.py": {
+      "mode": "0644",
+      "sha256": "8052b6390f61169ff8f4dc4bca0ce116b5c1fcd64bdd0fbb676f4a4658d7dcd6",
+      "size": 5218
+    },
+    "research/bl_served_search/__init__.py": {
+      "mode": "0644",
+      "sha256": "0ac17f1dc856d0f472843ec2d104af45980c432b8251a5bc25061b4c33e80e05",
+      "size": 84
+    },
+    "research/bl_served_search/analyze.py": {
+      "mode": "0644",
+      "sha256": "2ba0ba2d32914c8cba8f83f83e0d3c958cc27c3ccfe4d98a3024b7f50872e81c",
+      "size": 32937
+    },
+    "research/bl_served_search/ceiling.py": {
+      "mode": "0644",
+      "sha256": "ddd51f5fdff4b2c976ffd95276ce7cb4e681da79e2660e023a7114b9ea072928",
+      "size": 38430
+    },
+    "research/bl_served_search/chunks.py": {
+      "mode": "0644",
+      "sha256": "94e4ad05ca7c1b6f730c404e58eb8986f347ffc505767f35b1b15cd9128fcafe",
+      "size": 3116
+    },
+    "research/bl_served_search/exact_stop.py": {
+      "mode": "0644",
+      "sha256": "ef07f450a6f9ed72093e73da83f70776dc2cee3108a988cae7270ca3305ba818",
+      "size": 2589
+    },
+    "research/bl_served_search/exports.py": {
+      "mode": "0644",
+      "sha256": "14cc77b48588560463f6add62e5e05a456261372cbe4bbb98dbd625b0db52da1",
+      "size": 228
+    },
+    "research/bl_served_search/mac_lease.py": {
+      "mode": "0644",
+      "sha256": "480130654354a0548a6758821311a1f681616b4fa77e9235ede6a991ca90ac1b",
+      "size": 5957
+    },
+    "research/colab_cli/__init__.py": {
+      "mode": "0644",
+      "sha256": "624677cd409539df23ec6c1f21ad999059fe779715ee5eab0183b7b2498851f1",
+      "size": 77
+    },
+    "research/colab_cli/acceptance.py": {
+      "mode": "0644",
+      "sha256": "e661956ea8abb46522d29cdaa809d0e7679213f233b0c9b11f635d6542a26cfc",
+      "size": 54558
+    },
+    "research/colab_cli/acceptance_faults.py": {
+      "mode": "0644",
+      "sha256": "c7796415189730f94fc9b9786c615699fd2d02a6bb2e0c6c48e6add85ff08fcb",
+      "size": 45853
+    },
+    "research/colab_cli/accounting.py": {
+      "mode": "0644",
+      "sha256": "0137488c4c7e1e3f8272782e3799741503e6c871e816d9d05950390b177de784",
+      "size": 27249
+    },
+    "research/colab_cli/admission.py": {
+      "mode": "0644",
+      "sha256": "e602c417ea859411e40efcf470b3116a17958eeb74e92f511f97ba53ba6019d6",
+      "size": 11117
+    },
+    "research/colab_cli/bootstrap.sh": {
+      "mode": "0755",
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+      "size": 3244
+    },
+    "research/colab_cli/canary.py": {
+      "mode": "0644",
+      "sha256": "a922697e0636ddb4fa08abc8dfca77995146ba9c97c58b8a66f3493b757b2b0a",
+      "size": 21272
+    },
+    "research/colab_cli/canary_observer.py": {
+      "mode": "0644",
+      "sha256": "8fdba23c889de4d2403161e98345b963b731eecb2f931439b7cd4d3de3b0ce64",
+      "size": 8319
+    },
+    "research/colab_cli/cli_guard.py": {
+      "mode": "0644",
+      "sha256": "f1a463ef6883f320992b23db116609d3582d86af3100a638e7a3a33c1e396dc7",
+      "size": 21119
+    },
+    "research/colab_cli/export_batches.py": {
+      "mode": "0644",
+      "sha256": "9f27d3bc5dde95b0b49dbcd4c2169b63e1546ad52902386d17d86974200a612d",
+      "size": 15420
+    },
+    "research/colab_cli/failures.py": {
+      "mode": "0644",
+      "sha256": "fd92efd5700669ab331f88c6fe478f181757d3f76776a8d76ef298e43e45843f",
+      "size": 3554
+    },
+    "research/colab_cli/inputs.py": {
+      "mode": "0644",
+      "sha256": "56cce4bd7a6c9487f52ac914c743f34051b5e818893c8e48ca0da9ff08f03ae1",
+      "size": 6418
+    },
+    "research/colab_cli/policy.py": {
+      "mode": "0644",
+      "sha256": "ef18e4c2a90f71ada62b638b8c7fd7f2493ef468b9b100a7b522e631b5b2c56b",
+      "size": 2658
+    },
+    "research/colab_cli/release.py": {
+      "mode": "0644",
+      "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+      "size": 14677
+    },
+    "research/colab_cli/runtime.py": {
+      "mode": "0644",
+      "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+      "size": 30712
+    },
+    "research/colab_cli/schema.py": {
+      "mode": "0644",
+      "sha256": "8be6acbdf24d37c5fe66565f5af95cf53b7ead69b8d33c2357fd04a0543053f7",
+      "size": 4760
+    },
+    "research/colab_cli/source.py": {
+      "mode": "0644",
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+      "size": 14511
+    },
+    "research/colab_cli/supervisor.py": {
+      "mode": "0644",
+      "sha256": "dfd4c2cc3c0c48ed68676b451798628254d30f1349e07e35576298a9ecb72243",
+      "size": 98710
+    },
+    "research/colab_cli/transfer_policy.py": {
+      "mode": "0644",
+      "sha256": "a745dba9ae15ff5e94fda466caffa01e93099f55f5d01cbf2d6737f69f60141b",
+      "size": 10440
+    },
+    "research/colab_cli/transfers.py": {
+      "mode": "0644",
+      "sha256": "4420a2ea861edcb6bb0a1d4e763aa994bce255f5dee9a2aaf3c2ff5ffbc81cf8",
+      "size": 24360
+    },
+    "research/compute/thermal_guard.py": {
+      "mode": "0644",
+      "sha256": "3b2eee6f510b07df33637f71a865d71946083308035d087f4ece1b40e5cb1c0f",
+      "size": 17263
+    },
+    "research/fixed_search.py": {
+      "mode": "0644",
+      "sha256": "a14ad6830457ccbb483d4d5363993767a2acc7a03ea6aae4b8bc09f82110b7cb",
+      "size": 4727
+    },
+    "research/mac_lease.py": {
+      "mode": "0644",
+      "sha256": "640c93b0c22e8bcd20a3ccd72d33c3a2fe61caf4bf82b1d834115bf0c43687ce",
+      "size": 8309
+    },
+    "research/phase0_search_20261019/bank.py": {
+      "mode": "0644",
+      "sha256": "c5f5e3056d9ad2f0960175ca45e0b49697f54f6e973c46660792d4b5979e65e5",
+      "size": 14799
+    },
+    "research/phase0_search_20261019/teacher.py": {
+      "mode": "0644",
+      "sha256": "10270e520ce096d967832fe2b8acc19eca1e6f66a746daae566d7a46bb7130e5",
+      "size": 25518
+    },
+    "research/published_ledger.py": {
+      "mode": "0644",
+      "sha256": "563625e3812c3db3c38c50f6c64a0326c41ea12bbbea096b45b2011f78594388",
+      "size": 5301
+    },
+    "research/redesign_m2_20261008/__init__.py": {
+      "mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "research/redesign_m2_20261008/dev_probe.py": {
+      "mode": "0644",
+      "sha256": "b264bcbdff78844e853b0b4f0eca80d854348bfe90f36cc60ca1a093e6f90658",
+      "size": 8064
+    },
+    "research/redesign_m2_20261008/ni_spec.py": {
+      "mode": "0644",
+      "sha256": "8fe85c9964774f1d42dac977a435f025dfcbb878d9d931e1efb787b4f649368b",
+      "size": 5257
+    },
+    "research/redesign_m2_20261008/ni_spec_m2b.py": {
+      "mode": "0644",
+      "sha256": "9ffa26b761d9b67af4b5e01dcba8b2715e0c7404f49a2efde83097374f0c15c8",
+      "size": 2771
+    },
+    "research/redesign_m3c_20261008/obs_pack.py": {
+      "mode": "0644",
+      "sha256": "4e03a616f3fab75fe840eca887d8c8a20118e76d9950a116577e163cd9a3dfaa",
+      "size": 22253
+    },
+    "research/redesign_scope_20261007/__init__.py": {
+      "mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "research/redesign_scope_20261007/grid_h5000_identity.py": {
+      "mode": "0644",
+      "sha256": "9f35a49dca30cae1a2b3c02f80e4ce18bd5e2d0b2b12ccf102653e1b2a080ef2",
+      "size": 18331
+    },
+    "research/redesign_t7_phase_r_20261016/__init__.py": {
+      "mode": "0644",
+      "sha256": "5ea4a8b031d84217fd8c70c0f3bfd8d7b399e13b5a6e9baafd263dd25aa11b64",
+      "size": 37
+    },
+    "research/redesign_t7_phase_r_20261016/seed_audit.py": {
+      "mode": "0644",
+      "sha256": "45250ec78087e2fdf20348b392e2a1c547aa1af3491c252a93eec0206c9f7315",
+      "size": 8510
+    },
+    "research/s1_mature_20261018/__init__.py": {
+      "mode": "0644",
+      "sha256": "a9bdef45854921dba8ee8c8335587fe3ac31e80a63ed43ef1bafab98e9b184fe",
+      "size": 187
+    },
+    "research/s1_mature_20261018/final_artifacts.py": {
+      "mode": "0644",
+      "sha256": "2cbb088417626918249db48a45e3827eea6ce93ae52d782094f9a29ff353adbe",
+      "size": 6898
+    },
+    "research/t15_mixed_roster_20261017/episodes.py": {
+      "mode": "0644",
+      "sha256": "b93bef573e67f552e45362a1e436a36677a02297f60504125bc9dfdc385e8bc4",
+      "size": 13161
+    },
+    "research/t1_commitment_20261015/parity.py": {
+      "mode": "0644",
+      "sha256": "33023efe987b8a76ccb35cf4009593ef002ea2807e64c50a711ac2875a31d59e",
+      "size": 5025
+    },
+    "research/t1_commitment_20261015/replay.py": {
+      "mode": "0644",
+      "sha256": "b1a0fc74533533f7bba76beb876e2d687d000b3cb14537facfca3aaf6905bb10",
+      "size": 7910
+    },
+    "research/t2_screen_20261015/__init__.py": {
+      "mode": "0644",
+      "sha256": "d9a9340d4518f53f1a7dd47bd92b768e559fe4bcbcfdf8b5780d2e2341ab868e",
+      "size": 78
+    },
+    "research/t2_screen_20261015/banks.py": {
+      "mode": "0644",
+      "sha256": "aafc47693d02f385a8168c0106030b039f40e9c00f6a6e1290c1d08eea317da4",
+      "size": 3345
+    },
+    "research/t33_batched_teacher/inference.py": {
+      "mode": "0644",
+      "sha256": "a15b142833873037d249d94454b0387819862629183819fff03c36f693dcc2c7",
+      "size": 10684
+    },
+    "research/t33_batched_teacher/observation_kernels.py": {
+      "mode": "0644",
+      "sha256": "f8cd02d7d567e273ee5670b15f726f22d8b34d13af9005b6d21e4ab63f6f3c8c",
+      "size": 8283
+    },
+    "research/t33_batched_teacher/observations.py": {
+      "mode": "0644",
+      "sha256": "558ac9a70a5cbca6d73ffb997d14ab2dff529beea1c61c14e8ef2fc492d186af",
+      "size": 9305
+    },
+    "research/t33_batched_teacher/runtime.py": {
+      "mode": "0644",
+      "sha256": "6a4e7aafe0458cec839d1a9c4ba38b3536241c52e928eb1822053ca8db2821a2",
+      "size": 9796
+    },
+    "research/t33_batched_teacher/teacher.py": {
+      "mode": "0644",
+      "sha256": "2181c4dce45055124e4b0732053669d95578154695a7510ce934506a78a88984",
+      "size": 39055
+    },
+    "research/t34_exit_b8/engine.py": {
+      "mode": "0644",
+      "sha256": "ad1324eeffc0b82c6b8b8eca6fc1ffd328e8a0f8213d0d24952506cf161feb05",
+      "size": 26287
+    },
+    "research/t34_exit_b8/exports.py": {
+      "mode": "0644",
+      "sha256": "7475130b190f6d2a845da5e9051bb15d21ea8808faf5944b6a24aec6251d232e",
+      "size": 12282
+    },
+    "research/t34_exit_b8/faults.py": {
+      "mode": "0644",
+      "sha256": "f7a2e08ae05831420f3b92baba4d729894e6e0dc5362e433c75e5b58ee8739de",
+      "size": 1247
+    },
+    "research/t34_exit_b8/lockstep.py": {
+      "mode": "0644",
+      "sha256": "4f97ee986409408d27aa38f32243c7cc6d4a68d07c25704dcdeafa7f29a26869",
+      "size": 12876
+    },
+    "research/t34_exit_b8/policy.py": {
+      "mode": "0644",
+      "sha256": "11cb3334b7711c8d0150c68ac869db380472bd2dd293b013e3e96665f584e8e3",
+      "size": 15899
+    },
+    "research/t34_exit_b8/qualification.py": {
+      "mode": "0644",
+      "sha256": "ebac40768df267f3de0d2924b880d6dc9fbc641f14e3348e234db49e586ae691",
+      "size": 3807
+    },
+    "research/t34_exit_b8/teacher_v2.py": {
+      "mode": "0644",
+      "sha256": "53d392a65e77ae748a2c778d35e48005daedfa4755ca2f4497441f72f9116d55",
+      "size": 46544
+    },
+    "research/t34_exit_b8/trajectory.py": {
+      "mode": "0644",
+      "sha256": "390752220963124f2c0ce99f05d2cc5c1b47b4fe040bb486c6d69521c5bf50b9",
+      "size": 26093
+    },
+    "research/t34_pathb/adapter_v2.py": {
+      "mode": "0644",
+      "sha256": "28dc75bb901107873d2f61084897afdf621d25f5c82d6edb3214791ca17ba2f5",
+      "size": 16302
+    },
+    "research/t34_pathb/batch_v2.py": {
+      "mode": "0644",
+      "sha256": "907d0ce43810d7d75a689a174d763a12adab0455988e71b227d1661ece868f53",
+      "size": 7364
+    },
+    "research/t34_pathb/controller_v2.py": {
+      "mode": "0644",
+      "sha256": "629b1cf5687d2a9b1a80a37b96f1e4e762870e2e290f38e304c3b95401b9e2be",
+      "size": 29472
+    },
+    "research/t34_pathb/engine_v2.py": {
+      "mode": "0644",
+      "sha256": "5bd326cefc18f4c39c61773ac1f06bab50b01dcaef7dc1ed17ed17df6d9982ef",
+      "size": 45804
+    },
+    "research/t34_pathb/precheck_v2.py": {
+      "mode": "0644",
+      "sha256": "277742640e81373c33bf2ef80886c85e017f5423f9d2bbc3baf2ab305971c53e",
+      "size": 4324
+    },
+    "research/t34_shadow/common.py": {
+      "mode": "0644",
+      "sha256": "e9116f3552554e797228b6d5dfc3fab90e3e1a54ca2995d729655507bf49994b",
+      "size": 4002
+    },
+    "research/t34_shadow/identity.py": {
+      "mode": "0644",
+      "sha256": "4ad8653d594f75f8ccc43371ef6c3cb4c0b151eab2a6058b1b4a8354dd1dc216",
+      "size": 18748
+    },
+    "research/t34_shadow/lad.py": {
+      "mode": "0644",
+      "sha256": "86458eb56b9f4d41a04be993695560730d72ef79b683687af3681fd447d97d81",
+      "size": 4635
+    },
+    "research/t34_shadow/shadow.py": {
+      "mode": "0644",
+      "sha256": "9346b8ff447dd7322c78b0f87aa01e7603870e95b6a394e92104889880019058",
+      "size": 26921
+    },
+    "research/t34_speed_s2/__init__.py": {
+      "mode": "0644",
+      "sha256": "735ee26f3198b282f713bf4efecb862e9f5051f160345622b89f3928ba9f5871",
+      "size": 173
+    },
+    "research/t34_speed_s2/native_v8.py": {
+      "mode": "0644",
+      "sha256": "7ad3cf88a6676b245daaa58db5fd6552fe18bceb0b776cf230cef8f7028b95ef",
+      "size": 26233
+    },
+    "research/t3_rollout_labels_20261015/__init__.py": {
+      "mode": "0644",
+      "sha256": "8c847c649707f2d7f8b9eef36c86924bee9ad603682eddbe76f382d4cfe38de3",
+      "size": 242
+    },
+    "research/t3_rollout_labels_20261015/bank_engine.py": {
+      "mode": "0644",
+      "sha256": "6f120c443b23ae7358ebe5b87a064bfc2c67d5198c9ff825e1ca9ec4c59909e1",
+      "size": 28807
+    },
+    "research/t3_rollout_labels_20261015/engine.py": {
+      "mode": "0644",
+      "sha256": "e2ed77ea86a55422a1cdec2b13b3684bbb9584b8e46edbe611365dbc5cf3dbb1",
+      "size": 9839
+    },
+    "research/t3_rollout_labels_20261015/trigger.py": {
+      "mode": "0644",
+      "sha256": "7dcc7293226a62fc89e7542625937bca90cd0a754224ef9ca77501afd00ff252",
+      "size": 8562
+    },
+    "research/t3_screen_20261015/__init__.py": {
+      "mode": "0644",
+      "sha256": "c38a9b6be127216b3feb4a740152ba1f98968fd3dc335b47c5be5c8078474be1",
+      "size": 67
+    },
+    "research/t3_screen_20261015/banks.py": {
+      "mode": "0644",
+      "sha256": "5bbb79c60afd51ffe408721896eae75733ccdcfa804637daf48ca9984d0fcc92",
+      "size": 10453
+    },
+    "research/t4e_return_20261016/__init__.py": {
+      "mode": "0644",
+      "sha256": "b9a16802359fa73adabdff9950680b256eceb78f4364b4af1a17bba94585ce2a",
+      "size": 204
+    },
+    "research/t4e_return_20261016/seed_audit.py": {
+      "mode": "0644",
+      "sha256": "5205ef9c3e02e76e8336a065d7679f1b94fc72cdd38d476fa0de53f778f6b8b6",
+      "size": 12379
+    },
+    "research/t4f_return_20261016/seed_audit.py": {
+      "mode": "0644",
+      "sha256": "9074c181453fdbe8dac5ae6c6e2d3cc44cefd5e7801f1adc3b11dbf61b6ded88",
+      "size": 23693
+    },
+    "src/core/config_loader.py": {
+      "mode": "0644",
+      "sha256": "daa73b3bc69e3f172d6ebaab9dea5e3785ee7781721417958afedd3f7e234574",
+      "size": 25493
+    },
+    "src/core/device_manager.py": {
+      "mode": "0644",
+      "sha256": "2957fac215fb43f6f7793daa4dcbf1277bca543791a58eeac096d31085c1d427",
+      "size": 7322
+    },
+    "src/core/game_config.py": {
+      "mode": "0644",
+      "sha256": "e763c0f44f8d0263b10bbca188ab0ff60e5179be37fa8b05f244a1468f2122bb",
+      "size": 32098
+    },
+    "src/core/mechanics_constants.py": {
+      "mode": "0644",
+      "sha256": "d5d26a6398393081af399c804cf566ba275a88b36057ac2dbd289210ecab32f2",
+      "size": 7574
+    },
+    "src/core/reward_contract.py": {
+      "mode": "0644",
+      "sha256": "f0def93b39d51fcce38f0aff5f08b664ae4baaf68ace21689c88a7682761629a",
+      "size": 540
+    },
+    "src/core/reward_events.py": {
+      "mode": "0644",
+      "sha256": "55bc4264bf64fa8cf5f2cf00c80fd460dd9f174bf38e4fd70e8d03564fbebcf8",
+      "size": 4922
+    },
+    "src/core/runtime_contract.py": {
+      "mode": "0644",
+      "sha256": "2deb892c1d2166290b2a55c611a5ee09d6b218f84f5efecedb8444d76d40095f",
+      "size": 19289
+    },
+    "src/core/seeding.py": {
+      "mode": "0644",
+      "sha256": "4057c1697a230ce162654f659418e31c57fc6b902f9e2bc06a3d75961c0ac717",
+      "size": 3823
+    },
+    "src/core/world_runtime.py": {
+      "mode": "0644",
+      "sha256": "11afa758cd5bb02793628a1190da195e7665bb56daa3db322595a5e35e4bbaa6",
+      "size": 8830
+    },
+    "src/evaluation/__init__.py": {
+      "mode": "0644",
+      "sha256": "08a11304184d8710182a9b52be558c19f4252565544b6277146e3cfcfc87cad9",
+      "size": 192
+    },
+    "src/evaluation/anchors.py": {
+      "mode": "0644",
+      "sha256": "f013a8691a045d49f7b4c1fdd3f66372bf174d7fe8d789cdf31540dec2c556be",
+      "size": 3999
+    },
+    "src/evaluation/artifacts.py": {
+      "mode": "0644",
+      "sha256": "2f041934903e90c6cb6e4e561649f283c2b2cb5409f9a40259bc49930935f14b",
+      "size": 14465
+    },
+    "src/evaluation/metrics.py": {
+      "mode": "0644",
+      "sha256": "1a41c6c54ff13089901766702dbcaf81ea9a9df09d58d78f02431b651faeccf2",
+      "size": 6755
+    },
+    "src/evaluation/protocol.py": {
+      "mode": "0644",
+      "sha256": "62658d1f444dde66df75efe800d35134930ccd60548412467e2f13cd66f022ee",
+      "size": 15154
+    },
+    "src/evaluation/safety_veto.py": {
+      "mode": "0644",
+      "sha256": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+      "size": 10673
+    },
+    "src/evaluation/safety_veto_v3.py": {
+      "mode": "0644",
+      "sha256": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+      "size": 17596
+    },
+    "src/evaluation/safety_veto_v4.py": {
+      "mode": "0644",
+      "sha256": "3f0881afb7ff8ff980c9b425ef40134f127cc90f1f40260aac39f2264ed44578",
+      "size": 23712
+    },
+    "src/evaluation/safety_veto_v5.py": {
+      "mode": "0644",
+      "sha256": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c",
+      "size": 21489
+    },
+    "src/evaluation/safety_veto_v6.py": {
+      "mode": "0644",
+      "sha256": "a6117cb98383f9f28bf8ebcf22d2ef63d7a03995734a36fb96bb1bf8bb1757d5",
+      "size": 30077
+    },
+    "src/evaluation/safety_veto_v7.py": {
+      "mode": "0644",
+      "sha256": "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980",
+      "size": 24456
+    },
+    "src/evaluation/safety_veto_v8.py": {
+      "mode": "0644",
+      "sha256": "faf3695fa9d60550f1f681c04b8c8aba0447fecaa34cd75f16f75efe91e4ac05",
+      "size": 18043
+    },
+    "src/evaluation/screen_stats.py": {
+      "mode": "0644",
+      "sha256": "1348ec781bb1b86e9fe763735cd053e0cbcf4a8ed59a4a2c2fbf9ae094e5eeb7",
+      "size": 41893
+    },
+    "src/evaluation/sequential_gate.py": {
+      "mode": "0644",
+      "sha256": "39eac8064dfb8c203da6187e9dbe7e1404faf6454a711b35b811168aa3edd4c3",
+      "size": 43800
+    },
+    "src/evaluation/strict_promotion.py": {
+      "mode": "0644",
+      "sha256": "96cf96cdc630edd7a4126d36058c9052cbf96dde09e56a643977fa4d343bfcba",
+      "size": 110819
+    },
+    "src/game/ai_snake.py": {
+      "mode": "0644",
+      "sha256": "6228ebd197fa1a0d8de6488d40fc8857c7b49c1186f69b75483afcd737720ec9",
+      "size": 44445
+    },
+    "src/game/food_manager.py": {
+      "mode": "0644",
+      "sha256": "e9799516bd810420f6b6bc98082ec7741bdad774ed4532ed44990368eabb526e",
+      "size": 11904
+    },
+    "src/game/game_logic.py": {
+      "mode": "0644",
+      "sha256": "a8ddfca2a1c44bd5112c767e1a6f3505fed4a97b2454c4fd33defefe45e5f89c",
+      "size": 15123
+    },
+    "src/game/game_state.py": {
+      "mode": "0644",
+      "sha256": "112a5d550d050007acf74a2c2f9d2e1388e377d7ebfbedd26977490325f77d37",
+      "size": 37637
+    },
+    "src/game/game_state_factory.py": {
+      "mode": "0644",
+      "sha256": "d91b1e4b2c0557f5539a198f0d6947fe0ad992f462f2b3b4abe2ebf334502b91",
+      "size": 2524
+    },
+    "src/game/human_snake.py": {
+      "mode": "0644",
+      "sha256": "019323e9c82ac7f6c27b9ac09252f70e68cb556fe33c7921e66b1b549c3cb70b",
+      "size": 17002
+    },
+    "src/game/scripted_snake.py": {
+      "mode": "0644",
+      "sha256": "fd05622c3e1d8eb4c1cf9c9d5502d36fdcb99d4e63bad4ece4fa760c46c7424e",
+      "size": 10231
+    },
+    "src/game/snake.py": {
+      "mode": "0644",
+      "sha256": "e2b4887963efe59966f2278f07467421e4df9c7453536f56754fc8a7f8caee0f",
+      "size": 8268
+    },
+    "src/game/snake_factory.py": {
+      "mode": "0644",
+      "sha256": "e3821ffacc6ce1d02aa829415dc3db66ceeb3b82dd89baa065b76c3fa0835928",
+      "size": 13836
+    },
+    "src/game/snake_geometry.py": {
+      "mode": "0644",
+      "sha256": "d88876d697993f7e3379aeed8ede54c1889f101689bd8c54f668a963eaa9dbbf",
+      "size": 6005
+    },
+    "src/game/snake_reward.py": {
+      "mode": "0644",
+      "sha256": "8f4db4ff1e735f3c503e745b7ab7af4402f58669d37d37f30d43f58fbf3ffcd6",
+      "size": 15339
+    },
+    "src/game/snake_state.py": {
+      "mode": "0644",
+      "sha256": "bccd3eddc3a1dd6aa25d1beea6124b3e81f5f88427150b754c0d165b77e86e2e",
+      "size": 37683
+    },
+    "src/model/apex_network.py": {
+      "mode": "0644",
+      "sha256": "a40368a8d7b38764a4f8c1a88a59d13d97ee3c2daaaac1da63affe2638cf16d1",
+      "size": 8026
+    },
+    "src/model/checkpoint_manager.py": {
+      "mode": "0644",
+      "sha256": "d2cc7cd0eefa4286743b3b36d734e6a9f7d576af2abb4d7cd3298335335bbd73",
+      "size": 5351
+    },
+    "src/model/ego2s_network.py": {
+      "mode": "0644",
+      "sha256": "06b262b7ad4bc89ff4d46caff37090635fe32b81008fa91d5956b34d940345a9",
+      "size": 4727
+    },
+    "src/model/inference_agent.py": {
+      "mode": "0644",
+      "sha256": "66ceb5d2f3123d6a56f4c45923f2d8a2d85c3cca187ea56a3cbba484ac4c366a",
+      "size": 20657
+    },
+    "src/model/obs_spec.py": {
+      "mode": "0644",
+      "sha256": "863bad5420e696697dbf53ba77e537941efc3cbc2f85c5c01c6eb9e0bd01c451",
+      "size": 8362
+    },
+    "src/model/raster_network.py": {
+      "mode": "0644",
+      "sha256": "70aa22048e15c3859753cae0f2b4cf6ae011e3a2bbccee9b8304e9632871c915",
+      "size": 14824
+    },
+    "src/scripts/eval_cli.py": {
+      "mode": "0644",
+      "sha256": "ce9ecee3e612a5b31e49e2b8c3b07a6ee4a46ad57ed7ae1dc8ee4cd82d43f427",
+      "size": 4287
+    },
+    "src/scripts/eval_stats.py": {
+      "mode": "0644",
+      "sha256": "9329b02058dfba2852fa8fe8fdc51a378bf8766c566c3b214468cf20d0429e69",
+      "size": 26287
+    },
+    "src/scripts/tournament_eval.py": {
+      "mode": "0644",
+      "sha256": "05a2440a56463201c69c2f0e8c02fac616a4936899a54f62d244423b8b6795e6",
+      "size": 71075
+    },
+    "src/simd_env/__init__.py": {
+      "mode": "0644",
+      "sha256": "79d97e065e845b05310c8b2578274d457c9886defc584c40bc1ac8ca37e79ac3",
+      "size": 1021
+    },
+    "src/simd_env/batch_sim.py": {
+      "mode": "0644",
+      "sha256": "beb0421be2e526b512b5fc44464042cb03786f5636518dd0e60cb90a2bb7caad",
+      "size": 78042
+    },
+    "src/simd_env/ego2s_policy.py": {
+      "mode": "0644",
+      "sha256": "8e5b048f353b69ebdf4a6f9718eb59eda926cf422afdb1e8d694c4289f1bb154",
+      "size": 6328
+    },
+    "src/simd_env/ego_raster.py": {
+      "mode": "0644",
+      "sha256": "0a9dea5a3128435656dec4beeab5c8b4a6f6b600a5f4b63c82beb635dfaf10ad",
+      "size": 22036
+    },
+    "src/simd_env/ego_raster_b.py": {
+      "mode": "0644",
+      "sha256": "7de8197b98649486fa95e83eb8e7fa668a84b636d9e5915c811d0fd5f4e0d7c7",
+      "size": 10830
+    },
+    "src/simd_env/ego_raster_bv8.py": {
+      "mode": "0644",
+      "sha256": "2d62739d3fca32f5d6d8ca4f2f6eaf363dc05a9af1615419865e26a97aca7a67",
+      "size": 3596
+    },
+    "src/simd_env/ego_raster_nb.py": {
+      "mode": "0644",
+      "sha256": "cbbf17cb1e0fd31e0c25da7ccc5523bf04d63edf4fde6158e4d403706dd22558",
+      "size": 24150
+    },
+    "src/simd_env/eval_engine.py": {
+      "mode": "0644",
+      "sha256": "d6bae5b525e26a91259a7330e0b90d807c6124766fa47614d372bc98deaa582c",
+      "size": 56619
+    },
+    "src/simd_env/fast_anchors.py": {
+      "mode": "0644",
+      "sha256": "a25d5728e38cf694cf8b8fe6019678860f4ac0559b1dd52bc36ae3b4f74d96ac",
+      "size": 8299
+    },
+    "src/simd_env/featurizer.py": {
+      "mode": "0644",
+      "sha256": "9fe4af66917c1adeb350de3c27ef1c72cbc712c07a5cf61b2da23cb7562b6c1f",
+      "size": 45851
+    },
+    "src/simd_env/grid_sim.py": {
+      "mode": "0644",
+      "sha256": "ae48ae8270610e5d617e1af6e6c6dc35e524750dec26f15499b05355e4a0de02",
+      "size": 48225
+    },
+    "src/simd_env/grid_sim_nb.py": {
+      "mode": "0644",
+      "sha256": "10544dffb6e5c9a86a103bca56163167bebd7db85b20c86f1c86330f57fcc4c3",
+      "size": 16612
+    },
+    "src/simd_env/rng.py": {
+      "mode": "0644",
+      "sha256": "d5df755cfedd2bd27cf9c2e0cee61a696426c7892b4b30069c0afda9ebf09a08",
+      "size": 8381
+    },
+    "src/simd_env/v8_nb.py": {
+      "mode": "0644",
+      "sha256": "3fdd85bcbad7ca63485ad4340619693b13c693684cb8adc8fc067c6531389eea",
+      "size": 67625
+    },
+    "src/simd_env/vector61_featurizer.py": {
+      "mode": "0644",
+      "sha256": "c1cbdd6373b52ad72dc707ab0f68208402e592638206a0ace56a77e2d035efbe",
+      "size": 36085
+    },
+    "src/simd_env/vector61_nb.py": {
+      "mode": "0644",
+      "sha256": "f433f87fe97d97af4e6600d804bd7b9e2534af348a4093f84c6304168bd57caa",
+      "size": 24874
+    },
+    "src/simd_env/vector61_policy.py": {
+      "mode": "0644",
+      "sha256": "d26b80d902759f6b8cf58f6b4324c1be3c1a92bf790ff05dd6992206a35f327f",
+      "size": 44823
+    },
+    "src/training/action_mask.py": {
+      "mode": "0644",
+      "sha256": "3d64f6c928099532c2dddccd2a1d04e0f718bcf17d22839530abf37de49e55dc",
+      "size": 8772
+    },
+    "src/training/apex_policy.py": {
+      "mode": "0644",
+      "sha256": "8ea34bb1d1785dc1d2f89dc076b0d262f16065441de66fec75813613606bbcb8",
+      "size": 45014
+    },
+    "src/training/base_buffer.py": {
+      "mode": "0644",
+      "sha256": "224d827d49d576647eb126627202395b9c85bda59355f4fca4b3f869ab489cd6",
+      "size": 10745
+    },
+    "src/training/behavior_probes.py": {
+      "mode": "0644",
+      "sha256": "98cd8143c42923fbce85364fa7b1fafa8a92628fe8f29ac167ec121a9fb47212",
+      "size": 19397
+    },
+    "src/training/checkpoint_contract.py": {
+      "mode": "0644",
+      "sha256": "b261309117d98b4baa59fc57f0efc756626265c89fe99f644f9e5dadcc2c7855",
+      "size": 14187
+    },
+    "src/training/pqn_lifecycle.py": {
+      "mode": "0644",
+      "sha256": "cf03ea9781482c28740821a396e86ad1ff9fd3ecbbc6b7f5b36e67311093bcb7",
+      "size": 39543
+    },
+    "src/training/replay_buffer.py": {
+      "mode": "0644",
+      "sha256": "45920e06370a47d08e2e696cef837a192f64a3a08d79a0b7f0c5b35643586b4b",
+      "size": 21396
+    },
+    "src/training/resume_lineage.py": {
+      "mode": "0644",
+      "sha256": "37fea7d4585b796383b26e634919031dae161bc9b702bf5adb2ebd827eba3215",
+      "size": 2147
+    },
+    "src/training/sum_tree.py": {
+      "mode": "0644",
+      "sha256": "1c2474ced385cc59c2acf57189ed44caf877101be5205104c30c67d6efd0b754",
+      "size": 5334
+    },
+    "src/training/td_targets.py": {
+      "mode": "0644",
+      "sha256": "235b73ada6deb89ea26ac08ff0280423e9bc64fe77fa635eb356d2bdb26a937d",
+      "size": 7420
+    },
+    "src/utils/__init__.py": {
+      "mode": "0644",
+      "sha256": "a31b65bdf6811d2246c17696554937ed3e56b19ad7b9b9d826d0ab655897b165",
+      "size": 295
+    }
+  },
+  "status": "PASS",
+  "tree": "df4a474cc6ae5fcfb35ca572dc1b944dc3302c5b",
+  "unpacked_size": 3532787
+}

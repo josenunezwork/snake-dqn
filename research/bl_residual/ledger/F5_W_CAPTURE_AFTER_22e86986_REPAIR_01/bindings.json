@@ -1,0 +1,52 @@
+{
+  "acceptance": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/ACCEPT_F5_W_IMPLEMENTATION_5546b6d3.md",
+    "sha256": "6f864a2ac1e3888f8fd399f1e2bd649e3298cf3c9434d7eb9863458a01fdbcd8",
+    "size": 14736
+  },
+  "accounting": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/accounting.json",
+    "sha256": "e4c028c6a37bfff6dfdc275af2cc7c0a51e84eb7d4b5f11b047f349a06e5c035",
+    "size": 4168
+  },
+  "allocations": 0,
+  "branch": "sol-f5-w-build-20261025",
+  "created_utc": "2026-10-26T05:46:42.769594+00:00",
+  "cumulative_envelope": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/cumulative-envelope.json",
+    "sha256": "b6effe05b70c9d42a556beafa77c16c8fb9d58b68ea6d62f03bcaf7170f32c46",
+    "size": 4435
+  },
+  "dispatch": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/DISPATCH.txt",
+    "sha256": "fb8c60c192215a1d297ca909f193a4d6cae766a7ff6cc7698e8286def986d867",
+    "size": 2892
+  },
+  "dispatch_argv": [
+    "/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh",
+    "bl-f5-w-capture-repair-22e86986-01",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/environment-capture.json",
+    "--broker",
+    "/Users/josenunez/Projects/ml/snake-dqn-f5w",
+    "--cwd",
+    "/Users/josenunez/Projects/ml/snake-dqn-f5w",
+    "--state-dir",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/state/bl-f5-w-capture-repair-22e86986-01",
+    "--dispatch-txt",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/DISPATCH.txt"
+  ],
+  "dispatches": 0,
+  "environment_schema_sha256": "23053e65f20e7fd9f0d931fcb29b397377d6781886cea958bee686cb91ac9f1b",
+  "manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/environment-capture.json",
+    "sha256": "c5b607287a430cec94d1af697c259515e32a43020419d034c24812e63baa81d0",
+    "size": 15188
+  },
+  "preparation_head": "f3acafeaedfafdfeae9d072163e27e5c38820432",
+  "review_bundle_artifacts_verified": 27,
+  "schema": "bl-f5-capture-package-bindings/v1",
+  "scientific_fits": 0,
+  "source_commit": "5546b6d38b02a4d05d608c3f126f5cc03ef36814",
+  "source_files_verified": 192,
+  "worktree": "/Users/josenunez/Projects/ml/snake-dqn-f5w"
+}

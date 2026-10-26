@@ -1,0 +1,59 @@
+{
+  "accounted_assignments": {
+    "assignments": [],
+    "baseline_balance_units": 1067.2,
+    "baseline_rate_units_per_hour": 0.0,
+    "declared_other_rate_units_per_hour": 0,
+    "unaccounted_endpoints": []
+  },
+  "allocations": 0,
+  "broker_usage_session_call_records": [
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.4469073750078678,
+      "ended_monotonic": 691978.426326125,
+      "operation": "control",
+      "started_monotonic": 691977.979423375,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999695899896
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.41582991706673056,
+      "ended_monotonic": 691978.84226825,
+      "operation": "control",
+      "started_monotonic": 691978.426446958,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999854201451
+    }
+  ],
+  "dispatch_invoked": false,
+  "manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/environment-capture.json",
+  "manifest_sha256": "c5b607287a430cec94d1af697c259515e32a43020419d034c24812e63baa81d0",
+  "method": "tools.ops.dispatch.refresh_assignments + supervisor.validate + CLI.usage/sessions + accounting.admit_account",
+  "observed_utc": "2026-10-26T05:47:35.364545+00:00",
+  "refreshed_manifest_equals_sealed_manifest": true,
+  "runtime_calls": 0,
+  "schema": "bl-f5-wrapper-live-account-preflight/v1",
+  "scratch_paths_note": "Wrapper exercised byte-identical source manifest in disposable scratch; original sealed manifest untouched.",
+  "sessions": {},
+  "status": "PASS",
+  "usage": {
+    "assignments": 0.0,
+    "balance": 1067.2,
+    "rate": 0.0
+  },
+  "wrapper_refresh_evidence": {
+    "broker_records": [],
+    "manifest": "/var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/f5-live-account-preflight-2lj6bk7c/environment-capture.live.json",
+    "manifest_sha256": "c5b607287a430cec94d1af697c259515e32a43020419d034c24812e63baa81d0",
+    "other_assignments": {},
+    "sessions_stdout": "\n[colab] A new version of Colab CLI is available: 0.7.5 (current: 0.7.4)\n[colab] Run 'colab update' to update.\n[colab] To silence this check, set \"enable_update_check\": false in ~/.config/colab-cli/settings.json\n\n[colab] No active sessions found on server.\n",
+    "source_manifest": "/var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/f5-live-account-preflight-2lj6bk7c/environment-capture.json",
+    "source_manifest_sha256": "c5b607287a430cec94d1af697c259515e32a43020419d034c24812e63baa81d0"
+  }
+}

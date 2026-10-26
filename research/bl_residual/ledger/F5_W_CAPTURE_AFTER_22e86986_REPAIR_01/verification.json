@@ -1,0 +1,85 @@
+{
+  "actual_cuda_qualification": false,
+  "allocations": 0,
+  "broker_validation": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/broker-validation.json",
+    "sha256": "ab6358809e60e1e26af1a5a0ff595b78f1e82bdb8fdc04306bfdd5f0811623d4",
+    "size": 16731
+  },
+  "bundle_artifacts_verified": 27,
+  "commands": {
+    "broker_validate": [
+      "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+      "-m",
+      "research.colab_cli.supervisor",
+      "validate",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/environment-capture.json"
+    ],
+    "dispatch_dry_run": [
+      "/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh",
+      "bl-f5-w-capture-repair-22e86986-01",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/environment-capture.json",
+      "--broker",
+      "/Users/josenunez/Projects/ml/snake-dqn-f5w",
+      "--cwd",
+      "/Users/josenunez/Projects/ml/snake-dqn-f5w",
+      "--state-dir",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/state/bl-f5-w-capture-repair-22e86986-01",
+      "--dispatch-txt",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/DISPATCH.txt",
+      "--dry-run"
+    ],
+    "other_apis": [
+      "research.colab_cli.source.prepare (scratch)",
+      "tools.ops.dispatch.refresh_assignments (scratch)",
+      "research.colab_cli.accounting.admit_account"
+    ]
+  },
+  "created_utc": "2026-10-26T05:48:27.182627+00:00",
+  "dispatch_dry_run": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/dispatch-dry-run.json",
+    "sha256": "c6ad3f76eb3e8d914cfd62e8946f598988fbb1ab7f20967ca8bce895f08e07e2",
+    "size": 869
+  },
+  "dispatches": 0,
+  "estimate_status": "Final05 forecast5min inherited; actual CUDA feasibility unmeasured",
+  "independent_review": {
+    "audited_payload_files": 7,
+    "method": "Read-only exact packet/sidecar/binding/envelope/freshness audit; 192 operational manifest metadata and 25 assignment metadata records checked",
+    "note": "Review preceded addition of source-preflight and live-account-preflight evidence. All final package sidecars verified by root.",
+    "result": "No blocking findings",
+    "role": "reviewer",
+    "task": "/root/capture_audit"
+  },
+  "live_account_preflight": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/live-account-preflight.json",
+    "sha256": "4f952afe00dea6d76c9eeb03c17747bb3281ab57e7f79f80b9e208a3e6b43268",
+    "size": 2612
+  },
+  "schema": "bl-f5-capture-package-verification/v1",
+  "scientific_fits": 0,
+  "side_effect_note": "An initial preparation expression referenced nonexistent CLI.calls and stopped before package creation; corrected to CLI.call_records. It made read-only usage/sessions calls only.",
+  "source_delivery_preflight": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/source-preflight.json",
+    "sha256": "9c9da93227d2873aaee21ecd39f7e044e5ca665288c5f58a008f544b3eee8502",
+    "size": 35721
+  },
+  "source_files_verified": 192,
+  "status": "PASS_PREPARATION_ONLY",
+  "tooling_changes": [],
+  "unchanged_final05_fields": [
+    "commit",
+    "script",
+    "source_paths",
+    "device",
+    "requirements",
+    "env",
+    "canary",
+    "inputs",
+    "required_exports",
+    "max_export_bytes",
+    "substeps",
+    "timeout_minutes"
+  ],
+  "validation_boundary": "dispatch --dry-run does not check live accounting. Separate actual wrapper refresh_assignments and broker admit_account passed using read-only sessions/usage. No runtime or allocation."
+}

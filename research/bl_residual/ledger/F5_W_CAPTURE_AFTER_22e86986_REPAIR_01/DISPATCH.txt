@@ -1,0 +1,23 @@
+ADMITTED_CAPTURE_TRANSPORT_ONLY
+Authority: Astra ACCEPT_IMPLEMENTATION and prospective v2 schema freeze.
+Acceptance: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/ACCEPT_F5_W_IMPLEMENTATION_5546b6d3.md
+Acceptance SHA256: 6f864a2ac1e3888f8fd399f1e2bd649e3298cf3c9434d7eb9863458a01fdbcd8
+Implementation commit: 5546b6d38b02a4d05d608c3f126f5cc03ef36814
+Environment schema v2 SHA256: 23053e65f20e7fd9f0d931fcb29b397377d6781886cea958bee686cb91ac9f1b
+Manifest SHA256: c5b607287a430cec94d1af697c259515e32a43020419d034c24812e63baa81d0
+Job: bl-f5-w-capture-repair-22e86986-01
+One L4, at least six vCPUs, cuda:0; observer/probe enabled.
+Authorize only raw environment capture plus disjoint bootstrap CUDA transport canary.
+Exact three final-05 uploads and every declared producer/environment/qualification export are bound.
+Transfer <=150 seconds and whole staging <=300 seconds; original capture remaining 10 minutes.
+Original aggregate remaining 240 minutes with 10/30/200-minute reservations; all attempt debit retained.
+No automatic retry or cap reset. Short-canary resume exemption applies only to this operation.
+Technical guards: rate ceiling 2.0 units/hour, cap 0.5 units, reserve 0.1 units; broker-registered L4 price 1.54 units/hour.
+Read-only accounting was admitted at 2026-10-26T05:46:42.680550+00:00; dynamic account inventory/prices must be refreshed by the broker at execution.
+Scientific fitting, numerical looks, full timing qualification and release are not authorized.
+This preparation task invokes validators and dry-run only. The following command is the operator's single capture/transport command after publication.
+
+/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh bl-f5-w-capture-repair-22e86986-01 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/environment-capture.json --broker /Users/josenunez/Projects/ml/snake-dqn-f5w --cwd /Users/josenunez/Projects/ml/snake-dqn-f5w --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/state/bl-f5-w-capture-repair-22e86986-01 --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/DISPATCH.txt
+
+Non-allocating preflight command:
+/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh bl-f5-w-capture-repair-22e86986-01 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/environment-capture.json --broker /Users/josenunez/Projects/ml/snake-dqn-f5w --cwd /Users/josenunez/Projects/ml/snake-dqn-f5w --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/state/bl-f5-w-capture-repair-22e86986-01 --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/DISPATCH.txt --dry-run

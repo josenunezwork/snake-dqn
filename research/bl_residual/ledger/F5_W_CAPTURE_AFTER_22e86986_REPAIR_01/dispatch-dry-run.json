@@ -1,0 +1,20 @@
+{
+  "allocations": 0,
+  "command": [
+    "/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh",
+    "bl-f5-w-capture-repair-22e86986-01",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/environment-capture.json",
+    "--broker",
+    "/Users/josenunez/Projects/ml/snake-dqn-f5w",
+    "--cwd",
+    "/Users/josenunez/Projects/ml/snake-dqn-f5w",
+    "--state-dir",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/state/bl-f5-w-capture-repair-22e86986-01",
+    "--dispatch-txt",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/DISPATCH.txt",
+    "--dry-run"
+  ],
+  "exit_code": 0,
+  "stderr": "",
+  "stdout": "PASS_DRY_RUN bl-f5-w-capture-repair-22e86986-01 allocations=0 live_accounting=NOT_CHECKED\n"
+}
