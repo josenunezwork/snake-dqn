@@ -1,0 +1,87 @@
+{
+  "build_flags": {
+    "CC": "clang",
+    "CFLAGS": "-fno-strict-overflow -Wsign-compare -Wunreachable-code -fno-common -dynamic -DNDEBUG -g -O3 -Wall -arch arm64 -arch x86_64 -g",
+    "CONFIG_ARGS": "'-C' '--enable-framework' '--enable-universalsdk=/' '--with-universal-archs=universal2' '--with-computed-gotos' '--without-ensurepip' '--with-openssl=/tmp/_py/libraries/usr/local' '--enable-optimizations' '--with-lto' 'TCLTK_CFLAGS=-I/tmp/_py/libraries/usr/local/include' 'TCLTK_LIBS=-ltcl8.6 -ltk8.6' 'LDFLAGS=-g' 'CFLAGS=-g' 'CC=clang'",
+    "SOABI": "cpython-312-darwin"
+  },
+  "cache_tag": "cpython-312",
+  "hardware": {
+    "hw.logicalcpu": {
+      "available": true,
+      "value": "18"
+    },
+    "hw.memsize": {
+      "available": true,
+      "value": "68719476736"
+    },
+    "hw.optional.arm64": {
+      "available": true,
+      "value": "1"
+    },
+    "hw.optional.neon": {
+      "available": true,
+      "value": "1"
+    },
+    "hw.physicalcpu": {
+      "available": true,
+      "value": "18"
+    },
+    "machdep.cpu.brand_string": {
+      "available": true,
+      "value": "Apple M5 Pro"
+    }
+  },
+  "implementation": "CPython",
+  "kind": "current Mac build identity, prospective F5 CPU stages only",
+  "machine": "arm64",
+  "numpy_build_config": "Build Dependencies:\n  blas:\n    detection method: pkgconfig\n    found: true\n    include directory: /opt/arm64-builds/include\n    lib directory: /opt/arm64-builds/lib\n    name: openblas64\n    openblas configuration: USE_64BITINT=1 DYNAMIC_ARCH=1 DYNAMIC_OLDER= NO_CBLAS=\n      NO_LAPACK= NO_LAPACKE= NO_AFFINITY=1 USE_OPENMP= SANDYBRIDGE MAX_THREADS=3\n    pc file directory: /usr/local/lib/pkgconfig\n    version: 0.3.23.dev\n  lapack:\n    detection method: internal\n    found: true\n    include directory: unknown\n    lib directory: unknown\n    name: dep4335021056\n    openblas configuration: unknown\n    pc file directory: unknown\n    version: 1.26.4\nCompilers:\n  c:\n    args: -fno-strict-aliasing, -DBLAS_SYMBOL_SUFFIX=64_, -DHAVE_BLAS_ILP64\n    commands: cc\n    linker: ld64\n    linker args: -fno-strict-aliasing, -DBLAS_SYMBOL_SUFFIX=64_, -DHAVE_BLAS_ILP64\n    name: clang\n    version: 14.0.0\n  c++:\n    args: -DBLAS_SYMBOL_SUFFIX=64_, -DHAVE_BLAS_ILP64\n    commands: c++\n    linker: ld64\n    linker args: -DBLAS_SYMBOL_SUFFIX=64_, -DHAVE_BLAS_ILP64\n    name: clang\n    version: 14.0.0\n  cython:\n    commands: cython\n    linker: cython\n    name: cython\n    version: 3.0.8\nMachine Information:\n  build:\n    cpu: aarch64\n    endian: little\n    family: aarch64\n    system: darwin\n  host:\n    cpu: aarch64\n    endian: little\n    family: aarch64\n    system: darwin\nPython Information:\n  path: /private/var/folders/76/zy5ktkns50v6gt5g8r0sf6sc0000gn/T/cibw-run-q69bfk1p/cp312-macosx_arm64/build/venv/bin/python\n  version: '3.12'\nSIMD Extensions:\n  baseline:\n  - NEON\n  - NEON_FP16\n  - NEON_VFPV4\n  - ASIMD\n  found:\n  - ASIMDHP\n  not found:\n  - ASIMDFHM\n\n",
+  "packages": {
+    "llvmlite": {
+      "distribution_metadata_sha256": {
+        "METADATA": "8f1269fc707c42d99b010322f95da3fc46a9ad3c542080fa0bc6d9deab6a9c05",
+        "RECORD": "7a24edcfad15c4a91d4903d67af4698c4b1837b485bbbbf1626c0c663e3279a0",
+        "WHEEL": "fff742c131b9db67d21abb4c2b52b0c780b35b55a20661118f7e1730f52d8eec"
+      },
+      "version": "0.50.0"
+    },
+    "numba": {
+      "distribution_metadata_sha256": {
+        "METADATA": "b3bbd7c095b9d0b410d778176e2824ea5be21e982e63e8d4fc7c8fdb82f98df7",
+        "RECORD": "24dc9597c6569b1ee93fc1be4ec4d2c282aa4bc694a81ce9635b7b990e0e76f3",
+        "WHEEL": "fff742c131b9db67d21abb4c2b52b0c780b35b55a20661118f7e1730f52d8eec"
+      },
+      "version": "0.68.0"
+    },
+    "numpy": {
+      "distribution_metadata_sha256": {
+        "METADATA": "804ce5ed37916ab3a6d4a50b7e13769fe64aa9f1265cfe3aefb6f90737bacc66",
+        "RECORD": "9daba0060dcd73d23b626e1870554f7ea1a4cb24f06ecfb3cbe8af71f69da7e2",
+        "WHEEL": "06581da0677628d54490fc83f10c3b234e0177d49ad046f7111462eb2271222b"
+      },
+      "version": "1.26.4"
+    },
+    "scipy": {
+      "distribution_metadata_sha256": {
+        "METADATA": "dd4e8542e7e319158dfab943b04eb811ee99566a1911241f1a3226e07bfbae57",
+        "RECORD": "82c1fdaec9b269f09f34d30482a9a1c855b1c68d4c663274a20f81c7890cf6b9",
+        "WHEEL": "c9205a833e45c2523ee63f7e23ee099ae0a8f4ce52f5bd09a07208776c4a19eb"
+      },
+      "version": "1.14.1"
+    },
+    "torch": {
+      "distribution_metadata_sha256": {
+        "METADATA": "a7976fb5ed9044fb2bf421b99d888356a3a180d9e9ddd6ac10a46230bf68fc1a",
+        "RECORD": "e1b0f100d488a4e38109d09007ff4c14f2ba188d93c737efd33de952de886e15",
+        "WHEEL": "211e92fcaf0a9b4262e5997cbe33d2a3fb87f7e500d5b6fd26ca1c6b4014275e"
+      },
+      "version": "2.9.1"
+    }
+  },
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "python": "3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]",
+  "torch_build_config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 201703\n  - clang 15.0.0\n  - OpenMP 201811\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=5811a8d7da873dd699ff6687092c225caffcf1bb, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DLIBKINETO_NOCUPTI -DLIBKINETO_NOROCTRACER -DLIBKINETO_NOXPUPTI=ON -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_XNNPACK -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.9.1, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+  "torch_cuda": null,
+  "torch_git_version": "5811a8d7da873dd699ff6687092c225caffcf1bb",
+  "torch_version": "2.9.1"
+}

@@ -1,0 +1,224 @@
+{
+  "batch_plan": {
+    "batch": {
+      "doom": 128,
+      "ordinary": 128,
+      "total": 256
+    },
+    "final_boundary": "record every same state after materializing the shared 512000-row plan; bind initial/final plan-generator states and plan SHA to C and T",
+    "generator": "dedicated CPU torch.Generator implemented by torch 2.9.1, common source semantics for C/T; materialized under the frozen L4 package/build",
+    "initial_boundary": [
+      "python random.getstate",
+      "numpy.random.get_state",
+      "each used numpy Generator.bit_generator.state",
+      "torch.get_rng_state",
+      "torch.cuda.get_rng_state_all",
+      "dedicated CPU plan-generator.get_state"
+    ],
+    "rule": "Use source-bound _stratum_groups, _life_uniform_indices and _sample_batch_indices; sorted life groups, original ordered row indices; draw 128 doom then 128 ordinary life-uniform rows for update 0..1999. Materialize 512000 identities once after selection before either fit, bind one plan hash and initial/final generator states to both arms; COV never regenerates or re-stratifies it.",
+    "seed": 3403,
+    "updates": 2000
+  },
+  "common_environments": {
+    "l4_paired_fits": {
+      "arms": [
+        "C",
+        "T"
+      ],
+      "cpu_device": "cpu for exact dynamics and rowwise continuation policies; CUDA:0 for learner/cache only",
+      "determinism": {
+        "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+        "cudnn_benchmark": false,
+        "cudnn_deterministic": true,
+        "torch_use_deterministic_algorithms": true
+      },
+      "device": "cuda:0",
+      "package_lock": {
+        "install": "python -m pip install --require-hashes --index-url https://download.pytorch.org/whl/cu126 --extra-index-url https://pypi.org/simple -r requirements-f5-l4-cu126.lock",
+        "path": "requirements-f5-l4-cu126.lock",
+        "sha256": "2577ed9dd9fe34468f5562262def7bccb352c9c0bdce06b293bb4b12a0ea5301"
+      },
+      "placement": "one Colab L4 assignment, at least six vCPUs, C then T in the same runtime",
+      "platform": "linux x86_64 manylinux_2_28",
+      "precision": {
+        "amp": false,
+        "bf16": false,
+        "cudnn_allow_tf32": false,
+        "fp32": true,
+        "tf32": false
+      },
+      "python": "CPython 3.12.3",
+      "stage_workers": {
+        "exact_continuation_if_COV": 6,
+        "fit_cache": 1,
+        "fresh_archive_retention_labeling": 6,
+        "nested_pools": false,
+        "parents_in_flight_per_worker": 1
+      },
+      "torch": "2.9.1+cu126",
+      "torch_wheel_sha256": "67e9b1054f435d33af6fa67343f93d73dc2d37013623672d6ffb24ce39b666c2",
+      "torch_wheel_url": "https://download-r2.pytorch.org/whl/cu126/torch-2.9.1%2Bcu126-cp312-cp312-manylinux_2_28_x86_64.whl"
+    },
+    "mac_cpu_stages": {
+      "arms": [
+        "C",
+        "T",
+        "B8 comparator where specified"
+      ],
+      "build_identity": {
+        "path": "mac-build-identity.json",
+        "sha256": "4532cd6fe2ff4642a7ae8228da1e375d158e10b3f0d7203627e8b43b270636b3"
+      },
+      "cpu_identity": "Apple M5 Pro; record current hardware on every stage receipt rather than infer portability",
+      "device": "cpu; SNAKE_DQN_DEVICE=cpu; MPS/CUDA forbidden for these stages",
+      "operational_admission": "Existing admitted Mac lease, AC/open-lid/thermal/wake guards; reduction sequential with gameplay. No preemption.",
+      "package_lock": {
+        "path": "requirements-f5-mac-cpu.lock",
+        "sha256": "e3e6ab3b5b703cbf8108bac46660affb1a52bbb1f1407b96b83b89394476cbcd"
+      },
+      "platform": "macOS 27.2 arm64",
+      "python": "CPython 3.12.3",
+      "scope": [
+        "32-world drift probe",
+        "H5000 gameplay screen",
+        "product screen",
+        "offline reduction"
+      ],
+      "stage_workers": {
+        "drift": 2,
+        "gameplay": 2,
+        "math_threads_per_worker": 1,
+        "nice": 15,
+        "offline_reduction": 1,
+        "product": 2
+      },
+      "torch": "2.9.1",
+      "torch_cuda": null
+    }
+  },
+  "continuation_boundary": {
+    "at": "after every completed update and before every resume",
+    "record": [
+      "python random state",
+      "NumPy legacy state",
+      "each used NumPy Generator state",
+      "Torch global CPU state",
+      "all CUDA states",
+      "dedicated plan-generator state",
+      "FitState residual state_dict hash",
+      "FitState optimizer_state hash",
+      "FitState updates_completed",
+      "FitState losses hash",
+      "source hash",
+      "environment lock hash",
+      "batch-plan hash"
+    ],
+    "resume": "refuse unless all fields match exactly"
+  },
+  "cov": {
+    "failure": "HOLD_COVERAGE_IMPLEMENTATION; no P/W fallback, new root, label rewrite, or tie waiver",
+    "historical_unknowns_not_filled": true,
+    "placement": "six L4-host CPU workers under the common Linux package lock, subject to lawful original-source restore/parity and the existing tie rule; no silent Mac or backend substitution",
+    "required": [
+      "original serialized simulator config",
+      "full simulator RNG",
+      "policy RNG",
+      "exact snapshot digest",
+      "opponent carry",
+      "frame/time base",
+      "existing-tie-rule source-bound parity",
+      "food/spawn state",
+      "full physics/config",
+      "dead hero remains dead",
+      "exact H300 joint simulator-step time base"
+    ]
+  },
+  "hardware_receipt": {
+    "equality": "C/T common-field equality includes CPU model/ISA/vCPU allocation, OS/kernel, GPU UUID/device capability, exact Python and installed build identities, locks, sources, plan, precision/determinism and thread controls. Refuse before work on mismatch.",
+    "l4": [
+      "uname -a",
+      "/etc/os-release",
+      "lscpu including flags",
+      "nproc",
+      "/proc/cpuinfo model name",
+      "nvidia-smi header",
+      "nvidia-smi --query-gpu=name,uuid,driver_version,compute_cap,memory.total",
+      "torch CUDA runtime/capability/cuDNN",
+      "sorted pip freeze SHA",
+      "Python full sys.version, implementation/cache_tag/build flags",
+      "torch.__config__.show(), torch.version.git_version, torch.version.cuda, cuDNN build",
+      "NumPy __config__, numba/llvmlite versions and BLAS/LAPACK identity",
+      "wheel filename/URL/SHA and installed dist-info METADATA/WHEEL/RECORD hashes",
+      "full resolved simulator/AppConfig digest, source closure and checkpoint digests",
+      "all environment/Torch thread, precision and deterministic controls"
+    ],
+    "mac": [
+      "sw_vers",
+      "uname -a",
+      "sysctl machdep.cpu.brand_string",
+      "sysctl hw.logicalcpu/hw.physicalcpu/hw.memsize",
+      "sysctl optional feature flags where available",
+      "sorted pip freeze SHA",
+      "mac-build-identity.json SHA",
+      "Python cache tag/build flags and Torch/NumPy/backend identity",
+      "all thread and CPU-device controls"
+    ],
+    "publication": "Before first canary record actual detected CPU model/ISA flags/vCPU count, GPU UUID/name/capability/driver, OS/kernel and backend builds in a create-only receipt with SHA sidecar. Freeze these for paired science. Later arm/stage receipts reference and compare with the first admitted receipt. Missing identity or drift refuses execution. Physical GPU/CPU are not claimed measured on an unallocated L4."
+  },
+  "historical_f4_identity_claimed": false,
+  "historical_limitations": "Historical installed builds/CPU and original serialized configuration/RNG/continuation may remain unknown permanently. This is a new matched C/T experiment conditional on the historical corpus; historical label accuracy/reproducibility remains a limitation. Fresh-bank evidence decides F5. COV requires lawful exact restore/parity or HOLD_COVERAGE_IMPLEMENTATION; P/W do not require historical continuation reconstruction.",
+  "prohibited_access_attestation": {
+    "d4096_including_metadata": false,
+    "f4_postmortem": false,
+    "outcome_payload": false,
+    "protected_study": false
+  },
+  "rng_state_recording": {
+    "before_and_after_plan": [
+      "python random.getstate",
+      "numpy.random.get_state legacy",
+      "every used numpy Generator.bit_generator.state",
+      "torch.get_rng_state CPU",
+      "torch.cuda.get_rng_state_all",
+      "dedicated plan generator.get_state"
+    ],
+    "continuation_boundary": [
+      "all prior states",
+      "residual state_dict hash",
+      "optimizer state hash",
+      "updates_completed",
+      "losses hash",
+      "source hash",
+      "lock hash",
+      "batch-plan hash"
+    ],
+    "resume": "refuse unless all recorded bindings match exactly",
+    "serialization": "Publish typed lossless state blobs with shape/dtype/endianness and SHA sidecars; record unavailable/not-used explicitly, never synthesize original historical states. Retain actual state bytes for legal resume, not hashes alone."
+  },
+  "schema": "bl-f5-common-environment/v6",
+  "source_bindings": {
+    "closure_annex_sha256": "7e9567325cebf431b6c935890e3074edcb3b62da1709b40670c08c71a967a3ba",
+    "f5_v2_draft_sha256": "6aeda9e66fbe67da41e0abf3549880a16f33bd52b448964b933234bbfb94f34d",
+    "fit_py_sha256_at_semantic_commit": "85c7e77d34e14a3b5036984cc1af92df4e3724f4c9fe453d813a56c1963822a7",
+    "frozen_functions": [
+      "_stratum_groups",
+      "_life_uniform_indices",
+      "_sample_batch_indices"
+    ],
+    "limitations_ruling_sha256": "cd87764340548d28446e8652fd37427924d892468e986fbfc5cf4e18107cedeb",
+    "remaining_ruling_sha256": "e74e8f32cd1312da9949902a0376f4ed77724966bb6c9377b801596aeff276cb",
+    "semantic_commit": "124dd22cd560a74a210a61f0ba473461328e82f8"
+  },
+  "status": "PREDATA_CREATE_ONLY",
+  "supersedes": "Earlier task-created local environment drafts archived unchanged outside the repository; this self-contained sibling supplies the prospective binding.",
+  "thread_settings": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OMP_THREAD_LIMIT": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "torch_interop_threads": 1,
+    "torch_intraop_threads": 1
+  }
+}
