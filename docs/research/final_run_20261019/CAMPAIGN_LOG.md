@@ -1811,3 +1811,25 @@ evidence must be Mac-verified. Scientific fit still waits for both verified
 branches, Mac timing/calibration/forecasts, actual ordered plan, paired ledger,
 prospective sole-stage look token, complete inventory/current-source canary,
 final-fit local-upload resolution and separate ACCEPT_F5_FIT.
+
+### 2026-10-26 — F5 plan attempt01 output evidence published; INCOMPLETE
+
+Create-only publication of all 17 files from
+`F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01` is under the matching
+`research/bl_residual/ledger/` package. Original package/output bytes are unchanged.
+`OUTPUT_01_PUBLICATION.json` SHA256
+`6d830114452298d49d2d192dda8f179c56046f596e41ce312f91db974b8692ac`
+binds every saved output file and its lossless ledger representation/companions.
+Terminal receipt SHA256
+`be7b74b13c3528e8df4aba086c649e908fddbe0beb16c2e7ff7ab2a080bd687d`:
+INCOMPLETE/SUPERVISOR, elapsed105.40890633303206s, no exports/terminal child,
+cleanup_error=null, stop_verified=true. Source PUT completed; verification and
+independent recovery-idle each exhausted their 30-second allowance before launch.
+This is mechanical failure, not a scientific result. Saved stop/sessions/usage
+record release; historical balance1066.28 ->1066.25 (observed0.03u decrease,
+not precise workload attribution). Failed elapsed/debit remain in cumulative history.
+Astra disposition `F5_W_PLAN_ATTEMPT01_DISPOSITION_20261026.md` is also published:
+exactly one fresh manually dispatched attempt02 with identical implementation,
+scope and limits, fresh operative preflights/seal/publication; no automatic retry.
+No dispatch, allocation, runtime operation or timing-state/output mutation in this
+publication step. Timing remains independently operated and read-only to Sol.

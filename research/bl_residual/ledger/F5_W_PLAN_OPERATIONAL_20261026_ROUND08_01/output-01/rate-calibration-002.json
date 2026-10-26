@@ -1,0 +1,11 @@
+{
+  "elapsed_seconds": 13.130340709001757,
+  "sessions": {
+    "gpu-l4-s-ass1b0-21epjw7rflfno": "snake-bl-f5-w-plan-round08-c989f673-01-d4b4a3cc308c"
+  },
+  "usage": {
+    "assignments": 1.0,
+    "balance": 1066.28,
+    "rate": 1.54
+  }
+}
