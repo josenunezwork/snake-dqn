@@ -127,7 +127,9 @@ def _record(fixture_id: int) -> dict[str, Any]:
     }
 
 
-def _unit(output: Path, control: dict[str, Any], fixture_id: int) -> dict[str, Any]:
+def _unit(
+    output: Path, control: dict[str, Any], fixture_id: int, *, collection_seconds: float = 1.0
+) -> dict[str, Any]:
     record = _record(fixture_id)
     record["fixture_descriptor_sha256"] = control["fixture_descriptor_sha256"]
     record["source_provenance"]["source_sha256"] = control["source_sha256"]
@@ -144,7 +146,7 @@ def _unit(output: Path, control: dict[str, Any], fixture_id: int) -> dict[str, A
             "fixture_id": fixture_id,
             "record": record,
             "elapsed_seconds": 1.0,
-            "collection_elapsed_seconds": 1.0,
+            "collection_elapsed_seconds": collection_seconds,
         },
     )
     return {
@@ -335,3 +337,100 @@ def test_measure_carries_absent_through_two_fresh_outputs_without_recompute(
     assert set(
         subject.load_verified_units(second_output / "verified-ledger-final.json", control)
     ) == set(range(672, 684))
+
+
+def test_attempt_two_staged_ledger_preserves_acceptance_and_accumulates_elapsed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control_path, fixtures, inputs, control = _measure_control(tmp_path)
+    target = subject._acceptance_target_sha256(control)
+    # Match the actual shell: both --inputs and --ledger point into the upload root.
+    entries = [_unit(inputs, control, i, collection_seconds=2400.0) for i in range(672, 678)]
+    ledger = inputs / "verified-ledger.json"
+    export_json(ledger, {**subject.empty_ledger(control), "units": entries})
+    calls = []
+
+    def worker(row: dict[str, Any], _: str) -> dict[str, Any]:
+        calls.append(row["allocation_index"])
+        return {"record": _record(row["allocation_index"]), "elapsed_seconds": 300.0}
+
+    monkeypatch.setattr(subject, "_measure_worker", worker)
+    monkeypatch.setattr(subject.concurrent.futures, "ProcessPoolExecutor", _InlineExecutor)
+    monkeypatch.setattr(
+        subject,
+        "_qualification",
+        lambda *a, **k: (
+            {"status": "PASS"},
+            {"platform": "Linux", "os_kernel": {"release": "6.6"}},
+        ),
+    )
+    monkeypatch.setattr(f5_environment, "receipt_sha256", lambda _: "d" * 64)
+    times = iter([100.0] + [1900.0] * 6)
+    monkeypatch.setattr(subject.time, "monotonic", lambda: next(times))
+    output = tmp_path / "attempt-02"
+    subject.run(
+        control_path=control_path,
+        fixtures=fixtures,
+        inputs=inputs,
+        ledger=ledger,
+        output=output,
+        mode="measure",
+    )
+    assert subject._acceptance_target_sha256(control) == target
+    assert calls == list(range(678, 684))
+    units = subject.load_verified_units(output / "verified-ledger-final.json", control)
+    assert max(u["collection_elapsed_seconds"] for u in units.values()) == 4200.0
+    assert all(units[i]["collection_elapsed_seconds"] == 4200.0 for i in range(678, 684))
+    assert (output / "units/fixture-672.json").read_bytes() == (
+        inputs / "units/fixture-672.json"
+    ).read_bytes()
+
+
+def test_static_resume_ledger_pin_refuses_before_runtime(tmp_path: Path) -> None:
+    path, fixtures, inputs, control = _control(tmp_path)
+    control["input_hashes"]["verified-ledger.json"] = {"sha256": "0" * 64, "size": 1}
+    for suffix in ("", ".sha256", ".complete"):
+        Path(str(path) + suffix).unlink()
+    export_json(path, control)
+    with pytest.raises(subject.Step3Refusal, match="not static pins"):
+        subject.validate_control(path, fixtures, inputs)
+
+
+def test_final_inventory_canary_admits_same_control_exports_without_timing_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, fixtures, inputs, control = _measure_control(tmp_path)
+    ledger = tmp_path / "verified-ledger.json"
+    monkeypatch.setattr(subject, "_measure_worker", lambda *a: pytest.fail("timing replay"))
+    monkeypatch.setattr(subject, "_qualification", lambda *a, **k: ({"status": "PASS"}, {}))
+    output = tmp_path / "canary"
+    result = subject.run(
+        control_path=path,
+        fixtures=fixtures,
+        inputs=inputs,
+        ledger=ledger,
+        output=output,
+        mode="family-canary",
+    )
+    assert result == {"status": "FAMILY_CANARY", "timing_units_executed": 0}
+    from research.bl_ppo.exports import verify_export
+
+    for name in ("qualification.json", "supplement-summary.json"):
+        verify_export(output / name)
+    summary = json.loads((output / "supplement-summary.json").read_text())
+    assert summary["role"] == "EXCLUDED_FAMILY_CANARY"
+    assert summary["completed_fixture_ids"] == []
+    assert summary["science_admission"] is False
+
+
+def test_final_inventory_canary_refuses_preliminary_hold_control(tmp_path: Path) -> None:
+    path, fixtures, inputs, _ = _control(tmp_path)
+    with pytest.raises(subject.Step3Refusal, match="qualification"):
+        subject.run(
+            control_path=path,
+            fixtures=fixtures,
+            inputs=inputs,
+            ledger=tmp_path / "verified-ledger.json",
+            output=tmp_path / "canary",
+            mode="family-canary",
+        )

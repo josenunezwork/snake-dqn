@@ -137,6 +137,8 @@ def verify_claim(
         raise ValueError("F5 stage claim binding mismatch")
     if _artifact_exists(claim_consumption_path(path)):
         raise ValueError("F5 stage claim is already consumed")
+    if ".successor-" in path.name and supersession_path is None:
+        raise ValueError("F5 successor stage claim requires canonical supersession")
     supplied: Path | None = None
     supplied_lineage: dict[str, Any] | None = None
     if supersession_path is not None:
@@ -168,6 +170,10 @@ def verify_claim(
             or _claim_bindings(claim) != dict(lineage["successor"])
         ):
             raise ValueError("F5 noncanonical stage claim supersession path")
+        if verify_export(predecessor) != lineage["predecessor_export_sha256"]:
+            raise ValueError("F5 predecessor claim export differs from successor lineage")
+        if _artifact_exists(claim_consumption_path(predecessor)):
+            raise ValueError("F5 predecessor stage claim is already consumed")
     return claim
 
 

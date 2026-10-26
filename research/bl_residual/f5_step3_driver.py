@@ -143,6 +143,8 @@ def validate_control(
     hashes = control["input_hashes"]
     if not isinstance(hashes, dict) or not hashes:
         _refuse("input identity inventory is absent")
+    if any(name == "verified-ledger.json" or name.startswith("units/") for name in hashes):
+        _refuse("resume ledger and units must use verified component identity, not static pins")
     for name, entry in hashes.items():
         relative = _safe_name(name)
         if (
@@ -411,18 +413,27 @@ def _measure_worker(row: Mapping[str, Any], checkpoint: str) -> dict[str, Any]:
 def run(
     *, control_path: Path, fixtures: Path, inputs: Path, output: Path, ledger: Path, mode: str
 ) -> dict[str, Any]:
-    control = validate_control(control_path, fixtures, inputs, measure=mode == "measure")
+    if mode not in {"dry-run", "qualify", "family-canary", "measure"}:
+        _refuse("unknown driver mode")
+    admitted = mode in {"family-canary", "measure"} or (
+        mode == "dry-run"
+        and _read_json(control_path).get("execution_envelope", {}).get("forecast_status")
+        == "QUALIFIED_COMPLETE"
+    )
+    control = validate_control(control_path, fixtures, inputs, measure=admitted)
     rows = json.loads(fixtures.read_text())
     frozen = f5_timing_supplement.frozen_fixtures(
         rows["fixtures"] if isinstance(rows, dict) else rows
     )
     if mode == "dry-run":
         load_verified_units(ledger, control)
+        if admitted:
+            _acceptance(control, inputs, control_path)
         return {"status": "DRY_RUN_VALID", "fixtures": list(FIXTURE_IDS), "runtime_calls": False}
-    completed = load_verified_units(ledger, control) if mode == "measure" else {}
+    completed = load_verified_units(ledger, control)
     if output.exists():
         _refuse("attempt output must be fresh")
-    if mode == "measure":
+    if admitted:
         _acceptance(control, inputs, control_path)
     output.mkdir(parents=True)
     qualification, actual_environment = _qualification(
@@ -431,6 +442,12 @@ def run(
     export_json(output / "qualification.json", qualification)
     if mode == "qualify":
         return {"status": "QUALIFIED", "qualification": "qualification.json"}
+    if mode == "family-canary":
+        # Same uploaded control/acceptance/qualification/ledger bytes as measure.
+        # Exercise the real producer export seam without collecting or replaying
+        # any timing unit. This excluded transport record is never a timing result.
+        _summary(output, control, completed, role="EXCLUDED_FAMILY_CANARY")
+        return {"status": "FAMILY_CANARY", "timing_units_executed": 0}
     if mode != "measure":
         _refuse("unknown driver mode")
     # ``ledger`` is a sealed input from an earlier attempt (empty on the first
@@ -455,6 +472,9 @@ def run(
     pending = [row for row in frozen if row["allocation_index"] not in completed]
     # Spawn rather than fork: the six host workers execute source CPU worlds
     # only, after the parent has completed the sole CUDA parity application.
+    prior_collection_seconds = max(
+        (float(raw["collection_elapsed_seconds"]) for raw in completed.values()), default=0.0
+    )
     pool_started = time.monotonic()
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=6, mp_context=multiprocessing.get_context("spawn")
@@ -495,7 +515,9 @@ def run(
                     "fixture_id": fixture_id,
                     "record": record,
                     "elapsed_seconds": elapsed_seconds,
-                    "collection_elapsed_seconds": time.monotonic() - pool_started,
+                    "collection_elapsed_seconds": (
+                        prior_collection_seconds + time.monotonic() - pool_started
+                    ),
                 },
             )
             entries.append(
@@ -508,17 +530,11 @@ def run(
             )
             # A later recovery gets a fresh output and never rewrites this ledger.
             _write_ledger(output / f"verified-ledger-{fixture_id}.json", control, entries)
-    export_json(
-        output / "supplement-summary.json",
-        {
-            "schema": "bl-f5-step3-supplement-summary/v1",
-            "component_id": COMPONENT_ID,
-            "identity": _binding(control),
-            "completed_fixture_ids": [entry["id"] for entry in entries],
-            "dispositions": {str(key): value for key, value in sorted(dispositions.items())},
-            "fit_usable": False,
-            "science_admission": False,
-        },
+    _summary(
+        output,
+        control,
+        {entry["id"]: {"record": {"crossing": dispositions[entry["id"]]}} for entry in entries},
+        role="TIMING_SUPPLEMENT",
     )
     _write_ledger(output / "verified-ledger-final.json", control, entries)
     return {
@@ -526,6 +542,27 @@ def run(
         "completed": len(entries),
         "ledger_successor": "verified-ledger-final.json",
     }
+
+
+def _summary(
+    output: Path, control: Mapping[str, Any], completed: Mapping[int, Any], *, role: str
+) -> None:
+    """Publish the same scanner-visible producer export in both final modes."""
+    export_json(
+        output / "supplement-summary.json",
+        {
+            "schema": "bl-f5-step3-supplement-summary/v1",
+            "component_id": COMPONENT_ID,
+            "identity": _binding(control),
+            "role": role,
+            "completed_fixture_ids": sorted(completed),
+            "dispositions": {
+                str(key): raw["record"]["crossing"] for key, raw in sorted(completed.items())
+            },
+            "fit_usable": False,
+            "science_admission": False,
+        },
+    )
 
 
 def main() -> None:
@@ -538,9 +575,14 @@ def main() -> None:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--qualify", action="store_true")
+    mode.add_argument("--family-canary", action="store_true")
     mode.add_argument("--measure", action="store_true")
     args = parser.parse_args()
-    selected = "dry-run" if args.dry_run else "qualify" if args.qualify else "measure"
+    selected = (
+        "dry-run"
+        if args.dry_run
+        else "qualify" if args.qualify else "family-canary" if args.family_canary else "measure"
+    )
     print(
         json.dumps(
             run(

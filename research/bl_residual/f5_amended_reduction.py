@@ -749,21 +749,24 @@ def reduce_amended(
     amended_forecast = _forecast(old, forecast, supplement_maxima)
     frozen_schedule = _validate_schedule(schedule, amended_forecast["amended_max_seconds"])
     per_shard_new = _validate_attributable_overheads(frozen_schedule, amended_forecast)
-    reserved_overhead = sum(
-        float(shard["reserved_setup_export_imbalance_seconds"])
-        for shard in frozen_schedule["shards"]
-    )
     charged_old = float(amended_forecast["forecast_charged_historical_seconds"]["current_series"])
-    measured_new = sum(float(value) for value in amended_forecast["new_overhead_seconds"].values())
-    charged_new = max(measured_new, reserved_overhead - charged_old)
+    # A reservation is retained independently for every shard.  Charging a
+    # global maximum would let unused floor on one shard hide an overrun on
+    # another.  The carried series exposure is global and is charged exactly
+    # once; each new component is therefore the per-shard maximum after its
+    # carried share is removed.
+    reserved_overhead = sum(
+        max(
+            float(shard["reserved_setup_export_imbalance_seconds"]),
+            FROZEN_CARRIED_OVERHEAD_PER_SHARD_SECONDS + attributable_new,
+        )
+        for shard, attributable_new in zip(frozen_schedule["shards"], per_shard_new)
+    )
+    charged_new = reserved_overhead - charged_old
     amended_forecast["reserved_shard_overhead_seconds"] = reserved_overhead
     amended_forecast["charged_new_overhead_seconds"] = charged_new
     amended_forecast["total_seconds"] = (
         float(amended_forecast["compute_seconds"]) + charged_old + charged_new
-    )
-    _require(
-        amended_forecast["total_seconds"] <= ARCHIVE_BASE_HOURS * 3600,
-        "amended 96-hour base guard exceeded after shard reservations",
     )
     for shard, attributable_new in zip(frozen_schedule["shards"], per_shard_new):
         _require(
@@ -775,6 +778,10 @@ def reduce_amended(
             <= 6 * 3600,
             "shard measured or reserved overhead exceeds base envelope",
         )
+    _require(
+        amended_forecast["total_seconds"] <= ARCHIVE_BASE_HOURS * 3600,
+        "amended 96-hour base guard exceeded after shard reservations",
+    )
     return {
         "schema": "bl-f5-amended-reduction/v1",
         "status": "HOLD_PENDING_INDEPENDENT_TARGETED_TIMING_ACCEPTANCE",

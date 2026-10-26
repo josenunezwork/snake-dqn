@@ -9,7 +9,10 @@ from research.bl_residual.f5_protocol import (
     claim_supersession_path,
     completion_attempt,
     eligible_snapshot,
+    issue_successor_claim,
     stage_claim,
+    successor_claim_path,
+    supersede_unconsumed_claim,
     validate_ledger,
     verify_claim,
 )
@@ -84,6 +87,54 @@ def test_claim_refuses_absent_supplied_canonical_supersession_path(tmp_path: Pat
             {"namespace": "f5", **values},
             supersession_path=claim_supersession_path(path),
         )
+
+
+def _successor_claim(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
+    values = {
+        key: h(key)
+        for key in ("allocation_sha256", "source_sha256", "selection_sha256", "batch_plan_sha256")
+    }
+    predecessor = tmp_path / "claim.json"
+    stage_claim(predecessor, namespace="f5", **values)
+    successor = {
+        **values,
+        "namespace": "f5",
+        "source_sha256": h("successor-source"),
+        "batch_plan_sha256": h("successor-plan"),
+    }
+    supersession = claim_supersession_path(predecessor)
+    supersede_unconsumed_claim(predecessor, successor=successor)
+    issue_successor_claim(
+        predecessor_path=predecessor,
+        supersession_path=supersession,
+        successor=successor,
+    )
+    return successor_claim_path(predecessor, successor), supersession, successor
+
+
+def test_successor_verify_claim_requires_lineage_path(tmp_path: Path) -> None:
+    successor_path, _, successor = _successor_claim(tmp_path)
+    with pytest.raises(ValueError, match="requires canonical supersession"):
+        verify_claim(successor_path, successor)
+
+
+@pytest.mark.parametrize(
+    "mutation, message", [("consume", "already consumed"), ("tamper", "export differs")]
+)
+def test_successor_verify_claim_refuses_consumed_or_changed_predecessor(
+    tmp_path: Path, mutation: str, message: str
+) -> None:
+    successor_path, supersession, successor = _successor_claim(tmp_path)
+    predecessor = tmp_path / "claim.json"
+    if mutation == "consume":
+        Path(str(predecessor) + ".consumed.json").touch()
+    else:
+        predecessor.write_text(predecessor.read_text() + "\n")
+        checksum = hashlib.sha256(predecessor.read_bytes()).hexdigest()
+        Path(str(predecessor) + ".sha256").write_text(f"{checksum}  {predecessor.name}\n")
+
+    with pytest.raises(ValueError, match=message):
+        verify_claim(successor_path, successor, supersession_path=supersession)
 
 
 def test_ledger_refuses_duplicate_and_foreign() -> None:

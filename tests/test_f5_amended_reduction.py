@@ -422,6 +422,28 @@ def test_whole_stage_carries_all_scheduled_overhead_reservations_once() -> None:
     )
 
 
+def test_uneven_shard_overhead_charges_each_retained_reservation() -> None:
+    args = _kwargs()
+    for shard in args["schedule"]["shards"]:
+        for key in shard["attributable_new_overhead_seconds"]:
+            shard["attributable_new_overhead_seconds"][key] = 0.0
+    args["schedule"]["shards"][0]["attributable_new_overhead_seconds"]["setup"] = 1550.0
+    for key in args["forecast"]["new_overhead_seconds"]:
+        args["forecast"]["new_overhead_seconds"][key] = 0.0
+    args["forecast"]["new_overhead_seconds"]["setup"] = 1550.0
+    _rehash_shard_overhead_evidence(args)
+
+    forecast = subject.reduce_amended(_legacy(), **args)["archive_forecast"]
+
+    assert forecast["charged_new_overhead_seconds"] == pytest.approx(24_050.0)
+    assert forecast["reserved_shard_overhead_seconds"] == pytest.approx(
+        24_050.0 + subject.FROZEN_CARRIED_OVERHEAD_SECONDS
+    )
+    assert forecast["total_seconds"] == pytest.approx(
+        forecast["compute_seconds"] + 24_050.0 + subject.FROZEN_CARRIED_OVERHEAD_SECONDS
+    )
+
+
 def test_frozen_execution_plan_identity_and_reservation_floor_are_not_caller_reducible() -> None:
     args = _kwargs()
     args["schedule"]["frozen_execution_plan_sha256"] = _sha("f")

@@ -228,6 +228,11 @@ def build(repo: Path = ROOT) -> dict[str, Any]:
     )
     if interim["sha256"] != "0ba82da4182b5cea69ecd8d950ef059eb41008fbe8a7b40616e549290556d9b2":
         raise ValueError("interim engineering predecessor digest changed")
+    v3 = reference(
+        repo, "research/bl_residual/ledger/F5_ENGINEERING_SEAL_20261026_V3/ENGINEERING_SEAL.json"
+    )
+    if v3["sha256"] != "76d707a9d52473a50f7f2b9b1cfa7644eddb1e2344f051d9f4bc47e703f5ff72":
+        raise ValueError("V3 engineering predecessor digest changed")
     return {
         "schema": "bl-f5-engineering-source-closure/v1",
         "status": "SEALED_ENGINEERING_ONLY_HOLD",
@@ -242,6 +247,24 @@ def build(repo: Path = ROOT) -> dict[str, Any]:
         "amendments": amendments,
         "predecessor_engineering_seal": predecessor_seal,
         "interim_engineering_predecessor": interim,
+        "v3_engineering_predecessor": v3,
+        "v4_engineering_correction_contract": reference(
+            repo, "research/bl_residual/f5_hold_correction_20261026/ENGINEERING_V4.md"
+        ),
+        "v3_reviews": [
+            external_reference(
+                Path(
+                    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/"
+                    "astra-20261024/REJECT_F5_HOLD_ENGINEERING_V3.md"
+                )
+            ),
+            external_reference(
+                Path(
+                    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/"
+                    "argon-20261026/review-f5-hold-v3/answer.md"
+                )
+            ),
+        ],
         "export_envelope_successor": reference(
             repo, "research/bl_residual/f5_hold_correction_20261026/EXPORT_ENVELOPE_V3.md"
         ),
