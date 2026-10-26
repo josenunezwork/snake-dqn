@@ -1,12 +1,17 @@
-READY: Standing A100 Development Sandbox Job B, original attempt.
+READY WHEN GENERATED: Standing A100 Development Sandbox Job B, packet-02.
+The root-level packet-01 manifests and ledgers remain sealed historical evidence;
+dispatch only the successor files under research/sandbox_b_heads/packet-02/.
 Authority: docs/research/governance_a100_sandbox_20261026/ADOPTED.md.
-Runtime source 4eaf9c0c8d3b42931824b29348e1ad079631041e is published on main.
+Runtime source and packet pins must be regenerated from the final committed main.
 Run committed sandbox preflight and the offline broker dry-run before dispatch.
 Claude/operator alone performs dispatch and confirms current account capacity,
 separate assignment isolation, registered-study coexistence and calibrated rate.
-Finite endpoint: 60 configurations x 250 updates. Estimate 10.3500 min; timeout 20.7000 min.
-Entire development sweep executes once in native instrumented probe mode;
-no separate prerequisite timing canary or extra allocation. Development only.
+Finite endpoint: 60 configurations x 250 updates. The 60-minute base / 120-minute
+effective timeout is a runaway guard, not an expected duration or a compute budget.
+The transport-required 16-unit field is exactly 120 minutes at its 8-units/hour
+technical liability ceiling; it does not ration credits or create an earlier stop.
+Entire development sweep executes once through sandbox admission; it is not a probe
+and has no separate prerequisite timing canary. Development only.
 Outputs tagged simulator-D. One frozen SHA crossing maximum.
 At most two outcome-blind completion attempts after verified mechanical failure,
 verified stop and missing units; retain originals and prepare a fresh packet.

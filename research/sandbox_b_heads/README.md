@@ -10,7 +10,7 @@ Outputs include `results.json`, `results.csv`, per-config checkpoints and SHA si
 
 ## Prepare and validate
 
-The committed `dispatch-manifest.json` and ten-line `sandbox-manifest.json` are the ready original attempt. `TIMING_FORECAST.json` records the measured local smoke and conservative CPU-equivalent extrapolation, including a separate bootstrap/staging allowance. The A100 forecast is not a measured GPU rate.
+The root-level `dispatch-manifest.json`, `sandbox-manifest.json`, and timing forecast are sealed historical packet-01 evidence. Prepare the corrected ready attempt under `packet-02/`; it does not turn the small local CPU smoke into an A100 duration forecast. It uses the owner-adopted 60-minute base / 120-minute effective runaway guard, which is a technical stop boundary and not a compute budget or performance estimate. [RUNAWAY_GUARD.json](RUNAWAY_GUARD.json) records that prospective replacement.
 
 For another fresh packet, first create an empty ledger (or a ledger of already verified units):
 
@@ -20,24 +20,25 @@ For another fresh packet, first create an empty ledger (or a ledger of already v
   --output /absolute/fresh/verified-ledger.json
 ./venv/bin/python -m research.sandbox_b_heads.package \
   --data /absolute/registered/d1024-allowed.npz --b8 /absolute/B8.pth \
-  --ledger /absolute/fresh/verified-ledger.json --estimated-minutes MEASURED_FORECAST \
-  --output /absolute/fresh/dispatch-manifest.json --output-dir /absolute/fresh/runtime-output \
-  --sandbox-manifest research/sandbox_b_heads/sandbox-manifest.json
+  --ledger /absolute/fresh/verified-ledger.json \
+  --output research/sandbox_b_heads/packet-02/dispatch-manifest.json \
+  --output-dir /absolute/fresh/runtime-output \
+  --sandbox-manifest research/sandbox_b_heads/packet-02/sandbox-manifest.json
 ```
 
 Commit the manifest before preflight. Use the qualified broker's offline `--dry-run`, then:
 
 ```sh
-./venv/bin/python -m tools.sandbox.preflight research/sandbox_b_heads/sandbox-manifest.json
+./venv/bin/python -m tools.sandbox.preflight research/sandbox_b_heads/packet-02/sandbox-manifest.json
 ```
 
-The manifest's unit guard is only the prospective wall-time liability at an 8 units/hour pricing ceiling; it does not ration development credits. The broker checks actual calibrated prices, capacity, assignment isolation and coexistence at dispatch. Claude dispatches; these modules never call Colab.
+The transport-required unit field equals the same 120-minute technical liability at an 8-units/hour ceiling (16 units). It does not ration development credits or impose an earlier economic stop: an admitted calibrated rate must fit that ceiling, so the timeout remains the first guard. The broker checks calibrated prices, capacity, assignment isolation and coexistence at dispatch. Claude dispatches; these modules never call Colab.
 
-The packet runs the entire development sweep once through the qualified transport's instrumented `probe` mode. It is not a separate prerequisite timing canary and grants no registered-study authority. Real validation action selection runs on the requested device and feeds the reported metrics. This compatibility route preserves the transport tree and retains its ≤30-minute probe limit, 150-second transfer and 300-second staging guards. This single-job packet does not use retained main-job chaining.
+The packet runs the entire finite development sweep through the sandbox admission route in `tools/ops/dispatch.py`. It is a sandbox job, not a `probe` job: the committed ten-line manifest and sandbox preflight replace the family-canary receipt for this narrowly admitted route. It does not change `research/colab_cli`, and it grants no registered-study authority. Real validation action selection runs on the requested device and feeds the reported metrics. This single-job packet does not use retained main-job chaining.
 
 ## Completion and resume
 
-Each fixed allocation index 0–59 has an immutable tar unit containing checkpoint, report, internal hashes and full frozen identity. The fingerprint binds the source bytes, input/B8 hashes, salt, seed, updates, batch size, learning rate and smoke selection. Payloads publish atomically; SHA sidecars precede atomic completion markers. The qualified exporter can pull completed units throughout the run. The terminal ledger is sealed once, so exporter polling never observes a mutated completed file.
+Each fixed allocation index 0–59 has an immutable tar unit containing checkpoint, report, internal hashes and full frozen identity. The fingerprint binds the source bytes, input/B8 hashes, salt, seed, updates, batch size, learning rate and smoke selection. Payloads publish atomically; SHA sidecars precede atomic completion markers. The job emits outcome-blind JSON progress telemetry with done/total, elapsed time, and ETA at start, at least every two minutes during a long configuration, and after every sealed unit export. The qualified exporter can pull completed units throughout the run. The terminal ledger is sealed once, so exporter polling never observes a mutated completed file.
 
 After a **verified mechanical failure and verified stop**, preserve all original evidence and have the Mac build the missing-unit ledger from verified exports. This command reads completion identities and payload path/size/hash only; it never opens checkpoint/report contents:
 

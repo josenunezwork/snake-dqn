@@ -148,3 +148,23 @@ def test_digest_hex_is_not_mistaken_for_a_protected_path():
     payload = _payload()
     payload["inputs"][0]["sha256"] = "f5" * 32
     validate_manifest(payload)
+
+
+def test_runaway_timeout_is_explicit_and_doubled():
+    payload = _payload()
+    payload["timeout"] = {"base_seconds": 3600, "seconds": 7200, "purpose": "runaway-guard"}
+    validate_manifest(payload)
+    payload["timeout"]["seconds"] = 3600
+    with pytest.raises(ManifestError, match="2x"):
+        validate_manifest(payload)
+
+
+def test_path_guard_accepts_random_f5_substring_but_refuses_alias(tmp_path):
+    from tools.sandbox.preflight import _assert_safe_path
+
+    benign = tmp_path / "r_nk05n12vg4v5f_rxyf65v40000gn" / "output"
+    assert _assert_safe_path(benign, "test") == benign
+    alias = tmp_path / "alias"
+    alias.symlink_to(tmp_path / "f5" / "output")
+    with pytest.raises(PreflightError):
+        _assert_safe_path(alias, "test")

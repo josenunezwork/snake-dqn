@@ -53,7 +53,7 @@ def test_metrics_reports_rescue_and_ordinary_harm_proxy():
     assert _served(corrected, table["action_mask"]).tolist() == [1, 1]
 
 
-def test_tiny_cpu_entrypoint_exports_all_config_hashes(tmp_path, monkeypatch):
+def test_tiny_cpu_entrypoint_exports_all_config_hashes(tmp_path, monkeypatch, capsys):
     """Exercise the real finite sweep with synthetic, non-registry fixture data."""
     from src.model.ego2s_network import Ego2sNet
 
@@ -116,6 +116,16 @@ def test_tiny_cpu_entrypoint_exports_all_config_hashes(tmp_path, monkeypatch):
     monkeypatch.setattr(job, "_publish_bundle", publish_then_poll)
     result = run(args)
     payload = json.loads(result.read_text())
+    telemetry = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
+    assert telemetry[0]["progress"] == "started"
+    assert telemetry[0]["completed_configs"] == 0
+    assert telemetry[0]["total_configs"] == 60
+    assert telemetry[0]["elapsed_seconds"] >= 0
+    assert telemetry[0]["eta_seconds"] is None
+    exported = [line for line in telemetry if line["progress"] == "unit-exported"]
+    assert len(exported) == 60
+    assert exported[-1]["completed_configs"] == 60
+    assert exported[-1]["eta_seconds"] == pytest.approx(0.0)
     assert len(payload["rows"]) == 60
     assert len(list((output / "checkpoints").glob("*.pt.sha256"))) == 60
     assert (output / "checkpoints.tar").is_file()
@@ -231,7 +241,7 @@ def test_package_uploads_portable_verified_bundles_and_bootstrap_sources(tmp_pat
     ledger = tmp_path / "source-ledger.json"
     build_ledger(tmp_path, ledger, frozen)
     manifest, sandbox = tmp_path / "packet.json", tmp_path / "sandbox.json"
-    package.build(data, registry_path, b8, ledger, manifest, tmp_path / "fresh-output", 3, sandbox)
+    package.build(data, registry_path, b8, ledger, manifest, tmp_path / "fresh-output", 60, sandbox)
     packet = json.loads(manifest.read_text())
     resume_input = next(item for item in packet["inputs"] if item["dest"].startswith("resume-"))
     assert resume_input["path"] == str(bundle.resolve())
@@ -245,7 +255,26 @@ def test_package_uploads_portable_verified_bundles_and_bootstrap_sources(tmp_pat
     assert any(
         item["kind"] == "verified-unit" for item in json.loads(sandbox.read_text())["inputs"]
     )
-    assert packet["env"]["COLAB_CLI_REQUIREMENTS"] == "research/sandbox_b_heads/requirements.txt"
+    assert packet["env"] == {
+        "SANDBOX_B_SALT": "a100-dev/sandbox-b/split-v1",
+        "SNAKE_DQN_DEVICE": "cuda",
+        "COLAB_CLI_REQUIREMENTS": "research/sandbox_b_heads/requirements.txt",
+    }
+    assert "canary" not in packet
+    assert packet["timeout_minutes"] == 120
+    assert packet["requirements"]["est_minutes"] == 60
+    assert packet["technical_envelope"]["purpose"] == "runaway-guard"
+    assert packet["sandbox_admission"] == {
+        "schema": "standing-a100-development-sandbox-admission/v1",
+        "manifest_path": str(sandbox.resolve()),
+    }
+    sandbox_timeout = json.loads(sandbox.read_text())["timeout"]
+    assert sandbox_timeout == {
+        "base_seconds": 3600.0,
+        "seconds": 7200.0,
+        "purpose": "runaway-guard",
+    }
+    assert json.loads(sandbox.read_text())["endpoint"]["broker_manifest"] == str(manifest.resolve())
     assert "research/sandbox_b_heads/resume.py" in packet["source_paths"]
     assert "src/model/checkpoint_io.py" in packet["source_paths"]
     assert all(Path(name).is_file() for name in packet["source_paths"])

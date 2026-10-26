@@ -1,6 +1,6 @@
 # Standing A100 Development Sandbox
 
-Authority: [owner-adopted rule](../../docs/research/governance_a100_sandbox_20261026/ADOPTED.md), adopted 2026-10-26. Jobs require automated preflight and a committed ten-line manifest. No per-job judge, registration or timing canary is needed. Claude dispatches through the existing qualified broker. These tools never call Colab or dispatch.
+Authority: [owner-adopted rule](../../docs/research/governance_a100_sandbox_20261026/ADOPTED.md), adopted 2026-10-26. Jobs require automated preflight and a committed ten-line manifest. No per-job judge, registration or timing canary is needed. Claude dispatches through the existing qualified broker. Preflight never calls Colab. The host-only admission adapter invokes the unchanged qualified supervisor only through dispatch.
 
 ## Initial input registry
 
@@ -35,8 +35,34 @@ The metadata-only builder emits the membership portion. The projection receipt p
 ./venv/bin/python -m tools.sandbox.preflight research/sandbox_b_heads/sandbox-manifest.json
 ```
 
-The manifest has exactly ten physical JSON lines with ten top-level fields: schema, study, inputs, salt, endpoint, timeout, excluded_studies, owner_rule, outputs, crossing. `manifest.schema.json` describes the machine contract. Inputs carry registry kinds and exact paths/hashes. The broker packet is bound by hash under `outputs.broker_manifest`. Timeout is exactly twice the measured whole-job estimate. Outputs carry `simulator-D`; crossing is capped at one frozen checkpoint SHA. Per-job scientific selection and execution parameters live in the source-bound broker packet and job code.
+The manifest has exactly ten physical JSON lines with ten top-level fields: schema, study, inputs, salt, endpoint, timeout, excluded_studies, owner_rule, outputs, crossing. `manifest.schema.json` describes the machine contract. Inputs carry registry kinds and exact paths/hashes. The broker packet is bound by hash under `outputs.broker_manifest`. Timeout is exactly twice its declared base. New packets use an explicit `runaway-guard` base rather than claiming a CPU smoke predicts A100 duration. The original measured-estimate spelling remains accepted for existing Job A packets. Outputs carry `simulator-D`; crossing is capped at one frozen checkpoint SHA. Per-job scientific selection and execution parameters live in the source-bound broker packet and job code.
 
 Preflight verifies committed manifest/registry bytes, source pins, input membership, broker consistency, unchanged qualified transport tree `5833e54e9c5396121cbbf99a5cd4e52006e564fd`, and focused tests at nice 15 with single math threads and no xdist. `--skip-tests` is a diagnostic check, never an admission PASS. No API token, live assignment inventory or provider operation is needed for offline preflight. Dispatch remains responsible for fresh account-wide capacity, registered-study coexistence and separate assignment isolation.
 
 Exports are development evidence at most. A frozen candidate crosses into Mac evaluation only through a separately committed registration, judge review and fresh paired bank. Mac strict gate, serving qualification and owner release authority remain unchanged.
+
+## Dispatch admission
+
+A broker packet declares `sandbox_admission` with schema
+`standing-a100-development-sandbox-admission/v1` and an absolute `manifest_path`
+to its committed ten-line sandbox record. That record binds the original broker
+packet by SHA256; the reverse reference has no digest, avoiding a hash cycle.
+No `canary` field or `SNAKE_COLAB_CANARY*` instrumentation is permitted.
+
+`tools/ops/dispatch.py` selects `tools/sandbox/launch.sh` for this explicit route
+in both validation and execution. The launcher preserves AC power, open-lid,
+`umask 077` and `caffeinate -is` guards. Its process-local adapter replaces only
+the family receipt requirement with full committed sandbox preflight and tests.
+It checks sandbox input paths before the qualified validator hashes any bytes, and retains transfer policy, explicit device and required-export checks. The
+qualified supervisor continues to own all allocation, accounting, lease, export
+and verified-release behavior; `research/colab_cli` remains tree `5833e54e`.
+Ordinary jobs use the original launcher and original canary checker unchanged.
+
+Admission refuses unknown/registered controls, unlisted inputs, protected paths,
+foreign study scripts, unpinned source bytes, and changed execution parameters.
+Outputs stay under the designated `a100-sandbox-b-20261026` or `sandbox-a-resident` artifact root, preventing writes into registered-study namespaces. Only documented supervisor defaults, fresh live assignment rates, and the
+existing single exact accounting-allocation retry may differ from the sealed
+packet. The live dispatch path always uses a separate new assignment. It waits
+if an active broker record names F5 or another protected study: this route does
+not infer F5 coexistence permission from available assignment slots. A dry-run
+does not inspect live account capacity or prove coexistence.

@@ -17,7 +17,7 @@ import tarfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import torch
@@ -77,7 +77,10 @@ def _length_and_margin(table: dict[str, np.ndarray]) -> tuple[torch.Tensor, torc
 
 
 def _cache_features(
-    table: dict[str, np.ndarray], checkpoint: Path, device: torch.device
+    table: dict[str, np.ndarray],
+    checkpoint: Path,
+    device: torch.device,
+    progress: Callable[[], None] | None = None,
 ) -> torch.Tensor:
     from src.model.ego2s_network import Ego2sNet
 
@@ -99,6 +102,8 @@ def _cache_features(
                     torch.as_tensor(table["scalars"][start:end], device=device),
                 ).cpu()
             )
+            if progress is not None:
+                progress()
     return torch.cat(chunks)
 
 
@@ -313,6 +318,34 @@ def run(args: argparse.Namespace) -> Path:
         )
         rows.append(row)
         done.add(unit["id"])
+    last_progress = time.monotonic()
+
+    def emit_progress(state: str) -> None:
+        """Write outcome-blind runtime telemetry without mutating sealed exports."""
+        elapsed = time.monotonic() - started
+        completed = len(done)
+        eta = (elapsed / completed) * (len(CONFIG_IDS) - completed) if completed else None
+        print(
+            json.dumps(
+                {
+                    "progress": state,
+                    "completed_configs": completed,
+                    "total_configs": len(CONFIG_IDS),
+                    "elapsed_seconds": elapsed,
+                    "eta_seconds": eta,
+                },
+                allow_nan=False,
+            ),
+            flush=True,
+        )
+
+    def emit_if_due(state: str) -> None:
+        nonlocal last_progress
+        if time.monotonic() - last_progress >= 120:
+            emit_progress(state)
+            last_progress = time.monotonic()
+
+    emit_progress("started")
     table = _load_table(input_path)
     smoke_rows = getattr(args, "smoke_rows", 0)
     if smoke_rows:
@@ -331,7 +364,9 @@ def run(args: argparse.Namespace) -> Path:
     )
     device = torch.device(resolved_device)
     features = (
-        _cache_features(table, Path(args.b8_checkpoint), device)
+        _cache_features(
+            table, Path(args.b8_checkpoint), device, lambda: emit_if_due("feature-cache")
+        )
         if len(done) < len(CONFIG_IDS)
         else None
     )
@@ -357,7 +392,6 @@ def run(args: argparse.Namespace) -> Path:
     length, margin = length.to(device), margin.to(device)
     tensors = {key: value.to(device) for key, value in tensors.items()}
     train_index, val_index = train_index.to(device), val_index.to(device)
-    last_progress = time.monotonic()
     for head in HEADS:
         for kl in KL_WEIGHTS:
             for survival in SURVIVAL_WEIGHTS:
@@ -406,6 +440,7 @@ def run(args: argparse.Namespace) -> Path:
                     optimizer.step()
                     if any(not torch.isfinite(parameter).all() for parameter in model.parameters()):
                         raise RuntimeError(f"non-finite parameter for {config.id}")
+                    emit_if_due("running")
                 with torch.no_grad():
                     corrected = tensors["q"][val_index] + model(
                         features[val_index], length[val_index], margin[val_index]
@@ -453,18 +488,11 @@ def run(args: argparse.Namespace) -> Path:
                 )
                 rows.append(row)
                 done.add(config.id)
-                if time.monotonic() - last_progress >= 120:
-                    print(
-                        json.dumps(
-                            {
-                                "progress": "running",
-                                "completed_configs": len(done),
-                                "total_configs": 60,
-                            }
-                        ),
-                        flush=True,
-                    )
-                    last_progress = time.monotonic()
+                # Each complete configuration already has an immutable bundle,
+                # sidecar, and completion marker before we report it.  A
+                # watchdog timeout can therefore preserve all preceding work.
+                emit_progress("unit-exported")
+                last_progress = time.monotonic()
     training_seconds = time.monotonic() - training_started
     export_started = time.monotonic()
     rows.sort(key=lambda row: CONFIG_IDS.index(row["config"]))

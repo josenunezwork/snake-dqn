@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,16 @@ REQUIRED_KEYS = frozenset(
 PROTECTED_TOKENS = ("f5", "big-lever/exp/f5-", "d4096", "t34-round0-study-01")
 
 
+def protected_name(value: str) -> bool:
+    """Match study names at component boundaries, never random digest substrings."""
+    return bool(
+        re.search(
+            r"(?:^|[/_.-])(?:f5|d4096|t34-round0-study-01)(?=$|[/_.-])",
+            value.lower().replace("\\", "/"),
+        )
+    )
+
+
 class ManifestError(ValueError):
     """A manifest cannot establish its required sandbox boundary."""
 
@@ -46,9 +57,8 @@ def _number(value: Any, name: str) -> float:
 def _forbidden(value: Any, location: str = "manifest") -> None:
     if isinstance(value, str):
         normalized = value.lower().replace("\\", "/")
-        for token in PROTECTED_TOKENS:
-            if token in normalized:
-                raise ManifestError(f"{location} names protected study/path token {token!r}")
+        if protected_name(normalized):
+            raise ManifestError(f"{location} names a protected study/path")
     elif isinstance(value, dict):
         for key, nested in value.items():
             if key == "sha256":
@@ -136,12 +146,20 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
     timeout = payload["timeout"]
     if not isinstance(timeout, dict):
         raise ManifestError("timeout must be an object")
-    estimate = _number(
-        timeout.get("measured_estimate_seconds"), "timeout.measured_estimate_seconds"
-    )
+    if set(timeout) == {"base_seconds", "seconds", "purpose"}:
+        if timeout["purpose"] != "runaway-guard":
+            raise ManifestError("timeout purpose must be runaway-guard")
+        estimate = _number(timeout["base_seconds"], "timeout.base_seconds")
+    elif set(timeout) == {"measured_estimate_seconds", "seconds"}:
+        # Retain the original schema for existing Job A packets.
+        estimate = _number(
+            timeout["measured_estimate_seconds"], "timeout.measured_estimate_seconds"
+        )
+    else:
+        raise ManifestError("timeout must declare a base and doubled runaway guard")
     actual = _number(timeout.get("seconds"), "timeout.seconds")
     if not math.isclose(actual, estimate * 2, rel_tol=0.0, abs_tol=1e-9):
-        raise ManifestError("timeout.seconds must equal 2x measured_estimate_seconds")
+        raise ManifestError("timeout.seconds must equal 2x base seconds")
     excluded = payload["excluded_studies"]
     if not isinstance(excluded, list) or not all(
         isinstance(item, str) and item for item in excluded

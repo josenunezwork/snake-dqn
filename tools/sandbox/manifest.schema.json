@@ -131,22 +131,48 @@
       "additionalProperties": false
     },
     "timeout": {
-      "type": "object",
-      "required": [
-        "measured_estimate_seconds",
-        "seconds"
-      ],
-      "properties": {
-        "measured_estimate_seconds": {
-          "type": "number",
-          "exclusiveMinimum": 0
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "measured_estimate_seconds",
+            "seconds"
+          ],
+          "properties": {
+            "measured_estimate_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "additionalProperties": false
         },
-        "seconds": {
-          "type": "number",
-          "exclusiveMinimum": 0
+        {
+          "type": "object",
+          "required": [
+            "base_seconds",
+            "seconds",
+            "purpose"
+          ],
+          "properties": {
+            "base_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "purpose": {
+              "const": "runaway-guard"
+            }
+          },
+          "additionalProperties": false
         }
-      },
-      "additionalProperties": false
+      ]
     },
     "excluded_studies": {
       "type": "array",

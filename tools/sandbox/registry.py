@@ -15,14 +15,14 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REGISTRY = Path(__file__).with_name("SANDBOX_INPUT_REGISTRY.json")
 TRANSPORT_TREE = "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
-DENIED = ("f5", "d4096", "t34-round0-study-01", "colab_cli")
+DENIED = re.compile(r"(?:^|[/_.-])(?:f5|d4096|t34-round0-study-01|colab_cli)(?=$|[/_.-])")
 
 
 def safe_path(path: str | Path) -> Path:
     """Reject forbidden identities before filesystem reads, including aliases."""
     p = Path(path)
     for candidate in (str(p), str(p.resolve())):
-        if any(token in candidate.lower() for token in DENIED):
+        if DENIED.search(candidate.lower().replace("\\", "/")):
             raise ValueError("sandbox refuses protected/transport path")
     return p
 

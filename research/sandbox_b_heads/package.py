@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import subprocess
 from pathlib import Path
 
@@ -14,9 +13,24 @@ from research.bl_residual.data import validate_rows as validate_projection
 from research.sandbox_b_heads.job import SALT, parent_split, sha256
 from research.sandbox_b_heads.resume import recipe, verify_ledger
 
+RUNAWAY_BASE_MINUTES = 60.0
+RUNAWAY_TIMEOUT_MINUTES = 120.0
+
 
 def _git_commit() -> str:
     return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+
+
+def _repository_path(path: Path) -> str:
+    """Return a source-root-relative packet path when the target is in this checkout."""
+    root = Path(
+        subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
+    ).resolve()
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(root))
+    except ValueError:
+        return str(resolved)
 
 
 def _write_ten_line_sandbox_manifest(
@@ -26,7 +40,7 @@ def _write_ten_line_sandbox_manifest(
     b8: Path,
     ledger: Path,
     broker: Path,
-    estimated_minutes: float,
+    base_timeout_minutes: float,
     prior_bundles: list[dict] | None = None,
 ) -> None:
     """Emit the human-reviewable ten-physical-line sandbox manifest."""
@@ -48,11 +62,12 @@ def _write_ten_line_sandbox_manifest(
         "endpoint": {
             "kind": "updates",
             "value": 15000,
-            "broker_manifest": "research/sandbox_b_heads/dispatch-manifest.json",
+            "broker_manifest": _repository_path(broker),
         },
         "timeout": {
-            "measured_estimate_seconds": estimated_minutes * 60,
-            "seconds": estimated_minutes * 120,
+            "base_seconds": base_timeout_minutes * 60,
+            "seconds": base_timeout_minutes * 120,
+            "purpose": "runaway-guard",
         },
         "excluded_studies": ["F5", "F4-fold-0", "R30", "strict", "probe", "serving"],
         "owner_rule": (
@@ -94,7 +109,7 @@ def build(
     ledger: Path,
     manifest_output: Path,
     output_dir: Path,
-    estimated_minutes: float,
+    base_timeout_minutes: float,
     sandbox_manifest: Path | None = None,
 ) -> Path:
     """Validate a filtered input against the canonical registry and write a packet."""
@@ -122,8 +137,8 @@ def build(
     validation = parent_split(table["parent_world"])
     if not validation.any() or validation.all():
         raise ValueError("filtered D1024 input does not support the committed parent split")
-    if not math.isfinite(estimated_minutes) or estimated_minutes <= 0 or not ledger.is_file():
-        raise ValueError("measured estimate and an initial verified ledger are required")
+    if base_timeout_minutes != RUNAWAY_BASE_MINUTES or not ledger.is_file():
+        raise ValueError("sandbox B requires the owner-adopted 60-minute runaway-guard base")
     if not output_dir.is_absolute() or output_dir.exists():
         raise ValueError("output must be a fresh absolute output directory path")
     manifest_output.parent.mkdir(parents=True, exist_ok=True)
@@ -184,9 +199,12 @@ def build(
             "gpu": "A100",
             "allowed_gpus": ["A100"],
             "min_vcpu": 4,
-            "est_minutes": estimated_minutes,
+            # Compatibility estimate required by the qualified supervisor.  It
+            # deliberately names the fixed technical guard rather than a CPU
+            # smoke extrapolation or an expected GPU duration.
+            "est_minutes": base_timeout_minutes,
         },
-        "timeout_minutes": estimated_minutes * 2,
+        "timeout_minutes": RUNAWAY_TIMEOUT_MINUTES,
         "output_dir": str(output_dir),
         "inputs": [
             {
@@ -223,31 +241,32 @@ def build(
             "SANDBOX_B_SALT": SALT,
             "SNAKE_DQN_DEVICE": "cuda",
             "COLAB_CLI_REQUIREMENTS": "research/sandbox_b_heads/requirements.txt",
-            "SNAKE_COLAB_CANARY": "1",
-            "SNAKE_COLAB_CANARY_PACKAGE": "research/sandbox_b_heads",
         },
-        "canary": {
-            "schema": "colab-family-canary/v1",
-            "mode": "probe",
-            "family": "research/sandbox_b_heads/run_job.sh",
-        },
-        "sandbox_execution": "entire development sweep once; no prerequisite timing canary",
+        "sandbox_execution": (
+            "entire finite development sweep; no timing canary under the adopted sandbox rule"
+        ),
         "requirements_file": "research/sandbox_b_heads/requirements.txt",
         # The qualified supervisor requires unit_cap.  This is the doubled wall-time
         # runaway guard at a prospective A100 pricing ceiling, not an economic allocation cap.
         "budget": {
             "rate_units_per_hour": 8.0,
-            "unit_cap": estimated_minutes * 2 * 8.0 / 60,
+            "unit_cap": RUNAWAY_TIMEOUT_MINUTES * 8.0 / 60,
             "reserve_units": 0,
             "other_assignments": {},
         },
         "technical_envelope": {
-            "base_timeout_minutes": estimated_minutes,
-            "effective_timeout_minutes": estimated_minutes * 2,
+            "base_timeout_minutes": base_timeout_minutes,
+            "effective_timeout_minutes": RUNAWAY_TIMEOUT_MINUTES,
             "includes_setup_and_export": True,
+            "purpose": "runaway-guard",
         },
     }
     manifest["inputs"].extend(prior_inputs)
+    if sandbox_manifest is not None:
+        manifest["sandbox_admission"] = {
+            "schema": "standing-a100-development-sandbox-admission/v1",
+            "manifest_path": str(sandbox_manifest.resolve()),
+        }
     manifest_output.write_text(json.dumps(manifest, indent=2) + "\n")
     manifest_output.with_suffix(manifest_output.suffix + ".sha256").write_text(
         f"{sha256(manifest_output)}  {manifest_output.name}\n"
@@ -260,7 +279,7 @@ def build(
             b8,
             runtime_ledger,
             manifest_output,
-            estimated_minutes,
+            base_timeout_minutes,
             sandbox_prior,
         )
     return manifest_output
@@ -277,7 +296,12 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--sandbox-manifest", type=Path)
-    parser.add_argument("--estimated-minutes", required=True, type=float)
+    parser.add_argument(
+        "--runaway-base-minutes",
+        type=float,
+        default=RUNAWAY_BASE_MINUTES,
+        help="fixed owner-adopted technical runaway-guard base (must be 60)",
+    )
     args = parser.parse_args()
     print(
         build(
@@ -287,7 +311,7 @@ def main() -> None:
             args.ledger,
             args.output,
             args.output_dir,
-            args.estimated_minutes,
+            args.runaway_base_minutes,
             args.sandbox_manifest,
         )
     )

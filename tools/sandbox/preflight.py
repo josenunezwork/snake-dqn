@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
-from .manifest import PROTECTED_TOKENS, ManifestError, _forbidden, load_manifest
+from .manifest import ManifestError, _forbidden, load_manifest, protected_name
 
 TRANSPORT_TREE = "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -34,8 +34,10 @@ def _run(command: Sequence[str], *, cwd: Path = REPO_ROOT) -> str:
 def _assert_safe_path(value: str | Path, name: str) -> Path:
     path = Path(value)
     rendered = path.as_posix().lower()
-    if any(token in rendered for token in PROTECTED_TOKENS):
+    if protected_name(rendered) or protected_name(path.resolve().as_posix()):
         raise PreflightError(f"{name} names a protected F5/study path")
+    if any(part.is_symlink() for part in (path, *path.parents)):
+        raise PreflightError(f"{name} must not traverse symlinks")
     return path
 
 

@@ -42,6 +42,10 @@ from research.compute.colab_control import RULING_SHA256 as CONTROL_RULING_SHA25
 EXACT_ERROR = "AccountingError('assignment endpoints changed during allocation')"
 BLOCK = re.compile(r"^\s*(?:BLOCK|HOLD)\b|RUNTIME BLOCKED|do not run this|PREPARED_NOT_DISPATCHED")
 NICE_FLOOR = 15
+SANDBOX_OUTPUT_ROOTS = {
+    "sandbox-b-heads-v1": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b-20261026",
+    "sandbox-a": HERE.parents[1].parent / "snake-dqn-artifacts/sandbox-a-resident",
+}
 P1_ATTEMPT2_RULING = "55b13197d9d92f8eeb1c895180f01993ca11908f51c74a60d9a67065a0550d13"
 CONTROL_INTERPRETER = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python")
 CONTROL_OAUTH_INTERPRETER = Path("/Users/josenunez/.venvs/colab-cli/bin/python")
@@ -491,6 +495,151 @@ def require_no_control_priority_drift() -> None:
         raise Refused(f"qualified Colab control priority drift: {drifted}")
 
 
+def supervisor_launcher(broker: Path, manifest: dict[str, Any]) -> Path:
+    """Use the explicit host admission adapter only for declared sandbox jobs."""
+    if "sandbox_admission" in manifest:
+        if broker.resolve() != HERE.parents[1]:
+            raise Refused("sandbox adapter must run from the selected broker checkout")
+        return broker / "tools/sandbox/launch.sh"
+    return broker / "research/colab_cli/launch.sh"
+
+
+def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
+    """Substitute adopted sandbox preflight for a family timing canary only.
+
+    The ten-line committed manifest binds the original packet by SHA. The
+    qualified supervisor may add its documented defaults and dispatch may refresh
+    account prices or make its one exact accounting retry; nothing else varies.
+    This function never allocates, reads registered outcomes, or edits transport.
+    """
+    from tools.sandbox import preflight
+    from tools.sandbox.manifest import _forbidden
+
+    if broker.resolve() != HERE.parents[1]:
+        raise Refused("sandbox admission broker differs from adapter root")
+    admission = manifest.get("sandbox_admission")
+    if (
+        not isinstance(admission, dict)
+        or set(admission) != {"schema", "manifest_path"}
+        or admission["schema"] != "standing-a100-development-sandbox-admission/v1"
+        or not isinstance(admission["manifest_path"], str)
+        or not Path(admission["manifest_path"]).is_absolute()
+    ):
+        raise Refused("sandbox requires an explicit ten-line manifest admission")
+    allowed_keys = {
+        "job_id",
+        "commit",
+        "script",
+        "device",
+        "source_paths",
+        "requirements",
+        "timeout_minutes",
+        "output_dir",
+        "max_export_bytes",
+        "lease_seconds",
+        "inputs",
+        "env",
+        "required_exports",
+        "budget",
+        "resume",
+        "sandbox_admission",
+        "sandbox_execution",
+        "requirements_file",
+        "technical_envelope",
+        "sandbox",
+        "sandbox_a",
+    }
+    if set(manifest) - allowed_keys:
+        raise Refused("sandbox forbids canary, registered-study or unknown controls")
+    packages = {
+        "research/sandbox_b_heads/run_job.sh": "sandbox-b-heads-v1",
+        "research/sandbox_a_resident/job.sh": "sandbox-a",
+    }
+    study = packages.get(manifest.get("script"))
+    if study is None:
+        raise Refused("sandbox script is outside adopted development packages")
+    output = preflight._assert_safe_path(manifest.get("output_dir", ""), "sandbox output")
+    if not output.is_absolute() or not output.resolve().is_relative_to(SANDBOX_OUTPUT_ROOTS[study]):
+        raise Refused("sandbox output must stay in its isolated development artifact root")
+    _forbidden(
+        {
+            key: manifest.get(key)
+            for key in ("script", "env", "source_paths", "output_dir", "required_exports", "inputs")
+        }
+    )
+    for item in manifest.get("inputs", []):
+        preflight._assert_safe_path(item.get("path", ""), "sandbox input")
+    env = manifest.get("env", {})
+    if any(key.startswith("SNAKE_COLAB_CANARY") for key in env):
+        raise Refused("sandbox cannot enable canary instrumentation")
+    allowed_env = {"SNAKE_DQN_DEVICE", "COLAB_CLI_REQUIREMENTS"}
+    if study == "sandbox-b-heads-v1":
+        allowed_env.add("SANDBOX_B_SALT")
+        prefixes = ("src/", "tools/sandbox/", "research/sandbox_b_heads/")
+    else:
+        allowed_env.update({"SANDBOX_A_CONTROL_JSON", "SANDBOX_A_SOURCE_COMMIT", "MAX_JOBS"})
+        prefixes = (
+            "src/",
+            "tools/sandbox/",
+            "research/sandbox_a_resident/",
+            "research/gpu_sim_spike/",
+        )
+    if set(env) - allowed_env:
+        raise Refused("sandbox environment contains non-package controls")
+    shared = {"research/a100_a2/model.py", "research/bl_residual/data.py"}
+    for source in manifest.get("source_paths", []):
+        parts = Path(source).parts
+        if (
+            Path(source).is_absolute()
+            or ".." in parts
+            or (source not in shared and not source.startswith(prefixes))
+        ):
+            raise Refused("sandbox source is outside its engineering dependency closure")
+    if manifest.get("requirements", {}).get("allowed_gpus", ["A100"]) != ["A100"]:
+        raise Refused("sandbox permits only its adopted A100 assignment")
+    path = preflight._assert_safe_path(admission["manifest_path"], "sandbox manifest")
+    payload = preflight.preflight(path, run_tests=True)
+    if payload["study"] != study:
+        raise Refused("sandbox study differs from entrypoint")
+    original = read_json(Path(payload["outputs"]["broker_manifest"]["path"]))
+
+    def normalized(value: dict[str, Any]) -> dict[str, Any]:
+        result = json.loads(json.dumps(value))
+        req = result["requirements"]
+        req.setdefault("allowed_gpus", [req["gpu"]])
+        result["budget"].setdefault("reserve_units", 0)
+        result["budget"]["other_assignments"] = {}  # Fresh broker prices only.
+        result.setdefault("env", {})
+        result.setdefault("lease_seconds", 180)
+        result.setdefault("max_export_bytes", 1024**3)
+        result["output_dir"] = str(Path(result["output_dir"]).resolve())
+        for item in result.get("inputs", []):
+            item["path"] = str(Path(item["path"]).resolve())
+        return result
+
+    expected, current = normalized(original), normalized(manifest)
+    retry_id = original["job_id"] + "-retry-1"
+    if len(retry_id) > 64:
+        digest = hashlib.sha256(original["job_id"].encode()).hexdigest()[:8]
+        retry_id = f'{original["job_id"][:47]}-{digest}-retry-1'
+    if current["job_id"] == retry_id:
+        expected.update(job_id=retry_id, output_dir=expected["output_dir"] + "-retry-1")
+    if current != expected:
+        raise Refused("sandbox runtime packet differs from committed preflight binding")
+    # Retain all non-receipt checks that ordinary canary.check performs.
+    from research.colab_cli import canary, transfer_policy
+
+    transfer_policy.transfer_limit(manifest)
+    canary.job_device(manifest, broker)
+    canary._exports(manifest)
+    if study == "sandbox-a":
+        # Job A owns its control/seed recipe checker and focused tests.
+        command(
+            [sys.executable, "-m", "research.sandbox_a_resident.preflight", str(path.parent)],
+            cwd=broker,
+        )
+
+
 def validate(
     broker: Path, cwd: Path, state: Path, manifest: Path, log: Path, deadline: float | None = None
 ) -> None:
@@ -498,7 +647,7 @@ def validate(
     with log.open("x") as stream:
         command(
             [
-                str(broker / "research/colab_cli/launch.sh"),
+                str(supervisor_launcher(broker, read_json(manifest))),
                 "--state-dir",
                 str(state),
                 "--colab",
@@ -536,7 +685,7 @@ def start(
     log.touch(exist_ok=False)
     register(log.parent.parent, log, name)
     launcher = [
-        str(broker / "research/colab_cli/launch.sh"),
+        str(supervisor_launcher(broker, read_json(manifest))),
         "--state-dir",
         str(state),
         "--colab",
@@ -905,6 +1054,15 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
     foreign = sorted(set(sessions) - set(records))
     if foreign:
         raise Refused("live endpoints not owned by our broker: " + ", ".join(foreign))
+    if "sandbox_admission" in read_json(manifest):
+        from tools.sandbox.manifest import protected_name
+
+        for endpoint in sessions:
+            record = records[endpoint]
+            if any(protected_name(str(record.get(key, ""))) for key in ("output", "session")):
+                # Do not open a protected running package to infer permission.
+                # No active-contract coexistence proof is implemented here.
+                raise Refused("sandbox waits for protected F5/study assignment to stop")
     rates = {}
     for endpoint, hardware in sessions.items():
         record = records[endpoint]

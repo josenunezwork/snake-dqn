@@ -66,6 +66,11 @@ def test_symlink_to_protected_source_refused_before_open(tmp_path):
         safe_path(alias)
 
 
+def test_benign_path_component_containing_f5_is_not_a_study(tmp_path):
+    benign = tmp_path / "hash-aaf5b3" / "input.npz"
+    assert safe_path(benign) == benign
+
+
 def test_domain_separated_full_uint64_worlds():
     seed = world_seed("sandbox-b", 0)
     assert seed == int.from_bytes(hashlib.sha256(b"a100-dev/sandbox-b/0").digest()[:8], "big")

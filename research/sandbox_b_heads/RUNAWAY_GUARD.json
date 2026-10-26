@@ -1,0 +1,10 @@
+{
+  "schema": "sandbox-b-runaway-guard/v1",
+  "supersedes_for_dispatch": "TIMING_FORECAST.json duration extrapolation only",
+  "historical_timing_evidence": "TIMING_FORECAST.json remains immutable evidence of the small local CPU fixture smoke",
+  "base_timeout_minutes": 60,
+  "effective_timeout_minutes": 120,
+  "purpose": "technical runaway guard; not a compute budget and not an expected A100 duration",
+  "progress_telemetry": "outcome-blind JSON at start, at least every two minutes during a configuration, and after every immutable per-configuration export",
+  "timeout_recovery": "preceding per-configuration bundles remain sealed with SHA sidecars and completion markers"
+}

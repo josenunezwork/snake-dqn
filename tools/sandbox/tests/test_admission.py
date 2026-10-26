@@ -1,0 +1,345 @@
+"""Admission-route tests for the adopted A100 development sandbox."""
+
+from __future__ import annotations
+
+import copy
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from tools.ops import dispatch
+from tools.sandbox import preflight
+from tools.sandbox.supervisor import sandbox_admission_route
+
+ROOT = Path(__file__).resolve().parents[3]
+PACKET = ROOT / "research/sandbox_b_heads/dispatch-manifest.json"
+TEN_LINE_MANIFEST = ROOT / "research/sandbox_b_heads/sandbox-manifest.json"
+
+
+def _packet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch | None = None) -> dict:
+    """Build a sandbox packet from the committed Job B packet, with no probe."""
+    value = json.loads(PACKET.read_text())
+    output_root = tmp_path / "sandbox-artifacts"
+    if monkeypatch is not None:
+        monkeypatch.setitem(dispatch.SANDBOX_OUTPUT_ROOTS, "sandbox-b-heads-v1", output_root)
+    value["output_dir"] = str(output_root / "output")
+    value.pop("canary", None)
+    value["env"] = {
+        key: item
+        for key, item in value.get("env", {}).items()
+        if not key.startswith("SNAKE_COLAB_CANARY")
+    }
+    value["sandbox_admission"] = {
+        "schema": "standing-a100-development-sandbox-admission/v1",
+        "manifest_path": str(TEN_LINE_MANIFEST),
+    }
+    # The owner removed the canary's measured-cost ceiling. Keep this fixture
+    # valid if a packet revision has not yet raised its corresponding cap.
+    budget = value.setdefault("budget", {})
+    rate = float(budget.get("rate_units_per_hour", 8.0))
+    timeout = float(value.get("timeout_minutes", 120.0))
+    budget["unit_cap"] = max(float(budget.get("unit_cap", 0.0)), timeout * rate / 60 + 1)
+    return value
+
+
+def _bind_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+    packet: dict,
+    tmp_path: Path,
+    *,
+    original: dict | None = None,
+) -> list[tuple[Path, bool]]:
+    """Stub only the committed-manifest filesystem check for a route test."""
+    broker_manifest = tmp_path / "broker-manifest.json"
+    broker_manifest.write_text(json.dumps(original or packet), encoding="utf-8")
+    calls: list[tuple[Path, bool]] = []
+
+    def fake_preflight(path: Path, *, run_tests: bool = True, **_kwargs):
+        calls.append((path, run_tests))
+        return {
+            "study": "sandbox-b-heads-v1",
+            "outputs": {"broker_manifest": {"path": str(broker_manifest)}},
+        }
+
+    monkeypatch.setattr(preflight, "preflight", fake_preflight)
+    return calls
+
+
+def test_valid_sandbox_packet_is_admitted_without_family_canary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    packet = _packet(tmp_path, monkeypatch)
+    calls = _bind_preflight(monkeypatch, packet, tmp_path)
+
+    dispatch.require_sandbox_admission(packet, ROOT)
+
+    assert "canary" not in packet
+    assert calls == [(TEN_LINE_MANIFEST, True)]
+
+
+def test_route_uses_real_supervisor_validate_and_only_mocks_preflight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The adapter must be exercised through the qualified supervisor validator."""
+    packet = _packet(tmp_path, monkeypatch)
+    calls = _bind_preflight(monkeypatch, packet, tmp_path)
+
+    from research.colab_cli import supervisor
+
+    with sandbox_admission_route():
+        validated = supervisor.validate(packet, ROOT)
+
+    assert validated["output_dir"] == packet["output_dir"]
+    # The host adapter admits before input hashing, and the qualified validator
+    # then rechecks the canary hook after its own normalization/defaults.
+    assert calls == [(TEN_LINE_MANIFEST, True), (TEN_LINE_MANIFEST, True)]
+
+
+def test_protected_sandbox_input_is_refused_before_qualified_hashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route must run sandbox path admission before supervisor input hashing."""
+    from research.colab_cli import supervisor
+
+    protected = tmp_path / "f5-input.npz"
+    protected.write_bytes(b"read-bomb sentinel")
+    packet = _packet(tmp_path, monkeypatch)
+    packet["inputs"][0]["path"] = str(protected)
+    hash_calls: list[Path] = []
+
+    def hash_bomb(path: Path) -> str:
+        hash_calls.append(path)
+        raise AssertionError("qualified supervisor hashed a protected sandbox input")
+
+    monkeypatch.setattr(supervisor, "sha256", hash_bomb)
+
+    def no_preflight(*_args, **_kwargs):
+        raise AssertionError("sandbox preflight should not run after protected-path refusal")
+
+    monkeypatch.setattr(preflight, "preflight", no_preflight)
+    with sandbox_admission_route():
+        with pytest.raises(ValueError, match="protected"):
+            supervisor.validate(packet, ROOT)
+
+    assert hash_calls == []
+
+
+def test_sandbox_refuses_registered_output_namespace_without_f5_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    packet = _packet(tmp_path, monkeypatch)
+    packet["output_dir"] = str(tmp_path / "round-30" / "registered-output")
+
+    with pytest.raises(dispatch.Refused, match="isolated development artifact root"):
+        dispatch.require_sandbox_admission(packet, ROOT)
+
+
+def test_sandbox_route_restores_original_canary_checker_and_keeps_receipt_requirement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from research.colab_cli import canary
+
+    ordinary_calls: list[dict] = []
+
+    def original(manifest: dict, repo: Path) -> None:
+        ordinary_calls.append(manifest)
+        raise canary.CanaryError("dispatch requires a SHA-bound family canary receipt")
+
+    monkeypatch.setattr(canary, "check", original)
+    sandbox_calls: list[dict] = []
+
+    def sandbox_admit(manifest: dict, _repo: Path) -> None:
+        sandbox_calls.append(manifest)
+
+    monkeypatch.setattr(dispatch, "require_sandbox_admission", sandbox_admit)
+    ordinary = {"job_id": "ordinary"}
+    sandbox = {"job_id": "sandbox", "sandbox_admission": {}}
+
+    with sandbox_admission_route():
+        canary.check(sandbox, ROOT)
+        with pytest.raises(canary.CanaryError, match="SHA-bound family canary"):
+            canary.check(ordinary, ROOT)
+
+    assert sandbox_calls == [sandbox]
+    assert ordinary_calls == [ordinary]
+    assert canary.check is original
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda value: value.pop("sandbox_admission"),
+        lambda value: value["sandbox_admission"].update({"schema": "wrong/v1"}),
+        lambda value: value["sandbox_admission"].update({"manifest_path": "relative.json"}),
+        lambda value: value.update({"canary": {"mode": "probe"}}),
+        lambda value: value["env"].update({"SNAKE_COLAB_CANARY": "1"}),
+        lambda value: value["env"].update({"BL_P1_MODE": "y3-source"}),
+        lambda value: value["source_paths"].append("research/bl_residual/f5_colab.sh"),
+        lambda value: value["source_paths"].append("research/D4096/foreign.py"),
+        lambda value: value["source_paths"].append("research/unrelated/foreign.py"),
+        lambda value: value.update({"operational_admission": {"schema": "f5/v1"}}),
+    ],
+)
+def test_sandbox_refuses_malformed_registered_or_protected_controls(
+    tmp_path: Path, mutation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    packet = _packet(tmp_path, monkeypatch)
+    mutation(packet)
+
+    with pytest.raises(ValueError):
+        dispatch.require_sandbox_admission(packet, ROOT)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["inputs", "source_paths", "commit", "required_exports"],
+)
+def test_sandbox_refuses_preflight_packet_or_input_mutation(
+    tmp_path: Path, field: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    packet = _packet(tmp_path, monkeypatch)
+    original = copy.deepcopy(packet)
+    if field == "inputs":
+        packet["inputs"][0]["sha256"] = "0" * 64
+    elif field == "source_paths":
+        original["source_paths"].append("research/sandbox_b_heads/foreign.py")
+    elif field == "commit":
+        original["commit"] = "0" * 40
+    else:
+        original["required_exports"] = list(original["required_exports"]) + ["foreign.json"]
+    _bind_preflight(monkeypatch, packet, tmp_path, original=original)
+
+    with pytest.raises(dispatch.Refused, match="runtime packet differs"):
+        dispatch.require_sandbox_admission(packet, ROOT)
+
+
+def test_sandbox_refuses_invalid_exact_accounting_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = _packet(tmp_path, monkeypatch)
+    retry = copy.deepcopy(original)
+    retry["job_id"] = f'{original["job_id"]}-retry-1'
+    _bind_preflight(monkeypatch, retry, tmp_path, original=original)
+
+    with pytest.raises(dispatch.Refused, match="runtime packet differs"):
+        dispatch.require_sandbox_admission(retry, ROOT)
+
+
+def test_sandbox_preserves_qualified_defaults_and_exact_accounting_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = _packet(tmp_path, monkeypatch)
+    retry = copy.deepcopy(original)
+    retry["job_id"] = f'{original["job_id"]}-retry-1'
+    retry["output_dir"] = original["output_dir"] + "-retry-1"
+    for value in (original, retry):
+        value["requirements"].pop("allowed_gpus", None)
+        value["budget"].pop("reserve_units", None)
+        value.pop("lease_seconds", None)
+        value.pop("max_export_bytes", None)
+    _bind_preflight(monkeypatch, retry, tmp_path, original=original)
+
+    dispatch.require_sandbox_admission(retry, ROOT)
+
+
+def test_qualified_supervisor_rejects_invalid_timeout_before_sandbox_admission(
+    tmp_path: Path,
+) -> None:
+    from research.colab_cli import supervisor
+
+    packet = _packet(tmp_path)
+    packet["timeout_minutes"] = 0
+    with pytest.raises(supervisor.Refused, match="timeout_minutes"):
+        supervisor.validate(packet, ROOT)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("output", "/tmp/big-lever/exp/f5-live"),
+        ("session", "sandbox-D4096-live"),
+    ],
+)
+def test_sandbox_waits_for_protected_active_assignment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: str,
+) -> None:
+    """A sandbox cannot infer coexistence permission from a protected run."""
+    home = tmp_path / "home"
+    account = home / ".config/colab-cli/snake"
+    account.mkdir(parents=True)
+    session = value if field == "session" else "sandbox-live"
+    record = {
+        "endpoint": "protected-endpoint",
+        "session": session,
+        "rate_units_per_hour": 8.0,
+        field: value,
+    }
+    (account / f"active-{session}.json").write_text(json.dumps(record), encoding="utf-8")
+    manifest = tmp_path / "sandbox.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "job_id": "sandbox",
+                "sandbox_admission": {},
+                "budget": {"other_assignments": {}},
+                "output_dir": str(tmp_path / "output"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setattr(
+        dispatch,
+        "command",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            _args[0], 0, stdout="[job] protected-endpoint | Hardware: A100\n", stderr=""
+        ),
+    )
+
+    with pytest.raises(dispatch.Refused, match="protected F5/study assignment"):
+        dispatch.refresh_assignments(manifest, tmp_path / "evidence.json", 10.0)
+    assert not (tmp_path / "sandbox.live.json").exists()
+
+
+def test_non_sandbox_refresh_keeps_existing_active_assignment_behavior(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    account = home / ".config/colab-cli/snake"
+    account.mkdir(parents=True)
+    record = {
+        "endpoint": "owned-endpoint",
+        "session": "ordinary-live",
+        "rate_units_per_hour": 8.0,
+    }
+    (account / "active-ordinary-live.json").write_text(json.dumps(record), encoding="utf-8")
+    manifest = tmp_path / "ordinary.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "job_id": "ordinary",
+                "budget": {"other_assignments": {}},
+                "output_dir": str(tmp_path / "output"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setattr(
+        dispatch,
+        "command",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            _args[0], 0, stdout="[job] owned-endpoint | Hardware: A100\n", stderr=""
+        ),
+    )
+
+    refreshed = dispatch.refresh_assignments(manifest, tmp_path / "evidence.json", 10.0)
+
+    assert json.loads(refreshed.read_text())["budget"]["other_assignments"] == {
+        "owned-endpoint": 8.0
+    }
