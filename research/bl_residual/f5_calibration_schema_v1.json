@@ -1,0 +1,25 @@
+{
+  "schema": "bl-f5-disjoint-calibration-schema/v1",
+  "namespace": "bl-f5-disjoint-timing-calibration/20261025",
+  "fixture_count": 12,
+  "cache_rows": 512,
+  "recipe": {
+    "arms": ["C", "W"],
+    "batch_plan": "one shared calibration plan for both arms",
+    "updates": 2000,
+    "batch_size": 256,
+    "doom_batch_size": 128,
+    "ordinary_batch_size": 128
+  },
+  "input_provenance": "exact sealed timing-fixture source observations only",
+  "label_provenance": "fixed timing-only surrogate strata derived from fixture observations",
+  "sampling_prob": "all rows 1.0; an unweighted calibration surrogate, never archive prevalence",
+  "prohibitions": [
+    "no selected-training archive",
+    "no science labels",
+    "no acceptance artifact",
+    "no usable fit state export"
+  ],
+  "output": "elapsed optimizer and serialized-continuation parity measurements only",
+  "production_cache_feasibility": "HOLD_REQUIRES_ACTUAL_PLAN_AND_CACHE"
+}

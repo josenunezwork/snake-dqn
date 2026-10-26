@@ -80,3 +80,55 @@ def test_bound_metadata_digest_mismatch_refuses(tmp_path: Path) -> None:
     path.write_text("{}")
     with pytest.raises(ValueError, match="digest mismatch"):
         package.binding(path, "0" * 64)
+
+
+def test_final_canary_binds_every_science_byte_and_producer(tmp_path: Path) -> None:
+    """The final transport probe must upload the eventual science files exactly."""
+    names = {
+        "control.json",
+        "b8.pth",
+        "selected-training.tar.xz",
+        "f5-batch-plan.pt",
+        "acceptance.json",
+        "verified-ledger.json",
+        "timing-fixtures.json",
+    }
+    from research.bl_ppo.exports import export_bytes
+
+    immutable = {"selected-training.tar.xz", "f5-batch-plan.pt", "acceptance.json"}
+    rows = []
+    for name in sorted(names):
+        path = tmp_path / name
+        if name in immutable:
+            export_bytes(path, b"synthetic inventory only: " + name.encode())
+        else:
+            path.write_bytes(b"synthetic inventory only: " + name.encode())
+        rows.append({"path": str(path), "dest": name, "sha256": package.digest(path)})
+    for name in sorted(immutable):
+        for suffix in (".sha256", ".complete"):
+            path = tmp_path / (name + suffix)
+            rows.append({"path": str(path), "dest": name + suffix, "sha256": package.digest(path)})
+    science = {
+        "inputs": rows,
+        "commit": "a" * 40,
+        "source_paths": ["source.py"],
+        "script": "research/bl_residual/f5_colab.sh",
+        "required_exports": ["paired/fit-C.pth", "paired/fit-W.pth"],
+    }
+    probe = {**science, "inputs": []}
+    result = package.bind_qualification_inventory(science, probe)
+    assert result["inputs"] == rows
+    assert set(result["required_exports"]) == {
+        "paired/fit-C.pth",
+        "paired/fit-W.pth",
+        "qualification/qualification.json",
+    }
+    assert len(result["science_upload_inventory"]) == len(names) + 6
+    assert science["inputs"] == rows
+    science["inputs"] = rows[:-1]
+    with pytest.raises(ValueError, match="incomplete"):
+        package.bind_qualification_inventory(science, probe)
+    science["inputs"] = rows
+    Path(rows[0]["path"]).write_bytes(b"changed")
+    with pytest.raises(ValueError, match="digest"):
+        package.bind_qualification_inventory(science, probe)

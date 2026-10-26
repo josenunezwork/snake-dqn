@@ -27,6 +27,10 @@ ADOPTION = "F5_REGISTRATION_ADOPTED_20261025.md"
 SELECTION = "F5_SELECTION_W_20261025_20261026T032844Z.json"
 ADOPTION_SHA = "4e218263f169334415968f02eb2d767e1ff136dfc3ccf470090dd474b31dd6a8"
 SELECTION_SHA = "b4a880816bcd050cc36aebed7f73547a37a5fc6890889fff7203771a6449d3c3"
+ASSIGNMENT_AMENDMENT = "F5_L4_ASSIGNMENT_IDENTITY_AMENDMENT_ADOPTED_20261025.md"
+ASSIGNMENT_AMENDMENT_SHA = "a1dc92ffb8fa341fb51738a56fe0097d75e15b0aff7194940c12979adbb04d62"
+ASSIGNMENT_DRAFT_SHA = "7eda19efb72f89a7e2269d40863288f9295358f2566f3a02d3ca4d3c11933359"
+REJECTION_SHA = "b672b7b62bd7744e3226aabbd516a8a3a562b6d57f97c128b16c7f130d1e5aed"
 ALLOCATION_SHA = "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7"
 SEMANTIC_COMMIT = "124dd22cd560a74a210a61f0ba473461328e82f8"
 FIT_SHA = "85c7e77d34e14a3b5036984cc1af92df4e3724f4c9fe453d813a56c1963822a7"
@@ -114,7 +118,27 @@ def governance(repo: Path = ROOT, artifacts: Path = ART) -> dict[str, Any]:
     """Bind adoption's exact governance schedule without following payload references."""
     adopted = repo / LEDGER / ADOPTION
     selection = repo / LEDGER / SELECTION
-    records = [binding(adopted, ADOPTION_SHA), binding(selection, SELECTION_SHA)]
+    amendment = repo / LEDGER / ASSIGNMENT_AMENDMENT
+    records = [
+        binding(adopted, ADOPTION_SHA),
+        binding(selection, SELECTION_SHA),
+        binding(amendment, ASSIGNMENT_AMENDMENT_SHA),
+    ]
+    published_amendment = subprocess.check_output(
+        ["git", "show", f"origin/main:{LEDGER}/{ASSIGNMENT_AMENDMENT}"], cwd=repo
+    )
+    if published_amendment != amendment.read_bytes():
+        raise ValueError("assignment amendment not published on main")
+    records.extend(
+        [
+            binding(
+                artifacts
+                / "F5_W_PREFIT_20261025/final-03/F5_L4_ASSIGNMENT_IDENTITY_AMENDMENT_DRAFT.md",
+                ASSIGNMENT_DRAFT_SHA,
+            ),
+            binding(artifacts / "REJECT_F5_W_IMPLEMENTATION_36561254.md", REJECTION_SHA),
+        ]
+    )
     # Adoption explicitly incorporates these exact metadata references. D4096 is
     # deliberately never followed, including its allocation metadata.
     schedule = re.findall(r"- `([^`]+)` — SHA256 `([0-9a-f]{64})`", adopted.read_text())
@@ -237,6 +261,8 @@ def source_inventory(repo: Path = ROOT) -> dict[str, str]:
             "f5_timing.py",
             "f5_rules.py",
             "f5_protocol.py",
+            "f5_environment.py",
+            "f5_qualification.py",
         )
     ]
     seen: set[Path] = set()
@@ -261,6 +287,10 @@ def source_inventory(repo: Path = ROOT) -> dict[str, str]:
                     if source.is_file() and source not in seen:
                         pending.append(source)
     seen.add(repo / "research/bl_residual/f5_colab.sh")
+    seen.add(repo / "research/bl_residual/f5_environment_schema_v1.json")
+    seen.add(repo / "research/bl_residual/f5_calibration_schema_v1.json")
+    seen.add(repo / "research/apex_safety_20260926/deployment.yaml")
+    seen.update((repo / "configs").glob("*.yaml"))
     return {str(path.relative_to(repo)): digest(path) for path in sorted(seen)}
 
 
@@ -297,6 +327,76 @@ def validate_draft_manifest(value: dict[str, Any]) -> list[str]:
     ]
 
 
+def bind_qualification_inventory(
+    science: dict[str, Any], qualification: dict[str, Any]
+) -> dict[str, Any]:
+    """Bind the final exact upload set; no placeholder or size-only coverage.
+
+    Call after actual plan/timing review and final acceptance have been sealed.
+    A prior timing run cannot qualify files that did not yet exist. The final
+    transport canary repeats only the sealed timing workload with these exact
+    science bytes; it never opens the selected training package.
+    """
+    from research.colab_cli import canary
+
+    immutable_names = {"selected-training.tar.xz", "f5-batch-plan.pt", "acceptance.json"}
+    required = {
+        "control.json",
+        "b8.pth",
+        "selected-training.tar.xz",
+        "f5-batch-plan.pt",
+        "acceptance.json",
+        "verified-ledger.json",
+        "timing-fixtures.json",
+    }
+    required |= {name + suffix for name in immutable_names for suffix in (".sha256", ".complete")}
+    rows = science.get("inputs")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("complete actual science upload inventory required")
+    destinations: set[str] = set()
+    private_total = 0
+    for row in rows:
+        if set(row) != {"path", "dest", "sha256"}:
+            raise ValueError("F5 qualification requires actual uploaded local files")
+        name, path = row["dest"], Path(row["path"])
+        if not isinstance(name, str) or Path(name).name != name or name in destinations:
+            raise ValueError("unsafe or duplicate science upload destination")
+        destinations.add(name)
+        if not path.is_absolute() or not path.is_file() or path.is_symlink():
+            raise ValueError("actual science input missing or unsafe")
+        if digest(path) != row["sha256"]:
+            raise ValueError("science input digest mismatch")
+        private_total += path.stat().st_size
+    if not required <= destinations or private_total > 45_397_643:
+        raise ValueError("incomplete or oversized actual private science inventory")
+    from research.bl_ppo.exports import verify_export
+
+    uploaded = {row["dest"]: Path(row["path"]) for row in rows}
+    for name in immutable_names:
+        path = uploaded[name]
+        if path.name != name:
+            raise ValueError("immutable upload filename must match runtime destination")
+        verify_export(path)
+        for suffix in (".sha256", ".complete"):
+            if uploaded[name + suffix].read_bytes() != Path(str(path) + suffix).read_bytes():
+                raise ValueError("immutable uploaded sidecar differs from verified export")
+    if (
+        science["commit"] != qualification["commit"]
+        or science["source_paths"] != qualification["source_paths"]
+    ):
+        raise ValueError("qualification source differs from science")
+    if canary.family(science) != canary.family(qualification):
+        raise ValueError("qualification entrypoint differs from science")
+    result = json.loads(json.dumps(qualification))
+    result["inputs"] = json.loads(json.dumps(rows))
+    result["required_exports"] = sorted(
+        set(science["required_exports"]) | {"qualification/qualification.json"}
+    )
+    result["inventory_status"] = "BOUND_EXACT_ACTUAL_SCIENCE_UPLOADS"
+    result["science_upload_inventory"] = canary.input_inventory(science)
+    return result
+
+
 def build(
     output: Path,
     repo: Path = ROOT,
@@ -328,6 +428,10 @@ def build(
         raise ValueError("allocation differs from frozen physical-seed/phase/order constructor")
     corpus = corpus_review(artifacts)
     hashes = source_inventory(repo)
+    for name, expected in hashes.items():
+        pinned = subprocess.check_output(["git", "show", f"{commit}:{name}"], cwd=repo)
+        if hashlib.sha256(pinned).hexdigest() != expected:
+            raise ValueError("review packet requires a committed exact source closure")
     source_paths = sorted(hashes) + [
         f"{ENV}/requirements-f5-l4-cu126.lock",
         f"{ENV}/f5-common-environment-v6.json",
@@ -378,6 +482,7 @@ def build(
             ]
         ),
         "required_exports": [
+            "paired/assignment-environment.json",
             "paired/fit-receipt.json",
             "paired/fit-C.pth",
             "paired/fit-W.pth",
@@ -430,6 +535,33 @@ def build(
     timing = qualification_plan(allocation)
     output.mkdir(parents=True)
     files = {}
+    fixture_rows = [row for row in allocation if row.get("timing_only") is True]
+    files["timing-fixtures.json"] = export_json(
+        output / "timing-fixtures.json",
+        {
+            "schema": "bl-f5-sealed-timing-fixtures/v1",
+            "fixtures": fixture_rows,
+        },
+    )
+    from research.bl_residual.f5_environment import policy_binding
+
+    policy = policy_binding()
+    files["environment-policy.json"] = export_json(output / "environment-policy.json", policy)
+    files["bootstrap-control.json"] = export_json(
+        output / "bootstrap-control.json",
+        {
+            "schema": "bl-f5-bootstrap-qualification/v1",
+            "source_hashes": hashes,
+            "environment_policy": policy,
+            "qualification_fixture_sha256": files["timing-fixtures.json"]["sha256"],
+            "b8_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+        },
+    )
+    fixture_input = {
+        "path": str(output / "timing-fixtures.json"),
+        "dest": "timing-fixtures.json",
+        "sha256": files["timing-fixtures.json"]["sha256"],
+    }
     for name, value in (
         ("authority.json", authority),
         ("source-review.json", source),
@@ -448,7 +580,7 @@ def build(
         "output_dir": str(output / "prepare-output-01"),
         "env": {
             **manifest["env"],
-            "F5_MODE": "prepare",
+            "F5_MODE": "prepare-qualification",
             "SNAKE_COLAB_CANARY": "1",
             "SNAKE_COLAB_CANARY_PACKAGE": "research/bl_residual",
         },
@@ -465,16 +597,34 @@ def build(
             "timeout_minutes": 30,
         },
     }
-    canary["inputs"] = [item for item in manifest["inputs"] if item["dest"] != "b8.pth"]
+    canary["inputs"] = [*manifest["inputs"], fixture_input]
+    canary["required_exports"] += [
+        *manifest["required_exports"],
+        "qualification/qualification.json",
+    ]
+    canary["substeps"] = ["CPU_PLAN_MATERIALIZATION", "DISJOINT_CUDA_TRANSPORT_QUALIFICATION"]
     del canary["resume"]
-    files["prepare-canary.draft.json"] = export_json(output / "prepare-canary.draft.json", canary)
+    files["prepare.draft.json"] = export_json(output / "prepare.draft.json", canary)
     capture = {
         **canary,
         "job_id": f"bl-f5-w-capture-{commit[:8]}-01",
         "output_dir": str(output / "capture-output-01"),
-        "inputs": [],
-        "env": {**manifest["env"], "F5_MODE": "capture"},
-        "required_exports": ["environment.json"],
+        "inputs": [
+            *[item for item in manifest["inputs"] if item["dest"] == "b8.pth"],
+            fixture_input,
+            {
+                "path": str(output / "bootstrap-control.json"),
+                "dest": "bootstrap-control.json",
+                "sha256": files["bootstrap-control.json"]["sha256"],
+            },
+        ],
+        "env": {**canary["env"], "F5_MODE": "capture-qualification"},
+        "required_exports": [
+            "environment.json",
+            "qualification/qualification.json",
+            *manifest["required_exports"],
+        ],
+        "substeps": ["RAW_ENVIRONMENT_CAPTURE", "DISJOINT_CUDA_TRANSPORT_QUALIFICATION"],
         "timeout_minutes": 10,
         "requirements": {**canary["requirements"], "est_minutes": 5},
         "resume_exemption": {
@@ -486,7 +636,6 @@ def build(
             "timeout_minutes": 10,
         },
     }
-    capture.pop("canary", None)
     files["environment-capture.draft.json"] = export_json(
         output / "environment-capture.draft.json", capture
     )
@@ -494,6 +643,86 @@ def build(
         files["training-package.json"] = export_json(
             output / "training-package.json", prepared_input
         )
+    qualification = {
+        **manifest,
+        "job_id": f"bl-f5-w-qualification-{commit[:8]}-01",
+        "output_dir": str(output / "qualification-output-01"),
+        "timeout_minutes": 30,
+        "env": {
+            **manifest["env"],
+            "F5_MODE": "qualification-transport",
+            "SNAKE_COLAB_CANARY": "1",
+            "SNAKE_COLAB_CANARY_PACKAGE": "research/bl_residual",
+        },
+        "requirements": {**manifest["requirements"], "est_minutes": 15},
+        "canary": {
+            "schema": "colab-family-canary/v1",
+            "mode": "probe",
+            "family": "research/bl_residual/f5_colab.sh",
+        },
+        "required_exports": [*manifest["required_exports"], "qualification/qualification.json"],
+        "resume_exemption": {
+            "kind": "short-canary",
+            "timeout_minutes": 30,
+            "reason": "twelve sealed timing-only fixtures; no scientific fits or outcomes",
+        },
+        "inventory_status": (
+            "HOLD: bind final full science inventory unchanged before family canary"
+        ),
+    }
+    qualification.pop("resume", None)
+    timing_qualification = {
+        **qualification,
+        "job_id": f"bl-f5-w-timing-{commit[:8]}-01",
+        "output_dir": str(output / "timing-output-01"),
+        "env": {**qualification["env"], "F5_MODE": "qualification"},
+        "inputs": [item for item in manifest["inputs"] if item["dest"] == "b8.pth"]
+        + [fixture_input],
+        "inventory_status": "HOLD: bind actual timing control; no selected-training upload",
+    }
+    # These are the immutable source-native evaluator pool, not training or
+    # candidate inputs. Full timing uses a separate packet so this pool never
+    # expands the paired-fit private-upload ceiling.
+    calibration_checkpoints = (
+        (
+            "champion_a5_freespace_20260621.pth",
+            "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+        ),
+        ("best_apex_fs.pth", "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"),
+        (
+            "best_apex_stage1_fs.pth",
+            "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+        ),
+        (
+            "best_apex_pre_fs.pth",
+            "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+        ),
+        (
+            "frp3_m3_s12_u60000_20261005.pth",
+            "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+        ),
+    )
+    if selected_package is not None:
+        for name, expected in calibration_checkpoints:
+            path = Path("/Users/josenunez/Projects/ml/snake-dqn/saved_snakes") / name
+            if digest(path) != expected:
+                raise ValueError("timing evaluator checkpoint bytes differ from source pins")
+            timing_qualification["inputs"].append(
+                {"path": str(path), "dest": name, "sha256": expected}
+            )
+        timing_bytes = sum(
+            Path(item["path"]).stat().st_size for item in timing_qualification["inputs"]
+        )
+        if timing_bytes > 45_397_643:
+            raise ValueError("timing qualification inventory exceeds unchanged private cap")
+        timing_qualification["known_private_input_bytes"] = timing_bytes
+    timing_qualification.pop("resume", None)
+    files["timing-qualification.draft.json"] = export_json(
+        output / "timing-qualification.draft.json", timing_qualification
+    )
+    files["qualification-canary.draft.json"] = export_json(
+        output / "qualification-canary.draft.json", qualification
+    )
     control_template = {
         "schema": "bl-residual-f5-runtime/v1",
         "namespace": "bl-residual-f5-w-20261025-v1",
@@ -509,6 +738,11 @@ def build(
             "corpus_sha256": None if prepared_input is None else prepared_input["corpus_sha256"],
         },
         "source_hashes": hashes,
+        "qualification_fixture_sha256": files["timing-fixtures.json"]["sha256"],
+        "qualification_b8_sha256": (
+            "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+        ),
+        "environment_policy": policy,
         "environment_capture": None,
         "input_hashes": (
             {}
@@ -529,6 +763,27 @@ def build(
     files["paired-control.template.json"] = export_json(
         output / "paired-control.template.json", main_control_template
     )
+    timing_control = {
+        **control_template,
+        "input_hashes": {
+            "b8.pth": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+        },
+        "qualification_checkpoint_pool": dict(calibration_checkpoints),
+    }
+    files["timing-control.template.json"] = export_json(
+        output / "timing-control.template.json", timing_control
+    )
+    from research.colab_cli import canary as broker_canary
+
+    broker_shapes = {}
+    for name, probe in (
+        ("capture", capture),
+        ("prepare", canary),
+        ("timing", timing_qualification),
+        ("final_transport", qualification),
+    ):
+        broker_canary.check(probe, repo)
+        broker_shapes[name] = "PASS_REAL_BROKER_PROBE_SHAPE_ONLY_NOT_EXECUTION"
     dry_run = {
         "schema": "bl-f5-offline-dry-run/v1",
         "status": "PASS_OFFLINE_PREPARATION",
@@ -540,6 +795,22 @@ def build(
         "blockers": blocked,
         "dispatch_wrapper": "tools/ops/dispatch.sh; NOT invoked",
         "draft_manifest_refuses_dispatch": True,
+        "real_broker_probe_checks": broker_shapes,
+        "actual_cuda_observer_evidence": "NOT_RUN_NO_CUDA_NO_DISPATCH",
+        "actual_timing_feasibility": "HOLD_PENDING_MEASURED_L4_AND_MAC_RECEIPTS",
+        "qualification_envelope": {
+            "capture_minutes": 10,
+            "all_remaining_qualification_substeps_minutes": 30,
+            "paired_fit_minutes": 200,
+            "aggregate_minutes": 240,
+            "rule": (
+                "all attempts/substeps share original cumulative allowance; "
+                "never reset by a fresh job"
+            ),
+            "final_operational_gate": (
+                "bind all actual elapsed receipts and remaining timeout before execution"
+            ),
+        },
         "selected_training_package": prepared_input,
         "complete_private_fit_inventory": "HOLD: add bound control, plan, acceptance and ledger",
         **INTERPRETATION,

@@ -13,14 +13,9 @@ does not discover artifact paths or print losses/outcomes.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import hashlib
-import importlib.metadata
-import io
 import json
 import os
-import platform
-import subprocess
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -119,7 +114,7 @@ def _source_admission(control: Mapping[str, Any]) -> None:
             or not component.parts
             or component.is_absolute()
             or ".." in component.parts
-            or component.parts[0] not in {"research", "src"}
+            or component.parts[0] not in {"research", "src", "configs"}
         ):
             raise F5FitRefusal("F5 source path escapes the repository closure")
         path = root / str(relative)
@@ -144,128 +139,13 @@ def _source_admission(control: Mapping[str, Any]) -> None:
 
 
 def capture_environment() -> dict[str, Any]:
-    """Capture hardware/build evidence without opening a package or control."""
-    import numpy as np
+    """Capture the frozen typed receipt without opening a study payload."""
+    from research.bl_residual.f5_environment import capture_environment as capture
 
-    device = torch.cuda.get_device_properties(0) if torch.cuda.is_available() else None
-    cpuinfo = Path("/proc/cpuinfo")
-    fields: dict[str, str] = {}
-    if cpuinfo.is_file():
-        for line in cpuinfo.read_text().splitlines():
-            key, sep, value = line.partition(":")
-            if sep and key.strip() in {"model name", "flags", "Features", "Hardware"}:
-                fields.setdefault(key.strip(), value.strip())
-    packages = {}
-    for name in ("torch", "numpy", "numba", "llvmlite", "scipy"):
-        try:
-            dist = importlib.metadata.distribution(name)
-        except importlib.metadata.PackageNotFoundError:
-            packages[name] = None
-            continue
-        metadata_hashes = {}
-        for item in dist.files or ():
-            if item.name in {
-                "METADATA",
-                "WHEEL",
-                "RECORD",
-                "direct_url.json",
-            } and ".dist-info" in str(item):
-                metadata_hashes[str(item)] = digest(Path(dist.locate_file(item)))
-        packages[name] = {"version": dist.version, "installed_metadata": metadata_hashes}
-    numpy_build = io.StringIO()
-    with contextlib.redirect_stdout(numpy_build):
-        np.__config__.show()
-    gpu_driver = None
-    if device is not None:
-        gpu_driver = subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,uuid,driver_version,compute_cap,memory.total",
-                "--format=csv,noheader",
-            ],
-            text=True,
-            timeout=15,
-        ).strip()
-    installed = sorted(
-        (dist.metadata["Name"], dist.version) for dist in importlib.metadata.distributions()
-    )
-    environment_folder = Path(__file__).parent / "f5_adoption_environment_20261026_v6"
-    lock = environment_folder / "requirements-f5-l4-cu126.lock"
-    environment_json = environment_folder / "f5-common-environment-v6.json"
-    lock_sha = digest(lock)
-    if lock_sha != "2577ed9dd9fe34468f5562262def7bccb352c9c0bdce06b293bb4b12a0ea5301":
-        raise F5FitRefusal("F5 environment lock differs")
-    if (
-        digest(environment_json)
-        != "bc05167c188680478663235f2b3dcfb70d7959e9d392071384409ef958b0f0f5"
-    ):
-        raise F5FitRefusal("F5 common environment descriptor differs")
-    return {
-        "platform": platform.platform(),
-        "python": sys.version,
-        "cpu": platform.processor(),
-        "cpu_count": os.cpu_count(),
-        "torch": torch.__version__,
-        "cuda": torch.version.cuda,
-        "gpu": device.name if device else None,
-        "gpu_uuid": str(device.uuid) if device else None,
-        "gpu_capability": list(torch.cuda.get_device_capability(0)) if device else None,
-        "gpu_memory": device.total_memory if device else None,
-        "numpy": np.__version__,
-        "os_kernel": platform.uname()._asdict(),
-        "python_build": platform.python_build(),
-        "python_compiler": platform.python_compiler(),
-        "python_cache_tag": sys.implementation.cache_tag,
-        "cpu_isa": fields,
-        "allocated_cpu_affinity": (
-            sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None
-        ),
-        "gpu_driver_query": gpu_driver,
-        "cudnn": torch.backends.cudnn.version(),
-        "torch_git_version": torch.version.git_version,
-        "torch_build": torch.__config__.show(),
-        "numpy_blas_lapack_build": numpy_build.getvalue(),
-        "installed_numeric_packages": packages,
-        "installed_versions_sha256": _sha256(installed),
-        "environment_lock_sha256": lock_sha,
-        "environment_descriptor_sha256": digest(environment_json),
-        "torch_wheel_install_binding": {
-            "url": (
-                "https://download-r2.pytorch.org/whl/cu126/"
-                "torch-2.9.1%2Bcu126-cp312-cp312-manylinux_2_28_x86_64.whl"
-            ),
-            "sha256": "67e9b1054f435d33af6fa67343f93d73dc2d37013623672d6ffb24ce39b666c2",
-            "verification": (
-                "hash-locked installation; installed METADATA/WHEEL/RECORD " "captured separately"
-            ),
-        },
-        "torch_threads": {
-            "intra": torch.get_num_threads(),
-            "inter": torch.get_num_interop_threads(),
-        },
-        "numeric_controls": {
-            "deterministic": torch.are_deterministic_algorithms_enabled(),
-            "cudnn_deterministic": torch.backends.cudnn.deterministic,
-            "cudnn_benchmark": torch.backends.cudnn.benchmark,
-            "matmul_tf32": torch.backends.cuda.matmul.allow_tf32,
-            "cudnn_tf32": torch.backends.cudnn.allow_tf32,
-            "default_dtype": str(torch.get_default_dtype()),
-            "amp": False,
-            "bf16": False,
-        },
-        "thread_env": {
-            name: os.environ.get(name)
-            for name in (
-                "OMP_NUM_THREADS",
-                "OMP_THREAD_LIMIT",
-                "MKL_NUM_THREADS",
-                "OPENBLAS_NUM_THREADS",
-                "NUMBA_NUM_THREADS",
-                "VECLIB_MAXIMUM_THREADS",
-                "CUBLAS_WORKSPACE_CONFIG",
-            )
-        },
-    }
+    try:
+        return capture()
+    except ValueError as exc:
+        raise F5FitRefusal(str(exc)) from exc
 
 
 def _bound_inputs(inputs: Path, control: Mapping[str, Any], *, names: set[str]) -> None:
@@ -314,17 +194,49 @@ def _environment_admission(control: Mapping[str, Any] | None) -> dict[str, Any]:
     torch.backends.cudnn.benchmark = False
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
-    capture = json.loads(json.dumps(capture_environment(), sort_keys=True))
+    if torch.get_default_dtype() != torch.float32 or torch.is_autocast_enabled("cuda"):
+        raise F5FitRefusal("F5 requires default fp32 with CUDA autocast disabled")
+    capture = capture_environment()
     if control is None:
         return capture
     expected = control.get("environment_capture")
-    if (
-        not isinstance(expected, dict)
-        or set(expected) != set(capture)
-        or any(expected[key] != capture[key] for key in capture)
-    ):
-        raise F5FitRefusal("F5 actual environment capture differs from sealed control")
+    from research.bl_residual.f5_environment import compare_environment, policy_binding
+
+    if control.get("environment_policy") != policy_binding() or not isinstance(expected, dict):
+        raise F5FitRefusal("F5 environment policy/capture differs from sealed control")
+    try:
+        compare_environment(expected, capture, mode="cross-assignment")
+    except ValueError as exc:
+        raise F5FitRefusal(str(exc)) from exc
     return capture
+
+
+def _assignment_boundary(reference: Mapping[str, Any]) -> dict[str, Any]:
+    """Re-attest physical and raw identity before crossing a local work boundary."""
+    from research.bl_residual.f5_environment import compare_environment
+
+    # The initial admission configures the runtime.  Boundaries must only
+    # observe it, otherwise reset-to-pinned controls could conceal a drift.
+    actual = capture_environment()
+    return compare_environment(reference, actual, mode="same-assignment")
+
+
+def _environment_evidence(control: Mapping[str, Any], actual: Mapping[str, Any]) -> dict[str, Any]:
+    """Disclose a distinct-assignment comparison and preserve both raw captures."""
+    from research.bl_residual.f5_environment import compare_environment
+
+    return {
+        "reference_raw": control["environment_capture"],
+        "assignment_raw": dict(actual),
+        "comparison": compare_environment(
+            control["environment_capture"], actual, mode="cross-assignment"
+        ),
+        "disclosure": (
+            "Separate assignments compared on adopted invariant build/scientific identity; "
+            "physical provenance differs where enumerated. This is not proof of bitwise "
+            "cross-assignment numerical equivalence."
+        ),
+    }
 
 
 def _checkpoint_blob(net: Any, *, arm: str, plan: BatchPlan) -> dict[str, Any]:
@@ -422,7 +334,7 @@ def prepare(inputs: Path, output: Path) -> dict[str, Any]:
     inputs, output = inputs.resolve(), output.resolve()
     control = _control(inputs)
     _source_admission(control)
-    _environment_admission(control)
+    assignment = _environment_admission(control)
     _bound_inputs(
         inputs,
         control,
@@ -432,6 +344,7 @@ def prepare(inputs: Path, output: Path) -> dict[str, Any]:
         raise FileExistsError("F5 plan output must be fresh")
     metadata, _ = _payload_metadata(inputs, control)
     plan = materialize_batch_plan(metadata, _identity(control))
+    closing_environment = _assignment_boundary(assignment)
     output.mkdir(parents=True)
     plan_receipt = export_torch(output / PLAN_NAME, plan)
     receipt = {
@@ -443,14 +356,25 @@ def prepare(inputs: Path, output: Path) -> dict[str, Any]:
         "batch_plan_sha256": plan.sha256,
         "plan_export_sha256": plan_receipt["sha256"],
         "rows": 512000,
+        "environment": _environment_evidence(control, assignment),
+        "closing_environment": closing_environment,
     }
     export_json(output / "prepare-receipt.json", receipt)
     return receipt
 
 
-def _state_payload(state: F5FitState) -> dict[str, Any]:
+def _state_payload(
+    state: F5FitState, assignment_environment: Mapping[str, Any] | str | None = None
+) -> dict[str, Any]:
     """Keep the complete residual, optimizer and all captured RNG states losslessly."""
+    from research.bl_residual.f5_environment import receipt_sha256
+
     return {
+        "assignment_environment_sha256": (
+            assignment_environment
+            if isinstance(assignment_environment, str)
+            else None if assignment_environment is None else receipt_sha256(assignment_environment)
+        ),
         "model_residual": state.model.residual.state_dict(),
         "optimizer_state": state.optimizer_state,
         "updates_completed": state.updates_completed,
@@ -466,7 +390,9 @@ def _state_payload(state: F5FitState) -> dict[str, Any]:
     }
 
 
-def _resume_state(path: Path, base: Any) -> F5FitState:
+def _resume_state(
+    path: Path, base: Any, assignment_environment: Mapping[str, Any] | None = None
+) -> F5FitState:
     """Rehydrate a lossless boundary snapshot against the already sealed B8 base."""
     verify_export(path)
     value = torch.load(path, map_location="cpu", weights_only=False)
@@ -485,6 +411,14 @@ def _resume_state(path: Path, base: Any) -> F5FitState:
         "plan_generator_state",
     } <= set(value):
         raise F5FitRefusal("malformed F5 resume snapshot")
+    from research.bl_residual.f5_environment import receipt_sha256, validate_environment
+
+    if assignment_environment is None:
+        raise F5FitRefusal("F5 resume requires same-assignment raw environment evidence")
+    validate_environment(assignment_environment)
+    if value.get("assignment_environment_sha256") != receipt_sha256(assignment_environment):
+        raise F5FitRefusal("F5 resume raw assignment environment differs")
+    _assignment_boundary(assignment_environment)
     model = FrozenB8Residual(base).to("cuda:0")
     model.residual.load_state_dict(value["model_residual"])
     return F5FitState(
@@ -563,7 +497,7 @@ def fit_pair(
     )
     control = _control(inputs)
     _source_admission(control)
-    _environment_admission(control)
+    assignment = _environment_admission(control)
     _bound_inputs(
         inputs,
         control,
@@ -589,25 +523,31 @@ def fit_pair(
     model = FrozenB8Residual(base).to("cuda:0")
     cache = selected_tensor_cache(table, base)
     output.mkdir(parents=True)
+    export_json(output / "assignment-environment.json", assignment)
+    from research.bl_residual.f5_environment import receipt_sha256
+
+    assignment_sha256 = receipt_sha256(assignment)
 
     def boundary(arm_name: str):
         def save(state: F5FitState) -> None:
             export_torch(
                 output / "boundaries" / arm_name / f"{state.updates_completed:04d}.pt",
-                _state_payload(state),
+                _state_payload(state, assignment_sha256),
             )
 
         return save
 
-    c_prior = _resume_state(resume_c.resolve(), base) if resume_c is not None else None
+    before_c = _assignment_boundary(assignment)
+    c_prior = _resume_state(resume_c.resolve(), base, assignment) if resume_c is not None else None
     if resume_w is not None and (c_prior is None or c_prior.updates_completed != 2000):
         raise F5FitRefusal("W resume requires an exactly completed C boundary")
     c_state = fit_f5_accepted(
         model, cache, metadata, plan, F5Recipe(arm=ARM_CONTROL), acceptance, c_prior, boundary("C")
     )
+    after_c = _assignment_boundary(assignment)
     # W begins from the same zero residual, on the same plan, in the same pinned runtime.
     w_model = FrozenB8Residual(load_ego2s_checkpoint(str(inputs / "b8.pth"))).to("cuda:0")
-    w_prior = _resume_state(resume_w.resolve(), base) if resume_w is not None else None
+    w_prior = _resume_state(resume_w.resolve(), base, assignment) if resume_w is not None else None
     w_state = fit_f5_accepted(
         w_model,
         cache,
@@ -618,8 +558,13 @@ def fit_pair(
         w_prior,
         boundary("W"),
     )
-    c_state_export = export_torch(output / "f5-state-C.pt", _state_payload(c_state))
-    w_state_export = export_torch(output / "f5-state-W.pt", _state_payload(w_state))
+    after_w = _assignment_boundary(assignment)
+    c_state_export = export_torch(
+        output / "f5-state-C.pt", _state_payload(c_state, assignment_sha256)
+    )
+    w_state_export = export_torch(
+        output / "f5-state-W.pt", _state_payload(w_state, assignment_sha256)
+    )
     c_checkpoint = export_torch(
         output / "fit-C.pth", _checkpoint_blob(fuse_residual(c_state.model), arm="C", plan=plan)
     )
@@ -632,6 +577,12 @@ def fit_pair(
         "namespace": NAMESPACE,
         "allocation": control["allocation"],
         "identity": asdict(plan.identity),
+        "environment": _environment_evidence(control, assignment),
+        "same_assignment_boundaries": {
+            "before_C": before_c,
+            "after_C": after_c,
+            "after_W": after_w,
+        },
         "acceptance_sha256": digest(acceptance_path),
         "batch_plan_sha256": plan.sha256,
         "arms": {

@@ -145,6 +145,10 @@ def test_prepare_uses_fresh_child_of_existing_supervisor_output(
     control = f5_job._control(inputs)
     monkeypatch.setattr(f5_job, "_source_admission", lambda _: None)
     monkeypatch.setattr(f5_job, "_environment_admission", lambda _: {})
+    # This legacy unit isolates supervisor child-directory ownership. Complete
+    # real admission/assignment coverage lives in test_bl_residual_f5_handoff.
+    monkeypatch.setattr(f5_job, "_assignment_boundary", lambda _: {})
+    monkeypatch.setattr(f5_job, "_environment_evidence", lambda *a: {})
     monkeypatch.setattr(f5_job, "_bound_inputs", lambda *a, **k: None)
     monkeypatch.setattr(f5_job, "_payload_metadata", lambda *a: (_metadata(), {}))
     supervisor_output = tmp_path / "supervisor-output"
