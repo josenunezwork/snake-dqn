@@ -41,3 +41,60 @@ acceptance. L4 fits are C then T in one runtime, CUDA fp32 one learner thread;
 future exact labels use six CPU workers. Mac science uses two CPU workers nice15;
 reductions use one. Preparation tests use nice15, threads1 and at most two processes.
 No measured feasibility or operational qualification is claimed by offline dry-run.
+
+## Built interfaces
+
+- `../f5_fit.py`: the W loss, F4 control parity, shared plan materializer, complete
+  per-update RNG/Adam/head snapshots, and identity-checked continuation.
+- `../f5_data.py`: published scan/inventory admission and compact, lossless selected
+  training packaging. The source mask is preserved; comparisons use its resolved
+  normal-only fallback. No held-out scoring or inference occurs during packaging.
+- `../f5_job.py` and `../f5_colab.sh`: future pinned-environment capture, shared plan
+  preparation, and acceptance-gated C-then-W paired fitting. These are passive
+  entrypoints, with no provider or dispatcher calls. The wrapper installs the
+  exact CPython 3.12.3 hash-locked cu126 environment without modifying the broker.
+- `../f5_rules.py`: stage-local S2/S3/S4 decisions, fixed Welch/Holm, survival-v2,
+  drift, product bootstrap and final exploratory lifecycle decision.
+- `../f5_timing.py`: disjoint timing fixtures, measured forecast admission,
+  whole-inventory byte accounting and unchanged 150/300-second bars.
+- `../f5_protocol.py`: one-look claims, stage-unit ledgers, exact-trajectory
+  full-state eligibility and bounded manual completion-attempt prerequisites.
+- `../f5_package.py`: source/adoption/allocation/corpus review and offline draft
+  packet generation. It never imports a provider client or calls dispatch.
+
+## Offline handoff
+
+The prepared artifact root is
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PREFIT_20261025/`.
+`inputs-02/selected-training.tar.xz` contains the lawful selected training rows only;
+its sealed packaging receipt and round-trip receipt carry the identities. The first
+mechanical packaging refusal is retained separately. No original input was edited.
+
+Rebuild a review packet into a NEW output directory:
+
+```bash
+nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 \
+  OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+  SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m research.bl_residual.f5_package \
+  --dry-run --selected-package \
+  /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PREFIT_20261025/inputs-02/selected-training.tar.xz \
+  --output /absolute/new/review-directory
+```
+
+All three L4 draft packets deliberately retain `scientific_admission=false`.
+The capture/prepare/main subphase reservations are 10/30/200 minutes: the first
+two together stay within the 40-minute qualification allowance, and all three
+sum to the paired-fit 240-minute effective envelope. Estimates are 5/15/60
+minutes respectively; they are planning values awaiting measured qualification.
+Completion attempts consume remaining aggregate time and never reset these clocks.
+No technical unit budget or rate is invented; the operator must bind verified
+current pricing/accounting and the qualified transport before final packet admission.
+
+Next gate: independently review this implementation and compact input, then have
+the operator capture the actual pinned L4 environment and materialize/seal the
+common plan. Bind control and initially empty paired ledger to those actual bytes.
+Complete the sealed disjoint timing/parity plan, source-native qualification,
+whole-inventory upload validation and independent packet acceptance BEFORE either
+2,000-update fit. No acceptance receipt or completed qualification is supplied by
+this implementation. Later stage looks must consume their immutable one-look claim
+and complete verified unit ledger before entering the pure analyzers.

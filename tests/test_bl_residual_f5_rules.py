@@ -279,3 +279,19 @@ def test_only_full_lifecycle_can_issue_go_f5_dev() -> None:
         )["status"]
         == "INCONCLUSIVE"
     )
+
+
+def test_missing_survival_worlds_and_duplicate_probe_decisions_refuse() -> None:
+    with pytest.raises(ValueError, match="128 paired worlds"):
+        rules.r7_adapter(
+            top=_mix(40),
+            change=_mix(20),
+            t_survival={"scripted": [1, 1]},
+            b8_survival={"scripted": [1, 1]},
+            scripted_no_death_gain=0.03,
+            delivered_boost_share=0.005,
+        )
+    rows = [{"length": i, "bank_index": 0, "decision": i, "disagrees": False} for i in range(10)]
+    rows[1]["decision"] = 0
+    with pytest.raises(ValueError, match="duplicate"):
+        rules.rank_decile_disagreements(rows)

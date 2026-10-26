@@ -8,8 +8,8 @@ Absent measurements are a HOLD; estimates are never manufactured here.
 
 from __future__ import annotations
 
-from collections import Counter
 import math
+from collections import Counter
 from typing import Any, Mapping, Sequence
 
 ALLOCATION_SHA256 = "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7"
@@ -53,8 +53,7 @@ def _canonical_timing_parents() -> list[dict[str, Any]]:
                     "group": f"timing/{stream}",
                     "group_index": group_index,
                     "parent_id": (
-                        "bl-f5-predat-v2/20261025/r=0/"
-                        f"timing/{stream}/{group_index:04d}"
+                        "bl-f5-predat-v2/20261025/r=0/" f"timing/{stream}/{group_index:04d}"
                     ),
                     "timing_only": True,
                 }
@@ -82,7 +81,12 @@ def _timing_parents(allocation: Sequence[Mapping[str, Any]]) -> list[dict[str, A
     _require(len(ids) == len(set(ids)), "timing parents are not disjoint")
     canonical = _canonical_timing_parents()
     observed = {
-        (row.get("allocation_index"), row.get("parent_id"), row.get("group"), row.get("group_index"))
+        (
+            row.get("allocation_index"),
+            row.get("parent_id"),
+            row.get("group"),
+            row.get("group_index"),
+        )
         for row in parents
     }
     expected = {
@@ -122,7 +126,27 @@ def build_plan(allocation: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "forecast_equations": {
                 "archive_hours": "(128*t_nat + 14720*t_root + 88320*t_branch)/6 + setup_io_hours",
                 "cov_hours": "(missing_roots*t_root + missing_actions*t_branch)/6 + setup_io_hours",
+                "paired_fit_hours": (
+                    "paired_fit_complete_seconds/3600 + " "setup_io_hours + imbalance_hours"
+                ),
+                "probe_hours": (
+                    "96*max_complete_probe_seconds/2/3600 + " "setup_io_hours + imbalance_hours"
+                ),
+                "gameplay_hours": (
+                    "1152*max_complete_gameplay_seconds/2/3600 + "
+                    "setup_io_hours + imbalance_hours"
+                ),
+                "product_hours": (
+                    "256*max_complete_product_seconds/2/3600 + " "setup_io_hours + imbalance_hours"
+                ),
                 "rule": "use maxima; add max-parent imbalance and measured setup/io",
+            },
+            "stage_workloads": {
+                "paired_fit": 1,
+                "probe": 96,
+                "gameplay": 1152,
+                "product": 256,
+                "mac_workers": 2,
             },
         },
         "transport": {
@@ -143,7 +167,13 @@ def build_plan(allocation: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "canary_minutes": {"base": 20, "effective": 40},
         },
         "placement": {
-            "fit": {"kind": "L4", "assignments": 1, "min_vcpu": 6, "cuda_processes": 1, "fp32": True},
+            "fit": {
+                "kind": "L4",
+                "assignments": 1,
+                "min_vcpu": 6,
+                "cuda_processes": 1,
+                "fp32": True,
+            },
             "cpu_label_workers": 6,
             "mac_workers": 2,
             "mac_nice": 15,
@@ -166,8 +196,12 @@ def _identity(proof: Mapping[str, Any], name: str, expected: Mapping[str, Any]) 
 
 
 def validate_operational_proof(
-    proof: Mapping[str, Any], *, source_identity: Mapping[str, Any], environment_identity: Mapping[str, Any],
-    batch_identity: Mapping[str, Any], allocation: Sequence[Mapping[str, Any]] | None = None
+    proof: Mapping[str, Any],
+    *,
+    source_identity: Mapping[str, Any],
+    environment_identity: Mapping[str, Any],
+    batch_identity: Mapping[str, Any],
+    allocation: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Accept only a complete redacted timing proof; otherwise raise ``TimingHold``.
 
@@ -186,12 +220,51 @@ def validate_operational_proof(
     _require(not (set(proof) & prohibited), "scientific payload in timing proof")
     transport = proof.get("transport")
     _require(isinstance(transport, Mapping), "missing transport proof")
-    for key, expected in (("upload_chunk_bytes", UPLOAD_CHUNK_BYTES), ("upload_workers", 2), ("export_readers", 1)):
+    for key, expected in (
+        ("upload_chunk_bytes", UPLOAD_CHUNK_BYTES),
+        ("upload_workers", 2),
+        ("export_readers", 1),
+    ):
         _require(transport.get(key) == expected, "transport configuration drift")
-    for key, bound in (("max_call_seconds", 60), ("transfer_seconds", 150), ("staging_seconds", 300)):
+    for key, bound in (
+        ("max_call_seconds", 60),
+        ("transfer_seconds", 150),
+        ("staging_seconds", 300),
+    ):
         value = transport.get(key)
         _require(_positive_number(value) and value <= bound, "transport timing refusal")
-    _require(transport.get("private_input_bytes") == SOURCE_BYTES, "private input size drift")
+    private_bytes = transport.get("private_input_bytes")
+    _require(
+        isinstance(private_bytes, int)
+        and not isinstance(private_bytes, bool)
+        and 0 < private_bytes <= SOURCE_BYTES,
+        "private input size exceeds corpus cap",
+    )
+    inventory = proof.get("input_inventory")
+    _require(
+        isinstance(inventory, Sequence) and not isinstance(inventory, (str, bytes)),
+        "missing input inventory",
+    )
+    _require(len(inventory) > 0, "empty input inventory")
+    private_total = 0
+    names: set[str] = set()
+    for item in inventory:
+        _require(isinstance(item, Mapping), "malformed input inventory")
+        name, size, scope = item.get("name"), item.get("size"), item.get("scope")
+        _require(
+            isinstance(name, str) and name and name not in names, "duplicate input inventory item"
+        )
+        names.add(name)
+        _require(
+            isinstance(size, int) and not isinstance(size, bool) and size > 0, "invalid input size"
+        )
+        if scope == "private":
+            private_total += size
+        elif scope == "public_b8":
+            _require(item.get("release_qualified") is True, "unqualified public B8 input")
+        else:
+            _hold("unknown input scope")
+    _require(private_total == private_bytes, "private inventory total drift")
     placement = proof.get("placement")
     _require(isinstance(placement, Mapping), "missing placement proof")
     _require(
@@ -201,19 +274,37 @@ def validate_operational_proof(
         and placement["vcpu"] >= 6,
         "L4 placement drift",
     )
-    _require(placement.get("cuda_processes") == 1 and placement.get("precision") == "fp32", "fit placement drift")
+    _require(
+        placement.get("cuda_processes") == 1 and placement.get("precision") == "fp32",
+        "fit placement drift",
+    )
     _require(placement.get("cpu_label_workers") == 6, "CPU label placement drift")
-    _require(placement.get("mac_workers") == 2 and placement.get("mac_nice") == 15, "Mac placement drift")
+    _require(
+        placement.get("mac_workers") == 2 and placement.get("mac_nice") == 15, "Mac placement drift"
+    )
     _require(placement.get("math_threads") == 1, "thread placement drift")
     samples = proof.get("samples")
-    _require(isinstance(samples, Sequence) and not isinstance(samples, (str, bytes)), "missing samples")
+    _require(
+        isinstance(samples, Sequence) and not isinstance(samples, (str, bytes)), "missing samples"
+    )
     counts: Counter[str] = Counter()
-    coverage = {stream: {"full_h300": False, "long_body": False, "full_h5000_natural": False,
-                         "watch_fixture": False} for stream in TIMING_GROUPS}
+    coverage = {
+        stream: {
+            "full_h300": False,
+            "long_body": False,
+            "full_h5000_natural": False,
+            "watch_fixture": False,
+        }
+        for stream in TIMING_GROUPS
+    }
     maxima = {"t_root": 0.0, "t_branch": 0.0, "t_nat": 0.0}
     stage_maxima = {"paired_fit": 0.0, "probe": 0.0, "gameplay": 0.0, "product": 0.0}
-    expected_fixtures = _timing_parents(allocation) if allocation is not None else _canonical_timing_parents()
-    expected_fixture_keys = {(row["allocation_index"], row["parent_id"]) for row in expected_fixtures}
+    expected_fixtures = (
+        _timing_parents(allocation) if allocation is not None else _canonical_timing_parents()
+    )
+    expected_fixture_keys = {
+        (row["allocation_index"], row["parent_id"]) for row in expected_fixtures
+    }
     seen_fixtures: set[tuple[object, object]] = set()
     for sample in samples:
         _require(isinstance(sample, Mapping), "malformed timing sample")
@@ -224,7 +315,9 @@ def validate_operational_proof(
         _require(fixture not in seen_fixtures, "duplicate timing fixture")
         seen_fixtures.add(fixture)
         _require(sample.get("timing_only") is True, "science fixture is forbidden")
-        _require(sample.get("stream") == str(sample["parent_id"]).split("/")[-2], "fixture stream drift")
+        _require(
+            sample.get("stream") == str(sample["parent_id"]).split("/")[-2], "fixture stream drift"
+        )
         counts[str(stream)] += 1
         for key in maxima:
             value = sample.get(key)
@@ -241,23 +334,44 @@ def validate_operational_proof(
     _require(all(counts[group] >= 3 for group in TIMING_GROUPS), "insufficient stream coverage")
     _require(seen_fixtures == expected_fixture_keys, "missing timing fixture")
     _require(
-        all(all(requirement.values()) for requirement in coverage.values()),
+        all(
+            requirement["full_h300"]
+            and requirement["long_body"]
+            and requirement["full_h5000_natural"]
+            for requirement in coverage.values()
+        )
+        and coverage["watch6"]["watch_fixture"],
         "early-only or incomplete stream coverage",
     )
     forecast = proof.get("forecast")
     _require(isinstance(forecast, Mapping), "missing forecast")
     for key in ("setup_io_hours", "max_parent_imbalance_hours"):
         _require(_positive_number(forecast.get(key)), "missing conservative overhead")
-    archive = (128 * maxima["t_nat"] + 14_720 * maxima["t_root"] + 88_320 * maxima["t_branch"]) / 6 / 3600
+    archive = (
+        (128 * maxima["t_nat"] + 14_720 * maxima["t_root"] + 88_320 * maxima["t_branch"]) / 6 / 3600
+    )
     archive += float(forecast["setup_io_hours"]) + float(forecast["max_parent_imbalance_hours"])
     _require(archive <= 8, "archive base envelope exceeded")
     stage_setup = forecast.get("stage_setup_io_hours")
     _require(isinstance(stage_setup, Mapping), "missing per-stage setup/io")
+    stage_workloads = {"paired_fit": 1, "probe": 96, "gameplay": 1152, "product": 256}
+    stage_workload_hours: dict[str, float] = {}
     stage_base_hours: dict[str, float] = {}
     for stage, ceiling in (("paired_fit", 2), ("probe", 4), ("gameplay", 12), ("product", 12)):
         overhead = stage_setup.get(stage)
         _require(_positive_number(overhead), "missing conservative stage overhead")
-        stage_base_hours[stage] = stage_maxima[stage] / 3600 + float(overhead)
+        divisor = 1 if stage == "paired_fit" else 2
+        stage_workload_hours[stage] = stage_workloads[stage] * stage_maxima[stage] / divisor / 3600
+        stage_base_hours[stage] = (
+            stage_workload_hours[stage]
+            + float(overhead)
+            + float(forecast["max_parent_imbalance_hours"])
+        )
         _require(stage_base_hours[stage] <= ceiling, "stage base envelope exceeded")
-    return {"status": "QUALIFIED", "max_seconds": maxima, "archive_base_hours": archive,
-            "stage_base_hours": stage_base_hours}
+    return {
+        "status": "QUALIFIED",
+        "max_seconds": maxima,
+        "archive_base_hours": archive,
+        "stage_workload_hours": stage_workload_hours,
+        "stage_base_hours": stage_base_hours,
+    }

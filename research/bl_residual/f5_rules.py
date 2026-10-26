@@ -297,7 +297,7 @@ def rank_decile_disagreements(rows: Sequence[Mapping[str, Any]]) -> tuple[float,
         if type(disagrees) is not bool:
             raise ValueError("P7 disagreement must be boolean")
         parsed.append((length, bank_index, decision, disagrees))
-    if len({(length, bank, decision) for length, bank, decision, _ in parsed}) != len(parsed):
+    if len({(bank, decision) for _, bank, decision, _ in parsed}) != len(parsed):
         raise ValueError("duplicate P7 decision")
     buckets: list[list[bool]] = [[] for _ in range(10)]
     for rank, (_, _, _, disagrees) in enumerate(sorted(parsed)):
@@ -436,6 +436,15 @@ def r7_adapter(
 ) -> dict[str, Any]:
     """Compute both fixed R7 contrasts, Holm family, and all H5000 guards."""
     top_stats, change_stats = welch_equal_mix(top), welch_equal_mix(change)
+    for values in (t_survival, b8_survival):
+        if tuple(values) != MIXES or any(len(values[mix]) != 128 for mix in MIXES):
+            raise ValueError("R7 survival requires exactly 128 paired worlds in each ordered mix")
+        if any(
+            not 0 <= _finite(value, "survival fraction") <= 1
+            for mix in MIXES
+            for value in values[mix]
+        ):
+            raise ValueError("survival fractions must be in [0, 1]")
     rejected, adjusted = holm([top_stats["p_value"], change_stats["p_value"]], alpha=0.10)
     survival = pooled_band_check(
         t_survival,
