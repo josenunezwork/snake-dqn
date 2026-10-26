@@ -122,6 +122,10 @@ def _prior_environment_control(prior: Mapping[str, Any]) -> tuple[dict[str, Any]
     path = Path(str(rows[0].get("path", "")))
     if not path.is_absolute() or path.is_symlink() or not path.is_file():
         raise ValueError("attempt04 control metadata is absent or unsafe")
+    if file_sha256(path) != rows[0].get("sha256") or (
+        "size_bytes" in rows[0] and path.stat().st_size != rows[0]["size_bytes"]
+    ):
+        raise ValueError("attempt04 control metadata hash or size differs")
     value = json.loads(path.read_text())
     policy, capture = value.get("environment_policy"), value.get("environment_capture")
     if not isinstance(policy, dict) or not isinstance(capture, dict):

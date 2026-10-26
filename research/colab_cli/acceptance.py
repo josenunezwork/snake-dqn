@@ -147,9 +147,9 @@ def load_f5_timing_synthetic_inventory(path: Path) -> dict[str, Any]:
     unsigned.pop("sha256", None)
     if supplied != canonical_sha256(unsigned):
         raise ValueError("F5 timing synthetic inventory digest is invalid")
-    # The policy performs the authoritative shape/ruling validation.  Keeping
-    # this parser metadata-only prevents a transport acceptance from reading a
-    # private timing payload merely to construct its synthetic equivalent.
+    # Validate every role before the inventory can control a synthetic output
+    # path.  This remains metadata-only and never reads private timing inputs.
+    transfer_policy.validate_f5_timing_inventory(raw)
     return raw
 
 
@@ -157,6 +157,7 @@ def build_f5_timing_synthetic_inputs(
     directory: Path, inventory: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """Materialize deterministic sparse F5 acceptance bytes for one sealed inventory."""
+    transfer_policy.validate_f5_timing_inventory(inventory)
     rows = inventory.get("inputs")
     if not isinstance(rows, list):
         raise ValueError("F5 timing synthetic inventory inputs are absent")
@@ -181,6 +182,7 @@ def build_f5_timing_synthetic_inputs(
             )
         elif row.get("transport") == "upload":
             target = directory / row["dest"]
+            target.parent.mkdir(parents=True, exist_ok=True)
             inputs.append(
                 {
                     "dest": row["dest"],
@@ -577,14 +579,22 @@ def verify_qualified_transport_record(
         measurement.get("sha256"), "synthetic staging measurement hash", 64
     ):
         raise ValueError("qualified acceptance synthetic D1024 timing evidence changed")
-    recomputed = _d1024_staging_measurement(measurement_path, actual_transfer_limit)
+    combined_f5 = "f5_timing_transfer_exception" in plan and binding is None
+    d1024_limit = D1024_TRANSFER_BAR_SECONDS if combined_f5 else actual_transfer_limit
+    recomputed = (
+        _d1024_subset_transfer_measurement(measurement_path, inventory)
+        if combined_f5
+        else _d1024_staging_measurement(measurement_path, d1024_limit)
+    )
     if any(measurement.get(name) != value for name, value in recomputed.items()):
         raise ValueError("qualified acceptance synthetic D1024 timing evidence differs")
     if binding is not None and (
-        measurement.get("transfer_limit_seconds") != actual_transfer_limit
+        measurement.get("transfer_limit_seconds") != d1024_limit
         or measurement.get("transfer_exception") != binding
     ):
         raise ValueError("qualified acceptance synthetic D1024 transfer authority differs")
+    if combined_f5 and measurement.get("transfer_limit_seconds") != d1024_limit:
+        raise ValueError("qualified acceptance synthetic D1024 subset bar differs")
     staging_receipt = evidence.get("receipt")
     if not isinstance(staging_receipt, dict):
         raise ValueError("qualified acceptance synthetic D1024 receipt evidence is absent")
@@ -727,16 +737,18 @@ def d1024_synthetic_staging_evidence(
     if manifest.get("transfer_exception") != plan.get("transfer_exception"):
         raise supervisor.Refused("synthetic D1024 transfer authority differs from plan")
     try:
-        # The F5 timing allowance can coexist in a combined final-only
-        # acceptance, but it never widens this independent D1024 observation.
-        transfer_seconds = (
-            transfer_policy.receipt_limit(manifest, receipt, output)
-            if "transfer_exception" in manifest
-            else D1024_TRANSFER_BAR_SECONDS
-        )
+        # A combined final-only L4 arm measures the complete union against F5's
+        # scoped 300-second bar, while this independent D1024 gate measures
+        # only its three uploaded roles against the unchanged 150-second bar.
+        # It never relabels that subset duration as the whole transfer.
+        if "f5_timing_transfer_exception" in manifest and "transfer_exception" not in manifest:
+            measurement = _d1024_subset_transfer_measurement(measurement_path, inventory)
+            transfer_seconds = D1024_TRANSFER_BAR_SECONDS
+        else:
+            transfer_seconds = transfer_policy.receipt_limit(manifest, receipt, output)
+            measurement = _d1024_staging_measurement(measurement_path, transfer_seconds)
     except ValueError as exc:
         raise supervisor.Refused(str(exc)) from exc
-    measurement = _d1024_staging_measurement(measurement_path, transfer_seconds)
     receipt_path = output / "receipt.json"
     if not receipt_path.is_file() or json.loads(receipt_path.read_text()) != receipt:
         raise supervisor.Refused("synthetic D1024 staging receipt is absent")
@@ -787,6 +799,35 @@ def _d1024_staging_measurement(
     return measured
 
 
+def _d1024_subset_transfer_measurement(path: Path, inventory: dict[str, Any]) -> dict[str, float]:
+    """Verify D1024's own uploads without applying its bar to F5's union."""
+    measured = _d1024_staging_measurement(path, D1024_STAGING_CAP_SECONDS)
+    raw = json.loads(path.read_text())
+    rows = raw.get("input_transfer_seconds")
+    if not isinstance(rows, dict):
+        raise supervisor.Refused("combined acceptance lacks per-input transfer measurements")
+    destinations = {row["dest"] for row in inventory["inputs"] if row.get("transport") == "upload"}
+    if not destinations <= set(rows):
+        raise supervisor.Refused("combined acceptance D1024 transfer measurements are incomplete")
+    subset = 0.0
+    for dest in destinations:
+        value = rows[dest]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+        ):
+            raise supervisor.Refused("combined acceptance D1024 transfer measurement is invalid")
+        if value <= 0:
+            raise supervisor.Refused(
+                "combined acceptance D1024 transfer measurement is not positive"
+            )
+        subset += float(value)
+    if subset > D1024_TRANSFER_BAR_SECONDS:
+        raise supervisor.Refused("combined acceptance D1024 uploads exceed the 150-second bar")
+    return {**measured, "d1024_transfer_seconds": subset}
+
+
 def verify_plan_sources(plan: dict[str, Any], repo: Path) -> None:
     """Refuse dirty or stale implementation bytes before a paid allocation."""
     try:
@@ -826,6 +867,12 @@ def build_plan(
         raise ValueError("--cpu-rate must be finite and positive")
     if not math.isfinite(l4_rate) or l4_rate <= 0:
         raise ValueError("--l4-rate must be finite and positive")
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    tree = subprocess.run(
+        ["git", "rev-parse", "HEAD^{tree}"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
     transfer_exception: dict[str, Any] | None = None
     if transfer_authority_sha256 is not None:
         if (
@@ -845,6 +892,9 @@ def build_plan(
                 "F5 timing transfer authority requires its final-only sealed inventory"
             )
         f5_inventory = load_f5_timing_synthetic_inventory(f5_timing_authority)
+        transfer_policy.validate_f5_timing_inventory(
+            f5_inventory, expected_commit=commit, expected_tree=tree
+        )
         f5_transfer_exception = transfer_policy.f5_timing_authority_binding(
             f5_inventory["sha256"], "acceptance"
         )
@@ -884,9 +934,6 @@ def build_plan(
     wrapper = root / "research/colab_cli/acceptance_probe.sh"
     if not probe.is_file() or not wrapper.is_file():
         raise ValueError("missing acceptance probe or wrapper")
-    commit = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
-    ).stdout.strip()
     rows = [
         ("cpu", "cpu", CPU_MAX_MINUTES, cpu_rate),
         ("l4", "L4", L4_MAX_MINUTES, l4_rate),

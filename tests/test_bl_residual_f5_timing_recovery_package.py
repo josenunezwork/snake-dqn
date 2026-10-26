@@ -4,7 +4,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from research.bl_residual import f5_timing_recovery_package as package
+
+
+def test_predecessor_environment_metadata_must_match_manifest(tmp_path: Path) -> None:
+    path = tmp_path / "control.json"
+    path.write_bytes(b'{"environment_policy": {}, "environment_capture": {}}')
+    row = {
+        "dest": "control.json",
+        "path": str(path),
+        "sha256": package.file_sha256(path),
+        "size_bytes": path.stat().st_size,
+    }
+    assert package._prior_environment_control({"inputs": [row]}) == ({}, {})
+    path.write_bytes(b'{"environment_policy": {}, "environment_capture": {"changed": true}}')
+    with pytest.raises(ValueError, match="hash or size differs"):
+        package._prior_environment_control({"inputs": [row]})
 
 
 def test_authority_is_canonical_and_covers_exact_transfer_rows() -> None:

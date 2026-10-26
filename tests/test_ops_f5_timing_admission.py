@@ -257,28 +257,43 @@ def recovery_manifest(tmp_path: Path, *, canary: bool = False) -> dict:
         "no_completion_retry": True,
     }
     input_root = tmp_path / "inputs"
-    control = export_json(input_root / "control.json", {"control": "test"})
-    ledger = export_json(input_root / "verified-ledger.json", {"units": []})
-    value["inputs"] = [
-        {
-            "dest": "b8.pth",
-            "url": dispatch.F5_B8_URL,
-            "sha256": dispatch.F5_B8_SHA256,
-            "size_bytes": 6562005,
-        },
-        {
-            "dest": "control.json",
-            "path": str(input_root / "control.json"),
-            "sha256": control["sha256"],
-            "size_bytes": control["size"],
-        },
-        {
-            "dest": "verified-ledger.json",
-            "path": str(input_root / "verified-ledger.json"),
-            "sha256": ledger["sha256"],
-            "size_bytes": ledger["size"],
-        },
-    ]
+    export_json(input_root / "control.json", {"control": "test"})
+    export_json(input_root / "verified-ledger.json", {"units": []})
+    # The recovery authority binds the entire frozen F5 timing inventory.  Keep
+    # this fixture synthetic, but materialize every private destination and the
+    # ledger's immutable export triple so the admission test exercises the same
+    # exact-destination and sidecar contract as a real successor seal.
+    rows_by_dest = {
+        "control.json": input_root / "control.json",
+        "verified-ledger.json": input_root / "verified-ledger.json",
+        "verified-ledger.json.sha256": input_root / "verified-ledger.json.sha256",
+        "verified-ledger.json.complete": input_root / "verified-ledger.json.complete",
+    }
+    value["inputs"] = []
+    for dest in sorted(transfer_policy._F5_TIMING_BASE_DESTINATIONS):
+        if dest == "b8.pth":
+            value["inputs"].append(
+                {
+                    "dest": dest,
+                    "url": dispatch.F5_B8_URL,
+                    "sha256": dispatch.F5_B8_SHA256,
+                    "size_bytes": 6562005,
+                }
+            )
+            continue
+        path = rows_by_dest.get(dest, input_root / dest)
+        if dest not in rows_by_dest:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(f"synthetic {dest}".encode())
+        payload = path.read_bytes()
+        value["inputs"].append(
+            {
+                "dest": dest,
+                "path": str(path),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "size_bytes": len(payload),
+            }
+        )
     source_tree = subprocess.check_output(
         ["git", "rev-parse", f"{value['commit']}^{{tree}}"], cwd=ROOT, text=True
     ).strip()
@@ -286,6 +301,7 @@ def recovery_manifest(tmp_path: Path, *, canary: bool = False) -> dict:
     authority = {
         "schema": "f5-timing-recovery-synthetic-input-inventory/v1",
         "ruling_sha256": dispatch.F5_TIMING_RECOVERY_RULING_SHA256,
+        "namespace": transfer_policy.F5_TIMING_NAMESPACE,
         "source_commit": value["commit"],
         "source_tree": source_tree,
         "inputs": [
@@ -406,7 +422,10 @@ def test_timing_recovery_refuses_markerless_ledger_input(tmp_path) -> None:
     value = recovery_manifest(tmp_path)
     ledger = next(item for item in value["inputs"] if item["dest"] == "verified-ledger.json")
     Path(str(ledger["path"]) + ".complete").unlink()
-    with pytest.raises(dispatch.Refused, match="immutable sidecars"):
+    # The transfer authority now validates the complete immutable inventory
+    # first, so a missing ledger marker fails at that production fence before
+    # dispatch reaches its redundant ledger-sidecar validation.
+    with pytest.raises(dispatch.Refused, match="transfer authority is refused"):
         dispatch.require_scientific_or_f5_plan_admission(value)
 
 

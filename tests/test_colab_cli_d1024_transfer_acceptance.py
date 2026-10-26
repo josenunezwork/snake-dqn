@@ -98,6 +98,31 @@ def test_missing_authority_keeps_150_second_default(tmp_path: Path) -> None:
         _staging_evidence(tmp_path, plan, job, transfer_seconds=222.0, elapsed_seconds=236.0)
 
 
+def test_combined_f5_union_keeps_d1024_subset_at_150_seconds(tmp_path: Path) -> None:
+    """The F5 union may exceed 150s without silently widening D1024's subset."""
+    measurement = tmp_path / "upload-measurement.json"
+    measurement.write_text(
+        json.dumps(
+            {
+                "elapsed_seconds": 240.0,
+                "transfer_seconds": 221.0,
+                "source_delivery_seconds": 16.0,
+                "input_transfer_seconds": {
+                    "factory-verified-ledger.json": 45.0,
+                    "train-1024.npz": 55.0,
+                    "metadata.tar": 50.0,
+                    "f5-control.json": 71.0,
+                },
+            }
+        )
+    )
+    evidence = acceptance._d1024_subset_transfer_measurement(
+        measurement, acceptance.d1024_synthetic_inventory()
+    )
+    assert evidence["transfer_seconds"] == 221.0
+    assert evidence["d1024_transfer_seconds"] == 150.0
+
+
 def test_foreign_authority_and_non_d1024_opt_in_refuse(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="only valid"):
         _l4_plan(tmp_path, "0" * 64)
