@@ -1,0 +1,47 @@
+{
+  "argon_advice": "Non-binding; no A100, sharding divisor, means-based guard or fixture deletion adopted",
+  "authorized_now": [
+    "step1 publication",
+    "step2 engineering implementation and prospective sealing",
+    "step3 DRAFT package only"
+  ],
+  "dispatch_authorized": false,
+  "disposition_sha256": "cca29ae20f8f52a70d62b016d085d2d7d80bd96106d8479de07c1e53aa60808b",
+  "fit_authorized": false,
+  "immutable_completions": {
+    "coupled_calibrations": 1,
+    "fixture_indices": [
+      672,
+      673,
+      674,
+      675,
+      676,
+      677,
+      678,
+      679,
+      680,
+      681,
+      682,
+      683
+    ],
+    "total": 13
+  },
+  "look_authorized": false,
+  "original_evidence_publication": "93743a9acaca23c10f06acd1e10c6424db34dbec",
+  "original_reduction_publication": "d41e2ff7ab0444441c733751138502c17b66fb7a",
+  "original_reduction_status": "HOLD_REGISTERED_COVERAGE_FAILED",
+  "original_reports": {
+    "research/bl_residual/ledger/F5_POST_LONGRUN01_VERIFICATION_20261026/POST_LONGRUN01_VERIFICATION.md": {
+      "sha256": "d48ad4debc98beb56fc0bfc56acebe344a95477e5f6ebcb815aac92b81acf455",
+      "size": 8140
+    },
+    "research/bl_residual/ledger/F5_POST_LONGRUN01_VERIFICATION_20261026/TIMING_REDUCTION.json": {
+      "sha256": "4d5aa3012ddb0002e2faadfea53a57998eba12cd3fa0dbf1a869c410fc26428e",
+      "size": 28231
+    }
+  },
+  "owner_predicate": "User supplied no F5 fit or evaluation outcome exists; pre-data premise retained, not independently established by outcome access",
+  "schema": "bl-f5-hold-disposition-publication/v1",
+  "scope": "EXPLORATORY_SCREENING_ONLY",
+  "status": "HOLD"
+}
