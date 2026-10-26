@@ -1,0 +1,887 @@
+{
+  "boundaries": {
+    "checkpoint_payloads_deserialized": false,
+    "colab_or_provider_calls": 0,
+    "dispatches": 0,
+    "label_or_outcome_payloads_opened": false,
+    "raw_attestation_envelope_runtime_source_bound": true,
+    "scientific_look_consumed": false
+  },
+  "clocks": {
+    "job_elapsed_seconds": 1307.429406041978,
+    "scope": "Saved input transfer and staging clocks; excludes later bootstrap and runtime.",
+    "setup_seconds": 1.8766375420382246,
+    "source_delivery_seconds": 25.831076791975647,
+    "staging_cap_seconds": 300,
+    "status": "PASS_SCOPED_300_300_BARS",
+    "transfer_cap_seconds": 300,
+    "transfer_seconds": 169.49707971024327,
+    "whole_staging_seconds": 197.206293166033
+  },
+  "created_utc": "2026-10-26T20:01:50.642617+00:00",
+  "cuda_parity": {
+    "atol": 0.0002,
+    "cuda_observer": [
+      {
+        "caller": "research/bl_residual/f5_qualification.py:136:_select_cuda",
+        "cuda_decisions": 1,
+        "device": "cuda:0",
+        "operation": "Tensor.argmax",
+        "package": "research/bl_residual",
+        "pid": 9317,
+        "root": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5",
+        "shape": [
+          1,
+          6
+        ],
+        "version": 1
+      }
+    ],
+    "device": "cuda:0",
+    "executed_fixtures": [
+      672,
+      673
+    ],
+    "finite_q_shape": [
+      1,
+      6
+    ],
+    "limitation": "Raw Q vectors are not exported; live recorded checks bind frozen source.",
+    "masked_argmax_exact_equality": true,
+    "native_observation_and_mask": true,
+    "offline_cuda_reexecution": false,
+    "precision": "fp32",
+    "rtol": 0.0002,
+    "status": "PASS_RECORDED_LIVE_AND_SOURCE_CHECKED_OFFLINE"
+  },
+  "environment": {
+    "all_four_native_captures_validated": true,
+    "assignment_raw_sha256": "75babdad725a809dfd008bb35bb07f6c8d5c2a1a6d900d642bf0ab59ecbdd23f",
+    "canonical_sha256": "ed7087af5a8e9257f36952f853b97ac224b56d57a9f2116894f893da93beeba8",
+    "capture_status": "SUCCESS",
+    "gpu_uuid": "5f07309e-f63b-ba28-6d56-21829b233cdc",
+    "libc": {
+      "implementation": "glibc",
+      "version": "2.39"
+    },
+    "os_kernel": {
+      "machine": "x86_64",
+      "node": "57bf01c4ab40",
+      "processor": "x86_64",
+      "release": "6.6.159+",
+      "system": "Linux",
+      "version": "#1 SMP Thu Oct 22 03:07:54 UTC 2026"
+    },
+    "platform": "Linux-6.6.159+-x86_64-with-glibc2.39",
+    "same_assignment_raw_comparisons": "PASS",
+    "schema": "bl-residual-f5-environment-receipt/v6",
+    "sealed_capture05_comparison_recomputed": "PASS_EXACTLY_EQUALS_SAVED",
+    "status": "PASS"
+  },
+  "job_id": "bl-f5-family-canary-911426db-20261026-04",
+  "operational_telemetry_only": {
+    "both_parity_phases_fixtures_per_second": 0.00950995216494061,
+    "calibration": {
+      "seconds": null,
+      "status": "NOT_EXECUTED"
+    },
+    "clock_caveat": "Inner sample/qualification clocks differ from whole progress and broker wall clocks.",
+    "counter_caveat": "Loop visits count skipped672; transient3 resets2. Never use3/12 as throughput.",
+    "first_fixture_parity_boundary_export_seconds": 117.55100000000002,
+    "first_fixture_per_second": 0.008506945921344777,
+    "full_source_timing": "NOT_EXECUTED_TRANSPORT_ONLY",
+    "ledger_scan_skip_seconds": 31.774999999999977,
+    "mac_companion": "NOT_MEASURED_TRANSPORT_ONLY",
+    "phase_intervals": [
+      {
+        "duration_seconds": 0.0,
+        "end_seconds": 0.0,
+        "phase": "startup",
+        "recorded_count_after": 0,
+        "recorded_count_before": 0,
+        "start_seconds": 0.0
+      },
+      {
+        "duration_seconds": 0.131,
+        "end_seconds": 0.131,
+        "phase": "admission",
+        "recorded_count_after": 0,
+        "recorded_count_before": 0,
+        "start_seconds": 0.0
+      },
+      {
+        "duration_seconds": 0.45899999999999996,
+        "end_seconds": 0.59,
+        "phase": "fixture-load",
+        "recorded_count_after": 0,
+        "recorded_count_before": 0,
+        "start_seconds": 0.131
+      },
+      {
+        "duration_seconds": 2.319,
+        "end_seconds": 2.909,
+        "phase": "control-source-checks",
+        "recorded_count_after": 0,
+        "recorded_count_before": 0,
+        "start_seconds": 0.59
+      },
+      {
+        "duration_seconds": 65.711,
+        "end_seconds": 68.62,
+        "phase": "environment-capture",
+        "recorded_count_after": 0,
+        "recorded_count_before": 0,
+        "start_seconds": 2.909
+      },
+      {
+        "duration_seconds": 16.114999999999995,
+        "end_seconds": 84.735,
+        "phase": "environment-compare",
+        "recorded_count_after": 0,
+        "recorded_count_before": 0,
+        "start_seconds": 68.62
+      },
+      {
+        "duration_seconds": 153.13,
+        "end_seconds": 237.865,
+        "phase": "initial-boundary",
+        "recorded_count_after": 0,
+        "recorded_count_before": 0,
+        "start_seconds": 84.735
+      },
+      {
+        "duration_seconds": 0.17900000000000205,
+        "end_seconds": 238.044,
+        "phase": "cuda-load",
+        "recorded_count_after": 0,
+        "recorded_count_before": 0,
+        "start_seconds": 237.865
+      },
+      {
+        "duration_seconds": 117.55100000000002,
+        "end_seconds": 355.595,
+        "phase": "cuda-parity",
+        "recorded_count_after": 1,
+        "recorded_count_before": 0,
+        "start_seconds": 238.044
+      },
+      {
+        "duration_seconds": 31.774999999999977,
+        "end_seconds": 387.37,
+        "phase": "fixture-complete",
+        "recorded_count_after": 2,
+        "recorded_count_before": 1,
+        "start_seconds": 355.595
+      },
+      {
+        "duration_seconds": 92.755,
+        "end_seconds": 480.125,
+        "phase": "cuda-parity",
+        "recorded_count_after": 3,
+        "recorded_count_before": 2,
+        "start_seconds": 387.37
+      },
+      {
+        "duration_seconds": 0.0,
+        "end_seconds": 480.125,
+        "phase": "fixture-complete",
+        "recorded_count_after": 2,
+        "recorded_count_before": 3,
+        "start_seconds": 480.125
+      },
+      {
+        "duration_seconds": 153.317,
+        "end_seconds": 633.442,
+        "phase": "final-boundary",
+        "recorded_count_after": 2,
+        "recorded_count_before": 2,
+        "start_seconds": 480.125
+      },
+      {
+        "duration_seconds": 0.8089999999999691,
+        "end_seconds": 634.251,
+        "phase": "export",
+        "recorded_count_after": 2,
+        "recorded_count_before": 2,
+        "start_seconds": 633.442
+      }
+    ],
+    "progress_records": [
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 0.0,
+        "first_saved_poll": "poll-000011.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "startup",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "STARTED"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 0.0,
+        "first_saved_poll": "poll-000011.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "admission",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 0.131,
+        "first_saved_poll": "poll-000011.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "fixture-load",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 0.59,
+        "first_saved_poll": "poll-000011.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "control-source-checks",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 2.909,
+        "first_saved_poll": "poll-000011.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "environment-capture",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 60.001,
+        "first_saved_poll": "poll-000014.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "environment-capture",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "HEARTBEAT"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 68.62,
+        "first_saved_poll": "poll-000014.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "environment-compare",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 84.735,
+        "first_saved_poll": "poll-000015.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "initial-boundary",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 120.001,
+        "first_saved_poll": "poll-000017.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "initial-boundary",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "HEARTBEAT"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 180.001,
+        "first_saved_poll": "poll-000017.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "initial-boundary",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "HEARTBEAT"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 237.865,
+        "first_saved_poll": "poll-000017.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "cuda-load",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 238.044,
+        "first_saved_poll": "poll-000017.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "cuda-parity",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 240.001,
+        "first_saved_poll": "poll-000017.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "cuda-parity",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "HEARTBEAT"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 300.002,
+        "first_saved_poll": "poll-000020.json",
+        "fixtures_completed": 0,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "cuda-parity",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "HEARTBEAT"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 355.595,
+        "first_saved_poll": "poll-000023.json",
+        "fixtures_completed": 1,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "fixture-complete",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 360.003,
+        "first_saved_poll": "poll-000024.json",
+        "fixtures_completed": 1,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "fixture-complete",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "HEARTBEAT"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 387.37,
+        "first_saved_poll": "poll-000024.json",
+        "fixtures_completed": 2,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "cuda-parity",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 420.003,
+        "first_saved_poll": "poll-000024.json",
+        "fixtures_completed": 2,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "cuda-parity",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "HEARTBEAT"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 480.066,
+        "first_saved_poll": "poll-000024.json",
+        "fixtures_completed": 2,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "cuda-parity",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "HEARTBEAT"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 480.125,
+        "first_saved_poll": "poll-000024.json",
+        "fixtures_completed": 3,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "fixture-complete",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 480.125,
+        "first_saved_poll": "poll-000024.json",
+        "fixtures_completed": 2,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "final-boundary",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 540.069,
+        "first_saved_poll": "poll-000025.json",
+        "fixtures_completed": 2,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "final-boundary",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "HEARTBEAT"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 600.069,
+        "first_saved_poll": "poll-000028.json",
+        "fixtures_completed": 2,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "final-boundary",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "HEARTBEAT"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 633.442,
+        "first_saved_poll": "poll-000029.json",
+        "fixtures_completed": 2,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "export",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "PHASE"
+      },
+      {
+        "device_roles": {
+          "cpu": "source evaluator and CPU parity reference",
+          "cuda": "B8 parity and timing-only calibration"
+        },
+        "elapsed_seconds": 634.251,
+        "first_saved_poll": "poll-000029.json",
+        "fixtures_completed": 2,
+        "fixtures_total": 12,
+        "kind": "OUTCOME_BLIND_OPERATIONAL_TELEMETRY",
+        "phase": "export",
+        "schema": "bl-f5-qualification-progress/v1",
+        "status": "COMPLETE"
+      }
+    ],
+    "reported_inner_qualification_elapsed_seconds": 395.649203254,
+    "samples": [
+      {
+        "allocation_index": 672,
+        "cpu_parity_seconds": 0.010204455999883066,
+        "cuda_selection_seconds": 0.35796798299998045,
+        "elapsed_seconds": 24.615853250999862,
+        "environment_after": {
+          "path": "environment/after-fixture-672.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        "environment_before": {
+          "path": "environment/before.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        "feature_seconds": 24.244513525000002,
+        "group": "timing/watch6",
+        "group_index": 0,
+        "kernel_provenance": {
+          "after": {
+            "path": "environment/after-fixture-672.json",
+            "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+            "size": 13420032
+          },
+          "assignment_raw_sha256": "75babdad725a809dfd008bb35bb07f6c8d5c2a1a6d900d642bf0ab59ecbdd23f",
+          "before": {
+            "path": "environment/before.json",
+            "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+            "size": 13420032
+          },
+          "gpu_uuid": "5f07309e-f63b-ba28-6d56-21829b233cdc",
+          "os_kernel": {
+            "machine": "x86_64",
+            "node": "57bf01c4ab40",
+            "processor": "x86_64",
+            "release": "6.6.159+",
+            "system": "Linux",
+            "version": "#1 SMP Thu Oct 22 03:07:54 UTC 2026"
+          },
+          "platform": "Linux-6.6.159+-x86_64-with-glibc2.39"
+        },
+        "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/watch6/0000",
+        "parity": "PASS",
+        "q_shape": [
+          1,
+          6
+        ],
+        "seed": 459708066,
+        "stream": "watch6",
+        "timing_attempt_id": "bl-f5-timing-recovery-911426db-01",
+        "timing_only": true
+      },
+      {
+        "allocation_index": 673,
+        "cpu_parity_seconds": 0.006222944999990432,
+        "cuda_selection_seconds": 0.009341608000340784,
+        "elapsed_seconds": 0.02634256400006052,
+        "environment_after": {
+          "path": "environment/after-fixture-673.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        "environment_before": {
+          "path": "environment/before.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        "feature_seconds": 0.007624451000083354,
+        "group": "timing/watch6",
+        "group_index": 1,
+        "kernel_provenance": {
+          "after": {
+            "path": "environment/after-fixture-673.json",
+            "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+            "size": 13420032
+          },
+          "assignment_raw_sha256": "75babdad725a809dfd008bb35bb07f6c8d5c2a1a6d900d642bf0ab59ecbdd23f",
+          "before": {
+            "path": "environment/before.json",
+            "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+            "size": 13420032
+          },
+          "gpu_uuid": "5f07309e-f63b-ba28-6d56-21829b233cdc",
+          "os_kernel": {
+            "machine": "x86_64",
+            "node": "57bf01c4ab40",
+            "processor": "x86_64",
+            "release": "6.6.159+",
+            "system": "Linux",
+            "version": "#1 SMP Thu Oct 22 03:07:54 UTC 2026"
+          },
+          "platform": "Linux-6.6.159+-x86_64-with-glibc2.39"
+        },
+        "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/watch6/0001",
+        "parity": "PASS",
+        "q_shape": [
+          1,
+          6
+        ],
+        "seed": 598567443,
+        "stream": "watch6",
+        "timing_attempt_id": "bl-f5-timing-recovery-911426db-01",
+        "timing_only": true
+      }
+    ],
+    "second_fixture_parity_boundary_export_seconds": 92.755,
+    "second_fixture_per_second": 0.010781089968195785,
+    "unique_fixtures_completed": 2,
+    "whole_qualification_fixtures_per_second": 0.003153325733818315,
+    "whole_qualification_seconds": 634.251
+  },
+  "publication_commit": "e4dc238a55a27304e69d5d99d9a20bea76db0ec4",
+  "publication_gate": {
+    "authoring_head": "e4dc238a55a27304e69d5d99d9a20bea76db0ec4",
+    "ledger": "research/bl_residual/ledger/F5_ENVELOPE_CANARY04_OUTPUT_20261026/OUTPUT_PUBLICATION_04.json",
+    "ledger_sha256": "f93fcecedc626fa4c3fd69114575ef0b46f6370a47db005f54fc54d17a9d3800",
+    "origin_main": "e4dc238a55a27304e69d5d99d9a20bea76db0ec4",
+    "schema": "published-ledger-check/v1"
+  },
+  "publication_verification": {
+    "all_reconstructed_bytes_equal_original": true,
+    "export_payload_bytes": 109181742,
+    "exports": [
+      {
+        "path": "environment/before.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "environment/after-fixture-672.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "environment/after-fixture-673.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "timing-canary/fixture-672.json",
+        "sha256": "fd1d0ef68dce6ac7e04b5ed88884885735982b1c8d939b70993a370946c15f35",
+        "size": 2119
+      },
+      {
+        "path": "timing-canary/fixture-673.json",
+        "sha256": "bde837e31f5fa43b8665edace261240108d1505c3558037fb7008bd0039f1812",
+        "size": 2123
+      },
+      {
+        "path": "timing-canary/verified-ledger.json",
+        "sha256": "e7ab562b30324937a37c548851f7dcd47e502f3c83c0643de196f17de18a52e8",
+        "size": 638
+      },
+      {
+        "path": "environment/after.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "paired/assignment-environment.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "paired/f5-state-C.pt",
+        "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+        "size": 1453
+      },
+      {
+        "path": "paired/f5-state-W.pt",
+        "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-C.pth",
+        "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-W.pth",
+        "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-receipt.json",
+        "sha256": "932814c03c56a7094d3fa7159d29bcdc79613a2c0a77b78abc9e04def77c9918",
+        "size": 223
+      },
+      {
+        "path": "qualification/qualification.json",
+        "sha256": "8eeaf6bcda3ec9d81720499b3de88c100cc0f42cb25cf6350d9a1b2d4c431f3c",
+        "size": 42069654
+      },
+      {
+        "path": "resume/verified-skip-proof.json",
+        "sha256": "85946e7c81648113dfd2bb3e23c8fb27caa17e7c67cfb2fd40439fd9a2f535f3",
+        "size": 1013
+      }
+    ],
+    "exports_verified": 15,
+    "original_bytes": 110644273,
+    "original_files": 113
+  },
+  "release": {
+    "cleanup_error": null,
+    "current_provider_query_performed": false,
+    "endpoint": "gpu-l4-s-ass1a0-n6i5x5fmz3qu",
+    "interleaved_lease_heartbeat": "A completed background renewal upload interleaves stop and sessions; MainThread control ordering is preserved.",
+    "raw_backend_sessions_response_in_output": false,
+    "serving_release_changed": false,
+    "source_guard": "supervisor._stop_verified returns only after endpoint absent from account sessions",
+    "status": "PASS_SAVED_RECEIPT_BACKED_RELEASE_VERIFICATION",
+    "stop_verified": true,
+    "terminal_cli_calls": [
+      {
+        "attempt": 1,
+        "command": "stop",
+        "elapsed_seconds": 0.857780916034244,
+        "ended_monotonic": 742968.089244125,
+        "operation": "control",
+        "started_monotonic": 742967.231494625,
+        "status": "completed",
+        "thread": "MainThread",
+        "timeout_seconds": 74.99999854201451
+      },
+      {
+        "attempt": 1,
+        "command": "sessions",
+        "elapsed_seconds": 0.6134224580600858,
+        "ended_monotonic": 742968.702713041,
+        "operation": "control",
+        "started_monotonic": 742968.08930225,
+        "status": "completed",
+        "thread": "MainThread",
+        "timeout_seconds": 59.99999445793219
+      },
+      {
+        "attempt": 1,
+        "command": "usage",
+        "elapsed_seconds": 0.4574420000426471,
+        "ended_monotonic": 742969.160547666,
+        "operation": "control",
+        "started_monotonic": 742968.703123,
+        "status": "completed",
+        "thread": "MainThread",
+        "timeout_seconds": 119.9999949169578
+      }
+    ],
+    "usage_after": {
+      "assignments": 0.0,
+      "balance": 1062.71,
+      "rate": 0.0
+    }
+  },
+  "resume": {
+    "classification": "CANARY_ONLY",
+    "full_timing_units_admitted": 0,
+    "nonempty_ledger_transport_qualified": false,
+    "saved_ledger_keys_verified_by_load_ledger": [
+      672
+    ],
+    "separately_verified_by_read_unit": [
+      672,
+      673
+    ],
+    "sequence": [
+      "export 672",
+      "build_and_verify_ledger672",
+      "skip 672",
+      "export 673"
+    ],
+    "skip_proof": {
+      "all_completed_durations_are_uninterrupted": true,
+      "classification": "CANARY_ONLY",
+      "complete_keys": [
+        672,
+        673
+      ],
+      "identity": {
+        "allocation": "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7",
+        "environment_sha256": "6a11680ac657006add81bd1daf6484f107b1e45a6743616784fab105ccc3ca5d",
+        "input_sha256": "b9fbea390460eba5dc3cf9d56754d66b3e473c03759e3c1516d3ef3b0b456edc",
+        "namespace": "bl-residual-f5-timing-recovery-20261026/canary",
+        "source_sha256": "742acb9fa034f14e81a9d390da3ed5ef86c9450a83419884cf4df71924dfbe92"
+      },
+      "input_ledger_sha256": "30da303cf972a76fe02e8041e7a5ead015ddfae42385abed3daf93e8371f6c42",
+      "new_unit_exports": [
+        {
+          "key": 672,
+          "path": "timing-canary/fixture-672.json",
+          "sha256": "fd1d0ef68dce6ac7e04b5ed88884885735982b1c8d939b70993a370946c15f35",
+          "size": 2119
+        },
+        {
+          "key": 673,
+          "path": "timing-canary/fixture-673.json",
+          "sha256": "bde837e31f5fa43b8665edace261240108d1505c3558037fb7008bd0039f1812",
+          "size": 2123
+        }
+      ],
+      "schema": "bl-f5-timing-verified-skip-proof/v1",
+      "skipped_keys": [
+        672
+      ]
+    },
+    "status": "PASS_ACTUAL_PRODUCER_AND_SCANNER"
+  },
+  "runtime_source_commit": "911426dbace94ca2925d737d00d5d8ca8456cb6a",
+  "schema": "bl-f5-post-canary04-verification/v1",
+  "sizing_120_240_minutes": {
+    "implication": "Use measured setup, boundary and scanner overhead in a prospective forecast; full twelve-workload source timings and optimizer/resume calibration remain unmeasured. Neither 120 nor 240 minutes is qualified. No caps or dispatch authorization changed.",
+    "observed_canary_wall_minutes": 21.790490100699632,
+    "observed_wall_fraction_of_120_minutes": 0.18158741750583027,
+    "observed_wall_fraction_of_240_minutes": 0.09079370875291513,
+    "status": "NOT_ESTABLISHED_BY_THIS_CANARY"
+  },
+  "source_references": [
+    "research/bl_residual/f5_qualification.py:103-169,551-668,669-708",
+    "research/bl_residual/f5_timing_resume.py:169-358",
+    "research/bl_residual/f5_environment_reference.py:177-197",
+    "research/colab_cli/canary.py:326-375",
+    "research/colab_cli/supervisor.py:841-878"
+  ],
+  "status": "PASS_EXERCISED_CANARY_COMPATIBILITY_RESUME_PATH_ONLY"
+}

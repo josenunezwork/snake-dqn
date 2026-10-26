@@ -1,0 +1,45 @@
+{
+  "actual_read_unit_keys": [
+    672,
+    673
+  ],
+  "actual_scanner_ledger_keys": [
+    672
+  ],
+  "checks": [
+    "all export hashes/sizes/sidecars/markers and exact membership",
+    "all native captures validate; same-assignment raw equal",
+    "capture05 comparison independently recomputed equal",
+    "actual load_ledger and _read_unit raw/kernel links",
+    "source archives and Git bytes",
+    "recorded CUDA fp32 finite1x6/tolerances/exact masked argmax source checks",
+    "separate transfer/staging300 bars",
+    "saved receipt stop/sessions/usage and usage0/0",
+    "operational phase intervals"
+  ],
+  "commands": [
+    "read-only rg/sed source discovery",
+    "Python stdlib SHA/tar/Git comparisons",
+    "actual native environment validator/reference comparator and timing ledger scanner"
+  ],
+  "dispatches": 0,
+  "effective_validation_niceness": 20,
+  "export_files_exact": 45,
+  "export_payload_bytes": 109181742,
+  "exports_verified": 15,
+  "label_or_outcome_payloads_opened": false,
+  "limitations": [
+    "Raw Q vectors and sessions stdout not separately exported; conclusions saved-receipt-backed/source-checked",
+    "No full timing, calibration, nonempty transport or fit qualification"
+  ],
+  "manifest_normalization": "Only default lease_seconds180.0 differs between accepted and broker manifest",
+  "mode": "READ_ONLY_OFFLINE",
+  "native_v6_capture_count": 4,
+  "provider_calls": 0,
+  "receipt_sha256": "65f6e5c59a06d5254c58faaa143e7e306a4e00fe1b39ac0758a77f666e1e2493",
+  "reviewer": "/root/canary_audit, reviewer role",
+  "schema": "bl-f5-independent-canary04-operational-audit/v1",
+  "source_inventory_files": 199,
+  "source_inventory_sha256": "742acb9fa034f14e81a9d390da3ed5ef86c9450a83419884cf4df71924dfbe92",
+  "status": "NO_BLOCKING_FINDINGS"
+}
