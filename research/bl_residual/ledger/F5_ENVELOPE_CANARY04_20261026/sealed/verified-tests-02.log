@@ -1,0 +1,222 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 780 items
+
+tests/test_bl_residual_f5_broker.py ......s                              [  0%]
+tests/test_bl_residual_f5_calibration.py .......s                        [  1%]
+tests/test_bl_residual_f5_capture.py ...............................     [  5%]
+tests/test_bl_residual_f5_data.py .........                              [  7%]
+tests/test_bl_residual_f5_environment.py ...................             [  9%]
+tests/test_bl_residual_f5_fit.py ........                                [ 10%]
+tests/test_bl_residual_f5_handoff.py ............                        [ 12%]
+tests/test_bl_residual_f5_job.py ......                                  [ 12%]
+tests/test_bl_residual_f5_package.py .................                   [ 15%]
+tests/test_bl_residual_f5_progress.py ......                             [ 15%]
+tests/test_bl_residual_f5_protocol.py .....                              [ 16%]
+tests/test_bl_residual_f5_qualification.py .........s.                   [ 17%]
+tests/test_bl_residual_f5_r10a_annex.py ................................ [ 21%]
+                                                                         [ 21%]
+tests/test_bl_residual_f5_raw_envelope.py .............................. [ 25%]
+                                                                         [ 25%]
+tests/test_bl_residual_f5_resume_integration.py ...........              [ 27%]
+tests/test_bl_residual_f5_rules.py ........................              [ 30%]
+tests/test_bl_residual_f5_timing.py ................                     [ 32%]
+tests/test_bl_residual_f5_timing_accounting.py .......................   [ 35%]
+tests/test_bl_residual_f5_timing_authority.py ..............             [ 37%]
+tests/test_bl_residual_f5_timing_recovery_package.py ....                [ 37%]
+tests/test_bl_residual_f5_timing_resume.py ............................. [ 41%]
+.......                                                                  [ 42%]
+tests/test_colab_cli_f5_timing_transfer.py ..........                    [ 43%]
+tests/test_f5_adoption_collision.py ........................             [ 46%]
+tests/test_f5_capture_diagnostics.py .....................               [ 49%]
+tests/test_f5_closure_collisions.py ............                         [ 50%]
+tests/test_f5_closure_runtime.py .....                                   [ 51%]
+tests/test_f5_cross_assignment_diagnostics.py .........                  [ 52%]
+tests/test_f5_environment_amendment.py ....                              [ 53%]
+tests/test_f5_environment_exhaustive.py ......                           [ 53%]
+tests/test_f5_environment_memory_v5.py .....                             [ 54%]
+tests/test_f5_external_collision_metadata.py .........................   [ 57%]
+tests/test_f5_kernel_provenance_v6.py ..............................     [ 61%]
+tests/test_f5_package_diagnostics.py .                                   [ 61%]
+tests/test_f5_published_allocation.py .........................          [ 64%]
+tests/test_f5_snapshot_closure.py ...........                            [ 66%]
+tests/test_f5_status_extractor.py FF...................FFF...FF..FF.F... [ 71%]
+..FFFF........................                                           [ 75%]
+tests/test_ops_f5_plan_admission.py ..................                   [ 77%]
+tests/test_ops_f5_timing_admission.py .................................. [ 81%]
+...........................                                              [ 85%]
+tests/test_ops_f5_unit_guard.py ...........                              [ 86%]
+tests/test_colab_cli_canary.py ......................................... [ 91%]
+.........................................................                [ 99%]
+tests/test_colab_cli_canary_observer.py .....                            [ 99%]
+tests/test_colab_cli_supervisor.py ..                                    [100%]
+
+=================================== FAILURES ===================================
+______ test_full_inventory_enumerates_both_strata_and_all_missing_actions ______
+tests/test_f5_status_extractor.py:66: in test_full_inventory_enumerates_both_strata_and_all_missing_actions
+    result = subject.project_synthetic_npz(fixture(tmp_path / "fixture.npz"), bindings())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+research/bl_residual/f5_status_extractor.py:478: in project_synthetic_npz
+    refuse("synthetic tempfile boundary")
+research/bl_residual/f5_status_extractor.py:91: in refuse
+    raise Refused("status extractor refused: " + category) from None
+E   research.bl_residual.f5_status_extractor.Refused: status extractor refused: synthetic tempfile boundary
+_ test_forbidden_changes_and_known_nonexact_subtypes_leave_identical_output_and_access _
+tests/test_f5_status_extractor.py:99: in test_forbidden_changes_and_known_nonexact_subtypes_leave_identical_output_and_access
+    a = subject.project_synthetic_npz(left, bindings())
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+research/bl_residual/f5_status_extractor.py:478: in project_synthetic_npz
+    refuse("synthetic tempfile boundary")
+research/bl_residual/f5_status_extractor.py:91: in refuse
+    raise Refused("status extractor refused: " + category) from None
+E   research.bl_residual.f5_status_extractor.Refused: status extractor refused: synthetic tempfile boundary
+____________ test_ordinary_only_sibling_and_exclusions_are_enforced ____________
+tests/test_f5_status_extractor.py:223: in test_ordinary_only_sibling_and_exclusions_are_enforced
+    subject.project_synthetic_npz(path, sibling)
+research/bl_residual/f5_status_extractor.py:478: in project_synthetic_npz
+    refuse("synthetic tempfile boundary")
+research/bl_residual/f5_status_extractor.py:91: in refuse
+    raise Refused("status extractor refused: " + category) from None
+E   research.bl_residual.f5_status_extractor.Refused: status extractor refused: synthetic tempfile boundary
+
+During handling of the above exception, another exception occurred:
+tests/test_f5_status_extractor.py:222: in test_ordinary_only_sibling_and_exclusions_are_enforced
+    with pytest.raises(subject.Refused, match="sibling"):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'sibling'
+E     Actual message: 'status extractor refused: synthetic tempfile boundary'
+_________ test_original_allocation_order_preserves_source_row_identity _________
+tests/test_f5_status_extractor.py:237: in test_original_allocation_order_preserves_source_row_identity
+    result = subject.project_synthetic_npz(fixture(tmp_path / "order.npz", values), mapping)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+research/bl_residual/f5_status_extractor.py:478: in project_synthetic_npz
+    refuse("synthetic tempfile boundary")
+research/bl_residual/f5_status_extractor.py:91: in refuse
+    raise Refused("status extractor refused: " + category) from None
+E   research.bl_residual.f5_status_extractor.Refused: status extractor refused: synthetic tempfile boundary
+________ test_foreign_or_missing_life_cannot_silently_shrink_inventory _________
+tests/test_f5_status_extractor.py:250: in test_foreign_or_missing_life_cannot_silently_shrink_inventory
+    subject.project_synthetic_npz(fixture(tmp_path / "missing.npz"), mapping)
+research/bl_residual/f5_status_extractor.py:478: in project_synthetic_npz
+    refuse("synthetic tempfile boundary")
+research/bl_residual/f5_status_extractor.py:91: in refuse
+    raise Refused("status extractor refused: " + category) from None
+E   research.bl_residual.f5_status_extractor.Refused: status extractor refused: synthetic tempfile boundary
+
+During handling of the above exception, another exception occurred:
+tests/test_f5_status_extractor.py:249: in test_foreign_or_missing_life_cannot_silently_shrink_inventory
+    with pytest.raises(subject.Refused, match="coverage"):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'coverage'
+E     Actual message: 'status extractor refused: synthetic tempfile boundary'
+______________________ test_deadline_errors_are_redacted _______________________
+tests/test_f5_status_extractor.py:278: in test_deadline_errors_are_redacted
+    subject.project_synthetic_npz(
+research/bl_residual/f5_status_extractor.py:478: in project_synthetic_npz
+    refuse("synthetic tempfile boundary")
+research/bl_residual/f5_status_extractor.py:91: in refuse
+    raise Refused("status extractor refused: " + category) from None
+E   research.bl_residual.f5_status_extractor.Refused: status extractor refused: synthetic tempfile boundary
+
+During handling of the above exception, another exception occurred:
+tests/test_f5_status_extractor.py:277: in test_deadline_errors_are_redacted
+    with pytest.raises(subject.Refused, match="wall bound"):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'wall bound'
+E     Actual message: 'status extractor refused: synthetic tempfile boundary'
+_ test_container_ordinary_ceiling_filters_to_full_selected_U_without_truncation _
+tests/test_f5_status_extractor.py:311: in test_container_ordinary_ceiling_filters_to_full_selected_U_without_truncation
+    result = subject.project_synthetic_npz(fixture(tmp_path / "ceiling.npz", values), mapping)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+research/bl_residual/f5_status_extractor.py:478: in project_synthetic_npz
+    refuse("synthetic tempfile boundary")
+research/bl_residual/f5_status_extractor.py:91: in refuse
+    raise Refused("status extractor refused: " + category) from None
+E   research.bl_residual.f5_status_extractor.Refused: status extractor refused: synthetic tempfile boundary
+_____________ test_zero_U_holds_COV_without_selecting_a_mechanism ______________
+tests/test_f5_status_extractor.py:355: in test_zero_U_holds_COV_without_selecting_a_mechanism
+    result = subject.project_synthetic_npz(fixture(tmp_path / "zero.npz", values), bindings())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+research/bl_residual/f5_status_extractor.py:478: in project_synthetic_npz
+    refuse("synthetic tempfile boundary")
+research/bl_residual/f5_status_extractor.py:91: in refuse
+    raise Refused("status extractor refused: " + category) from None
+E   research.bl_residual.f5_status_extractor.Refused: status extractor refused: synthetic tempfile boundary
+____________________ test_per_life_ordinary_cap_is_enforced ____________________
+tests/test_f5_status_extractor.py:366: in test_per_life_ordinary_cap_is_enforced
+    subject.project_synthetic_npz(fixture(tmp_path / "too-many.npz", values), bindings())
+research/bl_residual/f5_status_extractor.py:478: in project_synthetic_npz
+    refuse("synthetic tempfile boundary")
+research/bl_residual/f5_status_extractor.py:91: in refuse
+    raise Refused("status extractor refused: " + category) from None
+E   research.bl_residual.f5_status_extractor.Refused: status extractor refused: synthetic tempfile boundary
+
+During handling of the above exception, another exception occurred:
+tests/test_f5_status_extractor.py:365: in test_per_life_ordinary_cap_is_enforced
+    with pytest.raises(subject.Refused, match="stratum bound"):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'stratum bound'
+E     Actual message: 'status extractor refused: synthetic tempfile boundary'
+_ test_all_absent_all_nonzero_present_and_mixed_siblings_have_identical_selected_output _
+tests/test_f5_status_extractor.py:420: in test_all_absent_all_nonzero_present_and_mixed_siblings_have_identical_selected_output
+    result = subject.project_synthetic_npz(
+research/bl_residual/f5_status_extractor.py:478: in project_synthetic_npz
+    refuse("synthetic tempfile boundary")
+research/bl_residual/f5_status_extractor.py:91: in refuse
+    raise Refused("status extractor refused: " + category) from None
+E   research.bl_residual.f5_status_extractor.Refused: status extractor refused: synthetic tempfile boundary
+_ test_selected_coverage_and_foreign_ids_refuse_with_amendment_report[missing_selected] _
+tests/test_f5_status_extractor.py:499: in test_selected_coverage_and_foreign_ids_refuse_with_amendment_report
+    assert not report["accepted"]
+               ^^^^^^^^^^^^^^^^^^
+E   TypeError: 'NoneType' object is not subscriptable
+_ test_selected_coverage_and_foreign_ids_refuse_with_amendment_report[foreign] _
+tests/test_f5_status_extractor.py:499: in test_selected_coverage_and_foreign_ids_refuse_with_amendment_report
+    assert not report["accepted"]
+               ^^^^^^^^^^^^^^^^^^
+E   TypeError: 'NoneType' object is not subscriptable
+________ test_excluded_sibling_cannot_supply_selected_ordinary_stratum _________
+tests/test_f5_status_extractor.py:510: in test_excluded_sibling_cannot_supply_selected_ordinary_stratum
+    subject.project_synthetic_npz(fixture(tmp_path / "stratum.npz", values), mapping)
+research/bl_residual/f5_status_extractor.py:478: in project_synthetic_npz
+    refuse("synthetic tempfile boundary")
+research/bl_residual/f5_status_extractor.py:91: in refuse
+    raise Refused("status extractor refused: " + category) from None
+E   research.bl_residual.f5_status_extractor.Refused: status extractor refused: synthetic tempfile boundary
+
+During handling of the above exception, another exception occurred:
+tests/test_f5_status_extractor.py:509: in test_excluded_sibling_cannot_supply_selected_ordinary_stratum
+    with pytest.raises(subject.Refused, match="both strata"):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'both strata'
+E     Actual message: 'status extractor refused: synthetic tempfile boundary'
+___ test_interleaved_excluded_row_preserves_selected_source_index_and_order ____
+tests/test_f5_status_extractor.py:519: in test_interleaved_excluded_row_preserves_selected_source_index_and_order
+    result = subject.project_synthetic_npz(
+research/bl_residual/f5_status_extractor.py:478: in project_synthetic_npz
+    refuse("synthetic tempfile boundary")
+research/bl_residual/f5_status_extractor.py:91: in refuse
+    raise Refused("status extractor refused: " + category) from None
+E   research.bl_residual.f5_status_extractor.Refused: status extractor refused: synthetic tempfile boundary
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_bl_residual_f5_broker.py:267: requires a real CUDA runtime
+SKIPPED [1] tests/test_bl_residual_f5_calibration.py:185: requires a real CUDA runtime, uploaded checkpoint pool, and F5_QUALIFICATION_B8
+SKIPPED [1] tests/test_bl_residual_f5_qualification.py:103: requires a real CUDA runtime
+FAILED tests/test_f5_status_extractor.py::test_full_inventory_enumerates_both_strata_and_all_missing_actions
+FAILED tests/test_f5_status_extractor.py::test_forbidden_changes_and_known_nonexact_subtypes_leave_identical_output_and_access
+FAILED tests/test_f5_status_extractor.py::test_ordinary_only_sibling_and_exclusions_are_enforced
+FAILED tests/test_f5_status_extractor.py::test_original_allocation_order_preserves_source_row_identity
+FAILED tests/test_f5_status_extractor.py::test_foreign_or_missing_life_cannot_silently_shrink_inventory
+FAILED tests/test_f5_status_extractor.py::test_deadline_errors_are_redacted
+FAILED tests/test_f5_status_extractor.py::test_container_ordinary_ceiling_filters_to_full_selected_U_without_truncation
+FAILED tests/test_f5_status_extractor.py::test_zero_U_holds_COV_without_selecting_a_mechanism
+FAILED tests/test_f5_status_extractor.py::test_per_life_ordinary_cap_is_enforced
+FAILED tests/test_f5_status_extractor.py::test_all_absent_all_nonzero_present_and_mixed_siblings_have_identical_selected_output
+FAILED tests/test_f5_status_extractor.py::test_selected_coverage_and_foreign_ids_refuse_with_amendment_report[missing_selected]
+FAILED tests/test_f5_status_extractor.py::test_selected_coverage_and_foreign_ids_refuse_with_amendment_report[foreign]
+FAILED tests/test_f5_status_extractor.py::test_excluded_sibling_cannot_supply_selected_ordinary_stratum
+FAILED tests/test_f5_status_extractor.py::test_interleaved_excluded_row_preserves_selected_source_index_and_order
+============ 14 failed, 763 passed, 3 skipped in 129.85s (0:02:09) =============

@@ -1,0 +1,41 @@
+"""One offline serial test lane; assert effective priority and numerical threads."""
+
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+BROKER = Path("/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex")
+sys.path.insert(0, str(BROKER))
+from research.bl_ppo.exports import export_json
+
+names = ("OMP_NUM_THREADS", "OMP_THREAD_LIMIT", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMBA_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
+assert os.getpriority(os.PRIO_PROCESS, 0) == 15
+assert all(os.environ.get(name) == "1" for name in names)
+targets = sorted(p.relative_to(BROKER).as_posix() for p in (BROKER / "tests").glob("*f5*.py")) + [
+    "tests/test_colab_cli_canary.py", "tests/test_colab_cli_canary_observer.py",
+    "tests/test_colab_cli_supervisor.py::test_allocation_cap_counts_existing_notebook_assignments",
+    "tests/test_colab_cli_supervisor.py::test_normal_job_stops_and_verifies_backend_release",
+]
+args = ["-q", "-p", "no:xdist", "-p", "no:cacheprovider", "--tb=short", "--basetemp", str(ROOT / "test-scratch/pytest"), *targets]
+code = "import os, torch, pytest; assert os.getpriority(os.PRIO_PROCESS,0)==15; torch.set_num_threads(1); torch.set_num_interop_threads(1); assert torch.get_num_threads()==torch.get_num_interop_threads()==1; raise SystemExit(pytest.main(" + repr(args) + "))"
+argv = [sys.executable, "-B", "-c", code]
+started = time.monotonic()
+with (ROOT / "verified-tests.log").open("x") as handle:
+    result = subprocess.run(argv, cwd=BROKER, stdout=handle, stderr=subprocess.STDOUT, env=os.environ.copy(), timeout=600)
+log = ROOT / "verified-tests.log"
+checks = []
+for cmd in (["git", "diff", "--check", "4181fc3b^", "4181fc3b"], ["bash", "-n", "research/bl_residual/f5_colab.sh"], ["bash", "-n", "tools/ops/dispatch.sh"],
+            [sys.executable, "-B", "-m", "black", "--check", "--line-length", "100", "--workers", "1", "research/bl_residual/f5_raw_envelope.py", "research/bl_residual/f5_qualification.py", "research/bl_residual/f5_timing_recovery_package.py", "tests/test_bl_residual_f5_raw_envelope.py"],
+            [sys.executable, "-B", "-m", "isort", "--check-only", "--profile", "black", "research/bl_residual/f5_raw_envelope.py", "research/bl_residual/f5_qualification.py", "research/bl_residual/f5_timing_recovery_package.py", "tests/test_bl_residual_f5_raw_envelope.py"],
+            [sys.executable, "-B", "-m", "flake8", "--jobs", "1", "research/bl_residual/f5_raw_envelope.py", "research/bl_residual/f5_qualification.py", "research/bl_residual/f5_timing_recovery_package.py", "tests/test_bl_residual_f5_raw_envelope.py"]):
+    check = subprocess.run(cmd, cwd=BROKER, capture_output=True, text=True, timeout=60)
+    checks.append({"argv": cmd, "return_code": check.returncode, "stdout": check.stdout, "stderr": check.stderr})
+record = {"schema": "bl-f5-pair-offline-verification/v1", "cwd": str(BROKER), "effective_niceness": os.getpriority(os.PRIO_PROCESS, 0), "numeric_threads": {n: os.environ[n] for n in names}, "pytorch_threads": 1, "pytorch_interop_threads": 1, "parallel_workers": 0, "argv": argv, "pytest_args": args, "return_code": result.returncode, "elapsed_seconds": time.monotonic()-started, "log": {"path": str(log), "sha256": hashlib.sha256(log.read_bytes()).hexdigest(), "size": log.stat().st_size}, "checks": checks, "provider_calls": 0, "cuda_execution_claimed": False}
+export_json(ROOT / "VERIFICATION.json", record)
+assert result.returncode == 0 and all(c["return_code"] == 0 for c in checks), record
+print(json.dumps(record, indent=2))

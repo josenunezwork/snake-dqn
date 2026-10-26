@@ -1,0 +1,47 @@
+"""Publish compact executable/policy/reference metadata without duplicating raw bytes."""
+
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+BROKER = Path("/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex")
+sys.path.insert(0, str(BROKER))
+from research.bl_ppo.exports import export_json
+from research.bl_residual import f5_environment, f5_environment_reference, f5_package
+
+
+def bind(path):
+    with path.open("rb") as handle:
+        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+    return {"path": str(path), "sha256": digest, "size": path.stat().st_size}
+
+
+for root in (ROOT, ROOT.parent / "longrun-01"):
+    freeze = json.loads((root / "SOURCE_FREEZE.json").read_text())
+    reference = freeze["environment_reference"]
+    export_json(root / "environment-policy.json", {
+        "schema": "bl-f5-envelope-source-v6-policy-seal/v1",
+        "policy": freeze["environment_policy"],
+        "policy_identity_sha256": freeze["environment_policy_identity_sha256"],
+        "schema_v6": bind(f5_environment.schema_path()),
+        "descriptor": bind(BROKER / f5_package.ENV / "f5-common-environment-v6.json"),
+        "native_v6_required": True, "same_assignment": "ALL_RAW_FIELDS_EXACT",
+    })
+    export_json(root / "reference-seal.json", {
+        "schema": "bl-f5-envelope-source-reference-seal/v1", "source": reference["source"],
+        "original_capture05": bind(f5_environment_reference.CAPTURE05_PATH),
+        "adapter": bind(BROKER / "research/bl_residual/f5_environment_reference.py"),
+        "frozen_v5_validator": bind(BROKER / "research/bl_residual/f5_environment_v5.py"),
+        "reference_wrapper_sha256": freeze["reference_wrapper_sha256"],
+        "purpose": "PINNED_COMPARISON_ONLY", "native_v6_capture": False,
+        "raw_bytes_preserved_in_control_and_external_source_freeze": True,
+    })
+    compact = {k:v for k,v in freeze.items() if k != "environment_reference"}
+    compact.update(schema="bl-f5-compact-source-binding/v1", full_source_freeze=bind(root / "SOURCE_FREEZE.json"),
+                   environment_policy_seal=bind(root / "environment-policy.json"),
+                   reference_seal=bind(root / "reference-seal.json"),
+                   source_reference_metadata=reference["source"])
+    export_json(root / "SOURCE_BINDING.json", compact)
+    print(root, bind(root / "SOURCE_BINDING.json")["sha256"])

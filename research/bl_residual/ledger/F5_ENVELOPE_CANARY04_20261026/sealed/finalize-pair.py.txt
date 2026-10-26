@@ -1,0 +1,166 @@
+"""Seal/publish offline pair only after verification and independent review."""
+
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+LONG = ROOT.parent / "longrun-01"
+REPO = Path("/Users/josenunez/Projects/ml/snake-dqn-f5rawenv")
+BROKER = Path("/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex")
+sys.path.insert(0, str(BROKER))
+from research.bl_ppo.exports import export_bytes, export_json, verify_export
+from research.bl_residual import f5_job, f5_package, f5_timing_resume
+from research.colab_cli import supervisor
+from tools.ops import dispatch, qualification
+
+
+def load(path):
+    return json.loads(path.read_text())
+
+
+def bind(path):
+    assert path.is_file() and not path.is_symlink(), path
+    with path.open("rb") as handle:
+        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+    return {"path": str(path), "sha256": digest, "size": path.stat().st_size}
+
+
+def validate():
+    assert os.getpriority(os.PRIO_PROCESS, 0) == 15
+    v = load(ROOT / "VERIFICATION-03.json")
+    assert v["return_code"] == 0 and v["effective_niceness"] == 15
+    assert all(value == "1" for value in v["numeric_threads"].values())
+    assert v["pytorch_threads"] == v["pytorch_interop_threads"] == 1
+    assert all(row["return_code"] == 0 for row in v["checks"])
+    assert bind(Path(v["log"]["path"])) == v["log"]
+    assert load(ROOT / "INDEPENDENT_REVIEW.json")["status"] == "NO_BLOCKING_FINDINGS"
+    p = load(ROOT / "PREPARATION.json")
+    m = load(ROOT / "manifest.json")
+    l = load(LONG / "timing-operation.seal-draft.json")
+    assert m["commit"] == l["commit"] == p["source_commit"]
+    assert m["source_paths"] == l["source_paths"]
+    assert m["f5_timing_synthetic_inventory"] == l["f5_timing_synthetic_inventory"]
+    assert m["f5_timing_transfer_exception"] | {"context": "timing"} == l["f5_timing_transfer_exception"]
+    assert bind(ROOT / "source.tar")["sha256"] == bind(LONG / "package/source.tar")["sha256"]
+    for root, manifest in ((ROOT, m), (LONG, l)):
+        for reference in load(root / "bindings.json").values():
+            assert bind(Path(reference["path"])) == reference
+        control = load(Path(next(r["path"] for r in manifest["inputs"] if r["dest"] == "control.json")))
+        assert control["source_hashes"] == f5_package.source_inventory(BROKER)
+        f5_job._source_admission(control)
+        ledger = Path(next(r["path"] for r in manifest["inputs"] if r["dest"] == "verified-ledger.json"))
+        assert not f5_timing_resume.load_ledger(ledger, p["stable_binding"])
+        for row in manifest["inputs"]:
+            if "path" in row:
+                r = bind(Path(row["path"]))
+                assert (r["sha256"], r["size"]) == (row["sha256"], row["size_bytes"])
+        dispatch.require_resume_policy(manifest)
+        dispatch.require_scientific_or_f5_plan_admission(manifest)
+    supervisor.validate(m, BROKER)
+    try:
+        supervisor.validate(l, BROKER)
+    except Exception as exc:
+        assert "canary receipt is missing" in str(exc)
+    else:
+        raise AssertionError("long draft dispatchable")
+    assert all(not Path(path).exists() for path in p["fresh_paths"])
+    assert qualification.check(BROKER, Path(load(ROOT / "bindings.json")["qualified_registry"]["path"])) == p["cli_tree"]
+    assert not subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=BROKER)
+    assert not subprocess.check_output(["git", "branch", "--show-current"], cwd=BROKER).strip()
+    assert subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=BROKER, text=True).strip() == m["commit"]
+    return p
+
+
+def seal():
+    p = validate()
+    for root in (ROOT, LONG):
+        export_json(root / "REVIEW_EVIDENCE.json", {
+            "schema": "bl-f5-pair-review-evidence/v1",
+            "controlling_test_verification": bind(ROOT / "VERIFICATION-03.json"),
+            "controlling_test_log": bind(ROOT / "verified-tests-03.log"),
+            "independent_review": bind(ROOT / "INDEPENDENT_REVIEW.json"),
+            "initial_test_launcher_failure_preserved": bind(ROOT / "VERIFICATION.json"),
+            "initial_test_failure_reason": "Missing basetemp parent in first run; second run used artifact path refused by synthetic tempfile safety guard (14 failed,763 passed,3 skipped). Both are harness setup errors; no runtime source changed. Third run uses fresh system tempfile path.",
+            "second_test_launcher_failure_preserved": bind(ROOT / "VERIFICATION-02.json"),
+            "initial_instruction_refusal": bind(ROOT / "initial-instruction-refusal.json"),
+            "preparation_scheduling_note": "Shell already inherited nice15. An initial nice -n15 launch failed priority assertion before creating payloads; all successful preparation and tests assert effective15.",
+            "source_freeze": bind(root / "SOURCE_FREEZE.json"),
+            "pair_preparation": bind(ROOT / "PREPARATION.json"),
+            "allocations": 0, "dispatches": 0, "provider_calls": 0,
+            "Astra_exact_package_admission": "PENDING",
+        })
+        is_canary = root == ROOT
+        export_bytes(root / "README.md", (
+            "# F5 initial empty-ledger pair: " + ("canary-04" if is_canary else "longrun-01 seal-draft") + "\n\n"
+            "Prepared offline; zero provider calls, allocations or dispatches. Runtime source is integrated main commit " + p["source_commit"] + ". Its 199-file executable inventory exactly equals accepted 4181fc3b; CLI tree remains " + p["cli_tree"] + ". SOURCE_FREEZE.json records every executable hash, source archive, stable timing binding, native-v6 policy/comparison-only reference and checkpoint/input digests.\n\n"
+            "The pair shares exact source paths, source archive, input payload hashes, control bytes, genuine empty ledger and synthetic transfer inventory. The tiny runtime isolates CANARY_ONLY records using its /canary namespace. Canary04's future PASS can qualify only this matching full inventory.\n\n"
+            + ("Canonical operator instructions: DISPATCH-CANARY04.txt, after separate Astra exact-package review. dry-run.json reports PASS_DRY_RUN and allocations=0. The earlier DISPATCH.txt is a preserved rejected instruction draft; initial-instruction-refusal.json explains its wrapper HOLD refusal. It is not the canonical command.\n\n" if is_canary else "This draft is NOT DISPATCHABLE. Canary receipt path is prospective and SHA is all zeroes; direct supervisor validation refuses the missing receipt and wrapper dry-run also refuses leading HOLD instructions. After an accepted matching canary04 PASS, create a fresh successor seal with the actual receipt SHA; never edit this frozen draft. package/ contains unselected builder drafts, not approved execution commands.\n\n")
+            + "SERIES_FREEZE.json in longrun-01 freezes all 13 units (672-683 and one uninterrupted coupled C/W calibration), base120/effective240-minute envelopes for original plus at most two completion attempts, mechanical outcome-blind triggers, no automatic retries, fresh identities, original-byte retention and Mac-only reduction/accounting. Full timing, coupled calibration, complete setup/boundary and import/decompression forecast fields remain explicitly unmeasured. The120-minute estimate field is a schema-required engineering allowance, not a measured ETA.\n\n"
+            "L4 cuda:0, numerical threads1; private uploads42078922<=45397643 bytes; transfer<=300 seconds and independently staging<=300 seconds. Owner budget ruling is hash-bound. Technical unit guards are not scientific budgets; envelopes are frozen before data. No cap escalation or source migration mid-series.\n\n"
+            "accounts/preflight.json in canary-04 is an OFFLINE LOCAL-RECORD check under the normal allocation lock and binds historical provider context. It does not establish current provider membership, balance or rate. Normal locked wrapper refresh and live supervisor admission remain required at future dispatch, including account-wide cap3. No Colab calls were made for this preparation.\n\n"
+            "Canary01-03 and timing03/04 remain immutable hash-bound history. Canary03's old-source PASS is context, never a substitute for canary04. Current-source CUDA, transfer, staging, timing feasibility, fit admission and release are unmeasured/ungranted. A later NONEMPTY package requires its matching NONEMPTY family canary before resumed long work.\n\n"
+            "VERIFICATION-03.json in canary-04 is controlling: serial pytest, effective nice15 and numerical/PyTorch threads1. Initial temporary-directory test failure and instruction refusal remain supplementary preserved evidence. Synthetic tests grant no live CUDA or timing claim. Independent review does not grant Astra admission.\n"
+        ).encode())
+        export_json(root / "PACKAGE.json", {
+            "schema": "bl-f5-initial-pair-sealed-package/v1", "kind": "CANARY04" if is_canary else "LONGRUN01_SEAL_DRAFT",
+            "status": "SEALED_PENDING_ASTRA_EXACT_PACKAGE_REVIEW" if is_canary else "SEALED_DRAFT_UNBOUND_CANARY04_NOT_DISPATCHABLE",
+            "runtime_source_commit": p["source_commit"], "cli_tree": p["cli_tree"],
+            "manifest": bind(root / ("manifest.json" if is_canary else "timing-operation.seal-draft.json")),
+            "source_freeze": bind(root / "SOURCE_FREEZE.json"), "compact_source_binding": bind(root / "SOURCE_BINDING.json"), "review_evidence": bind(root / "REVIEW_EVIDENCE.json"),
+            "dispatch_instructions": bind(root / ("DISPATCH-CANARY04.txt" if is_canary else "DISPATCH.txt")),
+            "dry_run": bind(root / ("dry-run.json" if is_canary else "blocked-dry-run.json")),
+            "stable_timing_binding": p["stable_binding"], "private_upload_bytes": p["private_upload_bytes"],
+            "series_freeze": bind(LONG / "SERIES_FREEZE.json"), "allocations": 0, "dispatches": 0, "provider_calls": 0,
+            "canary_receipt_bound": False, "scientific_or_release_authority": False,
+        })
+        for marker in root.rglob("*.complete"):
+            verify_export(Path(str(marker).removesuffix(".complete")))
+        members = {path.relative_to(root).as_posix(): {k: v for k, v in bind(path).items() if k != "path"} for path in sorted(root.rglob("*")) if path.is_file()}
+        self_components = ["SHA256SUMS.json", "SHA256SUMS.json.sha256", "SHA256SUMS.json.complete"]
+        export_json(root / "SHA256SUMS.json", {"schema": "bl-f5-exhaustive-static-package-seal/v1", "scope": str(root), "files": members, "excluded_self_components": self_components, "fresh_output_state_outside_static_membership": p["fresh_paths"]})
+        assert {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()} == set(members) | set(self_components)
+        print(json.dumps({"root": str(root), "seal": bind(root / "SHA256SUMS.json"), "package": bind(root / "PACKAGE.json"), "member_count": len(members)}, indent=2))
+
+
+def publish():
+    validate()
+    assert not subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=REPO)
+    for root, name in ((ROOT, "F5_ENVELOPE_CANARY04_20261026"), (LONG, "F5_ENVELOPE_LONGRUN01_DRAFT_20261026")):
+        target = REPO / "research/bl_residual/ledger" / name
+        assert not target.exists()
+        seal = load(root / "SHA256SUMS.json")
+        verify_export(root / "SHA256SUMS.json")
+        members = dict(seal["files"])
+        for name in seal["excluded_self_components"]:
+            members[name] = {k:v for k,v in bind(root / name).items() if k != "path"}
+        assert {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()} == set(members)
+        records = {}
+        for name, row in sorted(members.items()):
+            source = root / name
+            assert {k:v for k,v in bind(source).items() if k != "path"} == row
+            record = {"external_path": str(source), **row}
+            if row["size"] > 2_000_000:
+                record["publication"] = "EXTERNAL_HASH_BOUND_ARTIFACT"
+            else:
+                relative = "sealed/" + name + (".txt" if name.endswith(".py") else "")
+                destination = target / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with destination.open("xb") as handle:
+                    handle.write(source.read_bytes())
+                assert bind(destination)["sha256"] == row["sha256"]
+                record["published_relative_path"] = relative
+            records[name] = record
+        export_json(target / "ARTIFACT_PACKET.json", {"schema": "bl-f5-initial-pair-publication/v1", "package_root": str(root), "exhaustive_seal": bind(root / "SHA256SUMS.json"), "runtime_source_commit": load(ROOT / "PREPARATION.json")["source_commit"], "files": records, "script_snapshots": "Byte-identical .py.txt archive; no runtime source changes", "allocations": 0, "dispatches": 0, "provider_calls": 0})
+        print(json.dumps({"publication": bind(target / "ARTIFACT_PACKET.json"), "files": len(records)}, indent=2))
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["--publish"]:
+        publish()
+    else:
+        assert not sys.argv[1:]
+        seal()
