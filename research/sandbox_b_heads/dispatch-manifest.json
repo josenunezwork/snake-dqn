@@ -1,6 +1,6 @@
 {
   "job_id": "sandbox-b-heads-v1",
-  "commit": "fd3e2c4e2f4a38fa3d9241501b48a1c0cab541ae",
+  "commit": "b8c96f45123e22bb11ae684dba8e326b8b51b2e8",
   "script": "research/sandbox_b_heads/run_job.sh",
   "source_paths": [
     "research/sandbox_b_heads/__init__.py",
@@ -19,6 +19,11 @@
     "src/model/checkpoint_io.py",
     "src/model/ego2s_network.py",
     "src/model/obs_spec.py",
+    "src/core/runtime_contract.py",
+    "src/core/__init__.py",
+    "src/core/config_loader.py",
+    "src/core/game_config.py",
+    "src/core/device_manager.py",
     "tools/sandbox/__init__.py",
     "tools/sandbox/registry.py"
   ],
