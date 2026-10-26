@@ -45,6 +45,55 @@ NICE_FLOOR = 15
 P1_ATTEMPT2_RULING = "55b13197d9d92f8eeb1c895180f01993ca11908f51c74a60d9a67065a0550d13"
 CONTROL_INTERPRETER = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python")
 CONTROL_OAUTH_INTERPRETER = Path("/Users/josenunez/.venvs/colab-cli/bin/python")
+F5_PLAN_ADMISSION_SCHEMA = "bl-f5-plan-operational-admission/v1"
+F5_PLAN_COMMIT = "c989f6738f6aad143eb97bc47f6bd9e6687057ce"
+F5_PLAN_RULINGS = {
+    "acceptance": "ebef9f754d0ea4c143226332f53be8a2705ad5fb050291047c94a35944d8f25a",
+    "capture_qualification": "8f376c53a2150db018c529b2d75796f1ed4bbd564b31630d082fb1012780539f",
+    "parallel_clarification": "71c5b924c4b5ae9caa85870acf047aaea2a9c04bc78206dc6ee46381e1dc8a2e",
+    "owner_ruling": "48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d",
+}
+F5_PLAN_REQUIRED_EXPORTS = [
+    "prepare/prepare-receipt.json",
+    "prepare/f5-batch-plan.pt",
+    "paired/assignment-environment.json",
+    "paired/fit-receipt.json",
+    "paired/fit-C.pth",
+    "paired/fit-W.pth",
+    "paired/f5-state-C.pt",
+    "paired/f5-state-W.pt",
+    "qualification/qualification.json",
+]
+F5_PLAN_INPUT_DESTINATIONS = {
+    "selected-training.tar.xz",
+    "selected-training.tar.xz.sha256",
+    "selected-training.tar.xz.complete",
+    "b8.pth",
+    "timing-fixtures.json",
+    "control.json",
+    "verified-ledger.json",
+}
+F5_B8_URL = (
+    "https://github.com/josenunezwork/snake-dqn/releases/download/"
+    "s1-inputs-20261019/B8_s3_final.pth"
+)
+F5_B8_SHA256 = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+F5_SELECTED_TRAINING_SHA256 = "2c033750b0d25568b19ba81aec7bd0e9b0583bdd32a994a9a1984a409e45c46c"
+F5_PLAN_ENV = {
+    "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+    "CUDA_DEVICE_ORDER": "PCI_BUS_ID",
+    "F5_DEVICE": "cuda:0",
+    "F5_MODE": "prepare-qualification",
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OMP_THREAD_LIMIT": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "SNAKE_COLAB_CANARY": "1",
+    "SNAKE_COLAB_CANARY_PACKAGE": "research/bl_residual",
+    "VECLIB_MAXIMUM_THREADS": "1",
+}
 
 
 class Refused(ValueError):
@@ -824,6 +873,7 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
         rates[endpoint] = rate
     original = manifest.read_bytes()
     value = json.loads(original)
+    require_f5_plan_live_assignment_match(value, {"budget": {"other_assignments": rates}})
     value["budget"]["other_assignments"] = rates
     refreshed = manifest.with_name(f"{manifest.stem}.live.json")
     payload = (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
@@ -951,6 +1001,145 @@ def require_timing_calibration_retry_policy(manifest: dict[str, Any]) -> bool:
     return no_automatic_retry
 
 
+def require_scientific_or_f5_plan_admission(manifest: dict[str, Any]) -> None:
+    """Permit exactly the sealed non-scientific F5 plan materialization job.
+
+    ``scientific_admission: false`` normally stops the ordinary dispatch path.
+    This narrow operational exception is intentionally self-contained: it has
+    no bearing on retained chains, fits, timing qualification, or other false
+    scientific admissions.
+    """
+    if manifest.get("scientific_admission") is not False:
+        return
+    admission = manifest.get("operational_admission")
+    if not isinstance(admission, dict) or admission.get("schema") != F5_PLAN_ADMISSION_SCHEMA:
+        raise Refused("manifest scientific_admission=false")
+    if manifest.get("draft_only") is not None:
+        raise Refused("F5 plan admission forbids draft_only")
+    if manifest.get("commit") != F5_PLAN_COMMIT:
+        raise Refused("F5 plan admission requires the accepted implementation commit")
+    if manifest.get("script") != "research/bl_residual/f5_colab.sh":
+        raise Refused("F5 plan admission requires the F5 Colab entrypoint")
+    if manifest.get("device") != "cuda:0":
+        raise Refused("F5 plan admission requires device cuda:0")
+    if manifest.get("env") != F5_PLAN_ENV:
+        raise Refused("F5 plan admission requires the exact prepared environment")
+    if manifest.get("substeps") != [
+        "CPU_PLAN_MATERIALIZATION",
+        "DISJOINT_CUDA_TRANSPORT_QUALIFICATION",
+    ]:
+        raise Refused("F5 plan admission has unauthorized substeps")
+    if manifest.get("requirements") != {
+        "gpu": "L4",
+        "allowed_gpus": ["L4"],
+        "min_vcpu": 6,
+        "est_minutes": 15,
+    }:
+        raise Refused("F5 plan admission requires the exact L4 placement")
+    if manifest.get("timeout_minutes") != 30:
+        raise Refused("F5 plan admission requires the 30-minute effective timeout")
+    exemption = manifest.get("resume_exemption")
+    if not isinstance(exemption, dict) or exemption.get("kind") != "short-canary":
+        raise Refused("F5 plan admission requires a short-canary exemption")
+    if exemption.get("timeout_minutes") != 30 or "resume" in manifest:
+        raise Refused("F5 plan admission has an invalid resume declaration")
+    if manifest.get("required_exports") != F5_PLAN_REQUIRED_EXPORTS:
+        raise Refused("F5 plan admission has an unauthorized export inventory")
+    if manifest.get("canary") != {
+        "schema": "colab-family-canary/v1",
+        "mode": "probe",
+        "family": "research/bl_residual/f5_colab.sh",
+    }:
+        raise Refused("F5 plan admission requires the exact probe canary")
+    max_export_bytes = manifest.get("max_export_bytes")
+    if type(max_export_bytes) is not int or not 0 < max_export_bytes <= 2 * 1024**3:
+        raise Refused("F5 plan admission requires a bounded export cap")
+    inputs = manifest.get("inputs")
+    if (
+        not isinstance(inputs, list)
+        or {item.get("dest") for item in inputs if isinstance(item, dict)}
+        != (F5_PLAN_INPUT_DESTINATIONS)
+        or len(inputs) != len(F5_PLAN_INPUT_DESTINATIONS)
+    ):
+        raise Refused("F5 plan admission has an unauthorized input inventory")
+    input_by_dest = {item["dest"]: item for item in inputs}
+    b8 = input_by_dest["b8.pth"]
+    if (
+        b8.get("url") != F5_B8_URL
+        or b8.get("sha256") != F5_B8_SHA256
+        or b8.get("size_bytes") != 6562005
+        or "path" in b8
+    ):
+        raise Refused("F5 plan admission requires the pinned HTTPS B8 input")
+    if input_by_dest["selected-training.tar.xz"].get("sha256") != F5_SELECTED_TRAINING_SHA256:
+        raise Refused("F5 plan admission requires the selected-training binding")
+    f5 = manifest.get("f5")
+    if not isinstance(f5, dict) or (
+        f5.get("base_timeout_minutes"),
+        f5.get("effective_timeout_minutes"),
+        f5.get("automatic_retries"),
+    ) != (15, 30, False):
+        raise Refused("F5 plan admission requires bounded no-retry timing controls")
+    if (
+        f5.get("private_upload_cap_bytes") != 45397643
+        or f5.get("private_upload_bytes_max") != 45397643
+        or f5.get("transfer_bar_seconds") != 150
+        or f5.get("staging_bar_seconds") != 300
+    ):
+        raise Refused("F5 plan admission requires the accepted transport bounds")
+    timing = manifest.get("timing_calibration")
+    retry_fields = {
+        "no_automatic_retry",
+        "no_allocation_retry",
+        "no_job_retry",
+        "no_completion_retry",
+    }
+    if not isinstance(timing, dict) or any(timing.get(field) is not True for field in retry_fields):
+        raise Refused("F5 plan admission requires all timing retry fences")
+    if (
+        any(
+            admission.get(field) is not False
+            for field in (
+                "scientific_fits_authorized",
+                "numerical_looks_authorized",
+                "release_authorized",
+            )
+        )
+        or admission.get("status") != "ACCEPTED_PLAN_MATERIALIZATION_AND_TRANSPORT_ONLY"
+    ):
+        raise Refused("F5 plan admission grants unauthorized scientific authority")
+    rulings = admission.get("rulings")
+    if not isinstance(rulings, dict) or set(rulings) != set(F5_PLAN_RULINGS):
+        raise Refused("F5 plan admission has incomplete ruling bindings")
+    for key, expected_sha in F5_PLAN_RULINGS.items():
+        reference = rulings[key]
+        if not isinstance(reference, dict):
+            raise Refused(f"F5 plan admission ruling is malformed: {key}")
+        path_value = reference.get("path")
+        if not isinstance(path_value, str):
+            raise Refused(f"F5 plan admission ruling path is malformed: {key}")
+        path = Path(path_value)
+        if path.is_symlink() or not path.is_file():
+            raise Refused(f"F5 plan admission ruling must be a regular file: {key}")
+        payload = path.read_bytes()
+        if (
+            reference.get("sha256") != expected_sha
+            or reference.get("size") != len(payload)
+            or hashlib.sha256(payload).hexdigest() != expected_sha
+        ):
+            raise Refused(f"F5 plan admission ruling bytes differ: {key}")
+
+
+def require_f5_plan_live_assignment_match(original: dict[str, Any], live: dict[str, Any]) -> None:
+    """Reject a changed account snapshot instead of mutating this sealed F5 plan."""
+    admission = original.get("operational_admission")
+    if isinstance(admission, dict) and admission.get("schema") == F5_PLAN_ADMISSION_SCHEMA:
+        if live.get("budget", {}).get("other_assignments") != original.get("budget", {}).get(
+            "other_assignments"
+        ):
+            raise Refused("F5 plan live assignments differ from sealed admission; seal a successor")
+
+
 def wait_allocation(output: Path, log: Path, deadline: float, poll: float) -> str:
     """An assignment record is too early: accounting calibration must finish."""
     while time.monotonic() < deadline:
@@ -1075,8 +1264,18 @@ def dispatch(args: argparse.Namespace) -> str:
             require_for_a100_canary(value, broker)
         except (ValueError, OSError, KeyError) as exc:
             raise Refused(f"native CUDA compile gate: {exc}") from exc
-    if value.get("scientific_admission") is False:
-        raise Refused("manifest scientific_admission=false")
+    require_scientific_or_f5_plan_admission(value)
+    if value.get("operational_admission", {}).get("schema") == F5_PLAN_ADMISSION_SCHEMA:
+        if args.name != value.get("job_id"):
+            raise Refused("F5 plan dispatch name must equal the sealed job_id")
+        declared_state = value.get("supervisor_state_dir")
+        if not isinstance(declared_state, str):
+            raise Refused("F5 plan admission requires a sealed supervisor_state_dir")
+        declared_state_path = Path(declared_state).resolve()
+        if state != declared_state_path:
+            raise Refused("F5 plan state directory differs from the sealed admission")
+        if manifest.parent not in declared_state_path.parents:
+            raise Refused("F5 plan state directory must remain inside its package")
     if not isinstance(value.get("budget", {}).get("other_assignments", {}), dict):
         raise Refused("budget.other_assignments must be a map")
     output = value.get("output_dir")

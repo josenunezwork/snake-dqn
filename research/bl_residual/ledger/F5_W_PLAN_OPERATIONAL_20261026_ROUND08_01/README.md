@@ -1,0 +1,13 @@
+# F5 round08 first operative plan package
+
+Accepted plan materialization and disjoint CUDA transport only, `F5_MODE=prepare-qualification`, implementation c989f6738f6aad143eb97bc47f6bd9e6687057ce. Scientific admission remains false. Scientific fit, outcome looks and serving/release are unauthorized.
+
+The exact accepted environment object is embedded in the final control; its allocation is recomputed over final control content, and its matching empty ledger is SHA-bound afterward. Inputs and required exports are enumerated by the manifest and complete reconciled inventory. B8 uses verified release HTTPS; the selected training archive is only cryptographically hashed during preparation. No labels or checkpoint payloads were deserialized.
+
+The existing wrapper rejected every false scientific-admission flag. This package includes a narrow ops wrapper admission tied to the four exact rulings, accepted source/mode/env, input/export lists and constraints. Other false admissions remain refused. This package also refuses a changed live assignment/rate declaration before writing a refreshed manifest; a changed account requires a new sealed/published successor. Qualified transport bytes and implementation pin remain unchanged. Earlier validation wrapper bytes were preserved and final create-only broker/dry-run records bind the current wrapper.
+
+All numerical/time/unit reservations are runaway guards only under the owner ruling. Base timeout15/effective30 minutes and base technical unit cap/reserve1/.5 doubled2/1 are frozen; estimate15 remains a forecast. One L4, >=6vCPU, cuda:0, exact69-wheel cu126 lock, Python3.12.3, deterministic fp32, threads1 and --no-compile are retained. No automatic/allocation/job/completion retry.
+
+The timing bookkeeping successor F5_W_TIMING_DRAFT_20261026_ROUND08_v3 corrects the stale top-level byte count to37602883, remains scientific_admission=false and unsealed, and has no DISPATCH.txt. A future operative timing package must bind the plan job's actual live endpoint/rate with fresh account evidence, or actual current state after its release, before sealing/publication.
+
+Read DISPATCH.txt for the exact command. Verify exhaustive seal, publication, current broker bytes and local/origin equality before future single operator dispatch. The recorded account snapshot is not future availability; recheck unused state/output immediately beforehand. Mac verification of actual plan/RNG exports, environment, terminal success and saved release precedes joining stages. Full timing/Mac forecasts/final inventory canary, prospective stage look token and separate ACCEPT_F5_FIT remain mandatory before science.

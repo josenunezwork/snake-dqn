@@ -1,0 +1,19 @@
+ADMITTED: single future operator plan-materialization dispatch after sealed package publication to main.
+Scope: F5_MODE=prepare-qualification; ordered L4-materialized2000x256 common plan (128 doom then128 ordinary), seed3403, exact row ordering and initial/final CPU-generator/global RNG boundaries; disjoint genuine CUDA transport only.
+Scientific admission remains false; scientific fitting, numerical outcome reads, serving and release remain unauthorized. Paired exports are transport/calibration artifacts unusable as scientific fits.
+Job: bl-f5-w-plan-round08-c989f673-01
+Implementation: c989f6738f6aad143eb97bc47f6bd9e6687057ce
+Manifest: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/manifest.json SHA256 372b3497681a1d7e6543f53e4f5d7f56c6c3d74b376c7e8b28eb2e092df08247
+State: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/state-01
+Output: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01
+Seal: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/PACKAGE_SEAL_OPERATIONAL.json; verify SHA sidecar and main publication before use.
+One L4 >=6vCPU; cuda:0; Python3.12.3; exact69-wheel/cu126 lock, --no-compile, deterministic fp32, numerical threads1; timeout15base/30effective; estimate15 forecast unchanged.
+Technical cap1base/2effective and reserve.5base/1effective; time/unit/aggregate reservations are runaway guards only per owner ruling. No budget-only refusal authority. Historical accounting retained without reset.
+All nine required exports and all seven exact inputs are fixed by manifest; B8 uses release HTTPS (6562005 bytes), not private upload. Inclusive transfer<=150s, staging<=300s, private bytes<=45397643, export<=2GiB.
+No allocation/job/completion/automatic retry. Preserve mechanical failure diagnostics.
+Recheck state/output/name unused immediately before dispatch. Refresh account evidence under serialized supervisor allocation, <=3 account-wide assignments; changed endpoint/rate declarations require fresh successor sealing/publication. Historical zero assignments is not future availability.
+After operation verify immutable exports, actual v5 cross-assignment environment, plan512000-row receipt and actual plan/RNG digests, terminal success and saved independent release before any join.
+Timing draft remains unsealed. After plan dispatch bind live endpoint/rate with fresh account evidence in a separate operative timing successor before sealing/publication.
+Before science require both verified branches, Mac timing/calibration and honest forecasts, actual plan, paired ledger, sole prospective stage claim/look token, complete final science inventory/current-source canary, local-upload final-fit resolution and separate ACCEPT_F5_FIT.
+Exact operator command:
+/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh bl-f5-w-plan-round08-c989f673-01 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-f5w --cwd /Users/josenunez/Projects/ml/snake-dqn-f5w --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/state-01 --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/DISPATCH.txt

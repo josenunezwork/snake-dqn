@@ -1,0 +1,1 @@
+OWNER RULING 2026-10-25 22:59 PT (verbatim): "budget isnt important pretendit doesnt exist for colab". Colab time/unit allowances (10/30/200-min reservations, 240-min aggregate, unit caps) are runaway timeouts only, never a reason to stop or refuse; set generous timeouts for attempt-02.

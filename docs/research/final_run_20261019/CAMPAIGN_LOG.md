@@ -1739,3 +1739,75 @@ science: L4-materialized ordered 2000x256 plan/RNG, current-source timing and
 feasibility, complete science inventory/matching canary, verified ledger and
 separate ACCEPT_F5_FIT. Exploratory interpretation and owner-only release authority
 remain binding.
+
+
+### 2026-10-26 — F5 round08 first operative plan sealed; no dispatch
+
+Read Astra capture qualification, next-package acceptance and parallel admission
+clarification in full, plus the owner budget ruling. Exact rulings are published
+under `research/bl_residual/f5_round08_rulings_20261026/` and inside the package.
+Only the first `F5_MODE=prepare-qualification` operative successor is sealed:
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01`. Job `bl-f5-w-plan-round08-c989f673-01`, accepted implementation `c989f6738f6aad143eb97bc47f6bd9e6687057ce`.
+`scientific_admission=false`; no scientific fit, numerical look, serving/release,
+dispatch or Colab runtime allocation occurred.
+
+Manifest SHA256 `372b3497681a1d7e6543f53e4f5d7f56c6c3d74b376c7e8b28eb2e092df08247`;
+`PACKAGE_SEAL_OPERATIONAL.json` SHA256 `27ff4b686c5e12b8e9dc25976f379b6ab0210f186f5b35393fdf63788eacb00c`;
+publication envelope SHA256 `7f3e3273e11ab06bfd7223df220b8d3f01f37d558716a7000564bb9bb184b921`.
+The seal binds120 package files and983 external references, including actual
+attempt04 raw environment, final controls/ledger, all rulings, source/locks/schema,
+governance/W-selection/collision metadata, historical accounting, exact inputs,
+preflights and companions. All42 predecessor files remain unchanged. Full package
+publication is under `research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/`, with large metadata
+losslessly compressed/chunked and verified, no training/checkpoint payload copied.
+
+Fresh HTTPS B8 fetch verified6562005 bytes and pinned SHA256
+`3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8`.
+Complete input inventory:7 inputs,40365422 private bytes<=45397643,
+6562005 HTTPS bytes;9 exports required. Source preparation verifies192 runtime
+pins,194 manifest paths,200 archive members against accepted Git/working bytes.
+Timestamped live OAuth2 account evidence observed0 assignments,0u/h and1066.28
+units; this is not future availability. Qualified broker HEAD and manifest pin
+checks plus real manifest validation passed. State/output remain unused inside
+the package.15base/30effective minute timeout/exemption, unchanged15-minute forecast,
+L4>=6vCPU/cuda:0/threads1/deterministic fp32/exact69-wheel cu126/--no-compile and
+150s transfer/300s staging/2GiB export/private byte bars retained.
+Technical cap/reserve1/.5base doubled2/1 are runaway guards only; owner budget
+ruling48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d
+precludes budget-only refusal, including historical aggregate reservations.
+
+Ops wrapper previously refused every false scientific admission. A narrow
+`bl-f5-plan-operational-admission/v1` exception now byte-verifies the four exact
+rulings and accepted commit/mode/env/input/export/scope/bounds and retains
+false admission, all four retry fences and other false/chain refusals. It also
+requires the exact job/state and refuses changed live assignment/rate declarations
+before creating a refreshed sibling; changed accounts need fresh sealing and
+publication. Final wrapper SHA256
+`3247b1811b1e5cb033dde649704ed37fc84b2ae76d75994d79163171bfef3104`.
+Earlier validation is preserved with its exact wrapper snapshot; create-only
+`broker-validation-final.json`/`dispatch-dry-run-final.json` bind final bytes.
+
+Exact final wrapper output:
+`PASS_DRY_RUN bl-f5-w-plan-round08-c989f673-01 allocations=0 live_accounting=NOT_CHECKED`.
+Fresh live-account evidence is separate.151 tests passed,1 real-CUDA skip in76.36s
+(serialCPU,threads1,absolute niceness15):F5 scoped admission, ordinary ops dispatch,
+F5 broker, source packing, manifest schema and capture diagnostics. Black/isort/
+flake8/diff checks pass. Independent reviewer reports no blocking findings and
+99 ops/admission tests passed in51.64s. Root final consistency verifies all hashes,
+markers, allocations, inventories and predecessor preservation.
+
+Timing draft successor `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_TIMING_DRAFT_20261026_ROUND08_v3` regenerates stale top-level
+`known_private_input_bytes=37602883`, matching nested inventory. It remains
+DRAFT_ONLY/unsealed/scientific_admission=false, with no DISPATCH.txt. Its lossless
+publication is a draft publication envelope, not an operative timing seal.
+After future plan dispatch, bind actual endpoint/rate and fresh account evidence
+in a fresh operative timing successor; if already released bind actual then-current
+state. Only then may timing be sealed/published.
+
+`DISPATCH.txt` gives the exact single future operator command with package-local
+state. Recheck current output/state/name and account before execution. No retry
+is authorized. Returned actual plan512000-row/RNG/environment/terminal/release
+evidence must be Mac-verified. Scientific fit still waits for both verified
+branches, Mac timing/calibration/forecasts, actual ordered plan, paired ledger,
+prospective sole-stage look token, complete inventory/current-source canary,
+final-fit local-upload resolution and separate ACCEPT_F5_FIT.
