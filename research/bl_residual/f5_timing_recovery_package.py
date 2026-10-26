@@ -56,6 +56,11 @@ def _git(repo: Path, *args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
 
 
+def _git_bytes(repo: Path, *args: str) -> bytes:
+    """Read a Git blob without text decoding or newline stripping."""
+    return subprocess.check_output(["git", *args], cwd=repo)
+
+
 def _metadata_manifest(path: Path) -> dict[str, Any]:
     if path.is_symlink() or not path.is_file():
         raise ValueError("attempt04 manifest is absent or unsafe")
@@ -105,6 +110,25 @@ def _source_inputs(prior: Mapping[str, Any]) -> list[dict[str, Any]]:
     return sorted(result, key=lambda row: row["dest"])
 
 
+def _prior_environment_control(prior: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Carry the recorded typed policy/capture as provenance, never fabricate one."""
+    rows = [
+        row
+        for row in prior["inputs"]
+        if isinstance(row, dict) and row.get("dest") == "control.json"
+    ]
+    if len(rows) != 1:
+        raise ValueError("attempt04 control metadata is absent")
+    path = Path(str(rows[0].get("path", "")))
+    if not path.is_absolute() or path.is_symlink() or not path.is_file():
+        raise ValueError("attempt04 control metadata is absent or unsafe")
+    value = json.loads(path.read_text())
+    policy, capture = value.get("environment_policy"), value.get("environment_capture")
+    if not isinstance(policy, dict) or not isinstance(capture, dict):
+        raise ValueError("attempt04 control lacks typed environment provenance")
+    return dict(policy), dict(capture)
+
+
 def _authority(commit: str, tree: str, inputs: list[dict[str, Any]]) -> dict[str, Any]:
     rows = []
     for row in inputs:
@@ -112,7 +136,7 @@ def _authority(commit: str, tree: str, inputs: list[dict[str, Any]]) -> dict[str
         if "url" in row:
             record.update({"transport": "https", "url": row["url"], "sha256": row["sha256"]})
         else:
-            record["transport"] = "upload"
+            record.update({"transport": "upload", "sha256": row["sha256"]})
         rows.append(record)
     unsigned = {
         "schema": "f5-timing-recovery-synthetic-input-inventory/v1",
@@ -135,11 +159,27 @@ def _export_input(path: Path, value: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _export_sidecars(path: Path) -> list[dict[str, Any]]:
+    """Describe the marker/sidecar bytes required by runtime ledger verification."""
+    return [
+        {
+            "dest": path.name + suffix,
+            "path": str(Path(str(path) + suffix)),
+            "sha256": file_sha256(Path(str(path) + suffix)),
+            "size_bytes": Path(str(path) + suffix).stat().st_size,
+        }
+        for suffix in (".sha256", ".complete")
+    ]
+
+
 def _control(
     source_hashes: dict[str, str],
     runtime_inputs: list[dict[str, Any]],
     input_sha: str,
     fixture_sha256: str,
+    environment_policy: dict[str, Any],
+    environment_capture: dict[str, Any],
+    ledger_sha256: str,
 ) -> dict[str, Any]:
     value: dict[str, Any] = {
         "schema": "bl-residual-f5-runtime/v1",
@@ -163,9 +203,9 @@ def _control(
         },
         "input_hashes": {row["dest"]: row["sha256"] for row in runtime_inputs},
         "timing_input_sha256": input_sha,
-        "environment_policy": {"typed_contract_sha256": ENVIRONMENT_SHA256},
-        "environment_capture": None,
-        "ledger_sha256": None,
+        "environment_policy": environment_policy,
+        "environment_capture": environment_capture,
+        "ledger_sha256": ledger_sha256,
         "status": "HOLD_PENDING_CURRENT_SOURCE_ENVIRONMENT_AND_FAMILY_RECEIPT",
     }
     value["allocation"] = hashlib.sha256(
@@ -212,13 +252,11 @@ def build(
         raise ValueError("recovery package requires a clean committed source checkout")
     commit, tree = _git(repo, "rev-parse", "HEAD"), _git(repo, "rev-parse", "HEAD^{tree}")
     prior = _metadata_manifest(attempt04_manifest)
+    environment_policy, environment_capture = _prior_environment_control(prior)
     runtime_inputs = _source_inputs(prior)
     hashes = f5_package.source_inventory(repo)
     for relative, expected in hashes.items():
-        if (
-            hashlib.sha256(_git(repo, "show", f"{commit}:{relative}").encode()).hexdigest()
-            != expected
-        ):
+        if hashlib.sha256(_git_bytes(repo, "show", f"{commit}:{relative}")).hexdigest() != expected:
             raise ValueError("source closure is not committed at HEAD")
     output.mkdir(parents=True)
     input_sha = hashlib.sha256(
@@ -241,18 +279,30 @@ def build(
     input_sha = hashlib.sha256(
         canonical([{k: row[k] for k in ("dest", "sha256", "size_bytes")} for row in runtime_inputs])
     ).hexdigest()
-    control = _control(hashes, runtime_inputs, input_sha, fixture["sha256"])
-    control_export = _export_input(control_path, control)
+    provisional_source_sha = hashlib.sha256(
+        json.dumps(hashes, sort_keys=True, allow_nan=False).encode()
+    ).hexdigest()
     binding = identity(
         namespace=NAMESPACE,
         allocation=ALLOCATION_SHA256,
-        source_sha256=control["identity"]["source_sha256"],
+        source_sha256=provisional_source_sha,
         environment_sha256=ENVIRONMENT_SHA256,
         input_sha256=input_sha,
     )
     ledger_path = output / "inputs" / "verified-ledger.json"
     ledger_export = _export_input(ledger_path, empty_ledger(binding))
-    inputs = [*runtime_inputs, control_export, ledger_export]
+    ledger_sidecars = _export_sidecars(ledger_path)
+    control = _control(
+        hashes,
+        runtime_inputs,
+        input_sha,
+        fixture["sha256"],
+        environment_policy,
+        environment_capture,
+        ledger_export["sha256"],
+    )
+    control_export = _export_input(control_path, control)
+    inputs = [*runtime_inputs, control_export, ledger_export, *ledger_sidecars]
     # The transport authority names every transferred byte, including the
     # package-local fixture/control/empty-ledger records.  It intentionally
     # excludes itself to avoid a self-referential file digest.
@@ -269,6 +319,7 @@ def build(
         "scientific_admission": False,
         "requirements": {"gpu": "L4", "allowed_gpus": ["L4"], "min_vcpu": 6, "est_minutes": 120},
         "timeout_minutes": 240,
+        "supervisor_state_dir": str(output / "state-01"),
         "inputs": inputs,
         "source_paths": sorted(hashes),
         "env": {
@@ -278,7 +329,14 @@ def build(
             "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
         },
         "max_export_bytes": 2 * 1024**3,
+        "budget": {
+            "unit_cap": 100000.0,
+            "rate_units_per_hour": 2.0,
+            "reserve_units": 0.0,
+            "other_assignments": {},
+        },
         "f5_timing_synthetic_inventory": authority,
+        "f5_timing_source_tree": tree,
         "f5_timing_transfer_exception": f5_timing_recovery_binding(authority["sha256"], "timing"),
         "operational_admission": _admission(authority_path),
         "resume": {
@@ -288,16 +346,30 @@ def build(
             "max_outcome_blind_retries": 2,
         },
         "f5": {
-            "transfer_seconds": 300,
-            "staging_seconds": 300,
+            "transfer_bar_seconds": 300,
+            "staging_bar_seconds": 300,
+            "private_upload_cap_bytes": 45_397_643,
             "private_upload_bytes_max": 45_397_643,
             "automatic_retries": False,
-            "base_minutes": 120,
-            "effective_minutes": 240,
+            "base_timeout_minutes": 120,
+            "effective_timeout_minutes": 240,
             "useful_foreground_seconds": 14_355,
             "sizing_basis": "UNMEASURED_ENGINEERING_PLANNING_ALLOWANCE",
+            "technical_budget": (
+                "Nonbinding technical runaway accounting; wall envelope is authoritative."
+            ),
         },
-        "required_exports": ["qualification/qualification.json", "timing-units/fixture-672.json"],
+        "required_exports": [
+            "qualification/qualification.json",
+            *[f"timing-units/fixture-{index}.json" for index in range(672, 684)],
+            "timing-units/calibration.json",
+        ],
+        "timing_calibration": {
+            "no_automatic_retry": True,
+            "no_allocation_retry": True,
+            "no_job_retry": True,
+            "no_completion_retry": True,
+        },
         "status": "HOLD_PENDING_CURRENT_SOURCE_ENVIRONMENT_AND_FAMILY_RECEIPT",
     }
     long = {
@@ -309,14 +381,18 @@ def build(
         **base,
         "job_id": f"bl-f5-timing-recovery-canary-{commit[:8]}-01",
         "output_dir": str(output / "canary-output-01"),
+        "supervisor_state_dir": str(output / "canary-state-01"),
         "requirements": {**base["requirements"], "est_minutes": 15},
         "timeout_minutes": 30,
+        "inputs": inputs,
         "env": {
             **base["env"],
-            "F5_MODE": "qualification",
+            "F5_MODE": "qualification-canary",
             "SNAKE_COLAB_CANARY": "1",
             "SNAKE_COLAB_CANARY_PACKAGE": "research/bl_residual",
         },
+        "f5_timing_synthetic_inventory": authority,
+        "f5_timing_source_tree": tree,
         "f5_timing_transfer_exception": f5_timing_recovery_binding(authority["sha256"], "canary"),
         "operational_admission": {
             **_admission(authority_path),
@@ -334,7 +410,17 @@ def build(
             "record_class": "CANARY_ONLY",
             "tiny_workload": True,
         },
-        "f5": {**base["f5"], "base_minutes": 15, "effective_minutes": 30},
+        "required_exports": [
+            "qualification/qualification.json",
+            "timing-canary/fixture-672.json",
+            "timing-canary/fixture-673.json",
+            "timing-canary/verified-ledger.json",
+        ],
+        "f5": {
+            **base["f5"],
+            "base_timeout_minutes": 15,
+            "effective_timeout_minutes": 30,
+        },
         "status": "HOLD_PENDING_FAMILY_TRANSPORT_AND_CURRENT_SOURCE_RECEIPT",
     }
     long_file = export_json(output / "timing-operation.draft.json", long)
@@ -355,6 +441,7 @@ def build(
         "source_tree": tree,
         "ruling_sha256": RULING_SHA256,
         "source_inventory": hashes,
+        "predecessor_source_paths": prior.get("source_paths"),
         "authority": {
             "path": str(authority_path),
             "sha256": file_sha256(authority_path),

@@ -22,7 +22,7 @@ def test_authority_is_canonical_and_covers_exact_transfer_rows() -> None:
     supplied = unsigned.pop("sha256")
     assert supplied == package.hashlib.sha256(package.canonical(unsigned)).hexdigest()
     assert authority["inputs"] == [
-        {"dest": "control.json", "size_bytes": 9, "transport": "upload"},
+        {"dest": "control.json", "size_bytes": 9, "transport": "upload", "sha256": "a" * 64},
         {
             "dest": "b8.pth",
             "size_bytes": 6_562_005,
@@ -79,7 +79,15 @@ def test_control_and_empty_ledger_bind_the_timing_recovery_identity() -> None:
         {"dest": "timing-fixtures.json", "sha256": "2" * 64, "size_bytes": 2},
     ]
     input_sha = "3" * 64
-    control = package._control(sources, inputs, input_sha, "4" * 64)
+    control = package._control(
+        sources,
+        inputs,
+        input_sha,
+        "4" * 64,
+        {"typed": "policy"},
+        {"typed": "capture"},
+        "5" * 64,
+    )
     bound = package.identity(
         namespace=package.NAMESPACE,
         allocation=package.ALLOCATION_SHA256,
@@ -90,4 +98,5 @@ def test_control_and_empty_ledger_bind_the_timing_recovery_identity() -> None:
     assert package.empty_ledger(bound)["units"] == []
     assert control["timing_input_sha256"] == input_sha
     assert control["qualification_fixture_sha256"] == "4" * 64
+    assert control["ledger_sha256"] == "5" * 64
     assert "timing-fixtures.json" not in control["qualification_checkpoint_pool"]
