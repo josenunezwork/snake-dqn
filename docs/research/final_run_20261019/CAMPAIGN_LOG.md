@@ -1976,3 +1976,69 @@ operator command. No dispatch, Colab/account/provider call, scientific payload
 inspection, fit, outcome look, serving/release change or timing seal occurred in
 this work. Final science still requires the separate verified branches, Mac evidence,
 exact eventual-input family canary and ACCEPT_F5_FIT.
+
+
+### 2026-10-26 — F5 timing03 failure published; mechanical timing04 sealed (no dispatch)
+
+Output-02 startup/kernel-creation failure and verified stop were published create-only
+in `98427b1c07766442c289ef62db9ea518e19c4b60`, under
+`research/bl_residual/ledger/F5_W_TIMING03_FAILURE_20261026/`.
+Receipt SHA256 `5f16ba02f705e6c918000392884af5dee304b9060b88e136f64c70f1522ebeab`:
+INCOMPLETE/SUPERVISOR, one allocation and one exec, no useful child, null terminal,
+no exports, stop_verified=true and cleanup_error=null. Uncertain kernel creation
+remains non-retryable within that assignment; no guard or transport code changed.
+
+Astra disposition SHA256
+`80ab8d584db7cabeb1b72ce343d69e9fa5f3fbd7073a4f563346559409dd1f68`
+permits exactly one fresh manual timing04 attempt, conditional on its stated gates,
+without another review for this whitelisted successor. Any later refusal/failure
+consumes that authorization and returns to independent disposition.
+
+Artifact package:
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_TIMING_OPERATIONAL_20261026_ROUND08_02_REQUAL/`.
+Operative files: `manifest-04.json`, `DISPATCH-04.txt`, `DIFF_03_04.json`,
+`cumulative-accounting-04.json`, `PACKAGE_SEAL_OPERATIONAL-04.json`, and
+`PACKAGE_PUBLICATION-04.json`. Create-only publication mirror:
+`research/bl_residual/ledger/F5_W_TIMING_STARTUP_SUCCESSOR_20261026_04/`.
+Job `bl-f5-w-timing-r08-sr75b14427-04`; fresh state-03/output-03 remain absent.
+Manifest SHA256 `0f328990ab423f4c63632a09a6d90e989b5c965cc9ba4c6e387ca31b7c2a0cf0`;
+diff SHA256 `7e07da4d3e64fb6324fcddda7b2c752f299cebfbf10ac0f996e94b7c594f98a5`;
+seal SHA256 `181b318c3c456ab9d874bdd1bcfc719d43128b75f56def336d6105b2b3858bd9`;
+publication SHA256 `486d6963a71defcaabc7a1090f51926fadda27a4cbb43689c5cdffbfd75071ff`.
+
+Exhaustive recursive comparison checks types, object keys, list lengths and entries;
+only /job_id, /output_dir, /supervisor_state_dir, and
+/operational_admission/live_account_preflight/{path,sha256,size} changed.
+No added/deleted fields or other changes; other_assignments remains empty.
+All 401 predecessor objects remain unchanged; inherited seals/publications and
+failure evidence hashes/main blobs were verified. New lineage is separately sealed.
+Cumulative exposure carries all history plus timing02 refusal and timing03 failure:
+**5055.5119253752055 seconds**, leaving **9344.488074624795 seconds** of the unchanged
+240-minute aggregate. Base/effective 2/4 hours, per-attempt 15/30 minutes, forecast
+15 minutes, technical unit guard 50/100 and reserve 0/0 remain unchanged; no reset
+or redoubling. Raw balances, calibrated exposure and priced exposure stay distinct.
+
+Fresh checks passed both qualified tree checks (tree 6e8c1982b5c9ed115bfebd3145ad0720b15522fa),
+qualified-record consumer, concrete manifest/broker admission, all 200 source pins,
+clean broker ac69b65c and a new detached clean checkout at exact runtime source
+75b14427. CLI remains 0.7.4; all 3564 hashed RECORD files across 53 installed
+distributions verify unchanged from the preparation snapshot. No historical Mac
+installed-dependency snapshot exists; historical dependency byte identity is not claimed.
+Independent reviewer PASS. Focused operational tests: **135 passed in 1.439 seconds**.
+Wrapper output: `PASS_DRY_RUN bl-f5-w-timing-r08-sr75b14427-04 allocations=0 live_accounting=NOT_CHECKED`.
+
+Final preseal read-only sessions/usage/sessions recheck held both normal allocation
+and account broker locks: observed at 2026-10-26T13:28:20.129752+00:00, zero assignments/rate,
+no active/pending broker reservations, balance 1065.08 strictly >100.
+The real wrapper must reconcile all live account/rate/reservation evidence under
+normal locks and refuse drift immediately before any future dispatch. Saved account
+state does not establish future availability.
+
+Full twelve source-native timing/parity workloads plus timing-only optimizer/resume
+calibration, L4 placement, all inputs/control/empty-ledger/allocation identities,
+v5 fresh-assignment comparison, seven exports, transfer <=150 seconds, staging
+<=300 seconds, export <=2GiB, all four retry fences and ordinary AC/lid/control
+guards remain unchanged. No dispatch, runtime, diagnostic allocation, scientific fit,
+numerical outcome look, serving or release occurred. Mac companion timing, final
+exact science-inventory canary and separate ACCEPT_F5_FIT remain later gates.
+The absolute single-use operator command is in DISPATCH-04.txt and publication.
