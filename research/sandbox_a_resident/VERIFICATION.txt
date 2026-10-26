@@ -1,0 +1,55 @@
+Job A verification — 2026-10-26
+Worktree: /Users/josenunez/Projects/ml/snake-dqn-sbxA
+Branch: sol-sandbox-a-20261026
+Runtime source pin: 589af9db9fc487be247762877655cac2a40cba63 (published on origin/main)
+Qualified transport tree: 5833e54e9c5396121cbbf99a5cd4e52006e564fd (unchanged)
+
+COMMAND: OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.preflight research/sandbox_a_resident/packet-01
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-sbxA
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 30 items
+
+tools/sandbox/tests/test_preflight.py ............                       [ 40%]
+tools/sandbox/tests/test_registry.py ..........                          [ 73%]
+research/sandbox_b_heads/tests/test_job.py ........                      [100%]
+
+============================== 30 passed in 2.10s ==============================
+Exit: macOS OpenMP-isolated pytest finished
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!
+macOS pytest: restarting with a single OpenMP runtime
+...........                                                              [100%]
+11 passed in 1.31s
+Exit: macOS OpenMP-isolated pytest finished
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!
+PASS_SANDBOX_A_PREFLIGHT seeds=1772976 tests=PASS schema=PASS registry=PASS allocations=0
+
+COMMAND: ./tools/ops/dispatch.sh sandbox-a-resident-20261026-01 "$PWD/research/sandbox_a_resident/packet-01/dispatch-manifest.json" --broker "$PWD" --cwd "$PWD" --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-01/state --dry-run
+REFUSE: Command '['/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/colab_cli/launch.sh', '--state-dir', '/var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/dispatch-validate-379f38_v/state', '--colab', '/Users/josenunez/.local/bin/colab', 'validate', '/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-01/dispatch-manifest.json']' returned non-zero exit status 1.
+
+Offline validator root cause (research.colab_cli.supervisor.validate; no CLI/provider call):
+Refused: dispatch requires a SHA-bound family canary receipt
+
+COMMAND: ./venv/bin/python -m black --check --line-length 100 research/sandbox_a_resident
+PASS: 10 Python files unchanged
+COMMAND: ./venv/bin/python -m isort --check-only --profile black research/sandbox_a_resident
+PASS
+COMMAND: ./venv/bin/python -m flake8 research/sandbox_a_resident
+PASS
+COMMAND: bash -n research/sandbox_a_resident/job.sh
+PASS
+
+Offline sparse source packaging: research.colab_cli.source.prepare(Path.cwd(), manifest, .local/source-check-01)
+PASS_SOURCE_PACKAGE allocations=0
+Files: 348; archive bytes: 1299263; unpacked bytes: 5348410
+Archive SHA256: 7f2f36628b1e078792512292120e3f6083ad5ba3277e1d279d5ec2d90e0f62e5
+
+Local real-entrypoint command, per-cycle timings, complete resume hash, platform and runtime file hashes: LOCAL_VERIFICATION.json.
+CPU preparation only. No current A100 execution, timing, memory, successful dispatch or provider release is claimed.
+Session base/effective envelope: 60/120 minutes (prospective engineering allowance, not a newly measured A100 estimate).
+Next action belongs to the infrastructure owner: reconcile adopted no-per-job-canary admission with unchanged qualified supervisor.
+No Colab calls or allocation occurred. Output/state identities remain unused.
+No protected outputs/worlds/packages, serving pins, released checkpoint writes or tmux sessions were accessed or modified.

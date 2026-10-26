@@ -1,0 +1,24 @@
+Job A is prepared. Automated committed preflight PASS; actual dispatch dry-run REFUSED.
+Exact cause: the qualified supervisor still requires a SHA-bound family canary receipt.
+The adopted sandbox rule requires no per-job timing canary. The infrastructure owner must reconcile this admission boundary before allocation; do not forge a receipt or edit the qualified transport.
+
+Runtime source pin: 589af9db9fc487be247762877655cac2a40cba63 (published).
+Broker manifest SHA256: d84c1d5bd2776ec1c77ad500aaf424ff3845383492a08b0848bb0e4e06763598
+Finite endpoint: E128 and E1024 separately, H128, cached/collection/integrated, three measured cycles plus one excluded warmup per cell.
+Envelope: base 60/effective 120 minutes, prospective engineering allowance; no new A100 whole-job estimate has been measured.
+No efficacy or checkpoint selection. Simulator-D timings/parity only. No F5 inputs.
+
+Re-run automated preflight:
+cd /Users/josenunez/Projects/ml/snake-dqn-sbxA
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.preflight research/sandbox_a_resident/packet-01
+
+Offline dispatch validation:
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-01/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-01/state --dry-run
+
+Claude's exact dispatch command, after admission compatibility and live registered-study coexistence are established:
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-01/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-01/state
+
+After a completed allocation, aggregate verified timings on the Mac using the terminal receipt:
+./venv/bin/python -m research.sandbox_a_resident.postprocess aggregate --control research/sandbox_a_resident/packet-01/control.json --output /absolute/fresh/timing-decision.json /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-01/output/receipt.json
+
+No automatic completion retries. If a mechanical failure leaves missing phases, require verified stop and create a metadata-verified ledger from receipt(s), preserve this original packet, then prepare a fresh attempt identity. Verified complete phases must never be recomputed into the result set.
