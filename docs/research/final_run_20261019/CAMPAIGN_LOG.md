@@ -1526,3 +1526,67 @@ current account/transport preflight and prospective v4 acceptance remain operato
 steps. Offline supervisor validation and native canary shape pass; ten exports
 include the prior eight plus both diagnostics. No dispatch, live Colab calls,
 science, numerical look, serving or release change occurred in this repair.
+
+
+### 2026-10-26 — F5 W b9e48d88 accepted; attempt-03 operational v4 sealed
+
+Astra `ACCEPT_F5_W_IMPLEMENTATION_b9e48d88.md` SHA256
+`11a7e054bb1dac10b358b69dd92e70a6479d592168740a99c74bdad91543bb62`
+prospectively accepts receipt v4 (`64c54cc10ac949caad0e93f913a6fe4ec44bb9a5e93f71207a6c76d623a354be`)
+and implementation `b9e48d882049622a8506f05cf00947f3500b1e1a` for one capture
+plus disjoint genuine CUDA transport operation. Actual L4 success remains unproved.
+
+Create-only operative package:
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/`.
+All existing drafts, seals and rulings remain byte-identical. The new seal is
+`PACKAGE_SEAL_OPERATIONAL_V4.json`, SHA256
+`64f276a9ac881f1b9df9ea85e5591f479a3faeb11d498a6d6672a9ce78f047c8`.
+Executable `environment-capture.json` SHA256
+`354a43e0d0e367c5e2e69f433dc5bfea0848dd09a5d417934b42fe3c16f28e3a`;
+main ledger mirror
+`research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/OPERATIONAL_PUBLICATION_V4.json`
+SHA256 `2c624b0cb68b841adf4097ebba720bfd71c4fc604c16fc8e809649d7d45fcf92`.
+The acceptance and all 18 operative payloads, sidecars and completion markers,
+source archive and new seal are mirrored byte-for-byte in that ledger directory.
+
+Both prior stopped attempts remain charged: attempt-01 421.83044687495567 s
+(421.830446875 s rounded), attempt-02 558.1542476670584 s, cumulative
+979.984694542014 s. Observed account change 0.22000000000002728 units is distinct
+from observed-rate integration 0.38727258491587513 units, priced-rate integration
+0.502951408981656 units at the last crosschecks, and full-elapsed priced exposure
+0.54443594141223 units. Final post-stop debit is unknown, never imputed.
+The owner ruling SHA256 `48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d`
+remains binding: historical 10/30/200 and 240-minute reservations and unit values
+are disclosure/runaway guards, never budget admission barriers. No history reset
+or further budget approval. New timeout and exemption are 30 minutes (base 15 x2),
+estimate 5 minutes; technical cap 2 units and reserve 1 unit (base 1/0.5 x2).
+
+Fresh OAuth2 preflight observed zero assignments, 0.00 units/hour, balance 1066.85;
+current own L4 rate still requires post-allocation calibration. Account capacity
+and other calibrated endpoint rates are refreshed under the wrapper allocation
+lock. Qualified broker and pinned transport checks passed. Source preflight
+verified 192 packet pins plus lock/common-environment (194 paths), all 200 sparse
+archive members, exact three uploads, ten exports, and source-native six-action
+observer shape across twelve disjoint fixtures. State and output remain absent:
+`state-03/` and `output-03/` directly inside the operative package directory.
+
+Exact wrapper evidence:
+`PASS_DRY_RUN bl-f5-w-capture-repair-22e86986-03 allocations=0 live_accounting=NOT_CHECKED`.
+The separate fresh account preflight supplies the account evidence; dry-run alone
+does not. Independent pre-seal review found no blocking findings. Operational
+suite: 144 passed, 1 real-CUDA skip, 1 simulated automatic-retry fixture JSON-read
+failure in 102.54 s. The exact failed test passed its focused recheck in 3.25 s;
+both logs are preserved. A timing race in non-atomic fixture writes is a plausible
+cause, not established. This manifest explicitly disables automatic allocation,
+job and completion retries; exact broker validation and wrapper dry-run passed.
+No product source changes. Final seal/ledger verification passed: 18 payloads,
+36 companion sidecars/markers, 30 preserved predecessor files; state/output absent.
+
+`DISPATCH.txt` contains the exact qualified wrapper command with package-local
+`--state-dir .../F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/state-03`. One future operator
+dispatch is scoped to capture plus disjoint CUDA transport only. This preparation
+performed no dispatch, allocation, Colab runtime, scientific fitting, numerical
+look, serving/release change or tmux operation. Runtime success, Mac-verified
+exports, terminal receipt and independent assignment disappearance remain future
+checks. Scientific fitting still requires actual L4 plan/RNG, timing/feasibility,
+full science inventory and matching canary, verified ledger and ACCEPT_F5_FIT.

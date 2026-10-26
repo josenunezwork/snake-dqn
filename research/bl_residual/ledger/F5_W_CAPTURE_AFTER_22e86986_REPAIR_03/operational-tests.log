@@ -1,0 +1,38 @@
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-f5w
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 146 items
+
+tests/test_bl_residual_f5_broker.py ......s                              [  4%]
+tests/test_colab_cli_source.py .............                             [ 13%]
+tests/test_colab_cli_schema_failures.py ............                     [ 21%]
+tests/test_colab_cli_canary_observer.py .....                            [ 25%]
+tests/test_ops_dispatch.py ............................................. [ 56%]
+F..........................................                              [ 85%]
+tests/test_f5_capture_diagnostics.py .....................               [100%]
+
+=================================== FAILURES ===================================
+_______ test_retry_directory_is_sibling_when_original_has_trailing_slash _______
+
+fixture = {'broker': PosixPath('/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER...8474b866545829e4f4f99644dda20,sentry-org_id=1158394', ...}, 'git': <function fixture.<locals>.git at 0x12952f2e0>, ...}
+
+    def test_retry_directory_is_sibling_when_original_has_trailing_slash(fixture):
+        f = fixture
+        f["change"](test_mode="retry_success", output_dir=str(f["tmp"] / "output") + "/")
+        result = f["invoke"]()
+>       assert result.returncode == 0, result.stderr
+E       AssertionError: REFUSE: Expecting value: line 1 column 1 (char 0)
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh', 'lane', '/Users/josenunez/P...is_siblin0/broker with spaces'], returncode=1, stdout='', stderr='REFUSE: Expecting value: line 1 column 1 (char 0)\n').returncode
+
+tests/test_ops_dispatch.py:608: AssertionError
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_bl_residual_f5_broker.py:267: requires a real CUDA runtime
+FAILED tests/test_ops_dispatch.py::test_retry_directory_is_sibling_when_original_has_trailing_slash
+============= 1 failed, 144 passed, 1 skipped in 102.54s (0:01:42) =============
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!
+Exit: macOS OpenMP-isolated pytest finished

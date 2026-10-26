@@ -1,0 +1,591 @@
+{
+  "budget": {
+    "other_assignments": {},
+    "rate_units_per_hour": 2.0,
+    "reserve_units": 1.0,
+    "unit_cap": 2.0
+  },
+  "canary": {
+    "family": "research/bl_residual/f5_colab.sh",
+    "mode": "probe",
+    "schema": "colab-family-canary/v1"
+  },
+  "capture_accounting": {
+    "admission": "ADMITTED_CAPTURE_TRANSPORT_ONLY",
+    "allowance_reset": false,
+    "automatic_retries": false,
+    "historical_allowances_control_admission": false,
+    "historical_remaining_aggregate_seconds": 13420.015305457986,
+    "historical_remaining_capture_seconds": -379.98469454201404,
+    "hold_reasons": [],
+    "inherited_estimate_seconds": 300,
+    "original_capture_allowance_seconds": 600,
+    "prior_accounting": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/accounting-owner-ruling-03.json",
+      "sha256": "d6ecdfcedb6845fae0a01c09351212fabdc440c387608158af734fc0591acc6b",
+      "size": 12216
+    },
+    "prior_capture_receipts": [
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/output-01/receipt.json",
+        "sha256": "ac4ed564263cf2f2374cb060dfb402fe1f8e7f05b86f2f5ee8f7a9a66728494c",
+        "size": 58509
+      },
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/output-02/receipt.json",
+        "sha256": "ce622156f648aa1c3c5620893daf482a87381b1ad4eb6ed383f761697d8213f2",
+        "size": 58194
+      }
+    ],
+    "prior_elapsed_seconds": 979.984694542014,
+    "prior_observed_account_debit_units": 0.22000000000002728,
+    "schema": "bl-f5-capture-carry-forward/v2"
+  },
+  "capture_owner_override": {
+    "binding": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/OWNER_RULING_COLAB_BUDGET_20261025.txt",
+      "sha256": "48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d",
+      "size": 288
+    },
+    "capture_runaway_timeout_minutes": 30,
+    "live_account_preflight": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/live-account-preflight.json",
+      "sha256": "34721855096a509ac622afa0fe5c043bea5a1dac1eb1c0b30a908cf70bc228e1",
+      "size": 3330
+    },
+    "rate_status": "Fresh account/other-assignment rates verified; own L4 rate requires post-allocation calibration",
+    "technical_budget": "generous runaway timeout only; no unit-budget admission blocker"
+  },
+  "commit": "b9e48d882049622a8506f05cf00947f3500b1e1a",
+  "device": "cuda:0",
+  "env": {
+    "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+    "CUDA_DEVICE_ORDER": "PCI_BUS_ID",
+    "F5_DEVICE": "cuda:0",
+    "F5_MODE": "capture-qualification",
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OMP_THREAD_LIMIT": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONUNBUFFERED": "1",
+    "SNAKE_COLAB_CANARY": "1",
+    "SNAKE_COLAB_CANARY_PACKAGE": "research/bl_residual",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  },
+  "f5": {
+    "automatic_retries": false,
+    "canary_included_in_fit_envelope": false,
+    "confirmatory_efficacy_claim": false,
+    "cumulative_envelope": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/cumulative-envelope-owner-ruling-03.json",
+      "sha256": "3c9cdec2f1ec71a802790ff2f4a41c1e62b26bbc2599e9e40d88546bb66984af",
+      "size": 2703
+    },
+    "environment_policy": {
+      "adopted_amendment_sha256": "a1dc92ffb8fa341fb51738a56fe0097d75e15b0aff7194940c12979adbb04d62",
+      "draft_amendment_sha256": "7eda19efb72f89a7e2269d40863288f9295358f2566f3a02d3ca4d3c11933359",
+      "schema": "bl-residual-f5-environment-receipt/v4",
+      "schema_sha256": "64c54cc10ac949caad0e93f913a6fe4ec44bb9a5e93f71207a6c76d623a354be"
+    },
+    "inputs_status": "ADMITTED_CAPTURE_INPUTS_ONLY",
+    "interpretation": "EXPLORATORY_SCREENING",
+    "known_private_input_bytes": 33481701,
+    "private_upload_bytes_max": 45397643,
+    "release_authorized": false,
+    "remaining_private_bytes_for_plan_and_gate_metadata": 11915942,
+    "stage": "S1",
+    "staging_seconds": 300,
+    "technical_budget": "operator binds verified current rate; no scientific unit ceiling",
+    "technical_guards": {
+      "base_reserve_units": 0.5,
+      "base_timeout_minutes": 15,
+      "base_unit_cap": 1.0,
+      "effective_reserve_units": 1.0,
+      "effective_timeout_minutes": 30,
+      "effective_unit_cap": 2.0,
+      "estimate_minutes": 5,
+      "estimate_status": "INHERITED_FORECAST_NOT_MEASURED_CUDA_FEASIBILITY",
+      "owner_multiplier": 2,
+      "rate_units_per_hour_ceiling": 2.0,
+      "registered_L4_rate_units_per_hour": 1.54,
+      "timeout_rate_charge_units": 1.0,
+      "unit_cap_includes_cleanup_margin": true
+    },
+    "transfer_seconds": 150
+  },
+  "inputs": [
+    {
+      "dest": "b8.pth",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+    },
+    {
+      "dest": "timing-fixtures.json",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PREFIT_20261025/final-08/timing-fixtures.json",
+      "sha256": "737b2c61eabeb570456c8d7c287a5e615ac642a71d320db44925c58c252201aa"
+    },
+    {
+      "dest": "bootstrap-control.json",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PREFIT_20261025/final-08/bootstrap-control.json",
+      "sha256": "3360758e95dad80d50db25427ce52d2768b35dd210f9e76570b11452b977d22a"
+    }
+  ],
+  "job_id": "bl-f5-w-capture-repair-22e86986-03",
+  "lease_seconds": 180,
+  "max_export_bytes": 2147483648,
+  "operational_admission": {
+    "accounting": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/accounting-owner-ruling-03.json",
+      "sha256": "d6ecdfcedb6845fae0a01c09351212fabdc440c387608158af734fc0591acc6b",
+      "size": 12216
+    },
+    "bindings": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/bindings-v4.json",
+      "sha256": "16a1d5b882127b9aa1e1a6d7609b41998581a3ca7037cc5863f4f46707576798",
+      "size": 78438
+    },
+    "budget_shortfall_blocker": false,
+    "cumulative_envelope": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/cumulative-envelope-owner-ruling-03.json",
+      "sha256": "3c9cdec2f1ec71a802790ff2f4a41c1e62b26bbc2599e9e40d88546bb66984af",
+      "size": 2703
+    },
+    "live_account_preflight": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/live-account-preflight.json",
+      "sha256": "34721855096a509ac622afa0fe5c043bea5a1dac1eb1c0b30a908cf70bc228e1",
+      "size": 3330
+    },
+    "owner_ruling": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/OWNER_RULING_COLAB_BUDGET_20261025.txt",
+      "sha256": "48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d",
+      "size": 288
+    },
+    "scientific_admission_boolean_means": "Wrapper admission for F5_MODE=capture-qualification only; scientific fitting and outcome access are unauthorized.",
+    "scope": {
+      "automatic_retries": false,
+      "capture_and_cuda_transport_only": true,
+      "numerical_outcome_look_authorized": false,
+      "release_authorized": false,
+      "scientific_fit_authorized": false
+    },
+    "status": "ADMITTED_CAPTURE_TRANSPORT_ONLY",
+    "v4_acceptance": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/ACCEPT_F5_W_IMPLEMENTATION_b9e48d88.md",
+      "sha256": "11a7e054bb1dac10b358b69dd92e70a6479d592168740a99c74bdad91543bb62",
+      "size": 9997
+    }
+  },
+  "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/output-03",
+  "prior_capture_history": {
+    "attempts": [
+      {
+        "accounting_debit_units": 0.12000000000011823,
+        "actual_elapsed_seconds": 421.83044687495567,
+        "job_id": "bl-f5-w-capture-repair-22e86986-01",
+        "observed_account_debit_units": 0.12000000000011823,
+        "raw_accounting": {
+          "allocated_endpoint": "gpu-l4-s-kkb-usw4c0-2ar5s5mr4orkf",
+          "assignments": [],
+          "baseline_balance_units": 1067.2,
+          "baseline_rate_units_per_hour": 0.0,
+          "calibration": {
+            "interval_seconds": 5.0,
+            "observed_rate_units_per_hour": 1.54,
+            "priced_rate_units_per_hour": 2.0,
+            "required_stable_reads": 3,
+            "samples": [
+              {
+                "elapsed_seconds": 0.841516499989666,
+                "sessions": {
+                  "gpu-l4-s-kkb-usw4c0-2ar5s5mr4orkf": "snake-bl-f5-w-capture-repair-22e86986-01-375050f56851"
+                },
+                "usage": {
+                  "assignments": 1.0,
+                  "balance": 1067.2,
+                  "rate": 1.54
+                }
+              },
+              {
+                "elapsed_seconds": 6.952562666963786,
+                "sessions": {
+                  "gpu-l4-s-kkb-usw4c0-2ar5s5mr4orkf": "snake-bl-f5-w-capture-repair-22e86986-01-375050f56851"
+                },
+                "usage": {
+                  "assignments": 1.0,
+                  "balance": 1067.2,
+                  "rate": 1.54
+                }
+              },
+              {
+                "elapsed_seconds": 13.238709999946877,
+                "sessions": {
+                  "gpu-l4-s-kkb-usw4c0-2ar5s5mr4orkf": "snake-bl-f5-w-capture-repair-22e86986-01-375050f56851"
+                },
+                "usage": {
+                  "assignments": 1.0,
+                  "balance": 1067.2,
+                  "rate": 1.54
+                }
+              }
+            ],
+            "stability_units_per_hour": 0.01,
+            "status": "PASS",
+            "timeout_seconds": 730.0
+          },
+          "declared_other_rate_units_per_hour": 0,
+          "integrated_accounted_other_units": 0.0,
+          "last_crosscheck": {
+            "attributable_account_debit_units": 0.12000000000011823,
+            "balance_crosscheck_status": "OK",
+            "balance_discrepancy_tolerance_units": 0.13833333333333334,
+            "balance_discrepancy_units": -0.038011589936513795,
+            "baseline_integrated_units": 0.0,
+            "elapsed_seconds": 369.3777427090099,
+            "expected_account_debit_units": 0.15801158993663203,
+            "observed_account_debit_units": 0.12000000000011823,
+            "observed_elapsed_units": 0.15801158993663203,
+            "observed_rate_units_per_hour": 1.54,
+            "own_elapsed_units": 0.20520985706056105,
+            "provider_transition_mismatch_polls": 0,
+            "provider_transition_status": "OK"
+          },
+          "observed_rate_units_per_hour": 1.54,
+          "own_rate_units_per_hour": 2.0,
+          "priced_rate_units_per_hour": 2.0,
+          "unaccounted_endpoints": [],
+          "unit_cap": 0.5
+        },
+        "receipt": {
+          "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/output-01/receipt.json",
+          "sha256": "ac4ed564263cf2f2374cb060dfb402fe1f8e7f05b86f2f5ee8f7a9a66728494c",
+          "size": 58509
+        }
+      },
+      {
+        "accounting_debit_units": 0.09999999999990905,
+        "actual_elapsed_seconds": 558.1542476670584,
+        "job_id": "bl-f5-w-capture-repair-22e86986-02",
+        "observed_account_debit_units": 0.09999999999990905,
+        "raw_accounting": {
+          "allocated_endpoint": "gpu-l4-s-ass1a0-1po9w80s95rpk",
+          "assignments": [],
+          "baseline_balance_units": 1067.08,
+          "baseline_rate_units_per_hour": 0.0,
+          "calibration": {
+            "interval_seconds": 5.0,
+            "observed_rate_units_per_hour": 1.54,
+            "priced_rate_units_per_hour": 2.0,
+            "required_stable_reads": 3,
+            "samples": [
+              {
+                "elapsed_seconds": 0.870709375012666,
+                "sessions": {
+                  "gpu-l4-s-ass1a0-1po9w80s95rpk": "snake-bl-f5-w-capture-repair-22e86986-02-a3c6b18c423c"
+                },
+                "usage": {
+                  "assignments": 1.0,
+                  "balance": 1067.08,
+                  "rate": 1.54
+                }
+              },
+              {
+                "elapsed_seconds": 7.171593540930189,
+                "sessions": {
+                  "gpu-l4-s-ass1a0-1po9w80s95rpk": "snake-bl-f5-w-capture-repair-22e86986-02-a3c6b18c423c"
+                },
+                "usage": {
+                  "assignments": 1.0,
+                  "balance": 1067.08,
+                  "rate": 1.54
+                }
+              },
+              {
+                "elapsed_seconds": 13.39044958294835,
+                "sessions": {
+                  "gpu-l4-s-ass1a0-1po9w80s95rpk": "snake-bl-f5-w-capture-repair-22e86986-02-a3c6b18c423c"
+                },
+                "usage": {
+                  "assignments": 1.0,
+                  "balance": 1067.08,
+                  "rate": 1.54
+                }
+              }
+            ],
+            "stability_units_per_hour": 0.01,
+            "status": "PASS",
+            "timeout_seconds": 730.0
+          },
+          "declared_other_rate_units_per_hour": 0,
+          "integrated_accounted_other_units": 0.0,
+          "last_crosscheck": {
+            "attributable_account_debit_units": 0.09999999999990905,
+            "balance_crosscheck_status": "OK",
+            "balance_discrepancy_tolerance_units": 0.13833333333333334,
+            "balance_discrepancy_units": -0.12926099497933408,
+            "baseline_integrated_units": 0.0,
+            "elapsed_seconds": 535.934793457971,
+            "expected_account_debit_units": 0.22926099497924313,
+            "observed_account_debit_units": 0.09999999999990905,
+            "observed_elapsed_units": 0.22926099497924313,
+            "observed_rate_units_per_hour": 1.54,
+            "own_elapsed_units": 0.29774155192109497,
+            "provider_transition_mismatch_polls": 0,
+            "provider_transition_status": "OK"
+          },
+          "observed_rate_units_per_hour": 1.54,
+          "own_rate_units_per_hour": 2.0,
+          "priced_rate_units_per_hour": 2.0,
+          "unaccounted_endpoints": [],
+          "unit_cap": 2.0
+        },
+        "receipt": {
+          "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/output-02/receipt.json",
+          "sha256": "ce622156f648aa1c3c5620893daf482a87381b1ad4eb6ed383f761697d8213f2",
+          "size": 58194
+        }
+      }
+    ],
+    "budget_status": "DISCLOSED_NOT_AN_ADMISSION_BLOCKER",
+    "cumulative_accounting_debit_units": 0.22000000000002728,
+    "cumulative_actual_elapsed_seconds": 979.984694542014,
+    "cumulative_observed_account_debit_units": 0.22000000000002728,
+    "rate_status": "HISTORICAL_ATTEMPT_OBSERVATIONS_ONLY_CURRENT_ACCOUNT_BOUND_SEPARATELY",
+    "schema": "bl-f5-capture-history/v1"
+  },
+  "required_exports": [
+    "environment.json",
+    "environment-raw.json",
+    "environment-diagnostic.json",
+    "qualification/qualification.json",
+    "paired/assignment-environment.json",
+    "paired/fit-receipt.json",
+    "paired/fit-C.pth",
+    "paired/fit-W.pth",
+    "paired/f5-state-C.pt",
+    "paired/f5-state-W.pt"
+  ],
+  "requirements": {
+    "allowed_gpus": [
+      "L4"
+    ],
+    "est_minutes": 5,
+    "gpu": "L4",
+    "min_vcpu": 6
+  },
+  "resume_exemption": {
+    "kind": "short-canary",
+    "reason": "Environment capture and disjoint transport only; prior stopped attempts are disclosed as accounting evidence and do not block owner-approved runaway timeout",
+    "timeout_minutes": 30
+  },
+  "scientific_admission": true,
+  "scientific_admission_scope": "ENVIRONMENT_CAPTURE_AND_DISJOINT_CUDA_TRANSPORT_ONLY",
+  "script": "research/bl_residual/f5_colab.sh",
+  "source_paths": [
+    "configs/default.yaml",
+    "configs/diag_arm_a.yaml",
+    "configs/diag_arm_b.yaml",
+    "configs/diag_arm_c.yaml",
+    "configs/eval_free_space.yaml",
+    "configs/free_space_v2.yaml",
+    "configs/mechanics_v2.yaml",
+    "configs/production.yaml",
+    "configs/promotion_mechanics_v2.yaml",
+    "configs/training_fast.yaml",
+    "research/a100_a2/model.py",
+    "research/apex_safety_20260926/deployment.yaml",
+    "research/apex_safety_20260926/dev_screen.py",
+    "research/apex_veto_serving_20261001/__init__.py",
+    "research/apex_veto_serving_20261001/serving_run.py",
+    "research/apex_veto_strict_20260927/__init__.py",
+    "research/apex_veto_strict_20260927/strict_run.py",
+    "research/b8_death_census_20261014/__init__.py",
+    "research/b8_death_census_20261014/census.py",
+    "research/bl_k1/native.py",
+    "research/bl_ppo/exports.py",
+    "research/bl_residual/__init__.py",
+    "research/bl_residual/data.py",
+    "research/bl_residual/f5_adoption_environment_20261026_v6/f5-common-environment-v6.json",
+    "research/bl_residual/f5_adoption_environment_20261026_v6/requirements-f5-l4-cu126.lock",
+    "research/bl_residual/f5_calibration.py",
+    "research/bl_residual/f5_calibration_schema_v1.json",
+    "research/bl_residual/f5_colab.sh",
+    "research/bl_residual/f5_data.py",
+    "research/bl_residual/f5_environment.py",
+    "research/bl_residual/f5_environment_schema_v4.json",
+    "research/bl_residual/f5_fit.py",
+    "research/bl_residual/f5_job.py",
+    "research/bl_residual/f5_package.py",
+    "research/bl_residual/f5_protocol.py",
+    "research/bl_residual/f5_qualification.py",
+    "research/bl_residual/f5_r10a_annex.py",
+    "research/bl_residual/f5_rules.py",
+    "research/bl_residual/f5_timing.py",
+    "research/bl_residual/fit.py",
+    "research/bl_residual/gameplay.py",
+    "research/bl_residual/model.py",
+    "research/bl_residual/protocol.py",
+    "research/bl_served_search/__init__.py",
+    "research/bl_served_search/analyze.py",
+    "research/bl_served_search/ceiling.py",
+    "research/bl_served_search/chunks.py",
+    "research/bl_served_search/exact_stop.py",
+    "research/bl_served_search/exports.py",
+    "research/bl_served_search/mac_lease.py",
+    "research/colab_cli/__init__.py",
+    "research/colab_cli/acceptance.py",
+    "research/colab_cli/acceptance_faults.py",
+    "research/colab_cli/accounting.py",
+    "research/colab_cli/admission.py",
+    "research/colab_cli/canary.py",
+    "research/colab_cli/cli_guard.py",
+    "research/colab_cli/export_batches.py",
+    "research/colab_cli/failures.py",
+    "research/colab_cli/inputs.py",
+    "research/colab_cli/policy.py",
+    "research/colab_cli/release.py",
+    "research/colab_cli/schema.py",
+    "research/colab_cli/source.py",
+    "research/colab_cli/supervisor.py",
+    "research/colab_cli/transfer_policy.py",
+    "research/colab_cli/transfers.py",
+    "research/compute/thermal_guard.py",
+    "research/fixed_search.py",
+    "research/phase0_search_20261019/bank.py",
+    "research/phase0_search_20261019/teacher.py",
+    "research/published_ledger.py",
+    "research/redesign_m2_20261008/__init__.py",
+    "research/redesign_m2_20261008/dev_probe.py",
+    "research/redesign_m2_20261008/ni_spec.py",
+    "research/redesign_m2_20261008/ni_spec_m2b.py",
+    "research/redesign_m3c_20261008/obs_pack.py",
+    "research/redesign_scope_20261007/__init__.py",
+    "research/redesign_scope_20261007/grid_h5000_identity.py",
+    "research/redesign_t7_phase_r_20261016/__init__.py",
+    "research/redesign_t7_phase_r_20261016/seed_audit.py",
+    "research/s1_mature_20261018/__init__.py",
+    "research/s1_mature_20261018/final_artifacts.py",
+    "research/t15_mixed_roster_20261017/episodes.py",
+    "research/t1_commitment_20261015/parity.py",
+    "research/t1_commitment_20261015/replay.py",
+    "research/t2_screen_20261015/__init__.py",
+    "research/t2_screen_20261015/banks.py",
+    "research/t33_batched_teacher/inference.py",
+    "research/t33_batched_teacher/observation_kernels.py",
+    "research/t33_batched_teacher/observations.py",
+    "research/t33_batched_teacher/runtime.py",
+    "research/t33_batched_teacher/teacher.py",
+    "research/t34_exit_b8/engine.py",
+    "research/t34_exit_b8/exports.py",
+    "research/t34_exit_b8/faults.py",
+    "research/t34_exit_b8/lockstep.py",
+    "research/t34_exit_b8/policy.py",
+    "research/t34_exit_b8/qualification.py",
+    "research/t34_exit_b8/teacher_v2.py",
+    "research/t34_exit_b8/trajectory.py",
+    "research/t34_pathb/adapter_v2.py",
+    "research/t34_pathb/batch_v2.py",
+    "research/t34_pathb/controller_v2.py",
+    "research/t34_pathb/engine_v2.py",
+    "research/t34_pathb/precheck_v2.py",
+    "research/t34_shadow/common.py",
+    "research/t34_shadow/identity.py",
+    "research/t34_shadow/lad.py",
+    "research/t34_shadow/shadow.py",
+    "research/t34_speed_s2/__init__.py",
+    "research/t34_speed_s2/native_v8.py",
+    "research/t3_rollout_labels_20261015/__init__.py",
+    "research/t3_rollout_labels_20261015/bank_engine.py",
+    "research/t3_rollout_labels_20261015/engine.py",
+    "research/t3_rollout_labels_20261015/trigger.py",
+    "research/t3_screen_20261015/__init__.py",
+    "research/t3_screen_20261015/banks.py",
+    "research/t4e_return_20261016/__init__.py",
+    "research/t4e_return_20261016/seed_audit.py",
+    "research/t4f_return_20261016/seed_audit.py",
+    "src/core/config_loader.py",
+    "src/core/device_manager.py",
+    "src/core/game_config.py",
+    "src/core/mechanics_constants.py",
+    "src/core/reward_contract.py",
+    "src/core/reward_events.py",
+    "src/core/runtime_contract.py",
+    "src/core/seeding.py",
+    "src/core/world_runtime.py",
+    "src/evaluation/__init__.py",
+    "src/evaluation/anchors.py",
+    "src/evaluation/artifacts.py",
+    "src/evaluation/metrics.py",
+    "src/evaluation/protocol.py",
+    "src/evaluation/safety_veto.py",
+    "src/evaluation/safety_veto_v3.py",
+    "src/evaluation/safety_veto_v4.py",
+    "src/evaluation/safety_veto_v5.py",
+    "src/evaluation/safety_veto_v6.py",
+    "src/evaluation/safety_veto_v7.py",
+    "src/evaluation/safety_veto_v8.py",
+    "src/evaluation/screen_stats.py",
+    "src/evaluation/sequential_gate.py",
+    "src/evaluation/strict_promotion.py",
+    "src/game/ai_snake.py",
+    "src/game/food_manager.py",
+    "src/game/game_logic.py",
+    "src/game/game_state.py",
+    "src/game/game_state_factory.py",
+    "src/game/human_snake.py",
+    "src/game/scripted_snake.py",
+    "src/game/snake.py",
+    "src/game/snake_factory.py",
+    "src/game/snake_geometry.py",
+    "src/game/snake_reward.py",
+    "src/game/snake_state.py",
+    "src/model/apex_network.py",
+    "src/model/checkpoint_manager.py",
+    "src/model/ego2s_network.py",
+    "src/model/inference_agent.py",
+    "src/model/obs_spec.py",
+    "src/model/raster_network.py",
+    "src/scripts/eval_cli.py",
+    "src/scripts/eval_stats.py",
+    "src/scripts/tournament_eval.py",
+    "src/simd_env/__init__.py",
+    "src/simd_env/batch_sim.py",
+    "src/simd_env/ego2s_policy.py",
+    "src/simd_env/ego_raster.py",
+    "src/simd_env/ego_raster_b.py",
+    "src/simd_env/ego_raster_bv8.py",
+    "src/simd_env/ego_raster_nb.py",
+    "src/simd_env/eval_engine.py",
+    "src/simd_env/fast_anchors.py",
+    "src/simd_env/featurizer.py",
+    "src/simd_env/grid_sim.py",
+    "src/simd_env/grid_sim_nb.py",
+    "src/simd_env/rng.py",
+    "src/simd_env/v8_nb.py",
+    "src/simd_env/vector61_featurizer.py",
+    "src/simd_env/vector61_nb.py",
+    "src/simd_env/vector61_policy.py",
+    "src/training/action_mask.py",
+    "src/training/apex_policy.py",
+    "src/training/base_buffer.py",
+    "src/training/behavior_probes.py",
+    "src/training/checkpoint_contract.py",
+    "src/training/pqn_lifecycle.py",
+    "src/training/replay_buffer.py",
+    "src/training/resume_lineage.py",
+    "src/training/sum_tree.py",
+    "src/training/td_targets.py",
+    "src/utils/__init__.py"
+  ],
+  "substeps": [
+    "RAW_ENVIRONMENT_CAPTURE",
+    "DISJOINT_CUDA_TRANSPORT_QUALIFICATION"
+  ],
+  "supervisor_state_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/state-03",
+  "timeout_minutes": 30,
+  "timing_calibration": {
+    "no_automatic_retry": true,
+    "scope": "No automatic completion or allocation retry. No numerical timing or science authorization."
+  }
+}

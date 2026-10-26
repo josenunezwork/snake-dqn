@@ -1,0 +1,161 @@
+{
+  "acceptance": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/ACCEPT_F5_W_IMPLEMENTATION_b9e48d88.md",
+    "sha256": "11a7e054bb1dac10b358b69dd92e70a6479d592168740a99c74bdad91543bb62",
+    "size": 9997
+  },
+  "allocations": 0,
+  "broker_validation": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/broker-validation.json",
+    "sha256": "b6c7f6c9114c8ea0d190a551a6a52884605cf44abbd5a17f4dc4c6ad23e2adbf",
+    "size": 29164
+  },
+  "created_utc": "2026-10-26T08:19:03.754203+00:00",
+  "dispatch_command": "/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh bl-f5-w-capture-repair-22e86986-03 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/environment-capture.json --broker /Users/josenunez/Projects/ml/snake-dqn-f5w --cwd /Users/josenunez/Projects/ml/snake-dqn-f5w --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/state-03 --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/DISPATCH.txt",
+  "dispatch_dry_run": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/dispatch-dry-run.json",
+    "sha256": "04b5cca7c2b97c45ef91713095905358d4428ac99e51428bd7dc9eff9236d5d7",
+    "size": 2119
+  },
+  "dispatches": 0,
+  "files": {
+    "ACCEPT_F5_W_IMPLEMENTATION_b9e48d88.md": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/ACCEPT_F5_W_IMPLEMENTATION_b9e48d88.md",
+      "sha256": "11a7e054bb1dac10b358b69dd92e70a6479d592168740a99c74bdad91543bb62",
+      "size": 9997
+    },
+    "DISPATCH.txt": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/DISPATCH.txt",
+      "sha256": "1a83c7ec06db82213cd5bd0caeef57159c67592e975ca62b1f899e62d7e9b1ac",
+      "size": 4059
+    },
+    "accounting-owner-ruling-03.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/accounting-owner-ruling-03.json",
+      "sha256": "d6ecdfcedb6845fae0a01c09351212fabdc440c387608158af734fc0591acc6b",
+      "size": 12216
+    },
+    "bindings-v4.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/bindings-v4.json",
+      "sha256": "16a1d5b882127b9aa1e1a6d7609b41998581a3ca7037cc5863f4f46707576798",
+      "size": 78438
+    },
+    "broker-validation.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/broker-validation.json",
+      "sha256": "b6c7f6c9114c8ea0d190a551a6a52884605cf44abbd5a17f4dc4c6ad23e2adbf",
+      "size": 29164
+    },
+    "cumulative-envelope-owner-ruling-03.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/cumulative-envelope-owner-ruling-03.json",
+      "sha256": "3c9cdec2f1ec71a802790ff2f4a41c1e62b26bbc2599e9e40d88546bb66984af",
+      "size": 2703
+    },
+    "dispatch-dry-run.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/dispatch-dry-run.json",
+      "sha256": "04b5cca7c2b97c45ef91713095905358d4428ac99e51428bd7dc9eff9236d5d7",
+      "size": 2119
+    },
+    "environment-capture.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/environment-capture.json",
+      "sha256": "354a43e0d0e367c5e2e69f433dc5bfea0848dd09a5d417934b42fe3c16f28e3a",
+      "size": 24802
+    },
+    "independent-verification-v4.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/independent-verification-v4.json",
+      "sha256": "1c60b4ef38f15828d4e16a5187f541d48848f8560d5bc54edc13249c1ee131ba",
+      "size": 3372
+    },
+    "live-account-preflight.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/live-account-preflight.json",
+      "sha256": "34721855096a509ac622afa0fe5c043bea5a1dac1eb1c0b30a908cf70bc228e1",
+      "size": 3330
+    },
+    "operational-recheck.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-recheck.json",
+      "sha256": "6277dce7606aef333370d40bb77d6270ce61baa3ed933f814e028caf3aad74dc",
+      "size": 1365
+    },
+    "operational-recheck.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-recheck.log",
+      "sha256": "60d63566c28077a637377bb3a98cfabd8f0e9546e245b1280f13b7defbbfc6ea",
+      "size": 611
+    },
+    "operational-tests.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-tests.json",
+      "sha256": "46e9783828ccf8caaf295f00429855df12919ae68fd4afc8d8449c34303f3e89",
+      "size": 1229
+    },
+    "operational-tests.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-tests.log",
+      "sha256": "f6a58d72f5046161842870d187ef89c94a57b501b51bedadd05e8b0aaf2d1251",
+      "size": 2478
+    },
+    "source-preflight-artifacts/schema-validation.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/source-preflight-artifacts/schema-validation.json",
+      "sha256": "88b823fb9b8737c6450ab3d649f60c26fdee122a4adf081fd9213086d9b64921",
+      "size": 481
+    },
+    "source-preflight-artifacts/source-plan.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/source-preflight-artifacts/source-plan.json",
+      "sha256": "67ceb39fa8d0ae391c8c92c16762c1d942309d5740f753f0f7256ea0b5fa4ca2",
+      "size": 43443
+    },
+    "source-preflight-artifacts/source.tar.gz": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/source-preflight-artifacts/source.tar.gz",
+      "sha256": "f19f402302a9abba51df24d7d931e1421e1212c22d6683851054a8fc8ad7baf2",
+      "size": 934049
+    },
+    "source-preflight.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/source-preflight.json",
+      "sha256": "fe6e5cb1d070b1e017c8057591e5756277b333a7c3d0bdbec6cf8aad346aa76f",
+      "size": 57608
+    }
+  },
+  "implementation_commit": "b9e48d882049622a8506f05cf00947f3500b1e1a",
+  "ledger_mirror": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03",
+  "live_account_preflight": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/live-account-preflight.json",
+    "sha256": "34721855096a509ac622afa0fe5c043bea5a1dac1eb1c0b30a908cf70bc228e1",
+    "size": 3330
+  },
+  "manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/environment-capture.json",
+    "sha256": "354a43e0d0e367c5e2e69f433dc5bfea0848dd09a5d417934b42fe3c16f28e3a",
+    "size": 24802
+  },
+  "mirror_payloads_byte_identical": true,
+  "operational_recheck": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-recheck.json",
+    "sha256": "6277dce7606aef333370d40bb77d6270ce61baa3ed933f814e028caf3aad74dc",
+    "size": 1365
+  },
+  "operational_tests": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-tests.json",
+    "sha256": "46e9783828ccf8caaf295f00429855df12919ae68fd4afc8d8449c34303f3e89",
+    "size": 1229
+  },
+  "outcome_looks": 0,
+  "package_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03",
+  "prior_elapsed_seconds": 979.984694542014,
+  "prior_observed_account_debit_units": 0.22000000000002728,
+  "schema": "bl-f5-operational-publication/v4",
+  "scientific_fits": 0,
+  "scope": {
+    "automatic_retries": false,
+    "capture_and_cuda_transport_only": true,
+    "numerical_outcome_look_authorized": false,
+    "release_authorized": false,
+    "scientific_fit_authorized": false
+  },
+  "seal": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/PACKAGE_SEAL_OPERATIONAL_V4.json",
+    "sha256": "64f276a9ac881f1b9df9ea85e5591f479a3faeb11d498a6d6672a9ce78f047c8",
+    "size": 32676
+  },
+  "source_preflight": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/source-preflight.json",
+    "sha256": "fe6e5cb1d070b1e017c8057591e5756277b333a7c3d0bdbec6cf8aad346aa76f",
+    "size": 57608
+  },
+  "status": "SEALED_CAPTURE_TRANSPORT_ONLY_NOT_DISPATCHED",
+  "test_disclosure": "Initial operational suite 144 passed, 1 CUDA-only skipped, 1 simulated automatic-retry fixture JSON-read failure; exact failed test recheck passed in 3.25s. Both immutable logs retained. Package disables that retry path; broker validation and exact wrapper dry-run pass."
+}

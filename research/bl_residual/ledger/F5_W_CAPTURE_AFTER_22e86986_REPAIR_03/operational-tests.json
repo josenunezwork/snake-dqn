@@ -1,0 +1,32 @@
+{
+  "argv": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--basetemp",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-test-scratch",
+    "tests/test_bl_residual_f5_broker.py",
+    "tests/test_colab_cli_source.py",
+    "tests/test_colab_cli_schema_failures.py",
+    "tests/test_colab_cli_canary_observer.py",
+    "tests/test_ops_dispatch.py",
+    "tests/test_f5_capture_diagnostics.py"
+  ],
+  "device": "cpu",
+  "exit_code": 1,
+  "finished_utc": "2026-10-26T08:17:04.582170+00:00",
+  "log": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-tests.log",
+    "sha256": "f6a58d72f5046161842870d187ef89c94a57b501b51bedadd05e8b0aaf2d1251",
+    "size": 2478
+  },
+  "niceness": 15,
+  "numeric_threads": 1,
+  "schema": "bl-f5-operational-tests/v1",
+  "scope": "Existing operational manifest, broker, observer, immutable diagnostics and dispatch tests; no product source edits; no allocation.",
+  "started_utc": "2026-10-26T08:15:21.009176+00:00",
+  "status": "FAIL"
+}

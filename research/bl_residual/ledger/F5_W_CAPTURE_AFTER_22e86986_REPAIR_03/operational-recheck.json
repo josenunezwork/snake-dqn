@@ -1,0 +1,32 @@
+{
+  "argv": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--basetemp",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-recheck-scratch",
+    "tests/test_ops_dispatch.py::test_retry_directory_is_sibling_when_original_has_trailing_slash"
+  ],
+  "device": "cpu",
+  "exit_code": 0,
+  "finished_utc": "2026-10-26T08:18:04.537548+00:00",
+  "log": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-recheck.log",
+    "sha256": "60d63566c28077a637377bb3a98cfabd8f0e9546e245b1280f13b7defbbfc6ea",
+    "size": 611
+  },
+  "niceness": 15,
+  "numeric_threads": 1,
+  "prior_run": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-tests.json",
+    "sha256": "46e9783828ccf8caaf295f00429855df12919ae68fd4afc8d8449c34303f3e89",
+    "size": 1229
+  },
+  "reason": "Investigate a JSON-read failure in the historical accounting-retry fixture; operative manifest explicitly disables all automatic retries.",
+  "schema": "bl-f5-operational-recheck/v1",
+  "started_utc": "2026-10-26T08:18:00.235047+00:00",
+  "status": "PASS"
+}

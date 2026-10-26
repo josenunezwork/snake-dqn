@@ -1,0 +1,63 @@
+{
+  "allocation_calls": 0,
+  "checks": [
+    "Read acceptance and owner ruling fully",
+    "Python hashlib, git show and tarfile audit of bindings, source plan, pinned and working source bytes",
+    "Manifest, resume policy, no-automatic-retry policy, bootstrap, fixture and canonical identity validators passed",
+    "Both prior elapsed/debit records and separate integrations/exposure verified; no history reset",
+    "DISPATCH contains no operative BLOCK/HOLD; state-03/output-03 absent"
+  ],
+  "commands_summary": "Read-only cat/nl/rg; primary-venv python -B hashlib+git-show+tarfile integrity audit; validate_manifest, require_resume_policy, require_timing_calibration_retry_policy with PYTHONDONTWRITEBYTECODE=1",
+  "created_utc": "2026-10-26T08:19:03.706810+00:00",
+  "files_changed_by_reviewer": [],
+  "manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/environment-capture.json",
+    "sha256": "354a43e0d0e367c5e2e69f433dc5bfea0848dd09a5d417934b42fe3c16f28e3a",
+    "size": 24802
+  },
+  "operational_test_disclosure": {
+    "focused_recheck": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-recheck.json",
+      "sha256": "6277dce7606aef333370d40bb77d6270ce61baa3ed933f814e028caf3aad74dc",
+      "size": 1365
+    },
+    "focused_result": "1 passed in 3.25s; no code edits",
+    "initial_result": "144 passed, 1 skipped (real CUDA), 1 failed (simulated automatic-retry JSON-read fixture)",
+    "initial_run": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/operational-tests.json",
+      "sha256": "46e9783828ccf8caaf295f00429855df12919ae68fd4afc8d8449c34303f3e89",
+      "size": 1229
+    },
+    "root_assessment": "Recheck passes. Non-atomic fixture JSON writes while the wrapper polls are a plausible timing-race cause, not established by instrumentation. Operative manifest disables this retry path; broker validation and exact wrapper dry-run independently passed."
+  },
+  "outcome": "NO_BLOCKING_FINDINGS_PRE_SEAL",
+  "protected_payload_reads": 0,
+  "provider_calls": 0,
+  "recorded_by": "root from completed pre-seal reviewer message",
+  "residual_risks": [
+    "Seal/publication separately verified after creation",
+    "Account snapshot is point-in-time; wrapper must refresh under lock",
+    "Actual own L4 rate requires post-allocation calibration",
+    "Genuine CUDA, observer, scanner/upload/recovery, terminal receipt and assignment disappearance remain runtime gates"
+  ],
+  "reviewer": "collaboration /root/review_v4_package (reviewer role)",
+  "schema": "bl-f5-independent-operational-verification/v1",
+  "scope": {
+    "automatic_retries": false,
+    "capture_and_cuda_transport_only": true,
+    "numerical_outcome_look_authorized": false,
+    "release_authorized": false,
+    "scientific_fit_authorized": false
+  },
+  "source_commit": "b9e48d882049622a8506f05cf00947f3500b1e1a",
+  "verified_counts": {
+    "distinct_fixture_seeds": 12,
+    "exports": 10,
+    "manifest_closure_paths": 194,
+    "new_operative_sha_completion_triplets": 9,
+    "packet_source_pins": 192,
+    "referenced_path_size_sha_bindings": 107,
+    "sparse_archive_members": 200,
+    "uploads": 3
+  }
+}

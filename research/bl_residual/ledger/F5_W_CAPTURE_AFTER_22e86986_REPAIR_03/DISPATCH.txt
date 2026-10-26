@@ -1,0 +1,25 @@
+ADMITTED: single operator dispatch after operational sealing and main-ledger publication.
+Capture plus disjoint genuine CUDA transport only. Scientific fitting, numerical outcome reads, serving and release are unauthorized.
+Acceptance: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/ACCEPT_F5_W_IMPLEMENTATION_b9e48d88.md SHA256 11a7e054bb1dac10b358b69dd92e70a6479d592168740a99c74bdad91543bb62
+Owner ruling: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/OWNER_RULING_COLAB_BUDGET_20261025.txt SHA256 48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d
+Owner quote: "budget isnt important pretendit doesnt exist for colab". No further budget approval is required.
+Manifest: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/environment-capture.json SHA256 354a43e0d0e367c5e2e69f433dc5bfea0848dd09a5d417934b42fe3c16f28e3a
+Seal: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/PACKAGE_SEAL_OPERATIONAL_V4.json; its SHA256 sidecar and published ledger bind exact seal bytes.
+Job: bl-f5-w-capture-repair-22e86986-03
+State (fresh): /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/state-03
+Output (fresh): /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/output-03
+Implementation: b9e48d882049622a8506f05cf00947f3500b1e1a
+30-minute runaway timeout and exemption: base 15 x2; estimate 5 minutes remains forecast. Technical cap 2 units and reserve 1 unit: base 1 and 0.5 x2.
+Attempt-01: 421.83044687495567 seconds (421.830446875 rounded); attempt-02: 558.1542476670584 seconds; cumulative 979.984694542014 seconds.
+Observed account balance change 0.22000000000002728 units; rate integrations and priced full-elapsed exposure are distinct accounting fields, final post-stop debit unknown.
+Historical 10/30/200-minute and 240-minute reservations and units are disclosure/runaway guards; no history reset and no budget admission barrier.
+No automatic allocation, job or completion retry. OAuth2 qualified supervisor and wrapper; one exact L4, >=6 vCPUs, lease fencing, 2-GiB export bound.
+Python 3.12.3, pinned 69-wheel cu126 lock, --no-compile, cuda:0, deterministic precision and numeric threads 1.
+Upload exactly B8, final-08 timing-fixtures.json and bootstrap-control.json with pinned destinations/digests. All ten declared exports remain required.
+All twelve disjoint fixtures require source-native six-action CUDA observer/parity; scanner/upload/export-recovery proof; inclusive transfer <=150 seconds and staging <=300 seconds; private-input bounds retained.
+Capture refusal retains raw/diagnostic completed exports and nonzero exit, with no admissible environment.json. Paired bootstrap exports are calibration-only and unusable as science.
+After operation publish full successful raw v4 receipt or refused diagnostics, CUDA observer/transport proof, Mac-verified immutable exports, terminal receipt and independent assignment disappearance.
+Before scientific fitting require L4-materialized ordered 2000x256 plan/RNG, current-source timing/feasibility, full science inventory and matching canary, verified ledger, separate ACCEPT_F5_FIT and sole registered look token.
+
+Exact operator command:
+/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh bl-f5-w-capture-repair-22e86986-03 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/environment-capture.json --broker /Users/josenunez/Projects/ml/snake-dqn-f5w --cwd /Users/josenunez/Projects/ml/snake-dqn-f5w --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/state-03 --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/DISPATCH.txt
