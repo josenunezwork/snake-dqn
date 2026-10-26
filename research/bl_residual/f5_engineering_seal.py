@@ -223,6 +223,11 @@ def build(repo: Path = ROOT) -> dict[str, Any]:
     astra_rejection = external_reference(ASTRA_REJECTION)
     if astra_rejection["sha256"] != ASTRA_REJECTION_SHA256:
         raise ValueError("Astra rejection digest changed")
+    interim = reference(
+        repo, "research/bl_residual/ledger/F5_ENGINEERING_SEAL_20261026_V2/ENGINEERING_SEAL.json"
+    )
+    if interim["sha256"] != "0ba82da4182b5cea69ecd8d950ef059eb41008fbe8a7b40616e549290556d9b2":
+        raise ValueError("interim engineering predecessor digest changed")
     return {
         "schema": "bl-f5-engineering-source-closure/v1",
         "status": "SEALED_ENGINEERING_ONLY_HOLD",
@@ -236,6 +241,10 @@ def build(repo: Path = ROOT) -> dict[str, Any]:
         "immutable_old_inventory": immutable_inventory(repo),
         "amendments": amendments,
         "predecessor_engineering_seal": predecessor_seal,
+        "interim_engineering_predecessor": interim,
+        "export_envelope_successor": reference(
+            repo, "research/bl_residual/f5_hold_correction_20261026/EXPORT_ENVELOPE_V3.md"
+        ),
         "engineering_correction_contract": correction_contract,
         "astra_rejection": astra_rejection,
         "actual_successor_plan": "NOT_CREATED_STEP4_REQUIRES_INDEPENDENT_REVIEW",

@@ -7,6 +7,12 @@ from pathlib import Path
 import pytest
 
 from research.bl_residual import f5_step3_package as package
+from research.bl_residual.f5_environment_reference import CAPTURE05_SIZE
+
+
+def test_export_envelope_fits_the_known_raw_native_environment_size() -> None:
+    assert package.MAX_EXPORT_BYTES == 64 * 1024 * 1024
+    assert package.MAX_EXPORT_BYTES > CAPTURE05_SIZE
 
 
 def test_finite_envelope_doubles_once_and_preserves_archive_guards() -> None:

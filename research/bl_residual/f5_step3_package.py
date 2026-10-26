@@ -19,15 +19,16 @@ from research.bl_residual.f5_environment_reference import capture05_reference
 from research.bl_residual.f5_timing_recovery_package import THREADS
 
 ROOT = Path(__file__).resolve().parents[2]
-NAMESPACE = "f5-step3-long-body-20261026-v2"
+NAMESPACE = "f5-step3-long-body-20261026-v3"
 ALLOCATION = "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7"
 PRIOR = (
     "research/bl_residual/ledger/F5_W_TIMING_OPERATIONAL_20261026_ROUND08_02_REQUAL/manifest.json"
 )
 AMENDMENT = "research/bl_residual/f5_hold_amendment_20261026"
 ENGINEERING_SEAL = (
-    "research/bl_residual/ledger/F5_ENGINEERING_SEAL_20261026_V2/ENGINEERING_SEAL.json"
+    "research/bl_residual/ledger/F5_ENGINEERING_SEAL_20261026_V3/ENGINEERING_SEAL.json"
 )
+MAX_EXPORT_BYTES = 64 * 1024 * 1024
 REJECTION = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/"
     "REJECT_F5_HOLD_ENGINEERING_fc67d6bf.md"
@@ -176,7 +177,7 @@ def build(output: Path, *, repo: Path = ROOT) -> dict[str, Any]:
     for suffix in (".sha256", ".complete"):
         inputs.append(reference(Path(str(ledger) + suffix), ledger.name + suffix))
     manifest = {
-        "job_id": "f5-step3-longbody-v2-attempt01",
+        "job_id": "f5-step3-longbody-v3-attempt01",
         "commit": commit,
         "script": "research/bl_residual/f5_step3.sh",
         "device": "cuda:0",
@@ -193,7 +194,7 @@ def build(output: Path, *, repo: Path = ROOT) -> dict[str, Any]:
         "supervisor_state_dir": str(output / "state-attempt01"),
         "inputs": inputs,
         "source_paths": sorted(pins),
-        "max_export_bytes": 8 * 1024 * 1024,
+        "max_export_bytes": MAX_EXPORT_BYTES,
         "required_exports": ["qualification.json", "supplement-summary.json"],
         "resume": {
             "unit_kind": "fixture",
@@ -205,7 +206,7 @@ def build(output: Path, *, repo: Path = ROOT) -> dict[str, Any]:
     export_json(output / "manifest.json", manifest)
     qualification = json.loads(json.dumps(manifest))
     qualification.update(
-        job_id="f5-step3-qualification-v2-attempt01",
+        job_id="f5-step3-qualification-v3-attempt01",
         timeout_minutes=30,
         output_dir=str(output / "qualification-output-attempt01"),
         supervisor_state_dir=str(output / "qualification-state-attempt01"),
