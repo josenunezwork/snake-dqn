@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -62,6 +63,16 @@ def _safe_relative(value: object) -> Path:
     return path
 
 
+def _safe_file(path: Path) -> Path:
+    """Refuse symlinks anywhere from ledger root through the named export."""
+    for parent in (path, *path.parents):
+        if parent.is_symlink():
+            raise ResumeRefusal("timing ledger path has symlink ancestry")
+        if parent.parent == parent:
+            break
+    return path
+
+
 def empty_ledger(binding: Mapping[str, str]) -> dict[str, Any]:
     return {"schema": SCHEMA, "unit_kind": UNIT_KIND, "identity": dict(binding), "units": []}
 
@@ -80,6 +91,10 @@ def _validate_payload(
         required = {
             "allocation_index",
             "elapsed_seconds",
+            "parent_id",
+            "group",
+            "group_index",
+            "timing_only",
             "parity",
             "q_shape",
             "full_h300",
@@ -92,6 +107,7 @@ def _validate_payload(
             or payload.get("allocation_index") != key
             or payload.get("parity") != "PASS"
             or payload.get("q_shape") != [1, 6]
+            or payload.get("timing_only") is not True
             or payload.get("canary_only") is True
             or payload.get("full_h300") is not True
             or payload.get("long_body") is not True
@@ -115,6 +131,7 @@ def _read_unit(
     path: Path, binding: Mapping[str, str], expected: Mapping[str, Any]
 ) -> tuple[int | str, dict[str, Any]]:
     try:
+        _safe_file(path)
         observed_sha = verify_export(path)
         raw = json.loads(path.read_text())
     except (ValueError, json.JSONDecodeError) as exc:
@@ -142,6 +159,7 @@ def load_ledger(
 ) -> dict[int | str, dict[str, Any]]:
     """Mac and runtime scanner verifies ledger plus every path/sidecar/marker."""
     try:
+        _safe_file(path)
         verify_export(path)
         ledger = json.loads(path.read_text())
     except (ValueError, json.JSONDecodeError) as exc:
@@ -219,20 +237,29 @@ def build_ledger(
     for entry in entries:
         if not isinstance(entry, Mapping):
             raise ResumeRefusal("malformed completed-unit entry")
-        key, payload = _read_unit(output / _safe_relative(entry.get("path")), binding, entry)
+        source = output / _safe_relative(entry.get("path"))
+        key, payload = _read_unit(source, binding, entry)
         if bool(payload.get("canary_only")) != canary_only:
             raise ResumeRefusal("ledger mixes CANARY_ONLY and full timing units")
         if key in seen:
             raise ResumeRefusal("duplicate completed-unit entry")
         seen.add(key)
-        ledger["units"].append(dict(entry))
+        # Unit locations in a ledger are relative to the ledger's own parent,
+        # which may be a nested resume/canary directory.
+        ledger_parent = (output / name).parent
+        ledger["units"].append(
+            {**dict(entry), "path": source.relative_to(ledger_parent).as_posix()}
+        )
     export_json(output / name, ledger)
     verify_export(output / name)
     return ledger
 
 
 def reduce_ledger(
-    path: Path, binding: Mapping[str, str], *, all_attempt_overhead_seconds: Sequence[float]
+    path: Path,
+    binding: Mapping[str, str],
+    *,
+    attempts: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Mac-only reducer requires the exact 13 units and all-attempt overhead."""
     if platform.system() != "Darwin":
@@ -240,14 +267,68 @@ def reduce_ledger(
     records = load_ledger(path, binding)
     if set(records) != _keys():
         raise ResumeRefusal("Mac reducer requires all thirteen completed units")
-    overhead = list(all_attempt_overhead_seconds)
-    if not overhead or any(not isinstance(x, (int, float)) or x < 0 for x in overhead):
-        raise ResumeRefusal("Mac reducer requires every attempt setup I/O imbalance overhead")
+    from research.bl_residual.f5_timing import _canonical_timing_parents
+
+    fixtures = [records[index] for index in range(672, 684)]
+    expected = _canonical_timing_parents()
+    for actual, canonical in zip(fixtures, expected):
+        if any(
+            actual.get(key) != canonical[key]
+            for key in ("allocation_index", "parent_id", "group", "group_index", "timing_only")
+        ):
+            raise ResumeRefusal("Mac reducer fixture allocation identity differs")
+    maxima: dict[str, float] = {}
+    for key in ("t_root", "t_branch", "t_nat", "watch_seconds"):
+        values = [item.get(key) for item in fixtures]
+        if any(
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+            or value <= 0
+            for value in values
+        ):
+            raise ResumeRefusal("Mac reducer requires measured primitive timing maxima")
+        maxima[key] = max(float(value) for value in values)
+    seen_attempts: set[str] = set()
+    overhead = 0.0
+    for attempt in attempts:
+        if not isinstance(attempt, Mapping) or attempt.get("identity") != dict(binding):
+            raise ResumeRefusal("Mac reducer attempt identity differs")
+        name = attempt.get("attempt_id")
+        if not isinstance(name, str) or not name or name in seen_attempts:
+            raise ResumeRefusal("Mac reducer attempt accounting is duplicate or missing")
+        seen_attempts.add(name)
+        for key in ("setup_seconds", "io_seconds", "imbalance_seconds"):
+            value = attempt.get(key)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise ResumeRefusal("Mac reducer requires all measured attempt overhead")
+            overhead += float(value)
+    if not seen_attempts:
+        raise ResumeRefusal("Mac reducer requires every attempt accounting record")
+    archive_hours = (
+        128 * maxima["t_nat"] + 14720 * maxima["t_root"] + 88320 * maxima["t_branch"]
+    ) / 6 / 3600 + overhead / 3600
+    calibration = records[CALIBRATION_KEY]
+    calibration_max = max(
+        float(arm[key])
+        for arm in calibration["arms"].values()
+        for key in ("full_seconds", "serialized_continuation_seconds")
+    )
     return {
         "schema": "bl-f5-timing-mac-reducer/v2",
         "status": "COMPLETE",
-        "fixtures": [records[index] for index in range(672, 684)],
-        "calibration": records[CALIBRATION_KEY],
+        "status": "COMPLETE_UNITS_PENDING_MAC_FORECAST",
+        "fixtures": fixtures,
+        "calibration": calibration,
         "unit_count": 13,
-        "conservative_setup_io_imbalance_seconds": sum(overhead),
+        "max_seconds": maxima,
+        "archive_registered_conservative_hours": archive_hours,
+        "coupled_calibration_max_seconds": calibration_max,
+        "all_attempt_setup_io_imbalance_seconds": overhead,
+        "mac_probe_product_forecast": "HOLD_NOT_MEASURED",
     }
