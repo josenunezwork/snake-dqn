@@ -1,0 +1,1 @@
+{"dispatch_performed": false, "manifest.json": {"reason": "dispatch requires a SHA-bound family canary receipt", "status": "ADMISSION_REFUSED"}, "qualification-manifest-attempt03.json": {"status": "OFFLINE_SUPERVISOR_VALID"}, "runtime_calls": false}

@@ -1,0 +1,132 @@
+diff --git a/research/bl_residual/f5_engineering_seal.py b/research/bl_residual/f5_engineering_seal.py
+index afed3175..5697dc8c 100644
+--- a/research/bl_residual/f5_engineering_seal.py
++++ b/research/bl_residual/f5_engineering_seal.py
+@@ -233,6 +233,11 @@ def build(repo: Path = ROOT) -> dict[str, Any]:
+     )
+     if v3["sha256"] != "76d707a9d52473a50f7f2b9b1cfa7644eddb1e2344f051d9f4bc47e703f5ff72":
+         raise ValueError("V3 engineering predecessor digest changed")
++    v4 = reference(
++        repo, "research/bl_residual/ledger/F5_ENGINEERING_SEAL_20261026_V4/ENGINEERING_SEAL.json"
++    )
++    if v4["sha256"] != "e73b2d24144cd3e375aeffca1706dd5c677c3b23da95dce49db30d15ba3f9038":
++        raise ValueError("V4 engineering predecessor digest changed")
+     return {
+         "schema": "bl-f5-engineering-source-closure/v1",
+         "status": "SEALED_ENGINEERING_ONLY_HOLD",
+@@ -248,6 +253,13 @@ def build(repo: Path = ROOT) -> dict[str, Any]:
+         "predecessor_engineering_seal": predecessor_seal,
+         "interim_engineering_predecessor": interim,
+         "v3_engineering_predecessor": v3,
++        "v4_engineering_predecessor": v4,
++        "v5_engineering_correction_contract": reference(
++            repo, "research/bl_residual/f5_hold_correction_20261026/ENGINEERING_V5.md"
++        ),
++        "attempt02_evidence": reference(
++            repo, "research/bl_residual/ledger/F5_STEP1_ATTEMPT02_20261026/PUBLICATION.json"
++        ),
+         "v4_engineering_correction_contract": reference(
+             repo, "research/bl_residual/f5_hold_correction_20261026/ENGINEERING_V4.md"
+         ),
+diff --git a/research/bl_residual/f5_step3_driver.py b/research/bl_residual/f5_step3_driver.py
+index e9f225b8..a838457b 100644
+--- a/research/bl_residual/f5_step3_driver.py
++++ b/research/bl_residual/f5_step3_driver.py
+@@ -431,11 +431,13 @@ def run(
+             _acceptance(control, inputs, control_path)
+         return {"status": "DRY_RUN_VALID", "fixtures": list(FIXTURE_IDS), "runtime_calls": False}
+     completed = load_verified_units(ledger, control)
+-    if output.exists():
+-        _refuse("attempt output must be fresh")
++    # The supervisor creates its output root before launching the child. Only
++    # that empty directory (or an absent path) is fresh; never reuse evidence.
++    if output.is_symlink() or (output.exists() and (not output.is_dir() or any(output.iterdir()))):
++        _refuse("attempt output must be fresh (absent or an empty directory)")
+     if admitted:
+         _acceptance(control, inputs, control_path)
+-    output.mkdir(parents=True)
++    output.mkdir(parents=True, exist_ok=True)
+     qualification, actual_environment = _qualification(
+         control, inputs, output, fixture_seed=int(frozen[0]["seed"])
+     )
+diff --git a/research/bl_residual/f5_step3_package.py b/research/bl_residual/f5_step3_package.py
+index 1609996d..2cba8270 100644
+--- a/research/bl_residual/f5_step3_package.py
++++ b/research/bl_residual/f5_step3_package.py
+@@ -19,14 +19,15 @@ from research.bl_residual.f5_environment_reference import capture05_reference
+ from research.bl_residual.f5_timing_recovery_package import THREADS
+ 
+ ROOT = Path(__file__).resolve().parents[2]
+-NAMESPACE = "f5-step3-long-body-20261026-v4"
++NAMESPACE = "f5-step3-long-body-20261026-v5"
++QUALIFICATION_MANIFEST = "qualification-manifest-attempt03.json"
+ ALLOCATION = "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7"
+ PRIOR = (
+     "research/bl_residual/ledger/F5_W_TIMING_OPERATIONAL_20261026_ROUND08_02_REQUAL/manifest.json"
+ )
+ AMENDMENT = "research/bl_residual/f5_hold_amendment_20261026"
+ ENGINEERING_SEAL = (
+-    "research/bl_residual/ledger/F5_ENGINEERING_SEAL_20261026_V4/ENGINEERING_SEAL.json"
++    "research/bl_residual/ledger/F5_ENGINEERING_SEAL_20261026_V5/ENGINEERING_SEAL.json"
+ )
+ MAX_EXPORT_BYTES = 64 * 1024 * 1024
+ REJECTION = Path(
+@@ -186,7 +187,7 @@ def build(output: Path, *, repo: Path = ROOT) -> dict[str, Any]:
+     for suffix in (".sha256", ".complete"):
+         inputs.append(reference(Path(str(ledger) + suffix), ledger.name + suffix))
+     manifest = {
+-        "job_id": "f5-step3-longbody-v4-attempt01",
++        "job_id": "f5-step3-longbody-v5-attempt01",
+         "commit": commit,
+         "script": "research/bl_residual/f5_step3.sh",
+         "device": "cuda:0",
+@@ -215,10 +216,10 @@ def build(output: Path, *, repo: Path = ROOT) -> dict[str, Any]:
+     export_json(output / "manifest.json", manifest)
+     qualification = json.loads(json.dumps(manifest))
+     qualification.update(
+-        job_id="f5-step3-qualification-v4-attempt01",
++        job_id="f5-step3-qualification-v5-attempt03",
+         timeout_minutes=30,
+-        output_dir=str(output / "qualification-output-attempt01"),
+-        supervisor_state_dir=str(output / "qualification-state-attempt01"),
++        output_dir=str(output / "qualification-output-attempt03"),
++        supervisor_state_dir=str(output / "qualification-state-attempt03"),
+         required_exports=["qualification.json", "environment.json"],
+         resume_exemption={
+             "kind": "acceptance",
+@@ -238,7 +239,7 @@ def build(output: Path, *, repo: Path = ROOT) -> dict[str, Any]:
+         SNAKE_COLAB_CANARY="1",
+         SNAKE_COLAB_CANARY_PACKAGE="research/bl_residual",
+     )
+-    export_json(output / "qualification-manifest.json", qualification)
++    export_json(output / QUALIFICATION_MANIFEST, qualification)
+     export_json(output / "source-inventory.json", pins)
+     export_json(output / "envelope.json", envelope())
+     refs = [
+@@ -261,7 +262,7 @@ def build(output: Path, *, repo: Path = ROOT) -> dict[str, Any]:
+             reference(output / name)
+             for name in (
+                 "manifest.json",
+-                "qualification-manifest.json",
++                QUALIFICATION_MANIFEST,
+                 "source-inventory.json",
+                 "envelope.json",
+             )
+@@ -394,7 +395,7 @@ def seal_final(target: Path, output: Path, *, acceptance: Path, attempt: int) ->
+     )
+     manifest = json.loads((package / "manifest.json").read_text())
+     manifest.update(
+-        job_id=f"f5-step3-longbody-v4-attempt{attempt:02}",
++        job_id=f"f5-step3-longbody-v5-attempt{attempt:02}",
+         output_dir=str(output / "runtime-output"),
+         supervisor_state_dir=str(output / "state"),
+         inputs=[
+@@ -405,7 +406,7 @@ def seal_final(target: Path, output: Path, *, acceptance: Path, attempt: int) ->
+     )
+     canary = json.loads(json.dumps(manifest))
+     canary.update(
+-        job_id=f"f5-step3-final-inventory-v4-attempt{attempt:02}",
++        job_id=f"f5-step3-final-inventory-v5-attempt{attempt:02}",
+         output_dir=str(output / "canary-output"),
+         supervisor_state_dir=str(output / "canary-state"),
+         timeout_minutes=30,
