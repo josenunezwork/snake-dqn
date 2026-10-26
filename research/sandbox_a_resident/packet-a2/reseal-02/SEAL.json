@@ -1,0 +1,20 @@
+{
+  "kind": "A-2 final successor seal; prior validation timeout seals preserved; no allocation",
+  "source_commit": "e491a63cc6b74cbe9a7aea5dffe77180f0ce45e3",
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "runtime_source_count": 97,
+  "files_sha256": {
+    "DISPATCH.txt": "59c59a7cec7c8cd6a1c1d3479139d6844e4611621742f4c2af27ec1031209796",
+    "control.json": "686e308961d56cbe1dceac7ffcfdb42d5e15a939244e665ed898f9240ffa5fc0",
+    "dispatch-manifest.json": "5e3a21ffcfca1f24c3a082cd33fa32542c05a315831aa9d5028fd5fd0bbc2cf7",
+    "registry-check.json": "1e63cd71f1f1475501ceeb2957bc5234239fb857d9dd73125f8b095e2ca186e5",
+    "sandbox.json": "a29063a92043bda8686f16938269505e39a916c58a6ba434c83077ed845b750a",
+    "verified-ledger.json": "2a9905636621e1fac911333ba892b6349d9f3a40f7bfaf483b20881b039551e1"
+  },
+  "runtime_changes_from_original_a2": false,
+  "admission_changes": "compact all-root uint64 checks; audited source closure excludes diagnostics, fixtures and tests",
+  "isolated_cpu_bundle": "12 cells PASS, exact deterministic resume proof matches worktree",
+  "runaway_base_seconds": 14400,
+  "runaway_effective_seconds": 28800,
+  "allocation_performed": false
+}
