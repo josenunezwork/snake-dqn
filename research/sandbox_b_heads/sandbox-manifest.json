@@ -1,0 +1,12 @@
+{
+  "schema": "standing-a100-sandbox-manifest/v1",
+  "study": "sandbox-b-heads-v1",
+  "inputs": ["closed-f0:D1024:registry-filtered-projection", "frozen-checkpoint:B8", "verified-ledger", "sandbox-input-registry"],
+  "salt": "a100-dev/sandbox-b/split-v1",
+  "endpoint": {"configs": 60, "updates_each": 250, "broker_manifest": "research/sandbox_b_heads/dispatch-manifest.json"},
+  "timeout": "2x measured A100 estimate",
+  "excluded_studies": ["F5", "F4-fold-0", "R30", "strict", "probe", "serving"],
+  "owner_rule": "docs/research/governance_a100_sandbox_20261026/ADOPTED.md#2-governance-adopt-this-rule-text",
+  "outputs": "simulator-D development checkpoints, timing, and labels only",
+  "crossing": "at most one frozen checkpoint SHA may cross after separate registration"
+}
