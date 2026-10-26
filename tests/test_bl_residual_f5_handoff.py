@@ -22,7 +22,13 @@ import pytest
 import torch
 
 from research.bl_ppo.exports import export_json
-from research.bl_residual import f5_environment, f5_job, f5_qualification, f5_timing
+from research.bl_residual import (
+    f5_environment,
+    f5_job,
+    f5_qualification,
+    f5_timing,
+    f5_timing_resume,
+)
 from research.bl_residual.f5_package import source_inventory
 from research.bl_residual.f5_r10a_annex import allocate
 
@@ -346,8 +352,24 @@ def test_qualification_runner_records_synthetic_cpu_backend_and_broker_exports(
     control["input_hashes"][checkpoint.name] = checkpoint_sha
     control["qualification_fixture_sha256"] = hashlib.sha256(fixture_path.read_bytes()).hexdigest()
     control["qualification_b8_sha256"] = checkpoint_sha
+    # A full timing operation admits its immutable, empty completed-unit ledger
+    # before any fixture can run.  Keep this test on the real control/source
+    # admission path rather than replacing it with the old synthetic shortcut.
+    timing_input_sha256 = "f" * 64
+    binding = f5_timing_resume.identity(
+        namespace="bl-residual-f5-timing-recovery-20261026",
+        allocation=control["identity"]["allocation_sha256"],
+        source_sha256=control["identity"]["source_sha256"],
+        environment_sha256=control["identity"]["environment_sha256"],
+        input_sha256=timing_input_sha256,
+    )
+    ledger_path = inputs / "verified-ledger.json"
+    export_json(ledger_path, f5_timing_resume.empty_ledger(binding))
+    control["timing_input_sha256"] = timing_input_sha256
+    control["timing_attempt_id"] = "synthetic-full-timing-attempt"
+    control["ledger_sha256"] = f5_job.digest(ledger_path)
     control["allocation"] = _sha(
-        {key: value for key, value in control.items() if key != "allocation"}
+        {key: value for key, value in control.items() if key not in {"allocation", "ledger_sha256"}}
     )
     control_path.write_text(json.dumps(control, sort_keys=True))
 
@@ -422,9 +444,26 @@ def test_qualification_runner_records_synthetic_cpu_backend_and_broker_exports(
     assert counts == sorted(counts)
 
     monkeypatch.setattr(f5_qualification, "_verify_uploaded_checkpoint_pool", lambda _: {})
-    monkeypatch.setattr(
-        f5_qualification, "_full_source_timing", lambda *args: ({}, {"synthetic": np.zeros(1)})
-    )
+
+    def source_timing_fake(
+        row: dict[str, Any], *_: Any, **__: Any
+    ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
+        """Return the complete canonical timing coverage contract for each fixture."""
+        return (
+            {
+                "t_root": 0.1,
+                "t_branch": 0.1,
+                "t_nat": 0.1,
+                "full_h300": True,
+                "long_body": True,
+                "full_h5000_natural": True,
+                "watch_fixture_frames": (14_400 if row["group"] == "timing/watch6" else 0),
+                "watch_seconds": 0.1,
+            },
+            {"synthetic": np.zeros(1)},
+        )
+
+    monkeypatch.setattr(f5_qualification, "_full_source_timing", source_timing_fake)
     from research.bl_residual import f5_calibration
 
     def calibration_fake(*args, progress=None, **kwargs):
@@ -439,7 +478,18 @@ def test_qualification_runner_records_synthetic_cpu_backend_and_broker_exports(
             "calibration-w-resumed",
         ):
             progress.phase(phase)
-        return {"synthetic": True}
+        return {
+            "schema": "bl-f5-timing-calibration/v1",
+            "elapsed_seconds": 1.0,
+            "arms": {
+                arm: {
+                    "full_seconds": 1.0,
+                    "serialized_continuation_seconds": 1.0,
+                    "serialized_continuation_exact": True,
+                }
+                for arm in ("C", "W")
+            },
+        }
 
     monkeypatch.setattr(f5_calibration, "run", calibration_fake)
     full_output = tmp_path / "full-qualification"
@@ -453,6 +503,15 @@ def test_qualification_runner_records_synthetic_cpu_backend_and_broker_exports(
         progress=full_progress,
     )
     assert full_report["status"] == "COMPLETE_L4_TIMING_PENDING_MAC_QUALIFICATION"
+    assert len(full_report["completed_timing_units"]) == 13
+    assert {entry["key"] for entry in full_report["completed_timing_units"]} == {
+        *range(672, 684),
+        f5_timing_resume.CALIBRATION_KEY,
+    }
+    assert all(
+        (full_output / entry["path"]).with_suffix(".json.complete").is_file()
+        for entry in full_report["completed_timing_units"]
+    )
     assert ("calibration-w-resumed", None) in full_progress.phases
     assert ("final-boundary", 12) in full_progress.phases
     full_counts = [count for _, count in full_progress.phases if count is not None]
