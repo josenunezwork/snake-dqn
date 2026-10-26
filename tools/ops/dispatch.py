@@ -1555,13 +1555,17 @@ def require_f5_timing_recovery_admission(
             or type(resume["max_outcome_blind_retries"]) is not int
         ):
             raise Refused("F5 timing recovery resume types differ")
+        # A completion attempt deliberately skips units already sealed in the
+        # input ledger.  Requiring every unit path here would force a producer
+        # to duplicate those immutable exports.  The coverage proof instead
+        # binds the input ledger, skipped IDs, newly exported IDs, and final
+        # coverage for this particular attempt.
         expected_exports = [
             "qualification/qualification.json",
-            *[f"timing-units/fixture-{index}.json" for index in range(672, 684)],
-            "timing-units/calibration.json",
+            "resume/verified-skip-proof.json",
         ]
         if manifest.get("required_exports") != expected_exports:
-            raise Refused("F5 timing recovery requires all thirteen unit exports")
+            raise Refused("F5 timing recovery requires its sealed unit coverage proof")
         return
     if recovery.get("scope") != "F5_W_TIMING04_FAMILY_CANARY_ONLY":
         raise Refused("F5 timing recovery scope differs")
@@ -1593,10 +1597,9 @@ def require_f5_timing_recovery_admission(
         raise Refused("F5 timing recovery resume types differ")
     if manifest.get("required_exports") != [
         "qualification/qualification.json",
-        "timing-canary/fixture-672.json",
-        "timing-canary/fixture-673.json",
+        "timing-canary/verified-skip-proof.json",
     ]:
-        raise Refused("F5 timing recovery canary requires its CANARY_ONLY unit exports")
+        raise Refused("F5 timing recovery canary requires its CANARY_ONLY coverage proof")
 
 
 def require_f5_plan_live_assignment_match(original: dict[str, Any], live: dict[str, Any]) -> None:

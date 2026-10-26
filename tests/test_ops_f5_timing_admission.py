@@ -347,15 +347,13 @@ def recovery_manifest(tmp_path: Path, *, canary: bool = False) -> dict:
         }
         value["required_exports"] = [
             "qualification/qualification.json",
-            "timing-canary/fixture-672.json",
-            "timing-canary/fixture-673.json",
+            "timing-canary/verified-skip-proof.json",
         ]
     else:
         value.pop("canary")
         value["required_exports"] = [
             "qualification/qualification.json",
-            *[f"timing-units/fixture-{index}.json" for index in range(672, 684)],
-            "timing-units/calibration.json",
+            "resume/verified-skip-proof.json",
         ]
     return value
 
@@ -381,7 +379,7 @@ def test_timing_recovery_requires_the_exact_long_resumable_contract(tmp_path) ->
             "runtime environment",
         ),
         (lambda value: value["timing_calibration"].update({"no_job_retry": False}), "retry fences"),
-        (lambda value: value["required_exports"].pop(), "all thirteen"),
+        (lambda value: value["required_exports"].pop(), "sealed unit coverage proof"),
         (
             lambda value: value["operational_admission"].update({"release_authorized": True}),
             "authority",
