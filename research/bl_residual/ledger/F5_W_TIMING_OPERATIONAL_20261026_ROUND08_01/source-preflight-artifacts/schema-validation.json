@@ -1,0 +1,14 @@
+{
+  "manifest_sha256": "4b30081f8efd930cfc5fb6e39e796a980ec5db38eef0988893ccb50a60be6db2",
+  "required_exports": [
+    "paired/assignment-environment.json",
+    "paired/fit-receipt.json",
+    "paired/fit-C.pth",
+    "paired/fit-W.pth",
+    "paired/f5-state-C.pt",
+    "paired/f5-state-W.pt",
+    "qualification/qualification.json"
+  ],
+  "schema": "colab-cli-manifest/v1",
+  "status": "PASS"
+}

@@ -1,0 +1,15 @@
+# F5 W round08 full timing qualification operative successor
+
+Status: accepted for one future operator dispatch after publication to main. No runtime was dispatched or allocated while preparing this package.
+
+This create-only successor of `F5_W_TIMING_DRAFT_20261026_ROUND08_v3` binds implementation `c989f6738f6aad143eb97bc47f6bd9e6687057ce` and selects `F5_MODE=qualification`: all twelve source-native timing/parity workloads, timing-only optimizer/resume calibration, and explicit pending-Mac qualification. The actual common batch plan is not consumed here. Scientific admission stays false; these calibration artifacts cannot be scientific fits. Final fitting still requires both verified branches, Mac timing/calibration, the actual ordered plan, complete final science inventory/current-source canary, resolution of local-upload final-fit admission, and separate ACCEPT_F5_FIT.
+
+The separate plan job ended INCOMPLETE during source upload. Its terminal receipt proves stop_verified=true; the fresh authenticated account snapshot showed zero assignments and rate0. The exact terminal receipt, actual endpoint and calibrated1.54u/hr rate are bound in plan-operation-binding.json and package-local immutable snapshots. This seal does not retry or qualify the plan branch.
+
+Controls retain the exact admitted attempt04 raw v5 environment, all192 runtime source pins, fixed corpus/allocation/loss identities, matching empty ledger and a newly computed control allocation distinct from the plan allocation. Nine manifest inputs contain five pinned private opponent checkpoints, fixtures/control/ledger, and the release HTTPS B8. Full inventory private bytes=37604236, HTTPS bytes=6562005; private cap45397643. Seven required exports include qualification/qualification.json and six paired producer paths.
+
+Manifest and short-canary timeout base15/effective30 minutes; forecast15 unchanged. Numeric threads1, cuda:0, L4>=6vCPU, deterministic fp32, exact69-wheel/cu126 environment and --no-compile remain fixed. Technical unit guard base1/effective2 and reserve0/0 cannot serve as scientific budget admission; the30-minute wall guard dominates projected session debit. Historical accounting is retained. All four retry fences remain true.
+
+DISPATCH.txt contains the exact wrapper command and package-local state/output directories. Recheck unused name/state/output and current account membership/rates immediately before dispatch. A changed assignment declaration needs a fresh sealed published successor. The dry-run performs no live accounting; live-account-preflight.json is separate read-only evidence.
+
+PACKAGE_SEAL_OPERATIONAL.json exhaustively binds local payloads, companions, rulings, preflights, source/input references and consistency/review evidence. PACKAGE_PUBLICATION.json binds the seal and lossless Git publication. Oversized metadata is published as deterministic gzip chunks with reconstruction indexes; scientific label or checkpoint payloads are not copied into Git. Predecessors and the plan package/state remain read-only.

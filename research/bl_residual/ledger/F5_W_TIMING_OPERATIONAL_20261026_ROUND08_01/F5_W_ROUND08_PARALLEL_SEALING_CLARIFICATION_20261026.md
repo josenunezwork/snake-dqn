@@ -1,0 +1,9 @@
+# F5 W round 8: parallel admission clarification
+
+ACCEPT remains limited to operative successor sealing under ACCEPT_F5_W_NEXT_PACKAGES_20261026_ROUND08.md (SHA256 ebef9f754d0ea4c143226332f53be8a2705ad5fb050291047c94a35944d8f25a).
+
+Safe overlap requires actual endpoint/rate accounting, not merely two draft manifests with budget.other_assignments={}. Seal and publish the first operative package, then its operator may dispatch once. Once its endpoint and current rate are known, acquire fresh account evidence and bind that active assignment in the second operative package, validate its broker/accounting declarations, seal and publish it, then the operator may dispatch it while the first remains active. A second package sealed earlier with an empty assignment declaration must be preserved as a predecessor; create/publish a fresh successor if the live assignment state no longer matches it. No mutable seal or unrecorded manifest patch is permitted.
+
+Serialize allocation/admission through the qualified supervisor. Count all account assignments, including unrelated notebook workers, against the maximum three. Use separate L4 runtimes, runtime generations, state/output directories and matching control/ledger allocations. Keep timing isolated from the plan workload; retain all retry fences. If there is no execution overlap, refresh the second preflight after the first is released and declare the actual then-current assignment state. This clarification grants no dispatch, scientific fit, outcome-look or release authority to this reviewer.
+
+The independent draft reviewer found no blocking code-path defect and confirmed that full timing qualification does not consume the actual common plan. Its calibration uses a separate timing-only surrogate namespace; the actual common plan remains mandatory before scientific fitting. Mac companion timing must remain uncontended under existing Mac rules.
