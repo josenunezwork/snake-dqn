@@ -1,0 +1,219 @@
+{
+  "kind": "Post-Argon packet-02 preparation: Mac CPU only; no A100 timing claim",
+  "command": "env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.run --checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth --control research/sandbox_a_resident/.local/argon-fixes-01/control.json --ledger research/sandbox_a_resident/.local/argon-fixes-01/verified-ledger.json --output research/sandbox_a_resident/.local/argon-fixes-01/output --device cpu",
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "torch": "2.9.1",
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "parity": {
+    "status": "PASS",
+    "kind": "same-platform bit equality",
+    "worlds": 2,
+    "horizon": 3,
+    "state_sha256": "8269babc5413df40327443a7896aa630e8ffb3c4d1a0f63b604d3d24fb3d7603",
+    "next_rows_sha256": "d8d43cc791132c4197ab48630e47696df029be74a4b9e90b1cf900d494c22473",
+    "cross_platform_claim": false
+  },
+  "seconds": 7.840842167031951,
+  "results": [
+    {
+      "id": "a100-dev/sandbox-a/e2/cached",
+      "hero_rows": 18,
+      "cycles": [
+        {
+          "cycle": 0,
+          "collection_gae_resets_seconds": 8.749775588512421e-07,
+          "learner_seconds": 0.013932124944403768,
+          "seconds": 0.013932999921962619
+        },
+        {
+          "cycle": 1,
+          "collection_gae_resets_seconds": 2.919696271419525e-07,
+          "learner_seconds": 0.013488583033904433,
+          "seconds": 0.013488875003531575
+        },
+        {
+          "cycle": 2,
+          "collection_gae_resets_seconds": 3.7497375160455704e-07,
+          "learner_seconds": 0.016065208008512855,
+          "seconds": 0.01606558298226446
+        }
+      ],
+      "export_seconds": 0.08364274993073195,
+      "steady_rows_per_second": 413.9124443231389,
+      "rows_per_second_with_export": 141.58712005621553,
+      "reset_count": 0,
+      "measured_terminal_rows": 0,
+      "measured_truncated_rows": 0
+    },
+    {
+      "id": "a100-dev/sandbox-a/e2/collection",
+      "hero_rows": 18,
+      "cycles": [
+        {
+          "cycle": 0,
+          "collection_gae_resets_seconds": 0.32272204104810953,
+          "learner_seconds": 3.33995558321476e-07,
+          "seconds": 0.32272237504366785
+        },
+        {
+          "cycle": 1,
+          "collection_gae_resets_seconds": 0.3009785410249606,
+          "learner_seconds": 2.08965502679348e-07,
+          "seconds": 0.30097874999046326
+        },
+        {
+          "cycle": 2,
+          "collection_gae_resets_seconds": 0.3174903329927474,
+          "learner_seconds": 2.919696271419525e-07,
+          "seconds": 0.31749062496237457
+        }
+      ],
+      "export_seconds": 0.022935791057534516,
+      "steady_rows_per_second": 19.124689522689536,
+      "rows_per_second_with_export": 18.66972909032487,
+      "reset_count": 6,
+      "measured_terminal_rows": 0,
+      "measured_truncated_rows": 6
+    },
+    {
+      "id": "a100-dev/sandbox-a/e2/integrated",
+      "hero_rows": 18,
+      "cycles": [
+        {
+          "cycle": 0,
+          "collection_gae_resets_seconds": 0.2658158339327201,
+          "learner_seconds": 0.012060499982908368,
+          "seconds": 0.2778763339156285
+        },
+        {
+          "cycle": 1,
+          "collection_gae_resets_seconds": 0.26928725000470877,
+          "learner_seconds": 0.014121541986241937,
+          "seconds": 0.2834087919909507
+        },
+        {
+          "cycle": 2,
+          "collection_gae_resets_seconds": 0.25579887500498444,
+          "learner_seconds": 0.011991499923169613,
+          "seconds": 0.26779037492815405
+        }
+      ],
+      "export_seconds": 0.062511625001207,
+      "steady_rows_per_second": 21.710929802987984,
+      "rows_per_second_with_export": 20.1887168156712,
+      "reset_count": 6,
+      "measured_terminal_rows": 0,
+      "measured_truncated_rows": 6
+    },
+    {
+      "id": "a100-dev/sandbox-a/e4/cached",
+      "hero_rows": 36,
+      "cycles": [
+        {
+          "cycle": 0,
+          "collection_gae_resets_seconds": 2.50060111284256e-07,
+          "learner_seconds": 0.03054195793811232,
+          "seconds": 0.030542207998223603
+        },
+        {
+          "cycle": 1,
+          "collection_gae_resets_seconds": 3.7509016692638397e-07,
+          "learner_seconds": 0.028897332958877087,
+          "seconds": 0.028897708049044013
+        },
+        {
+          "cycle": 2,
+          "collection_gae_resets_seconds": 3.330642357468605e-07,
+          "learner_seconds": 0.028830708004534245,
+          "seconds": 0.02883104106876999
+        }
+      ],
+      "export_seconds": 0.08552425005473197,
+      "steady_rows_per_second": 407.83516092020824,
+      "rows_per_second_with_export": 207.14034976020213,
+      "reset_count": 0,
+      "measured_terminal_rows": 0,
+      "measured_truncated_rows": 0
+    },
+    {
+      "id": "a100-dev/sandbox-a/e4/collection",
+      "hero_rows": 36,
+      "cycles": [
+        {
+          "cycle": 0,
+          "collection_gae_resets_seconds": 0.49738124990835786,
+          "learner_seconds": 2.50060111284256e-07,
+          "seconds": 0.49738149996846914
+        },
+        {
+          "cycle": 1,
+          "collection_gae_resets_seconds": 0.439324792008847,
+          "learner_seconds": 2.4994369596242905e-07,
+          "seconds": 0.43932504195254296
+        },
+        {
+          "cycle": 2,
+          "collection_gae_resets_seconds": 0.3583767079981044,
+          "learner_seconds": 2.50060111284256e-07,
+          "seconds": 0.3583769580582157
+        }
+      ],
+      "export_seconds": 0.019484166987240314,
+      "steady_rows_per_second": 27.797435455379837,
+      "rows_per_second_with_export": 27.38542937319809,
+      "reset_count": 12,
+      "measured_terminal_rows": 0,
+      "measured_truncated_rows": 12
+    },
+    {
+      "id": "a100-dev/sandbox-a/e4/integrated",
+      "hero_rows": 36,
+      "cycles": [
+        {
+          "cycle": 0,
+          "collection_gae_resets_seconds": 0.41769370797555894,
+          "learner_seconds": 0.021443999954499304,
+          "seconds": 0.43913770793005824
+        },
+        {
+          "cycle": 1,
+          "collection_gae_resets_seconds": 0.3908001669915393,
+          "learner_seconds": 0.02005737496074289,
+          "seconds": 0.4108575419522822
+        },
+        {
+          "cycle": 2,
+          "collection_gae_resets_seconds": 0.43443416606169194,
+          "learner_seconds": 0.01927408401388675,
+          "seconds": 0.4537082500755787
+        }
+      ],
+      "export_seconds": 0.06942920794244856,
+      "steady_rows_per_second": 27.61364067915903,
+      "rows_per_second_with_export": 26.217422243948253,
+      "reset_count": 12,
+      "measured_terminal_rows": 0,
+      "measured_truncated_rows": 12
+    }
+  ],
+  "source_sha256": {
+    "__init__.py": "9a0705415e5dda3526074013d7f7a4e67977891009a7b36fc193e23dacd3c4e8",
+    "core.py": "560ee0eb24b3abda57b9451a1ffb2aeb49f2e0c87b77c69c0200acb7cfd68d40",
+    "job.sh": "f659db9fb4906c805d72f78f6e60829de885d6dffebf5f12c541e65077125bb8",
+    "postprocess.py": "b3a51850f5614aa504bbf79cbd3317afef5edfd526d0a0f5badb8b8fa2c8e75b",
+    "preflight.py": "7e356bb4995ca7e73c67693dd984361b5a7abddd9b5147122b9bad9e801e16f0",
+    "prepare.py": "6a99f9a831b8284fc006dbdd51641f2faaf1fb20f23ffdb55c90e07021ef39a6",
+    "proof.py": "088c3def55427ad2a2822bbe3ccd0ad5bfada186c63d0acb54f22782dfe3d0cf",
+    "requirements.txt": "a8cb011aef6cec18444a823578e9029cb1c05d362f25dc227ecb20d8f82f5e62",
+    "run.py": "5ad92a9b012df57460cc11d9c2c1a339d0843159d2a7104b09446e0f3eb036f1",
+    "test_core.py": "785e98765677f799f9ae9f1cd66e356a4b4b109892c6d09f4458f89073d275a1",
+    "test_run.py": "7536b8c237b920806ac2105bd309d0b1bd331e50c257e7118b64dadf5eb91ffb",
+    "test_units.py": "6fd692413c46388693da0b675e66eeb965f04dd2d9a2dbcec5545be711c72c0d",
+    "units.py": "c20db54838b4c1ca4ab6cef8bc6e3ed8b7afe46f48f622447b21af8eb46dbc5a"
+  },
+  "limitations": [
+    "No CUDA execution",
+    "Loaded shared Mac: no before-after speed claim",
+    "Necessary dynamic subset compaction and inherited simulator scalar synchronizations remain"
+  ]
+}

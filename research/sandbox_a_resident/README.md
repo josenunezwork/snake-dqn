@@ -34,8 +34,10 @@ completion-date improvement over the qualified P1 path; absent that, this assay
 only establishes correctness, capacity, timings and the next engineering binder.
 
 Collection and learning keep world/observation/rollout/optimizer tensors on GPU.
-Python launches kernels and reads scalar control checks, as the existing engine
-does; this is not a CUDA-graph or host-free-control claim. CUDA uses indexed MOVE,
+Python launches kernels and compacts reset/truncation indices. Overflow/spawn/
+allocation checks transfer once per horizon; nonfinite loss/gradient checks transfer
+once per update, with distribution validation disabled inside minibatches.
+Dynamic CUDA compaction and existing simulator/R2 scalar synchronizations remain; this is not a CUDA-graph or host-free-control claim. CUDA uses indexed MOVE,
 R2 caches, static flood and native geometry flags. It does not use T4A's
 output-retaining instrumentation wrapper or claim CPU simulator equality.
 
@@ -53,9 +55,15 @@ and intersections with the registry under that normalization. Every possible
 reset seed, not only initial roots, is checked before data.
 
 The finite run needs 513 possible episode roots per world/cell. On hero death or
-at 5,000 ticks, an independent blank device scratch simulator generates fresh
-roots. Every environment-leading tensor, including RNG and lazy overflow flags,
-is merged only into reset rows. Live rows remain byte-identical. Time limits
+at 64 ticks, a compact blank device simulator generates fresh roots for only the
+reset worlds. An explicit environment-state field list, including RNG and overflow
+flags, is merged only into reset rows (including E == S). Scratch never prepares;
+the next observation prepares the merged simulator once. Live rows remain byte-
+identical during reset. Truncation observations/critic forwards compact only live
+truncated worlds, so simultaneous terminal heroes are never observed. Each measured
+production collection/integrated cell must report at least one truncated row.
+The 64-tick limit is an explicit revised engineering recipe, not a 5,000-tick
+survival or P1-equivalence claim. Time limits
 bootstrap the pre-reset critic but cut the GAE trace; deaths do not bootstrap.
 The logical body capacity is 10,400 with a 1,024-entry physical ring. Physical
 capacity overflow, spawn-budget exhaustion, nonfinite loss/gradient, or resume
@@ -72,7 +80,12 @@ is not advertised. Each phase is an independent resumable unit.
 Payloads are create-only with SHA sidecars and completion markers. A logical unit
 requires **both** checkpoint tar and export-inclusive timing JSON. Ledger creation
 reads the prior broker manifest/receipt identity and path/size/hash metadata only,
-then refuses old source/recipe, missing timing, duplicates, and foreign IDs.
+then refuses old source/recipe, corrupt completed pairs, duplicates, foreign
+files/receipt entries, protected path tokens and symlinked input paths. A TAR
+completion marker without its later JSON completion marker is incomplete and is
+skipped, preserving earlier completed units; the inverse marker ordering is
+corruption. Known partial publication files and parity/summary metadata do not
+block resume. Arbitrary hex fragments containing `f5` are permitted.
 Verified complete phases are skipped exactly. A new attempt uses fresh output,
 manifest and receipt identities. There are no automatic completion retries;
 Claude may prepare at most two after verified mechanical failure, stop, and
@@ -88,25 +101,26 @@ execution evidence.
 
 ## Local verification
 
-`LOCAL_VERIFICATION.json` binds runtime source hashes, B8 hash, command, platform,
-full-arena E2/E4 measurements and same-platform resume hashes. The final focused
-suite has 11 passing tests. All test/smoke processes used nice 15, one math thread,
-and no xdist. The full-arena smoke used three measured cycles and one warmup per
-phase, horizon 3, minibatch 6, and a four-tick episode limit to exercise resets.
-It completed all six cells and the resume proof. No CUDA execution occurred.
+`LOCAL_VERIFICATION_02.json` binds the repaired runtime source hashes, B8 hash,
+command, platform, full-arena E2/E4 smoke and exact same-platform resume hashes.
+The 24 resident regression cases cover compact reset work and frozen-oracle world
+bytes, E == S constants, simultaneous death/truncation, time-limit reachability,
+boundary fault checks, nonfinite refusal, off-device restore, interrupted exports,
+foreign/duplicate inventory, protected paths and symlinks. Every test/smoke uses
+nice 15 and one math thread, without xdist. The real entrypoint smoke completes
+all six cells with H3, a four-tick time limit, three measured cycles and one
+excluded warmup, on the full production arena. No CUDA execution occurred.
+`LOCAL_VERIFICATION.json`, `VERIFICATION.txt` and packet-01 retain their original
+historical evidence; their old source pins/timings do not qualify packet-02.
 
-| CPU/Mac shape | Cached cycle | Collection cycle | Integrated cycle | Integrated hero rows/s, including local export |
-|---|---:|---:|---:|---:|
-| E2, H3 | 0.00694 s | 0.16124 s | 0.16253 s | 32.85 |
-| E4, H3 | 0.01395 s | 0.25619 s | 0.26247 s | 42.54 |
-
-These small CPU measurements are not an A100 throughput forecast. The proposed
-base one-hour/effective two-hour session envelope is Astra's conservative
-engineering allowance. No current A100 whole-job estimate has been measured by
-this package. The broker's legacy field `measured_estimate_seconds` carries that
-prospective allowance; it must not be cited as a measured A100 result. The only
-purpose of the rate-priced legacy budget fields is the doubled runaway guard,
-not an economic unit allocation or study funding ceiling.
+The packet-02 base four-hour/effective eight-hour envelope is a generous
+prospective engineering allowance, including setup, compilation, export and
+release. There is no measured A100 whole-job forecast. The legacy broker fields
+`measured_estimate_seconds` and rate-priced budget fields carry this technical
+runaway guard only: Colab time/units are not a budget, and this package introduces
+no economic unit ceiling or per-job timing-canary requirement. The finite endpoint
+remains one warmup plus three measured cycles per shape/phase; the timeout does
+not extend that endpoint.
 
 Reproduce correctness:
 
@@ -128,12 +142,12 @@ never calls Colab, reads protected outputs, or modifies the transport.
 ```sh
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 \
   nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.prepare \
-  --packet "$PWD/research/sandbox_a_resident/packet-01" --commit "$(git rev-parse HEAD)" \
+  --packet "$PWD/research/sandbox_a_resident/packet-02" --commit "$(git rev-parse HEAD)" \
   --checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth \
-  --estimate-seconds 3600
+  --estimate-seconds 14400
 ```
 
-Commit the ten-line `packet-01/sandbox.json` and its bound broker packet before
+Commit the ten-line `packet-02/sandbox.json` and its bound broker packet before
 running `python -m research.sandbox_a_resident.preflight` on the packet directory.
 The operator handoff must record the actual shared preflight and real
 `tools/ops/dispatch.sh --dry-run` outputs. A blocked dry-run is not a PASS and does

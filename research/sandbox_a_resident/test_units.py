@@ -1,6 +1,7 @@
 """Immutable completion, skip/resume identity and corruption refusal."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -46,16 +47,11 @@ def test_immutable_publication_and_metadata_only_ledger(tmp_path: object) -> Non
         load_ledger(ledger, control)
 
 
-def test_partial_export_pair_and_old_source_cannot_become_verified(tmp_path: object) -> None:
-    from research.sandbox_a_resident.postprocess import ledger
+def receipt_for(control: dict, directory: Path, exports: list[dict]) -> Path:
+    """Create the metadata envelope used by ledger-only corruption tests."""
     from research.sandbox_a_resident.units import digest
 
-    control = {"worlds": [2], "source_commit": "a" * 40}
-    directory = tmp_path / "exports" / "assay"
-    directory.mkdir(parents=True)
-    path = directory / "e2-integrated.tar"
-    descriptor = publish(path, lambda p: p.write_bytes(b"opaque-checkpoint"))
-    manifest = tmp_path / "manifest.json"
+    manifest = directory.parents[1] / "manifest.json"
     manifest.write_text(
         json.dumps(
             {
@@ -64,23 +60,147 @@ def test_partial_export_pair_and_old_source_cannot_become_verified(tmp_path: obj
             }
         )
     )
-    receipt = tmp_path / "receipt.json"
+    receipt = manifest.with_name("receipt.json")
     receipt.write_text(
         json.dumps(
             {
                 "commit": control["source_commit"],
                 "stop_verified": True,
                 "manifest_sha256": digest(manifest),
-                "exports": [{**descriptor, "path": "assay/e2-integrated.tar"}],
+                "exports": exports,
             }
         )
     )
-    with pytest.raises(FileNotFoundError):
-        ledger(control, [receipt])
+    return receipt
+
+
+def completed_cached_receipt(root: Path) -> tuple[dict, Path, Path]:
+    """Create one complete cache unit for input-path guard tests."""
+    control = {"worlds": [2], "source_commit": "a" * 40}
+    directory = root / "exports" / "assay"
+    directory.mkdir(parents=True)
+    checkpoint = publish(directory / "e2-cached.tar", lambda p: p.write_bytes(b"checkpoint"))
+    timing = publish(directory / "e2-cached.json", lambda p: p.write_bytes(b"{}"))
+    receipt = receipt_for(
+        control,
+        directory,
+        [
+            {**checkpoint, "path": "assay/e2-cached.tar"},
+            {**timing, "path": "assay/e2-cached.json"},
+        ],
+    )
+    return control, directory, receipt
+
+
+def test_partial_export_pair_and_old_source_cannot_become_verified(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.postprocess import ledger
+
+    control = {"worlds": [2], "source_commit": "a" * 40}
+    directory = tmp_path / "exports" / "assay"
+    directory.mkdir(parents=True)
+    checkpoint = publish(directory / "e2-cached.tar", lambda p: p.write_bytes(b"checkpoint"))
+    timing = publish(directory / "e2-cached.json", lambda p: p.write_bytes(b"{}"))
+    interrupted = publish(directory / "e2-integrated.tar", lambda p: p.write_bytes(b"partial"))
+    (directory / "e2-integrated.json.partial").write_bytes(b"interrupted timing export")
+    parity = publish(directory / "parity.json", lambda p: p.write_bytes(b"{}"))
+    receipt = receipt_for(
+        control,
+        directory,
+        [
+            {**checkpoint, "path": "assay/e2-cached.tar"},
+            {**timing, "path": "assay/e2-cached.json"},
+            {**interrupted, "path": "assay/e2-integrated.tar"},
+            {**parity, "path": "assay/parity.json"},
+        ],
+    )
+    saved = ledger(control, [receipt])["units"]
+    assert [row["id"] for row in saved] == [unit_id(2, "cached")]
     with pytest.raises(ValueError, match="metadata differs"):
         ledger({**control, "source_commit": "b" * 40}, [receipt])
     with pytest.raises(ValueError, match="protected"):
         ledger(control, [tmp_path / "f5-state"])
+
+
+def test_ledger_refuses_half_markers_foreign_and_duplicate_exports(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.postprocess import ledger
+
+    control = {"worlds": [2], "source_commit": "a" * 40}
+    directory = tmp_path / "exports" / "assay"
+    directory.mkdir(parents=True)
+    timing = publish(directory / "e2-cached.json", lambda p: p.write_bytes(b"{}"))
+    receipt = receipt_for(control, directory, [{**timing, "path": "assay/e2-cached.json"}])
+    with pytest.raises(ValueError, match="timing completion"):
+        ledger(control, [receipt])
+
+    publish(directory / "e99-cached.tar", lambda p: p.write_bytes(b"foreign"))
+    receipt = receipt_for(control, directory, [{**timing, "path": "assay/e2-cached.json"}])
+    with pytest.raises(ValueError, match="foreign assay"):
+        ledger(control, [receipt])
+
+
+def test_ledger_refuses_foreign_or_duplicate_inventory_and_linked_paths(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.postprocess import ledger
+
+    control = {"worlds": [2], "source_commit": "a" * 40}
+    directory = tmp_path / "exports" / "assay"
+    directory.mkdir(parents=True)
+    checkpoint = publish(directory / "e2-cached.tar", lambda p: p.write_bytes(b"checkpoint"))
+    timing = publish(directory / "e2-cached.json", lambda p: p.write_bytes(b"{}"))
+    valid = [
+        {**checkpoint, "path": "assay/e2-cached.tar"},
+        {**timing, "path": "assay/e2-cached.json"},
+    ]
+    receipt = receipt_for(
+        control, directory, valid + [{**checkpoint, "path": "assay/e2-foreign.tar"}]
+    )
+    with pytest.raises(ValueError, match="foreign receipt"):
+        ledger(control, [receipt])
+
+    receipt = receipt_for(control, directory, valid + [valid[0]])
+    with pytest.raises(ValueError, match="duplicate receipt"):
+        ledger(control, [receipt])
+
+    linked = directory / "e2-collection.tar"
+    linked.symlink_to(directory / "e2-cached.tar")
+    receipt = receipt_for(control, directory, valid)
+    with pytest.raises(ValueError, match="symlink"):
+        ledger(control, [receipt])
+
+
+def test_ledger_refuses_symlink_parents_manifest_and_sidecars(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.postprocess import ledger
+
+    control, _, receipt = completed_cached_receipt(tmp_path / "parent-source")
+    linked_parent = tmp_path / "linked-receipt-parent"
+    linked_parent.symlink_to(receipt.parent, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink"):
+        ledger(control, [linked_parent / receipt.name])
+
+    control, _, receipt = completed_cached_receipt(tmp_path / "manifest-link")
+    manifest = receipt.with_name("manifest.json")
+    target = receipt.with_name("manifest-target.json")
+    target.write_text(manifest.read_text())
+    manifest.unlink()
+    manifest.symlink_to(target)
+    with pytest.raises(ValueError, match="symlink"):
+        ledger(control, [receipt])
+
+    control, directory, receipt = completed_cached_receipt(tmp_path / "sidecar-link")
+    sidecar = Path(str(directory / "e2-cached.tar") + ".sha256")
+    target = directory.parent / "sidecar-target.sha256"
+    target.write_text(sidecar.read_text())
+    sidecar.unlink()
+    sidecar.symlink_to(target)
+    with pytest.raises(ValueError, match="symlink"):
+        ledger(control, [receipt])
+
+
+def test_path_guard_allows_harmless_hex_component(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.postprocess import allowed_path
+
+    harmless = tmp_path / "archive-f5a9"
+    harmless.mkdir()
+    assert allowed_path(harmless) == harmless.resolve()
 
 
 def test_source_or_recipe_drift_changes_verified_allocation() -> None:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,7 @@ class Recipe:
     horizon: int = 128
     minibatch: int = 256
     epochs: int = 1
-    episode_limit: int = 5000
+    episode_limit: int = 64
     gamma: float = 0.99
     gae_lambda: float = 0.95
     clip: float = 0.2
@@ -65,7 +65,54 @@ def allowed_mask(mask: torch.Tensor) -> torch.Tensor:
 
 def distribution(logits: torch.Tensor, mask: torch.Tensor) -> Categorical:
     """Stable masked categorical; illegal actions have exactly zero probability."""
-    return Categorical(logits=logits.masked_fill(~allowed_mask(mask), -torch.inf))
+    return Categorical(
+        logits=logits.masked_fill(~allowed_mask(mask), -torch.inf), validate_args=False
+    )
+
+
+# Explicit simulator state contract. Never infer an environment axis from E == S.
+ENV_FIELDS = (
+    "bodies",
+    "head_ptr",
+    "seg_count",
+    "length",
+    "alive",
+    "direction",
+    "boost_frames",
+    "frames_since_food",
+    "respawn_timer",
+    "_reward_prev_length",
+    "frame",
+    "rng_counter",
+    "rng_key",
+    "food_cells",
+    "food_present",
+    "corpse_food",
+    "food_count",
+    "_last_reward",
+    "_last_done",
+    "_last_death_cause",
+    "_last_kills",
+    "_last_food_ate",
+    "_last_ambient_food_ate",
+    "_last_corpse_food_ate",
+    "_last_transition_valid",
+    "_boosted_this_step",
+    "terminal_slots",
+    "capacity_overflow",
+)
+
+
+def world_subset(sim: DeviceSim, indices: torch.Tensor) -> DeviceSim:
+    """Compact only declared environment state; keep constants and metadata intact."""
+    out = object.__new__(DeviceSim)
+    out.__dict__ = sim.__dict__.copy()
+    out.E = indices.numel()
+    out.cfg = replace(sim.cfg, num_envs=out.E)
+    for name in ENV_FIELDS:
+        setattr(out, name, getattr(sim, name).index_select(0, indices))
+    r2_cache.inherit(out, sim)
+    return out
 
 
 class ActorCritic(nn.Module):
@@ -173,60 +220,79 @@ class ResidentAssay:
         )
         # Empty template and reset scratch are device-only; they never read historical roots.
         self.empty = self.sim.clone()
-        self.scratch = self.sim.clone()
+        self.collection_faults = torch.zeros(3, dtype=torch.bool, device=self.device)
         self._reset(torch.ones_like(self.episode, dtype=torch.bool), initial=True)
 
     @torch.no_grad()
     def _reset(self, mask: torch.Tensor, *, initial: bool = False) -> None:
         """Generate fresh device roots, then merge only reset rows (no host world copy)."""
+        indices = mask.nonzero(as_tuple=True)[0]
+        if not indices.numel():
+            return
         if not initial:
-            self.episode += mask.long()
-            self.reset_count += mask.sum()
-        if bool((self.episode >= self.recipe.max_episodes).any()):
-            raise RuntimeError("frozen reset allocation exhausted")
-        scratch = self.scratch
-        for name, value in self.empty.__dict__.items():
-            if isinstance(value, torch.Tensor):
-                getattr(scratch, name).copy_(value)
+            self.episode.index_add_(0, indices, torch.ones_like(indices))
+            self.reset_count += indices.numel()
+        self.collection_faults[1] |= (self.episode >= self.recipe.max_episodes).any()
+        scratch = world_subset(self.empty, indices)
         scratch._prepared = False
         scratch.alive.zero_()
         scratch.terminal_slots.zero_()
-        scratch.rng_key.copy_(self.keys[self.episode, torch.arange(self.sim.E, device=self.device)])
+        # A failed allocation is flagged on device and refused at the cycle boundary.
+        # Clamp only to avoid an asynchronous out-of-bounds access in this invalid cycle.
+        episodes = self.episode[indices].clamp_max(self.recipe.max_episodes - 1)
+        scratch.rng_key.copy_(self.keys[episodes, indices])
         scratch._respawn()
         scratch.terminal_slots[:, 0] = True
-        scratch.prepare()
-        if not bool(scratch.alive.all()):
-            raise RuntimeError("device spawn rejection budget exhausted")
-        for name, value in scratch.__dict__.items():
-            if isinstance(value, torch.Tensor) and value.ndim and value.shape[0] == self.sim.E:
-                target = getattr(self.sim, name)
-                target.copy_(
-                    torch.where(mask.reshape((-1,) + (1,) * (value.ndim - 1)), value, target)
-                )
-        self.sim._prepared = True
-        self.age.masked_fill_(mask, 0)
+        self.collection_faults[2] |= ~scratch.alive.all()
+        for name in ENV_FIELDS:
+            getattr(self.sim, name).index_copy_(0, indices, getattr(scratch, name))
+        self.sim._prepared = False
+        self.age.index_fill_(0, indices, 0)
         r2_cache.bump(self.sim)
+        if initial:
+            self._check_collection_faults()
+
+    def _check_collection_faults(self) -> None:
+        """One scalar transfer per horizon, never one check per tick/reset."""
+        faults = self.collection_faults.cpu().tolist()
+        for failed, reason in zip(
+            faults,
+            (
+                "physical body capacity exceeded: assay INVALID",
+                "frozen reset allocation exhausted",
+                "device spawn rejection budget exhausted",
+            ),
+        ):
+            if failed:
+                raise RuntimeError(reason)
 
     @torch.no_grad()
-    def observe(self) -> tuple[tuple[torch.Tensor, ...], torch.Tensor]:
-        self.sim.prepare()
+    def observe(
+        self, sim: DeviceSim | None = None
+    ) -> tuple[tuple[torch.Tensor, ...], torch.Tensor]:
+        sim = self.sim if sim is None else sim
+        sim.prepare()
         rows = torch.stack(
-            (torch.arange(self.sim.E, device=self.device), torch.zeros_like(self.age)), dim=1
+            (
+                torch.arange(sim.E, device=self.device),
+                torch.zeros(sim.E, dtype=torch.long, device=self.device),
+            ),
+            dim=1,
         )
-        legal = self.sim.advisory_mask()[:, 0]
+        legal = sim.advisory_mask()[:, 0]
         features = (
             v8_decide(
-                self.sim,
+                sim,
                 rows,
-                torch.zeros((self.sim.E, 6), device=self.device),
+                torch.zeros((sim.E, 6), device=self.device),
                 legal,
                 8.0,
                 features=True,
             )
             .feature_planes()
-            .reshape(self.sim.E, 30)
+            .reshape(sim.E, 30)
         )
-        return build_observation(self.sim, rows, features), legal
+        return build_observation(sim, rows, features), legal
 
     @torch.no_grad()
     def collect(self) -> dict[str, Any]:
@@ -254,24 +320,24 @@ class ResidentAssay:
             # DevicePolicy inference tensors are consumed by dynamics only, never by autograd.
             self.sim.step(self.policy.actions(self.sim, action))
             self.policy.after_step(self.sim)
-            if bool(self.sim.capacity_overflow.any()):
-                raise RuntimeError("physical body capacity exceeded: assay INVALID")
+            self.collection_faults[0] |= self.sim.capacity_overflow.any()
             self.age += 1
             terminal = self.sim._last_done[:, 0].clone()
             truncated = (self.age >= self.recipe.episode_limit) & ~terminal
             fields["reward"].append(self.sim._last_reward[:, 0].clone())
             fields["terminal"].append(terminal)
             fields["truncated"].append(truncated)
-            # Prepare before reset, so one global prepared flag remains valid for every row.
-            self.sim.prepare()
             bootstrap = torch.zeros_like(value)
-            if bool(truncated.any()):
-                next_obs, _ = self.observe()
-                bootstrap.copy_(self.actor(*next_obs)[1])
+            # Only live time-limit rows are observed/forwarded. Deaths remain untouched
+            # until the joint reset, and can never enter v8 or the critic here.
+            trunc_indices = truncated.nonzero(as_tuple=True)[0]
+            if trunc_indices.numel():
+                subset = world_subset(self.sim, trunc_indices)
+                next_obs, _ = self.observe(subset)
+                bootstrap.index_copy_(0, trunc_indices, self.actor(*next_obs)[1])
             trunc_values.append(bootstrap)
-            reset = terminal | truncated
-            if bool(reset.any()):
-                self._reset(reset)
+            self._reset(terminal | truncated)
+        self._check_collection_faults()
         final_obs, _ = self.observe()
         final_value = self.actor(*final_obs)[1]
         result = {name: torch.stack(items) for name, items in fields.items()}
@@ -298,6 +364,7 @@ class ResidentAssay:
         adv = flat["advantage"]
         adv = (adv - adv.mean()) / adv.std(unbiased=False).clamp_min(1e-8)
         last: dict[str, torch.Tensor] = {}
+        nonfinite = torch.zeros((), dtype=torch.bool, device=self.device)
         for _ in range(self.recipe.epochs):
             order = torch.randperm(rows, device=self.device, generator=self.generator)
             for start in range(0, rows, self.recipe.minibatch):
@@ -311,15 +378,17 @@ class ResidentAssay:
                 ).mean()
                 value_loss = (value - flat["returns"][ix]).square().mean()
                 loss = policy_loss + 0.5 * value_loss - 0.01 * dist.entropy().mean()
-                if not bool(torch.isfinite(loss)):
-                    raise RuntimeError("nonfinite PPO loss")
+                nonfinite |= ~torch.isfinite(loss)
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 norm = nn.utils.clip_grad_norm_(
-                    self.actor.parameters(), 0.5, error_if_nonfinite=True
+                    self.actor.parameters(), 0.5, error_if_nonfinite=False
                 )
+                nonfinite |= ~torch.isfinite(norm)
                 self.optimizer.step()
                 last = {"loss": loss.detach(), "grad_norm": norm.detach()}
+        if bool(nonfinite):
+            raise RuntimeError("nonfinite PPO loss/gradient: assay INVALID")
         self.cycle += 1
         return last
 
@@ -337,6 +406,7 @@ class ResidentAssay:
                 "episode": self.episode,
                 "age": self.age,
                 "reset_count": self.reset_count,
+                "collection_faults": self.collection_faults,
                 "cycle": self.cycle,
                 "generator": self.generator.get_state(),
                 "torch_rng": torch.get_rng_state(),
@@ -355,9 +425,12 @@ class ResidentAssay:
         self.actor.load_state_dict(state["actor"])
         self.optimizer.load_state_dict(state["optimizer"])
         for name, value in state["sim"].items():
-            setattr(self.sim, name, value)
-        for name in ("keys", "episode", "age", "reset_count", "cycle"):
-            setattr(self, name, state[name])
+            setattr(
+                self.sim, name, value.to(self.device) if isinstance(value, torch.Tensor) else value
+            )
+        for name in ("keys", "episode", "age", "reset_count", "collection_faults", "cycle"):
+            value = state[name]
+            setattr(self, name, value.to(self.device) if isinstance(value, torch.Tensor) else value)
         self.generator.set_state(state["generator"].cpu())
         torch.set_rng_state(state["torch_rng"].cpu())
         if self.device.type == "cuda":

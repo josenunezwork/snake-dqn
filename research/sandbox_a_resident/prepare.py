@@ -70,8 +70,8 @@ def prepare(
     packet: Path, commit: str, checkpoint: Path, registry: Path, estimate_seconds: float
 ) -> None:
     """Write the full broker packet plus exactly ten physical sandbox JSON lines."""
-    if not math.isfinite(estimate_seconds) or estimate_seconds <= 0 or estimate_seconds > 3600:
-        raise ValueError("positive measured estimate within base one-hour envelope required")
+    if not math.isfinite(estimate_seconds) or estimate_seconds <= 0:
+        raise ValueError("positive finite engineering forecast required")
     if digest(checkpoint) != B8_SHA:
         raise ValueError("published B8 s3 hash differs")
     transport = subprocess.check_output(
@@ -95,7 +95,7 @@ def prepare(
         "epochs": 1,
         "cycles": 3,
         "warmups": 1,
-        "episode_limit": 5000,
+        "episode_limit": 64,
         "tiny": False,
         "timeout_seconds": estimate_seconds * 2,
     }
@@ -116,10 +116,10 @@ def prepare(
             if unit_id(worlds, phase) not in verified:
                 required += [f"assay/e{worlds}-{phase}.{suffix}" for suffix in ("tar", "json")]
     output = Path(
-        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-01/output"
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-02/output"
     )
     manifest = {
-        "job_id": "sandbox-a-resident-20261026-01",
+        "job_id": "sandbox-a-resident-20261026-02",
         "commit": commit,
         "script": "research/sandbox_a_resident/job.sh",
         "device": "cuda",

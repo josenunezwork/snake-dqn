@@ -162,11 +162,14 @@ def run_cell(
             runner.update(data)
     warmup_end = sync(device)
     cycles = []
+    boundary_counts = torch.zeros(2, dtype=torch.long, device=runner.device)
     for index in range(control["cycles"]):
         if time.monotonic() >= deadline:
             raise TimeoutError("runaway deadline during fixed cycles")
         started = sync(device)
         data = cached if phase == "cached" else runner.collect()
+        if phase != "cached":
+            boundary_counts += torch.stack((data["terminal"].sum(), data["truncated"].sum()))
         collected = sync(device)
         if phase != "collection":
             runner.update(data)
@@ -192,6 +195,9 @@ def run_cell(
         )
     rows = worlds * recipe.horizon * control["cycles"]
     elapsed = sum(row["seconds"] for row in cycles)
+    terminal_rows, truncated_rows = boundary_counts.cpu().tolist()
+    if not control["tiny"] and phase != "cached" and not truncated_rows:
+        raise RuntimeError("INVALID: measured phase did not exercise time-limit bootstrap")
     report = {
         "schema": "sandbox-a-timing/v1",
         "label": "simulator-D",
@@ -208,6 +214,8 @@ def run_cell(
         "scope": "one hero plus five greedy_food anchors; not P1 recipe equivalence",
         "host_tensor_staging_in_cycle": False,
         "reset_count": int(runner.reset_count),
+        "measured_terminal_rows": terminal_rows,
+        "measured_truncated_rows": truncated_rows,
         "efficacy_selection": False,
         "peak_device_allocated_bytes": (
             torch.cuda.max_memory_allocated() if device.startswith("cuda") else None

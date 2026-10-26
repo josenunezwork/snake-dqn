@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 
 from research.sandbox_a_resident.units import (
@@ -17,10 +18,103 @@ from research.sandbox_a_resident.units import (
 
 
 def allowed_path(path: Path) -> Path:
+    """Refuse protected inputs and symlinks before any metadata read."""
+    absolute = path.absolute()
+    if any(candidate.is_symlink() for candidate in (absolute, *absolute.parents)):
+        raise ValueError("symlink input path refused before read")
     resolved = path.resolve()
-    if any(token in str(resolved).lower() for token in ("f5", "d4096", "t34-round0-study-01")):
+    tokens = re.findall(r"[a-z0-9]+", str(resolved).lower())
+    protected_campaign = ("t34", "round0", "study", "01")
+    if any(token in tokens for token in ("f5", "d4096")) or any(
+        tokens[index : index + 4] == list(protected_campaign) for index in range(len(tokens) - 3)
+    ):
         raise ValueError("protected input path refused before read")
     return resolved
+
+
+def read_json(path: Path) -> dict:
+    """Read JSON only after applying the immutable-input guard."""
+    return json.loads(allowed_path(path).read_text())
+
+
+def checked_descriptor(path: Path, identity: str) -> dict:
+    """Verify every payload sidecar is a permitted regular input before opening it."""
+    for candidate in (path, Path(str(path) + ".sha256"), Path(str(path) + ".complete")):
+        allowed_path(candidate)
+    return verified_descriptor(path, identity)
+
+
+def expected_stems(control: dict) -> set[str]:
+    return {f"e{worlds}-{phase}" for worlds in control["worlds"] for phase in PHASES}
+
+
+def export_stem(path: str) -> str | None:
+    """Return the logical unit stem for a direct assay export path."""
+    if not path.startswith("assay/") or "/" in path[len("assay/") :]:
+        return None
+    name = path[len("assay/") :]
+    for suffix in (
+        ".tar.sha256",
+        ".json.sha256",
+        ".tar.complete",
+        ".json.complete",
+        ".tar.partial",
+        ".json.partial",
+        ".tar",
+        ".json",
+    ):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return None
+
+
+def terminal_metadata(path: str) -> bool:
+    """Recognize fixed metadata exports and their atomic-publication sidecars."""
+    return path in {
+        f"assay/{name}{suffix}"
+        for name in ("summary.json", "parity.json")
+        for suffix in ("", ".sha256", ".complete", ".partial")
+    }
+
+
+def checked_exports(
+    receipt: dict, control: dict, *, allow_terminal_metadata: bool = False
+) -> dict[str, dict]:
+    """Require a unique, in-allocation export inventory before inspecting payloads."""
+    rows = receipt.get("exports", [])
+    if not isinstance(rows, list):
+        raise ValueError("receipt exports must be an array")
+    exports: dict[str, dict] = {}
+    stems = expected_stems(control)
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("path"), str):
+            raise ValueError("malformed receipt export")
+        path = row["path"]
+        if path in exports:
+            raise ValueError("duplicate receipt export path")
+        exports[path] = row
+        if (
+            path.startswith("assay/")
+            and export_stem(path) not in stems
+            and not (allow_terminal_metadata and terminal_metadata(path))
+        ):
+            raise ValueError("foreign receipt export")
+    return exports
+
+
+def checked_assay_directory(directory: Path, control: dict) -> None:
+    """Reject partial, foreign, and linked assay files before building a resume ledger."""
+    directory = allowed_path(directory)
+    if not directory.is_dir():
+        raise ValueError("assay export directory missing")
+    stems = expected_stems(control)
+    for candidate in directory.iterdir():
+        allowed_path(candidate)
+        path = f"assay/{candidate.name}"
+        if not candidate.is_file() or (
+            export_stem(path) not in stems and not terminal_metadata(path)
+        ):
+            raise ValueError("foreign assay export")
 
 
 def ledger(control: dict, receipts: list[Path]) -> dict:
@@ -28,29 +122,43 @@ def ledger(control: dict, receipts: list[Path]) -> dict:
     found = {}
     for receipt_path in receipts:
         receipt_path = allowed_path(receipt_path)
-        receipt = json.loads(receipt_path.read_text())
+        receipt = read_json(receipt_path)
         manifest_path = receipt_path.parent / "manifest.json"
-        manifest = json.loads(manifest_path.read_text())
+        manifest = read_json(manifest_path)
         if (
             receipt.get("stop_verified") is not True
-            or digest(manifest_path) != receipt.get("manifest_sha256")
+            or digest(allowed_path(manifest_path)) != receipt.get("manifest_sha256")
             or json.loads(manifest.get("env", {}).get("SANDBOX_A_CONTROL_JSON", "null")) != control
             or receipt.get("commit") != control.get("source_commit")
             or manifest.get("commit") != control.get("source_commit")
         ):
             raise ValueError("ledger source/allocation/release metadata differs")
-        exports = {r["path"]: r for r in receipt.get("exports", [])}
-        directory = receipt_path.parent / "exports" / "assay"
+        exports = checked_exports(receipt, control, allow_terminal_metadata=True)
+        directory = allowed_path(receipt_path.parent / "exports" / "assay")
+        checked_assay_directory(directory, control)
         for worlds in control["worlds"]:
             for phase in PHASES:
                 path = directory / f"e{worlds}-{phase}.tar"
-                if not Path(str(path) + ".complete").exists():
+                tar_complete = Path(str(path) + ".complete")
+                json_path = path.with_suffix(".json")
+                json_complete = Path(str(json_path) + ".complete")
+                tar_complete_exists = allowed_path(tar_complete).exists()
+                json_complete_exists = allowed_path(json_complete).exists()
+                if json_complete_exists and not tar_complete_exists:
+                    raise ValueError(
+                        "timing completion marker without checkpoint completion marker"
+                    )
+                if not tar_complete_exists:
+                    continue
+                if not json_complete_exists:
+                    # A wall-clock stop can happen after TAR publication but before timing export.
+                    # It is incomplete and must be retried as a fresh receipt/output attempt.
                     continue
                 identity = unit_id(worlds, phase)
                 if identity in found:
                     raise ValueError("duplicate completed unit")
-                checkpoint = verified_descriptor(path, identity)
-                timing = verified_descriptor(path.with_suffix(".json"), identity)
+                checkpoint = checked_descriptor(path, identity)
+                timing = checked_descriptor(json_path, identity)
                 for descriptor in (checkpoint, timing):
                     relative = "assay/" + Path(descriptor["path"]).name
                     entry = exports.get(relative)
@@ -72,7 +180,7 @@ def aggregate(control: dict, receipts: list[Path]) -> dict:
     elapsed = 0.0
     for receipt_path in receipts:
         receipt_path = allowed_path(receipt_path)
-        receipt = json.loads(receipt_path.read_text())
+        receipt = read_json(receipt_path)
         if (
             receipt.get("status") != "PASS"
             or receipt.get("stop_verified") is not True
@@ -88,17 +196,22 @@ def aggregate(control: dict, receipts: list[Path]) -> dict:
         if not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds <= 0:
             raise ValueError("receipt elapsed time invalid")
         elapsed += seconds
-        manifest = json.loads((receipt_path.parent / "manifest.json").read_text())
-        if digest(receipt_path.parent / "manifest.json") != receipt.get("manifest_sha256"):
+        manifest_path = receipt_path.parent / "manifest.json"
+        manifest = read_json(manifest_path)
+        if digest(allowed_path(manifest_path)) != receipt.get("manifest_sha256"):
             raise ValueError("receipt manifest hash differs")
-        exports = {row["path"]: row for row in receipt["exports"]}
-        root = receipt_path.parent / "exports" / "assay"
+        exports = checked_exports(receipt, control, allow_terminal_metadata=True)
+        root = allowed_path(receipt_path.parent / "exports" / "assay")
         for name in ("summary.json", "parity.json"):
             row = exports.get(f"assay/{name}")
             path = root / name
-            if row is None or digest(path) != row["sha256"] or path.stat().st_size != row["size"]:
+            if (
+                row is None
+                or digest(allowed_path(path)) != row["sha256"]
+                or allowed_path(path).stat().st_size != row["size"]
+            ):
                 raise ValueError("unverified summary/parity export")
-        summary = json.loads((root / "summary.json").read_text())
+        summary = read_json(root / "summary.json")
         if (
             summary.get("allocation") != allocation(control)
             or summary.get("parity", {}).get("status") != "PASS"
@@ -115,8 +228,8 @@ def aggregate(control: dict, receipts: list[Path]) -> dict:
                 row = exports.get(f"assay/{stem}.{suffix}")
                 if (
                     row is None
-                    or digest(path) != row["sha256"]
-                    or path.stat().st_size != row["size"]
+                    or digest(allowed_path(path)) != row["sha256"]
+                    or allowed_path(path).stat().st_size != row["size"]
                 ):
                     raise ValueError("unverified result/checkpoint")
             found[identity] = result
@@ -146,7 +259,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("inputs", type=Path, nargs="+")
     args = parser.parse_args()
-    control = json.loads(allowed_path(args.control).read_text())
+    control = read_json(args.control)
     result = (
         ledger(control, args.inputs) if args.mode == "ledger" else aggregate(control, args.inputs)
     )
