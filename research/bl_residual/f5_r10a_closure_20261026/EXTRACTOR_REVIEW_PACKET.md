@@ -1,0 +1,30 @@
+# F5 R10a status extractor review packet
+
+**SUBMITTED FOR INDEPENDENT ACCEPTANCE — REAL INPUT UNRUN.** No acceptance receipt or adoption is created. This packet binds the exact selective NPZ extractor and fixed access contract.
+
+| Review input | Path | SHA-256 |
+|---|---|---|
+| source | `research/bl_residual/f5_status_extractor.py` | `cff47212a96be17a1d1636085f5f8d97bc8efe17b702dd346b31238c62fb4bb9` |
+| tests | `tests/test_f5_status_extractor.py` | `297bc46a82925667bb23ce911f5f6c9f2aaac9f835b964bb678606098544f6c6` |
+| contract | `research/bl_residual/f5_r10a_closure_20261026/extractor-contract.json` | `64b9489679503f9a952e12da67e34e05f337bb791536981dbc661d21081a8104` |
+| inventory | `research/bl_residual/f5_r10a_closure_20261026/extractor-input-inventory.json` | `ed30150f323fe38f830da2233319ea4f17da0a26a7547a159e75701143f0a59e` |
+
+Authority is Astra ruling `d6e2f029da689bbbe44e6c9c337ad989202a36af1fc26bcadad2f6f3be7e4fa6`; the unchanged original annex is `8ee06291b23a1ef8c657b59a4f4990349ae4c524a680c47f06785a47d227f764`. The frozen inventory contains all 960 eligible selected lives and nine original ordinary-only siblings, exact original life allocation order/ancestry/fold and ledger payload identities. No source reference in that inventory was followed.
+
+The sole real-input candidate is `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/d1024-pack-04/inputs/train-1024.npz`, SHA-256 `6906bffc7241de568965c1a91f4faebe799895ee0b4650e59b20e43db1dac494`, exactly 45,397,643 bytes. Pack/control/template metadata and detached source seals establish this identity without opening, statting or hashing the NPZ. At pack commit `de5bde2d7866eb6cd01060f7c2fe4ed8d1253759`, `f4_d1024_package.py` combines the two original union catalogs and passes the original selected-life and parent sets to `f4_d256_package._table`; that conversion retains ordinary-only sibling rows. Correspondence is part of the required independent acceptance.
+
+The historical original JSON lives lack direct served selectability. There is no raw-JSON adapter: reconstructing a mask from observations is outside this contract. The converted NPZ serializes the direct advisory mask. The extractor validates the exact seventeen-member ZIP schema and opens only eight members: `row_id`, `life_id`, `parent_world`, `ordinary`, `natural_stream`, `legal`, `action_mask`, `status`. The other nine members are never opened. Header validation is structural metadata only: bounded ZIP directory and NPY header, primitive role-specific dtype, exact dimensions and byte counts, C order and pre-allocation checks for all eight members precede all value decoding.
+
+Only identity, ancestry/allocation order, original stratum, physical legality, resolved served selectability and EXACT/NONEXACT status are exported. The normal-only all-false advisory fallback is preserved. Output contains the complete metadata row/action inventory, every missing ordinary legal selectable action unit U, reconciliation, separate inventory/U hashes and source bindings. It retains source row index separately from original life allocation/row order. No outcome, observation, Q, death/survival, mass, return, margin, model output, snapshot, diagnostic count is decoded/exported. Known status literals are decoded solely for schema validation and EXACT/nonexact projection; no nonexact subtype is exported or counted.
+
+Source-derived limits: selected-life doom roots <=90, ordinary roots <=8; 960*98+9*8=94,152 total rows, <=7,752 ordinary rows, <=46,512 ordinary action units. Original ID widths bound Unicode allocation; allowed arrays total <=116,560,176 bytes. Source is exactly 45,397,643 bytes, headers <=4,096 bytes, ZIP directory <=16,384 bytes, reads <=65,536 bytes per chunk; one process/thread, monotonic 120-second parser guard. This guard is prospective, not a measured real-input forecast. No full-container or forbidden-member deserializer is used. U is never truncated to 46,080. Conditional on later COV selection: U=0 -> HOLD_NO_TARGET; U>46,080 -> HOLD_COVERAGE_IMPLEMENTATION. Otherwise the later R4 selector remains required.
+
+The CLI refuses all input modes. The later operator API `extract_accepted(acceptance)` computes exact source/test/contract/inventory pins, requires an independent source-bound acceptance object, validates the frozen source and exclusions, and only then opens the fixed candidate via no-follow directory FDs. It hashes/checks the same open source descriptor, checks immutability after projection and never follows dynamic references. It has not been invoked with an accepted receipt. The synthetic helper accepts only OS-tempfile fixtures; no historical path can enter it.
+
+**Synthetic evidence:** 34 passed in 0.72 seconds under nice 15, one math thread and no worker pool. Tests cover both strata and full enumeration; arbitrary malformed/undecodable forbidden-member mutation plus known nonexact-subtype invariance; identical actual member-open and allowed-array-decode traces; duplicate/unknown/missing ZIP members before member opens; enormous/object/width/shape/Fortran/trailing-byte NPY refusal before array decoding; string/identity/ancestry contradictions; original allocation order; exclusions and parent symlinks; deadline/error redaction; source-bound acceptance pin mismatch before real-source open; U=0 and complete U=46,512 above the work ceiling.
+
+```bash
+nice -n 15 env PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -m pytest -q -o addopts= -p no:xdist tests/test_f5_status_extractor.py
+```
+
+Independent acceptance must bind the four exact pins above and the ruling before real extraction. Source code review is evidence only; it does not issue that acceptance. The resulting metadata inventory must subsequently be sealed before independent adoption. No F4 post-mortem, mechanism selection, label completion, fit, Colab, dispatch or serving change follows from this submission.
