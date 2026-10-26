@@ -285,6 +285,8 @@ def source_inventory(repo: Path = ROOT) -> dict[str, str]:
             "f5_rules.py",
             "f5_protocol.py",
             "f5_environment.py",
+            "f5_environment_v5.py",
+            "f5_environment_reference.py",
             "f5_qualification.py",
             "f5_progress.py",
             "f5_timing_resume.py",
@@ -314,6 +316,7 @@ def source_inventory(repo: Path = ROOT) -> dict[str, str]:
                         pending.append(source)
     seen.add(repo / "research/bl_residual/f5_colab.sh")
     seen.add(repo / "research/bl_residual/f5_environment_schema_v5.json")
+    seen.add(repo / "research/bl_residual/f5_environment_schema_v6.json")
     seen.add(repo / "research/bl_residual/f5_calibration_schema_v1.json")
     seen.add(repo / "research/apex_safety_20260926/deployment.yaml")
     seen.update((repo / "configs").glob("*.yaml"))
@@ -960,9 +963,9 @@ def build(
                 json.dumps(hashes, sort_keys=True).encode()
             ).hexdigest(),
             "loss_sha256": hashes["research/bl_residual/f5_fit.py"],
-            "environment_sha256": (
-                "bc05167c188680478663235f2b3dcfb70d" "7959e9d392071384409ef958b0f0f5"
-            ),
+            "environment_sha256": hashlib.sha256(
+                json.dumps(policy, sort_keys=True).encode()
+            ).hexdigest(),
             "allocation_sha256": ALLOCATION_SHA,
             "corpus_sha256": None if prepared_input is None else prepared_input["corpus_sha256"],
         },

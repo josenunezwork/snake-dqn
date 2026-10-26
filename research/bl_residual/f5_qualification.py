@@ -507,7 +507,7 @@ def run(
     verified_units: dict[int | str, dict[str, Any]] = {}
     resume_binding: dict[str, str] | None = None
     if not transport_only or canary_tiny_workload:
-        from research.bl_residual import f5_timing_resume
+        from research.bl_residual import f5_environment, f5_timing_resume
 
         if ledger is None:
             ledger = inputs / "verified-ledger.json"
@@ -519,8 +519,11 @@ def run(
         input_sha256 = control.get("timing_input_sha256")
         if not isinstance(input_sha256, str) or len(input_sha256) != 64:
             _refuse("full timing requires a sealed non-ledger input inventory digest")
+        timing_namespace = control.get("timing_namespace")
+        if not isinstance(timing_namespace, str) or not timing_namespace:
+            _refuse("full timing requires an explicit sealed v6 timing namespace")
         resume_binding = f5_timing_resume.identity(
-            namespace="bl-residual-f5-timing-recovery-20261026",
+            namespace=timing_namespace,
             allocation=sealed.allocation_sha256,
             source_sha256=sealed.source_sha256,
             environment_sha256=sealed.environment_sha256,
@@ -548,6 +551,26 @@ def run(
     # Revisit the first produced tiny fixture after scanning it. This proves an
     # actual skip through the ordinary loop, then produces the second fixture.
     loop_rows = [active_rows[0], *active_rows] if canary_tiny_workload else active_rows
+    # A calibration-only completion is still a new workload in this assignment.
+    # It cannot inherit parity merely because every timing fixture was skipped.
+    calibration_missing = (
+        not transport_only
+        and resume_binding is not None
+        and f5_timing_resume.CALIBRATION_KEY not in verified_units
+    )
+    fixture_missing = any(int(row["allocation_index"]) not in verified_units for row in loop_rows)
+    if calibration_missing and not fixture_missing:
+        if progress is not None:
+            progress.phase("cuda-parity")
+        observation, mask = _native_observation(int(rows[0]["seed"]))
+        cuda_q, cuda_action = _select_cuda(model, observation, mask)
+        cpu_q, cpu_action = _cpu_action(model, observation, mask)
+        model = model.cuda().eval()
+        if (
+            not np.allclose(cuda_q, cpu_q, rtol=PARITY_RTOL, atol=PARITY_ATOL)
+            or cuda_action != cpu_action
+        ):
+            _refuse("same-source CPU/CUDA B8 parity differs")
     for completed, row in enumerate(loop_rows):
         if canary_tiny_workload and completed == 1:
             # Exercise the identical producer -> immutable ledger -> scanner
@@ -624,6 +647,14 @@ def run(
             sample["environment_after"] = _export_assignment_boundary(
                 assignment, root, f"after-fixture-{key}.json"
             )
+            sample["kernel_provenance"] = {
+                "assignment_raw_sha256": f5_environment.receipt_sha256(assignment),
+                "os_kernel": dict(assignment["os_kernel"]),
+                "platform": assignment["platform"],
+                "gpu_uuid": assignment["gpu_uuid"],
+                "before": dict(sample["environment_before"]),
+                "after": dict(sample["environment_after"]),
+            }
         samples.append(sample)
         if resume_binding is not None:
             from research.bl_residual import f5_timing_resume
@@ -660,6 +691,14 @@ def run(
             calibration["environment_after"] = _export_assignment_boundary(
                 assignment, root, "after-calibration.json"
             )
+            calibration["kernel_provenance"] = {
+                "assignment_raw_sha256": f5_environment.receipt_sha256(assignment),
+                "os_kernel": dict(assignment["os_kernel"]),
+                "platform": assignment["platform"],
+                "gpu_uuid": assignment["gpu_uuid"],
+                "before": dict(calibration["environment_before"]),
+                "after": dict(calibration["environment_after"]),
+            }
             completed_units.append(
                 f5_timing_resume.publish_unit(
                     root, resume_binding, f5_timing_resume.CALIBRATION_KEY, calibration

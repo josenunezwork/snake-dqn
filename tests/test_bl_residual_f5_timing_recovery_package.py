@@ -18,7 +18,8 @@ def test_predecessor_environment_metadata_must_match_manifest(tmp_path: Path) ->
         "sha256": package.file_sha256(path),
         "size_bytes": path.stat().st_size,
     }
-    assert package._prior_environment_control({"inputs": [row]}) == ({}, {})
+    reference = package._prior_environment_control({"inputs": [row]})
+    assert reference["kind"] == "PINNED_V5_SUCCESS_COMPARISON_ONLY"
     path.write_bytes(b'{"environment_policy": {}, "environment_capture": {"changed": true}}')
     with pytest.raises(ValueError, match="hash or size differs"):
         package._prior_environment_control({"inputs": [row]})
@@ -101,7 +102,6 @@ def test_control_and_empty_ledger_bind_the_timing_recovery_identity() -> None:
         inputs,
         input_sha,
         "4" * 64,
-        {"typed": "policy"},
         {"typed": "capture"},
         "5" * 64,
     )
@@ -109,7 +109,7 @@ def test_control_and_empty_ledger_bind_the_timing_recovery_identity() -> None:
         namespace=package.NAMESPACE,
         allocation=package.ALLOCATION_SHA256,
         source_sha256=control["identity"]["source_sha256"],
-        environment_sha256=package.ENVIRONMENT_SHA256,
+        environment_sha256=package._environment_sha256(),
         input_sha256=input_sha,
     )
     assert package.empty_ledger(bound)["units"] == []

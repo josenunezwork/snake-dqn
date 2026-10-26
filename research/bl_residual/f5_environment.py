@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import csv
+import ctypes
 import hashlib
 import importlib.metadata
 import io
@@ -27,9 +28,13 @@ from urllib.parse import unquote, urlparse
 import numpy as np
 import torch
 
-SCHEMA = "bl-residual-f5-environment-receipt/v5"
+SCHEMA = "bl-residual-f5-environment-receipt/v6"
 AMENDMENT_SHA256 = "7eda19efb72f89a7e2269d40863288f9295358f2566f3a02d3ca4d3c11933359"
 ADOPTED_AMENDMENT_SHA256 = "a1dc92ffb8fa341fb51738a56fe0097d75e15b0aff7194940c12979adbb04d62"
+KERNEL_PROVENANCE_AMENDMENT_SHA256 = (
+    "9b0f204d8f5096264a77934d6ef3b0c17a9d6911ec5b916140a8becb99de2d17"
+)
+KERNEL_PROVENANCE_POLICY_SHA256 = "7ee2cc36c91341cf63251a956c6b1c4955f230dc06a4257dce2d6b861c5c2310"
 
 # The implementation packet carries the digest for this JSON as a source pin.
 # It is intentionally a fixed list: a new capture field requires a reviewed
@@ -40,6 +45,7 @@ REQUIRED_TOP_LEVEL = frozenset(
         "capture_status",
         "schema_sha256",
         "platform",
+        "libc",
         "python",
         "cpu",
         "cpu_count",
@@ -96,6 +102,13 @@ CONTENT_RECEIPT_KEYS = frozenset({"raw_sha256", "canonical_sha256"})
 ROOT_BOUND_SCRIPT_RECEIPT_KEYS = frozenset({"raw_base64", "raw_sha256", "canonical_sha256"})
 LOCKED_WHEEL_KEYS = frozenset({"filename", "raw_url", "canonical_url", "sha256"})
 OS_KERNEL_KEYS = frozenset({"system", "node", "release", "version", "machine", "processor"})
+LIBC_KEYS = frozenset({"implementation", "version"})
+QUALIFIED_KERNEL_TUPLES = frozenset(
+    {
+        ("6.6.122+", "#1 SMP Thu Apr 30 18:17:14 UTC 2026"),
+        ("6.6.159+", "#1 SMP Thu Oct 22 03:07:54 UTC 2026"),
+    }
+)
 GPU_DRIVER_KEYS = frozenset({"name", "uuid", "driver_version", "compute_cap", "memory_total"})
 THREAD_KEYS = frozenset({"intra", "inter"})
 NUMERIC_CONTROL_KEYS = frozenset(
@@ -139,9 +152,18 @@ class F5CrossAssignmentRefusal(F5EnvironmentRefusal):
         self.diagnostic = diagnostic
 
 
+def _kernel_provenance_policy_digest() -> str:
+    """Hash the amendment plus exactly the only prospectively qualified tuples."""
+    payload = {
+        "amendment_sha256": KERNEL_PROVENANCE_AMENDMENT_SHA256,
+        "qualified_kernel_tuples": [list(item) for item in sorted(QUALIFIED_KERNEL_TUPLES)],
+    }
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
 def schema_path() -> Path:
     """Return the frozen, source-pinned classification schema."""
-    return Path(__file__).with_name("f5_environment_schema_v5.json")
+    return Path(__file__).with_name("f5_environment_schema_v6.json")
 
 
 def schema_sha256() -> str:
@@ -151,11 +173,15 @@ def schema_sha256() -> str:
 
 def policy_binding() -> dict[str, str]:
     """Return the exact prospective control binding for this comparison policy."""
+    if _kernel_provenance_policy_digest() != KERNEL_PROVENANCE_POLICY_SHA256:
+        raise F5EnvironmentRefusal("F5 kernel provenance policy digest differs")
     return {
         "schema": SCHEMA,
         "schema_sha256": schema_sha256(),
         "draft_amendment_sha256": AMENDMENT_SHA256,
         "adopted_amendment_sha256": ADOPTED_AMENDMENT_SHA256,
+        "kernel_provenance_amendment_sha256": KERNEL_PROVENANCE_AMENDMENT_SHA256,
+        "kernel_provenance_policy_sha256": KERNEL_PROVENANCE_POLICY_SHA256,
     }
 
 
@@ -180,6 +206,8 @@ def validate_schema_artifact() -> None:
         artifact.get("schema") != SCHEMA
         or not isinstance(classification, dict)
         or set(classification) != required
+        or artifact.get("kernel_provenance_amendment_sha256") != KERNEL_PROVENANCE_AMENDMENT_SHA256
+        or artifact.get("kernel_provenance_policy_sha256") != KERNEL_PROVENANCE_POLICY_SHA256
     ):
         raise F5EnvironmentRefusal("F5 environment schema classification is incomplete")
     leaves = [
@@ -268,6 +296,50 @@ def normalize_smi_uuid(smi_uuid: str) -> str:
     return normalized
 
 
+def _validated_platform_release_projection(receipt: Mapping[str, Any]) -> str:
+    """Return the sole v6 platform component eligible for projection.
+
+    Linux's platform string is evidence, rather than a convenient display
+    value.  The only accepted profile is the exact composition emitted for the
+    qualified Linux/x86_64/glibc runtime.  Building the expected full string
+    from independently retained fields avoids substring replacement, loose
+    parsing, and a forged mutually-consistent kernel/platform pair.
+    """
+    kernel = _exact_mapping(receipt.get("os_kernel"), OS_KERNEL_KEYS, "os_kernel")
+    libc = _exact_mapping(receipt.get("libc"), LIBC_KEYS, "libc")
+    for key in ("system", "release", "version", "machine", "processor"):
+        value = kernel[key]
+        if not isinstance(value, str) or (key != "processor" and not value):
+            raise F5EnvironmentRefusal(f"F5 environment os_kernel.{key} is malformed")
+    for key in LIBC_KEYS:
+        _text(libc[key], f"libc.{key}")
+    if kernel["system"] != "Linux" or kernel["machine"] != "x86_64":
+        raise F5EnvironmentRefusal("F5 environment platform profile is not Linux/x86_64")
+    if libc["implementation"] != "glibc":
+        raise F5EnvironmentRefusal("F5 environment libc implementation is not glibc")
+    raw_platform = _text(receipt.get("platform"), "platform")
+    expected = (
+        f"{kernel['system']}-{kernel['release']}-{kernel['machine']}-with-"
+        f"{libc['implementation']}{libc['version']}"
+    )
+    if raw_platform != expected:
+        raise F5EnvironmentRefusal("F5 environment platform/kernel/libc structure differs")
+    if (kernel["release"], kernel["version"]) not in QUALIFIED_KERNEL_TUPLES:
+        raise F5EnvironmentRefusal(
+            "F5 environment kernel tuple is not prospectively qualified: "
+            + json.dumps(
+                {
+                    "release": kernel["release"],
+                    "version": kernel["version"],
+                    "platform": raw_platform,
+                },
+                sort_keys=True,
+                ensure_ascii=True,
+            )
+        )
+    return kernel["release"]
+
+
 def _source_consistency_failures(receipt: Mapping[str, Any]) -> list[str]:
     """Collect independent real-runtime source agreement failures.
 
@@ -281,6 +353,10 @@ def _source_consistency_failures(receipt: Mapping[str, Any]) -> list[str]:
     disagreement so an L4 diagnostic run is not consumed one bug at a time.
     """
     failures: list[str] = []
+    try:
+        _validated_platform_release_projection(receipt)
+    except F5EnvironmentRefusal as exc:
+        failures.append(str(exc))
     driver = receipt.get("gpu_driver_query")
     raw_driver = receipt.get("gpu_driver_query_raw")
     if not isinstance(driver, Mapping):
@@ -375,6 +451,7 @@ def collect_environment_failures(receipt: Mapping[str, Any]) -> list[str]:
         failures.append("F5 environment GPU memory units differ")
     for name in (
         "platform",
+        "libc",
         "python",
         "cpu",
         "torch",
@@ -391,6 +468,8 @@ def collect_environment_failures(receipt: Mapping[str, Any]) -> list[str]:
         "environment_lock_sha256",
         "environment_descriptor_sha256",
     ):
+        if name == "libc":
+            continue
         if not isinstance(top.get(name), str) or not top.get(name):
             failures.append(f"F5 environment {name} must be a nonempty string")
     if (
@@ -442,6 +521,13 @@ def collect_environment_failures(receipt: Mapping[str, Any]) -> list[str]:
         or any(not isinstance(value, str) for value in os_kernel.values())
     ):
         failures.append("F5 environment os_kernel is malformed")
+    libc = top.get("libc")
+    if (
+        not isinstance(libc, dict)
+        or set(libc) != LIBC_KEYS
+        or any(not isinstance(value, str) or not value for value in libc.values())
+    ):
+        failures.append("F5 environment libc is malformed")
     controls = top.get("numeric_controls")
     if (
         not isinstance(controls, dict)
@@ -494,6 +580,7 @@ def collect_environment_failures(receipt: Mapping[str, Any]) -> list[str]:
         probe(lambda: _sha(top.get(key), key))
     for group, keys in (
         ("os_kernel", OS_KERNEL_KEYS),
+        ("libc", LIBC_KEYS),
         ("torch_threads", THREAD_KEYS),
         ("numeric_controls", NUMERIC_CONTROL_KEYS),
         ("thread_env", THREAD_ENV_KEYS),
@@ -527,6 +614,7 @@ def collect_environment_failures(receipt: Mapping[str, Any]) -> list[str]:
         for key, value in driver.items():
             probe(lambda: _text(value, f"gpu_driver_query.{key}"))
     probe(lambda: _text(top.get("gpu_driver_query_raw"), "gpu_driver_query_raw"))
+    probe(lambda: _validated_platform_release_projection(top))
     aliases = top.get("installed_numeric_packages")
     probe(lambda: _exact_mapping(aliases, NUMERIC_PACKAGES, "packages"))
     if isinstance(packages, dict):
@@ -784,8 +872,12 @@ def _validate_environment_first(receipt: Mapping[str, Any]) -> None:
         raise F5EnvironmentRefusal("F5 environment gpu_capability is malformed")
     _exact_mapping(top["os_kernel"], OS_KERNEL_KEYS, "os_kernel")
     for key, value in top["os_kernel"].items():
-        if not isinstance(value, str):
+        if not isinstance(value, str) or (key != "processor" and not value):
             raise F5EnvironmentRefusal(f"F5 environment os_kernel.{key} is malformed")
+    _exact_mapping(top["libc"], LIBC_KEYS, "libc")
+    for key, value in top["libc"].items():
+        _text(value, f"libc.{key}")
+    _validated_platform_release_projection(top)
     if not isinstance(top["python_build"], list) or len(top["python_build"]) != 2:
         raise F5EnvironmentRefusal("F5 environment python_build is malformed")
     for index, value in enumerate(top["python_build"]):
@@ -906,6 +998,16 @@ def canonical_environment(receipt: Mapping[str, Any]) -> dict[str, Any]:
     canonical["allocated_cpu_affinity"] = "ASSIGNMENT_LOCAL"
     canonical["os_kernel"] = dict(canonical["os_kernel"])
     canonical["os_kernel"]["node"] = "ASSIGNMENT_LOCAL"
+    canonical["os_kernel"]["release"] = "KERNEL_ASSIGNMENT_PROVENANCE"
+    canonical["os_kernel"]["version"] = "KERNEL_ASSIGNMENT_PROVENANCE"
+    # Validate exact Linux/uname/libc structure before projecting exactly the
+    # release component.  Never use replacement on an arbitrary platform text.
+    _validated_platform_release_projection(receipt)
+    canonical["platform"] = (
+        f"{receipt['os_kernel']['system']}-KERNEL_ASSIGNMENT_PROVENANCE-"
+        f"{receipt['os_kernel']['machine']}-with-"
+        f"{receipt['libc']['implementation']}{receipt['libc']['version']}"
+    )
     canonical["gpu_driver_query"] = dict(canonical["gpu_driver_query"])
     canonical["gpu_driver_query"]["uuid"] = "ASSIGNMENT_LOCAL"
     raw_query = receipt["gpu_driver_query_raw"]
@@ -1004,6 +1106,9 @@ def compare_environment(
             "expected": {
                 "gpu_uuid": expected["gpu_uuid"],
                 "node": expected["os_kernel"]["node"],
+                "kernel_release": expected["os_kernel"]["release"],
+                "kernel_version": expected["os_kernel"]["version"],
+                "platform": expected["platform"],
                 "cpu_affinity": expected["allocated_cpu_affinity"],
                 "installation_roots": {
                     name: package["installation_root"]
@@ -1014,6 +1119,9 @@ def compare_environment(
             "actual": {
                 "gpu_uuid": actual["gpu_uuid"],
                 "node": actual["os_kernel"]["node"],
+                "kernel_release": actual["os_kernel"]["release"],
+                "kernel_version": actual["os_kernel"]["version"],
+                "platform": actual["platform"],
                 "cpu_affinity": actual["allocated_cpu_affinity"],
                 "installation_roots": {
                     name: package["installation_root"]
@@ -1410,6 +1518,31 @@ def _driver_query() -> tuple[dict[str, str], str]:
     return _parse_driver_query(raw), raw
 
 
+def _running_libc_identity() -> dict[str, str]:
+    """Independently capture the running glibc implementation and version.
+
+    ``platform.platform()`` is only the platform evidence string.  It must not
+    be allowed to attest to itself, so the receipt obtains libc through both
+    ``os.confstr`` and libc's exported ``gnu_get_libc_version`` and requires
+    their exact agreement before it can be admitted.
+    """
+    try:
+        confstr = os.confstr("CS_GNU_LIBC_VERSION")
+        implementation, separator, version = confstr.partition(" ")
+        if not separator or implementation != "glibc" or not version:
+            raise F5EnvironmentRefusal("F5 environment GNU libc confstr is malformed")
+        library = ctypes.CDLL("libc.so.6")
+        getter = library.gnu_get_libc_version
+        getter.restype = ctypes.c_char_p
+        raw_version = getter()
+        observed_version = raw_version.decode("ascii") if raw_version else ""
+        if observed_version != version:
+            raise F5EnvironmentRefusal("F5 environment libc sources disagree")
+        return {"implementation": implementation, "version": version}
+    except (AttributeError, OSError, UnicodeDecodeError, ValueError) as exc:
+        raise F5EnvironmentRefusal("F5 environment libc identity is unavailable") from exc
+
+
 def _capture_environment_raw() -> dict[str, Any]:
     """Observe each source once, retaining successful fields after any refusal.
 
@@ -1449,6 +1582,7 @@ def _capture_environment_raw() -> dict[str, Any]:
         return receipt[name]
 
     field("schema_sha256", schema_sha256)
+    field("libc", _running_libc_identity)
     field("platform", platform.platform)
     field("python", lambda: sys.version)
     field("cpu_count", lambda: os.cpu_count() or 0)

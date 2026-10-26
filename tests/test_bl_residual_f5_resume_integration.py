@@ -22,6 +22,8 @@ from research.bl_residual import f5_qualification as qualification
 from research.bl_residual import f5_timing_resume as resume
 from research.bl_residual.f5_fit import F5Identity
 from research.bl_residual.f5_r10a_annex import allocate
+from tests.test_bl_residual_f5_environment import _receipt
+from tests.test_bl_residual_f5_timing_resume import _attested
 
 
 def _rows() -> list[dict[str, Any]]:
@@ -98,7 +100,11 @@ def _install_outer_seams(
     monkeypatch.setattr(f5_job, "_control", lambda inputs: _control())
     monkeypatch.setattr(f5_job, "_source_admission", lambda control: None)
     monkeypatch.setattr(f5_job, "_identity", lambda control: _identity())
-    monkeypatch.setattr(f5_job, "_environment_admission", lambda control: {"assignment": "offline"})
+    monkeypatch.setattr(
+        f5_job,
+        "_environment_admission",
+        lambda control: _receipt(),
+    )
     monkeypatch.setattr(
         f5_job, "_environment_evidence", lambda control, actual, **kwargs: {"offline": True}
     )
@@ -135,6 +141,7 @@ def _control() -> dict[str, Any]:
         "qualification_checkpoint_pool": {},
         "timing_input_sha256": "f" * 64,
         "timing_attempt_id": "offline-timing-attempt",
+        "timing_namespace": "bl-residual-f5-timing-recovery-20261026",
         "source_hashes": {"research/bl_residual/f5_qualification.py": "0" * 64},
         "ledger_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
     }
@@ -243,6 +250,14 @@ def test_run_exports_prefix_skips_exact_units_restarts_coupled_calibration_and_c
         fixture_attempt / "timing-units",
         dirs_exist_ok=True,
     )
+    # Unit records contain immutable raw-environment links; preserve their
+    # referenced native-v6 evidence when rebuilding a synthetic ledger.
+    shutil.copytree(failed_root / "environment", fixture_attempt / "environment")
+    shutil.copytree(
+        tmp_path / "resume-fixtures/environment",
+        fixture_attempt / "environment",
+        dirs_exist_ok=True,
+    )
     fixture_entries = []
     for key in range(672, 684):
         path = fixture_attempt / "timing-units" / f"fixture-{key}.json"
@@ -279,6 +294,13 @@ def test_run_exports_prefix_skips_exact_units_restarts_coupled_calibration_and_c
         return _calibration()
 
     monkeypatch.setattr(f5_calibration, "run", complete_calibration)
+    parity_calls = []
+
+    def calibration_assignment_parity(model, observation, mask):
+        parity_calls.append("fresh-assignment")
+        return np.zeros(6), 0
+
+    monkeypatch.setattr(qualification, "_select_cuda", calibration_assignment_parity)
     calibration_complete = tmp_path / "calibration-complete"
     qualification.run(
         inputs,
@@ -287,11 +309,16 @@ def test_run_exports_prefix_skips_exact_units_restarts_coupled_calibration_and_c
         ledger=fixture_attempt / "verified-ledger.json",
     )
     assert calibrations[-1] == "whole-cw-restarted"
+    assert parity_calls == ["fresh-assignment"]
 
     # Assemble a new uploaded ledger from immutable completed paths;
     # a completed C/W unit is skipped whole.
     combined = tmp_path / "combined-ledger"
     shutil.copytree(fixture_attempt / "timing-units", combined / "timing-units")
+    shutil.copytree(fixture_attempt / "environment", combined / "environment")
+    shutil.copytree(
+        calibration_complete / "environment", combined / "environment", dirs_exist_ok=True
+    )
     shutil.copy2(
         calibration_complete / "timing-units/calibration.json",
         combined / "timing-units/calibration.json",
@@ -371,7 +398,7 @@ def test_scanner_refuses_foreign_or_incomplete_completed_unit_contract(
         "full_h5000_natural": True,
         "watch_fixture_frames": 14_400,
     }
-    entry = resume.publish_unit(tmp_path, binding, 672, payload)
+    entry = resume.publish_unit(tmp_path, binding, 672, _attested(tmp_path, payload))
     ledger = resume.empty_ledger(binding)
     ledger["units"] = [copy.deepcopy(entry)]
     if mutation in {"namespace", "allocation", "source", "environment", "input"}:

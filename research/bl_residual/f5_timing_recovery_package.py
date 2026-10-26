@@ -21,7 +21,6 @@ from research.bl_residual.f5_timing_resume import empty_ledger, identity
 
 RULING_SHA256 = "4f10f264fda3c7190e07f486803fa02cc10645741fb95ef215b1d1b0cc123439"
 NAMESPACE = "bl-residual-f5-timing-recovery-20261026"
-ENVIRONMENT_SHA256 = "bc05167c188680478663235f2b3dcfb70d7959e9d392071384409ef958b0f0f5"
 ALLOCATION_SHA256 = "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7"
 B8_SHA256 = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 B8_URL = (
@@ -110,8 +109,8 @@ def _source_inputs(prior: Mapping[str, Any]) -> list[dict[str, Any]]:
     return sorted(result, key=lambda row: row["dest"])
 
 
-def _prior_environment_control(prior: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Carry the recorded typed policy/capture as provenance, never fabricate one."""
+def _prior_environment_control(prior: Mapping[str, Any]) -> dict[str, Any]:
+    """Reject inherited v5 runtime inputs; use only the sealed capture-05 adapter."""
     rows = [
         row
         for row in prior["inputs"]
@@ -130,7 +129,11 @@ def _prior_environment_control(prior: Mapping[str, Any]) -> tuple[dict[str, Any]
     policy, capture = value.get("environment_policy"), value.get("environment_capture")
     if not isinstance(policy, dict) or not isinstance(capture, dict):
         raise ValueError("attempt04 control lacks typed environment provenance")
-    return dict(policy), dict(capture)
+    # Retain validation of the historical control bytes but never pass its v5
+    # capture into a new runtime. The adapter itself names exactly capture-05.
+    from research.bl_residual.f5_environment_reference import capture05_reference
+
+    return capture05_reference()
 
 
 def _authority(commit: str, tree: str, inputs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -182,8 +185,7 @@ def _control(
     runtime_inputs: list[dict[str, Any]],
     input_sha: str,
     fixture_sha256: str,
-    environment_policy: dict[str, Any],
-    environment_capture: dict[str, Any],
+    environment_reference: dict[str, Any],
     ledger_sha256: str,
     attempt_id: str = "unsealed-test-attempt",
 ) -> dict[str, Any]:
@@ -195,7 +197,7 @@ def _control(
                 json.dumps(source_hashes, sort_keys=True, allow_nan=False).encode()
             ).hexdigest(),
             "loss_sha256": source_hashes["research/bl_residual/f5_fit.py"],
-            "environment_sha256": ENVIRONMENT_SHA256,
+            "environment_sha256": _environment_sha256(),
             "allocation_sha256": ALLOCATION_SHA256,
             "corpus_sha256": "0" * 64,
         },
@@ -210,8 +212,9 @@ def _control(
         "input_hashes": {row["dest"]: row["sha256"] for row in runtime_inputs},
         "timing_input_sha256": input_sha,
         "timing_attempt_id": attempt_id,
-        "environment_policy": environment_policy,
-        "environment_capture": environment_capture,
+        "timing_namespace": NAMESPACE,
+        "environment_policy": _environment_policy(),
+        "environment_reference": environment_reference,
         "ledger_sha256": ledger_sha256,
         "status": "HOLD_PENDING_CURRENT_SOURCE_ENVIRONMENT_AND_FAMILY_RECEIPT",
     }
@@ -227,6 +230,16 @@ def _control(
         ).encode()
     ).hexdigest()
     return value
+
+
+def _environment_policy() -> dict[str, str]:
+    from research.bl_residual.f5_environment import policy_binding
+
+    return policy_binding()
+
+
+def _environment_sha256() -> str:
+    return hashlib.sha256(json.dumps(_environment_policy(), sort_keys=True).encode()).hexdigest()
 
 
 def _admission(authority_path: Path) -> dict[str, Any]:
@@ -259,7 +272,7 @@ def build(
         raise ValueError("recovery package requires a clean committed source checkout")
     commit, tree = _git(repo, "rev-parse", "HEAD"), _git(repo, "rev-parse", "HEAD^{tree}")
     prior = _metadata_manifest(attempt04_manifest)
-    environment_policy, environment_capture = _prior_environment_control(prior)
+    environment_reference = _prior_environment_control(prior)
     runtime_inputs = _source_inputs(prior)
     hashes = f5_package.source_inventory(repo)
     for relative, expected in hashes.items():
@@ -304,7 +317,7 @@ def build(
         namespace=NAMESPACE,
         allocation=ALLOCATION_SHA256,
         source_sha256=provisional_source_sha,
-        environment_sha256=ENVIRONMENT_SHA256,
+        environment_sha256=_environment_sha256(),
         input_sha256=input_sha,
     )
     ledger_path = output / "inputs" / "verified-ledger.json"
@@ -315,8 +328,7 @@ def build(
         runtime_inputs,
         input_sha,
         fixture["sha256"],
-        environment_policy,
-        environment_capture,
+        environment_reference,
         ledger_export["sha256"],
         attempt_id=f"bl-f5-timing-recovery-{commit[:8]}-01",
     )

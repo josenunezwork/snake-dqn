@@ -96,10 +96,8 @@ def _environment(
     return {
         "schema": f5_environment.SCHEMA,
         "capture_status": "SUCCESS",
-        "schema_sha256": hashlib.sha256(
-            (Path(f5_environment.__file__).with_name("f5_environment_schema_v5.json")).read_bytes()
-        ).hexdigest(),
-        "platform": "Linux-6.1-x86_64-with-glibc2.35",
+        "schema_sha256": f5_environment.schema_sha256(),
+        "platform": "Linux-6.6.122+-x86_64-with-glibc2.39",
         "python": "3.12.3 (main, synthetic)",
         "cpu": "Synthetic Xeon",
         "cpu_count": 8,
@@ -113,14 +111,15 @@ def _environment(
         "os_kernel": {
             "system": "Linux",
             "node": node,
-            "release": "6.1.0-synthetic",
-            "version": "#1 synthetic",
+            "release": "6.6.122+",
+            "version": "#1 SMP Thu Apr 30 18:17:14 UTC 2026",
             "machine": "x86_64",
             "processor": "Synthetic Xeon",
         },
         "python_build": ["main", "2026-01-01"],
         "python_compiler": "GCC 12.2",
         "python_cache_tag": "cpython-312",
+        "libc": {"implementation": "glibc", "version": "2.39"},
         "cpu_isa": {"model name": "Synthetic Xeon", "flags": "avx2"},
         "allocated_cpu_affinity": affinity,
         "gpu_driver_query": {
@@ -220,9 +219,7 @@ def _control_inputs(tmp_path: Path, environment: dict[str, Any]) -> Path:
         "identity": {
             "source_sha256": _sha(source_hashes),
             "loss_sha256": f5_job.digest(source_root / "research/bl_residual/f5_fit.py"),
-            "environment_sha256": (
-                "bc05167c188680478663235f2b3dcfb70d7959e9d392071384409ef958b0f0f5"
-            ),
+            "environment_sha256": f5_job.environment_policy_sha256(),
             "allocation_sha256": (
                 "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7"
             ),
@@ -231,6 +228,7 @@ def _control_inputs(tmp_path: Path, environment: dict[str, Any]) -> Path:
         "input_hashes": {package.name: f5_job.digest(package)},
         "environment_capture": environment,
         "environment_policy": f5_environment.policy_binding(),
+        "timing_namespace": "bl-residual-f5-timing-recovery-20261026",
         "source_hashes": source_hashes,
     }
     control["allocation"] = _sha(control)

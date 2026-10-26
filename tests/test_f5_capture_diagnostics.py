@@ -292,7 +292,13 @@ def test_refused_reference_sweep(refused_capture, monkeypatch, tmp_path):
         with pytest.raises(f5_environment.F5EnvironmentRefusal):
             f5_job._assignment_boundary(candidate)
         with pytest.raises(f5_environment.F5EnvironmentRefusal):
-            f5_job._environment_evidence({"environment_capture": candidate}, successful)
+            f5_job._environment_evidence(
+                {
+                    "environment_policy": f5_environment.policy_binding(),
+                    "environment_capture": candidate,
+                },
+                successful,
+            )
         (inputs / "environment.json").write_text(json.dumps(candidate))
         with pytest.raises(f5_environment.F5EnvironmentRefusal):
             f5_qualification._bootstrap_admission(inputs, inputs, "fixture-sha", checkpoint)

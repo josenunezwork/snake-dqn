@@ -166,6 +166,58 @@ def _validate_payload(
         raise ResumeRefusal("coupled calibration record lacks both exact continuation checks")
 
 
+def _verify_unit_environment(
+    output: Path, key: int | str, payload: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Reopen raw native attestations before publishing or admitting a skip."""
+    from research.bl_residual import f5_environment
+
+    captures = []
+    for name in ("environment_before", "environment_after"):
+        ref = payload.get(name)
+        if (
+            not isinstance(ref, Mapping)
+            or set(ref) != {"path", "size", "sha256"}
+            or type(ref.get("size")) is not int
+            or ref["size"] <= 0
+            or not isinstance(ref.get("sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", ref["sha256"]) is None
+        ):
+            raise ResumeRefusal("timing unit lacks a typed raw environment link")
+        relative = _safe_relative(ref["path"])
+        after = "after-calibration.json" if key == CALIBRATION_KEY else f"after-fixture-{key}.json"
+        expected_path = "environment/" + ("before.json" if name == "environment_before" else after)
+        if relative.as_posix() != expected_path:
+            raise ResumeRefusal("timing unit raw environment link has foreign scope")
+        path = _safe_file(output / relative)
+        try:
+            if verify_export(path) != ref["sha256"] or path.stat().st_size != ref["size"]:
+                raise ResumeRefusal("timing unit raw environment link hash or size differs")
+            capture = json.loads(path.read_bytes())
+            f5_environment.validate_environment(capture)
+        except (OSError, ValueError) as exc:
+            raise ResumeRefusal(
+                "timing unit raw environment attestation is not verified native v6"
+            ) from exc
+        captures.append(capture)
+    before, after = captures
+    try:
+        f5_environment.compare_environment(before, after, mode="same-assignment")
+    except ValueError as exc:
+        raise ResumeRefusal("timing unit has within-assignment raw environment drift") from exc
+    expected = {
+        "assignment_raw_sha256": f5_environment.receipt_sha256(before),
+        "os_kernel": dict(before["os_kernel"]),
+        "platform": before["platform"],
+        "gpu_uuid": before["gpu_uuid"],
+        "before": dict(payload["environment_before"]),
+        "after": dict(payload["environment_after"]),
+    }
+    if payload.get("kernel_provenance") != expected:
+        raise ResumeRefusal("timing unit kernel UUID or raw hash provenance differs")
+    return expected
+
+
 def _read_unit(
     path: Path, binding: Mapping[str, str], expected: Mapping[str, Any]
 ) -> tuple[int | str, dict[str, Any]]:
@@ -194,6 +246,9 @@ def _read_unit(
     if not isinstance(payload, dict):
         raise ResumeRefusal("completed timing unit payload malformed")
     _validate_payload(key, payload, canary_only=bool(payload.get("canary_only")))
+    if path.parent.name not in {"timing-units", "timing-canary"}:
+        raise ResumeRefusal("completed timing unit has foreign output scope")
+    _verify_unit_environment(path.parent.parent, key, payload)
     return key, payload
 
 
@@ -245,6 +300,7 @@ def publish_unit(
     elif copy.get("canary_only") is True:
         raise ResumeRefusal("CANARY_ONLY record cannot be a timing unit")
     _validate_payload(key, copy, canary_only=canary_only)
+    _verify_unit_environment(output, key, copy)
     name = "calibration" if key == CALIBRATION_KEY else f"fixture-{key}"
     folder = "timing-canary" if canary_only else "timing-units"
     path = output / folder / f"{name}.json"
@@ -484,7 +540,13 @@ def _attempt_accounting(
             raise ResumeRefusal("verified ledger provenance entries are malformed")
         ledger_entries[item["key"]] = item
     reference = _bound_metadata(history["environment_reference"])
-    f5_environment.validate_environment(reference)
+    from research.bl_residual import f5_environment_reference
+
+    legacy_reference = reference.get("schema") == f5_environment_reference.SCHEMA
+    if legacy_reference:
+        f5_environment_reference.validate_capture05_reference(reference)
+    else:
+        f5_environment.validate_environment(reference)
     overhead = 0.0
     measured: list[dict[str, Any]] = []
     missing: list[str] = []
@@ -612,8 +674,15 @@ def _attempt_accounting(
             raise ResumeRefusal(
                 "attempt runtime attestation export differs from local verified reference"
             )
-        f5_environment.compare_environment(reference, before, mode="cross-assignment")
+        if legacy_reference:
+            f5_environment_reference.compare_capture05_reference(reference, before)
+        else:
+            f5_environment.compare_environment(reference, before, mode="cross-assignment")
         f5_environment.compare_environment(before, after, mode="same-assignment")
+        assignment_raw_sha256 = f5_environment.receipt_sha256(before)
+        for _, row in contributed:
+            if row["kernel_provenance"]["assignment_raw_sha256"] != assignment_raw_sha256:
+                raise ResumeRefusal("timing unit raw assignment differs from its broker attempt")
         # Absence is HOLD, never a fabricated zero or inferred decomposition.
         if attempt.get("accounting_measurement") is None:
             missing.append(name)
@@ -904,6 +973,36 @@ def reduce_ledger(
         )
         for start in range(0, 12, 3)
     ) and any(row.get("watch_fixture_frames") == 14_400 for row in fixtures[:3])
+    kernel_strata: dict[str, dict[str, Any]] = {}
+    for key, row in records.items():
+        provenance = row["kernel_provenance"]
+        kernel = provenance["os_kernel"]
+        label = json.dumps(
+            [kernel["release"], kernel["version"], provenance["platform"]],
+            separators=(",", ":"),
+        )
+        stratum = kernel_strata.setdefault(
+            label,
+            {
+                "release": kernel["release"],
+                "version": kernel["version"],
+                "platform": provenance["platform"],
+                "units": [],
+            },
+        )
+        stratum["units"].append(
+            {
+                "key": key,
+                "gpu_uuid": provenance["gpu_uuid"],
+                "assignment_raw_sha256": provenance["assignment_raw_sha256"],
+                "elapsed_seconds": row["elapsed_seconds"],
+                **{
+                    name: row[name]
+                    for name in ("t_root", "t_branch", "t_nat", "watch_seconds", "arms")
+                    if name in row
+                },
+            }
+        )
     return {
         "schema": "bl-f5-timing-mac-reducer/v2",
         "status": (
@@ -922,6 +1021,8 @@ def reduce_ledger(
         "calibration": calibration,
         "unit_count": 13,
         "max_seconds": maxima,
+        "kernel_strata": list(kernel_strata.values()),
+        "forecast_kernel_rule": "SLOWEST_OBSERVED_QUALIFYING_PRIMITIVE_NO_KERNEL_AVERAGING",
         "archive_registered_conservative_hours": archive_hours if accounting_verified else None,
         "coupled_calibration_max_seconds": calibration_max,
         "all_attempt_setup_io_imbalance_seconds": overhead if accounting_verified else None,

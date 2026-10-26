@@ -202,8 +202,8 @@ def _install_isolated_l4(
         _asdict=lambda: {
             "system": "Linux",
             "node": "isolated-l4",
-            "release": "6.1",
-            "version": "#1",
+            "release": "6.6.122+",
+            "version": "#1 SMP Thu Apr 30 18:17:14 UTC 2026",
             "machine": "x86_64",
             "processor": "isolated CPU",
         }
@@ -222,10 +222,25 @@ def _install_isolated_l4(
     monkeypatch.setattr(environment.Path, "read_text", read_text)
     monkeypatch.setattr(environment.os, "cpu_count", lambda: 6)
     monkeypatch.setattr(environment.os, "sched_getaffinity", lambda _: set(range(6)), raising=False)
+    monkeypatch.setattr(environment.os, "confstr", lambda _: "glibc 2.39")
+
+    def libc_getter():
+        return b"2.39"
+
+    monkeypatch.setattr(
+        environment.ctypes,
+        "CDLL",
+        lambda _: SimpleNamespace(gnu_get_libc_version=libc_getter),
+    )
     for name in environment.THREAD_ENV_KEYS:
         monkeypatch.setenv(name, ":4096:8" if name == "CUBLAS_WORKSPACE_CONFIG" else "1")
     monkeypatch.setattr(environment.platform, "uname", lambda: uname)
-    monkeypatch.setattr(environment.platform, "platform", lambda: "Linux-6.1-x86_64")
+    monkeypatch.setattr(
+        environment.platform,
+        "platform",
+        lambda: "Linux-6.6.122+-x86_64-with-glibc2.39",
+    )
+    monkeypatch.setattr(environment.platform, "libc_ver", lambda: ("glibc", "2.39"))
     monkeypatch.setattr(environment.platform, "processor", lambda: "isolated CPU")
     monkeypatch.setattr(environment.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(environment.torch.cuda, "device_count", lambda: 1)

@@ -1,0 +1,814 @@
+{
+  "schema": "bl-residual-f5-environment-receipt/v6",
+  "purpose": "Exhaustive v6 classification of F5 L4 environment receipts. Kernel release/version are raw assignment provenance only across assignments; platform is verified raw-to-canonical evidence whose single structurally proven kernel-release component alone is projected. All raw fields remain exact within an assignment. libc is independently captured from the running host and remains invariant.",
+  "unknown_fields": "REFUSE",
+  "missing_fields": "REFUSE",
+  "malformed_fields": "REFUSE",
+  "comparison": {
+    "same_assignment": "Every raw field, including UUID, host, affinity, installation roots and raw metadata hashes, must match.",
+    "cross_assignment_invariants": "All fields remain equal after only the listed assignment-local representations and the verified v6 kernel provenance projection are mapped. Only os_kernel.release, os_kernel.version, and the structurally identified platform release component may differ across assignments. Installed contents, METADATA, WHEEL, wheel filename and SHA256, libc, precision and numeric settings are never normalized away."
+  },
+  "assignment_local": [
+    "gpu_uuid",
+    "gpu_driver_query.uuid",
+    "os_kernel.node",
+    "allocated_cpu_affinity",
+    "installed_numeric_packages.*.installation_root",
+    "installed_packages.*.installation_root",
+    "locked_wheels.*.raw_url only when it is the recorded F5_WHEELHOUSE file URI",
+    "os_kernel.release",
+    "os_kernel.version",
+    "platform release component only after exact structural validation against os_kernel and libc"
+  ],
+  "root_normalization": "Only the canonical hashes of RECORD and direct_url.json may remove the exact captured installation root. Every installed regular file listed by a locked wheel is retained and hashed. Files under site-packages, root-bound share data, root-bound headers, and root-bound bin scripts or executables are raw-byte invariant unless a bin script proves an exact installation-root/bin shebang. Only that proven script may canonicalize the exact root in its shebang, while its raw base64 bytes and raw hash remain in each receipt; RECORD is recomputed from that canonical script byte sequence. A bin file with a fixed, foreign, env, or otherwise non-root shebang remains raw-byte invariant. Root-bound classes are exhaustively bin (scripts and executables), share (data including man pages), and include (headers). Unknown classes, path escapes, symlinks, or missing files refuse. METADATA/WHEEL and all other installed-content hashes remain invariant. The raw Torch and SMI GPU values are retained. For same-assignment admission, SMI UUID must begin with exactly one case-sensitive GPU- prefix and its remainder must equal raw Torch gpu_uuid. Torch gpu and raw SMI name compare exactly after CSV field trimming; no name aliasing is permitted. The parsed driver fields remain invariant while only its raw UUID component is assignment-local.",
+  "packages": {
+    "required": [
+      "torch",
+      "numpy",
+      "numba",
+      "llvmlite"
+    ],
+    "required_metadata": [
+      "METADATA",
+      "WHEEL",
+      "RECORD",
+      "direct_url.json"
+    ],
+    "required_build_proof": [
+      "all installed package closure",
+      "locked wheel filename",
+      "raw and canonical wheelhouse URL",
+      "locked wheel SHA256",
+      "per-file installed contents and aggregate SHA256",
+      "raw base64 metadata bytes and raw/canonical hashes"
+    ],
+    "optional": {
+      "scipy": "The numeric alias is null if and only if absent from both installed_packages and locked_wheels. Any installed SciPy retains full package/wheel evidence. The adopted L4 lock omits SciPy; no dependency or lock change is authorized."
+    },
+    "closure": "Every locked wheel must have an installed package receipt. Bootstrap packages outside the lock remain fully captured. Torch/NumPy top-level versions must equal their installed package versions."
+  },
+  "field_classification": {
+    "invariant_text": [
+      "schema",
+      "python",
+      "cpu",
+      "torch",
+      "cuda",
+      "gpu",
+      "python_compiler",
+      "python_cache_tag",
+      "cudnn",
+      "torch_git_version",
+      "torch_build",
+      "numpy",
+      "numpy_blas_lapack_build",
+      "installed_packages.*.version",
+      "memory_units.gpu_memory",
+      "memory_units.gpu_driver_query.memory_total",
+      "capture_status"
+    ],
+    "invariant_integer": [
+      "cpu_count",
+      "gpu_memory",
+      "gpu_capability[0]",
+      "gpu_capability[1]",
+      "torch_threads.intra",
+      "torch_threads.inter"
+    ],
+    "invariant_sha256": [
+      "schema_sha256",
+      "environment_lock_sha256",
+      "environment_descriptor_sha256",
+      "installed_versions_sha256",
+      "installed_packages.*.installed_contents_sha256",
+      "installed_packages.*.installed_contents.*.canonical_sha256",
+      "locked_wheels.*.sha256",
+      "installed_packages.*.installed_metadata.*.canonical_sha256"
+    ],
+    "invariant_exact_object": [
+      "os_kernel.{system,machine,processor}",
+      "cpu_isa.{model name,flags,Features,Hardware}",
+      "gpu_driver_query.{name,driver_version,compute_cap,memory_total}",
+      "python_build[0:2]",
+      "numeric_controls.{deterministic,cudnn_deterministic,cudnn_benchmark,matmul_tf32,cudnn_tf32,default_dtype,amp,bf16}",
+      "thread_env.{OMP_NUM_THREADS,OMP_THREAD_LIMIT,MKL_NUM_THREADS,OPENBLAS_NUM_THREADS,NUMBA_NUM_THREADS,VECLIB_MAXIMUM_THREADS,CUBLAS_WORKSPACE_CONFIG}",
+      "libc.{implementation,version}"
+    ],
+    "raw_and_canonical_evidence": [
+      "gpu_driver_query_raw",
+      "installed_packages.*.installed_metadata.{METADATA,WHEEL,RECORD,direct_url.json}.raw_base64",
+      "installed_packages.*.installed_contents.__root_bound__/bin/*.raw_base64",
+      "locked_wheels.*.{filename,raw_url,canonical_url}",
+      "installed_packages.*.installed_metadata.*.raw_sha256",
+      "installed_packages.*.installed_contents.*.raw_sha256",
+      "platform"
+    ],
+    "assignment_provenance_only": [
+      "gpu_uuid",
+      "gpu_driver_query.uuid",
+      "os_kernel.node",
+      "allocated_cpu_affinity",
+      "installed_packages.*.installation_root",
+      "installed_numeric_packages.*.installation_root",
+      "os_kernel.release",
+      "os_kernel.version"
+    ],
+    "dynamic_maps": {
+      "installed_packages": "normalized distribution name -> exact package receipt; must contain all four required numeric packages and every locked wheel; optional SciPy is fully captured if installed; complete key set is invariant",
+      "installed_numeric_packages": "exact alias projection of installed_packages for torch,numpy,numba,llvmlite,scipy; scipy alone is explicitly null when absent in installed and locked closures",
+      "locked_wheels": "normalized report distribution name -> exact wheel receipt; every locked wheel must be installed, all four required numeric packages must be locked; optional SciPy requires matching installed/locked presence"
+    },
+    "forbidden": [
+      "additional top-level keys",
+      "additional nested keys",
+      "duplicate classification",
+      "unclassified leaves"
+    ]
+  },
+  "leaf_rules": [
+    {
+      "path": [
+        "schema"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "platform"
+      ],
+      "comparison": "verified-raw-to-canonical",
+      "type": "string"
+    },
+    {
+      "path": [
+        "python"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "cpu"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "torch"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "cuda"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "gpu"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "python_compiler"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "python_cache_tag"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "cudnn"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "torch_git_version"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "torch_build"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "numpy"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "numpy_blas_lapack_build"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "schema_sha256"
+      ],
+      "comparison": "invariant",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "environment_lock_sha256"
+      ],
+      "comparison": "invariant",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "environment_descriptor_sha256"
+      ],
+      "comparison": "invariant",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "installed_versions_sha256"
+      ],
+      "comparison": "invariant",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "cpu_count"
+      ],
+      "comparison": "invariant",
+      "type": "positive-integer"
+    },
+    {
+      "path": [
+        "gpu_memory"
+      ],
+      "comparison": "invariant",
+      "type": "positive-integer"
+    },
+    {
+      "path": [
+        "gpu_capability"
+      ],
+      "comparison": "invariant",
+      "type": "two-integers"
+    },
+    {
+      "path": [
+        "python_build"
+      ],
+      "comparison": "invariant",
+      "type": "two-strings"
+    },
+    {
+      "path": [
+        "allocated_cpu_affinity"
+      ],
+      "comparison": "assignment-provenance",
+      "type": "unique-integer-list-min-six"
+    },
+    {
+      "path": [
+        "gpu_uuid"
+      ],
+      "comparison": "assignment-provenance",
+      "type": "string"
+    },
+    {
+      "path": [
+        "os_kernel",
+        "system"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "os_kernel",
+        "release"
+      ],
+      "comparison": "assignment-provenance",
+      "type": "qualified-kernel-provenance-string"
+    },
+    {
+      "path": [
+        "os_kernel",
+        "version"
+      ],
+      "comparison": "assignment-provenance",
+      "type": "qualified-kernel-provenance-string"
+    },
+    {
+      "path": [
+        "os_kernel",
+        "machine"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "os_kernel",
+        "processor"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "os_kernel",
+        "node"
+      ],
+      "comparison": "assignment-provenance",
+      "type": "string"
+    },
+    {
+      "path": [
+        "cpu_isa",
+        "*"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "gpu_driver_query",
+        "name"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "gpu_driver_query",
+        "driver_version"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "gpu_driver_query",
+        "compute_cap"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "gpu_driver_query",
+        "memory_total"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "gpu_driver_query",
+        "uuid"
+      ],
+      "comparison": "assignment-provenance",
+      "type": "string"
+    },
+    {
+      "path": [
+        "gpu_driver_query_raw"
+      ],
+      "comparison": "verified-raw-to-canonical",
+      "type": "string"
+    },
+    {
+      "path": [
+        "installed_packages",
+        "*",
+        "version"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "installed_packages",
+        "*",
+        "installation_root"
+      ],
+      "comparison": "assignment-provenance",
+      "type": "absolute-path"
+    },
+    {
+      "path": [
+        "installed_packages",
+        "*",
+        "installed_contents_sha256"
+      ],
+      "comparison": "invariant",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "installed_packages",
+        "*",
+        "installed_metadata",
+        "*",
+        "raw_base64"
+      ],
+      "comparison": "verified-raw-to-canonical",
+      "type": "base64"
+    },
+    {
+      "path": [
+        "installed_packages",
+        "*",
+        "installed_contents",
+        "*",
+        "raw_base64"
+      ],
+      "comparison": "verified-raw-to-canonical",
+      "type": "base64"
+    },
+    {
+      "path": [
+        "installed_packages",
+        "*",
+        "installed_metadata",
+        "*",
+        "raw_sha256"
+      ],
+      "comparison": "verified-raw-to-canonical",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "installed_packages",
+        "*",
+        "installed_contents",
+        "*",
+        "raw_sha256"
+      ],
+      "comparison": "verified-raw-to-canonical",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "installed_packages",
+        "*",
+        "installed_metadata",
+        "*",
+        "canonical_sha256"
+      ],
+      "comparison": "invariant",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "installed_packages",
+        "*",
+        "installed_contents",
+        "*",
+        "canonical_sha256"
+      ],
+      "comparison": "invariant",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "installed_numeric_packages",
+        "*",
+        "version"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "installed_numeric_packages",
+        "*",
+        "installation_root"
+      ],
+      "comparison": "assignment-provenance",
+      "type": "absolute-path"
+    },
+    {
+      "path": [
+        "installed_numeric_packages",
+        "*",
+        "installed_contents_sha256"
+      ],
+      "comparison": "invariant",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "installed_numeric_packages",
+        "*",
+        "installed_metadata",
+        "*",
+        "raw_base64"
+      ],
+      "comparison": "verified-raw-to-canonical",
+      "type": "base64"
+    },
+    {
+      "path": [
+        "installed_numeric_packages",
+        "*",
+        "installed_contents",
+        "*",
+        "raw_base64"
+      ],
+      "comparison": "verified-raw-to-canonical",
+      "type": "base64"
+    },
+    {
+      "path": [
+        "installed_numeric_packages",
+        "*",
+        "installed_metadata",
+        "*",
+        "raw_sha256"
+      ],
+      "comparison": "verified-raw-to-canonical",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "installed_numeric_packages",
+        "*",
+        "installed_contents",
+        "*",
+        "raw_sha256"
+      ],
+      "comparison": "verified-raw-to-canonical",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "installed_numeric_packages",
+        "*",
+        "installed_metadata",
+        "*",
+        "canonical_sha256"
+      ],
+      "comparison": "invariant",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "installed_numeric_packages",
+        "*",
+        "installed_contents",
+        "*",
+        "canonical_sha256"
+      ],
+      "comparison": "invariant",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "locked_wheels",
+        "*",
+        "filename"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "locked_wheels",
+        "*",
+        "canonical_url"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "locked_wheels",
+        "*",
+        "raw_url"
+      ],
+      "comparison": "verified-raw-to-canonical",
+      "type": "file-uri"
+    },
+    {
+      "path": [
+        "locked_wheels",
+        "*",
+        "sha256"
+      ],
+      "comparison": "invariant",
+      "type": "sha256"
+    },
+    {
+      "path": [
+        "torch_threads",
+        "intra"
+      ],
+      "comparison": "invariant",
+      "type": "positive-integer"
+    },
+    {
+      "path": [
+        "torch_threads",
+        "inter"
+      ],
+      "comparison": "invariant",
+      "type": "positive-integer"
+    },
+    {
+      "path": [
+        "numeric_controls",
+        "deterministic"
+      ],
+      "comparison": "invariant",
+      "type": "boolean"
+    },
+    {
+      "path": [
+        "numeric_controls",
+        "cudnn_deterministic"
+      ],
+      "comparison": "invariant",
+      "type": "boolean"
+    },
+    {
+      "path": [
+        "numeric_controls",
+        "cudnn_benchmark"
+      ],
+      "comparison": "invariant",
+      "type": "boolean"
+    },
+    {
+      "path": [
+        "numeric_controls",
+        "matmul_tf32"
+      ],
+      "comparison": "invariant",
+      "type": "boolean"
+    },
+    {
+      "path": [
+        "numeric_controls",
+        "cudnn_tf32"
+      ],
+      "comparison": "invariant",
+      "type": "boolean"
+    },
+    {
+      "path": [
+        "numeric_controls",
+        "amp"
+      ],
+      "comparison": "invariant",
+      "type": "boolean"
+    },
+    {
+      "path": [
+        "numeric_controls",
+        "bf16"
+      ],
+      "comparison": "invariant",
+      "type": "boolean"
+    },
+    {
+      "path": [
+        "numeric_controls",
+        "default_dtype"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "thread_env",
+        "*"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "memory_units",
+        "gpu_memory"
+      ],
+      "comparison": "invariant",
+      "type": "bytes-unit-string"
+    },
+    {
+      "path": [
+        "memory_units",
+        "gpu_driver_query.memory_total"
+      ],
+      "comparison": "invariant",
+      "type": "MiB-unit-string"
+    },
+    {
+      "path": [
+        "installed_numeric_packages",
+        "scipy"
+      ],
+      "comparison": "invariant",
+      "type": "null-only-when-absent"
+    },
+    {
+      "path": [
+        "capture_status"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "libc",
+        "implementation"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    },
+    {
+      "path": [
+        "libc",
+        "version"
+      ],
+      "comparison": "invariant",
+      "type": "string"
+    }
+  ],
+  "leaf_rule_contract": {
+    "matching": "exact path segments; * matches one map key, including keys containing slash or dot",
+    "coverage": "exactly one rule per present receipt leaf; lists are typed atomic leaves",
+    "aliases": "installed_numeric_packages must exactly equal the five-name projection of installed_packages with explicit null for absent optional scipy",
+    "unknown_or_multiple_matches": "REFUSE",
+    "normalization": "verified-raw-to-canonical fields remain raw evidence and are validated against exact canonical mappings; canonical hashes remain invariant"
+  },
+  "supersedes_schema_sha256": "aa0a172c0f5ddf892aab534b3a4a7ebb3aaebfd745f6c6e7bf1f6ea8be1b38f2",
+  "gpu_memory_observations": {
+    "units": {
+      "gpu_memory": "bytes",
+      "gpu_driver_query.memory_total": "MiB"
+    },
+    "raw": "gpu_memory retains the Torch total_memory integer in bytes. gpu_driver_query.memory_total retains the SMI integer MiB string. gpu_driver_query_raw retains the complete stdout including whitespace/newline.",
+    "consistency": "Require positive integers and 95 * int(gpu_driver_query.memory_total) * 1048576 <= 100 * gpu_memory <= 100 * int(gpu_driver_query.memory_total) * 1048576. The inclusive fixed 0.95 lower fraction allows at most 5% unavailable/reserved framebuffer capacity. Torch total_memory is CUDA-visible usable capacity, whereas SMI reports framebuffer capacity; they are not equal quantities. This is a physical-consistency guard, not a normalization or invariant-equality tolerance.",
+    "comparison": "Both observations and their unit declarations remain separate exact invariants across assignments; no conversion, rounding, or tolerance is applied to invariant equality. Same-assignment comparison retains every raw byte.",
+    "minimum_fraction": {
+      "numerator": 95,
+      "denominator": 100
+    },
+    "justification": "A conservative fixed 5% reservation allowance bounds plausible CUDA-visible capacity below SMI framebuffer capacity while rejecting impossible larger usable memory, unit confusion and substantially reduced capacity. Attempt-03 observes 23659151360 / 24152899584 = 0.979557393418425 (471 MiB / 23034 MiB unavailable). The 95% policy is deliberately broader than this one observed offset, not a fitted equality or a claim that every L4 has identical reservations. No exact cause of the reservation is inferred from these totals. Any change in either raw total between assignments still refuses.",
+    "reference": "https://docs.nvidia.com/deploy/nvidia-smi/ (FB Memory Usage: ECC and driver reservations affect accounting)"
+  },
+  "cross_source_semantics": {
+    "gpu_uuid": "Raw Torch CUuuid __str__ has no prefix. Require exactly one case-sensitive leading GPU- on raw SMI uuid; remove that one prefix from SMI only and compare remaining strings case-exact. Missing, empty, repeated, wrong-case prefix or differing tail refuses. Raw values never change.",
+    "gpu_name": "Exact case-sensitive Torch CUDA name versus parsed SMI name after CSV boundary whitespace trim only. No aliases or internal whitespace normalization; NVIDIA L4 is the realistic fixture.",
+    "compute_capability": "Raw Torch [8, 9] versus raw SMI 8.9: compare the two integer components using the inherited parser; never compare against CUDA or driver versions.",
+    "gpu_memory": "Require positive integers and 95 * int(gpu_driver_query.memory_total) * 1048576 <= 100 * gpu_memory <= 100 * int(gpu_driver_query.memory_total) * 1048576. The inclusive fixed 0.95 lower fraction allows at most 5% unavailable/reserved framebuffer capacity. Torch total_memory is CUDA-visible usable capacity, whereas SMI reports framebuffer capacity; they are not equal quantities. This is a physical-consistency guard, not a normalization or invariant-equality tolerance.",
+    "cpu": "os.cpu_count() is host logical count, sched_getaffinity(0) is usable CPU IDs. Do not equate counts or IDs; require >=6 unique nonnegative allocated IDs. /proc/cpuinfo model/ISA and platform.processor are separate raw domains.",
+    "versions_and_kernel": "Driver version (580.82.07), Torch CUDA build (12.6), Torch (2.9.1+cu126), cuDNN integer (91002), cuDNN package (9.10.2.21), uname release/version, and platform.platform() retain distinct raw formats. Only Torch/NumPy runtime versions versus their installed distribution versions compare as exact same domains."
+  },
+  "diagnostic_contract": {
+    "schema": "bl-residual-f5-environment-diagnostic/v1",
+    "admission": "Any acquisition, schema, source consistency or runtime admission failure refuses. Invalid diagnostics never appear at environment.json. No qualification/science after refusal.",
+    "collection": "Each independent source is observed once. Continue sibling fields/packages after failure; unavailable fields stay null. Preserve raw SMI stdout before parsing and subprocess stdout/stderr (base64 for bytes) in acquisition_evidence.",
+    "validation": "Collect independent top-level, nested field, package/content/metadata and source consistency failures in deterministic order; dependencies that cannot be read remain explicit failures.",
+    "exports": "Before nonzero refusal, publish environment-raw.json and environment-diagnostic.json create-only with SHA256 sidecars and complete markers last. evidence_only=true, scientific_use_authorized=false. Unchanged supervisor collects completed diagnostics before raising child failure."
+  },
+  "capture_provenance": "capture_status is mandatory and must be SUCCESS. Acquisition, validation, configuration or reference-admission refusal sets REFUSED in the raw receipt and retains failure details there. Refusal-only keys are intentionally outside the admissible schema. Diagnostic envelopes and their refused raw contents are never reference evidence.",
+  "kernel_provenance_amendment_sha256": "9b0f204d8f5096264a77934d6ef3b0c17a9d6911ec5b916140a8becb99de2d17",
+  "kernel_provenance_policy_sha256": "7ee2cc36c91341cf63251a956c6b1c4955f230dc06a4257dce2d6b861c5c2310",
+  "kernel_provenance_contract": {
+    "cross_assignment": "Raw os_kernel.release and os_kernel.version are preserved and disclosed as assignment provenance. platform must exactly equal system + hyphen + release + hyphen + machine + -with- + libc implementation/version; only that one release token is projected after validation.",
+    "same_assignment": "All raw receipt fields, including raw os_kernel.release, os_kernel.version and platform, are exact.",
+    "refusal": "Empty, ambiguous, malformed or inconsistent platform/kernel/libc fields, unknown/missing/extra receipt fields, and any non-kernel drift refuse.",
+    "qualified_tuples": [
+      {
+        "release": "6.6.122+",
+        "version": "#1 SMP Thu Apr 30 18:17:14 UTC 2026"
+      },
+      {
+        "release": "6.6.159+",
+        "version": "#1 SMP Thu Oct 22 03:07:54 UTC 2026"
+      }
+    ]
+  }
+}

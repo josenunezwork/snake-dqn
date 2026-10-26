@@ -59,6 +59,13 @@ L4_TORCH = "2.9.1+cu126"
 L4_CUDA = "12.6"
 
 
+def environment_policy_sha256() -> str:
+    """Return the v6 policy identity used by every new runtime control."""
+    from research.bl_residual.f5_environment import policy_binding
+
+    return _sha256(policy_binding())
+
+
 def _json(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text())
     if not isinstance(value, dict):
@@ -130,8 +137,7 @@ def _source_admission(control: Mapping[str, Any]) -> None:
     ):
         raise F5FitRefusal("F5 source/loss identity linkage differs")
     if (
-        identity.environment_sha256
-        != "bc05167c188680478663235f2b3dcfb70d7959e9d392071384409ef958b0f0f5"
+        identity.environment_sha256 != environment_policy_sha256()
         or identity.allocation_sha256
         != "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7"
     ):
@@ -248,9 +254,22 @@ def _environment_admission(
             failures.append(str(exc))
             capture = {}
     if control is not None:
+        reference = control.get("environment_reference")
         expected = control.get("environment_capture")
-        if control.get("environment_policy") != policy_binding() or not isinstance(expected, dict):
-            failures.append("F5 environment policy/capture differs from sealed control")
+        if reference is not None and expected is not None:
+            failures.append("F5 control cannot mix legacy reference and runtime capture")
+        elif control.get("environment_policy") != policy_binding():
+            failures.append("F5 environment policy differs from sealed control")
+        elif reference is not None:
+            if not isinstance(reference, dict) or not capture:
+                failures.append("F5 legacy environment reference differs from sealed control")
+            else:
+                try:
+                    _compare_legacy_reference(reference, capture, refusal_output=refusal_output)
+                except ValueError as exc:
+                    failures.append(str(exc))
+        elif not isinstance(expected, dict):
+            failures.append("F5 environment capture differs from sealed control")
         elif capture:
             try:
                 _compare_assignment_environment(expected, capture, refusal_output=refusal_output)
@@ -326,18 +345,63 @@ def _environment_evidence(
 ) -> dict[str, Any]:
     """Disclose a distinct-assignment comparison and preserve both raw captures."""
 
-    return {
-        "reference_raw": control["environment_capture"],
-        "assignment_raw": dict(actual),
-        "comparison": _compare_assignment_environment(
+    from research.bl_residual.f5_environment import policy_binding
+
+    if control.get("environment_policy") != policy_binding():
+        raise F5FitRefusal("F5 environment policy differs from sealed control")
+    legacy_reference = control.get("environment_reference")
+    if legacy_reference is not None and control.get("environment_capture") is not None:
+        raise F5FitRefusal("F5 control cannot mix legacy reference and runtime capture")
+    if legacy_reference is not None:
+        comparison = _compare_legacy_reference(
+            legacy_reference, actual, refusal_output=refusal_output
+        )
+        reference = {"legacy_reference": legacy_reference}
+    else:
+        reference = {"reference_raw": control["environment_capture"]}
+        comparison = _compare_assignment_environment(
             control["environment_capture"], actual, refusal_output=refusal_output
-        ),
+        )
+    return {
+        **reference,
+        "assignment_raw": dict(actual),
+        "comparison": comparison,
         "disclosure": (
             "Separate assignments compared on adopted invariant build/scientific identity; "
             "physical provenance differs where enumerated. This is not proof of bitwise "
             "cross-assignment numerical equivalence."
         ),
     }
+
+
+def _compare_legacy_reference(
+    reference: Mapping[str, Any], actual: Mapping[str, Any], *, refusal_output: Path | None = None
+) -> dict[str, Any]:
+    """Use the sole pinned v5 success only through its explicit v6 adapter."""
+    from research.bl_residual.f5_environment import F5CrossAssignmentRefusal
+    from research.bl_residual.f5_environment_reference import compare_capture05_reference
+
+    try:
+        return compare_capture05_reference(reference, actual)
+    except F5CrossAssignmentRefusal as exc:
+        if refusal_output is not None:
+            export_json(refusal_output, exc.diagnostic)
+        raise
+    except ValueError as exc:
+        if refusal_output is not None:
+            export_json(
+                refusal_output,
+                {
+                    "schema": "bl-residual-f5-cross-assignment-refusal-diagnostic/v1",
+                    "kind": "OUTCOME_BLIND_NON_ADMISSIBLE_DIAGNOSTIC",
+                    "admissible": False,
+                    "scientific_use_authorized": False,
+                    "fit_usable": False,
+                    "capture_status": "REFUSED",
+                    "reason": str(exc),
+                },
+            )
+        raise
 
 
 def _checkpoint_blob(net: Any, *, arm: str, plan: BatchPlan) -> dict[str, Any]:

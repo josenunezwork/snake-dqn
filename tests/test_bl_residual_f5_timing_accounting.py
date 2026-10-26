@@ -25,6 +25,35 @@ def _export_entry(root: Path, path: str) -> dict[str, Any]:
     return {"path": path, "size": item.stat().st_size, "sha256": subject.verify_export(item)}
 
 
+def _publish(root, binding, key, payload, **kwargs):
+    from research.bl_residual import f5_environment
+    from tests.test_bl_residual_f5_timing_resume import _attested
+
+    if "environment_before" not in payload:
+        payload = _attested(root, payload)
+    else:
+        raw = _receipt()
+        for name in ("environment_before", "environment_after"):
+            link = payload[name]
+            path = root / link["path"]
+            if not path.exists():
+                export_json(path, raw)
+            assert path.stat().st_size == link["size"]
+            assert subject.verify_export(path) == link["sha256"]
+        payload = {
+            **payload,
+            "kernel_provenance": {
+                "assignment_raw_sha256": f5_environment.receipt_sha256(raw),
+                "os_kernel": dict(raw["os_kernel"]),
+                "platform": raw["platform"],
+                "gpu_uuid": raw["gpu_uuid"],
+                "before": payload["environment_before"],
+                "after": payload["environment_after"],
+            },
+        }
+    return subject.publish_unit(root, binding, key, payload, **kwargs)
+
+
 def _setup(root: Path) -> tuple[Path, dict[str, Any], dict[str, Any]]:
     binding = _binding()
     environment = _save(root, "environment-reference.json", _receipt())
@@ -45,9 +74,9 @@ def _setup(root: Path) -> tuple[Path, dict[str, Any], dict[str, Any]]:
                 "sha256": environment["sha256"],
             },
         }
-        entries.append(subject.publish_unit(root, binding, index, payload))
+        entries.append(_publish(root, binding, index, payload))
     entries.append(
-        subject.publish_unit(
+        _publish(
             root,
             binding,
             subject.CALIBRATION_KEY,
@@ -346,7 +375,7 @@ def test_scanner_refuses_fixture_metadata_drift_before_skip(field: str, tmp_path
     payload = _fixture(672)
     payload[field] = "foreign" if field != "seed" else int(payload[field]) + 1
     with pytest.raises(subject.ResumeRefusal, match="allocation identity"):
-        subject.publish_unit(tmp_path, _binding(), 672, payload)
+        _publish(tmp_path, _binding(), 672, payload)
 
 
 def test_sealed_attempt_keeps_overlapping_export_downloads_diagnostic_only(tmp_path: Path) -> None:
@@ -355,8 +384,9 @@ def test_sealed_attempt_keeps_overlapping_export_downloads_diagnostic_only(tmp_p
     export_json(exports / "environment/before.json", _receipt())
     export_json(exports / "environment/after.json", _receipt())
     before = _export_entry(exports, "environment/before.json")
-    after = _export_entry(exports, "environment/after.json")
-    unit = subject.publish_unit(
+    export_json(exports / "environment/after-fixture-672.json", _receipt())
+    after = _export_entry(exports, "environment/after-fixture-672.json")
+    unit = _publish(
         exports,
         binding,
         672,
@@ -382,6 +412,7 @@ def test_sealed_attempt_keeps_overlapping_export_downloads_diagnostic_only(tmp_p
                 {field: unit[field] for field in ("path", "size", "sha256")},
                 before,
                 after,
+                _export_entry(exports, "environment/after.json"),
             ],
             "transfers": [{"direction": "download", "elapsed_seconds": 5.0}],
         },

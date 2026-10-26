@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from research.bl_residual import f5_environment as environment
+from research.bl_residual import f5_environment_v5 as environment
 from tests.test_bl_residual_f5_environment import _receipt
 
 RAW_SHA256 = "464c3be2185d21fb4576ae09f2129904eb16234703b334816f9b2adfa1a6ccbe"
@@ -76,6 +76,9 @@ def test_full_v5_validation_passes_all_real_attempt03_observations() -> None:
 @pytest.mark.parametrize("mode", ["same-assignment", "cross-assignment"])
 def test_real_memory_totals_remain_separate_exact_invariants(field: str, mode: str) -> None:
     baseline = _receipt()
+    baseline.pop("libc")
+    baseline["schema"] = environment.SCHEMA
+    baseline["schema_sha256"] = environment.schema_sha256()
     baseline["gpu_memory"] = 23_659_151_360
     changed = copy.deepcopy(baseline)
     if field == "torch":

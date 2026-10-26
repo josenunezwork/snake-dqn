@@ -76,7 +76,9 @@ def test_equal_assignment_does_not_export_diagnostics(tmp_path: Path) -> None:
     actual = _receipt(uuid="B", node="host-b", root="/venv-b")
     output = tmp_path / "refusal.json"
     report = f5_job._environment_evidence(
-        {"environment_capture": expected}, actual, refusal_output=output
+        {"environment_policy": environment.policy_binding(), "environment_capture": expected},
+        actual,
+        refusal_output=output,
     )
     assert (
         report["comparison"]["expected_canonical_sha256"]
@@ -115,6 +117,7 @@ def test_real_canary_entrypoint_exports_before_workload_and_remains_failed(
         f5_job,
         "_control",
         lambda path: {
+            "environment_policy": environment.policy_binding(),
             "environment_capture": expected,
             "qualification_fixture_sha256": "f" * 64,
             "qualification_b8_sha256": f5_job.B8_SHA256,
@@ -172,7 +175,9 @@ def test_malformed_and_same_assignment_receipts_keep_existing_refusals(tmp_path:
     actual["unknown"] = "refuse"
     with pytest.raises(environment.F5EnvironmentRefusal) as raised:
         f5_job._environment_evidence(
-            {"environment_capture": expected}, actual, refusal_output=tmp_path / "refusal.json"
+            {"environment_policy": environment.policy_binding(), "environment_capture": expected},
+            actual,
+            refusal_output=tmp_path / "refusal.json",
         )
     assert not isinstance(raised.value, environment.F5CrossAssignmentRefusal)
     assert not list(tmp_path.iterdir())

@@ -120,10 +120,11 @@ def test_real_colab_domains_and_sparse_affinity_are_kept_separate():
     receipt["allocated_cpu_affinity"] = [8, 10, 12, 14, 16, 18]
     receipt["cpu"] = "x86_64"
     receipt["cpu_isa"] = {"model name": "Intel(R) Xeon(R) CPU @ 2.20GHz", "flags": "avx2 fma"}
-    receipt["platform"] = "Linux-6.6.105+-x86_64-with-glibc2.35"
+    receipt["platform"] = "Linux-6.6.122+-x86_64-with-glibc2.39"
     receipt["os_kernel"].update(
-        release="6.6.105+", version="#1 SMP PREEMPT_DYNAMIC", processor="x86_64"
+        release="6.6.122+", version="#1 SMP Thu Apr 30 18:17:14 UTC 2026", processor="x86_64"
     )
+    receipt["libc"] = {"implementation": "glibc", "version": "2.39"}
     receipt["cudnn"] = "91002"
     receipt["gpu_driver_query"]["driver_version"] = "550.54.15"
     receipt["gpu_driver_query_raw"] = receipt["gpu_driver_query_raw"].replace(
@@ -138,7 +139,7 @@ def test_real_colab_domains_and_sparse_affinity_are_kept_separate():
     import copy
 
     changed = copy.deepcopy(receipt)
-    changed["os_kernel"]["release"] = "6.6.106+"
+    changed["cpu"] = "different CPU model"
     import pytest
 
     with pytest.raises(environment.F5EnvironmentRefusal, match="invariant"):
