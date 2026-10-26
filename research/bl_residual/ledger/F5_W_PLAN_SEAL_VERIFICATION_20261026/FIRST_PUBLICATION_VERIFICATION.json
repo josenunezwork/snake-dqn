@@ -1,0 +1,10 @@
+{
+  "all_272_new_files_local_equals_origin": true,
+  "created_utc": "2026-10-26T12:35:09.238567+00:00",
+  "files_verified": 272,
+  "no_provider_calls": true,
+  "origin_main": "048e50de86b6728b705d74dd0dbd869acfa3e794",
+  "original_82_files_covered_by_plan_verifier": true,
+  "output_publication_commit": "048e50de86b6728b705d74dd0dbd869acfa3e794",
+  "schema": "bl-f5-output-first-publication-verification/v1"
+}
