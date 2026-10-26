@@ -374,14 +374,23 @@ def test_qualification_runner_records_synthetic_cpu_backend_and_broker_exports(
     monkeypatch.setattr(ego2s_network, "load_ego2s_checkpoint", lambda *_: SyntheticNet())
     monkeypatch.setattr(ego2s_network, "spec_for", lambda _: "ego2s-bv8")
 
+    class Progress:
+        def __init__(self) -> None:
+            self.phases: list[tuple[str, int | None]] = []
+
+        def phase(self, name: str, *, completed: int | None = None) -> None:
+            self.phases.append((name, completed))
+
     qualification_output = tmp_path / "qualification"
     qualification_output.mkdir()
+    progress = Progress()
     report = f5_qualification.run(
         inputs,
         fixture_path,
         qualification_output,
         device="synthetic-cpu",
         transport_only=True,
+        progress=progress,
     )
     assert report["status"] == "COMPLETE_TRANSPORT_ONLY_NOT_TIMING_QUALIFIED"
     assert report["device"] == "synthetic-cpu"
@@ -399,6 +408,56 @@ def test_qualification_runner_records_synthetic_cpu_backend_and_broker_exports(
     ]
     assert len(assignment_exports) == 1
     assert json.loads(assignment_exports[0].read_text()) == environment
+    assert progress.phases[0] == ("admission", None)
+    assert ("fixture-load", None) in progress.phases
+    assert ("control-source-checks", None) in progress.phases
+    assert ("environment-capture", None) in progress.phases
+    assert ("environment-compare", None) in progress.phases
+    assert ("initial-boundary", None) in progress.phases
+    assert ("cuda-load", None) in progress.phases
+    assert ("fixture-complete", 12) in progress.phases
+    assert ("final-boundary", 12) in progress.phases
+    assert progress.phases[-1] == ("export", 12)
+    counts = [count for _, count in progress.phases if count is not None]
+    assert counts == sorted(counts)
+
+    monkeypatch.setattr(f5_qualification, "_verify_uploaded_checkpoint_pool", lambda _: {})
+    monkeypatch.setattr(
+        f5_qualification, "_full_source_timing", lambda *args: ({}, {"synthetic": np.zeros(1)})
+    )
+    from research.bl_residual import f5_calibration
+
+    def calibration_fake(*args, progress=None, **kwargs):
+        assert progress is not None
+        for phase in (
+            "calibration-source",
+            "calibration-cache",
+            "calibration-plan",
+            "calibration-c-full",
+            "calibration-c-resumed",
+            "calibration-w-full",
+            "calibration-w-resumed",
+        ):
+            progress.phase(phase)
+        return {"synthetic": True}
+
+    monkeypatch.setattr(f5_calibration, "run", calibration_fake)
+    full_output = tmp_path / "full-qualification"
+    full_output.mkdir()
+    full_progress = Progress()
+    full_report = f5_qualification.run(
+        inputs,
+        fixture_path,
+        full_output,
+        device="synthetic-cpu",
+        progress=full_progress,
+    )
+    assert full_report["status"] == "COMPLETE_L4_TIMING_PENDING_MAC_QUALIFICATION"
+    assert ("calibration-w-resumed", None) in full_progress.phases
+    assert ("final-boundary", 12) in full_progress.phases
+    full_counts = [count for _, count in full_progress.phases if count is not None]
+    assert full_counts == sorted(full_counts)
+    assert full_progress.phases[-1] == ("export", 12)
 
 
 def test_fit_pair_refuses_cross_assignment_build_drift_before_fitter(

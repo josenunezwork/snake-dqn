@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from research.bl_residual.f5_fit import F5Identity, F5Recipe, _fit, materialize_batch_plan
+from research.bl_residual.f5_progress import QualificationProgress
 from research.bl_residual.f5_r10a_annex import allocate
 from research.bl_residual.model import FrozenB8Residual
 from src.model.ego2s_network import obs_tensors
@@ -165,13 +166,17 @@ def _cache_identity(cache: Mapping[str, torch.Tensor]) -> str:
 
 
 def _source_observations(
-    checkpoint: Path, rows: Sequence[Mapping[str, Any]]
+    checkpoint: Path,
+    rows: Sequence[Mapping[str, Any]],
+    progress: QualificationProgress | None = None,
 ) -> list[dict[str, np.ndarray]]:
     """Build the exact source-root observations internally; callers cannot inject rows."""
     from research.bl_residual.f5_qualification import _source_root_observation
 
     result: list[dict[str, np.ndarray]] = []
     for row in rows:
+        if progress is not None:
+            progress.phase("calibration-source")
         _, observation, _ = _source_root_observation(row, checkpoint)
         result.append(observation)
     return result
@@ -185,6 +190,7 @@ def run(
     *,
     source_hashes: Mapping[str, str],
     environment_sha256: str,
+    progress: QualificationProgress | None = None,
 ) -> dict[str, Any]:
     """Time C's exact 2,000x256 core and a serialized continuation replay.
 
@@ -208,7 +214,9 @@ def run(
     if not isinstance(environment_sha256, str) or len(environment_sha256) != 64:
         raise CalibrationRefusal("environment receipt digest is malformed")
     source_sha256 = _source_identity(source_hashes)
-    observations = _source_observations(checkpoint, rows)
+    observations = _source_observations(checkpoint, rows, progress)
+    if progress is not None:
+        progress.phase("calibration-cache")
     cache = _cache(base, observations)
     identity = F5Identity(
         source_sha256=source_sha256,
@@ -217,6 +225,8 @@ def run(
         allocation_sha256=fixture_sha256,
         corpus_sha256=_cache_identity(cache),
     )
+    if progress is not None:
+        progress.phase("calibration-plan")
     plan = materialize_batch_plan(
         {
             name: cache[name]
@@ -251,6 +261,8 @@ def run(
             if state.updates_completed == BOUNDARY_UPDATE:
                 boundary.append(state)
 
+        if progress is not None:
+            progress.phase(f"calibration-{arm.lower()}-full")
         started = time.monotonic()
         complete = _fit(
             FrozenB8Residual(copy.deepcopy(base)).cuda(),
@@ -268,6 +280,8 @@ def run(
         torch.save(boundary[0], serialized)
         serialized.seek(0)
         restored = torch.load(serialized, map_location="cpu", weights_only=False)
+        if progress is not None:
+            progress.phase(f"calibration-{arm.lower()}-resumed")
         resumed_started = time.monotonic()
         resumed = _fit(
             FrozenB8Residual(copy.deepcopy(base)).cuda(),

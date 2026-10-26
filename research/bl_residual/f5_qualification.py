@@ -21,6 +21,7 @@ import numpy as np
 
 from research.bl_ppo.exports import digest, export_json, export_torch
 from research.bl_residual import f5_timing
+from research.bl_residual.f5_progress import QualificationProgress
 
 SCHEMA = "bl-f5-cuda-qualification/v1"
 FIXTURE_SCHEMA = "bl-f5-sealed-timing-fixtures/v1"
@@ -322,7 +323,7 @@ def _source_root_observation(
 
 
 def _full_source_timing(
-    row: Mapping[str, Any], checkpoint: Path
+    row: Mapping[str, Any], checkpoint: Path, progress: QualificationProgress | None = None
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     """Measure the registered exact-world seams without exporting any outcome.
 
@@ -333,9 +334,13 @@ def _full_source_timing(
     from research.bl_residual import gameplay
     from research.t3_rollout_labels_20261015 import bank_engine
 
+    if progress is not None:
+        progress.phase("source-root")
     root, root_observation, t_root = _source_root_observation(row, checkpoint)
     seed = int(row["seed"])
 
+    if progress is not None:
+        progress.phase("source-h300")
     branch_started = time.monotonic()
     branch = root.clone()
     _, advisory, _ = bank_engine.choose_and_step(branch, capture_obs=False)
@@ -348,6 +353,8 @@ def _full_source_timing(
         int(value.get("frames_executed", 0)) == BRANCH_HORIZON for value in branches.values()
     )
 
+    if progress is not None:
+        progress.phase("source-h5000")
     natural_started = time.monotonic()
     natural = gameplay._run_exact_arm_from_root(root, root.hero, horizon=NATURAL_HORIZON)
     t_nat = time.monotonic() - natural_started
@@ -360,6 +367,8 @@ def _full_source_timing(
     if str(row["group"]) == "timing/watch6":
         from research.t34_pathb.adapter_v2 import RunSession
 
+        if progress is not None:
+            progress.phase("source-watch")
         watch_started = time.monotonic()
         # This is ``open_watch``'s Grid-continuation construction with its
         # ambient serving paths replaced by the manifest-uploaded, hash-checked
@@ -403,8 +412,11 @@ def run(
     device: str = "cuda:0",
     bootstrap: bool = False,
     transport_only: bool = False,
+    progress: QualificationProgress | None = None,
 ) -> dict[str, Any]:
     """Execute all twelve timing-only source-native CUDA fixture workloads."""
+    if progress is not None:
+        progress.phase("admission")
     _require_cuda(device)
     # The supervisor owns ``$COLAB_CLI_ROOT/output``.  The executable owns a
     # receipt child and the real producer paths directly below that root.
@@ -417,15 +429,23 @@ def run(
     checkpoint = inputs / "b8.pth"
     if checkpoint.is_symlink() or not checkpoint.is_file():
         _refuse("requires the pinned B8 checkpoint in inputs")
+    if progress is not None:
+        progress.phase("fixture-load")
     rows, fixture_sha256 = load_fixtures(fixtures)
     # Admission is deliberately real rather than a test seam: it binds the
     # current source and exact B8 input before the first CUDA decision.
     from research.bl_residual import f5_job
 
     if bootstrap:
+        if progress is not None:
+            progress.phase("bootstrap-admission")
         environment_evidence = _bootstrap_admission(inputs, root, fixture_sha256, checkpoint)
+        if progress is not None:
+            progress.phase("environment-capture")
         assignment = f5_job._environment_admission(None)
     else:
+        if progress is not None:
+            progress.phase("control-source-checks")
         control = f5_job._control(inputs)
         f5_job._source_admission(control)
         if control.get("qualification_fixture_sha256") != fixture_sha256:
@@ -436,19 +456,31 @@ def run(
         ):
             _refuse("control or checkpoint differs from the fixed B8 input")
         if not transport_only:
+            if progress is not None:
+                progress.phase("checkpoint-pool")
             _verify_uploaded_checkpoint_pool(control.get("qualification_checkpoint_pool"))
+        if progress is not None:
+            progress.phase("environment-capture")
         assignment = f5_job._environment_admission(None)
+        if progress is not None:
+            progress.phase("environment-compare")
         environment_evidence = f5_job._environment_evidence(control, assignment)
+    if progress is not None:
+        progress.phase("initial-boundary")
     f5_job._assignment_boundary(assignment)
     from src.model.ego2s_network import load_ego2s_checkpoint, spec_for
 
+    if progress is not None:
+        progress.phase("cuda-load")
     model = load_ego2s_checkpoint(str(checkpoint), "cuda:0").eval()
     if spec_for(model) != "ego2s-bv8":
         _refuse("qualification requires the served ego2s-bv8 B8 checkpoint")
     root.mkdir(parents=True, exist_ok=True)
     samples: list[dict[str, Any]] = []
     started = time.monotonic()
-    for row in rows:
+    for completed, row in enumerate(rows):
+        if progress is not None:
+            progress.phase("cuda-parity", completed=completed)
         fixture_started = time.monotonic()
         observation, mask = _native_observation(int(row["seed"]))
         feature_seconds = time.monotonic() - fixture_started
@@ -467,7 +499,7 @@ def run(
         if transport_only:
             timing = {}
         else:
-            timing, _ = _full_source_timing(row, checkpoint)
+            timing, _ = _full_source_timing(row, checkpoint, progress)
         total = time.monotonic() - fixture_started
         # All fields are elapsed measurements of this exact fixture.  Forecast
         # expansion remains the validator's job; this runner never invents a
@@ -485,10 +517,14 @@ def run(
                 **timing,
             }
         )
+        if progress is not None:
+            progress.phase("fixture-complete", completed=completed + 1)
     calibration = None
     if not transport_only:
         from research.bl_residual.f5_calibration import run as run_calibration
 
+        if progress is not None:
+            progress.phase("calibration-source")
         calibration = run_calibration(
             model,
             checkpoint,
@@ -498,10 +534,15 @@ def run(
             environment_sha256=hashlib.sha256(
                 json.dumps(assignment, sort_keys=True, separators=(",", ":")).encode()
             ).hexdigest(),
+            progress=progress,
         )
     # The after-boundary covers every actual qualification workload, including
     # the calibration fit; transport-only performs no calibration workload.
+    if progress is not None:
+        progress.phase("final-boundary", completed=len(samples))
     f5_job._assignment_boundary(assignment)
+    if progress is not None:
+        progress.phase("export", completed=len(samples))
     exports = _producer_exports(
         root,
         fixture_sha256=fixture_sha256,
@@ -547,14 +588,25 @@ def main() -> None:
     parser.add_argument("--bootstrap", action="store_true")
     parser.add_argument("--transport-only", action="store_true")
     args = parser.parse_args()
-    run(
-        args.inputs,
-        args.fixtures,
-        args.output,
-        device=args.device,
-        bootstrap=args.bootstrap,
-        transport_only=args.transport_only,
-    )
+    progress = QualificationProgress()
+    progress.start()
+    success = False
+    try:
+        run(
+            args.inputs,
+            args.fixtures,
+            args.output,
+            device=args.device,
+            bootstrap=args.bootstrap,
+            transport_only=args.transport_only,
+            progress=progress,
+        )
+        success = True
+    except BaseException as exc:
+        progress.failure(exc)
+        raise
+    finally:
+        progress.close(success=success)
 
 
 if __name__ == "__main__":

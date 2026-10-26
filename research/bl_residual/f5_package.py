@@ -268,6 +268,7 @@ def source_inventory(repo: Path = ROOT) -> dict[str, str]:
             "f5_protocol.py",
             "f5_environment.py",
             "f5_qualification.py",
+            "f5_progress.py",
         )
     ]
     seen: set[Path] = set()
