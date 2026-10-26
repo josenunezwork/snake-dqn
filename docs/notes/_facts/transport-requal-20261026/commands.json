@@ -1,0 +1,140 @@
+{
+  "account_snapshot": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/build-account-map.py"
+  ],
+  "execute_not_run": [
+    "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026/tools/ops/requalify.sh",
+    "execute",
+    "--plan",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3/acceptance-1793011701/ops-review.json",
+    "--review-token",
+    "COLAB_CLI_ACCEPTANCE_REVIEWED"
+  ],
+  "make_lint": [
+    "make",
+    "PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "lint"
+  ],
+  "plan": [
+    "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026/tools/ops/requalify.sh",
+    "plan",
+    "--broker",
+    "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026",
+    "--other-assignments",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/current-reviewed-account-rates.json",
+    "--state-parent",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport",
+    "--d1024-inventory"
+  ],
+  "plan_cwd": "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026",
+  "plan_environment": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "PYTHONPATH": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/offline-guard"
+  },
+  "plan_prefix": [
+    "nice",
+    "-n",
+    "15"
+  ],
+  "pytest": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-o",
+    "addopts=",
+    "tests/test_colab_cli_transport_diag.py",
+    "tests/test_colab_cli_guard.py",
+    "tests/test_colab_cli_rpc_recovery.py",
+    "tests/test_colab_cli_transfers.py",
+    "tests/test_colab_cli_admission.py",
+    "tests/test_colab_cli_release.py",
+    "tests/test_colab_cli_acceptance.py",
+    "tests/test_colab_cli_staging_repair.py",
+    "tests/test_colab_cli_staging_renewal.py",
+    "tests/test_colab_cli_d1024_transport_requalification.py",
+    "tests/test_colab_cli_d1024_transfer_acceptance.py",
+    "tests/test_ops_qualification.py",
+    "tests/test_colab_cli_supervisor.py"
+  ],
+  "style_commands": [
+    {
+      "command": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "black",
+        "--check",
+        "--line-length",
+        "100",
+        "research/colab_cli/cli_guard.py",
+        "research/colab_cli/policy.py",
+        "research/colab_cli/supervisor.py",
+        "tests/test_colab_cli_transport_diag.py"
+      ],
+      "return_code": 0
+    },
+    {
+      "command": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "isort",
+        "--check-only",
+        "--profile",
+        "black",
+        "research/colab_cli/cli_guard.py",
+        "research/colab_cli/policy.py",
+        "research/colab_cli/supervisor.py",
+        "tests/test_colab_cli_transport_diag.py"
+      ],
+      "return_code": 0
+    },
+    {
+      "command": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "flake8",
+        "research/colab_cli/cli_guard.py",
+        "research/colab_cli/policy.py",
+        "research/colab_cli/supervisor.py",
+        "tests/test_colab_cli_transport_diag.py"
+      ],
+      "return_code": 0
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "origin/main...HEAD"
+      ],
+      "return_code": 0
+    }
+  ],
+  "supplemental_pytest": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-o",
+    "addopts=",
+    "tests/test_colab_cli_latency_policy.py",
+    "tests/test_colab_cli_upload_throughput.py"
+  ],
+  "test_cwd": "/Users/josenunez/Projects/ml/snake-dqn-tdiag",
+  "test_environment": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "SNAKE_DQN_DEVICE": "cpu"
+  },
+  "test_prefix": [
+    "nice",
+    "-n",
+    "15"
+  ]
+}

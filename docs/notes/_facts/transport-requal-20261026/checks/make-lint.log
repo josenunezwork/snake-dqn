@@ -1,0 +1,5 @@
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m black --check --line-length 100 src web/backend
+All done! ✨ 🍰 ✨
+149 files would be left unchanged.
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m isort --profile black --check-only src web/backend
+/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m flake8 src web/backend

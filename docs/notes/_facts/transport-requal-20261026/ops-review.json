@@ -1,0 +1,214 @@
+{
+  "colab": "/Users/josenunez/.local/bin/colab",
+  "commit": "3b32d755ee3e22ed5ebf71b5f64af543b40c5ccb",
+  "d1024_inventory": true,
+  "manifest_hashes": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3/acceptance-1793011701/manifests/cpu.json": "55e3025d7b45b9cad01647669bc35a987100cc67166615f22efadd7bb9407848",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3/acceptance-1793011701/manifests/l4.json": "382fc283039eb54864cd2e13e9d5d0bacfc95b9294a99712ecb3e532342ca613"
+  },
+  "plan": {
+    "baseline_context": {
+      "active_notebook_assignments": 0,
+      "aggregate_usage_rate_units_per_hour": 0.0,
+      "balance_units": 1174.37,
+      "note": "Supplied context, not a new live measurement. Re-read usage and sessions before dispatch.",
+      "supplied_at": "2026-10-18 18:38 PT"
+    },
+    "commit": "3b32d755ee3e22ed5ebf71b5f64af543b40c5ccb",
+    "d1024_synthetic_inventory": {
+      "inputs": [
+        {
+          "dest": "b8.pth",
+          "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+          "size_bytes": 6562005,
+          "transport": "https",
+          "url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/B8_s3_final.pth"
+        },
+        {
+          "dest": "factory-verified-ledger.json",
+          "size_bytes": 2405362,
+          "transport": "upload"
+        },
+        {
+          "dest": "train-1024.npz",
+          "size_bytes": 45397643,
+          "transport": "upload"
+        },
+        {
+          "dest": "metadata.tar",
+          "size_bytes": 2211840,
+          "transport": "upload"
+        }
+      ],
+      "schema": "f4-d1024-synthetic-input-inventory/v1",
+      "sha256": "b9eca552d1dc72349e7e303859a87da6317ce0abc0d5635dcecfb9a7151c72ea"
+    },
+    "expected_costs": {
+      "cpu_20_minutes_at_priced_rate": 0.16666666666666666,
+      "l4_30_minutes_at_priced_rate": 1.0,
+      "total": 1.1666666666666667
+    },
+    "gates": [
+      {
+        "evidence": "all pre-existing endpoints and their rates are recorded at admission",
+        "id": "account-assignment-spend",
+        "owner": "Mac supervisor",
+        "required": true,
+        "status": "INCOMPLETE"
+      },
+      {
+        "evidence": "fresh terminal whoami/usage after refresh; no browser prompt",
+        "id": "fresh-oauth-refresh",
+        "owner": "Mac supervisor",
+        "required": true,
+        "status": "INCOMPLETE"
+      },
+      {
+        "evidence": "for CPU and L4: known kernel ID deliberately cleared locally, guard recovered the same unique idle kernel without changing tracked metadata, then the first upload completed in the supervisor transfer ledger",
+        "id": "cold-kernel-metadata-recovery",
+        "owner": "Mac supervisor + cli guard",
+        "required": true,
+        "status": "INCOMPLETE"
+      },
+      {
+        "evidence": "remote snapshot.complete.json, downloaded hash, atomic local file",
+        "id": "busy-full-snapshot",
+        "owner": "probe + supervisor",
+        "required": false,
+        "status": "NOT_REQUIRED"
+      },
+      {
+        "evidence": "over-60s gap and explicit supervisor timeout record",
+        "id": "silence-timeout",
+        "owner": "probe + supervisor",
+        "required": true,
+        "status": "INCOMPLETE"
+      },
+      {
+        "evidence": "sessions before/after url show same single assignment",
+        "id": "url-no-second-allocation",
+        "owner": "Mac supervisor",
+        "required": true,
+        "status": "INCOMPLETE"
+      },
+      {
+        "evidence": "generation fence and one remote execution identity after reconnect",
+        "id": "client-loss-reconnect",
+        "owner": "Mac supervisor",
+        "required": true,
+        "status": "INCOMPLETE"
+      },
+      {
+        "evidence": "intentional child exit recorded; corrupt download rejected",
+        "id": "failure-and-corrupt-export",
+        "owner": "probe + supervisor",
+        "required": true,
+        "status": "INCOMPLETE"
+      },
+      {
+        "evidence": "uninterrupted and resumed full-state hashes match",
+        "id": "exact-resume",
+        "owner": "probe + supervisor",
+        "required": false,
+        "status": "NOT_REQUIRED"
+      },
+      {
+        "evidence": "lease expiry plus backend assignment disappearance",
+        "id": "mac-loss-watchdog-unassign",
+        "owner": "runtime watchdog + supervisor",
+        "required": true,
+        "status": "INCOMPLETE"
+      },
+      {
+        "evidence": "timed checkpoint overhead <= 2 percent",
+        "id": "checkpoint-overhead",
+        "owner": "supervisor",
+        "required": false,
+        "status": "NOT_REQUIRED"
+      },
+      {
+        "evidence": "stop issued then sessions/status proves assignment gone",
+        "id": "backend-stop-disappearance",
+        "owner": "Mac supervisor",
+        "required": true,
+        "status": "INCOMPLETE"
+      },
+      {
+        "evidence": "bounded positive provider calibration for CPU and L4",
+        "id": "rate-calibration",
+        "owner": "Mac supervisor",
+        "required": true,
+        "status": "INCOMPLETE"
+      },
+      {
+        "evidence": "exactly 64 MiB L4-to-Mac export, SHA256 verified, end-to-end bytes/s lower bound",
+        "id": "final-artifact-download",
+        "owner": "probe + supervisor",
+        "required": true,
+        "status": "INCOMPLETE"
+      },
+      {
+        "evidence": "L4 receipt verified every local synthetic input with the D1024 sizes and hashes; the B8 HTTPS role has its preflight evidence",
+        "id": "d1024-synthetic-full-inventory-staging",
+        "owner": "Mac supervisor + acceptance verifier",
+        "required": true,
+        "status": "INCOMPLETE"
+      }
+    ],
+    "jobs": [
+      {
+        "expected_units": 0.16666666666666666,
+        "manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3/acceptance-1793011701/manifests/cpu.json",
+        "name": "cpu",
+        "priced_rate_units_per_hour": 0.5
+      },
+      {
+        "expected_units": 1.0,
+        "manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3/acceptance-1793011701/manifests/l4.json",
+        "name": "l4",
+        "priced_rate_units_per_hour": 2.0
+      }
+    ],
+    "limits": {
+      "first_cap_wins": true,
+      "max_units_including_reserve": 4.0,
+      "reserve_units": 0.8,
+      "usable_units": 3.2
+    },
+    "profile": "final-only",
+    "qualification": "INCOMPLETE until every gate has independently verified evidence",
+    "schema": "snake-dqn-colab-cli-acceptance/v1",
+    "source_manifest": {
+      "research/colab_cli/__init__.py": "624677cd409539df23ec6c1f21ad999059fe779715ee5eab0183b7b2498851f1",
+      "research/colab_cli/acceptance.py": "e661956ea8abb46522d29cdaa809d0e7679213f233b0c9b11f635d6542a26cfc",
+      "research/colab_cli/acceptance_faults.py": "c7796415189730f94fc9b9786c615699fd2d02a6bb2e0c6c48e6add85ff08fcb",
+      "research/colab_cli/acceptance_probe.py": "5fe350618270ecbb51ecdb44b16fc80a071d80633ac94679ba94541694251610",
+      "research/colab_cli/acceptance_probe.sh": "9e7163c63bda2a86c96fe2eabee9be538d77e8151c13422467fe497d55be9064",
+      "research/colab_cli/accounting.py": "0137488c4c7e1e3f8272782e3799741503e6c871e816d9d05950390b177de784",
+      "research/colab_cli/admission.py": "e602c417ea859411e40efcf470b3116a17958eeb74e92f511f97ba53ba6019d6",
+      "research/colab_cli/backup.py": "125b73b512c63e06f4b7656e52b534967510685314ab5b2c1b9fbbe4232239fe",
+      "research/colab_cli/bootstrap.sh": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+      "research/colab_cli/canary.py": "a922697e0636ddb4fa08abc8dfca77995146ba9c97c58b8a66f3493b757b2b0a",
+      "research/colab_cli/canary_observer.py": "8fdba23c889de4d2403161e98345b963b731eecb2f931439b7cd4d3de3b0ce64",
+      "research/colab_cli/cli_guard.py": "fd41ea264860cd1dc215ac4f5c14acff31bd62210dcb7ba71ad7b4e231ecafdc",
+      "research/colab_cli/export_batches.py": "9f27d3bc5dde95b0b49dbcd4c2169b63e1546ad52902386d17d86974200a612d",
+      "research/colab_cli/failures.py": "fd92efd5700669ab331f88c6fe478f181757d3f76776a8d76ef298e43e45843f",
+      "research/colab_cli/inputs.py": "56cce4bd7a6c9487f52ac914c743f34051b5e818893c8e48ca0da9ff08f03ae1",
+      "research/colab_cli/launch.sh": "173b51e74e5c0b44c40d0d549b0d4a3a1dc1ab787baa68eb854ca0663b50ea79",
+      "research/colab_cli/policy.py": "df0853ea3ca984a1bcfb5c78a8890467b4a66047ea56d269af3cc736475254e3",
+      "research/colab_cli/release.py": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+      "research/colab_cli/runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+      "research/colab_cli/schema.py": "8be6acbdf24d37c5fe66565f5af95cf53b7ead69b8d33c2357fd04a0543053f7",
+      "research/colab_cli/source.py": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+      "research/colab_cli/supervisor.py": "8ca6ebaafeb26886c65b309ad5bd3f5f89cf8a3ea9b433ecc93d900464e38e35",
+      "research/colab_cli/transfer_policy.py": "a745dba9ae15ff5e94fda466caffa01e93099f55f5d01cbf2d6737f69f60141b",
+      "research/colab_cli/transfers.py": "4420a2ea861edcb6bb0a1d4e763aa994bce255f5dee9a2aaf3c2ff5ffbc81cf8"
+    },
+    "status": "NOT_RUN",
+    "tree_hash": "6e8c1982b5c9ed115bfebd3145ad0720b15522fa"
+  },
+  "repo": "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026",
+  "state_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3",
+  "transfer_authority_sha256": null,
+  "tree_hash": "6e8c1982b5c9ed115bfebd3145ad0720b15522fa"
+}

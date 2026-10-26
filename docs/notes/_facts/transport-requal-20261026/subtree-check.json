@@ -1,0 +1,11 @@
+{
+  "reviewed_commit": "7f5357a7f89c7269abef09711f597c8542d266d4",
+  "merge_commit": "3b32d755ee3e22ed5ebf71b5f64af543b40c5ccb",
+  "merge_parents": [
+    "6d613ebc66511d977a55df4b9095588e030f3728",
+    "892e3aef003f1e292b8d33a7eb989097a295f2f9"
+  ],
+  "git_ls_tree": "040000 tree 6e8c1982b5c9ed115bfebd3145ad0720b15522fa\tresearch/colab_cli\n040000 tree 5e96009a2d1f14b7368b2b11f4ddc9135ffa29d4\ttools/ops\n",
+  "combined_ls_tree_sha256": "42c2cbd8c3991526271261f3af7f356bdf27347bbd2764137c5d2ac665ccae55",
+  "exact_bytes_and_modes_equal": true
+}

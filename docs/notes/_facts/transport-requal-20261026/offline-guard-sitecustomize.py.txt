@@ -1,0 +1,26 @@
+"""Deny network and runtime subprocesses during this plan-only invocation."""
+import json
+import os
+import sys
+from pathlib import Path
+
+LOG = Path(__file__).parent.parent / "plan-audit.jsonl"
+
+def guard(event, args):
+    if event == "subprocess.Popen":
+        command = args[1]
+        safe = isinstance(command, (list, tuple)) and command and Path(command[0]).name == "git"
+        tail = list(command[1:]) if safe else []
+        if tail[:1] == ["-C"]:
+            tail = tail[2:]
+        safe = safe and tail and tail[0] in {"status", "rev-parse", "cat-file", "show", "ls-files", "ls-tree"}
+        with LOG.open("a") as stream:
+            stream.write(json.dumps({"event": event, "command": command, "allowed": bool(safe)}) + "\n")
+        if not safe:
+            raise RuntimeError("PLAN_ONLY: denied non-inspection subprocess")
+    elif event in {"socket.connect", "socket.connect_ex", "socket.getaddrinfo", "os.system", "os.exec", "os.posix_spawn", "os.spawn"}:
+        with LOG.open("a") as stream:
+            stream.write(json.dumps({"event": event, "allowed": False}) + "\n")
+        raise RuntimeError("PLAN_ONLY: denied network or process mutation")
+
+sys.addaudithook(guard)

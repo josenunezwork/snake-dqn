@@ -1,0 +1,7 @@
+{"event": "subprocess.Popen", "command": ["git", "-C", "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026", "status", "--porcelain", "--untracked-files=all"], "allowed": true}
+{"event": "subprocess.Popen", "command": ["git", "rev-parse", "HEAD"], "allowed": true}
+{"event": "subprocess.Popen", "command": ["git", "rev-parse", "--verify", "HEAD:research/colab_cli"], "allowed": true}
+{"event": "subprocess.Popen", "command": ["git", "cat-file", "-t", "6e8c1982b5c9ed115bfebd3145ad0720b15522fa"], "allowed": true}
+{"event": "subprocess.Popen", "command": ["git", "-C", "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026", "rev-parse", "HEAD"], "allowed": true}
+{"event": "subprocess.Popen", "command": ["git", "-C", "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026", "rev-parse", "--verify", "HEAD:research/colab_cli"], "allowed": true}
+{"event": "subprocess.Popen", "command": ["git", "-C", "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026", "cat-file", "-t", "6e8c1982b5c9ed115bfebd3145ad0720b15522fa"], "allowed": true}

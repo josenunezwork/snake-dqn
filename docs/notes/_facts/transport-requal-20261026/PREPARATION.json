@@ -1,0 +1,110 @@
+{
+  "account_map_review": {
+    "account_map": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/current-reviewed-account-rates.json",
+    "account_map_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+    "account_wide_maximum": 3,
+    "active_assignments": 0,
+    "allocated": false,
+    "created_utc": "2026-10-26T10:48:15.159863+00:00",
+    "provider_calls": [
+      [
+        "/Users/josenunez/.local/bin/colab",
+        "--auth",
+        "oauth2",
+        "sessions"
+      ]
+    ],
+    "tool": "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026/tools/ops/dispatch.py:refresh_assignments"
+  },
+  "clean_detached_checkout": "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026",
+  "d1024_inventory": {
+    "inputs": [
+      {
+        "dest": "b8.pth",
+        "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+        "size_bytes": 6562005,
+        "transport": "https",
+        "url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/B8_s3_final.pth"
+      },
+      {
+        "dest": "factory-verified-ledger.json",
+        "size_bytes": 2405362,
+        "transport": "upload"
+      },
+      {
+        "dest": "train-1024.npz",
+        "size_bytes": 45397643,
+        "transport": "upload"
+      },
+      {
+        "dest": "metadata.tar",
+        "size_bytes": 2211840,
+        "transport": "upload"
+      }
+    ],
+    "schema": "f4-d1024-synthetic-input-inventory/v1",
+    "sha256": "b9eca552d1dc72349e7e303859a87da6317ce0abc0d5635dcecfb9a7151c72ea"
+  },
+  "exact_execute_argv": [
+    "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026/tools/ops/requalify.sh",
+    "execute",
+    "--plan",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3/acceptance-1793011701/ops-review.json",
+    "--review-token",
+    "COLAB_CLI_ACCEPTANCE_REVIEWED"
+  ],
+  "execute_started": false,
+  "manifests": [
+    {
+      "manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3/acceptance-1793011701/manifests/cpu.json",
+      "name": "cpu",
+      "output_absent": true,
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3/acceptance-1793011701/outputs/cpu",
+      "sha256": "55e3025d7b45b9cad01647669bc35a987100cc67166615f22efadd7bb9407848",
+      "timeout_minutes": 20
+    },
+    {
+      "manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3/acceptance-1793011701/manifests/l4.json",
+      "name": "l4",
+      "output_absent": true,
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3/acceptance-1793011701/outputs/l4",
+      "sha256": "382fc283039eb54864cd2e13e9d5d0bacfc95b9294a99712ecb3e532342ca613",
+      "timeout_minutes": 30
+    }
+  ],
+  "merge_commit": "3b32d755ee3e22ed5ebf71b5f64af543b40c5ccb",
+  "ops_review_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/requalify-ifjq3sq3/acceptance-1793011701/ops-review.json",
+  "ops_review_sha256": "636b04ca84e47ec50d3b5aeccf2c42f299b9f091e63054122c12ae337e483421",
+  "plan_git_inspection_calls": 7,
+  "plan_provider_calls": 0,
+  "profile": "final-only",
+  "qualification_result_created": false,
+  "registry_unchanged_sha256": "579e9638c23692352a5f0c0467a9abbe093cc820cc45cd52ec4f77900dbdd5bb",
+  "reviewed_commit": "7f5357a7f89c7269abef09711f597c8542d266d4",
+  "schema": "snake-dqn-transport-plan-preparation/v1",
+  "status": "PLAN_ONLY_NOT_EXECUTED",
+  "subtree_check": {
+    "combined_ls_tree_sha256": "42c2cbd8c3991526271261f3af7f356bdf27347bbd2764137c5d2ac665ccae55",
+    "exact_bytes_and_modes_equal": true,
+    "git_ls_tree": "040000 tree 6e8c1982b5c9ed115bfebd3145ad0720b15522fa\tresearch/colab_cli\n040000 tree 5e96009a2d1f14b7368b2b11f4ddc9135ffa29d4\ttools/ops\n",
+    "merge_commit": "3b32d755ee3e22ed5ebf71b5f64af543b40c5ccb",
+    "merge_parents": [
+      "6d613ebc66511d977a55df4b9095588e030f3728",
+      "892e3aef003f1e292b8d33a7eb989097a295f2f9"
+    ],
+    "reviewed_commit": "7f5357a7f89c7269abef09711f597c8542d266d4"
+  },
+  "tests": {
+    "make_lint": "PASS",
+    "niceness": 15,
+    "numeric_threads": 1,
+    "style": "PASS",
+    "supplemental_passed": 18,
+    "supplemental_seconds": 0.93,
+    "targeted_passed": 262,
+    "targeted_seconds": 629.9,
+    "total_passed": 280,
+    "workers": 1
+  },
+  "transfer_authority_sha256": null
+}

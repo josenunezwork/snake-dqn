@@ -1,0 +1,17 @@
+{
+  "account_map": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/requal-20261026-transport/current-reviewed-account-rates.json",
+  "account_map_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+  "account_wide_maximum": 3,
+  "active_assignments": 0,
+  "allocated": false,
+  "created_utc": "2026-10-26T10:48:15.159863+00:00",
+  "provider_calls": [
+    [
+      "/Users/josenunez/.local/bin/colab",
+      "--auth",
+      "oauth2",
+      "sessions"
+    ]
+  ],
+  "tool": "/Users/josenunez/Projects/ml/snake-dqn-requal-20261026/tools/ops/dispatch.py:refresh_assignments"
+}

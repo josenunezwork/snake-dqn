@@ -1,0 +1,55 @@
+"""Snapshot the current account through the existing read-only broker rate join."""
+import hashlib
+import json
+import math
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+os.nice(15)
+ROOT = Path(__file__).resolve().parent
+REPO = Path("/Users/josenunez/Projects/ml/snake-dqn-requal-20261026")
+sys.path.insert(0, str(REPO / "tools/ops"))
+import dispatch
+
+original = dispatch.command
+calls = []
+expected = [str(Path.home() / ".local/bin/colab"), "--auth", "oauth2", "sessions"]
+
+def read_only_command(args, **kwargs):
+    if args != expected:
+        raise RuntimeError("ACCOUNTING_ONLY: refusing any command except read-only sessions")
+    calls.append(args)
+    return original(args, **kwargs)
+
+dispatch.command = read_only_command
+seed = ROOT / "account-map-seed.json"
+with seed.open("x") as stream:
+    json.dump({"budget": {"other_assignments": {}}}, stream)
+    stream.write("\n")
+with dispatch.allocation_lock(dispatch.OPS / "alloc.lock", 60) as deadline:
+    refreshed = dispatch.refresh_assignments(seed, ROOT / "accounting-evidence.json", deadline)
+    rates = json.loads(refreshed.read_text())["budget"]["other_assignments"]
+    if len(rates) >= 3:
+        raise RuntimeError("Account-wide cap leaves no slot for later acceptance")
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0 for v in rates.values()):
+        raise RuntimeError("Nonpositive or uncalibrated account rate")
+    payload = (json.dumps(rates, indent=2, sort_keys=True) + "\n").encode()
+    target = ROOT / "current-reviewed-account-rates.json"
+    with target.open("xb") as stream:
+        stream.write(payload)
+proof = {
+    "created_utc": datetime.now(timezone.utc).isoformat(),
+    "tool": str(REPO / "tools/ops/dispatch.py") + ":refresh_assignments",
+    "provider_calls": calls,
+    "account_map": str(target),
+    "account_map_sha256": hashlib.sha256(payload).hexdigest(),
+    "active_assignments": len(rates),
+    "account_wide_maximum": 3,
+    "allocated": False,
+}
+with (ROOT / "account-map-review.json").open("x") as stream:
+    json.dump(proof, stream, indent=2, sort_keys=True)
+    stream.write("\n")
+print(json.dumps(proof, indent=2))

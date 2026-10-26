@@ -1,0 +1,53 @@
+[
+  {
+    "command": [
+      "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+      "-m",
+      "black",
+      "--check",
+      "--line-length",
+      "100",
+      "research/colab_cli/cli_guard.py",
+      "research/colab_cli/policy.py",
+      "research/colab_cli/supervisor.py",
+      "tests/test_colab_cli_transport_diag.py"
+    ],
+    "return_code": 0
+  },
+  {
+    "command": [
+      "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+      "-m",
+      "isort",
+      "--check-only",
+      "--profile",
+      "black",
+      "research/colab_cli/cli_guard.py",
+      "research/colab_cli/policy.py",
+      "research/colab_cli/supervisor.py",
+      "tests/test_colab_cli_transport_diag.py"
+    ],
+    "return_code": 0
+  },
+  {
+    "command": [
+      "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+      "-m",
+      "flake8",
+      "research/colab_cli/cli_guard.py",
+      "research/colab_cli/policy.py",
+      "research/colab_cli/supervisor.py",
+      "tests/test_colab_cli_transport_diag.py"
+    ],
+    "return_code": 0
+  },
+  {
+    "command": [
+      "git",
+      "diff",
+      "--check",
+      "origin/main...HEAD"
+    ],
+    "return_code": 0
+  }
+]

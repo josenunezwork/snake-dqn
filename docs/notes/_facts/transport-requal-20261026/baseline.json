@@ -1,0 +1,13 @@
+{
+  "reviewed_commit": "7f5357a7f89c7269abef09711f597c8542d266d4",
+  "origin_main_before": "6d613ebc66511d977a55df4b9095588e030f3728",
+  "rebased_commit": "892e3aef003f1e292b8d33a7eb989097a295f2f9",
+  "registry_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json",
+  "registry_sha256": "579e9638c23692352a5f0c0467a9abbe093cc820cc45cd52ec4f77900dbdd5bb",
+  "ruling_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/ACCEPT_TRANSPORT_REPAIR_7f5357a7.md",
+  "ruling_sha256": "cf283cf1f4ebd0e6575275621594b2c96b5b59e7d8f0da640cd553db0291ab1b",
+  "subtrees": {
+    "research/colab_cli": "6e8c1982b5c9ed115bfebd3145ad0720b15522fa",
+    "tools/ops": "5e96009a2d1f14b7368b2b11f4ddc9135ffa29d4"
+  }
+}
