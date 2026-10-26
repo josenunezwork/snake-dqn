@@ -201,6 +201,19 @@ def check(manifest: dict[str, Any], repo: Path) -> None:
         transfer_policy.transfer_limit(manifest)
     except ValueError as exc:
         raise CanaryError(str(exc)) from exc
+    f5_inventory = manifest.get("f5_timing_synthetic_inventory")
+    if isinstance(f5_inventory, dict):
+        try:
+            tree = subprocess.check_output(
+                ["git", "rev-parse", f"{manifest['commit']}:research/colab_cli"],
+                cwd=repo,
+                text=True,
+                timeout=10,
+            ).strip()
+        except (subprocess.SubprocessError, OSError) as exc:
+            raise CanaryError("cannot resolve F5 timing transport source tree") from exc
+        if tree != f5_inventory.get("source_tree"):
+            raise CanaryError("F5 timing transfer authority source tree differs")
     if manifest["script"] == ACCEPTANCE_SCRIPT:
         # The source qualification probe must be able to bootstrap qualification.
         if manifest.get("canary"):

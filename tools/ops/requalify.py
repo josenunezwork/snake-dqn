@@ -34,6 +34,7 @@ def plan(
     *,
     d1024_inventory: bool = False,
     transfer_authority_sha256: str | None = None,
+    f5_timing_authority: Path | None = None,
 ) -> Path:
     """Use a unique state parent even for two plans in the same second."""
     acceptance, _ = load_transport(repo)
@@ -46,6 +47,7 @@ def plan(
         profile="final-only",
         d1024_inventory=d1024_inventory,
         transfer_authority_sha256=transfer_authority_sha256,
+        f5_timing_authority=f5_timing_authority,
     )
     run = Path(record["run_dir"])
     saved = run / "ops-review.json"
@@ -62,6 +64,14 @@ def plan(
         },
         "d1024_inventory": d1024_inventory,
         "transfer_authority_sha256": transfer_authority_sha256,
+        "f5_timing_authority": (
+            {
+                "path": str(f5_timing_authority.resolve()),
+                "sha256": hashlib.sha256(f5_timing_authority.read_bytes()).hexdigest(),
+            }
+            if f5_timing_authority
+            else None
+        ),
     }
     # This file is create-only review material, separate from the broker's plan.
     with saved.open("x") as stream:
@@ -99,6 +109,21 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
         != acceptance.transfer_policy.authority_binding("acceptance")
     ):
         raise ValueError("reviewed D1024 transfer authority differs from ruling")
+    f5_authority = review.get("f5_timing_authority")
+    if f5_authority is not None:
+        if (
+            not isinstance(f5_authority, dict)
+            or not isinstance(f5_authority.get("path"), str)
+            or not isinstance(f5_authority.get("sha256"), str)
+            or not Path(f5_authority["path"]).is_file()
+            or hashlib.sha256(Path(f5_authority["path"]).read_bytes()).hexdigest()
+            != f5_authority["sha256"]
+            or prepared.get("f5_timing_transfer_exception")
+            != acceptance.transfer_policy.f5_timing_authority_binding(
+                prepared.get("f5_timing_synthetic_inventory", {}).get("sha256", ""), "acceptance"
+            )
+        ):
+            raise ValueError("reviewed F5 timing transfer authority differs from ruling")
     acceptance.verify_plan_sources(prepared, repo)
     for job in prepared["jobs"]:
         manifest_bytes = Path(job["manifest"]).read_bytes()
@@ -162,6 +187,11 @@ def main() -> int:
         "--transfer-authority-sha256",
         help="F4 ruling SHA-256 for the prospective D1024 transfer exception",
     )
+    prepare.add_argument(
+        "--f5-timing-authority",
+        type=Path,
+        help="sealed F5 timing recovery authority staged synthetically in this acceptance",
+    )
     run = actions.add_parser("execute")
     run.add_argument("--plan", required=True, type=Path)
     run.add_argument("--review-token", required=True)
@@ -178,6 +208,7 @@ def main() -> int:
                     args.colab,
                     d1024_inventory=args.d1024_inventory,
                     transfer_authority_sha256=args.transfer_authority_sha256,
+                    f5_timing_authority=args.f5_timing_authority,
                 )
             )
         else:

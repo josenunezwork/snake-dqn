@@ -1,4 +1,4 @@
-"""Prospective, hash-bound F4 D1024 transfer allowance; staging stays independent.
+"""Prospective, hash-bound transfer allowances; staging stays independent.
 
 Inventory identities below are transcribed from the immutable d1024-pack-02
 canary manifest, not inferred from fit outcomes. The acceptance uses synthetic
@@ -14,12 +14,14 @@ from pathlib import Path
 from typing import Any
 
 RULING_SHA256 = "f57080bdc08b6f0dc439adb0082ea5e00725d0cfd2521fdaffde6b864f1cc809"
+F5_TIMING_RULING_SHA256 = "4f10f264fda3c7190e07f486803fa02cc10645741fb95ef215b1d1b0cc123439"
 INVENTORY_SHA256 = "b9eca552d1dc72349e7e303859a87da6317ce0abc0d5635dcecfb9a7151c72ea"
 DEFAULT_TRANSFER_SECONDS = 150.0
 EXCEPTION_TRANSFER_SECONDS = 300.0
 MAX_STAGING_SECONDS = 300.0
 FIT_SCRIPT = "research/bl_residual/f4_d256_colab.sh"
 ACCEPTANCE_SCRIPT = "research/colab_cli/acceptance_probe.sh"
+F5_TIMING_SCRIPT = "research/bl_residual/f5_colab.sh"
 B8_URL = (
     "https://github.com/josenunezwork/snake-dqn/releases/download/"
     "s1-inputs-20261019/B8_s3_final.pth"
@@ -52,6 +54,142 @@ def authority_binding(context: str = "fit") -> dict[str, Any]:
         "effective_transfer_seconds": EXCEPTION_TRANSFER_SECONDS,
         "whole_staging_seconds": MAX_STAGING_SECONDS,
     }
+
+
+def f5_timing_authority_binding(inventory_sha256: str, context: str = "timing") -> dict[str, Any]:
+    """Return the narrow F5 recovery allowance for one sealed inventory.
+
+    Unlike the historical F4 exception, this binding names a successor's exact
+    frozen input inventory.  It is deliberately a separate manifest field so
+    the F4 D1024 path cannot borrow it (and vice versa).
+    """
+    if context not in {"timing", "canary", "acceptance"} or not re.fullmatch(
+        r"[0-9a-f]{64}", inventory_sha256
+    ):
+        raise ValueError("foreign F5 timing transfer exception context or inventory")
+    return {
+        "schema": "f5-timing-recovery-transfer-exception/v1",
+        "ruling_sha256": F5_TIMING_RULING_SHA256,
+        "inventory_sha256": inventory_sha256,
+        "context": context,
+        "base_transfer_seconds": DEFAULT_TRANSFER_SECONDS,
+        "effective_transfer_seconds": EXCEPTION_TRANSFER_SECONDS,
+        "whole_staging_seconds": MAX_STAGING_SECONDS,
+    }
+
+
+def f5_timing_recovery_binding(inventory_sha256: str, context: str = "timing") -> dict[str, Any]:
+    """Named public constructor for the F5 timing04 recovery authority."""
+    return f5_timing_authority_binding(inventory_sha256, context)
+
+
+def _f5_inventory(manifest: dict[str, Any], binding: dict[str, Any]) -> None:
+    inventory = manifest.get("f5_timing_synthetic_inventory")
+    if not isinstance(inventory, dict):
+        raise ValueError("F5 timing transfer exception requires a sealed inventory")
+    supplied = inventory.get("sha256")
+    unsigned = dict(inventory)
+    unsigned.pop("sha256", None)
+    canonical = hashlib.sha256(
+        json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if supplied != canonical or supplied != binding["inventory_sha256"]:
+        raise ValueError("F5 timing transfer exception inventory digest differs")
+    rows = inventory.get("inputs")
+    if (
+        inventory.get("schema") != "f5-timing-recovery-synthetic-input-inventory/v1"
+        or inventory.get("ruling_sha256") != F5_TIMING_RULING_SHA256
+        or not re.fullmatch(r"[0-9a-f]{40}", str(inventory.get("source_commit", "")))
+        or not re.fullmatch(r"[0-9a-f]{40}", str(inventory.get("source_tree", "")))
+        or not isinstance(rows, list)
+        or not rows
+        or any(not isinstance(row, dict) for row in rows)
+    ):
+        raise ValueError("F5 timing transfer exception inventory is malformed")
+    if inventory["source_commit"] != manifest.get("commit"):
+        raise ValueError("F5 timing transfer exception source commit differs")
+    if inventory["source_tree"] != manifest.get("f5_timing_source_tree"):
+        raise ValueError("F5 timing transfer exception source tree differs")
+    names = [row.get("dest") for row in rows]
+    if any(not isinstance(name, str) or not name for name in names) or len(names) != len(
+        set(names)
+    ):
+        raise ValueError("F5 timing transfer exception inventory destinations differ")
+    actual = {row.get("dest"): row for row in manifest.get("inputs", []) if isinstance(row, dict)}
+    if not set(names).issubset(actual):
+        raise ValueError("F5 timing transfer exception input destinations differ")
+    context = binding["context"]
+    allowed_extra = {"acceptance_probe.py", "acceptance_probe.sh"}
+    if context == "acceptance":
+        # The combined final-only transport qualification intentionally includes
+        # its independent D1024 synthetic inventory under the old bar.
+        allowed_extra |= set(FROZEN_INPUTS)
+    if context != "acceptance" and set(actual) != set(names):
+        raise ValueError("F5 timing transfer exception has unbound input destinations")
+    if context == "acceptance" and not set(actual) <= set(names) | allowed_extra:
+        raise ValueError("F5 timing acceptance has unbound input destinations")
+    for row in rows:
+        observed = actual[row["dest"]]
+        if (
+            row.get("transport") not in {"upload", "https"}
+            or not isinstance(row.get("sha256"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"])
+            or observed.get("size_bytes") != row.get("size_bytes")
+        ):
+            raise ValueError("F5 timing transfer exception input size differs")
+        if row.get("transport") == "https" and (
+            observed.get("url") != row.get("url") or observed.get("sha256") != row.get("sha256")
+        ):
+            raise ValueError("F5 timing transfer exception public input differs")
+        if row.get("transport") == "upload":
+            path = Path(str(observed.get("path", "")))
+            if path.is_symlink() or not path.is_file() or path.stat().st_size != row["size_bytes"]:
+                raise ValueError("F5 timing transfer exception private input is missing or unsafe")
+            if context == "acceptance":
+                expected = hashlib.sha256(bytes(row["size_bytes"])).hexdigest()
+            else:
+                expected = row["sha256"]
+            with path.open("rb") as stream:
+                observed_digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            if observed.get("sha256") != expected or observed_digest != expected:
+                raise ValueError("F5 timing transfer exception private input hash differs")
+
+
+def _f5_timing_limit(manifest: dict[str, Any], binding: dict[str, Any]) -> float:
+    context = binding.get("context")
+    if binding != f5_timing_authority_binding(binding.get("inventory_sha256", ""), context):
+        raise ValueError("foreign or malformed F5 timing transfer exception authority")
+    requirements = manifest.get("requirements", {})
+    if requirements.get("gpu") != "L4" or requirements.get("allowed_gpus", ["L4"]) != ["L4"]:
+        raise ValueError("F5 timing transfer exception is L4-only")
+    _f5_inventory(manifest, binding)
+    env = manifest.get("env", {})
+    if context == "acceptance":
+        if (
+            manifest.get("script") != ACCEPTANCE_SCRIPT
+            or env.get("COLAB_ACCEPTANCE") != "1"
+            or env.get("COLAB_ACCEPTANCE_PROFILE") != "final-only"
+            or env.get("COLAB_ACCEPTANCE_ARM") != "L4"
+        ):
+            raise ValueError("F5 timing transfer exception requires final-only L4 acceptance")
+    elif (
+        manifest.get("script") != F5_TIMING_SCRIPT
+        or manifest.get("device") != "cuda:0"
+        or env.get("F5_DEVICE") != "cuda:0"
+        or env.get("F5_MODE")
+        != ("qualification-canary" if context == "canary" else "qualification")
+    ):
+        raise ValueError("F5 timing transfer exception requires timing-only L4 qualification")
+    if context == "canary":
+        canary = manifest.get("canary", {})
+        if (
+            not isinstance(canary, dict)
+            or canary.get("mode") != "probe"
+            or env.get("SNAKE_COLAB_CANARY") != "1"
+            or env.get("SNAKE_COLAB_CANARY_PACKAGE") != "research/bl_residual"
+        ):
+            raise ValueError("F5 timing transfer exception requires the family canary")
+    return EXCEPTION_TRANSFER_SECONDS
 
 
 def _inventory(manifest: dict[str, Any], *, synthetic: bool) -> None:
@@ -100,6 +238,11 @@ def transfer_limit(manifest: dict[str, Any]) -> float:
     Absence grants no exception. A present declaration must exactly match this
     ruling and its lane; unrelated jobs may never opt into the larger allowance.
     """
+    f5_binding = manifest.get("f5_timing_transfer_exception")
+    if f5_binding is not None:
+        if "transfer_exception" in manifest or not isinstance(f5_binding, dict):
+            raise ValueError("F5 timing transfer exception cannot combine with another authority")
+        return _f5_timing_limit(manifest, f5_binding)
     if "transfer_exception" not in manifest:
         return DEFAULT_TRANSFER_SECONDS
     binding = manifest["transfer_exception"]
@@ -159,6 +302,29 @@ def transfer_limit(manifest: dict[str, Any]) -> float:
 
 def acceptance_limit(plan: dict[str, Any]) -> float:
     """Revalidate an exception from its saved plan and exact L4 manifest."""
+    f5_binding = plan.get("f5_timing_transfer_exception")
+    if f5_binding is not None:
+        if "transfer_exception" in plan or not isinstance(f5_binding, dict):
+            raise ValueError("F5 timing acceptance has conflicting transfer authority")
+        inventory = plan.get("f5_timing_synthetic_inventory")
+        if not isinstance(inventory, dict) or plan.get("profile") != "final-only":
+            raise ValueError("F5 timing transfer exception requires final-only inventory")
+        jobs = plan.get("jobs", [])
+        if len(jobs) != 2 or {job.get("name") for job in jobs} != {"cpu", "l4"}:
+            raise ValueError("F5 timing transfer exception requires exactly CPU/L4 acceptance")
+        for job in jobs:
+            manifest = json.loads(Path(job.get("manifest", "")).read_text())
+            if manifest.get("commit") != plan.get("commit"):
+                raise ValueError("F5 timing transfer exception acceptance commit differs")
+            if job["name"] == "l4":
+                if manifest.get("f5_timing_transfer_exception") != f5_binding:
+                    raise ValueError("F5 timing acceptance manifest authority differs")
+                if manifest.get("f5_timing_synthetic_inventory") != inventory:
+                    raise ValueError("F5 timing acceptance manifest inventory differs")
+                return transfer_limit(manifest)
+            if "f5_timing_transfer_exception" in manifest:
+                raise ValueError("CPU acceptance cannot claim the F5 timing exception")
+        raise ValueError("F5 timing acceptance lacks L4 manifest")
     if "transfer_exception" not in plan:
         for job in plan.get("jobs", []):
             path = Path(job.get("manifest", ""))
@@ -190,24 +356,29 @@ def acceptance_limit(plan: dict[str, Any]) -> float:
 def receipt_limit(manifest: dict[str, Any], receipt: dict[str, Any], output: Path) -> float:
     """Bind a claimed exception to the broker's actual immutable job manifest."""
     planned = transfer_limit(manifest)
-    if "transfer_exception" not in manifest:
+    authority_key = (
+        "f5_timing_transfer_exception"
+        if "f5_timing_transfer_exception" in manifest
+        else "transfer_exception"
+    )
+    if authority_key not in manifest:
         return planned
     saved = output / "manifest.json"
     if saved.is_symlink() or not saved.is_file():
-        raise ValueError("D1024 transfer exception actual manifest is absent or unsafe")
+        raise ValueError("transfer exception actual manifest is absent or unsafe")
     raw = saved.read_bytes()
     if hashlib.sha256(raw).hexdigest() != receipt.get("manifest_sha256"):
-        raise ValueError("D1024 transfer exception actual manifest hash differs from receipt")
+        raise ValueError("transfer exception actual manifest hash differs from receipt")
     actual = json.loads(raw)
     if (
         actual.get("commit") != manifest.get("commit")
         or actual.get("commit") != receipt.get("commit")
         or actual.get("job_id") != manifest.get("job_id")
         or actual.get("job_id") != receipt.get("job_id")
-        or actual.get("transfer_exception") != manifest["transfer_exception"]
+        or actual.get(authority_key) != manifest[authority_key]
     ):
-        raise ValueError("D1024 transfer exception actual manifest authority/identity differs")
+        raise ValueError("transfer exception actual manifest authority/identity differs")
     observed = transfer_limit(actual)
     if observed != planned:
-        raise ValueError("D1024 transfer exception actual manifest allowance differs")
+        raise ValueError("transfer exception actual manifest allowance differs")
     return observed

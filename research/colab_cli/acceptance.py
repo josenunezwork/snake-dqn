@@ -137,6 +137,75 @@ def build_d1024_synthetic_inputs(directory: Path) -> tuple[list[dict[str, Any]],
     return inputs, inventory
 
 
+def load_f5_timing_synthetic_inventory(path: Path) -> dict[str, Any]:
+    """Load a reviewed metadata-only F5 inventory without opening study inputs."""
+    raw = json.loads(path.read_text())
+    if not isinstance(raw, dict):
+        raise ValueError("F5 timing synthetic inventory must be an object")
+    supplied = raw.get("sha256")
+    unsigned = dict(raw)
+    unsigned.pop("sha256", None)
+    if supplied != canonical_sha256(unsigned):
+        raise ValueError("F5 timing synthetic inventory digest is invalid")
+    # The policy performs the authoritative shape/ruling validation.  Keeping
+    # this parser metadata-only prevents a transport acceptance from reading a
+    # private timing payload merely to construct its synthetic equivalent.
+    return raw
+
+
+def build_f5_timing_synthetic_inputs(
+    directory: Path, inventory: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Materialize deterministic sparse F5 acceptance bytes for one sealed inventory."""
+    rows = inventory.get("inputs")
+    if not isinstance(rows, list):
+        raise ValueError("F5 timing synthetic inventory inputs are absent")
+    directory.mkdir(parents=True, exist_ok=False)
+    inputs: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("dest"), str):
+            raise ValueError("F5 timing synthetic inventory input is malformed")
+        size = row.get("size_bytes")
+        if type(size) is not int or size <= 0:
+            raise ValueError("F5 timing synthetic inventory input size is invalid")
+        if row.get("transport") == "https":
+            if not isinstance(row.get("url"), str) or not isinstance(row.get("sha256"), str):
+                raise ValueError("F5 timing synthetic public input is malformed")
+            inputs.append(
+                {
+                    "dest": row["dest"],
+                    "url": row["url"],
+                    "size_bytes": size,
+                    "sha256": row["sha256"],
+                }
+            )
+        elif row.get("transport") == "upload":
+            target = directory / row["dest"]
+            inputs.append(
+                {
+                    "dest": row["dest"],
+                    "path": str(target),
+                    "size_bytes": size,
+                    "sha256": _write_synthetic_file(target, size),
+                }
+            )
+        else:
+            raise ValueError("F5 timing synthetic input transport is invalid")
+    return inputs
+
+
+def merge_synthetic_inputs(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Combine inventories only where a shared public input is byte-identical."""
+    merged: dict[str, dict[str, Any]] = {}
+    for group in groups:
+        for row in group:
+            previous = merged.get(row["dest"])
+            if previous is not None and previous != row:
+                raise ValueError("synthetic inventories conflict at an input destination")
+            merged[row["dest"]] = row
+    return [merged[name] for name in sorted(merged)]
+
+
 def atomic_json(path: Path, value: dict[str, Any]) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
@@ -742,6 +811,7 @@ def build_plan(
     profile: str = "final-only",
     d1024_inventory: bool = False,
     transfer_authority_sha256: str | None = None,
+    f5_timing_authority: Path | None = None,
 ) -> dict[str, Any]:
     gates = review_gates(profile)
     if cpu_rate is None:
@@ -761,6 +831,17 @@ def build_plan(
                 "D1024 transfer authority is only valid for final-only D1024 acceptance"
             )
         transfer_exception = transfer_policy.authority_binding("acceptance")
+    f5_inventory: dict[str, Any] | None = None
+    f5_transfer_exception: dict[str, Any] | None = None
+    if f5_timing_authority is not None:
+        if profile != "final-only" or transfer_exception is not None:
+            raise ValueError(
+                "F5 timing transfer authority requires its final-only sealed inventory"
+            )
+        f5_inventory = load_f5_timing_synthetic_inventory(f5_timing_authority)
+        f5_transfer_exception = transfer_policy.f5_timing_authority_binding(
+            f5_inventory["sha256"], "acceptance"
+        )
     other_assignments = other_assignments or {}
     if not all(
         isinstance(endpoint, str)
@@ -788,6 +869,11 @@ def build_plan(
         synthetic_inputs, synthetic_inventory = build_d1024_synthetic_inputs(
             run_dir / "d1024-synthetic-inputs"
         )
+    if f5_inventory is not None:
+        f5_inputs = build_f5_timing_synthetic_inputs(
+            run_dir / "f5-timing-synthetic-inputs", f5_inventory
+        )
+        synthetic_inputs = merge_synthetic_inputs(synthetic_inputs, f5_inputs)
     probe = root / "research/colab_cli/acceptance_probe.py"
     wrapper = root / "research/colab_cli/acceptance_probe.sh"
     if not probe.is_file() or not wrapper.is_file():
@@ -820,6 +906,11 @@ def build_plan(
         if name == "l4" and transfer_exception is not None:
             payload["requirements"]["allowed_gpus"] = ["L4"]
             payload["transfer_exception"] = transfer_exception
+        if name == "l4" and f5_transfer_exception is not None:
+            payload["requirements"]["allowed_gpus"] = ["L4"]
+            payload["f5_timing_source_tree"] = f5_inventory["source_tree"]
+            payload["f5_timing_synthetic_inventory"] = f5_inventory
+            payload["f5_timing_transfer_exception"] = f5_transfer_exception
         target = manifests / f"{name}.json"
         atomic_json(target, payload)
         jobs.append(
@@ -840,6 +931,19 @@ def build_plan(
                 "evidence": (
                     "L4 receipt verified every local synthetic input with the D1024 sizes and "
                     "hashes; the B8 HTTPS role has its preflight evidence"
+                ),
+                "owner": "Mac supervisor + acceptance verifier",
+                "required": True,
+                "status": "INCOMPLETE",
+            }
+        )
+    if f5_inventory is not None:
+        plan_gates.append(
+            {
+                "id": "f5-timing-synthetic-full-inventory-staging",
+                "evidence": (
+                    "L4 receipt verified the sealed synthetic F5 timing inventory "
+                    "under its scoped bar"
                 ),
                 "owner": "Mac supervisor + acceptance verifier",
                 "required": True,
@@ -873,6 +977,9 @@ def build_plan(
         plan["d1024_synthetic_inventory"] = synthetic_inventory
     if transfer_exception is not None:
         plan["transfer_exception"] = transfer_exception
+    if f5_inventory is not None:
+        plan["f5_timing_synthetic_inventory"] = f5_inventory
+        plan["f5_timing_transfer_exception"] = f5_transfer_exception
     atomic_json(run_dir / "acceptance-plan.json", plan)
     return {"run_dir": str(run_dir), "plan": plan}
 
@@ -928,6 +1035,102 @@ def _record_d1024_synthetic_staging(
     return None
 
 
+def _record_f5_timing_synthetic_staging(
+    observer: AcceptanceObserver,
+    plan: dict[str, Any],
+    job: dict[str, Any],
+    receipt: dict[str, Any],
+    output: Path,
+) -> dict[str, str] | None:
+    """Record the separate F5 timing recovery staging proof for the L4 arm."""
+    if job["name"] != "l4" or "f5_timing_synthetic_inventory" not in plan:
+        return None
+    try:
+        inventory = plan["f5_timing_synthetic_inventory"]
+        manifest = json.loads(Path(job["manifest"]).read_text())
+        if manifest.get("f5_timing_synthetic_inventory") != inventory or manifest.get(
+            "f5_timing_transfer_exception"
+        ) != plan.get("f5_timing_transfer_exception"):
+            raise supervisor.Refused("synthetic F5 timing authority differs from plan")
+        requested = {row["dest"]: row for row in inventory["inputs"]}
+        actual = {row.get("dest"): row for row in manifest.get("inputs", [])}
+        if not set(requested).issubset(actual):
+            raise supervisor.Refused(
+                "synthetic F5 timing inventory is absent from acceptance manifest"
+            )
+        uploads = {
+            row["remote"].split("/inputs/", 1)[1]: row
+            for row in receipt.get("transfers", [])
+            if isinstance(row, dict)
+            and row.get("direction") == "upload"
+            and row.get("status") == "verified"
+            and isinstance(row.get("remote"), str)
+            and "/inputs/" in row["remote"]
+        }
+        observed = []
+        for dest, expected in requested.items():
+            row = actual[dest]
+            if row.get("size_bytes") != expected["size_bytes"]:
+                raise supervisor.Refused(f"synthetic F5 timing size mismatch for {dest}")
+            if expected["transport"] == "https":
+                if row.get("url") != expected.get("url") or row.get("sha256") != expected.get(
+                    "sha256"
+                ):
+                    raise supervisor.Refused("synthetic F5 timing public input role differs")
+                observed.append({"dest": dest, "transport": "https", "status": "manifest-bound"})
+            else:
+                path = Path(row.get("path", ""))
+                transfer = uploads.get(dest, {})
+                digest = sha256_file(path) if path.is_file() else None
+                if (
+                    digest is None
+                    or path.stat().st_size != expected["size_bytes"]
+                    or row.get("sha256") != digest
+                    or transfer.get("size_bytes") != expected["size_bytes"]
+                    or transfer.get("sha256") != digest
+                ):
+                    raise supervisor.Refused(
+                        f"synthetic F5 timing verified upload is absent for {dest}"
+                    )
+                observed.append(
+                    {
+                        "dest": dest,
+                        "transport": "upload",
+                        "status": "verified",
+                        "size_bytes": expected["size_bytes"],
+                        "sha256": digest,
+                        "remote": transfer["remote"],
+                    }
+                )
+        if not (output / "public-input-preflight.json").is_file():
+            raise supervisor.Refused("synthetic F5 timing public-input preflight is absent")
+        limit = transfer_policy.receipt_limit(manifest, receipt, output)
+        measurement = _d1024_staging_measurement(output / "upload-measurement.json", limit)
+        evidence = {
+            "status": "PASS",
+            "inventory_sha256": inventory["sha256"],
+            "inputs": observed,
+            "public_input_preflight": str(output / "public-input-preflight.json"),
+            "upload_measurement": {
+                "path": str(output / "upload-measurement.json"),
+                "sha256": sha256_file(output / "upload-measurement.json"),
+                "transfer_limit_seconds": limit,
+                "f5_timing_transfer_exception": plan["f5_timing_transfer_exception"],
+                **measurement,
+            },
+            "receipt": {
+                "path": str(output / "receipt.json"),
+                "sha256": sha256_file(output / "receipt.json"),
+            },
+        }
+    except (OSError, KeyError, TypeError, ValueError, supervisor.Refused) as exc:
+        failure = {"status": "INCOMPLETE", "error": str(exc), "exception_type": type(exc).__name__}
+        observer._record("f5-timing-synthetic-full-inventory-staging", **failure)
+        return failure
+    observer._record("f5-timing-synthetic-full-inventory-staging", **evidence)
+    return None
+
+
 def execute(
     plan: dict[str, Any], *, state_dir: Path, colab: str, review_token: str, oauth_python: str
 ) -> int:
@@ -947,13 +1150,18 @@ def execute(
             receipt = _clean_release_receipt(output)
             measurement = _calibration_evidence(receipt)
             staging_error = _record_d1024_synthetic_staging(observer, plan, job, receipt, output)
+            f5_staging_error = _record_f5_timing_synthetic_staging(
+                observer, plan, job, receipt, output
+            )
             observer._record("backend-stop-disappearance", receipt=str(output / "receipt.json"))
             results.append(
                 {
                     "job": job["name"],
                     "status": (
                         "PASS"
-                        if measurement["status"] == "PASS" and staging_error is None
+                        if measurement["status"] == "PASS"
+                        and staging_error is None
+                        and f5_staging_error is None
                         else "INCOMPLETE"
                     ),
                     "receipt": str(output / "receipt.json"),
@@ -962,6 +1170,7 @@ def execute(
                     "measured_rate_units_per_hour": measurement["observed_rate_units_per_hour"],
                     "rate_calibration": measurement,
                     "staging_error": staging_error,
+                    "f5_staging_error": f5_staging_error,
                 }
             )
         except (supervisor.Refused, OSError, subprocess.SubprocessError) as exc:
@@ -987,6 +1196,11 @@ def execute(
                 if clean_cleanup
                 else None
             )
+            f5_staging_error = (
+                _record_f5_timing_synthetic_staging(observer, plan, job, receipt, output)
+                if clean_cleanup
+                else None
+            )
             results.append(
                 {
                     "job": job["name"],
@@ -998,6 +1212,7 @@ def execute(
                             and clean_cleanup
                             and measurement["status"] == "PASS"
                             and staging_error is None
+                            and f5_staging_error is None
                         )
                         else "INCOMPLETE"
                     ),
@@ -1012,6 +1227,7 @@ def execute(
                     "measured_rate_units_per_hour": measurement["observed_rate_units_per_hour"],
                     "rate_calibration": measurement,
                     "staging_error": staging_error,
+                    "f5_staging_error": f5_staging_error,
                 }
             )
         finally:
@@ -1074,6 +1290,11 @@ def execute(
         result["d1024_synthetic_inventory_sha256"] = plan["d1024_synthetic_inventory"]["sha256"]
     if "transfer_exception" in plan:
         result["transfer_exception"] = plan["transfer_exception"]
+    if "f5_timing_synthetic_inventory" in plan:
+        result["f5_timing_synthetic_inventory_sha256"] = plan["f5_timing_synthetic_inventory"][
+            "sha256"
+        ]
+        result["f5_timing_transfer_exception"] = plan["f5_timing_transfer_exception"]
     create_json(run_dir / "acceptance-result.json", result)
     return return_code
 
@@ -1174,6 +1395,11 @@ def main(argv: list[str] | None = None) -> int:
         "--transfer-authority-sha256",
         help="F4 ruling SHA-256 authorizing the prospective D1024 transfer exception",
     )
+    parser.add_argument(
+        "--f5-timing-authority",
+        type=Path,
+        help="sealed metadata-only F5 timing recovery authority for synthetic acceptance",
+    )
     parser.add_argument("--state-dir", type=Path, help="absolute supervisor state parent")
     parser.add_argument(
         "--cpu-rate",
@@ -1232,6 +1458,7 @@ def main(argv: list[str] | None = None) -> int:
             profile=args.profile,
             d1024_inventory=args.d1024_inventory,
             transfer_authority_sha256=args.transfer_authority_sha256,
+            f5_timing_authority=args.f5_timing_authority,
         )
         print(json.dumps(record, indent=2, sort_keys=True))
         if args.execute_after_review:
