@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
+import math
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Sequence
 
-from .manifest import PROTECTED_TOKENS, ManifestError, load_manifest
+from .manifest import PROTECTED_TOKENS, ManifestError, _forbidden, load_manifest
 
 TRANSPORT_TREE = "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -74,6 +77,7 @@ def _validate_registry_inputs(payload: dict[str, Any], registry_path: Path) -> N
     _assert_safe_path(registry_path, "registry")
     from .registry import load_registry, validate_input, verify_sources
 
+    verify_committed_manifest(registry_path)
     registry = load_registry(registry_path)
     verify_sources(registry)
     for record in payload["inputs"]:
@@ -90,12 +94,58 @@ def _verify_broker_binding(payload: dict[str, Any]) -> None:
     if not isinstance(broker, dict) or set(broker) != {"path", "sha256"}:
         raise PreflightError("outputs.broker_manifest must have path and sha256")
     path = _assert_safe_path(broker["path"], "broker manifest")
-    _repo_relative(path)
+    _assert_safe_path(path.resolve(), "resolved broker manifest")
     if not path.is_file():
         raise PreflightError("broker manifest does not exist")
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     if digest != broker["sha256"]:
         raise PreflightError("broker manifest SHA-256 does not match sandbox manifest binding")
+    packet = json.loads(path.read_text())
+    _forbidden(
+        {key: packet.get(key) for key in ("script", "source_paths", "env", "output_dir")}, "broker"
+    )
+    script = packet.get("script", "")
+    if not isinstance(script, str) or not script.startswith(
+        ("research/sandbox_b_heads/", "research/sandbox_a_resident/")
+    ):
+        raise PreflightError("broker script is outside sandbox packages")
+    allowed = {
+        (record.get("sha256"), str(Path(record["path"]).resolve()))
+        for record in payload["inputs"]
+        if "path" in record
+    }
+    shipped = set()
+    for record in packet.get("inputs", []):
+        source = _assert_safe_path(record.get("path", ""), "broker input").resolve()
+        _assert_safe_path(source, "resolved broker input")
+        _assert_safe_path(record.get("dest", ""), "broker input destination")
+        pair = (record.get("sha256"), str(source))
+        if pair not in allowed:
+            raise PreflightError("broker uploads an input absent from sandbox admission")
+        shipped.add(pair)
+    if shipped != allowed:
+        raise PreflightError("broker input set differs from sandbox admission")
+    seconds = packet.get("timeout_minutes", 0) * 60
+    if isinstance(seconds, bool) or not math.isclose(
+        seconds, payload["timeout"]["seconds"], abs_tol=1e-8
+    ):
+        raise PreflightError("broker timeout differs from sandbox timeout")
+    if packet.get("requirements", {}).get("gpu") != "A100":
+        raise PreflightError("sandbox broker must request A100")
+    commit = packet.get("commit", "")
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise PreflightError("broker runtime pin must be a full commit SHA")
+    pinned_tree = _run(["git", "rev-parse", f"{commit}:research/colab_cli"])
+    if pinned_tree != TRANSPORT_TREE:
+        raise PreflightError("broker source pin changes qualified transport")
+    for source in packet.get("source_paths", []):
+        _assert_safe_path(source, "broker source")
+        relative = Path(source).as_posix()
+        pinned = subprocess.run(
+            ["git", "show", f"{commit}:{relative}"], cwd=REPO_ROOT, capture_output=True, check=False
+        )
+        if pinned.returncode or pinned.stdout != (REPO_ROOT / source).read_bytes():
+            raise PreflightError("broker source differs from committed runtime pin: " + source)
 
 
 def run_focused_tests() -> None:
@@ -107,6 +157,10 @@ def run_focused_tests() -> None:
             "MKL_NUM_THREADS": "1",
             "OPENBLAS_NUM_THREADS": "1",
             "NUMBA_NUM_THREADS": "1",
+            "OMP_THREAD_LIMIT": "1",
+            "VECLIB_MAXIMUM_THREADS": "1",
+            "SNAKE_DQN_DEVICE": "cpu",
+            "PYTHONDONTWRITEBYTECODE": "1",
         }
     )
     command = [
@@ -117,7 +171,10 @@ def run_focused_tests() -> None:
         "-m",
         "pytest",
         "-q",
+        "-p",
+        "no:xdist",
         "tools/sandbox/tests",
+        "research/sandbox_b_heads/tests",
     ]
     completed = subprocess.run(command, cwd=REPO_ROOT, text=True, env=env, check=False)
     if completed.returncode:
@@ -158,6 +215,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (ManifestError, PreflightError, ValueError) as exc:
         print(f"PREFLIGHT REFUSED: {exc}", file=sys.stderr)
         return 2
+    if args.skip_tests:
+        print("PREFLIGHT CHECK ONLY: tests skipped; no admission PASS")
+        return 3
     print(
         "PREFLIGHT PASS: schema, registry, committed manifest, qualified transport, focused tests"
     )

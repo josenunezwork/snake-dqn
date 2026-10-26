@@ -109,3 +109,42 @@ def test_committed_check_has_test_bypass(tmp_path: Path, monkeypatch: pytest.Mon
     verify_committed_manifest(path, require_committed=False)
     with pytest.raises(PreflightError):
         verify_committed_manifest(path)
+
+
+def test_broker_digest_cannot_admit_foreign_upload(tmp_path):
+    """Binding a hash also requires semantic equality with registry inputs."""
+    import hashlib
+
+    from tools.sandbox.preflight import _verify_broker_binding
+
+    broker = tmp_path / "broker.json"
+    broker.write_text(
+        json.dumps(
+            {
+                "script": "research/sandbox_b_heads/run_job.sh",
+                "inputs": [
+                    {
+                        "path": str(tmp_path / "foreign.npz"),
+                        "dest": "foreign.npz",
+                        "sha256": "a" * 64,
+                    }
+                ],
+                "env": {},
+                "source_paths": [],
+                "output_dir": str(tmp_path / "output"),
+            }
+        )
+    )
+    payload = _payload()
+    payload["outputs"]["broker_manifest"] = {
+        "path": str(broker),
+        "sha256": hashlib.sha256(broker.read_bytes()).hexdigest(),
+    }
+    with pytest.raises(PreflightError, match="absent from sandbox admission"):
+        _verify_broker_binding(payload)
+
+
+def test_digest_hex_is_not_mistaken_for_a_protected_path():
+    payload = _payload()
+    payload["inputs"][0]["sha256"] = "f5" * 32
+    validate_manifest(payload)

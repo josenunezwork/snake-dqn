@@ -51,6 +51,8 @@ def _forbidden(value: Any, location: str = "manifest") -> None:
                 raise ManifestError(f"{location} names protected study/path token {token!r}")
     elif isinstance(value, dict):
         for key, nested in value.items():
+            if key == "sha256":
+                continue
             _forbidden(key, location)
             _forbidden(nested, f"{location}.{key}")
     elif isinstance(value, list):
