@@ -12,6 +12,22 @@ from research.colab_cli import acceptance, supervisor, transfer_policy
 REPO = Path(__file__).resolve().parents[1]
 
 
+def test_partial_staging_diagnostic_cannot_be_acceptance_evidence(tmp_path: Path) -> None:
+    path = tmp_path / "upload-measurement.json"
+    path.write_text(
+        json.dumps(
+            {
+                "elapsed_seconds": 20.0,
+                "transfer_seconds": 15.0,
+                "source_delivery_seconds": 0.0,
+                "staging_completed": False,
+            }
+        )
+    )
+    with pytest.raises(supervisor.Refused, match="partial staging"):
+        acceptance._d1024_staging_measurement(path)
+
+
 def _l4_plan(tmp_path: Path, authority: str | None) -> tuple[dict[str, object], dict[str, object]]:
     plan = acceptance.build_plan(
         REPO,

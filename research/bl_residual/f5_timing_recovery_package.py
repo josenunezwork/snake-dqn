@@ -385,6 +385,8 @@ def build(
         "required_exports": [
             "qualification/qualification.json",
             "resume/verified-skip-proof.json",
+            "environment/before.json",
+            "environment/after.json",
         ],
         "timing_calibration": {
             "no_automatic_retry": True,
@@ -435,6 +437,8 @@ def build(
         "required_exports": [
             "qualification/qualification.json",
             "resume/verified-skip-proof.json",
+            "environment/before.json",
+            "environment/after.json",
         ],
         "f5": {
             **base["f5"],

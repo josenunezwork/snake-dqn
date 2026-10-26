@@ -8,6 +8,7 @@ Absent measurements are a HOLD; estimates are never manufactured here.
 
 from __future__ import annotations
 
+import json
 import math
 from collections import Counter
 from pathlib import Path
@@ -197,6 +198,51 @@ def _identity(proof: Mapping[str, Any], name: str, expected: Mapping[str, Any]) 
         _require(actual.get(key) == value, name + " drift")
 
 
+def _saved_json(output: Path, name: str) -> Mapping[str, Any]:
+    """Read one broker artifact without following a replacement symlink."""
+    _require(output.is_dir() and not output.is_symlink(), "recovery output is absent or unsafe")
+    path = output / name
+    _require(path.is_file() and not path.is_symlink(), "saved " + name + " is absent or unsafe")
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise TimingHold("HOLD_TIMING_QUALIFICATION: saved " + name + " is malformed") from exc
+    _require(isinstance(value, Mapping), "saved " + name + " is malformed")
+    return value
+
+
+def _validate_saved_recovery(
+    manifest: Mapping[str, Any], receipt: Mapping[str, Any], output: Path
+) -> tuple[float, Mapping[str, float]]:
+    """Bind a complete timing proof to immutable broker receipt and staging evidence."""
+    from research.colab_cli.canary import CanaryError, StagingCapError, staging_measurement
+    from research.colab_cli.transfer_policy import receipt_limit
+
+    saved_receipt = _saved_json(output, "receipt.json")
+    _require(saved_receipt == receipt, "saved receipt differs from supplied recovery receipt")
+    terminal = receipt.get("terminal")
+    _require(
+        receipt.get("status") == "PASS"
+        and receipt.get("stop_verified") is True
+        and receipt.get("cleanup_error") is None
+        and isinstance(terminal, Mapping)
+        and terminal.get("returncode") == 0,
+        "timing receipt is not a completed verified qualification",
+    )
+    try:
+        transfer_bound = receipt_limit(dict(manifest), dict(receipt), output)
+    except (OSError, TypeError, ValueError) as exc:
+        raise TimingHold(
+            "HOLD_TIMING_QUALIFICATION: timing receipt inventory authority differs"
+        ) from exc
+    measurement = _saved_json(output, "upload-measurement.json")
+    try:
+        measured = staging_measurement(dict(manifest), dict(measurement))
+    except (CanaryError, StagingCapError, TypeError, ValueError) as exc:
+        raise TimingHold("HOLD_TIMING_QUALIFICATION: saved staging measurement is invalid") from exc
+    return transfer_bound, measured
+
+
 def validate_operational_proof(
     proof: Mapping[str, Any],
     *,
@@ -234,7 +280,7 @@ def validate_operational_proof(
     transfer_bound = 150
     authority = transport.get("f5_timing_transfer_exception")
     if authority is not None:
-        from research.colab_cli.transfer_policy import f5_timing_authority_binding, receipt_limit
+        from research.colab_cli.transfer_policy import f5_timing_authority_binding
 
         inventory_sha256 = (
             authority.get("inventory_sha256") if isinstance(authority, Mapping) else None
@@ -258,19 +304,14 @@ def validate_operational_proof(
             source_identity.get("commit") == recovery_manifest.get("commit"),
             "timing receipt source differs",
         )
-        _require(
-            recovery_receipt.get("stop_verified") is True
-            and recovery_receipt.get("status") in {"PASS", "INCOMPLETE"},
-            "timing receipt lacks verified release",
+        transfer_bound, measured_staging = _validate_saved_recovery(
+            recovery_manifest, recovery_receipt, recovery_output
         )
-        try:
-            transfer_bound = receipt_limit(
-                dict(recovery_manifest), dict(recovery_receipt), recovery_output
-            )
-        except (OSError, TypeError, ValueError) as exc:
-            raise TimingHold(
-                "HOLD_TIMING_QUALIFICATION: timing receipt inventory authority differs"
-            ) from exc
+        _require(
+            transport.get("transfer_seconds") == measured_staging["transfer_seconds"]
+            and transport.get("staging_seconds") == measured_staging["elapsed_seconds"],
+            "proof transport does not match saved staging measurement",
+        )
         bound_inventory = recovery_manifest["f5_timing_synthetic_inventory"]["inputs"]
         supplied_inventory = {
             row.get("name"): row

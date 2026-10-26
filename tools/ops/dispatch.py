@@ -1571,6 +1571,8 @@ def require_f5_timing_recovery_admission(
         expected_exports = [
             "qualification/qualification.json",
             "resume/verified-skip-proof.json",
+            "environment/before.json",
+            "environment/after.json",
         ]
         if manifest.get("required_exports") != expected_exports:
             raise Refused("F5 timing recovery requires its sealed unit coverage proof")
@@ -1606,6 +1608,8 @@ def require_f5_timing_recovery_admission(
     if manifest.get("required_exports") != [
         "qualification/qualification.json",
         "resume/verified-skip-proof.json",
+        "environment/before.json",
+        "environment/after.json",
     ]:
         raise Refused("F5 timing recovery canary requires its CANARY_ONLY coverage proof")
 

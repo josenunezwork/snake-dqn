@@ -93,6 +93,19 @@ def test_default_transfer_bar_remains_150_seconds() -> None:
     assert transfer_policy.transfer_limit({}) == 150.0
 
 
+def test_partial_staging_measurement_is_diagnostic_only() -> None:
+    with pytest.raises(canary.CanaryError, match="partial staging"):
+        canary.staging_measurement(
+            {},
+            {
+                "elapsed_seconds": 20.0,
+                "transfer_seconds": 15.0,
+                "source_delivery_seconds": 0.0,
+                "staging_completed": False,
+            },
+        )
+
+
 def test_f5_timing_scope_allows_measured_transfer_over_default_below_300(tmp_path: Path) -> None:
     manifest = _manifest(REPO, tmp_path, "canary")
     assert transfer_policy.transfer_limit(manifest) == 300.0

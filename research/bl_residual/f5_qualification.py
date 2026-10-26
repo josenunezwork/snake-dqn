@@ -404,6 +404,19 @@ def _calibration_schema_sha256() -> str:
     return digest(path)
 
 
+def _export_assignment_boundary(
+    reference: Mapping[str, Any], output: Path, name: str
+) -> dict[str, Any]:
+    """Save raw, same-assignment attestation before publishing a completed unit."""
+    from research.bl_residual import f5_environment, f5_job
+
+    actual = f5_job.capture_environment()
+    f5_environment.compare_environment(reference, actual, mode="same-assignment")
+    path = output / "environment" / name
+    exported = export_json(path, actual)
+    return {**exported, "path": path.relative_to(output).as_posix()}
+
+
 def run(
     inputs: Path,
     fixtures: Path,
@@ -470,6 +483,9 @@ def run(
     if progress is not None:
         progress.phase("initial-boundary")
     f5_job._assignment_boundary(assignment)
+    environment_before = None
+    if not transport_only or canary_tiny_workload:
+        environment_before = _export_assignment_boundary(assignment, root, "before.json")
     from src.model.ego2s_network import load_ego2s_checkpoint, spec_for
 
     if progress is not None:
@@ -509,8 +525,10 @@ def run(
         try:
             verified_units = f5_timing_resume.load_ledger(ledger, resume_binding)
             if canary_tiny_workload:
-                if verified_units:
-                    _refuse("family canary requires the shared empty initial ledger")
+                # A completion canary validates the exact nonempty uploaded
+                # timing ledger too. Its tiny work uses an isolated namespace
+                # and never substitutes for, or recomputes, full timing units.
+                verified_units = {}
                 resume_binding = {
                     **resume_binding,
                     "namespace": resume_binding["namespace"] + "/canary",
@@ -598,6 +616,10 @@ def run(
             if not isinstance(attempt_id, str) or not attempt_id:
                 _refuse("timing operation requires a sealed attempt identity")
             sample["timing_attempt_id"] = attempt_id
+            sample["environment_before"] = environment_before
+            sample["environment_after"] = _export_assignment_boundary(
+                assignment, root, f"after-fixture-{key}.json"
+            )
         samples.append(sample)
         if resume_binding is not None:
             from research.bl_residual import f5_timing_resume
@@ -630,6 +652,10 @@ def run(
                 progress=progress,
             )
             calibration["timing_attempt_id"] = control["timing_attempt_id"]
+            calibration["environment_before"] = environment_before
+            calibration["environment_after"] = _export_assignment_boundary(
+                assignment, root, "after-calibration.json"
+            )
             completed_units.append(
                 f5_timing_resume.publish_unit(
                     root, resume_binding, f5_timing_resume.CALIBRATION_KEY, calibration
@@ -640,6 +666,8 @@ def run(
     if progress is not None:
         progress.phase("final-boundary", completed=len(samples))
     f5_job._assignment_boundary(assignment)
+    if resume_binding is not None:
+        _export_assignment_boundary(assignment, root, "after.json")
     if progress is not None:
         progress.phase("export", completed=len(samples))
     exports = _producer_exports(

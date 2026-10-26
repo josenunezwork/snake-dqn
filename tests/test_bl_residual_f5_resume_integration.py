@@ -9,6 +9,7 @@ fixture or coupled-calibration work that remains.
 from __future__ import annotations
 
 import copy
+import json
 import shutil
 from pathlib import Path
 from typing import Any
@@ -100,6 +101,13 @@ def _install_outer_seams(
     monkeypatch.setattr(f5_job, "_environment_admission", lambda control: {"assignment": "offline"})
     monkeypatch.setattr(f5_job, "_environment_evidence", lambda control, actual: {"offline": True})
     monkeypatch.setattr(f5_job, "_assignment_boundary", lambda actual: {})
+
+    def export_boundary(reference: dict, output: Path, name: str) -> dict:
+        path = output / "environment" / name
+        exported = export_json(path, reference)
+        return {**exported, "path": path.relative_to(output).as_posix()}
+
+    monkeypatch.setattr(qualification, "_export_assignment_boundary", export_boundary)
 
     def fake_calibration(*args: object, **kwargs: object) -> dict[str, Any]:
         calibrations.append("whole-cw")
@@ -203,6 +211,12 @@ def test_run_exports_prefix_skips_exact_units_restarts_coupled_calibration_and_c
         payload = failed_root / entry["path"]
         entry["sha256"] = resume.verify_export(payload)
         entry["size"] = payload.stat().st_size
+        record = json.loads(payload.read_text())["payload"]
+        for field in ("environment_before", "environment_after"):
+            attestation = failed_root / record[field]["path"]
+            assert resume.verify_export(attestation) == record[field]["sha256"]
+            assert attestation.stat().st_size == record[field]["size"]
+    assert not (failed_root / "environment/after.json").exists()
     resume.build_ledger(failed_root, _binding(), prefix)
     monkeypatch.setattr(resume, "publish_unit", original_publish)
 

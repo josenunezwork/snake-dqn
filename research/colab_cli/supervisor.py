@@ -333,8 +333,6 @@ class CLI:
             if time.monotonic() >= self._control_context.deadline:
                 raise Refused("total upload time cap reached before staging control")
             yield
-            if time.monotonic() > self._control_context.deadline:
-                raise Refused("total upload time cap reached after staging control")
         finally:
             self._control_context.deadline = previous
 
@@ -1598,6 +1596,7 @@ class Broker:
             upload_deadline = upload_started + UPLOAD_TOTAL_TIMEOUT_SECONDS
             transfer_seconds = 0.0
             source_delivery_seconds = 0.0
+            input_transfer_seconds: dict[str, float] = {}
 
             def stage_upload(path: Path, dest: str) -> None:
                 nonlocal transfer_seconds
@@ -1605,7 +1604,14 @@ class Broker:
                 upload_file(cli, path, dest, renew=renew, deadline=upload_deadline)
                 # Include verified-upload hashing, retries and lease renewals,
                 # while excluding the runtime's source fetch/install work.
-                transfer_seconds += time.monotonic() - started
+                elapsed = time.monotonic() - started
+                transfer_seconds += elapsed
+                prefix = root + "/inputs/"
+                if dest.startswith(prefix):
+                    name = dest[len(prefix) :]
+                    if name in input_transfer_seconds:
+                        raise Refused("duplicate measured input transfer destination")
+                    input_transfer_seconds[name] = elapsed
 
             local_files = [
                 (pinned["bootstrap.sh"], "bootstrap.sh", ""),
@@ -1616,69 +1622,86 @@ class Broker:
                 for i in m.get("inputs", [])
                 if "path" in i
             ]
-            with cli.staging_controls(upload_deadline):
-                checks = {}
-                setup_started = time.monotonic()
-                parents = sorted(
-                    {str(Path(root + "/" + dest).parent) for _, dest, _ in local_files}
+            setup_seconds = 0.0
+            try:
+                with cli.staging_controls(upload_deadline):
+                    checks = {}
+                    setup_started = time.monotonic()
+                    parents = sorted(
+                        {str(Path(root + "/" + dest).parent) for _, dest, _ in local_files}
+                    )
+                    with cli.operation("mkdir"):
+                        cli.poll_rpc(
+                            "# SNAKE_STAGING_PARENTS\nfrom pathlib import Path\n"
+                            f"parents={parents!r}\n"
+                            "for parent in parents: "
+                            "Path(parent).mkdir(parents=True,exist_ok=True)\n"
+                            "result=True"
+                        )
+                    setup_seconds = time.monotonic() - setup_started
+                    for path, dest, digest in local_files:
+                        if path.stat().st_size > m["max_export_bytes"]:
+                            raise Refused("upload exceeds bounded transfer size")
+                        digest = digest or sha256(path)
+                        stage_upload(path, root + "/" + dest)
+                        checks[dest] = digest
+                    checks["runtime.py"] = sha256(pinned["runtime.py"])
+                    checks["release.py"] = sha256(pinned["release.py"])
+                    # Download source from GitHub instead of passing every
+                    # committed evidence blob through ContentsClient.
+                    plan = json.loads((staging / "source-plan.json").read_text())
+
+                    def deliver_source(operation: str) -> Any:
+                        nonlocal source_delivery_seconds
+                        started = time.monotonic()
+                        renew()
+                        result = cli.recoverable_rpc(
+                            "# SNAKE_SOURCE_DELIVERY\n"
+                            "import importlib.util\nfrom pathlib import Path\n"
+                            f"root=Path({root!r})\nplan={plan!r}\n"
+                            "s=importlib.util.spec_from_file_location("
+                            "'snake_source',root/'source.py')\n"
+                            "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
+                            f"result=mod.{operation}(root,plan)",
+                        )
+                        renew()
+                        source_delivery_seconds += time.monotonic() - started
+                        return result
+
+                    delivery = deliver_source("fetch")
+                    if not isinstance(delivery, dict):
+                        raise Refused("source delivery returned no identity evidence")
+                    if delivery.get("transport") == "fallback_required":
+                        path = staging / "source.tar.gz"
+                        stage_upload(path, root + "/source.tar.gz")
+                        checks["source.tar.gz"] = sha256(path)
+                        delivery = deliver_source("install_fallback")
+                    if (
+                        not isinstance(delivery, dict)
+                        or delivery.get("transport") not in {"github", "fallback"}
+                        or delivery.get("commit") != plan["commit"]
+                        or delivery.get("tree") != plan["tree"]
+                    ):
+                        raise Refused("source delivery commit/tree identity mismatch")
+            except Exception:
+                write_once(
+                    output / "upload-measurement.json",
+                    {
+                        "elapsed_seconds": time.monotonic() - upload_started,
+                        "transfer_seconds": transfer_seconds,
+                        "source_delivery_seconds": source_delivery_seconds,
+                        "setup_seconds": setup_seconds,
+                        "input_transfer_seconds": input_transfer_seconds,
+                        "staging_completed": False,
+                    },
                 )
-                with cli.operation("mkdir"):
-                    cli.poll_rpc(
-                        "# SNAKE_STAGING_PARENTS\nfrom pathlib import Path\n"
-                        f"parents={parents!r}\n"
-                        "for parent in parents: Path(parent).mkdir(parents=True,exist_ok=True)\n"
-                        "result=True"
-                    )
-                setup_seconds = time.monotonic() - setup_started
-                for path, dest, digest in local_files:
-                    if path.stat().st_size > m["max_export_bytes"]:
-                        raise Refused("upload exceeds bounded transfer size")
-                    digest = digest or sha256(path)
-                    stage_upload(path, root + "/" + dest)
-                    checks[dest] = digest
-                checks["runtime.py"] = sha256(pinned["runtime.py"])
-                checks["release.py"] = sha256(pinned["release.py"])
-                # The runtime downloads source directly from GitHub, rather than
-                # passing every committed evidence blob through ContentsClient.
-                plan = json.loads((staging / "source-plan.json").read_text())
-
-                def deliver_source(operation: str) -> Any:
-                    nonlocal source_delivery_seconds
-                    started = time.monotonic()
-                    renew()
-                    result = cli.recoverable_rpc(
-                        "# SNAKE_SOURCE_DELIVERY\n"
-                        "import importlib.util\nfrom pathlib import Path\n"
-                        f"root=Path({root!r})\nplan={plan!r}\n"
-                        "s=importlib.util.spec_from_file_location("
-                        "'snake_source',root/'source.py')\n"
-                        "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
-                        f"result=mod.{operation}(root,plan)",
-                    )
-                    renew()
-                    source_delivery_seconds += time.monotonic() - started
-                    return result
-
-                delivery = deliver_source("fetch")
-                if not isinstance(delivery, dict):
-                    raise Refused("source delivery returned no identity evidence")
-                if delivery.get("transport") == "fallback_required":
-                    path = staging / "source.tar.gz"
-                    stage_upload(path, root + "/source.tar.gz")
-                    checks["source.tar.gz"] = sha256(path)
-                    delivery = deliver_source("install_fallback")
-                if (
-                    not isinstance(delivery, dict)
-                    or delivery.get("transport") not in {"github", "fallback"}
-                    or delivery.get("commit") != plan["commit"]
-                    or delivery.get("tree") != plan["tree"]
-                ):
-                    raise Refused("source delivery commit/tree identity mismatch")
+                raise
             measurement = {
                 "elapsed_seconds": time.monotonic() - upload_started,
                 "transfer_seconds": transfer_seconds,
                 "source_delivery_seconds": source_delivery_seconds,
                 "setup_seconds": setup_seconds,
+                "input_transfer_seconds": input_transfer_seconds,
             }
             write_once(output / "upload-measurement.json", measurement)
             write_once(output / "source-delivery.json", delivery)
@@ -1694,6 +1717,8 @@ class Broker:
                     staging_measurement(m, measurement)
                 except StagingCapError as exc:
                     raise ClassifiedFailure(FailureClass.UPLOAD_CAP, str(exc)) from exc
+            elif time.monotonic() > upload_deadline:
+                raise Refused("total upload time cap reached after staging control")
             # Hardware admission and process launch are short RPCs. Bootstrap
             # runs in the lease-fenced child, never in the notebook kernel.
             code = (

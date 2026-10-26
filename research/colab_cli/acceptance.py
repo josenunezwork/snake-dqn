@@ -775,6 +775,8 @@ def _d1024_staging_measurement(
     if not path.is_file():
         raise supervisor.Refused("synthetic D1024 upload measurement is absent")
     raw = json.loads(path.read_text())
+    if raw.get("staging_completed") is False:
+        raise supervisor.Refused("partial staging measurements cannot qualify transport")
     measured: dict[str, float] = {}
     for name in ("elapsed_seconds", "transfer_seconds", "source_delivery_seconds"):
         value = raw.get(name)

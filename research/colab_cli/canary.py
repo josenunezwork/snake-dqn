@@ -356,6 +356,8 @@ def staging_measurement(manifest: dict[str, Any], measured: dict[str, Any]) -> d
         raise CanaryError(str(exc)) from exc
     if transfer_seconds > transfer_cap:
         raise StagingCapError(f"transfers must complete within {transfer_cap:g} seconds")
+    if measured.get("staging_completed") is False:
+        raise CanaryError("partial staging measurements cannot qualify transport")
     if source_delivery_seconds < 0:
         raise CanaryError("source_delivery_seconds must be nonnegative")
     # The total includes setup/renewals as well as both measured portions.

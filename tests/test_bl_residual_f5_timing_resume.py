@@ -133,7 +133,7 @@ def test_calibration_timing_comparisons_must_be_finite(arm: str, key: str, value
         subject._validate_payload(subject.CALIBRATION_KEY, calibration)
 
 
-def test_mac_reducer_requires_thirteen_canonical_units_and_all_attempt_totals(
+def test_mac_reducer_requires_thirteen_canonical_units_and_holds_legacy_attempt_arithmetic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(subject.platform, "system", lambda: "Darwin")
@@ -146,21 +146,38 @@ def test_mac_reducer_requires_thirteen_canonical_units_and_all_attempt_totals(
         complete, _binding(), attempts=[_attempt(), _attempt("attempt-02")]
     )
     assert reduced["unit_count"] == 13
-    assert reduced["all_attempt_setup_io_imbalance_seconds"] == 12.0
+    assert reduced["registered_coverage_passed"] is True
+    assert reduced["max_seconds"] == {
+        "t_root": 0.1,
+        "t_branch": 0.2,
+        "t_nat": 0.3,
+        "watch_seconds": 0.4,
+    }
     assert reduced["coupled_calibration_max_seconds"] == 1.5
+    assert reduced["status"] == "HOLD_UNVERIFIED_ATTEMPT_ACCOUNTING"
+    assert reduced["accounting_verified"] is False
+    assert reduced["archive_registered_conservative_hours"] is None
+    assert reduced["all_attempt_setup_io_imbalance_seconds"] is None
 
 
-def test_mac_reducer_refuses_canonical_fixture_allocation_drift(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("parent_id", "foreign-parent"),
+        ("group", "foreign-group"),
+        ("seed", 0),
+    ],
+)
+def test_ledger_scanner_refuses_canonical_fixture_allocation_drift(
+    tmp_path: Path, field: str, value: Any
 ) -> None:
-    monkeypatch.setattr(subject.platform, "system", lambda: "Darwin")
     source = tmp_path / "source"
     _complete_ledger(source)
     drift = tmp_path / "drift"
     shutil.copytree(source / "timing-units", drift / "timing-units")
     path = drift / "timing-units/fixture-672.json"
     payload = json.loads(path.read_text())
-    payload["payload"]["parent_id"] = "foreign-parent"
+    payload["payload"][field] = value
     for suffix in ("", ".sha256", ".complete"):
         Path(str(path) + suffix).unlink()
     export_json(path, payload)
@@ -184,9 +201,8 @@ def test_mac_reducer_refuses_canonical_fixture_allocation_drift(
             "size": calibration.stat().st_size,
         }
     )
-    subject.build_ledger(drift, _binding(), entries)
     with pytest.raises(subject.ResumeRefusal, match="allocation identity"):
-        subject.reduce_ledger(drift / "verified-ledger.json", _binding(), attempts=[_attempt()])
+        subject.build_ledger(drift, _binding(), entries)
 
 
 @pytest.mark.parametrize(
@@ -208,8 +224,11 @@ def test_mac_reducer_requires_finite_typed_accounting_for_every_attempt(
     mutate(attempt)
     with pytest.raises(subject.ResumeRefusal):
         subject.reduce_ledger(ledger, _binding(), attempts=[attempt])
-    with pytest.raises(subject.ResumeRefusal):
-        subject.reduce_ledger(ledger, _binding(), attempts=[])
+    reduced = subject.reduce_ledger(ledger, _binding(), attempts=[])
+    assert reduced["status"] == "HOLD_UNVERIFIED_ATTEMPT_ACCOUNTING"
+    assert reduced["accounting_verified"] is False
+    assert reduced["archive_registered_conservative_hours"] is None
+    assert reduced["all_attempt_setup_io_imbalance_seconds"] is None
 
 
 def test_mac_reducer_refuses_non_darwin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

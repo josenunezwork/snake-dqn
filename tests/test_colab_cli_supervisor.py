@@ -372,7 +372,9 @@ def test_whole_staging_over_300_seconds_cannot_qualify(
         supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
     output = Path(manifest["output_dir"])
     receipt = json.loads((output / "receipt.json").read_text())
-    assert not (output / "upload-measurement.json").exists()
+    if (output / "upload-measurement.json").exists():
+        measured = json.loads((output / "upload-measurement.json").read_text())
+        assert measured["elapsed_seconds"] > 300
     assert receipt["stop_verified"] is True
     assert receipt["status"] == "INCOMPLETE"
     assert receipt["terminal"] is None
@@ -447,6 +449,140 @@ def test_probe_staging_within_cap_releases_child_normally(
         <= 150
     )
     _assert_transport(tmp_path)
+
+
+@pytest.mark.parametrize(("input_elapsed", "refused_before_ready"), [(221.0, False), (301.0, True)])
+def test_f5_scoped_measured_transfer_boundaries_stop_or_reach_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    input_elapsed: float,
+    refused_before_ready: bool,
+) -> None:
+    """Exercise the broker's persisted, pre-ready F5 measurement path.
+
+    The virtual clock advances only around real Contents uploads and source
+    delivery.  It therefore proves the broker writes a genuine observed 221s
+    transfer and, at 301 seconds, refuses before ``ready.json`` without sleeping.
+    """
+    from research.colab_cli import admission, canary, transfer_policy
+
+    binary = _fake_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("FAKE_COLAB_PUBLIC_INPUT_BYTES", base64.b64encode(b"f5-input").decode())
+    now = [0.0]
+    _patch_virtual_clock(monkeypatch, now, advance_sleep=False)
+    pinned = os.environ["SNAKE_TEST_PINNED_COMMIT"]
+    tree = subprocess.check_output(
+        ["git", "rev-parse", f"{pinned}^{{tree}}"], cwd=REPO, text=True
+    ).strip()
+    f5_inputs = []
+    authority_rows = []
+    for dest in sorted(transfer_policy._F5_TIMING_BASE_DESTINATIONS):
+        payload = b"f5-control" if dest == "control.json" else b"f5-input"
+        digest = hashlib.sha256(payload).hexdigest()
+        if dest == "b8.pth":
+            authority_rows.append(
+                {
+                    "dest": dest,
+                    "size_bytes": len(payload),
+                    "transport": "https",
+                    "url": transfer_policy.B8_URL,
+                    "sha256": digest,
+                }
+            )
+            f5_inputs.append(
+                {
+                    "dest": dest,
+                    "size_bytes": len(payload),
+                    "url": transfer_policy.B8_URL,
+                    "sha256": digest,
+                }
+            )
+        else:
+            path = tmp_path / dest
+            path.write_bytes(payload)
+            authority_rows.append(
+                {"dest": dest, "size_bytes": len(payload), "transport": "upload", "sha256": digest}
+            )
+            f5_inputs.append(
+                {"path": str(path), "dest": dest, "size_bytes": len(payload), "sha256": digest}
+            )
+    # Make the instrumented final upload the last operation inside the staging
+    # block, so the measured 301 seconds reach canary admission rather than a
+    # following upload precheck.
+    f5_inputs.sort(key=lambda row: row["dest"] == "control.json")
+    authority = {
+        "schema": "f5-timing-recovery-synthetic-input-inventory/v1",
+        "ruling_sha256": transfer_policy.F5_TIMING_RULING_SHA256,
+        "namespace": transfer_policy.F5_TIMING_NAMESPACE,
+        "source_commit": pinned,
+        "source_tree": tree,
+        "inputs": authority_rows,
+    }
+    authority["sha256"] = hashlib.sha256(
+        json.dumps(authority, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    manifest = {
+        "job_id": "f5-timing-canary-probe",
+        "commit": pinned,
+        "script": "research/bl_residual/f5_colab.sh",
+        "source_paths": ["research/bl_residual/f5_colab.sh"],
+        "device": "cuda:0",
+        "requirements": {"gpu": "L4", "allowed_gpus": ["L4"], "min_vcpu": 1, "est_minutes": 1},
+        "timeout_minutes": 10,
+        "budget": {"rate_units_per_hour": 10, "unit_cap": 100, "reserve_units": 0},
+        "output_dir": str(tmp_path / "f5-output"),
+        "env": {
+            "F5_DEVICE": "cuda:0",
+            "F5_MODE": "qualification-canary",
+            "SNAKE_COLAB_CANARY": "1",
+            "SNAKE_COLAB_CANARY_PACKAGE": "research/bl_residual",
+        },
+        "inputs": f5_inputs,
+        "required_exports": ["control.json"],
+        "canary": {
+            "schema": canary.SCHEMA,
+            "mode": "probe",
+            "family": "research/bl_residual/f5_colab.sh",
+        },
+        "f5_timing_source_tree": tree,
+        "f5_timing_synthetic_inventory": authority,
+        "f5_timing_transfer_exception": transfer_policy.f5_timing_recovery_binding(
+            authority["sha256"], "canary"
+        ),
+        "lease_seconds": 180,
+        "max_export_bytes": 256 * 1024 * 1024,
+    }
+    monkeypatch.setattr(admission, "check_study_manifest", lambda *_args: None)
+    monkeypatch.setattr(canary, "executable_identity", lambda *_args, **_kwargs: {"pinned": "ok"})
+    monkeypatch.setattr(supervisor, "input_preflight", lambda _manifest: [])
+    from research.colab_cli import transfers
+
+    original_upload = transfers.upload_file
+    original_rpc = supervisor.CLI.recoverable_rpc
+    ready = []
+
+    def timed_upload(cli: object, path: Path, dest: str, **kwargs: object) -> None:
+        original_upload(cli, path, dest, **kwargs)
+        if dest.endswith("/inputs/control.json"):
+            now[0] += input_elapsed
+
+    def timed_source(self, code: str, timeout: float = 120) -> object:
+        if "SNAKE_SOURCE_DELIVERY" in code:
+            now[0] += 16.0
+            return {"transport": "github", "commit": pinned, "tree": tree}
+        if "(root/'ready.json').write_text" in code:
+            ready.append(code)
+        return original_rpc(self, code, timeout=timeout)
+
+    monkeypatch.setattr(transfers, "upload_file", timed_upload)
+    monkeypatch.setattr(supervisor.CLI, "recoverable_rpc", timed_source)
+    with pytest.raises((supervisor.Refused, ValueError)) as raised:
+        supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    assert (tmp_path / "f5-output" / "upload-measurement.json").is_file(), str(raised.value)
+    measured = json.loads((tmp_path / "f5-output" / "upload-measurement.json").read_text())
+    assert measured["transfer_seconds"] == pytest.approx(input_elapsed)
+    assert measured["input_transfer_seconds"]["control.json"] == pytest.approx(input_elapsed)
+    assert bool(ready) is not refused_before_ready
 
 
 def test_warmup_failure_stops_runtime_without_uploading_or_launching(
