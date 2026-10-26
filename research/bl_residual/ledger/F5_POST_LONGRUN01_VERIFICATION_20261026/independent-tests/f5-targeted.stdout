@@ -1,0 +1,16 @@
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-f5rawenv
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 66 items
+
+tests/test_bl_residual_f5_timing_resume.py ............................. [ 43%]
+.......                                                                  [ 54%]
+tests/test_bl_residual_f5_timing_accounting.py .......................   [ 89%]
+tests/test_bl_residual_f5_preallocation_alias.py .......                 [100%]
+
+- generated xml file: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/independent-verification/f5-targeted.junit.xml -
+============================= 66 passed in 22.53s ==============================
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!

@@ -1,0 +1,12 @@
+from pathlib import Path
+import json,sys
+sys.path.insert(0,'/Users/josenunez/Projects/ml/snake-dqn-f5rawenv')
+from research.bl_ppo.exports import export_json
+from research.bl_residual.f5_timing_resume import metadata_reference
+b=Path('/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02');d=b/'post-longrun01-verification'
+appendix=b.parent/'canary-04/ACCOUNTING_APPENDIX.json';a=json.loads(appendix.read_text());canary4=b.parent/'canary-04/output-04/receipt.json';c=json.loads(canary4.read_text());current=b/'output-02/receipt.json';r=json.loads(current.read_text());refusal=b.parent/'longrun-01-sealed/output-01/receipt.json';x=json.loads(refusal.read_text())
+for row in a['canaries']:
+ p=Path(row['receipt']['path']);q=json.loads(p.read_text());assert metadata_reference(p)==row['receipt'];assert q['elapsed_seconds']==row['elapsed_seconds'] and q['stop_verified'] is True
+value={'schema':'bl-f5-timing-known-exposure-appendix/v1','history_reference':metadata_reference(appendix),'historical_timing_exposure_seconds':6811.840706833173,'canaries_01_03_seconds':a['canary_elapsed_seconds_total'],'canary_04_reference':metadata_reference(canary4),'canary_04_seconds':c['elapsed_seconds'],'longrun02_reference':metadata_reference(current),'longrun02_seconds':r['elapsed_seconds'],'known_runtime_exposure_seconds':6811.840706833173+a['canary_elapsed_seconds_total']+c['elapsed_seconds']+r['elapsed_seconds'],'preallocation_refusal_reference':metadata_reference(refusal),'preallocation_refusal_local_elapsed_seconds':x['elapsed_seconds'],'preallocation_refusal_no_runtime':x['endpoint'] is None and x['terminal'] is None and not x['exports'],'interpretation':'Known package-bound timing/canary exposure, not global campaign spend. Historical exposure is retained, not silently discarded or reclassified as useful unit durations. Registered reducer all-attempt forecast overhead covers the one real long-series attempt; no completion attempts exist. Earlier timing/canary exposure remains separate immutable accounting context as ruled. Incremental downloads may overlap runtime and must not be added twice.'}
+export_json(d/'ACCOUNTING_EXPOSURE_APPENDIX.json',value)
+print(json.dumps(value,indent=2))

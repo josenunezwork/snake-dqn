@@ -1,0 +1,493 @@
+{
+  "archive_calculation_hours": 88.96921625843326,
+  "evidence_publication_commit": "93743a9acaca23c10f06acd1e10c6424db34dbec",
+  "files": [
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/ACCOUNTING_EXPOSURE_APPENDIX.json",
+      "logical_path": "ACCOUNTING_EXPOSURE_APPENDIX.json",
+      "published_relative_path": "ACCOUNTING_EXPOSURE_APPENDIX.json",
+      "sha256": "0d5426aed64fb5bec4c5d67f63183952499f504ac642f082e47f00d47671bcea",
+      "size": 1943
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/ACCOUNTING_EXPOSURE_APPENDIX.json.complete",
+      "logical_path": "ACCOUNTING_EXPOSURE_APPENDIX.json.complete",
+      "published_relative_path": "ACCOUNTING_EXPOSURE_APPENDIX.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/ACCOUNTING_EXPOSURE_APPENDIX.json.sha256",
+      "logical_path": "ACCOUNTING_EXPOSURE_APPENDIX.json.sha256",
+      "published_relative_path": "ACCOUNTING_EXPOSURE_APPENDIX.json.sha256",
+      "sha256": "0877ed7c0d44f47f58d094bb19430c6c6be9cd3048ed0f207d81ef733ff09db0",
+      "size": 100
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/INDEPENDENT_REDUCTION_REVIEW.json",
+      "logical_path": "INDEPENDENT_REDUCTION_REVIEW.json",
+      "published_relative_path": "INDEPENDENT_REDUCTION_REVIEW.json",
+      "sha256": "0f2b9a4bcd4238a33ffa7f9bc567a39d1fb031aae8c26c900d00011c7f143ea1",
+      "size": 2765
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/INDEPENDENT_REDUCTION_REVIEW.json.complete",
+      "logical_path": "INDEPENDENT_REDUCTION_REVIEW.json.complete",
+      "published_relative_path": "INDEPENDENT_REDUCTION_REVIEW.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/INDEPENDENT_REDUCTION_REVIEW.json.sha256",
+      "logical_path": "INDEPENDENT_REDUCTION_REVIEW.json.sha256",
+      "published_relative_path": "INDEPENDENT_REDUCTION_REVIEW.json.sha256",
+      "sha256": "67ec45bcb176a78ddd19ece906cbe8104164288ff64bc05dcdf214af9c884b50",
+      "size": 100
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/PAIRED_FIT_FORECAST.json",
+      "logical_path": "PAIRED_FIT_FORECAST.json",
+      "published_relative_path": "PAIRED_FIT_FORECAST.json",
+      "sha256": "482867a0783a796eeafefc631aa4a812ee8411f4c9dc769963e1d430b1372e1d",
+      "size": 1229
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/PAIRED_FIT_FORECAST.json.complete",
+      "logical_path": "PAIRED_FIT_FORECAST.json.complete",
+      "published_relative_path": "PAIRED_FIT_FORECAST.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/PAIRED_FIT_FORECAST.json.sha256",
+      "logical_path": "PAIRED_FIT_FORECAST.json.sha256",
+      "published_relative_path": "PAIRED_FIT_FORECAST.json.sha256",
+      "sha256": "e1738a3dd37ab4dde01a1e35dba73a595688817fe63a21a4139aba9245d22ce0",
+      "size": 91
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/POST_LONGRUN01_VERIFICATION.json",
+      "logical_path": "POST_LONGRUN01_VERIFICATION.json",
+      "published_relative_path": "POST_LONGRUN01_VERIFICATION.json",
+      "sha256": "d98cc4ff26efb5166a8db0c9a4c79cc592aa1f1c9f1d37a8c3c4a466b13c19f6",
+      "size": 11460
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/POST_LONGRUN01_VERIFICATION.json.complete",
+      "logical_path": "POST_LONGRUN01_VERIFICATION.json.complete",
+      "published_relative_path": "POST_LONGRUN01_VERIFICATION.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/POST_LONGRUN01_VERIFICATION.json.sha256",
+      "logical_path": "POST_LONGRUN01_VERIFICATION.json.sha256",
+      "published_relative_path": "POST_LONGRUN01_VERIFICATION.json.sha256",
+      "sha256": "93ba046cfa87bca088972d1175a5cf9c9137f78116ceb357866517aae857094b",
+      "size": 99
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/POST_LONGRUN01_VERIFICATION.md",
+      "logical_path": "POST_LONGRUN01_VERIFICATION.md",
+      "published_relative_path": "POST_LONGRUN01_VERIFICATION.md",
+      "sha256": "d48ad4debc98beb56fc0bfc56acebe344a95477e5f6ebcb815aac92b81acf455",
+      "size": 8140
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/POST_LONGRUN01_VERIFICATION.md.complete",
+      "logical_path": "POST_LONGRUN01_VERIFICATION.md.complete",
+      "published_relative_path": "POST_LONGRUN01_VERIFICATION.md.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/POST_LONGRUN01_VERIFICATION.md.sha256",
+      "logical_path": "POST_LONGRUN01_VERIFICATION.md.sha256",
+      "published_relative_path": "POST_LONGRUN01_VERIFICATION.md.sha256",
+      "sha256": "b1ef6aadf7433dd226caa560b69e43152d187b06f39db473aff8c5694559e23a",
+      "size": 97
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/REDUCTION_INPUT_FREEZE.json",
+      "logical_path": "REDUCTION_INPUT_FREEZE.json",
+      "published_relative_path": "REDUCTION_INPUT_FREEZE.json",
+      "sha256": "d1cf7ea632cbbb564faa60d8d6ed5e8214370c4e8763abe8f9f0b874289be965",
+      "size": 1858
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/REDUCTION_INPUT_FREEZE.json.complete",
+      "logical_path": "REDUCTION_INPUT_FREEZE.json.complete",
+      "published_relative_path": "REDUCTION_INPUT_FREEZE.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/REDUCTION_INPUT_FREEZE.json.sha256",
+      "logical_path": "REDUCTION_INPUT_FREEZE.json.sha256",
+      "published_relative_path": "REDUCTION_INPUT_FREEZE.json.sha256",
+      "sha256": "06fb19690c5c0bd3f340b33c93b4d9af2879c343a13f8ef10a2c9ee967ab585e",
+      "size": 94
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/REDUCTION_SUMMARY.json",
+      "logical_path": "REDUCTION_SUMMARY.json",
+      "published_relative_path": "REDUCTION_SUMMARY.json",
+      "sha256": "1a8d8e7d84fece53fa0aff6b64df6a85fc4fe775a5fbdaf2c7720c6831e3497d",
+      "size": 3170
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/REDUCTION_SUMMARY.json.complete",
+      "logical_path": "REDUCTION_SUMMARY.json.complete",
+      "published_relative_path": "REDUCTION_SUMMARY.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/REDUCTION_SUMMARY.json.sha256",
+      "logical_path": "REDUCTION_SUMMARY.json.sha256",
+      "published_relative_path": "REDUCTION_SUMMARY.json.sha256",
+      "sha256": "edfe14e72ab61fa0c58c6a31184c020b3b2ecc604eefeec60ecbcca95f83df63",
+      "size": 89
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/TIMING_REDUCTION.json",
+      "logical_path": "TIMING_REDUCTION.json",
+      "published_relative_path": "TIMING_REDUCTION.json",
+      "sha256": "4d5aa3012ddb0002e2faadfea53a57998eba12cd3fa0dbf1a869c410fc26428e",
+      "size": 28231
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/TIMING_REDUCTION.json.complete",
+      "logical_path": "TIMING_REDUCTION.json.complete",
+      "published_relative_path": "TIMING_REDUCTION.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/TIMING_REDUCTION.json.sha256",
+      "logical_path": "TIMING_REDUCTION.json.sha256",
+      "published_relative_path": "TIMING_REDUCTION.json.sha256",
+      "sha256": "749a74435e7d3bb7d1e8c103de4d3a5ac5f2d0878896dbd8f1205517c0c8b6a0",
+      "size": 88
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/accounting-history-01.json",
+      "logical_path": "accounting-history-01.json",
+      "published_relative_path": "accounting-history-01.json",
+      "sha256": "941a81890b9ebb95c9fd39d6c86cb6d9d9f234e22c8e2c0560037492afdf54ea",
+      "size": 3821
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/accounting-history-01.json.complete",
+      "logical_path": "accounting-history-01.json.complete",
+      "published_relative_path": "accounting-history-01.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/accounting-history-01.json.sha256",
+      "logical_path": "accounting-history-01.json.sha256",
+      "published_relative_path": "accounting-history-01.json.sha256",
+      "sha256": "2957368cc9da6eabe4f8280927f3d64c02b74695ae5227276874d83becec6d79",
+      "size": 93
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/attempt-0-accounting.json",
+      "logical_path": "attempt-0-accounting.json",
+      "published_relative_path": "attempt-0-accounting.json",
+      "sha256": "74cf1d8570a0ff58ef5c7d13bf5777d1abe6062a18d2bbcd42be311ec01d6b48",
+      "size": 785
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/attempt-0-accounting.json.complete",
+      "logical_path": "attempt-0-accounting.json.complete",
+      "published_relative_path": "attempt-0-accounting.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/attempt-0-accounting.json.sha256",
+      "logical_path": "attempt-0-accounting.json.sha256",
+      "published_relative_path": "attempt-0-accounting.json.sha256",
+      "sha256": "034a62fc0f23d47e679b155c6d969438201907d71292ec1b10b69afb50ce40ae",
+      "size": 92
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/attempt-record.json",
+      "logical_path": "attempt-record.json",
+      "published_relative_path": "attempt-record.json",
+      "sha256": "4c27f0e9367f7b459c33c5a1cb318c6a570b0e6972ad25a69abacfd0122f768e",
+      "size": 2688
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/attempt-record.json.complete",
+      "logical_path": "attempt-record.json.complete",
+      "published_relative_path": "attempt-record.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/attempt-record.json.sha256",
+      "logical_path": "attempt-record.json.sha256",
+      "published_relative_path": "attempt-record.json.sha256",
+      "sha256": "fe27d1747df4893f5b78b2bd3af21fa7089228334f6c6923bfa42e6de9acf84b",
+      "size": 86
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/environment-reference.json",
+      "gzip_parts": [
+        {
+          "path": "environment-reference.json.gz.part-000",
+          "sha256": "4bb066240ef1c66f12fd4e5691f94182f1d20050bffd4fe241b7f4390543f81a",
+          "size": 1500000
+        },
+        {
+          "path": "environment-reference.json.gz.part-001",
+          "sha256": "d73b7ba281dffa07f511452967c3388b29336a686cee78357236eb760a6853fe",
+          "size": 1500000
+        },
+        {
+          "path": "environment-reference.json.gz.part-002",
+          "sha256": "272f7d158e59c3a6329863777996a2f7bcb2a9b458a4cfa952bb16cc0c5d3ba0",
+          "size": 1500000
+        },
+        {
+          "path": "environment-reference.json.gz.part-003",
+          "sha256": "9506f3881e03c2684111aa1cebd5a45f49e7b67e71d674690a3d02315867ced5",
+          "size": 1500000
+        },
+        {
+          "path": "environment-reference.json.gz.part-004",
+          "sha256": "02de6f3537a4de389b3fd4791b903bc14710e5bd73147c92a74951663fb30082",
+          "size": 883822
+        }
+      ],
+      "gzip_sha256": "9f6be54f9cbbe7836ad9c4010a634fd32a545f8cac3e703165f133a813f650ea",
+      "logical_path": "environment-reference.json",
+      "sha256": "75e1e41c454527d343a4d8a08d2247f3b44bfd63ea382c73adcb20be9d588f78",
+      "size": 17894360
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/environment-reference.json.complete",
+      "logical_path": "environment-reference.json.complete",
+      "published_relative_path": "environment-reference.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/environment-reference.json.sha256",
+      "logical_path": "environment-reference.json.sha256",
+      "published_relative_path": "environment-reference.json.sha256",
+      "sha256": "b9ff4df1b0b47fc9e101f3873e4ebf184dc71808d4822fadbbb29558bcd3a7c5",
+      "size": 93
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/exposure-longrun02.py.txt",
+      "logical_path": "exposure-longrun02.py.txt",
+      "published_relative_path": "exposure-longrun02.py.txt",
+      "sha256": "3497dbd4ba53076ddae9c92e9e40ccc23f57100c535739f44d4275848e3eeee0",
+      "size": 2265
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/exposure-longrun02.py.txt.complete",
+      "logical_path": "exposure-longrun02.py.txt.complete",
+      "published_relative_path": "exposure-longrun02.py.txt.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/exposure-longrun02.py.txt.sha256",
+      "logical_path": "exposure-longrun02.py.txt.sha256",
+      "published_relative_path": "exposure-longrun02.py.txt.sha256",
+      "sha256": "4ee5e1f20258fabf4269944e94c9823399a432001701487d36f779177bbe9cef",
+      "size": 92
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/finalize-longrun02.py.txt",
+      "logical_path": "finalize-longrun02.py.txt",
+      "published_relative_path": "finalize-longrun02.py.txt",
+      "sha256": "ea9e17f465c21d0df76c7920ce8788cffccc161fb9a1347629c724f151963faf",
+      "size": 12018
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/finalize-longrun02.py.txt.complete",
+      "logical_path": "finalize-longrun02.py.txt.complete",
+      "published_relative_path": "finalize-longrun02.py.txt.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/finalize-longrun02.py.txt.sha256",
+      "logical_path": "finalize-longrun02.py.txt.sha256",
+      "published_relative_path": "finalize-longrun02.py.txt.sha256",
+      "sha256": "6241c8072029b6305debebcc27c4715eee672324d469861d8b176aa442d39747",
+      "size": 92
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/publish-longrun02.py.txt",
+      "logical_path": "publish-longrun02.py.txt",
+      "published_relative_path": "publish-longrun02.py.txt",
+      "sha256": "bd9c2e32b4520ca3d71e3b8eaa613161a2f55a91ad42d7da868840f30888540f",
+      "size": 3266
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/publish-longrun02.py.txt.complete",
+      "logical_path": "publish-longrun02.py.txt.complete",
+      "published_relative_path": "publish-longrun02.py.txt.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/publish-longrun02.py.txt.sha256",
+      "logical_path": "publish-longrun02.py.txt.sha256",
+      "published_relative_path": "publish-longrun02.py.txt.sha256",
+      "sha256": "0c226442ac6fb7fffdd05e819296cba394e4b577ea6b81a518678424e0f77bb6",
+      "size": 91
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/reduce-longrun02.py.txt",
+      "logical_path": "reduce-longrun02.py.txt",
+      "published_relative_path": "reduce-longrun02.py.txt",
+      "sha256": "299901d386ac5551b4d05e123e7c4131141a825170bbbb89cf25ecc00d9c4b69",
+      "size": 7524
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/reduce-longrun02.py.txt.complete",
+      "logical_path": "reduce-longrun02.py.txt.complete",
+      "published_relative_path": "reduce-longrun02.py.txt.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/reduce-longrun02.py.txt.sha256",
+      "logical_path": "reduce-longrun02.py.txt.sha256",
+      "published_relative_path": "reduce-longrun02.py.txt.sha256",
+      "sha256": "7bb92ec8bf65aa6269ea78a505f11cfc4bd584a45185d8d408f50a8288c551bd",
+      "size": 90
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/verified-exports/verified-ledger.json",
+      "logical_path": "ledger/verified-ledger.json",
+      "published_relative_path": "ledger/verified-ledger.json",
+      "sha256": "cb197b4de6c9020ff7c9e6b1d093a41f96d123a00a2ca527531d9135a01947ac",
+      "size": 2429
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/verified-exports/verified-ledger.json.complete",
+      "logical_path": "ledger/verified-ledger.json.complete",
+      "published_relative_path": "ledger/verified-ledger.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/post-longrun01-verification/verified-exports/verified-ledger.json.sha256",
+      "logical_path": "ledger/verified-ledger.json.sha256",
+      "published_relative_path": "ledger/verified-ledger.json.sha256",
+      "sha256": "a15476e763405d1c006866c9ee93f0a84cb4b82db5c43748c9dda923611955f3",
+      "size": 87
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/independent-verification/f5-targeted.junit.xml",
+      "logical_path": "independent-tests/f5-targeted.junit.xml",
+      "published_relative_path": "independent-tests/f5-targeted.junit.xml",
+      "sha256": "54efc61ea0a745817b3aa5388da367b428432403edd2755d9b31c02dbcdb72a1",
+      "size": 10689
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/independent-verification/f5-targeted.stderr",
+      "logical_path": "independent-tests/f5-targeted.stderr",
+      "published_relative_path": "independent-tests/f5-targeted.stderr",
+      "sha256": "e66595b127ef2a20c720a3e36d702864f0670b21120ef09461592aedf1264c61",
+      "size": 75
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/independent-verification/f5-targeted.stdout",
+      "logical_path": "independent-tests/f5-targeted.stdout",
+      "published_relative_path": "independent-tests/f5-targeted.stdout",
+      "sha256": "b7cc4ce6401208267330c48d03ac130b634e038ba51a2686fbb7e79bf7c318b1",
+      "size": 1005
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/state-02/bl-f5-timing-recovery-911426db-02/sessions.json",
+      "logical_path": "saved-release/sessions.json",
+      "published_relative_path": "saved-release/sessions.json",
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "size": 2
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/state-02/bl-f5-timing-recovery-911426db-02/assignment.json",
+      "logical_path": "saved-release/assignment.json",
+      "published_relative_path": "saved-release/assignment.json",
+      "sha256": "23284b9a091c7ace0daae508c306ad1e5646d824c46badf166969880d967abce",
+      "size": 316
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/OUTPUT02_MAIN_BYTE_VERIFICATION.json",
+      "logical_path": "publication-first/OUTPUT02_MAIN_BYTE_VERIFICATION.json",
+      "published_relative_path": "publication-first/OUTPUT02_MAIN_BYTE_VERIFICATION.json",
+      "sha256": "9466dc0576d5d27fa8b0001c0a45fe73b130622a53310f3ce1e9c10308f28557",
+      "size": 393
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/OUTPUT02_MAIN_BYTE_VERIFICATION.json.complete",
+      "logical_path": "publication-first/OUTPUT02_MAIN_BYTE_VERIFICATION.json.complete",
+      "published_relative_path": "publication-first/OUTPUT02_MAIN_BYTE_VERIFICATION.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/OUTPUT02_MAIN_BYTE_VERIFICATION.json.sha256",
+      "logical_path": "publication-first/OUTPUT02_MAIN_BYTE_VERIFICATION.json.sha256",
+      "published_relative_path": "publication-first/OUTPUT02_MAIN_BYTE_VERIFICATION.json.sha256",
+      "sha256": "92b3aacb4edbfac933780e02a55181a25e44b62aafb24b86b6393cb6849ce76e",
+      "size": 103
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/../astra-20261024/F5_W_TIMING04_FIX_RULING_20261026.md",
+      "logical_path": "governance/F5_W_TIMING04_FIX_RULING_20261026.md",
+      "published_relative_path": "governance/F5_W_TIMING04_FIX_RULING_20261026.md",
+      "sha256": "4f10f264fda3c7190e07f486803fa02cc10645741fb95ef215b1d1b0cc123439",
+      "size": 19446
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/../astra-20261024/F5_W_TIMING04_FIX_RULING_20261026.md.sha256",
+      "logical_path": "governance/F5_W_TIMING04_FIX_RULING_20261026.md.sha256",
+      "published_relative_path": "governance/F5_W_TIMING04_FIX_RULING_20261026.md.sha256",
+      "sha256": "b7be0233c579718af262e011e009f91ad3b1f9bd94f5e903c815943b7557b705",
+      "size": 103
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/../astra-20261024/F5_LONGRUN_AND_ENVELOPE_RULING_20261026.md",
+      "logical_path": "governance/F5_LONGRUN_AND_ENVELOPE_RULING_20261026.md",
+      "published_relative_path": "governance/F5_LONGRUN_AND_ENVELOPE_RULING_20261026.md",
+      "sha256": "fd84d4ede03da904aaea19a7c370924d04d4cc4dcd6946590875e801e9f36829",
+      "size": 13835
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/../astra-20261024/F5_LONGRUN_AND_ENVELOPE_RULING_20261026.md.sha256",
+      "logical_path": "governance/F5_LONGRUN_AND_ENVELOPE_RULING_20261026.md.sha256",
+      "published_relative_path": "governance/F5_LONGRUN_AND_ENVELOPE_RULING_20261026.md.sha256",
+      "sha256": "4d2193bf5aa1850f5b894ccd571d49192521375a8ab9dfea90d8e5cbb5a2ae4e",
+      "size": 109
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/../astra-20261024/ACCEPT_F5_LONGRUN_01_GUARD02.md",
+      "logical_path": "governance/ACCEPT_F5_LONGRUN_01_GUARD02.md",
+      "published_relative_path": "governance/ACCEPT_F5_LONGRUN_01_GUARD02.md",
+      "sha256": "8c5a2a3bf937adb5287e56c0c00035a335491030965e7374092fc92ceb6bcb3d",
+      "size": 5904
+    },
+    {
+      "external_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/../astra-20261024/ACCEPT_F5_LONGRUN_01_GUARD02.md.sha256",
+      "logical_path": "governance/ACCEPT_F5_LONGRUN_01_GUARD02.md.sha256",
+      "published_relative_path": "governance/ACCEPT_F5_LONGRUN_01_GUARD02.md.sha256",
+      "sha256": "e0434c2dfc3a709937c575dd2c611c4e1f2b59bd259e3d176a839751e512f0e4",
+      "size": 98
+    }
+  ],
+  "no_source_changes": true,
+  "offline_only": true,
+  "reconstruct_verified_exports": "Reuse exact original output-02/exports from evidence publication;ledger/verified-ledger.json is additional reducer metadata, never a replacement completion",
+  "reducer_status": "HOLD_REGISTERED_COVERAGE_FAILED",
+  "schema": "bl-f5-post-longrun01-publication/v1"
+}

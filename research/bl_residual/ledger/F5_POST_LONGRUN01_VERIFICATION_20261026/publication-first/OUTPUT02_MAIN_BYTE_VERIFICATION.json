@@ -1,0 +1,10 @@
+{
+  "archive_sha256": "82ba601df51ca7657d95d1e79cffd282e54839a0a3fa81f4cc51efefff097bc0",
+  "origin_main_at_verification": "93743a9acaca23c10f06acd1e10c6424db34dbec",
+  "original_bytes": 259037197,
+  "original_members_byte_identical": 285,
+  "publication_commit": "93743a9acaca23c10f06acd1e10c6424db34dbec",
+  "published_files_compared": 447,
+  "reducer_executed": false,
+  "status": "PASS"
+}

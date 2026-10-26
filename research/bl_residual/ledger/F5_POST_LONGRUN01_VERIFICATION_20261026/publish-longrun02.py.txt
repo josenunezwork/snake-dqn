@@ -1,0 +1,37 @@
+from pathlib import Path
+import gzip, tarfile, io, hashlib, json, os
+os.nice(15)
+base=Path('/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02')
+src=base/'output-02'
+dst=Path.cwd()/'research/bl_residual/ledger/F5_LONGRUN01_OUTPUT02_20261026'
+dst.mkdir(exist_ok=False)
+def digest(data): return hashlib.sha256(data).hexdigest()
+def write(p,data):
+    p.parent.mkdir(parents=True,exist_ok=True)
+    with p.open('xb') as f:f.write(data)
+def seal(p,data):
+    write(p,data);write(Path(str(p)+'.sha256'),(digest(data)+'  '+p.name+'\n').encode());write(Path(str(p)+'.complete'),b'complete\n')
+files=sorted(p for p in src.rglob('*') if p.is_file())
+assert not any(p.is_symlink() for p in src.rglob('*'))
+assert not any('label' in p.name.lower() or 'outcome' in p.name.lower() for p in files)
+archive=io.BytesIO(); inventory=[]
+with gzip.GzipFile(fileobj=archive,mode='wb',mtime=0,compresslevel=6) as gz:
+    with tarfile.open(fileobj=gz,mode='w|',format=tarfile.USTAR_FORMAT) as tf:
+        for p in files:
+            data=p.read_bytes();rel=p.relative_to(src).as_posix()
+            inventory.append({'path':rel,'size':len(data),'sha256':digest(data)})
+            ti=tarfile.TarInfo(rel);ti.size=len(data);ti.mode=0o644;ti.mtime=0
+            tf.addfile(ti,io.BytesIO(data))
+            write(dst/'member-sidecars'/Path(rel+'.sha256'),(digest(data)+'  '+Path(rel).name+'\n').encode())
+blob=archive.getvalue();parts=[]
+for i,start in enumerate(range(0,len(blob),1500000)):
+    p=dst/f'output-02.tar.gz.part-{i:03d}';data=blob[start:start+1500000];seal(p,data)
+    parts.append({'path':p.name,'size':len(data),'sha256':digest(data)})
+# Reopen the archived operational evidence and compare every byte to originals.
+with tarfile.open(fileobj=io.BytesIO(blob),mode='r:gz') as tf:
+    assert len(tf.getmembers())==len(files)
+    for row in inventory:assert tf.extractfile(row['path']).read()==(src/row['path']).read_bytes()
+record={'schema':'bl-f5-complete-output-publication/v1','external_source':str(src),'files':inventory,'file_count':len(files),'total_original_bytes':sum(r['size'] for r in inventory),'archive':{'format':'concatenated deterministic gzip tar','sha256':digest(blob),'size':len(blob),'parts':parts},'verification':'All archive members byte-identical to immutable originals; no deserialization of paired binary exports','runtime_source_commit':'911426dbace94ca2925d737d00d5d8ca8456cb6a','publication_order':'Evidence first; reducer not yet executed','no_provider_calls':True}
+seal(dst/'PUBLICATION.json',(json.dumps(record,sort_keys=True,indent=2)+'\n').encode())
+seal(dst/'README.md',b'# F5 longrun-01 output-02 complete evidence\n\nAll 285 original output files, including original SHA sidecars and completion markers, are preserved byte-for-byte inside the split archive. Concatenate output-02.tar.gz.part-* in numeric order and decode as gzip/tar. PUBLICATION.json binds every member and every part; member-sidecars/ adds SHA256 sidecars for every original file without altering originals. No paired binary payload was deserialized.\n')
+print(json.dumps({'files':len(files),'original_bytes':record['total_original_bytes'],'archive_bytes':len(blob),'parts':len(parts),'path':str(dst)}))
