@@ -2043,3 +2043,26 @@ numerical outcome look, serving or release occurred. Mac companion timing, final
 exact science-inventory canary and separate ACCEPT_F5_FIT remain later gates.
 The absolute single-use operator command is in DISPATCH-04.txt and publication.
 | 2026-10-26 15:00 PT | **Standing A100 Development Sandbox ADOPTED (owner)** | After Argon whole-project review, Astra fact-check and Fable judgment, owner adopted Fable's sandbox rule as written (docs/research/governance_a100_sandbox_20261026/ADOPTED.md): sandbox jobs = qualified supervisor + Sandbox Input Registry inputs + dev-only outputs + finite endpoint/2x timeout; automated preflight + 10-line manifest, no per-job judge review; ≤1 frozen candidate crosses into the Mac one-look gate; never touches F5 or any running registered study. Jobs A (resident collector+learner feasibility) and B (successor head/loss sweep, fresh salt split) ordered. F5 4-h timing run continues untouched. |
+
+### 2026-10-26 — F5 reducer HOLD disposition and offline engineering amendment
+
+Astra's binding reducer disposition is published verbatim with the original HOLD
+under `research/bl_residual/ledger/F5_HOLD_DISPOSITION_20261026/` (step-1 commit
+fb5948d2). The owner's no-fit/no-evaluation-data premise and exploratory-only scope
+are retained. All thirteen completions, evidence publication 93743a9a before
+reduction, and original reduction publication d41e2ff7 remain immutable.
+
+The prospective contract at `research/bl_residual/f5_hold_amendment_20261026/`
+freezes role coverage, the finite original-fixture first-length700 supplement,
+correct primitive units, archive 96/192h runaway guard, sixteen sequential one-L4
+six-worker shards with global two completion rounds, complete attributed accounting,
+file-pinned create-only plan successor and locked sole-claim lineage APIs. The
+engineering source/v6 closure is create-only under ledger/F5_ENGINEERING_SEAL_20261026.
+Internal read-only review found no unresolved material code finding; this does not
+substitute for Astra's acceptance. Root tests: 245 passed/1 CUDA-only skip and 63
+focused passes; Black/isort/flake8/diff checks pass. Original recipe/loss/sampler
+and measured engine bytes are unchanged. The targeted timing package is explicitly
+DRAFT/unsealed with no admitted runtime driver, qualification, acceptance or dispatch.
+No real plan/claim migration, science outcome access, Colab/provider/dispatch,
+Mac timing, sandbox, serving or release change occurred. Astra next reviews the
+engineering seal/source bridge and the concrete supplement package before step 3.

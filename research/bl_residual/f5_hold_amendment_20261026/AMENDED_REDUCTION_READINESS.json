@@ -1,0 +1,26 @@
+{
+  "amended_reduction_issued": false,
+  "fit_admission": false,
+  "missing": [
+    "independent engineering and source bridge review",
+    "accepted sealed targeted timing package",
+    "genuine CUDA/native-v6 current source application qualification",
+    "all12 finite crossing dispositions and required per-path/kernel long-body primitive coverage",
+    "complete measured overhead and schedule feasibility",
+    "actual independently verified plan successor and sole current claim",
+    "uncontended Mac and actual production fit overhead forecasts",
+    "exact final science inventory and real independent acceptance",
+    "matching final exact-inventory canary",
+    "independent final operative ACCEPT_F5_FIT"
+  ],
+  "old_units_rewritten": false,
+  "original_reduction": {
+    "path": "research/bl_residual/ledger/F5_POST_LONGRUN01_VERIFICATION_20261026/TIMING_REDUCTION.json",
+    "sha256": "4d5aa3012ddb0002e2faadfea53a57998eba12cd3fa0dbf1a869c410fc26428e"
+  },
+  "original_status": "HOLD_REGISTERED_COVERAGE_FAILED",
+  "ruling_sha256": "cca29ae20f8f52a70d62b016d085d2d7d80bd96106d8479de07c1e53aa60808b",
+  "schema": "bl-f5-amended-reduction-readiness/v1",
+  "status": "HOLD_MISSING_TARGETED_TIMING_EVIDENCE",
+  "targeted_units_measured": 0
+}

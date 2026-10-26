@@ -1,0 +1,554 @@
+{
+  "aggregate_guard_liability_hours": {
+    "archive": 192,
+    "final_canary": 0.6666666666666666,
+    "mac_gameplay": 24,
+    "mac_probe_reduction": 8,
+    "mac_product": 24,
+    "paired_fit": 4,
+    "selected_cov": 0,
+    "supplement": "DRAFT_UNSEALED_ENVELOPE_REQUIRES_REVIEW_NOT_RESERVED",
+    "total_existing_stages_effective": 252.66666666666666,
+    "warning": "stage guards are operational exposure bounds, not unit budgets; historical liabilities retain original attribution and no overlap is added twice"
+  },
+  "archive_stage_hours": {
+    "base": 96,
+    "doubled_once": true,
+    "effective": 192
+  },
+  "cuda_processes_for_paired_fit": 1,
+  "dispatch_authorized": false,
+  "forecast_overhead_carried_once_seconds": 2239.787154037055,
+  "global_max_completion_rounds": 2,
+  "guards": [
+    "each complete shard forecast <=6h base including setup qualification exports imbalance",
+    "each runtime admitted constraints <=12h effective; verify actual qualification before dispatch",
+    "sum all planned sessions plus completion attempts <=192h effective; complete forecast <=96h base",
+    "verified-ledger skip by path/size/hash, immutable exports marker-last",
+    "scheduled sessions do not reset global retry count or elapsed stage ledger",
+    "no automatic allocation/job retry or unverified release",
+    "C and W share one physical L4/raw environment/common successor plan"
+  ],
+  "historical_accounting_reference": {
+    "path": "research/bl_residual/ledger/F5_POST_LONGRUN01_VERIFICATION_20261026/ACCOUNTING_EXPOSURE_APPENDIX.json",
+    "sha256": "0d5426aed64fb5bec4c5d67f63183952499f504ac642f082e47f00d47671bcea",
+    "size": 1943
+  },
+  "host_workers": 6,
+  "incremental_overhead_reserve_seconds": 24000,
+  "known_attributed_actual_seconds": {
+    "canaries_01_03": 2542.172478082124,
+    "canary_04": 1307.429406041978,
+    "longrun01_timing_series": 4090.2527135000564,
+    "pre_series_timing": 6811.840706833173
+  },
+  "known_runtime_exposure_seconds": 14751.695304457331,
+  "l4_assignments_at_once": 1,
+  "look_authorized": false,
+  "math_threads": 1,
+  "max_outcome_blind_retries": 2,
+  "new_liabilities_status": "HOLD: supplement forecast, per-session setup qualification plan/cache export/io and imbalance must be measured and attributed before future admission",
+  "other_stage_hours": {
+    "canary": {
+      "base": 0.3333333333333333,
+      "effective": 0.6666666666666666
+    },
+    "cov_completion": {
+      "base": 4,
+      "effective": 8,
+      "selected": false
+    },
+    "mac_gameplay": {
+      "base": 12,
+      "effective": 24
+    },
+    "mac_probe_reduction": {
+      "base": 4,
+      "effective": 8
+    },
+    "mac_product": {
+      "base": 12,
+      "effective": 24
+    },
+    "paired_fit_including_qualification": {
+      "base": 2,
+      "effective": 4
+    }
+  },
+  "placement": "one L4 at a time; no A100, multi-L4 or Mac archive assistance",
+  "preallocation_refusal_local_elapsed_seconds": 1.5318486669566482,
+  "preallocation_refusal_no_runtime": true,
+  "rate_accounting": "no provider query; future locked account/rate admission prices all assignment wall including failures idle setup cleanup, preserve historical original attribution; credits no budget veto",
+  "resume_unit_kind": "frozen parent/action unit",
+  "runtime_constraints_status": "PENDING_QUALIFICATION",
+  "schema": "bl-f5-prospective-archive-schedule/v1",
+  "shards": [
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        0,
+        5520
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 0,
+      "natural_ordinal_stop_exclusive": 8,
+      "natural_range": [
+        0,
+        8
+      ],
+      "ordinal": 0,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 0,
+      "root_ordinal_stop_exclusive": 920,
+      "root_range": [
+        0,
+        920
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        5520,
+        11040
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 8,
+      "natural_ordinal_stop_exclusive": 16,
+      "natural_range": [
+        8,
+        16
+      ],
+      "ordinal": 1,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 920,
+      "root_ordinal_stop_exclusive": 1840,
+      "root_range": [
+        920,
+        1840
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        11040,
+        16560
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 16,
+      "natural_ordinal_stop_exclusive": 24,
+      "natural_range": [
+        16,
+        24
+      ],
+      "ordinal": 2,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 1840,
+      "root_ordinal_stop_exclusive": 2760,
+      "root_range": [
+        1840,
+        2760
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        16560,
+        22080
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 24,
+      "natural_ordinal_stop_exclusive": 32,
+      "natural_range": [
+        24,
+        32
+      ],
+      "ordinal": 3,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 2760,
+      "root_ordinal_stop_exclusive": 3680,
+      "root_range": [
+        2760,
+        3680
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        22080,
+        27600
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 32,
+      "natural_ordinal_stop_exclusive": 40,
+      "natural_range": [
+        32,
+        40
+      ],
+      "ordinal": 4,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 3680,
+      "root_ordinal_stop_exclusive": 4600,
+      "root_range": [
+        3680,
+        4600
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        27600,
+        33120
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 40,
+      "natural_ordinal_stop_exclusive": 48,
+      "natural_range": [
+        40,
+        48
+      ],
+      "ordinal": 5,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 4600,
+      "root_ordinal_stop_exclusive": 5520,
+      "root_range": [
+        4600,
+        5520
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        33120,
+        38640
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 48,
+      "natural_ordinal_stop_exclusive": 56,
+      "natural_range": [
+        48,
+        56
+      ],
+      "ordinal": 6,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 5520,
+      "root_ordinal_stop_exclusive": 6440,
+      "root_range": [
+        5520,
+        6440
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        38640,
+        44160
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 56,
+      "natural_ordinal_stop_exclusive": 64,
+      "natural_range": [
+        56,
+        64
+      ],
+      "ordinal": 7,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 6440,
+      "root_ordinal_stop_exclusive": 7360,
+      "root_range": [
+        6440,
+        7360
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        44160,
+        49680
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 64,
+      "natural_ordinal_stop_exclusive": 72,
+      "natural_range": [
+        64,
+        72
+      ],
+      "ordinal": 8,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 7360,
+      "root_ordinal_stop_exclusive": 8280,
+      "root_range": [
+        7360,
+        8280
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        49680,
+        55200
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 72,
+      "natural_ordinal_stop_exclusive": 80,
+      "natural_range": [
+        72,
+        80
+      ],
+      "ordinal": 9,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 8280,
+      "root_ordinal_stop_exclusive": 9200,
+      "root_range": [
+        8280,
+        9200
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        55200,
+        60720
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 80,
+      "natural_ordinal_stop_exclusive": 88,
+      "natural_range": [
+        80,
+        88
+      ],
+      "ordinal": 10,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 9200,
+      "root_ordinal_stop_exclusive": 10120,
+      "root_range": [
+        9200,
+        10120
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        60720,
+        66240
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 88,
+      "natural_ordinal_stop_exclusive": 96,
+      "natural_range": [
+        88,
+        96
+      ],
+      "ordinal": 11,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 10120,
+      "root_ordinal_stop_exclusive": 11040,
+      "root_range": [
+        10120,
+        11040
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        66240,
+        71760
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 96,
+      "natural_ordinal_stop_exclusive": 104,
+      "natural_range": [
+        96,
+        104
+      ],
+      "ordinal": 12,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 11040,
+      "root_ordinal_stop_exclusive": 11960,
+      "root_range": [
+        11040,
+        11960
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        71760,
+        77280
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 104,
+      "natural_ordinal_stop_exclusive": 112,
+      "natural_range": [
+        104,
+        112
+      ],
+      "ordinal": 13,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 11960,
+      "root_ordinal_stop_exclusive": 12880,
+      "root_range": [
+        11960,
+        12880
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        77280,
+        82800
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 112,
+      "natural_ordinal_stop_exclusive": 120,
+      "natural_range": [
+        112,
+        120
+      ],
+      "ordinal": 14,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 12880,
+      "root_ordinal_stop_exclusive": 13800,
+      "root_range": [
+        12880,
+        13800
+      ]
+    },
+    {
+      "base_hours": 6,
+      "branch_action": 5520,
+      "branch_action_range": [
+        82800,
+        88320
+      ],
+      "branch_assignment": "all legal actions attached to this shard roots, max six per root",
+      "carried_current_series_overhead_share_seconds": 139.98669712731595,
+      "complete_forecast_status": "HOLD_MISSING_NEW_OVERHEAD_AND_LONG_BODY_BOUND",
+      "effective_hours": 12,
+      "natural": 8,
+      "natural_ordinal_start": 120,
+      "natural_ordinal_stop_exclusive": 128,
+      "natural_range": [
+        120,
+        128
+      ],
+      "ordinal": 15,
+      "reserved_new_overhead_seconds": 1500,
+      "reserved_setup_export_imbalance_seconds": 1639.986697127316,
+      "root": 920,
+      "root_ordinal_start": 13800,
+      "root_ordinal_stop_exclusive": 14720,
+      "root_range": [
+        13800,
+        14720
+      ]
+    }
+  ],
+  "skip_verified": true,
+  "status": "FROZEN_ENGINEERING_CONTRACT_HOLD_EXECUTION",
+  "unit_partition": "canonical sorted frozen unit IDs; no outcome/cost dependent repartition"
+}

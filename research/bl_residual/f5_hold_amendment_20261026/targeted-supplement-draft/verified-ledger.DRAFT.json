@@ -1,0 +1,24 @@
+{
+  "allocation_indices": [
+    672,
+    673,
+    674,
+    675,
+    676,
+    677,
+    678,
+    679,
+    680,
+    681,
+    682,
+    683
+  ],
+  "component_id": "f5-targeted-long-body-first-crossing-v1",
+  "max_outcome_blind_retries": 2,
+  "no_legacy_strict_ledger_mixing": true,
+  "schema": "bl-f5-targeted-component-ledger-DRAFT/v1",
+  "skip_verified": true,
+  "source_identity": "bind final sealed source before independent package acceptance",
+  "status": "DRAFT_UNSEALED_NOT_SKIP_AUTHORITY",
+  "units": []
+}

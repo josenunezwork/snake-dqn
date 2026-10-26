@@ -1,0 +1,101 @@
+{
+  "fixtures": [
+    {
+      "allocation_index": 672,
+      "group": "timing/watch6",
+      "group_index": 0,
+      "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/watch6/0000",
+      "seed": 459708066,
+      "timing_only": true
+    },
+    {
+      "allocation_index": 673,
+      "group": "timing/watch6",
+      "group_index": 1,
+      "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/watch6/0001",
+      "seed": 598567443,
+      "timing_only": true
+    },
+    {
+      "allocation_index": 674,
+      "group": "timing/watch6",
+      "group_index": 2,
+      "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/watch6/0002",
+      "seed": 4263486777,
+      "timing_only": true
+    },
+    {
+      "allocation_index": 675,
+      "group": "timing/scripted",
+      "group_index": 0,
+      "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/scripted/0000",
+      "seed": 2250644347,
+      "timing_only": true
+    },
+    {
+      "allocation_index": 676,
+      "group": "timing/scripted",
+      "group_index": 1,
+      "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/scripted/0001",
+      "seed": 4061976764,
+      "timing_only": true
+    },
+    {
+      "allocation_index": 677,
+      "group": "timing/scripted",
+      "group_index": 2,
+      "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/scripted/0002",
+      "seed": 3075455710,
+      "timing_only": true
+    },
+    {
+      "allocation_index": 678,
+      "group": "timing/frozen",
+      "group_index": 0,
+      "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/frozen/0000",
+      "seed": 294451339,
+      "timing_only": true
+    },
+    {
+      "allocation_index": 679,
+      "group": "timing/frozen",
+      "group_index": 1,
+      "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/frozen/0001",
+      "seed": 3210892270,
+      "timing_only": true
+    },
+    {
+      "allocation_index": 680,
+      "group": "timing/frozen",
+      "group_index": 2,
+      "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/frozen/0002",
+      "seed": 1470160443,
+      "timing_only": true
+    },
+    {
+      "allocation_index": 681,
+      "group": "timing/mixed",
+      "group_index": 0,
+      "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/mixed/0000",
+      "seed": 1138521580,
+      "timing_only": true
+    },
+    {
+      "allocation_index": 682,
+      "group": "timing/mixed",
+      "group_index": 1,
+      "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/mixed/0001",
+      "seed": 2168991446,
+      "timing_only": true
+    },
+    {
+      "allocation_index": 683,
+      "group": "timing/mixed",
+      "group_index": 2,
+      "parent_id": "bl-f5-predat-v2/20261025/r=0/timing/mixed/0002",
+      "seed": 2243809290,
+      "timing_only": true
+    }
+  ],
+  "schema": "bl-f5-sealed-timing-fixtures/v1"
+}
