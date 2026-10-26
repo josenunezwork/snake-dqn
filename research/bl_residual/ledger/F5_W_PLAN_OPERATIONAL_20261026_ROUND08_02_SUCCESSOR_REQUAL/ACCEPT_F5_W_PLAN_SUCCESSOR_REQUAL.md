@@ -1,0 +1,49 @@
+# ACCEPT_F5_W_PLAN_SUCCESSOR_REQUAL
+
+2026-10-26T12:07:33.344176+00:00 · Astra independent F5 operative-package review.
+
+**ACCEPT the exact sealed plan attempt-02 successor for one manual operator dispatch using the DISPATCH.txt command below.** No blocking defect remains in the reviewed plan package. This succeeds the held, unexecuted attempt 02; it is not a third execution, automatic retry, scientific fit or numerical outcome-look authorization. The held package remains unchanged. Timing dispatch is a separate review boundary described below.
+
+Package: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_02_SUCCESSOR_REQUAL`. Job `bl-f5-w-plan-r08-sr75b14427-01`. Manifest source `75b1442768f37ce83188a2990c9ef0026ee806b5`; clean detached broker `/Users/josenunez/Projects/ml/snake-dqn-f5-plan02-requal` at `97f066ce106000ae0264c27f88da38e1b894a860`; CLI tree `6e8c1982b5c9ed115bfebd3145ad0720b15522fa`. All 192 runtime pins match source Git objects and this checkout; nontransport runtime bytes match accepted F5 implementation `c989f6738f6aad143eb97bc47f6bd9e6687057ce`. All 200 source archive members match pinned Git bytes.
+
+I independently rehashed 171 sealed entries and 59 SHA/completion sets; the final package inventory is exactly 177 files, with only the declared seal/publication self-exclusions. All 206 published representation blobs match locally available origin/main Git objects, and all 174 original files reconstruct exactly, including compressed environment/control/report objects. Both source and broker commits are ancestors of the inspected origin/main snapshot `e4691392adbb15bbb136af7a4e5e5ae7387f4156`; no remote refresh was performed. Publication must be rechecked by the operator immediately before dispatch.
+
+The uploaded control embeds the exact admitted capture-05 raw environment (SHA256 `2b5e0713cc907a08688e1d27bcd171669f345a2f25478a4e6e07be9ce2a29e6d`). Allocation recomputes to `882b76d14e23e6bc80b928a157ff0bc99c6ab7a981a7183e0a6c1082dac942d1`; its own empty ledger matches namespace, science-allocation identity and ledger digest. Selected-training identity remains `2c033750b0d25568b19ba81aec7bd0e9b0583bdd32a994a9a1984a409e45c46c`; that archive was not opened by this review. Manifest/sidecar declarations and file size were inspected without viewing labels/outcomes. The prior saved independent review supplies the opaque-input hash check; the ordinary supervisor must verify actual input bytes before execution.
+
+The sealed MANIFEST_ANNOTATION_ERRATUM.json correctly supersedes only `/f5/environment_capture_reference` (historical capture04) and `/f5/public_b8_transport` (historical filename). Code inspection confirms these are not consumed by runtime or broker admission. Runtime `f5_job._environment_admission` consumes control.environment_capture and enforces v5 cross-assignment comparison; actual public release preflight is the sealed public-b8-preflight.json. This prospective, hash-bound erratum is acceptable without changing immutable manifest bytes.
+
+Seven inputs and nine required exports are preserved. Private uploads total 40,368,127 bytes <=45,397,643; pinned HTTPS B8 remains separate at 6,562,005 bytes. Transfer<=150 s, staging<=300 s and export<=2 GiB remain unchanged. Scope is prepare-qualification: the ordered 2,000x256 CPU-generator plan, seed3403, 128 doom then128 ordinary, row order and initial/final RNG contract, followed only by disjoint native CUDA transport. Required plan output remains actual exported plan plus its 512,000-row prepare receipt, not a template or Mac replacement.
+
+Base/effective timeout15/30 minutes, forecast15 minutes, base/effective unit guard1/2 and reserve0.5/1 remain unchanged without redoubling. Scientific caps remain. All four no-allocation/job/completion/automatic-retry fences remain. I reconciled all seven historical receipts' exact job, elapsed, raw accounting and verified stop, cumulative elapsed3782.8593037500978 s and recorded observed balance decreases1.2100000000000364 units; billing, integrated exposure and observed balance changes remain separate quantities. Both mechanical-failure receipts are bound. The 153 held-plan02 inventory entries are unchanged; its state/output were not dispatched by this review.
+
+The actual broker admission function accepted this manifest. Independent negative checks refused missing transport/capture evidence and a changed endpoint map. Both offline qualified-consumer checks passed against the external registry. Saved prior tests report116 ops tests,23 package tests and one real-CUDA skip, plus28 independent admission tests; this review did not rerun those suites or execute CUDA. My direct checks are reproducible from the create-only audit script and reports named below.
+
+The sealed account map is empty and based on saved postrelease evidence. It is not current availability. The wrapper must freshly reconcile all endpoints and positive rates under its lock, count every account assignment against maximum3, and refuse any map drift rather than silently patching this package. If another assignment is already active, preserve this package and seal/review an appropriately accounted successor. State/output are presently unused; recheck them, registry, broker/source pins, all seals and publication immediately before the manual dispatch. Apply the existing serialized staging, AC/lid and control-process guards. A refusal grants no automatic retry.
+
+Exact authorized operator command (verbatim PACKAGE_PUBLICATION, seal and DISPATCH.txt agreement):
+
+```sh
+/Users/josenunez/Projects/ml/snake-dqn-f5-plan02-requal/tools/ops/dispatch.sh bl-f5-w-plan-r08-sr75b14427-01 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_02_SUCCESSOR_REQUAL/manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-f5-plan02-requal --cwd /Users/josenunez/Projects/ml/snake-dqn-f5-plan02-requal --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_02_SUCCESSOR_REQUAL/state-01 --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_02_SUCCESSOR_REQUAL/DISPATCH.txt
+```
+
+## Timing attempt 02 and parallelism
+
+**Parallel design remains permitted on a separate L4, but no unseen timing package is authorized by this ruling.** The current broker's `tools/ops/dispatch.py:require_f5_timing_operational_admission` still requires old source c989f673; unlike plan admission it has no requalified-source successor exception. A timing02 package pinned to published requalified source is therefore currently refused. Prepare and independently review the narrow timing admission update and its concrete operative seal before its single manual dispatch; do not bypass that fence or revert to unqualified transport.
+
+For overlap, dispatch this plan first with its actual empty map only if fresh admission agrees. Then obtain its real endpoint/current rate and seal the second package against fresh complete account evidence binding that active assignment, with maximum3 total. Allocate/admit and stage serially. Timing needs distinct L4/session/generation/state/output/control-allocation/empty-ledger identities and no plan workload on its runtime; Mac companion timing must be uncontended. If plan has already released, seal timing against the actual refreshed map instead. Do not mutate an earlier empty-map timing seal.
+
+Timing02 must bind this ruling and F5_W_CAPTURE05_QUALIFIED_20261026.md (SHA256 `27439f187c0c80f5b3afbb0afd863cf6ac2761c34d5da1a34fd83065d1deaa43`), the accepted transport repair, reviewed requalification receipt/registry/tree, published F5 source and matching source closure/archive, capture05 raw environment plus enforced fresh cross-assignment validation, both mechanical-failure receipts and complete historical elapsed/debit, original accepted base/effective envelopes and science caps, own allocation/ledger, exact frozen fixtures and disjoint timing namespace, five pinned opponent uploads plus pinned HTTPS B8, complete input/export inventories, actual account/rate evidence, broker validation, dry-run, exhaustive seal/publication and an exact DISPATCH.txt. Retain full twelve-workload source timing/parity and timing-only optimizer/resume calibration, not transport-only scope; preserve all retry fences. It has no data dependency on the actual common plan, which remains mandatory before science fitting.
+
+After separately verified plan and timing outputs plus required Mac evidence, the exact eventual science input family still needs a current-source final canary through f5_package.bind_qualification_inventory and separate ACCEPT_F5_FIT. This ruling grants no fit, outcome look, serving change or release authority.
+
+Evidence bindings:
+
+- Manifest SHA256 `d310d4e05a9bd7ced83436eb84a5289533f530c54bc0a3237409d86c1bd979b8`.
+- Operative seal SHA256 `39c2cc23892e73d080f09a595a2438e0fc13741f022eb2ec6d69d8b5dfd75279`.
+- Publication SHA256 `77d3fc4a51c5e998f1d8f5d4c04b9b99f0e31325596614c28efb690f78b212e4`.
+- Erratum SHA256 `ff9caafe2cd4bc732a5dbaa6d18b1b98cef691e08ee4c48b00c8eb17e00e2cf4`.
+- ASTRA_F5_PLAN_REQUAL_AUDIT_20261026.json SHA256 `b53120e37e2db7443d38ae90caf65c9dbdb48328e6a93afc5c3a91736df192b1`.
+- ASTRA_F5_REQUAL_SUPPLEMENTAL_20261026.json SHA256 `45559d2c7393e485e44b9ecf11230d2c26e790f84f2f792238013657f52ce7f4`.
+- Audit script ASTRA_F5_CAPTURE05_PLAN_REQUAL_REVIEW_20261026.py SHA256 `b1ec1b1ab347beaf09ea15d844387e849853cc71ed18740c3f7a57e1df08fcc3`.
+
+No repository edits/commits, provider/Colab calls, dispatch or tmux operation occurred. No label/outcome payloads, D4096 outputs or t34-round0-study-01 content were opened. Only create-only review artifacts with SHA256 sidecars were written under the authorized Astra artifact root.

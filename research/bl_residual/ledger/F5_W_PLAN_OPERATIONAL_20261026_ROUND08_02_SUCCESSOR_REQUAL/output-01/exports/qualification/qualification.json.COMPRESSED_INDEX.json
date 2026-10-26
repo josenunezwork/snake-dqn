@@ -1,0 +1,41 @@
+{
+  "compressed_sha256": "9bf6858139d2f773cb06060448e51c14dd683c1417e37ae7176f6dc2f5ff9103",
+  "encoding": "gzip-concatenated-parts",
+  "original": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_02_SUCCESSOR_REQUAL/output-01/exports/qualification/qualification.json",
+    "sha256": "78efb03d4597c6f395ba17651536fa1ea5386e733b797e76a9e5b2d121337c98",
+    "size": 37594955
+  },
+  "parts": [
+    {
+      "path": "exports/qualification/qualification.json.gz.part-000",
+      "sha256": "891134829cf3f03f81edbcf0aaaa81292c121ae6945964f9aec20c73ef332081",
+      "size": 1500000
+    },
+    {
+      "path": "exports/qualification/qualification.json.gz.part-001",
+      "sha256": "f113c4dd8a7cf1818b624e27651b603bd73b97eb0574601faf841af86466a113",
+      "size": 1500000
+    },
+    {
+      "path": "exports/qualification/qualification.json.gz.part-002",
+      "sha256": "6c040dc42826f46773467c4fa302eac9bf470bc3aa806621e3d546b19be77ff8",
+      "size": 1500000
+    },
+    {
+      "path": "exports/qualification/qualification.json.gz.part-003",
+      "sha256": "c36ba25768332629bfce7368254c0b5554857605c3fdedf5780b3328cda07de5",
+      "size": 1500000
+    },
+    {
+      "path": "exports/qualification/qualification.json.gz.part-004",
+      "sha256": "bca4ae95ca6745cf3ac88a86fcb8afff156004854e6b7cc4672b62200c1e66cc",
+      "size": 1500000
+    },
+    {
+      "path": "exports/qualification/qualification.json.gz.part-005",
+      "sha256": "0fca9209efc695783cf16f50ed39de827c65c8199d3e7ed0aee100ac0992851b",
+      "size": 977724
+    }
+  ]
+}

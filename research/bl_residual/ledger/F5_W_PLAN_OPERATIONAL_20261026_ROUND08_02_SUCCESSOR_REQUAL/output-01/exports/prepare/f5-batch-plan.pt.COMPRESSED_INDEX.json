@@ -1,0 +1,16 @@
+{
+  "compressed_sha256": "63913d2123adbd68bc65b7f903902c8c3c39a040ab9a6525cb60bfbf1b26997a",
+  "encoding": "gzip-concatenated-parts",
+  "original": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_02_SUCCESSOR_REQUAL/output-01/exports/prepare/f5-batch-plan.pt",
+    "sha256": "520f10de905219b90188091f6c4047e1fd80197a1fb4f846d8e9eac9c87599ab",
+    "size": 4135633
+  },
+  "parts": [
+    {
+      "path": "exports/prepare/f5-batch-plan.pt.gz.part-000",
+      "sha256": "63913d2123adbd68bc65b7f903902c8c3c39a040ab9a6525cb60bfbf1b26997a",
+      "size": 1472021
+    }
+  ]
+}

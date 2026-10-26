@@ -1,0 +1,26 @@
+{
+  "compressed_sha256": "a5eac38888bf69a1fe3b41ad6ad5d81ffbb6a60ef545c3cbea40fffe705be33a",
+  "encoding": "gzip-concatenated-parts",
+  "original": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_02_SUCCESSOR_REQUAL/output-01/exports/paired/assignment-environment.json",
+    "sha256": "a87e1d64548ad73d71c6df75280578a5cd2fa1b9ffae6700dee9ec38f83cda91",
+    "size": 13419976
+  },
+  "parts": [
+    {
+      "path": "exports/paired/assignment-environment.json.gz.part-000",
+      "sha256": "6c9662b481ecea4f9c0265a98b8d8f676188a76ce7a5adab9bb23d7acbba7b8f",
+      "size": 1500000
+    },
+    {
+      "path": "exports/paired/assignment-environment.json.gz.part-001",
+      "sha256": "d308d8430cfdfc3dbcbe8493442bfbe7d1658d6c54d2c1b28d36099df3c1325b",
+      "size": 1500000
+    },
+    {
+      "path": "exports/paired/assignment-environment.json.gz.part-002",
+      "sha256": "f8f132bc2669a841af793b89ed2347c892e0413edaa87978df088996171c2aeb",
+      "size": 1079970
+    }
+  ]
+}
