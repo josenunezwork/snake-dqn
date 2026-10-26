@@ -1833,3 +1833,77 @@ exactly one fresh manually dispatched attempt02 with identical implementation,
 scope and limits, fresh operative preflights/seal/publication; no automatic retry.
 No dispatch, allocation, runtime operation or timing-state/output mutation in this
 publication step. Timing remains independently operated and read-only to Sol.
+
+### 2026-10-26 — F5 round08 operative plan attempt02 sealed; no dispatch
+
+Astra `F5_W_PLAN_ATTEMPT01_DISPOSITION_20261026.md` permits exactly one fresh
+manual plan attempt02 after the mechanical attempt01 INCOMPLETE. Attempt01's
+complete17-file output evidence was first published at
+`a9829745c5c024adcef938f0f1b7046b7ea78c60` (local==origin/main verified).
+New create-only package:
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_02`.
+Job `bl-f5-w-plan-round08-c989f673-02`; accepted implementation remains
+`c989f6738f6aad143eb97bc47f6bd9e6687057ce` without source/transport changes.
+
+Manifest SHA256 `3f8179e78440115d03fcc69e210d830026e3f87b07b8086d9b4a06668f5bf5a4`;
+operative seal SHA256 `f1cfab265d401db9bf51ca62652d506eb8c24a3cc25612a530869019d3319c10`;
+publication SHA256 `a06ae59c99279bf5229ccd77850e90dc22fc8cf546c6c604f8cbe85f2dff4b23`.
+Control SHA256 `0ac610c6bda7c0df0e9a4941ebed0c2e87118e00933c216fd4877588a73ef081`;
+empty verified ledger SHA256
+`6eef2cc751bca6549a33a683f62cb0e20f566bca7af6d92b36d3703e22ebc770`.
+The control allocation is recomputed over final operative fields; namespace,
+frozen allocation semantics, selected-training identity, ordered2000x256 plan and
+RNG contract, exact raw admitted environment, fixtures and scientific identities
+are retained. No completed units exist to import. Manifest/control/ledger remain
+scientific_admission=false. Exemption reason names the explicit one-attempt
+exception; all four automatic/allocation/job/completion retry fences remain.
+
+**Account state changed during preparation.** Initial read-only observation found
+actual timing endpoint `gpu-l4-s-ass1a0-2ptzg6d08d12q`, broker session
+`snake-bl-f5-w-timing-round08-c989f673-01-30d9f365e154`, observed1.54u/h,
+priced2.0u/h. Timing ended independently while plan02 preflight was running:
+INCOMPLETE/SUPERVISOR, elapsed153.47244137502275s, saved stop_verified=true,
+cleanup_error=null, balance1066.25->1066.22. No timing state/output was modified.
+Its receipt/rate snapshots bind the actual historical endpoint/rate. The disposition
+explicitly permits sequential refresh after release; actual fresh sessions/usage
+then found0 assignments/0u/h, balance1066.22, no active or pending broker records.
+The operative other_assignments map is therefore empty, not stale overlap data.
+Original preparation files are preserved; create-only preflight v2 documents the
+pre-manifest pause and current post-release evidence. A later changed account map
+requires a fresh sealed/published successor; availability is not assumed.
+
+Historical accounting retains all capture predecessors, attempt01's full elapsed
+and observed1066.28->1066.25 decrease0.03u, original cumulative accounting/envelope
+and separately ended timing elapsed/debit. Observed balance decreases are not
+precision attribution claims. No cumulative envelope is reset. Base15/effective30
+minute manifest/exemption, forecast15 unchanged, base1/effective2 unit placeholders,
+base.5/effective1 reserve, transport control30/recovery60s, transfer150s/staging300s,
+private cap45397643 bytes/export2GiB remain unchanged and not redoubled. Owner
+ruling48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d
+precludes budget-only refusal; science/integrity/retry gates remain binding.
+
+Fresh actual HTTPS fetch verified B8 size6562005 and release digest; seven exact
+inputs total40366342 private bytes; all nine required exports retained. Source
+preflight verifies192pins/194paths/200archive members against accepted Git and
+working bytes. Actual environment/governance/source/account/qualified broker
+preflights and complete inventories pass. Exact wrapper output:
+`PASS_DRY_RUN bl-f5-w-plan-round08-c989f673-02 allocations=0 live_accounting=NOT_CHECKED`.
+Fresh account evidence is separate; package-local output/state/name remain unused.
+Independent tests:163 passed,1 skipped(real CUDA),183.515s runner elapsed,serialCPU,
+threads1,nice15; plan admission/ops/broker/source/schema/diagnostics/run8/staging
+repair paths. Black/isort/flake8/diff and helper syntax checks pass. Independent
+review reports no blocking findings; root exhaustive consistency verifies147
+package files,1238 references and148 unchanged predecessor files. Lossless main
+ledger publication represents150 source files in186 ledger files including
+publication/companions and publication-tooling. A publisher Path-join typo and
+then canonical-newline equality refusal were preserved in create-only external
+notes/continuations; v2 completed missing copies only after exact-byte checks.
+No sealed package/manifest/runtime implementation bytes changed to fix publication.
+
+`DISPATCH.txt` contains the exact single future operator command; recheck its
+sealed hashes/main publication/current account/name/state/output first. No dispatch,
+allocation, Colab runtime operation, tmux modification, checkpoint/pin change,
+scientific fit, outcome look or release occurred. If plan02 repeats this failure,
+stop unchanged repetition and return both operational receipts for transport
+diagnosis/repair/requalification. Science still waits for both verified branches,
+Mac evidence, matching final canary/inventory and separate ACCEPT_F5_FIT.

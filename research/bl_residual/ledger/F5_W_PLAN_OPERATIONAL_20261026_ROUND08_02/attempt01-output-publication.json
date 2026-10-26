@@ -1,0 +1,469 @@
+{
+  "attribution": "Observed balance change, not precise workload attribution",
+  "created_utc": "2026-10-26T10:19:52.523093+00:00",
+  "disposition": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_ATTEMPT01_DISPOSITION_20261026.md",
+    "sha256": "3cfeaca3b034ea3084ce09465a6fa39f84d8fd08c3f21e3ab6a3859eed1f82b4",
+    "size": 7981
+  },
+  "no_original_bytes_modified": true,
+  "no_outcome_payloads": true,
+  "observed_balance_after": 1066.25,
+  "observed_balance_before": 1066.28,
+  "observed_balance_decrease_units": 0.03,
+  "original_files": [
+    {
+      "relative_path": "output-01/accounting-baseline.json",
+      "representation": {
+        "path": "output-01/accounting-baseline.json"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/accounting-baseline.json",
+        "sha256": "e08de765bb8e45a0d3b5bc5ce042c4b6b2ea40384ec3fd457cbac38348e40d84",
+        "size": 174
+      }
+    },
+    {
+      "relative_path": "output-01/manifest.json",
+      "representation": {
+        "path": "output-01/manifest.json"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/manifest.json",
+        "sha256": "73e657ea70a43ffddb3b0b8d0809949033adecc3919c5f56beff4837426feb16",
+        "size": 17415
+      }
+    },
+    {
+      "relative_path": "output-01/public-input-preflight.json",
+      "representation": {
+        "path": "output-01/public-input-preflight.json"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/public-input-preflight.json",
+        "sha256": "d392bfa9ca01c5262df943a7a15fbef9708571ecf7a5cf659d8d870fb6bb4f44",
+        "size": 369
+      }
+    },
+    {
+      "relative_path": "output-01/rate-calibration-000.json",
+      "representation": {
+        "path": "output-01/rate-calibration-000.json"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration-000.json",
+        "sha256": "cb910817bb102e6dde67e45ef96478b6d4fc88abecd88f3bd346670bde8884d1",
+        "size": 239
+      }
+    },
+    {
+      "relative_path": "output-01/rate-calibration-001.json",
+      "representation": {
+        "path": "output-01/rate-calibration-001.json"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration-001.json",
+        "sha256": "35ab65fe50db42af082d0d989dca01d552fec2bf81cc9fd1f8d54ebcd95d5b08",
+        "size": 238
+      }
+    },
+    {
+      "relative_path": "output-01/rate-calibration-002.json",
+      "representation": {
+        "path": "output-01/rate-calibration-002.json"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration-002.json",
+        "sha256": "f241b3303b4b8919f049bf1fc2c88bfc5a3b70bee0d67aab396f8ec1a2fffe4e",
+        "size": 239
+      }
+    },
+    {
+      "relative_path": "output-01/rate-calibration.json",
+      "representation": {
+        "path": "output-01/rate-calibration.json"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration.json",
+        "sha256": "553a9279fddf2335f8e0620c29c3f6a77edb99c78c13ea27d5be5b6e58ec31d5",
+        "size": 1091
+      }
+    },
+    {
+      "relative_path": "output-01/receipt.json",
+      "representation": {
+        "path": "output-01/receipt.json"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/receipt.json",
+        "sha256": "be7b74b13c3528e8df4aba086c649e908fddbe0beb16c2e7ff7ab2a080bd687d",
+        "size": 17168
+      }
+    },
+    {
+      "relative_path": "output-01/staging/bootstrap.sh",
+      "representation": {
+        "path": "output-01/staging/bootstrap.sh"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/bootstrap.sh",
+        "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+        "size": 3244
+      }
+    },
+    {
+      "relative_path": "output-01/staging/release.py",
+      "representation": {
+        "path": "output-01/staging/release.py"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/release.py",
+        "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+        "size": 14677
+      }
+    },
+    {
+      "relative_path": "output-01/staging/runtime.py",
+      "representation": {
+        "path": "output-01/staging/runtime.py"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/runtime.py",
+        "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+        "size": 30712
+      }
+    },
+    {
+      "relative_path": "output-01/staging/schema-validation.json",
+      "representation": {
+        "path": "output-01/staging/schema-validation.json"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/schema-validation.json",
+        "sha256": "14aee37fb5a16f770b2ca197ce3cf8153cc0c236917521df1135a05c12aba92f",
+        "size": 462
+      }
+    },
+    {
+      "relative_path": "output-01/staging/source-plan.json",
+      "representation": {
+        "path": "output-01/staging/source-plan.json"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/source-plan.json",
+        "sha256": "17ca3c6f65828bcf698ee1dea5b089c21c50e0fa04015be062cd0b7d066ffb20",
+        "size": 43443
+      }
+    },
+    {
+      "relative_path": "output-01/staging/source.py",
+      "representation": {
+        "path": "output-01/staging/source.py"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/source.py",
+        "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+        "size": 14511
+      }
+    },
+    {
+      "relative_path": "output-01/staging/source.tar.gz",
+      "representation": {
+        "path": "output-01/staging/source.tar.gz"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/source.tar.gz",
+        "sha256": "ad934236c5f7807e9298261e0284bf18f3356ce4af5566e6b65d221959cdb346",
+        "size": 934916
+      }
+    },
+    {
+      "relative_path": "output-01/usage-allocated.json",
+      "representation": {
+        "path": "output-01/usage-allocated.json"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/usage-allocated.json",
+        "sha256": "39c01a0b1854cea087c504498646e047c1bfb6d9b88164b29c5db3a52db85dff",
+        "size": 63
+      }
+    },
+    {
+      "relative_path": "output-01/warmup-measurement.json",
+      "representation": {
+        "path": "output-01/warmup-measurement.json"
+      },
+      "source": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/warmup-measurement.json",
+        "sha256": "310d37cccea4c823c945061ef6ca65f79ee35059e8cc44a8156e51256d2aadf0",
+        "size": 81
+      }
+    }
+  ],
+  "published_files": {
+    "output-01/accounting-baseline.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/accounting-baseline.json",
+      "sha256": "e08de765bb8e45a0d3b5bc5ce042c4b6b2ea40384ec3fd457cbac38348e40d84",
+      "size": 174
+    },
+    "output-01/accounting-baseline.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/accounting-baseline.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/accounting-baseline.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/accounting-baseline.json.sha256",
+      "sha256": "53a7ba521dedd0040f73d477b841030487a9c71dfe3774ee39e658d77419f936",
+      "size": 91
+    },
+    "output-01/manifest.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/manifest.json",
+      "sha256": "73e657ea70a43ffddb3b0b8d0809949033adecc3919c5f56beff4837426feb16",
+      "size": 17415
+    },
+    "output-01/manifest.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/manifest.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/manifest.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/manifest.json.sha256",
+      "sha256": "c8226bfd94fe1dcc3f9f447914d395492213fd7635aecccd00f4ae7e3a1f1a53",
+      "size": 80
+    },
+    "output-01/public-input-preflight.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/public-input-preflight.json",
+      "sha256": "d392bfa9ca01c5262df943a7a15fbef9708571ecf7a5cf659d8d870fb6bb4f44",
+      "size": 369
+    },
+    "output-01/public-input-preflight.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/public-input-preflight.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/public-input-preflight.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/public-input-preflight.json.sha256",
+      "sha256": "5529d456674b4e9addde88431fadbebcc997953c1adc76c1f0810423ee221577",
+      "size": 94
+    },
+    "output-01/rate-calibration-000.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration-000.json",
+      "sha256": "cb910817bb102e6dde67e45ef96478b6d4fc88abecd88f3bd346670bde8884d1",
+      "size": 239
+    },
+    "output-01/rate-calibration-000.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration-000.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/rate-calibration-000.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration-000.json.sha256",
+      "sha256": "0c076bfaa66bef4c70fa3bcb69cb4cc106e914eb31dde9573eb76df9e6976ea9",
+      "size": 92
+    },
+    "output-01/rate-calibration-001.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration-001.json",
+      "sha256": "35ab65fe50db42af082d0d989dca01d552fec2bf81cc9fd1f8d54ebcd95d5b08",
+      "size": 238
+    },
+    "output-01/rate-calibration-001.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration-001.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/rate-calibration-001.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration-001.json.sha256",
+      "sha256": "650a9b0eb681e4ca9a1220e7383a2eb8a16304823d91dadb20c3fd0138f3a160",
+      "size": 92
+    },
+    "output-01/rate-calibration-002.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration-002.json",
+      "sha256": "f241b3303b4b8919f049bf1fc2c88bfc5a3b70bee0d67aab396f8ec1a2fffe4e",
+      "size": 239
+    },
+    "output-01/rate-calibration-002.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration-002.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/rate-calibration-002.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration-002.json.sha256",
+      "sha256": "e4370af6e7317b4450523c66469ac70fef505b61f48c7116d0b876bded5321cb",
+      "size": 92
+    },
+    "output-01/rate-calibration.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration.json",
+      "sha256": "553a9279fddf2335f8e0620c29c3f6a77edb99c78c13ea27d5be5b6e58ec31d5",
+      "size": 1091
+    },
+    "output-01/rate-calibration.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/rate-calibration.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration.json.sha256",
+      "sha256": "615a1ab17ab432f2014d2d833af2e3a1f755dde683e3462a4298a4de6c130024",
+      "size": 88
+    },
+    "output-01/receipt.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/receipt.json",
+      "sha256": "be7b74b13c3528e8df4aba086c649e908fddbe0beb16c2e7ff7ab2a080bd687d",
+      "size": 17168
+    },
+    "output-01/receipt.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/receipt.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/receipt.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/receipt.json.sha256",
+      "sha256": "e851dafc73d524fd3629bf6ad9e1f12ed8e4a743ea7fcf141122bc292c9da655",
+      "size": 79
+    },
+    "output-01/staging/bootstrap.sh": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/bootstrap.sh",
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+      "size": 3244
+    },
+    "output-01/staging/bootstrap.sh.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/bootstrap.sh.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/staging/bootstrap.sh.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/bootstrap.sh.sha256",
+      "sha256": "29da4fbc577743d7ca651401fb5cf980410385211a6810a761401283f59c05f7",
+      "size": 79
+    },
+    "output-01/staging/release.py": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/release.py",
+      "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+      "size": 14677
+    },
+    "output-01/staging/release.py.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/release.py.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/staging/release.py.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/release.py.sha256",
+      "sha256": "9174619c93660aa7a5e4474b89bf977680c0a56c586d138e0fe3fd3ff0a6e339",
+      "size": 77
+    },
+    "output-01/staging/runtime.py": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/runtime.py",
+      "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+      "size": 30712
+    },
+    "output-01/staging/runtime.py.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/runtime.py.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/staging/runtime.py.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/runtime.py.sha256",
+      "sha256": "f2a26946180339ef87885f4ad75c58eb4aeb1b4951c0b65deb155563be7ba86b",
+      "size": 77
+    },
+    "output-01/staging/schema-validation.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/schema-validation.json",
+      "sha256": "14aee37fb5a16f770b2ca197ce3cf8153cc0c236917521df1135a05c12aba92f",
+      "size": 462
+    },
+    "output-01/staging/schema-validation.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/schema-validation.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/staging/schema-validation.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/schema-validation.json.sha256",
+      "sha256": "a2444c2f337d8ff11193f1bdbc6114c92a2b0758ab5eee7a5e8a74194054028b",
+      "size": 89
+    },
+    "output-01/staging/source-plan.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/source-plan.json",
+      "sha256": "17ca3c6f65828bcf698ee1dea5b089c21c50e0fa04015be062cd0b7d066ffb20",
+      "size": 43443
+    },
+    "output-01/staging/source-plan.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/source-plan.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/staging/source-plan.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/source-plan.json.sha256",
+      "sha256": "c2bdb62c53f1f23a0dd93dc4717043637a1223e97227a9da5e7542a788ece002",
+      "size": 83
+    },
+    "output-01/staging/source.py": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/source.py",
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+      "size": 14511
+    },
+    "output-01/staging/source.py.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/source.py.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/staging/source.py.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/source.py.sha256",
+      "sha256": "f9a5dc1ac3b387e34d7c4f0df59d8fba7f64db333cf440ac365804a472111c80",
+      "size": 76
+    },
+    "output-01/staging/source.tar.gz": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/source.tar.gz",
+      "sha256": "ad934236c5f7807e9298261e0284bf18f3356ce4af5566e6b65d221959cdb346",
+      "size": 934916
+    },
+    "output-01/staging/source.tar.gz.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/source.tar.gz.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/staging/source.tar.gz.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/staging/source.tar.gz.sha256",
+      "sha256": "3cdf66b8a94017796b534a3fd636dd749c87f92a3a5e5457aeed3a803e00ecfe",
+      "size": 80
+    },
+    "output-01/usage-allocated.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/usage-allocated.json",
+      "sha256": "39c01a0b1854cea087c504498646e047c1bfb6d9b88164b29c5db3a52db85dff",
+      "size": 63
+    },
+    "output-01/usage-allocated.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/usage-allocated.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/usage-allocated.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/usage-allocated.json.sha256",
+      "sha256": "c11ac5b512c852b9bd66a5d9d1b306df4cf402c4a5608b36b96a4d153d7deb06",
+      "size": 87
+    },
+    "output-01/warmup-measurement.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/warmup-measurement.json",
+      "sha256": "310d37cccea4c823c945061ef6ca65f79ee35059e8cc44a8156e51256d2aadf0",
+      "size": 81
+    },
+    "output-01/warmup-measurement.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/warmup-measurement.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "output-01/warmup-measurement.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/warmup-measurement.json.sha256",
+      "sha256": "edd20a0dd751ae2a534807fdf6ea0d04d8d93219abda7f3d542b4ca4c1de431b",
+      "size": 90
+    }
+  },
+  "receipt": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01/receipt.json",
+    "sha256": "be7b74b13c3528e8df4aba086c649e908fddbe0beb16c2e7ff7ab2a080bd687d",
+    "size": 17168
+  },
+  "schema": "bl-f5-plan-attempt01-output-publication/v1",
+  "source_output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_01/output-01",
+  "status": "INCOMPLETE_MECHANICAL_TRANSPORT_FAILURE_NOT_SCIENCE",
+  "stop_verified": true
+}

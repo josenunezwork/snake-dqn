@@ -1,0 +1,58 @@
+{
+  "checks": {
+    "all_192_source_pins_match_working_and_accepted_commit": true,
+    "all_bound_reference_hashes_sizes_valid_except_protected_timing": true,
+    "all_local_manifest_input_hashes_valid": true,
+    "attempt01_debit_preserved": true,
+    "control_allocation_digest_valid": true,
+    "cumulative_elapsed_arithmetic_valid": true,
+    "cumulative_observed_debit_arithmetic_valid": true,
+    "empty_ledger_bound": true,
+    "ended_timing_snapshot_bound": true,
+    "fresh_postrelease_empty_assignments": true,
+    "fresh_runtime_identity_paths_unused": true,
+    "implementation_and_scope_unchanged": true,
+    "input_hashes_environment_policy_preserved": true,
+    "limits_preserved": true,
+    "manifest_announced_digest": true,
+    "raw_environment_preserved": true,
+    "source_pins_and_scientific_identities_preserved": true,
+    "wrapper_dry_run_pass": true
+  },
+  "commands_or_checks": [
+    "Read disposition, accepted plan01 manifest/control/ledger/accounting and new package metadata.",
+    "Compare manifest scope, requirements, environment, source_paths, required exports, retry fences and limits against plan01.",
+    "Recompute control allocation SHA256 with canonical runtime encoding; verify empty ledger namespace/allocation/file digest.",
+    "For every 192 source pin: git show c989f6738f6aad143eb97bc47f6bd9e6687057ce:<relative> and working file SHA256 both equal pin.",
+    "Recursively verify size/SHA256 on 72 bound reference records; skip all original timing package paths.",
+    "Check arithmetic of original capture elapsed/debits plus plan01 and ended timing; distinguish observed balance from attribution.",
+    "Read saved fresh account preflight and wrapper dry-run evidence; do not execute provider commands."
+  ],
+  "control_sha256": "0ac610c6bda7c0df0e9a4941ebed0c2e87118e00933c216fd4877588a73ef081",
+  "created_unix": 1793010352.4856389,
+  "findings": [],
+  "ledger_sha256": "6eef2cc751bca6549a33a683f62cb0e20f566bca7af6d92b36d3703e22ebc770",
+  "manifest_sha256": "3f8179e78440115d03fcc69e210d830026e3f87b07b8086d9b4a06668f5bf5a4",
+  "no_colab_commands": true,
+  "no_timing_state_output_access": true,
+  "outcome": "PASS_NO_BLOCKING_FINDINGS",
+  "package": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PLAN_OPERATIONAL_20261026_ROUND08_02",
+  "product_or_package_files_changed": [],
+  "protected_timing_references_not_followed": [
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_TIMING_OPERATIONAL_20261026_ROUND08_01/PACKAGE_PUBLICATION.json",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_TIMING_OPERATIONAL_20261026_ROUND08_01/PACKAGE_SEAL_OPERATIONAL.json",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_TIMING_OPERATIONAL_20261026_ROUND08_01/manifest.json",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_TIMING_OPERATIONAL_20261026_ROUND08_01/output-01/rate-calibration.json",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_TIMING_OPERATIONAL_20261026_ROUND08_01/output-01/receipt.json"
+  ],
+  "reference_records_verified_count": 72,
+  "schema": "bl-f5-plan02-independent-review/v1",
+  "test_completion": "Separate test record to be included when finished.",
+  "unknowns": [
+    "Future account availability and actual new assignment hardware/rate are unproven until operator allocation; wrapper must refuse changed sealed endpoints/rates.",
+    "New runtime cross-assignment environment/plan/RNG/export success is unproven until manual execution.",
+    "Exhaustive seal and main/origin publication occur after this preseal review and are not verified by this record.",
+    "Original timing state/output paths were not opened; only copied package snapshots were reviewed."
+  ],
+  "verification_tests_record": "/tmp/f5-plan02-independent-tests.json"
+}

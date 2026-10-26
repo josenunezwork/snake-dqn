@@ -1,0 +1,44 @@
+{
+  "interval_seconds": 5.0,
+  "observed_rate_units_per_hour": 1.54,
+  "priced_rate_units_per_hour": 2.0,
+  "required_stable_reads": 3,
+  "samples": [
+    {
+      "elapsed_seconds": 1.2541845829691738,
+      "sessions": {
+        "gpu-l4-s-ass1a0-2ptzg6d08d12q": "snake-bl-f5-w-timing-round08-c989f673-01-30d9f365e154"
+      },
+      "usage": {
+        "assignments": 1.0,
+        "balance": 1066.25,
+        "rate": 1.54
+      }
+    },
+    {
+      "elapsed_seconds": 7.1537200410384685,
+      "sessions": {
+        "gpu-l4-s-ass1a0-2ptzg6d08d12q": "snake-bl-f5-w-timing-round08-c989f673-01-30d9f365e154"
+      },
+      "usage": {
+        "assignments": 1.0,
+        "balance": 1066.25,
+        "rate": 1.54
+      }
+    },
+    {
+      "elapsed_seconds": 13.245463041006587,
+      "sessions": {
+        "gpu-l4-s-ass1a0-2ptzg6d08d12q": "snake-bl-f5-w-timing-round08-c989f673-01-30d9f365e154"
+      },
+      "usage": {
+        "assignments": 1.0,
+        "balance": 1066.25,
+        "rate": 1.54
+      }
+    }
+  ],
+  "stability_units_per_hour": 0.01,
+  "status": "PASS",
+  "timeout_seconds": 730.0
+}
