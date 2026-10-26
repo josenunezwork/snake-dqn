@@ -47,6 +47,10 @@ CONTROL_INTERPRETER = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/pyth
 CONTROL_OAUTH_INTERPRETER = Path("/Users/josenunez/.venvs/colab-cli/bin/python")
 F5_PLAN_ADMISSION_SCHEMA = "bl-f5-plan-operational-admission/v1"
 F5_TIMING_ADMISSION_SCHEMA = "bl-f5-timing-operational-admission/v1"
+F5_TIMING_RECOVERY_SCHEMA = "bl-f5-timing-recovery/v1"
+F5_TIMING_RECOVERY_RULING_SHA256 = (
+    "4f10f264fda3c7190e07f486803fa02cc10645741fb95ef215b1d1b0cc123439"
+)
 F5_PLAN_COMMIT = "c989f6738f6aad143eb97bc47f6bd9e6687057ce"
 # Named successor of held, unexecuted plan attempt02 after transport requalification.
 # This published source preserves c989f673's F5 bytes and contains CLI tree 6e8c1982.
@@ -1057,6 +1061,12 @@ def require_scientific_or_f5_plan_admission(manifest: dict[str, Any]) -> None:
     if not isinstance(admission, dict):
         raise Refused("manifest scientific_admission=false")
     if admission.get("schema") == F5_TIMING_ADMISSION_SCHEMA:
+        if admission.get("status") in {
+            "ACCEPTED_F5_TIMING_RECOVERY_ONLY",
+            "ACCEPTED_F5_TIMING_RECOVERY_CANARY_ONLY",
+        }:
+            require_f5_timing_recovery_admission(manifest, admission)
+            return
         require_f5_timing_operational_admission(manifest, admission)
         return
     if admission.get("schema") != F5_PLAN_ADMISSION_SCHEMA:
@@ -1331,6 +1341,162 @@ def require_f5_timing_operational_admission(
             or hashlib.sha256(payload).hexdigest() != expected_sha
         ):
             raise Refused(f"F5 timing admission ruling bytes differ: {key}")
+
+
+def _require_recovery_authority(manifest: dict[str, Any], admission: dict[str, Any]) -> None:
+    """Bind the F5-only 300-second exception to its sealed inventory bytes."""
+    reference = admission.get("timing_recovery_authority")
+    if not isinstance(reference, dict) or set(reference) != {"path", "sha256", "size"}:
+        raise Refused("F5 timing recovery requires its exact authority reference")
+    path_value, expected_sha, expected_size = (
+        reference.get("path"),
+        reference.get("sha256"),
+        reference.get("size"),
+    )
+    if (
+        not isinstance(path_value, str)
+        or not isinstance(expected_sha, str)
+        or type(expected_size) is not int
+    ):
+        raise Refused("F5 timing recovery authority reference is malformed")
+    path = Path(path_value)
+    if not path.is_absolute() or path.is_symlink() or not path.is_file():
+        raise Refused("F5 timing recovery authority must be a regular absolute file")
+    payload = path.read_bytes()
+    if len(payload) != expected_size or hashlib.sha256(payload).hexdigest() != expected_sha:
+        raise Refused("F5 timing recovery authority bytes differ")
+    try:
+        authority = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise Refused("F5 timing recovery authority is not JSON") from exc
+    if authority != manifest.get("f5_timing_synthetic_inventory"):
+        raise Refused("F5 timing recovery inventory differs from its sealed authority")
+    if not isinstance(authority, dict) or authority.get("schema") != (
+        "f5-timing-recovery-synthetic-input-inventory/v1"
+    ):
+        raise Refused("F5 timing recovery authority schema differs")
+    if authority.get("ruling_sha256") != F5_TIMING_RECOVERY_RULING_SHA256:
+        raise Refused("F5 timing recovery ruling differs")
+    if authority.get("source_commit") != manifest.get("commit"):
+        raise Refused("F5 timing recovery source commit differs")
+    if (
+        not isinstance(authority.get("source_tree"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", authority["source_tree"]) is None
+    ):
+        raise Refused("F5 timing recovery source tree differs")
+    try:
+        from research.colab_cli.transfer_policy import transfer_limit
+
+        limit = transfer_limit(manifest)
+    except (TypeError, ValueError) as exc:
+        raise Refused("F5 timing recovery transfer authority is refused") from exc
+    if limit != 300.0:
+        raise Refused("F5 timing recovery requires the scoped 300-second transfer allowance")
+
+
+def _require_f5_recovery_common(manifest: dict[str, Any], admission: dict[str, Any]) -> None:
+    """Validate source, L4 placement, inventory and non-scientific recovery scope."""
+    if manifest.get("draft_only") is not None or manifest.get("substeps") is not None:
+        raise Refused("F5 timing recovery has unauthorized draft or substeps")
+    if manifest.get("script") != "research/bl_residual/f5_colab.sh":
+        raise Refused("F5 timing recovery requires the F5 Colab entrypoint")
+    if manifest.get("device") != "cuda:0":
+        raise Refused("F5 timing recovery requires device cuda:0")
+    env = manifest.get("env")
+    if (
+        not isinstance(env, dict)
+        or env.get("F5_MODE") != "qualification"
+        or env.get("F5_DEVICE") != "cuda:0"
+    ):
+        raise Refused("F5 timing recovery requires the exact qualification mode")
+    if manifest.get("requirements", {}).get("gpu") != "L4" or manifest.get("requirements", {}).get(
+        "allowed_gpus"
+    ) != ["L4"]:
+        raise Refused("F5 timing recovery requires the exact L4 placement")
+    if any(
+        admission.get(field) is not False
+        for field in (
+            "scientific_fits_authorized",
+            "numerical_looks_authorized",
+            "release_authorized",
+        )
+    ):
+        raise Refused("F5 timing recovery grants unauthorized scientific authority")
+    recovery = admission.get("timing_recovery")
+    if not isinstance(recovery, dict) or recovery.get("schema") != F5_TIMING_RECOVERY_SCHEMA:
+        raise Refused("F5 timing recovery requires its scoped admission")
+    if recovery.get("ruling_sha256") != F5_TIMING_RECOVERY_RULING_SHA256:
+        raise Refused("F5 timing recovery ruling differs")
+    _require_recovery_authority(manifest, admission)
+    f5 = manifest.get("f5")
+    if not isinstance(f5, dict) or (
+        f5.get("automatic_retries"),
+        f5.get("private_upload_cap_bytes"),
+        f5.get("private_upload_bytes_max"),
+        f5.get("transfer_bar_seconds"),
+        f5.get("staging_bar_seconds"),
+    ) != (False, 45397643, 45397643, 300, 300):
+        raise Refused("F5 timing recovery requires bounded 300-second transport controls")
+
+
+def require_f5_timing_recovery_admission(
+    manifest: dict[str, Any], admission: dict[str, Any]
+) -> None:
+    """Admit only the ruling's sealed recovery operation or its CANARY_ONLY probe.
+
+    This is deliberately distinct from the historical F5 timing admission.  It
+    leaves the former 15/30 probe, all generic admissions, and the D1024
+    exception untouched while making the timing-specific transport authority
+    machine-checkable at the ops boundary.
+    """
+    _require_f5_recovery_common(manifest, admission)
+    status = admission.get("status")
+    recovery = admission["timing_recovery"]
+    f5 = manifest["f5"]
+    requirements = manifest["requirements"]
+    if status == "ACCEPTED_F5_TIMING_RECOVERY_ONLY":
+        if recovery.get("scope") != "F5_W_TIMING04_FULL_RESUMABLE_OPERATION_ONLY":
+            raise Refused("F5 timing recovery scope differs")
+        if requirements.get("est_minutes") != 120 or manifest.get("timeout_minutes") != 240:
+            raise Refused("F5 timing recovery requires the 120/240-minute envelope")
+        if (
+            f5.get("base_timeout_minutes"),
+            f5.get("effective_timeout_minutes"),
+            f5.get("sizing_basis"),
+        ) != (120, 240, "UNMEASURED_ENGINEERING_PLANNING_ALLOWANCE"):
+            raise Refused("F5 timing recovery requires labelled unmeasured 120/240 sizing")
+        if "resume_exemption" in manifest or manifest.get("canary") is not None:
+            raise Refused("F5 timing recovery long operation forbids exemption or canary controls")
+        if manifest.get("resume") != {
+            "unit_kind": "f5-timing-unit",
+            "ledger_path": "inputs/verified-ledger.json",
+            "skip_verified": True,
+            "max_outcome_blind_retries": 2,
+        }:
+            raise Refused("F5 timing recovery requires its exact resumable unit declaration")
+        return
+    if status != "ACCEPTED_F5_TIMING_RECOVERY_CANARY_ONLY":
+        raise Refused("F5 timing recovery admission status differs")
+    if recovery.get("scope") != "F5_W_TIMING04_FAMILY_CANARY_ONLY":
+        raise Refused("F5 timing recovery scope differs")
+    if requirements.get("est_minutes") != 15 or manifest.get("timeout_minutes") != 30:
+        raise Refused("F5 timing recovery canary requires the 15/30-minute envelope")
+    if (f5.get("base_timeout_minutes"), f5.get("effective_timeout_minutes")) != (15, 30):
+        raise Refused("F5 timing recovery canary sizing differs")
+    canary = manifest.get("canary")
+    if canary != {
+        "schema": "colab-family-canary/v1",
+        "mode": "probe",
+        "family": "research/bl_residual/f5_colab.sh",
+        "record_class": "CANARY_ONLY",
+        "tiny_workload": True,
+    }:
+        raise Refused("F5 timing recovery requires the exact CANARY_ONLY tiny-workload controls")
+    if (
+        manifest.get("env", {}).get("SNAKE_COLAB_CANARY") != "1"
+        or manifest.get("env", {}).get("SNAKE_COLAB_CANARY_PACKAGE") != "research/bl_residual"
+    ):
+        raise Refused("F5 timing recovery canary requires the family instrumentation")
 
 
 def require_f5_plan_live_assignment_match(original: dict[str, Any], live: dict[str, Any]) -> None:
