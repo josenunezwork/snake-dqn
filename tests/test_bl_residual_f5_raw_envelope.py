@@ -538,6 +538,17 @@ def test_builder_seals_envelope_inventory_through_existing_policy(
     monkeypatch.setattr(package, "_source_inputs", lambda prior: rows)
     empty = tmp_path / "empty"
     package.build(empty, tmp_path / "unused.json")
+    for name in ("timing-operation.draft.json", "family-canary.draft.json"):
+        manifest = json.loads((empty / name).read_text())
+        assert manifest["budget"]["unit_cap"] == package.EFFECTIVE_UNIT_CAP
+        assert manifest["budget"]["unit_cap"] < package.MAX_ACCOUNT_BALANCE_SIZED_UNIT_CAP
+        assert manifest["f5"]["technical_guards"] == {
+            "base_unit_cap": package.BASE_UNIT_CAP,
+            "effective_unit_cap": package.EFFECTIVE_UNIT_CAP,
+            "base_reserve_units": 0.0,
+            "effective_reserve_units": 0.0,
+            "units_are_scientific_budget_gate": False,
+        }
     empty_control = json.loads((empty / "inputs/control.json").read_text())
     assert "timing_raw_envelopes" not in empty_control
     binding = json.loads((empty / "inputs/verified-ledger.json").read_text())["identity"]

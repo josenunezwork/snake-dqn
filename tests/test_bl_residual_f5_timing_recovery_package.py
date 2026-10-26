@@ -51,6 +51,22 @@ def test_authority_is_canonical_and_covers_exact_transfer_rows() -> None:
     ]
 
 
+def test_timing_manifest_budget_is_an_account_sized_runaway_guard() -> None:
+    budget = package.timing_runaway_budget()
+    assert budget["unit_cap"] == 100.0
+    assert budget["unit_cap"] < 1_062.71  # Refusal-time account balance evidence.
+    assert budget["unit_cap"] < package.MAX_ACCOUNT_BALANCE_SIZED_UNIT_CAP <= 1_000.0
+    assert budget["reserve_units"] == 0.0
+
+
+def test_timing_manifest_budget_refuses_an_unbounded_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(package, "EFFECTIVE_UNIT_CAP", 100_000.0)
+    with pytest.raises(ValueError, match="account-sized runaway guard"):
+        package.timing_runaway_budget()
+
+
 def test_attempt04_inventory_reads_payload_metadata_and_stats_only(tmp_path: Path) -> None:
     private = {}
     for name in (

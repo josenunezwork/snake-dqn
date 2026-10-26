@@ -29,6 +29,12 @@ B8_URL = (
 )
 ATTEMPT04_ELAPSED_SECONDS = 1756.3287814579671
 TIMING03_ELAPSED_SECONDS = 5055.5119253752055
+BASE_UNIT_CAP = 50.0
+EFFECTIVE_UNIT_CAP = 100.0
+# This cap is deliberately far below the account balance observed during the
+# timing-recovery successor preparation. It is a technical runaway guard, not
+# a scientific budget or a forecast.
+MAX_ACCOUNT_BALANCE_SIZED_UNIT_CAP = 1000.0
 THREADS = {
     name: "1"
     for name in (
@@ -40,6 +46,18 @@ THREADS = {
         "VECLIB_MAXIMUM_THREADS",
     )
 }
+
+
+def timing_runaway_budget() -> dict[str, Any]:
+    """Return the bounded, non-scientific unit guard for every timing manifest."""
+    if not 0 < EFFECTIVE_UNIT_CAP < MAX_ACCOUNT_BALANCE_SIZED_UNIT_CAP:
+        raise ValueError("timing unit cap exceeds the account-sized runaway guard")
+    return {
+        "unit_cap": EFFECTIVE_UNIT_CAP,
+        "rate_units_per_hour": 2.0,
+        "reserve_units": 0.0,
+        "other_assignments": {},
+    }
 
 
 def canonical(value: Any) -> bytes:
@@ -408,12 +426,7 @@ def build(
             "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
         },
         "max_export_bytes": 2 * 1024**3,
-        "budget": {
-            "unit_cap": 100000.0,
-            "rate_units_per_hour": 2.0,
-            "reserve_units": 0.0,
-            "other_assignments": {},
-        },
+        "budget": timing_runaway_budget(),
         "f5_timing_synthetic_inventory": authority,
         "f5_timing_source_tree": tree,
         "f5_timing_transfer_exception": f5_timing_recovery_binding(authority["sha256"], "timing"),
@@ -439,8 +452,16 @@ def build(
             "useful_foreground_seconds": 14_355,
             "sizing_basis": "UNMEASURED_ENGINEERING_PLANNING_ALLOWANCE",
             "technical_budget": (
-                "Nonbinding technical runaway accounting; wall envelope is authoritative."
+                "Technical runaway guard only: base50/effective100 units, reserve0/0; "
+                "wall envelope is authoritative."
             ),
+            "technical_guards": {
+                "base_unit_cap": BASE_UNIT_CAP,
+                "effective_unit_cap": EFFECTIVE_UNIT_CAP,
+                "base_reserve_units": 0.0,
+                "effective_reserve_units": 0.0,
+                "units_are_scientific_budget_gate": False,
+            },
         },
         "required_exports": [
             "qualification/qualification.json",

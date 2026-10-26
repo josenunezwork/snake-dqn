@@ -1,0 +1,15 @@
+Mac accounting compatibility for this mechanical successor
+
+The unchanged control and emitted timing units retain logical attempt bl-f5-timing-recovery-911426db-01. The actual broker receipt/job is bl-f5-timing-recovery-911426db-02. The runtime remains pinned to911426dbace94ca2925d737d00d5d8ca8456cb6a. No unit, control, receipt or manifest is rewritten.
+
+After separate Astra exact-package admission and the manual operator dispatch, use the prospective Mac research.bl_residual.f5_timing_resume implementation bound by MAC_ACCOUNTING_ALIAS_VERIFICATION.json when creating accounting, history and reduction. The pinned broker's old Mac accounting implementation cannot consume the alias.
+
+Pass this exact optional argument to the existing seal_attempt_accounting call (all its normal paths, binding, provenance and environment arguments remain mandatory):
+
+    preallocation_refusal_alias=Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/longrun-01-sealed-02/PREALLOCATION_REFUSAL_ALIAS.json")
+
+The returned attempt record carries the hash-bound alias into append_accounting_history and reduce_ledger automatically. Keep the raw sealed successor manifest as the manifest argument; preserve the real normalized broker output manifest.json beside its receipt.json. The alias checks that actual receipt's exact manifest SHA and normalized meaning (only the existing lease_seconds180 default), plus all real receipt/export/stop checks. Changed live accounting bindings require a separately reviewed successor, never silently broaden this proof.
+
+The alias is limited to attempt index0 after the proven no-endpoint pre-allocation refusal. It permits no completion retry or later attempt alias. The original SERIES_FREEZE and MECHANICAL_SUCCESSOR remain historical scope/mapping context; this source and proof provide the executable Mac mapping. Future completions require fresh identities and their existing separate admission, never reuse job02.
+
+Offline proof is77 passed including seal->history->aggregate, refusal/default and forged-input rejection. No future receipt exists yet; no dispatch, numerical look, fit or release has been performed.

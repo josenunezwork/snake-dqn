@@ -6,6 +6,7 @@ import json
 import math
 import platform
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -355,6 +356,17 @@ def build_ledger(
 
 
 ACCOUNTING_SCHEMA = "bl-f5-timing-accounting-history/v1"
+PREALLOCATION_REFUSAL_ALIAS_SCHEMA = "bl-f5-preallocation-refusal-alias/v1"
+PREALLOCATION_NORMALIZATION_LEAF = "/lease_seconds"
+PREALLOCATION_ALLOWED_LEAVES = [
+    "/budget/unit_cap",
+    "/job_id",
+    "/operational_admission/live_account_preflight/path",
+    "/operational_admission/live_account_preflight/sha256",
+    "/operational_admission/live_account_preflight/size",
+    "/output_dir",
+    "/supervisor_state_dir",
+]
 
 
 def metadata_reference(path: Path) -> dict[str, Any]:
@@ -393,6 +405,194 @@ def _bound_metadata(reference: Mapping[str, Any], *, immutable: bool = False) ->
     if not isinstance(result, dict):
         raise ResumeRefusal("accounting metadata must be an object")
     return result
+
+
+_MISSING = object()
+
+
+def _typed_differences(before: Any, after: Any, prefix: str = "") -> list[str]:
+    """Return JSON-pointer leaves whose values differ, preserving type identity."""
+    if before is _MISSING:
+        if isinstance(after, dict):
+            children = [
+                leaf
+                for key in sorted(after)
+                for leaf in _typed_differences(
+                    _MISSING, after[key], f"{prefix}/{key.replace('~', '~0').replace('/', '~1')}"
+                )
+            ]
+            return children or [prefix]
+        return [prefix]
+    if after is _MISSING:
+        if isinstance(before, dict):
+            children = [
+                leaf
+                for key in sorted(before)
+                for leaf in _typed_differences(
+                    before[key], _MISSING, f"{prefix}/{key.replace('~', '~0').replace('/', '~1')}"
+                )
+            ]
+            return children or [prefix]
+        return [prefix]
+    if type(before) is not type(after):
+        return [prefix]
+    if isinstance(before, dict):
+        return [
+            leaf
+            for key in sorted(before.keys() | after.keys())
+            for leaf in _typed_differences(
+                before.get(key, _MISSING),
+                after.get(key, _MISSING),
+                f"{prefix}/{key.replace('~', '~0').replace('/', '~1')}",
+            )
+        ]
+    if isinstance(before, list):
+        if len(before) != len(after):
+            return [prefix]
+        return [
+            leaf
+            for index, (old, new) in enumerate(zip(before, after))
+            for leaf in _typed_differences(old, new, f"{prefix}/{index}")
+        ]
+    return [] if before == after else [prefix]
+
+
+def _control_input_sha256(manifest: Mapping[str, Any]) -> str:
+    rows = manifest.get("inputs")
+    matches = (
+        [row for row in rows if isinstance(row, dict) and row.get("dest") == "control.json"]
+        if isinstance(rows, list)
+        else []
+    )
+    if len(matches) != 1 or not isinstance(matches[0].get("sha256"), str):
+        raise ResumeRefusal("preallocation alias manifest lacks one bound control input")
+    return matches[0]["sha256"]
+
+
+def _preallocation_refusal_alias(
+    reference: Mapping[str, Any],
+    *,
+    manifest: Mapping[str, Any],
+    control: Mapping[str, Any],
+    receipt: Mapping[str, Any] | None = None,
+    observed_normalized_manifest: Path | None = None,
+    attempt_index: int,
+) -> dict[str, Any]:
+    """Validate the sole Mac accounting alias for a pre-allocation refusal.
+
+    The proof permits a successor broker identity to account for units tagged by
+    an unchanged frozen control only after the original attempt demonstrably
+    failed before allocation. It is never a runtime, retry, or science grant.
+    """
+    alias = _bound_metadata(reference, immutable=True)
+    required = {
+        "schema",
+        "attempt_index",
+        "logical_attempt_id",
+        "broker_attempt_id",
+        "predecessor",
+        "successor",
+        "allowed_leaf_diff",
+    }
+    if set(alias) != required or alias.get("schema") != PREALLOCATION_REFUSAL_ALIAS_SCHEMA:
+        raise ResumeRefusal("preallocation refusal alias schema differs")
+    if (
+        type(alias.get("attempt_index")) is not int
+        or alias.get("attempt_index") != 0
+        or type(attempt_index) is not int
+        or attempt_index != 0
+    ):
+        raise ResumeRefusal("preallocation refusal alias is limited to original attempt zero")
+    logical, broker = alias.get("logical_attempt_id"), alias.get("broker_attempt_id")
+    if (
+        not isinstance(logical, str)
+        or not logical
+        or not isinstance(broker, str)
+        or not broker
+        or logical == broker
+    ):
+        raise ResumeRefusal("preallocation refusal alias attempt identities are malformed")
+    predecessor, successor = alias.get("predecessor"), alias.get("successor")
+    if not isinstance(predecessor, dict) or set(predecessor) != {
+        "raw_manifest",
+        "refusal_receipt",
+        "normalized_manifest",
+    }:
+        raise ResumeRefusal("preallocation refusal alias predecessor binding differs")
+    if not isinstance(successor, dict) or set(successor) != {"raw_manifest", "control"}:
+        raise ResumeRefusal("preallocation refusal alias successor binding differs")
+    allowed = alias.get("allowed_leaf_diff")
+    if allowed != PREALLOCATION_ALLOWED_LEAVES:
+        raise ResumeRefusal("preallocation refusal alias allowed leaf diff differs")
+    old_raw = _bound_metadata(predecessor["raw_manifest"])
+    old_normalized = _bound_metadata(predecessor["normalized_manifest"])
+    old_receipt = _bound_metadata(predecessor["refusal_receipt"])
+    new_raw = _bound_metadata(successor["raw_manifest"])
+    bound_control = _bound_metadata(successor["control"])
+    if _typed_differences(manifest, new_raw) or _typed_differences(control, bound_control):
+        raise ResumeRefusal("preallocation refusal alias does not bind supplied successor inputs")
+    if _typed_differences(old_raw, new_raw) != PREALLOCATION_ALLOWED_LEAVES:
+        raise ResumeRefusal("preallocation refusal alias successor differs beyond seven leaves")
+    expected_old = deepcopy(old_raw)
+    expected_old["lease_seconds"] = 180.0
+    if _typed_differences(expected_old, old_normalized) != []:
+        raise ResumeRefusal("preallocation refusal alias predecessor normalization differs")
+    if (
+        old_raw.get("job_id") != logical
+        or new_raw.get("job_id") != broker
+        or old_receipt.get("job_id") != logical
+        or old_receipt.get("manifest_sha256") != predecessor["normalized_manifest"].get("sha256")
+        or "endpoint" not in old_receipt
+        or "terminal" not in old_receipt
+        or old_receipt["endpoint"] is not None
+        or old_receipt["terminal"] is not None
+        or old_receipt.get("exports") != []
+        or old_receipt.get("error") != "Refused('insufficient balance for cap plus study reserve')"
+        or "control_operations" not in old_receipt
+        or "transfers" not in old_receipt
+        or old_receipt["control_operations"] != []
+        or old_receipt["transfers"] != []
+    ):
+        raise ResumeRefusal("preallocation refusal alias does not prove refusal before allocation")
+    calls = old_receipt.get("cli_calls")
+    if not isinstance(calls, list) or [
+        row.get("command") for row in calls if isinstance(row, dict)
+    ] != [
+        "version",
+        "sessions",
+        "usage",
+    ]:
+        raise ResumeRefusal("preallocation refusal alias predecessor made provider operations")
+    if (
+        _control_input_sha256(old_raw) != successor["control"].get("sha256")
+        or _control_input_sha256(new_raw) != successor["control"].get("sha256")
+        or old_raw.get("commit") != new_raw.get("commit")
+        or old_receipt.get("commit") != old_raw.get("commit")
+        or bound_control.get("timing_attempt_id") != logical
+        or old_raw.get("budget", {}).get("unit_cap") != 100000.0
+        or new_raw.get("budget", {}).get("unit_cap") != 100.0
+        or old_raw.get("budget", {}).get("reserve_units") != 0.0
+        or new_raw.get("budget", {}).get("reserve_units") != 0.0
+    ):
+        raise ResumeRefusal("preallocation refusal alias source control or input differs")
+    if receipt is not None:
+        if receipt.get("job_id") != broker:
+            raise ResumeRefusal("preallocation refusal alias broker receipt identity differs")
+        if observed_normalized_manifest is None:
+            raise ResumeRefusal("preallocation refusal alias needs observed normalized manifest")
+        observed = _bound_metadata(metadata_reference(observed_normalized_manifest))
+        expected_new = deepcopy(new_raw)
+        expected_new["lease_seconds"] = 180.0
+        if _typed_differences(expected_new, observed) != [] or (
+            receipt.get("manifest_sha256")
+            != metadata_reference(observed_normalized_manifest)["sha256"]
+        ):
+            raise ResumeRefusal("preallocation refusal alias successor normalization differs")
+    return {
+        "logical_attempt_id": logical,
+        "broker_attempt_id": broker,
+        "reference": dict(reference),
+    }
 
 
 def append_accounting_history(
@@ -552,7 +752,30 @@ def _attempt_accounting(
     missing: list[str] = []
     seen_completed_keys: set[int | str] = set()
     ids = {row["attempt_id"] for row in history["attempts"]}
-    if any(row.get("timing_attempt_id") not in ids for row in records.values()):
+    logical_ids = set(ids)
+    alias_logical_ids: set[str] = set()
+    for attempt in history["attempts"]:
+        alias_reference = attempt.get("preallocation_refusal_alias")
+        if alias_reference is None:
+            continue
+        alias = _preallocation_refusal_alias(
+            alias_reference,
+            manifest=_bound_metadata(attempt.get("manifest")),
+            control=_bound_metadata(attempt.get("control")),
+            attempt_index=attempt["attempt_index"],
+        )
+        if attempt["attempt_id"] != alias["broker_attempt_id"]:
+            raise ResumeRefusal("preallocation refusal alias history broker identity differs")
+        if (
+            alias["logical_attempt_id"] in logical_ids
+            or alias["logical_attempt_id"] in alias_logical_ids
+        ):
+            raise ResumeRefusal(
+                "preallocation refusal alias logical identity collides with an attempt"
+            )
+        alias_logical_ids.add(alias["logical_attempt_id"])
+        logical_ids.add(alias["logical_attempt_id"])
+    if any(row.get("timing_attempt_id") not in logical_ids for row in records.values()):
         raise ResumeRefusal("completed unit has missing or foreign contributing attempt provenance")
     for attempt in history["attempts"]:
         name = attempt["attempt_id"]
@@ -560,15 +783,31 @@ def _attempt_accounting(
         receipt = _bound_metadata(attempt.get("broker_receipt"))
         upload = _bound_metadata(attempt.get("upload_measurement"))
         control = _bound_metadata(attempt.get("control"))
+        alias_reference = attempt.get("preallocation_refusal_alias")
+        logical_name = name
+        if alias_reference is not None:
+            alias = _preallocation_refusal_alias(
+                alias_reference,
+                manifest=manifest,
+                control=control,
+                receipt=receipt,
+                observed_normalized_manifest=Path(attempt["broker_receipt"]["path"]).parent
+                / "manifest.json",
+                attempt_index=attempt["attempt_index"],
+            )
+            logical_name = alias["logical_attempt_id"]
         sealed = control.get("identity", {})
         if (
             manifest.get("job_id") != name
             or receipt.get("job_id") != name
-            or receipt.get("manifest_sha256") != attempt["manifest"]["sha256"]
+            or (
+                alias_reference is None
+                and receipt.get("manifest_sha256") != attempt["manifest"]["sha256"]
+            )
             or receipt.get("commit") != manifest.get("commit")
             or receipt.get("stop_verified") is not True
             or receipt.get("cleanup_error") is not None
-            or control.get("timing_attempt_id") != name
+            or control.get("timing_attempt_id") != logical_name
             or sealed.get("source_sha256") != binding["source_sha256"]
             or sealed.get("environment_sha256") != binding["environment_sha256"]
             or sealed.get("allocation_sha256") != binding["allocation"]
@@ -640,7 +879,7 @@ def _attempt_accounting(
             if exported != {field: entry[field] for field in ("path", "size", "sha256")}:
                 raise ResumeRefusal("attempt timing-unit export differs from verified final ledger")
             row = records[key]
-            if row.get("timing_attempt_id") != name:
+            if row.get("timing_attempt_id") != logical_name:
                 raise ResumeRefusal("attempt timing-unit payload provenance differs from receipt")
             seen_completed_keys.add(key)
             contributed.append((key, row))
@@ -753,6 +992,7 @@ def seal_attempt_accounting(
     exports_root: Path,
     attempt_index: int,
     environment_after_path: str | None = None,
+    preallocation_refusal_alias: Path | None = None,
 ) -> dict[str, Any]:
     """Seal one real broker attempt's accounting inputs without inventing time.
 
@@ -768,6 +1008,21 @@ def seal_attempt_accounting(
     exports = receipt.get("exports")
     if not isinstance(name, str) or not name or not isinstance(exports, list):
         raise ResumeRefusal("attempt receipt lacks job or broker exports")
+    manifest_value = _bound_metadata(metadata_reference(manifest))
+    control_value = _bound_metadata(metadata_reference(control))
+    alias_reference = None
+    logical_name = name
+    if preallocation_refusal_alias is not None:
+        alias_reference = metadata_reference(preallocation_refusal_alias)
+        alias = _preallocation_refusal_alias(
+            alias_reference,
+            manifest=manifest_value,
+            control=control_value,
+            receipt=receipt,
+            observed_normalized_manifest=broker_receipt.parent / "manifest.json",
+            attempt_index=attempt_index,
+        )
+        logical_name = alias["logical_attempt_id"]
     by_path: dict[str, dict[str, Any]] = {}
     for item in exports:
         if (
@@ -818,7 +1073,7 @@ def seal_attempt_accounting(
         key, payload = _read_unit(
             exports_root / _safe_relative(exported["path"]), binding, exported
         )
-        if key in completed_keys or payload.get("timing_attempt_id") != name:
+        if key in completed_keys or payload.get("timing_attempt_id") != logical_name:
             raise ResumeRefusal("attempt completed-unit provenance is foreign or duplicate")
         completed_keys.add(key)
         useful += float(payload["elapsed_seconds"])
@@ -876,7 +1131,7 @@ def seal_attempt_accounting(
             "classification": "RESIDUAL_BOOTSTRAP_FAILED_PARTIAL_OR_OTHER_MEASURED_TIME",
         },
     )
-    return {
+    result = {
         "attempt_index": attempt_index,
         "attempt_id": name,
         "manifest": metadata_reference(manifest),
@@ -889,6 +1144,10 @@ def seal_attempt_accounting(
         "environment_before_export": before_export,
         "environment_after_export": after_export,
     }
+    if alias_reference is not None:
+        result["preallocation_refusal_alias"] = alias_reference
+        result["logical_attempt_id"] = logical_name
+    return result
 
 
 def reduce_ledger(
