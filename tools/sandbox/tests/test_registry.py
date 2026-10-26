@@ -98,6 +98,30 @@ def test_modified_data_and_b8_inputs_refused(tmp_path):
             validate_input({"kind": kind, "dose": "D1024", "path": str(p), "sha256": sha})
 
 
+def test_verified_units_bind_b2_index_to_the_frozen_config_inventory(tmp_path):
+    from research.sandbox_b_heads.core_b2 import CONFIGS
+
+    def record(name: str) -> dict:
+        path = tmp_path / name
+        path.write_bytes(b"completed unit")
+        return {
+            "kind": "verified-unit",
+            "path": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+
+    # Preserve B1's pre-existing canonical basename admission.
+    validate_input(record("00-linear-kl1-survival1.tar"))
+
+    canonical = record(f"00-{CONFIGS[0].id}.tar")
+    validate_input(canonical)
+
+    with pytest.raises(ValueError, match="index/config identity"):
+        validate_input(record(f"01-{CONFIGS[0].id}.tar"))
+    with pytest.raises(ValueError, match="index/config identity"):
+        validate_input(record("00-foreign-config.tar"))
+
+
 def test_mutated_registry_with_protected_life_refused(tmp_path):
     reg = load_registry()
     reg["lives"][0]["ultimate_parent_id"] = reg["excluded_parents"][0]

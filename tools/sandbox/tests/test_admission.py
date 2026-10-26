@@ -44,6 +44,17 @@ def _packet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch | None = None) -> di
     return value
 
 
+def _b2_packet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
+    """Build a route-only B-2 packet without reading development results."""
+    value = _packet(tmp_path, monkeypatch)
+    b2_root = tmp_path / "sandbox-b2-artifacts"
+    monkeypatch.setitem(dispatch.SANDBOX_OUTPUT_ROOTS, "sandbox-b-heads-v2", b2_root)
+    value["job_id"] = "sandbox-b-heads-v2"
+    value["script"] = "research/sandbox_b_heads/run_b2.sh"
+    value["output_dir"] = str(b2_root / "a100-attempt-02")
+    return value
+
+
 def _bind_preflight(
     monkeypatch: pytest.MonkeyPatch,
     packet: dict,
@@ -65,6 +76,49 @@ def _bind_preflight(
 
     monkeypatch.setattr(preflight, "preflight", fake_preflight)
     return calls
+
+
+def test_b2_is_limited_to_its_distinct_route_and_artifact_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    packet = _b2_packet(tmp_path, monkeypatch)
+    calls = _bind_preflight(monkeypatch, packet, tmp_path)
+
+    def b2_preflight(path: Path, *, run_tests: bool = True, **_kwargs):
+        assert path == TEN_LINE_MANIFEST
+        assert run_tests is True
+        return {
+            "study": "sandbox-b-heads-v2",
+            "outputs": {"broker_manifest": {"path": str(tmp_path / "broker-manifest.json")}},
+        }
+
+    monkeypatch.setattr(preflight, "preflight", b2_preflight)
+    # B-2's entrypoint is deliberately not present in this test's committed
+    # baseline. The route still invokes the qualified device guard in a real
+    # packet after the source-bound commit is published.
+    from research.colab_cli import canary
+
+    device_checks: list[dict] = []
+    monkeypatch.setattr(canary, "job_device", lambda value, _repo: device_checks.append(value))
+    dispatch.require_sandbox_admission(packet, ROOT)
+
+    assert calls == []
+    assert device_checks == [packet]
+    assert set(packet["env"]) == {
+        "SANDBOX_B_SALT",
+        "SNAKE_DQN_DEVICE",
+        "COLAB_CLI_REQUIREMENTS",
+    }
+
+
+def test_b2_cannot_use_the_original_b1_artifact_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    packet = _b2_packet(tmp_path, monkeypatch)
+    packet["output_dir"] = str(tmp_path / "sandbox-artifacts" / "a100-attempt-02")
+
+    with pytest.raises(dispatch.Refused, match="isolated development artifact root"):
+        dispatch.require_sandbox_admission(packet, ROOT)
 
 
 def test_valid_sandbox_packet_is_admitted_without_family_canary(

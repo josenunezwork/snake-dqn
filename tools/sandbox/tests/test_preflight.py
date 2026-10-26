@@ -8,7 +8,12 @@ from pathlib import Path
 import pytest
 
 from tools.sandbox.manifest import ManifestError, load_manifest, validate_manifest
-from tools.sandbox.preflight import PreflightError, verify_committed_manifest
+from tools.sandbox.preflight import (
+    PreflightError,
+    _runtime_updates,
+    _validate_b_heads_runtime_recipe,
+    verify_committed_manifest,
+)
 
 
 def _payload() -> dict:
@@ -168,3 +173,64 @@ def test_path_guard_accepts_random_f5_substring_but_refuses_alias(tmp_path):
     alias.symlink_to(tmp_path / "f5" / "output")
     with pytest.raises(PreflightError):
         _assert_safe_path(alias, "test")
+
+
+def test_b_heads_recipe_must_match_full_runtime_recipe(tmp_path: Path) -> None:
+    """The admission recipe binds code hashes and every runtime hyperparameter."""
+    from research.sandbox_b_heads import resume
+
+    data, b8 = tmp_path / "data.npz", tmp_path / "b8.pth"
+    data.write_bytes(b"closed-f0")
+    b8.write_bytes(b"frozen-b8")
+    payload = _payload()
+    payload["inputs"] = [
+        {"kind": "closed-f0", "path": str(data), "sha256": resume.sha256(data)},
+        {"kind": "frozen-checkpoint", "path": str(b8), "sha256": resume.sha256(b8)},
+    ]
+    payload["endpoint"] = {"kind": "updates", "value": 15000}
+    recipe = resume.recipe(data, b8, salt=payload["salt"])
+    ledger = {
+        "schema": resume.SCHEMA,
+        "namespace": resume.NAMESPACE,
+        "allocation": resume.ALLOCATION,
+        "recipe": recipe,
+        "fingerprint": resume.fingerprint(recipe),
+    }
+    packet = {"env": {"SANDBOX_B_SALT": payload["salt"]}}
+    _validate_b_heads_runtime_recipe(
+        payload, packet, ledger, payload["inputs"][:1], payload["inputs"][1:]
+    )
+
+    ledger["recipe"] = {**recipe, "learning_rate": 0.01}
+    with pytest.raises(PreflightError, match="full shipped runtime recipe"):
+        _validate_b_heads_runtime_recipe(
+            payload, packet, ledger, payload["inputs"][:1], payload["inputs"][1:]
+        )
+
+
+def test_b_heads_recipe_rejects_runtime_salt_or_endpoint_drift(tmp_path: Path) -> None:
+    from research.sandbox_b_heads import resume
+
+    data, b8 = tmp_path / "data.npz", tmp_path / "b8.pth"
+    data.write_bytes(b"closed-f0")
+    b8.write_bytes(b"frozen-b8")
+    payload = _payload()
+    payload["inputs"] = [
+        {"kind": "closed-f0", "path": str(data), "sha256": resume.sha256(data)},
+        {"kind": "frozen-checkpoint", "path": str(b8), "sha256": resume.sha256(b8)},
+    ]
+    recipe = resume.recipe(data, b8, salt=payload["salt"])
+    ledger = {
+        "schema": resume.SCHEMA,
+        "namespace": resume.NAMESPACE,
+        "allocation": resume.ALLOCATION,
+        "recipe": recipe,
+        "fingerprint": resume.fingerprint(recipe),
+    }
+    packet = {"env": {"SANDBOX_B_SALT": "a100-dev/sandbox-b/other"}}
+    with pytest.raises(PreflightError, match="runtime salt"):
+        _validate_b_heads_runtime_recipe(
+            payload, packet, ledger, payload["inputs"][:1], payload["inputs"][1:]
+        )
+
+    assert _runtime_updates(resume, None, recipe) == 15000

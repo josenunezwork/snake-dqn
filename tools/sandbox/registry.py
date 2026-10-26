@@ -16,6 +16,10 @@ DEFAULT_REGISTRY = Path(__file__).with_name("SANDBOX_INPUT_REGISTRY.json")
 TRANSPORT_TREE = "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 DENIED = re.compile(r"(?:^|[/_.-])(?:f5|d4096|t34-round0-study-01|colab_cli)(?=$|[/_.-])")
+B1_UNIT_NAME = re.compile(
+    r"[0-9]{2}-(linear|gated_mlp|cosine)-kl(1|2|4|8|16)-survival(1|2|4|8)\.tar"
+)
+B2_UNIT_NAME = re.compile(r"(?P<index>[0-9]{2})-(?P<config>[a-z0-9][a-z0-9_-]*)\.tar")
 
 
 def safe_path(path: str | Path) -> Path:
@@ -140,10 +144,20 @@ def validate_input(record: dict, registry: dict | None = None) -> None:
         if not isinstance(value, dict) or not isinstance(value.get("units"), list):
             raise ValueError("verified ledger object/units required")
     elif kind == "verified-unit":
-        if not re.fullmatch(
-            r"[0-9]{2}-(linear|gated_mlp|cosine)-kl(1|2|4|8|16)-survival(1|2|4|8)\.tar", path.name
-        ):
+        if B1_UNIT_NAME.fullmatch(path.name):
+            return
+        match = B2_UNIT_NAME.fullmatch(path.name)
+        if match is None:
             raise ValueError("verified unit must have canonical unit-NNN.tar name")
+        # B2 unit filenames bind both the frozen configuration identity and
+        # its canonical allocation index. Import only in this B2-specific
+        # branch so the registry remains independent of the B2 package at
+        # ordinary sandbox admission/import time.
+        from research.sandbox_b_heads.core_b2 import CONFIGS
+
+        index = int(match["index"])
+        if index >= len(CONFIGS) or match["config"] != CONFIGS[index].id:
+            raise ValueError("verified B2 unit index/config identity differs from frozen inventory")
     elif kind == "registry":
         if claimed != digest(DEFAULT_REGISTRY):
             raise ValueError("registry identity differs")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import math
 import os
@@ -17,6 +18,27 @@ from .manifest import ManifestError, _forbidden, load_manifest, protected_name
 
 TRANSPORT_TREE = "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+# A sandbox B ledger is only portable if the recipe is the one the pinned
+# runtime will construct.  Keep the version boundary explicit: a new study
+# cannot silently inherit an old namespace, ledger schema, or update count.
+_B_HEADS_RUNTIME = {
+    "sandbox-b-heads-v1": {
+        "resume_module": "research.sandbox_b_heads.resume",
+        "core_module": None,
+        "schema": "sandbox-b-verified-ledger/v3",
+        "namespace": "a100-dev/sandbox-b/heads-v1",
+        "allocation": "split-v1",
+    },
+    "sandbox-b-heads-v2": {
+        "resume_module": "research.sandbox_b_heads.resume_b2",
+        "core_module": "research.sandbox_b_heads.core_b2",
+        "schema": "sandbox-b-verified-ledger/v4",
+        "namespace": "a100-dev/sandbox-b/heads-v2",
+        "allocation": "split-v1",
+    },
+}
 
 
 class PreflightError(RuntimeError):
@@ -75,6 +97,47 @@ def verify_transport_tree() -> None:
         raise PreflightError("qualified research/colab_cli tree has dirty or untracked files")
 
 
+def _runtime_updates(resume: Any, core_module: str | None, recipe: dict[str, Any]) -> int:
+    """Return the total finite update budget declared by the runtime source."""
+    if core_module is None:
+        configs = resume.CONFIG_IDS
+    else:
+        configs = importlib.import_module(core_module).CONFIGS
+    return sum(getattr(config, "updates", recipe["updates"]) for config in configs)
+
+
+def _validate_b_heads_runtime_recipe(
+    payload: dict[str, Any],
+    packet: dict[str, Any],
+    ledger: dict[str, Any],
+    rows: list[dict[str, Any]],
+    b8: list[dict[str, Any]],
+) -> None:
+    """Require a ledger recipe to equal the recipe produced by the shipped runtime."""
+    contract = _B_HEADS_RUNTIME.get(payload["study"])
+    if contract is None:
+        return
+    env = packet.get("env")
+    if not isinstance(env, dict) or env.get("SANDBOX_B_SALT") != payload["salt"]:
+        raise PreflightError("broker runtime salt differs from sandbox manifest")
+    resume = importlib.import_module(contract["resume_module"])
+    recipe = ledger.get("recipe")
+    expected = resume.recipe(Path(rows[0]["path"]), Path(b8[0]["path"]), salt=payload["salt"])
+    if recipe != expected:
+        raise PreflightError("resume recipe differs from full shipped runtime recipe")
+    if (
+        ledger.get("schema") != contract["schema"]
+        or ledger.get("namespace") != contract["namespace"]
+        or ledger.get("allocation") != contract["allocation"]
+        or ledger.get("fingerprint") != resume.fingerprint(expected)
+    ):
+        raise PreflightError("foreign resume ledger identity")
+    if payload["endpoint"]["kind"] != "updates" or payload["endpoint"]["value"] != _runtime_updates(
+        resume, contract["core_module"], expected
+    ):
+        raise PreflightError("sandbox endpoint differs from full runtime recipe")
+
+
 def _validate_registry_inputs(payload: dict[str, Any], registry_path: Path) -> None:
     _assert_safe_path(registry_path, "registry")
     from .registry import load_registry, validate_input, verify_sources
@@ -90,41 +153,29 @@ def _validate_registry_inputs(payload: dict[str, Any], registry_path: Path) -> N
     # open their checkpoint/report contents during Mac admission.
     unit_records = [r for r in payload["inputs"] if r["kind"] == "verified-unit"]
     ledger_records = [r for r in payload["inputs"] if r["kind"] == "verified-ledger"]
-    if payload["study"] == "sandbox-b-heads-v1":
-        from research.sandbox_b_heads.resume import ALLOCATION, NAMESPACE, fingerprint, identity
-
+    if payload["study"] in _B_HEADS_RUNTIME:
+        contract = _B_HEADS_RUNTIME[payload["study"]]
+        resume = importlib.import_module(contract["resume_module"])
         if len(ledger_records) != 1:
             raise PreflightError("Job B requires one verified ledger")
         ledger = json.loads(Path(ledger_records[0]["path"]).read_text())
-        recipe = ledger.get("recipe", {})
-        if (
-            ledger.get("schema") != "sandbox-b-verified-ledger/v3"
-            or ledger.get("namespace") != NAMESPACE
-            or ledger.get("allocation") != ALLOCATION
-            or ledger.get("fingerprint") != fingerprint(recipe)
-        ):
-            raise PreflightError("foreign resume ledger identity")
         rows = [r for r in payload["inputs"] if r["kind"] == "closed-f0"]
         b8 = [r for r in payload["inputs"] if r["kind"] == "frozen-checkpoint"]
-        if (
-            len(rows) != 1
-            or len(b8) != 1
-            or recipe.get("data_sha256") != rows[0]["sha256"]
-            or recipe.get("b8_sha256") != b8[0]["sha256"]
-            or recipe.get("salt") != payload["salt"]
-            or recipe.get("smoke_rows") != 0
-            or recipe.get("updates", 0) * 60 != payload["endpoint"]["value"]
-        ):
-            raise PreflightError("resume recipe differs from admitted endpoint or inputs")
+        if len(rows) != 1 or len(b8) != 1:
+            raise PreflightError("Job B requires one closed-F0 input and one frozen B8 checkpoint")
         packet_path = Path(payload["outputs"]["broker_manifest"]["path"])
         packet = json.loads(packet_path.read_text())
+        _validate_b_heads_runtime_recipe(payload, packet, ledger, rows, b8)
         uploads = {r["dest"]: r for r in packet["inputs"]}
         admitted_units = {(r["sha256"], str(Path(r["path"]).resolve())) for r in unit_records}
         referenced = set()
         indices = set()
         for unit in ledger["units"]:
-            expected = identity(
-                unit.get("allocation_index"), NAMESPACE, ALLOCATION, ledger["fingerprint"]
+            expected = resume.identity(
+                unit.get("allocation_index"),
+                contract["namespace"],
+                contract["allocation"],
+                ledger["fingerprint"],
             )
             if any(unit.get(key) != value for key, value in expected.items()):
                 raise PreflightError("foreign resume unit identity")

@@ -44,6 +44,7 @@ BLOCK = re.compile(r"^\s*(?:BLOCK|HOLD)\b|RUNTIME BLOCKED|do not run this|PREPAR
 NICE_FLOOR = 15
 SANDBOX_OUTPUT_ROOTS = {
     "sandbox-b-heads-v1": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b-20261026",
+    "sandbox-b-heads-v2": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b2-20261026",
     "sandbox-a": HERE.parents[1].parent / "snake-dqn-artifacts/sandbox-a-resident",
 }
 P1_ATTEMPT2_RULING = "55b13197d9d92f8eeb1c895180f01993ca11908f51c74a60d9a67065a0550d13"
@@ -553,6 +554,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         raise Refused("sandbox forbids canary, registered-study or unknown controls")
     packages = {
         "research/sandbox_b_heads/run_job.sh": "sandbox-b-heads-v1",
+        "research/sandbox_b_heads/run_b2.sh": "sandbox-b-heads-v2",
         "research/sandbox_a_resident/job.sh": "sandbox-a",
     }
     study = packages.get(manifest.get("script"))
@@ -573,7 +575,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
     if any(key.startswith("SNAKE_COLAB_CANARY") for key in env):
         raise Refused("sandbox cannot enable canary instrumentation")
     allowed_env = {"SNAKE_DQN_DEVICE", "COLAB_CLI_REQUIREMENTS"}
-    if study == "sandbox-b-heads-v1":
+    if study in {"sandbox-b-heads-v1", "sandbox-b-heads-v2"}:
         allowed_env.add("SANDBOX_B_SALT")
         prefixes = ("src/", "tools/sandbox/", "research/sandbox_b_heads/")
     else:
