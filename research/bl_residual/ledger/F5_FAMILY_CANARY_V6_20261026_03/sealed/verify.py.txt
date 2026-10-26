@@ -1,0 +1,55 @@
+"""One serial offline verification lane with recorded effective scheduling."""
+
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+BROKER = Path(os.environ.get("F5_CANARY03_BROKER", ""))
+assert BROKER.is_absolute() and str(BROKER).endswith("-03.noindex")
+sys.path.insert(0, str(BROKER))
+from research.bl_ppo.exports import export_json
+
+names = ("OMP_NUM_THREADS", "OMP_THREAD_LIMIT", "OPENBLAS_NUM_THREADS",
+         "MKL_NUM_THREADS", "NUMBA_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
+assert os.getpriority(os.PRIO_PROCESS, 0) == 15
+assert all(os.environ.get(name) == "1" for name in names)
+argv = [sys.executable, "-m", "pytest", "-q", "-p", "no:xdist", "--tb=short",
+        *sorted(path.relative_to(BROKER).as_posix() for path in (BROKER / "tests").glob("*f5*.py")),
+        "tests/test_colab_cli_canary.py",
+        "tests/test_colab_cli_canary_observer.py",
+        "tests/test_colab_cli_supervisor.py::test_allocation_cap_counts_existing_notebook_assignments",
+        "tests/test_colab_cli_supervisor.py::test_normal_job_stops_and_verifies_backend_release"]
+started = time.monotonic()
+with (ROOT / "verified-tests.log").open("x") as handle:
+    result = subprocess.run(argv, cwd=BROKER, stdout=handle, stderr=subprocess.STDOUT,
+                            env=os.environ.copy(), timeout=600)
+assert result.returncode == 0
+test_log = (ROOT / "verified-tests.log").read_text()
+assert " passed" in test_log and "failed" not in test_log
+checks = []
+for command in (["git", "diff", "--check"], ["bash", "-n", "research/bl_residual/f5_colab.sh"],
+                ["bash", "-n", "tools/ops/dispatch.sh"]):
+    item = subprocess.run(command, cwd=BROKER, text=True, capture_output=True, timeout=30)
+    assert item.returncode == 0
+    checks.append({"argv": command, "return_code": item.returncode,
+                   "stdout": item.stdout, "stderr": item.stderr})
+log = ROOT / "verified-tests.log"
+record = {"schema": "bl-f5-canary-offline-verification/v1", "cwd": str(BROKER),
+          "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=BROKER, text=True).strip(),
+          "effective_niceness": os.getpriority(os.PRIO_PROCESS, 0),
+          "numeric_threads": {name: os.environ[name] for name in names},
+          "parallel_workers": 0, "argv": argv, "return_code": result.returncode,
+          "elapsed_seconds_including_checks": time.monotonic() - started,
+          "log": {"path": str(log), "sha256": hashlib.sha256(log.read_bytes()).hexdigest(),
+                  "size": log.stat().st_size}, "checks": checks,
+          "cuda_execution_claimed": False,
+          "test_count_assertion": "dynamic pytest summary; no stale fixed count",
+          "scheduling_note": "Inherited nice15 asserted before tests; all numerical threads1; serial pytest",
+          "verification_script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+export_json(ROOT / "VERIFICATION.json", record)
+print(json.dumps(record, indent=2))

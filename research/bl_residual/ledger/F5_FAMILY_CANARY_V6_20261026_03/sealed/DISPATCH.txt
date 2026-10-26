@@ -1,0 +1,14 @@
+SEALED CANARY-03 ONLY; no dispatch occurred during preparation.
+Native v6 environment receipts are required; capture-05 is comparison-only.
+Canary-01 and canary-02 authorizations were consumed; both INCOMPLETE failures remain bound.
+Separate Astra operational review of this concrete successor is required before operator dispatch.
+Rehash SHA256SUMS.json and bindings; require clean detached broker at the manifest pin and unchanged qualified registry.
+The wrapper refreshes account ownership/rates under ops/alloc.lock; any sealed-map drift refuses. Maximum three assignments.
+Exact dry-run:
+/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-7ddc7f78-20261026-03.noindex/tools/ops/dispatch.sh bl-f5-family-canary-7ddc7f78-20261026-03 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-03/manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-7ddc7f78-20261026-03.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-7ddc7f78-20261026-03.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-03/state-03 --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-03/DISPATCH.txt --dry-run
+Exact dispatch, after separate successor operational review:
+/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-7ddc7f78-20261026-03.noindex/tools/ops/dispatch.sh bl-f5-family-canary-7ddc7f78-20261026-03 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-03/manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-7ddc7f78-20261026-03.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-7ddc7f78-20261026-03.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-03/state-03 --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f5-timing-recovery-offline-20261026/canary-03/DISPATCH.txt
+Required success proof: terminal PASS, actual CUDA/parity and before/after environment evidence, actual producer/scanner CANARY_ONLY skip672 + new672/673, all exports with hashes/markers, transfer<=300s, staging<=300s, verified release and saved account/backend disappearance.
+On canonical mismatch retain environment/cross-assignment-refusal.json as non-admissible diagnostic evidence; outcome remains HOLD/INCOMPLETE. Do not weaken the frozen comparator or repeat automatically.
+Base15/effective30 minutes, useful foreground1755s; base50/effective100-unit technical guard, rate2u/h; no fit/science/release authority.
+No replacement long-operation draft is prepared or authorized by this seal.

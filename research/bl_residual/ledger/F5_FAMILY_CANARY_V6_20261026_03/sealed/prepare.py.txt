@@ -1,0 +1,310 @@
+"""Create-only canary-03 preparation; requires explicit published v6 pin."""
+
+import copy
+import datetime
+import hashlib
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import tarfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+PRIOR = ROOT.parent / "canary-02"
+PRIOR01 = ROOT.parent / "canary-01"
+ASTRA = ROOT.parent.parent / "astra-20261024"
+PIN = os.environ.get("F5_CANARY03_PIN", "")
+JOB = os.environ.get("F5_CANARY03_JOB", "")
+BROKER = Path(os.environ.get("F5_CANARY03_BROKER", ""))
+OPS = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops")
+QUALIFIED = "57a89e7df09687432228978ca162207051f9efdb"
+CLI_TREE = "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+sys.path.insert(0, str(BROKER))
+from research.bl_ppo.exports import export_bytes, export_json, verify_export
+from research.bl_residual import f5_environment, f5_environment_reference, f5_job, f5_package, f5_timing_recovery_package, f5_timing_resume
+from research.colab_cli import admission, supervisor, transfer_policy
+from tools.ops import dispatch, qualification
+
+
+def now():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def load(path):
+    return json.loads(path.read_text())
+
+
+def sha(path):
+    with path.open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def bind(path):
+    assert path.is_absolute() and path.is_file() and not path.is_symlink(), path
+    return {"path": str(path), "sha256": sha(path), "size": path.stat().st_size}
+
+
+def run(argv, timeout=60):
+    started = now()
+    result = subprocess.run([str(a) for a in argv], cwd=BROKER, capture_output=True,
+                            text=True, timeout=timeout)
+    row = {"argv": [str(a) for a in argv], "started_utc": started,
+           "finished_utc": now(), "return_code": result.returncode,
+           "stdout": result.stdout, "stderr": result.stderr}
+    assert result.returncode == 0, row
+    return row
+
+
+def git(*args):
+    return run(["git", *args])["stdout"].strip()
+
+
+def verify_reference(reference):
+    observed = bind(Path(reference["path"]))
+    assert observed["sha256"] == reference["sha256"], reference
+    assert observed["size"] == reference.get("size", reference.get("size_bytes")), reference
+    return observed
+
+
+def account_preflight():
+    accounts = ROOT / "accounts"
+    accounts.mkdir()
+    seed = accounts / "seed.json"
+    export_json(seed, {"budget": {"other_assignments": {}}})
+    with dispatch.allocation_lock(OPS / "alloc.lock", 60) as deadline:
+        before = run(["/Users/josenunez/.local/bin/colab", "--auth", "oauth2", "sessions"])
+        refreshed = dispatch.refresh_assignments(seed, accounts / "broker-session-review.json", deadline)
+        rates = load(refreshed)["budget"]["other_assignments"]
+        usage = run(["/Users/josenunez/.local/bin/colab", "--auth", "oauth2", "usage"])
+        after = run(["/Users/josenunez/.local/bin/colab", "--auth", "oauth2", "sessions"])
+        assert before["stdout"] == after["stdout"], "sessions changed during preflight"
+        numbers = {}
+        for key, label in (("balance", "Current balance"), ("rate", "Usage rate"),
+                           ("assignments", "Active assignments")):
+            match = re.search(rf"{label}:\s*([0-9]+(?:\.[0-9]+)?)", usage["stdout"])
+            assert match, usage
+            numbers[key] = float(match[1])
+        account_dir = Path.home() / ".config/colab-cli/snake"
+        pending = [bind(p) for p in sorted(account_dir.glob("pending-*.json"))]
+        active = [bind(p) for p in sorted(account_dir.glob("active-*.json"))]
+        assert not pending, "unresolved pending broker assignment"
+        assert numbers["assignments"] == len(rates) < 3
+        assert abs(numbers["rate"] - sum(rates.values())) < 0.05
+        assert len(active) == len(rates), "unresolved active broker record"
+        committed = sum(load(Path(row["path"]))["unit_cap"] for row in active)
+        assert numbers["balance"] > 100 + committed
+        value = {"schema": "bl-f5-canary03-account-preflight/v1", "status": "PASS",
+                 "observed_utc": now(), "normal_allocation_lock": str(OPS / "alloc.lock"),
+                 "calls": [before, usage, after], "other_assignments": rates,
+                 "broker_session_review": bind(accounts / "broker-session-review.json"),
+                 "usage": numbers, "active_records": active, "pending_records": pending,
+                 "committed_units": committed, "account_assignment_cap": 3,
+                 "allocation_calls": 0, "dispatch_refresh_required": True}
+    export_json(accounts / "preflight.json", value)
+    return rates
+
+
+def main():
+    assert re.fullmatch(r"[0-9a-f]{40}", PIN), "F5_CANARY03_PIN must be a published full SHA"
+    assert JOB.endswith("-03") and JOB, "F5_CANARY03_JOB must be a fresh -03 id"
+    assert str(BROKER).endswith("-03.noindex") and BROKER.is_absolute()
+    assert os.getpriority(os.PRIO_PROCESS, 0) == 15
+    assert git("rev-parse", "HEAD") == git("rev-parse", "origin/main") == PIN
+    assert not git("branch", "--show-current")
+    assert not git("status", "--porcelain", "--untracked-files=all")
+    assert not (ROOT / "manifest.json").exists()
+    registry_path = OPS / "colab-cli-qualified.json"
+    registry_before = bind(registry_path)
+    registry = load(registry_path)
+    assert registry["qualified_commit"] == QUALIFIED
+    assert qualification.check(BROKER, registry_path) == CLI_TREE
+    assert qualification.check(BROKER, registry_path, PIN) == CLI_TREE
+    assert git("rev-parse", f"{QUALIFIED}:research/colab_cli") == CLI_TREE
+    git("merge-base", "--is-ancestor", "d313736f41e882b31eae85e7c2e7469c02b4a308", PIN)
+    acceptance_path = Path(registry["acceptance_result"])
+    assert sha(acceptance_path) == registry["acceptance_result_sha256"]
+    admission.require_final_only(load(acceptance_path), BROKER)
+    m = copy.deepcopy(load(PRIOR / "manifest.json"))
+    control = load(PRIOR / "inputs/control.json")
+    old_hashes = control["source_hashes"]
+    hashes = f5_package.source_inventory(BROKER)
+    source_sha = hashlib.sha256(json.dumps(hashes, sort_keys=True, allow_nan=False).encode()).hexdigest()
+    control.pop("environment_capture", None)
+    control["environment_reference"] = f5_environment_reference.capture05_reference()
+    f5_environment_reference.validate_capture05_reference(control["environment_reference"])
+    control["environment_policy"] = f5_environment.policy_binding()
+    control["identity"]["environment_sha256"] = f5_job.environment_policy_sha256()
+    control["timing_namespace"] = "bl-residual-f5-canary03-v6-20261026"
+    amendment_path = ASTRA / "F5_KERNEL_PROVENANCE_AMENDMENT_ADOPTED_20261026.md"
+    assert sha(amendment_path) == f5_environment.KERNEL_PROVENANCE_AMENDMENT_SHA256
+    export_bytes(ROOT / amendment_path.name, amendment_path.read_bytes())
+    export_json(ROOT / "environment-policy.json", {
+        "schema": "bl-f5-canary03-v6-policy-seal/v1",
+        "policy": control["environment_policy"],
+        "policy_identity_sha256": control["identity"]["environment_sha256"],
+        "amendment": bind(amendment_path),
+        "descriptor": bind(BROKER / f5_package.ENV / "f5-common-environment-v6.json"),
+        "schema_v6": bind(f5_environment.schema_path()),
+        "native_v6_required": True, "same_assignment": "ALL_RAW_FIELDS_EXACT",
+    })
+    export_json(ROOT / "reference-seal.json", {
+        "schema": "bl-f5-canary03-reference-seal/v1",
+        "source": control["environment_reference"]["source"],
+        "original_capture05": bind(f5_environment_reference.CAPTURE05_PATH),
+        "adapter": bind(BROKER / "research/bl_residual/f5_environment_reference.py"),
+        "frozen_v5_validator": bind(BROKER / "research/bl_residual/f5_environment_v5.py"),
+        "reference_wrapper_sha256": f5_environment.receipt_sha256(control["environment_reference"]),
+        "policy": control["environment_policy"], "original_status": "SUCCESS",
+        "native_v6_capture": False, "purpose": "PINNED_COMPARISON_ONLY",
+    })
+    binding = f5_timing_resume.identity(
+        namespace=control["timing_namespace"],
+        allocation=control["identity"]["allocation_sha256"], source_sha256=source_sha,
+        environment_sha256=control["identity"]["environment_sha256"],
+        input_sha256=control["timing_input_sha256"])
+    ledger = export_json(ROOT / "inputs/verified-ledger.json", f5_timing_resume.empty_ledger(binding))
+    control["source_hashes"] = hashes
+    control["identity"]["source_sha256"] = source_sha
+    control["ledger_sha256"] = ledger["sha256"]
+    control["timing_attempt_id"] = JOB
+    control["allocation"] = hashlib.sha256(json.dumps(
+        {k: v for k, v in control.items() if k not in {"allocation", "ledger_sha256"}},
+        sort_keys=True, allow_nan=False).encode()).hexdigest()
+    export_json(ROOT / "inputs/control.json", control)
+    export_bytes(ROOT / "inputs/timing-fixtures.json", (PRIOR / "inputs/timing-fixtures.json").read_bytes())
+    for item in m["inputs"]:
+        if "path" not in item:
+            continue
+        source = Path(item["path"])
+        verify_reference({"path": str(source), "sha256": item["sha256"], "size": item["size_bytes"]})
+        if source.is_relative_to(PRIOR):
+            target = ROOT / "inputs" / source.name
+            row = bind(target)
+            item.update(path=str(target), sha256=row["sha256"], size_bytes=row["size"])
+    for name in ("control.json", "timing-fixtures.json", "verified-ledger.json"):
+        verify_export(ROOT / "inputs" / name)
+    assert not f5_timing_resume.load_ledger(ROOT / "inputs/verified-ledger.json", binding)
+    tree = git("rev-parse", "HEAD^{tree}")
+    authority = f5_timing_recovery_package._authority(PIN, tree, sorted(m["inputs"], key=lambda r: r["dest"]))
+    authority_path = ROOT / "f5-timing-synthetic-inventory.json"
+    export_json(authority_path, authority)
+    m["source_paths"] = sorted(set(hashes) | {
+        f"{f5_package.ENV}/requirements-f5-l4-cu126.lock",
+        f"{f5_package.ENV}/f5-common-environment-v6.json",
+        "research/bl_residual/f5_environment_schema_v6.json",
+    })
+    m.update(commit=PIN, job_id=JOB, output_dir=str(ROOT / "output-03"),
+             supervisor_state_dir=str(ROOT / "state-03"),
+             f5_timing_source_tree=tree, f5_timing_synthetic_inventory=authority,
+             f5_timing_transfer_exception=transfer_policy.f5_timing_recovery_binding(authority["sha256"], "canary"))
+    m["operational_admission"]["timing_recovery_authority"] = bind(authority_path)
+    m["budget"]["other_assignments"] = account_preflight()
+    references = {k: verify_reference(v) for k, v in load(PRIOR / "bindings.json").items()}
+    references["canary02_package"] = bind(PRIOR / "PACKAGE.json")
+    references["canary02_seal"] = bind(PRIOR / "SHA256SUMS.json")
+    references["canary02_manifest"] = bind(PRIOR / "manifest.json")
+    references["canary02_acceptance"] = bind(ASTRA / "ACCEPT_F5_FAMILY_CANARY_02.md")
+    references["canary02_receipt"] = bind(PRIOR / "output-02/receipt.json")
+    references["canary02_terminal"] = bind(PRIOR / "output-02/terminal.json")
+    references["canary02_diagnostic"] = bind(PRIOR / "output-02/exports/environment/cross-assignment-refusal.json")
+    references["canary02_accounting"] = bind(PRIOR / "ACCOUNTING_APPENDIX.json")
+    references["v6_policy_seal"] = bind(ROOT / "environment-policy.json")
+    references["v6_reference_seal"] = bind(ROOT / "reference-seal.json")
+    references["canary02_output_publication"] = bind(
+        Path("/Users/josenunez/Projects/ml/snake-dqn-f5envdiag/research/bl_residual/ledger/F5_FAMILY_CANARY_ad207314_20261026_02/OUTPUT_PUBLICATION_02.json")
+    )
+    references["adopted_kernel_amendment"] = bind(ASTRA / "F5_KERNEL_PROVENANCE_AMENDMENT_ADOPTED_20261026.md")
+    references["v6_schema"] = bind(BROKER / "research/bl_residual/f5_environment_schema_v6.json")
+    references.update({
+        "canary01_package": bind(PRIOR01 / "PACKAGE.json"),
+        "canary01_seal": bind(PRIOR01 / "SHA256SUMS.json"),
+        "canary01_manifest": bind(PRIOR01 / "manifest.json"),
+        "canary01_acceptance_ruling": bind(ASTRA / "ACCEPT_F5_FAMILY_CANARY_01.md"),
+        "canary01_accounting": bind(PRIOR01 / "ACCOUNTING_APPENDIX.json"),
+        "canary01_failed_receipt": bind(PRIOR01 / "output-01/receipt.json"),
+        "canary01_terminal": bind(PRIOR01 / "output-01/terminal.json"),
+        "canary01_output_publication": bind(BROKER / "research/bl_residual/ledger/F5_FAMILY_CANARY_57a89e7d_20261026_01/OUTPUT_PUBLICATION_01.json"),
+        "canary01_postpublication_verified": bind(ROOT.parent / "CANARY01_POSTPUBLICATION_VERIFIED_20261026.json"),
+        "canary01_diagnosis": bind(ASTRA / "F5_CANARY01_DIAG_20261026/REPORT.md"),
+        "canary01_offline_analysis": bind(ASTRA / "F5_CANARY01_DIAG_20261026/OFFLINE_ANALYSIS.json"),
+        "qualified_registry": registry_before,
+        "qualified_acceptance_result": bind(acceptance_path),
+    })
+    export_json(ROOT / "bindings.json", references)
+    m["operational_admission"].update(bindings=bind(ROOT / "bindings.json"),
+                                     live_account_preflight=bind(ROOT / "accounts/preflight.json"))
+    export_json(ROOT / "manifest.json", m)
+    assert set(m["source_paths"]) == set(hashes) | {
+        f"{f5_package.ENV}/requirements-f5-l4-cu126.lock", f"{f5_package.ENV}/f5-common-environment-v6.json"}
+    archive = subprocess.check_output(["git", "archive", "--format=tar", PIN, "--", *m["source_paths"]], cwd=BROKER)
+    export_bytes(ROOT / "source.tar", archive)
+    with tarfile.open(ROOT / "source.tar") as tar:
+        members = {p.name: p for p in tar.getmembers() if p.isfile()}
+        assert set(members) == set(m["source_paths"])
+        for relative, member in members.items():
+            assert tar.extractfile(member).read() == subprocess.check_output(["git", "show", f"{PIN}:{relative}"], cwd=BROKER)
+    dispatch.require_resume_policy(m)
+    dispatch.require_scientific_or_f5_plan_admission(m)
+    supervisor.validate(m, BROKER)
+    assert transfer_policy.transfer_limit(m) == 300
+    # The v5 capture-05 object is retained byte-for-byte as the comparison-only
+    # reference; native v6 capture is produced by the pinned runtime.  Do not
+    # require the prospective v6 control to equal the legacy raw object here.
+    assert "environment_capture" not in control
+    f5_environment_reference.validate_capture05_reference(control["environment_reference"])
+    f5_job._source_admission(control)
+    assert bind(registry_path) == registry_before
+    argv = [str(BROKER / "tools/ops/dispatch.sh"), JOB, str(ROOT / "manifest.json"),
+            "--broker", str(BROKER), "--cwd", str(BROKER), "--state-dir", str(ROOT / "state-03"),
+            "--dispatch-txt", str(ROOT / "DISPATCH.txt")]
+    command = shlex.join(argv)
+    instructions = (
+        "SEALED CANARY-03 ONLY; no dispatch occurred during preparation.\n"
+        "Native v6 environment receipts are required; capture-05 is comparison-only.\n"
+        "Canary-01 and canary-02 authorizations were consumed; both INCOMPLETE failures remain bound.\n"
+        "Separate Astra operational review of this concrete successor is required before operator dispatch.\n"
+        "Rehash SHA256SUMS.json and bindings; require clean detached broker at the manifest pin and unchanged qualified registry.\n"
+        "The wrapper refreshes account ownership/rates under ops/alloc.lock; any sealed-map drift refuses. Maximum three assignments.\n"
+        "Exact dry-run:\n" + command + " --dry-run\n"
+        "Exact dispatch, after separate successor operational review:\n" + command + "\n"
+        "Required success proof: terminal PASS, actual CUDA/parity and before/after environment evidence, actual producer/scanner CANARY_ONLY skip672 + new672/673, all exports with hashes/markers, transfer<=300s, staging<=300s, verified release and saved account/backend disappearance.\n"
+        "On canonical mismatch retain environment/cross-assignment-refusal.json as non-admissible diagnostic evidence; outcome remains HOLD/INCOMPLETE. Do not weaken the frozen comparator or repeat automatically.\n"
+        "Base15/effective30 minutes, useful foreground1755s; base50/effective100-unit technical guard, rate2u/h; no fit/science/release authority.\n"
+        "No replacement long-operation draft is prepared or authorized by this seal.\n"
+    )
+    export_bytes(ROOT / "DISPATCH.txt", instructions.encode())
+    dry = run([*argv, "--dry-run"], timeout=90)
+    assert "PASS_DRY_RUN" in dry["stdout"] and "allocations=0" in dry["stdout"]
+    export_json(ROOT / "dry-run.json", dry)
+    fresh = [ROOT / "output-03", ROOT / "state-03", OPS / "dispatch" / JOB,
+             OPS / "manifests" / (JOB + ".json"), OPS / "logs" / (JOB + ".log")]
+    assert all(not p.exists() for p in fresh)
+    assert not git("status", "--porcelain", "--untracked-files=all")
+    export_json(ROOT / "PREPARATION.json", {
+        "schema": "bl-f5-canary03-preparation/v1", "status": "SEALED_PENDING_ASTRA_OPERATIONAL_REVIEW",
+        "created_utc": now(), "source_commit": PIN, "whole_tree": tree, "cli_tree": CLI_TREE,
+        "broker": str(BROKER), "broker_clean_detached": True, "transport_qualified_commit": QUALIFIED,
+        "transport_admission": "Tree and executable inventory, independent of enclosing commit; registry unchanged",
+        "manifest": bind(ROOT / "manifest.json"), "bindings": bind(ROOT / "bindings.json"),
+        "source_archive": bind(ROOT / "source.tar"), "source_archive_members_verified": len(members),
+        "account_preflight": bind(ROOT / "accounts/preflight.json"), "dry_run": bind(ROOT / "dry-run.json"),
+        "inventory_sha256": authority["sha256"], "dispatch_argv": argv, "dispatches": 0, "allocations": 0,
+        "scientific_payload_deserialized": False, "base_minutes": 15, "effective_minutes": 30,
+        "useful_foreground_seconds": 1755, "receipt_exists": False,
+        "canary01_authorization_consumed": True, "canary02_authorization_consumed": True, "canary02_history_bound": True,
+        "successor_dispatch_authorized_by_preparation": False,
+        "fresh_paths": [str(p) for p in fresh], "producer_scanner_live_proof": "PENDING_CANARY_EXECUTION",
+        "source_changes_from_canary02": {p: {"before": old_hashes.get(p), "after": hashes.get(p)}
+             for p in sorted(set(old_hashes) | set(hashes)) if old_hashes.get(p) != hashes.get(p)},
+        "control_ledger_authority_rebound": True,
+        "reference_environment": "pinned capture-05 v5 bytes bound through explicit comparison-only adapter; native v6 runtime capture required",
+    })
+    print(json.dumps({"manifest": bind(ROOT / "manifest.json"), "cli_tree": CLI_TREE,
+                      "dry_run": dry["stdout"], "fresh_paths_absent": True}, indent=2))
+
+
+if __name__ == "__main__":
+    main()
