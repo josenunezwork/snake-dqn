@@ -1590,3 +1590,79 @@ look, serving/release change or tmux operation. Runtime success, Mac-verified
 exports, terminal receipt and independent assignment disappearance remain future
 checks. Scientific fitting still requires actual L4 plan/RNG, timing/feasibility,
 full science inventory and matching canary, verified ledger and ACCEPT_F5_FIT.
+
+
+### 2026-10-26 — F5 W attempt-03 single memory refusal; prospective v5/final-09
+
+Attempt-03 at `b9e48d882049622a8506f05cf00947f3500b1e1a` is **INCOMPLETE,
+non-admissible**. Real L4 diagnostics collected exactly one validation/admission
+failure, `F5 environment parsed GPU memory differs`, with no acquisition failure.
+No qualification/science ran. Terminal receipt records CHILD_NONZERO_EXIT and
+verified stop; final usage shows zero assignments/rate. This is historical stop
+evidence, not a fresh provider query. Complete output-03 evidence is now published
+create-only under `research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/`.
+Ordinary files are exact mirrors; the two 13.4 MB raw/diagnostic exports use
+lossless split gzip with indexes, sidecars and completion markers. Both reconstruct
+byte-exactly. Failure publication SHA256
+`86a263d6834824c5f33cd3beb24261b7854ec1e44c3a34286cb68fe15a88ce81`.
+Raw original SHA256 `464c3be2185d21fb4576ae09f2129904eb16234703b334816f9b2adfa1a6ccbe`;
+diagnostic original SHA256 `c23155e2f1cd390e639896d29214f41560ee1d04086c80eddcfcceda93895a6a`.
+
+Attempt-03 elapsed 630.0060987500474 s, observed account balance change
+0.1999999999998181 units; cumulative attempts 01–03 elapsed 1609.9907932920614 s,
+observed balance change 0.4199999999998454 units. Attempt-03 observed-rate
+integration at its last crosscheck is 0.2503764407909611 units (1.54 u/hour),
+priced-rate integration 0.32516420881943003 (2.0 u/hour), and full-elapsed priced
+exposure 0.35000338819447074 units. These are distinct measurements, not interchangeable
+debits. Final post-stop charge remains unknown. The create-only accounting
+clarification SHA256 `0c6050956cd6903a9348bf00528aae7450f55a7dc829f1355e470f77f651cc69`
+corrects a null lookup in the original publication to the receipt's 2.0 u/hour;
+original bytes remain unchanged. Owner unit history remains disclosure only.
+
+Prospective implementation pin `c989f6738f6aad143eb97bc47f6bd9e6687057ce` is on
+main. Receipt v5 SHA256 `aa0a172c0f5ddf892aab534b3a4a7ebb3aaebfd745f6c6e7bf1f6ea8be1b38f2`
+replaces only within-receipt memory equality with inclusive integer relation
+`95 * SMI_bytes <= 100 * Torch_bytes <= 100 * SMI_bytes`. The fixed 5% allowance
+bounds reserved/unavailable capacity and rejects impossible capacity/units;
+raw Torch bytes and SMI MiB string remain separate exact cross-assignment
+invariants. The observed 23,659,151,360 Torch bytes versus 23,034 SMI MiB are
+retained unchanged. Full validation of all real attempt-03 acquired values,
+including 69 locked wheels, passes after only explicit prospective schema/status
+bookkeeping; the historical refused capture still refuses. The regression is
+counterfactual evidence, not retrospective admission. Seven science files and
+schemas v1–v4 remain byte-identical.
+
+Final-09 immutable packet root:
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PREFIT_20261025/final-09/`.
+REVIEW_PACKET SHA256 `70c6194c8b4ecebc6863ba79c514b7a72c2ceb22ca3f21313b78dd4681f02140`;
+REVIEW_BUNDLE SHA256 `dfd07c4ee19cface1841fe3df7ba972c7ba4e9ba761a53159cf556e686651d93`.
+Main ledger publication SHA256 `8b2e583adcf14f086b94c80482cddf36d41ba66e15cb45a998efe641a8c09d6a`.
+
+Attempt-04 operational **DRAFT, not accepted or dispatched** lives at
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/`.
+Job `bl-f5-w-capture-repair-22e86986-04`, unused `output-04` and `state-04`,
+one L4, minimum six CPUs, numerical threads 1, 5-minute estimate, owner-ruling
+30-minute runaway timeout and matching exemption (base 15 x2), historical
+technical 2-unit cap/1-unit reserve retained. All three stopped attempts and
+prior debits are carried forward; current account/transport refresh and independent
+v5 acceptance remain pending. Manifest SHA256
+`75555f9dbd3f1caf0eb618fabae05b1933ca1a897860f441c746f00e153a84ca`;
+PACKAGE_SEAL SHA256 `60aee651a11ae559c697664a2c7142cfae6e5bb31e23fd2e88e4343f65b82a70`.
+Offline supervisor validation and native canary shape pass; ten required exports
+are retained. No dispatch wrapper or provider/Colab operation was invoked.
+
+Verification: 131 passed, 1 real-CUDA skip in 21.66 s; nice 15, numerical threads
+1, pytest -n 0, at most two test processes. Two stale fixture assumptions found
+in the initial 129-pass/2-fail run were corrected, then the full affected suite
+was rerun green. Black/isort/flake8 (six changed Python files), shell syntax and
+diff checks pass. Independent read-only source review reports no actionable
+findings. This repair performs no fit, outcome look, serving/release change,
+checkpoint modification or tmux operation. A fresh successful L4 capture and
+actual CUDA transport qualification remain future operator evidence.
+
+Independent post-seal audit `research/bl_residual/ledger/F5_W_FINAL09_POSTSEAL_VERIFICATION_20261026.json`
+SHA256 `c9900541a90f60b490e791509860ba041d625db8d679a51d0aaa47f03355e952`: PASS_NO_ACTIONABLE_FINDINGS. Verified 32 final09
+payloads, five attempt04 payloads, 88 nested bindings, 192 Git-pinned source
+hashes, all 11 test-source hashes, science/schema preservation, prior-debit
+sums and byte-identical ledger mirrors. Sealed logs verified, tests not rerun
+by reviewer. No provider calls or dispatch.
