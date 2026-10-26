@@ -1,0 +1,88 @@
+{
+  "schema": "bl-f5-offline-verification/v1",
+  "record": "operational-tests-03",
+  "created_utc": "2026-10-26T12:31:11+00:00",
+  "repository": "/Users/josenunez/Projects/ml/snake-dqn-f5w",
+  "source_commit": "ac69b65c3a2eb40a2af30ab6a9e8e4bd450471ef",
+  "source_commit_subject": "Admit requalified F5 timing successor with bound evidence",
+  "working_tree_clean": true,
+  "provider_calls": 0,
+  "dispatches": 0,
+  "colab_calls": 0,
+  "source_edits": 0,
+  "execution": {
+    "nice": 15,
+    "numeric_threads": 1,
+    "env": {
+      "OMP_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "SNAKE_DQN_DEVICE": "cpu"
+    },
+    "python": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "pytest_workers": 0,
+    "cuda_skip_expected": true,
+    "per_poll_segment_seconds_max": 30
+  },
+  "status": "PASS_WITH_RECORDED_PREEXISTING_FAILURES",
+  "requested_f5_scope": {
+    "status": "PASS",
+    "tests": {
+      "tests/test_ops_f5_plan_admission.py": {"passed": 18, "failed": 0, "skipped": 0},
+      "tests/test_ops_f5_timing_admission.py": {"passed": 39, "failed": 0, "skipped": 0},
+      "tests/test_bl_residual_f5_package.py": {"passed": 16, "failed": 0, "skipped": 0},
+      "tests/test_bl_residual_f5_qualification.py": {"passed": 10, "failed": 0, "skipped": 1}
+    },
+    "passed": 83,
+    "failed": 0,
+    "skipped": 1,
+    "skip_reasons": ["tests/test_bl_residual_f5_qualification.py:103 requires a real CUDA runtime"]
+  },
+  "requested_aggregate": {
+    "collected": 288,
+    "passed": 285,
+    "failed": 2,
+    "skipped": 1,
+    "aggregate_attempt": {"exit_code": 124, "timeout_seconds": 55, "reached_percent": 57},
+    "failure_reproductions": [
+      {
+        "test": "tests/test_ops_retention.py::test_retained_main_allows_resumable_packet_longer_than_acceptance",
+        "result": "FAIL",
+        "diagnosis": "ImportError: cannot import name 'retention' from research.colab_cli",
+        "reproduced": true,
+        "source_scope": "pre-existing research/colab_cli import surface"
+      },
+      {
+        "test": "tests/test_ops_calendar_lint.py::test_repository_launchers_contain_no_calendar_windows",
+        "result": "FAIL",
+        "diagnosis": "research/compute/factory_interim_launcher.py:1 contains hard-coded calendar literal '2026-10-23'",
+        "reproduced": true,
+        "source_scope": "pre-existing calendar lint finding"
+      }
+    ]
+  },
+  "quality": {
+    "black": "PASS",
+    "isort": "PASS",
+    "flake8": "PASS",
+    "git_diff_check": "PASS",
+    "admission_commit_paths": ["tools/ops/dispatch.py", "tests/test_ops_f5_timing_admission.py"],
+    "research_colab_cli_touched_by_admission_commit": false
+  },
+  "source_hashes": {
+    "tools/ops/dispatch.py": {"sha256": "a9ef0fce598e35ad12a7286a0852d9d31fa9d01cade311f954b0479929803efe", "size": 76109},
+    "tests/test_ops_f5_timing_admission.py": {"sha256": "e0a3907a981e154c96038457289b430629eee628590b5831cddbd12f4a1c001d"},
+    "tests/test_bl_residual_f5_package.py": {"sha256": "9ac37716b6ee20c954d4580f31ee78d673b449987576aca6ab500f21be8fb93b"},
+    "tests/test_bl_residual_f5_qualification.py": {"sha256": "4e11fa892f03ac8123ac0388daca287dd12f4de3c16f18411a3ce948bf8e0be0"},
+    "research/colab_cli/__init__.py": {"sha256": "624677cd409539df23ec6c1f21ad999059fe779715ee5eab0183b7b2498851f1"},
+    "research/compute/factory_interim_launcher.py": {"sha256": "5aef6166a67e7b73b530cde6d912fd0a16d2ce9d0367b58d87ab0ff0cf1950ce"}
+  },
+  "test_log": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_TIMING_OPERATIONAL_20261026_ROUND08_02_REQUAL/operational-tests-03.log",
+    "sha256": "277f241f16a9f14ddd79a27216f74dcab7503702a89dbdc0055150cb705a0f5c",
+    "size": 7003
+  },
+  "no_runtime_dispatch": true,
+  "no_product_source_edits": true
+}
