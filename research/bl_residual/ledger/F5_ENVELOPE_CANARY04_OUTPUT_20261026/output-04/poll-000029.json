@@ -1,0 +1,199 @@
+{
+  "exports": [],
+  "job_log_tail": "Y\", \"phase\": \"cuda-parity\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"HEARTBEAT\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 300.002, \"fixtures_completed\": 0, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"cuda-parity\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"HEARTBEAT\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 355.595, \"fixtures_completed\": 1, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"fixture-complete\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"PHASE\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 360.003, \"fixtures_completed\": 1, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"fixture-complete\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"HEARTBEAT\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 387.37, \"fixtures_completed\": 2, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"cuda-parity\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"PHASE\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 420.003, \"fixtures_completed\": 2, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"cuda-parity\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"HEARTBEAT\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 480.066, \"fixtures_completed\": 2, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"cuda-parity\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"HEARTBEAT\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 480.125, \"fixtures_completed\": 3, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"fixture-complete\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"PHASE\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 480.125, \"fixtures_completed\": 2, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"final-boundary\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"PHASE\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 540.069, \"fixtures_completed\": 2, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"final-boundary\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"HEARTBEAT\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 600.069, \"fixtures_completed\": 2, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"final-boundary\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"HEARTBEAT\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 633.442, \"fixtures_completed\": 2, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"export\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"PHASE\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 634.251, \"fixtures_completed\": 2, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"export\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"COMPLETE\"}\n",
+  "state": {
+    "generation": "ac84655a6de340a8a5c4f33a3fcfc8c5",
+    "job_id": "bl-f5-family-canary-911426db-20261026-04",
+    "max_export_bytes": 2147483648,
+    "pid": 6808,
+    "reason": null,
+    "returncode": 0,
+    "started_at": 1793043349.949411,
+    "status": "succeeded",
+    "updated_at": 1793044558.676896
+  },
+  "supervisor_log_tail": "",
+  "terminal": {
+    "canary_observations": [
+      {
+        "caller": "research/bl_residual/f5_qualification.py:136:_select_cuda",
+        "cuda_decisions": 1,
+        "device": "cuda:0",
+        "operation": "Tensor.argmax",
+        "package": "research/bl_residual",
+        "pid": 9317,
+        "root": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5",
+        "shape": [
+          1,
+          6
+        ],
+        "version": 1
+      }
+    ],
+    "export_scanner": {
+      "inventory": [
+        {
+          "path": "environment/after-fixture-672.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        {
+          "path": "environment/after-fixture-673.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        {
+          "path": "environment/after.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        {
+          "path": "environment/before.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        {
+          "path": "paired/assignment-environment.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        {
+          "path": "paired/f5-state-C.pt",
+          "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+          "size": 1453
+        },
+        {
+          "path": "paired/f5-state-W.pt",
+          "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+          "size": 1453
+        },
+        {
+          "path": "paired/fit-C.pth",
+          "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+          "size": 1453
+        },
+        {
+          "path": "paired/fit-W.pth",
+          "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+          "size": 1453
+        },
+        {
+          "path": "paired/fit-receipt.json",
+          "sha256": "932814c03c56a7094d3fa7159d29bcdc79613a2c0a77b78abc9e04def77c9918",
+          "size": 223
+        },
+        {
+          "path": "qualification/qualification.json",
+          "sha256": "8eeaf6bcda3ec9d81720499b3de88c100cc0f42cb25cf6350d9a1b2d4c431f3c",
+          "size": 42069654
+        },
+        {
+          "path": "resume/verified-skip-proof.json",
+          "sha256": "85946e7c81648113dfd2bb3e23c8fb27caa17e7c67cfb2fd40439fd9a2f535f3",
+          "size": 1013
+        },
+        {
+          "path": "timing-canary/fixture-672.json",
+          "sha256": "fd1d0ef68dce6ac7e04b5ed88884885735982b1c8d939b70993a370946c15f35",
+          "size": 2119
+        },
+        {
+          "path": "timing-canary/fixture-673.json",
+          "sha256": "bde837e31f5fa43b8665edace261240108d1505c3558037fb7008bd0039f1812",
+          "size": 2123
+        },
+        {
+          "path": "timing-canary/verified-ledger.json",
+          "sha256": "e7ab562b30324937a37c548851f7dcd47e502f3c83c0643de196f17de18a52e8",
+          "size": 638
+        }
+      ],
+      "name": "runtime._exports"
+    },
+    "exports": [
+      {
+        "path": "environment/after-fixture-672.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "environment/after-fixture-673.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "environment/after.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "environment/before.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "paired/assignment-environment.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "paired/f5-state-C.pt",
+        "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+        "size": 1453
+      },
+      {
+        "path": "paired/f5-state-W.pt",
+        "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-C.pth",
+        "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-W.pth",
+        "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-receipt.json",
+        "sha256": "932814c03c56a7094d3fa7159d29bcdc79613a2c0a77b78abc9e04def77c9918",
+        "size": 223
+      },
+      {
+        "path": "qualification/qualification.json",
+        "sha256": "8eeaf6bcda3ec9d81720499b3de88c100cc0f42cb25cf6350d9a1b2d4c431f3c",
+        "size": 42069654
+      },
+      {
+        "path": "resume/verified-skip-proof.json",
+        "sha256": "85946e7c81648113dfd2bb3e23c8fb27caa17e7c67cfb2fd40439fd9a2f535f3",
+        "size": 1013
+      },
+      {
+        "path": "timing-canary/fixture-672.json",
+        "sha256": "fd1d0ef68dce6ac7e04b5ed88884885735982b1c8d939b70993a370946c15f35",
+        "size": 2119
+      },
+      {
+        "path": "timing-canary/fixture-673.json",
+        "sha256": "bde837e31f5fa43b8665edace261240108d1505c3558037fb7008bd0039f1812",
+        "size": 2123
+      },
+      {
+        "path": "timing-canary/verified-ledger.json",
+        "sha256": "e7ab562b30324937a37c548851f7dcd47e502f3c83c0643de196f17de18a52e8",
+        "size": 638
+      }
+    ],
+    "finished_at": 1793044558.673144,
+    "generation": "ac84655a6de340a8a5c4f33a3fcfc8c5",
+    "job_id": "bl-f5-family-canary-911426db-20261026-04",
+    "last_traceback_line": "{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 634.251, \"fixtures_completed\": 2, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"export\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"COMPLETE\"}",
+    "reason": null,
+    "returncode": 0,
+    "started_at": 1793043349.949411,
+    "status": "succeeded"
+  }
+}

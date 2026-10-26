@@ -1,0 +1,15 @@
+{
+  "exports": [],
+  "job_log_tail": "",
+  "state": {
+    "generation": "ac84655a6de340a8a5c4f33a3fcfc8c5",
+    "job_id": "bl-f5-family-canary-911426db-20261026-04",
+    "max_export_bytes": 2147483648,
+    "pid": 6808,
+    "started_at": 1793043349.949411,
+    "status": "running",
+    "updated_at": 1793043561.4443817
+  },
+  "supervisor_log_tail": "",
+  "terminal": null
+}

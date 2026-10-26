@@ -1,0 +1,5758 @@
+{
+  "accounting": {
+    "allocated_endpoint": "gpu-l4-s-ass1a0-n6i5x5fmz3qu",
+    "assignments": [],
+    "baseline_balance_units": 1063.23,
+    "baseline_rate_units_per_hour": 0.0,
+    "calibration": {
+      "interval_seconds": 5.0,
+      "observed_rate_units_per_hour": 1.54,
+      "priced_rate_units_per_hour": 2.0,
+      "required_stable_reads": 3,
+      "samples": [
+        {
+          "elapsed_seconds": 0.8699873329605907,
+          "sessions": {
+            "gpu-l4-s-ass1a0-n6i5x5fmz3qu": "snake-bl-f5-family-canary-911426db-20261026-04-ac84655a6de3"
+          },
+          "usage": {
+            "assignments": 1.0,
+            "balance": 1063.23,
+            "rate": 1.54
+          }
+        },
+        {
+          "elapsed_seconds": 6.811675832956098,
+          "sessions": {
+            "gpu-l4-s-ass1a0-n6i5x5fmz3qu": "snake-bl-f5-family-canary-911426db-20261026-04-ac84655a6de3"
+          },
+          "usage": {
+            "assignments": 1.0,
+            "balance": 1063.23,
+            "rate": 1.54
+          }
+        },
+        {
+          "elapsed_seconds": 12.713752874988131,
+          "sessions": {
+            "gpu-l4-s-ass1a0-n6i5x5fmz3qu": "snake-bl-f5-family-canary-911426db-20261026-04-ac84655a6de3"
+          },
+          "usage": {
+            "assignments": 1.0,
+            "balance": 1063.23,
+            "rate": 1.54
+          }
+        }
+      ],
+      "stability_units_per_hour": 0.01,
+      "status": "PASS",
+      "timeout_seconds": 730.0
+    },
+    "declared_other_rate_units_per_hour": 0,
+    "integrated_accounted_other_units": 0.0,
+    "last_crosscheck": {
+      "attributable_account_debit_units": 0.39000000000010004,
+      "balance_crosscheck_status": "OK",
+      "balance_discrepancy_tolerance_units": 0.13833333333333334,
+      "balance_discrepancy_units": -0.11706887691531986,
+      "baseline_integrated_units": 0.0,
+      "elapsed_seconds": 1185.3558161659166,
+      "expected_account_debit_units": 0.5070688769154199,
+      "observed_account_debit_units": 0.39000000000010004,
+      "observed_elapsed_units": 0.5070688769154199,
+      "observed_rate_units_per_hour": 1.54,
+      "own_elapsed_units": 0.6585310089810648,
+      "provider_transition_mismatch_polls": 0,
+      "provider_transition_status": "OK"
+    },
+    "observed_rate_units_per_hour": 1.54,
+    "own_rate_units_per_hour": 2.0,
+    "priced_rate_units_per_hour": 2.0,
+    "unaccounted_endpoints": [],
+    "unit_cap": 100.0
+  },
+  "canary_evidence": {
+    "commit": "911426dbace94ca2925d737d00d5d8ca8456cb6a",
+    "cuda_observations": [
+      {
+        "caller": "research/bl_residual/f5_qualification.py:136:_select_cuda",
+        "cuda_decisions": 1,
+        "device": "cuda:0",
+        "operation": "Tensor.argmax",
+        "package": "research/bl_residual",
+        "pid": 9317,
+        "root": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5",
+        "shape": [
+          1,
+          6
+        ],
+        "version": 1
+      }
+    ],
+    "device": "cuda",
+    "exports": [
+      "environment/after-fixture-672.json",
+      "environment/after-fixture-673.json",
+      "environment/after.json",
+      "environment/before.json",
+      "paired/assignment-environment.json",
+      "paired/f5-state-C.pt",
+      "paired/f5-state-W.pt",
+      "paired/fit-C.pth",
+      "paired/fit-W.pth",
+      "paired/fit-receipt.json",
+      "qualification/qualification.json",
+      "resume/verified-skip-proof.json",
+      "timing-canary/fixture-672.json",
+      "timing-canary/fixture-673.json",
+      "timing-canary/verified-ledger.json"
+    ],
+    "family": "research/bl_residual/f5_colab.sh",
+    "hardware": "L4",
+    "inputs": [
+      {
+        "dest": "b8.pth",
+        "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+        "size": 6562005,
+        "transport": "https"
+      },
+      {
+        "dest": "best_apex_fs.pth",
+        "sha256": "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+        "size": 3451633,
+        "transport": "upload"
+      },
+      {
+        "dest": "best_apex_pre_fs.pth",
+        "sha256": "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+        "size": 3449513,
+        "transport": "upload"
+      },
+      {
+        "dest": "best_apex_stage1_fs.pth",
+        "sha256": "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+        "size": 3451651,
+        "transport": "upload"
+      },
+      {
+        "dest": "champion_a5_freespace_20260621.pth",
+        "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+        "size": 6898955,
+        "transport": "upload"
+      },
+      {
+        "dest": "control.json",
+        "sha256": "2c45718cd192f0a7dd61c96fc25d1d962d677a35b515d9e3fb32e71d66777964",
+        "size": 17918153,
+        "transport": "upload"
+      },
+      {
+        "dest": "frp3_m3_s12_u60000_20261005.pth",
+        "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+        "size": 6906247,
+        "transport": "upload"
+      },
+      {
+        "dest": "timing-fixtures.json",
+        "sha256": "737b2c61eabeb570456c8d7c287a5e615ac642a71d320db44925c58c252201aa",
+        "size": 2175,
+        "transport": "upload"
+      },
+      {
+        "dest": "verified-ledger.json",
+        "sha256": "30da303cf972a76fe02e8041e7a5ead015ddfae42385abed3daf93e8371f6c42",
+        "size": 499,
+        "transport": "upload"
+      },
+      {
+        "dest": "verified-ledger.json.complete",
+        "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+        "size": 9,
+        "transport": "upload"
+      },
+      {
+        "dest": "verified-ledger.json.sha256",
+        "sha256": "f315c9ee51c86e391e8960ae36dda1db79ba32a958d24c367b969a89590e619c",
+        "size": 87,
+        "transport": "upload"
+      }
+    ],
+    "schema": "colab-family-canary/v1",
+    "source_delivery_seconds": 25.831076791975647,
+    "transfer_seconds": 169.49707971024327,
+    "transport_identity": {
+      "research/colab_cli/__init__.py": "624677cd409539df23ec6c1f21ad999059fe779715ee5eab0183b7b2498851f1",
+      "research/colab_cli/acceptance.py": "e01d4366baf7a4499fd0e26ef51264b6999e5e214157dba089a9c51f28df48d8",
+      "research/colab_cli/acceptance_faults.py": "c7796415189730f94fc9b9786c615699fd2d02a6bb2e0c6c48e6add85ff08fcb",
+      "research/colab_cli/acceptance_probe.py": "5fe350618270ecbb51ecdb44b16fc80a071d80633ac94679ba94541694251610",
+      "research/colab_cli/acceptance_probe.sh": "9e7163c63bda2a86c96fe2eabee9be538d77e8151c13422467fe497d55be9064",
+      "research/colab_cli/accounting.py": "0137488c4c7e1e3f8272782e3799741503e6c871e816d9d05950390b177de784",
+      "research/colab_cli/admission.py": "41085b9348efd6d4ccccb776d865b71ebfe8dc8b905ba39f34d4eb1cd3bef868",
+      "research/colab_cli/backup.py": "125b73b512c63e06f4b7656e52b534967510685314ab5b2c1b9fbbe4232239fe",
+      "research/colab_cli/bootstrap.sh": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+      "research/colab_cli/canary.py": "7c245573aca746749e7c79644eb70b4fd135cc6d47565b8ca4b6b75481fb96ea",
+      "research/colab_cli/canary_observer.py": "8fdba23c889de4d2403161e98345b963b731eecb2f931439b7cd4d3de3b0ce64",
+      "research/colab_cli/cli_guard.py": "fd41ea264860cd1dc215ac4f5c14acff31bd62210dcb7ba71ad7b4e231ecafdc",
+      "research/colab_cli/export_batches.py": "9f27d3bc5dde95b0b49dbcd4c2169b63e1546ad52902386d17d86974200a612d",
+      "research/colab_cli/failures.py": "fd92efd5700669ab331f88c6fe478f181757d3f76776a8d76ef298e43e45843f",
+      "research/colab_cli/inputs.py": "56cce4bd7a6c9487f52ac914c743f34051b5e818893c8e48ca0da9ff08f03ae1",
+      "research/colab_cli/launch.sh": "173b51e74e5c0b44c40d0d549b0d4a3a1dc1ab787baa68eb854ca0663b50ea79",
+      "research/colab_cli/policy.py": "df0853ea3ca984a1bcfb5c78a8890467b4a66047ea56d269af3cc736475254e3",
+      "research/colab_cli/release.py": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+      "research/colab_cli/runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+      "research/colab_cli/schema.py": "8be6acbdf24d37c5fe66565f5af95cf53b7ead69b8d33c2357fd04a0543053f7",
+      "research/colab_cli/source.py": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+      "research/colab_cli/supervisor.py": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+      "research/colab_cli/transfer_policy.py": "80ea77ecad3c83d70eb96e3351587a6ba397d850352ef72359df4008fef8652f",
+      "research/colab_cli/transfers.py": "4420a2ea861edcb6bb0a1d4e763aa994bce255f5dee9a2aaf3c2ff5ffbc81cf8"
+    },
+    "upload_elapsed_seconds": 197.206293166033
+  },
+  "cleanup_error": null,
+  "cli_calls": [
+    {
+      "attempt": 1,
+      "command": "version",
+      "elapsed_seconds": 0.24401187500916421,
+      "ended_monotonic": 741661.976098125,
+      "operation": "control",
+      "started_monotonic": 741661.732094583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999812501483
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.41003549995366484,
+      "ended_monotonic": 741662.632799166,
+      "operation": "control",
+      "started_monotonic": 741662.222771125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999366700649
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.4065003750147298,
+      "ended_monotonic": 741663.039423958,
+      "operation": "control",
+      "started_monotonic": 741662.632930333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999841698445
+    },
+    {
+      "attempt": 1,
+      "command": "new",
+      "elapsed_seconds": 3.17078274989035,
+      "ended_monotonic": 741666.211679833,
+      "operation": "control",
+      "started_monotonic": 741663.040904,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 179.99999933305662
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 3.2557273340644315,
+      "ended_monotonic": 741670.423479583,
+      "operation": "control",
+      "started_monotonic": 741667.167759041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999333987944
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.5395099580055103,
+      "ended_monotonic": 741670.969301041,
+      "operation": "PUT",
+      "started_monotonic": 741670.429791458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999941606075
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.5465857919771224,
+      "ended_monotonic": 741671.517598833,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741670.971015416,
+      "status": "failed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999998999992386
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.997469250112772,
+      "ended_monotonic": 741672.968577625,
+      "operation": "control",
+      "started_monotonic": 741670.971112083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999937496614
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3743886249139905,
+      "ended_monotonic": 741676.354173583,
+      "operation": "renewal",
+      "started_monotonic": 741673.979796875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999812501483
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.43821358296554536,
+      "ended_monotonic": 741676.792989458,
+      "operation": "control",
+      "started_monotonic": 741676.354783458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999908299651
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.43160237499978393,
+      "ended_monotonic": 741677.224617416,
+      "operation": "control",
+      "started_monotonic": 741676.793024458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999904097058
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.4596313330112025,
+      "ended_monotonic": 741682.685370833,
+      "operation": "control",
+      "started_monotonic": 741682.225746375,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999570904765
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.4808984169503674,
+      "ended_monotonic": 741683.166279208,
+      "operation": "control",
+      "started_monotonic": 741682.685396916,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999870802276
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.42342558305244893,
+      "ended_monotonic": 741688.597927666,
+      "operation": "control",
+      "started_monotonic": 741688.174514125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999908329919
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.47041625005658716,
+      "ended_monotonic": 741689.06836375,
+      "operation": "control",
+      "started_monotonic": 741688.597959833,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999883305281
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.875866209040396,
+      "ended_monotonic": 741690.948361125,
+      "operation": "mkdir",
+      "started_monotonic": 741689.072503041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.99999941699207
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.554444000008516,
+      "ended_monotonic": 741691.503431583,
+      "operation": "PUT",
+      "started_monotonic": 741690.948987833,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999858392403
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3271365420660004,
+      "ended_monotonic": 741693.83166525,
+      "operation": "verify",
+      "started_monotonic": 741691.504541916,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.99999929103069
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.558352250023745,
+      "ended_monotonic": 741694.390940041,
+      "operation": "PUT",
+      "started_monotonic": 741693.832588083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999841605313
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.5697775830049068,
+      "ended_monotonic": 741696.961503833,
+      "operation": "verify",
+      "started_monotonic": 741694.391734625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999166000634
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.410269125015475,
+      "ended_monotonic": 741699.374270375,
+      "operation": "mkdir",
+      "started_monotonic": 741696.964010625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999292078428
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.9628207499627024,
+      "ended_monotonic": 741701.34209525,
+      "operation": "PUT",
+      "started_monotonic": 741699.379277333,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.99999862501863
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.3112162079196423,
+      "ended_monotonic": 741701.687678416,
+      "operation": "PUT",
+      "started_monotonic": 741699.376463833,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999791593291
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0555612080497667,
+      "ended_monotonic": 741702.584265291,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741701.528706,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999675003346
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.389132875017822,
+      "ended_monotonic": 741704.079206666,
+      "operation": "assemble",
+      "started_monotonic": 741701.69008025,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999540974386
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3282345830230042,
+      "ended_monotonic": 741706.410371041,
+      "operation": "mkdir",
+      "started_monotonic": 741704.08215075,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999624909833
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.5434634999837726,
+      "ended_monotonic": 741706.954726541,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741706.411263333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 59.99999904201832
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.9435947079909965,
+      "ended_monotonic": 741708.9047125,
+      "operation": "PUT",
+      "started_monotonic": 741706.961120125,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.99999795900658
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.1442373750032857,
+      "ended_monotonic": 741709.1021315,
+      "operation": "PUT",
+      "started_monotonic": 741706.957894958,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999725003727
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.8938437500037253,
+      "ended_monotonic": 741710.998250208,
+      "operation": "assemble",
+      "started_monotonic": 741709.104421583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999542022124
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 13.90710975008551,
+      "ended_monotonic": 741724.908668583,
+      "operation": "mkdir",
+      "started_monotonic": 741711.001565791,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999416060746
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.7054679170250893,
+      "ended_monotonic": 741727.618296291,
+      "operation": "PUT",
+      "started_monotonic": 741724.912831291,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.99999883305281
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0622205829713494,
+      "ended_monotonic": 741733.658666666,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741732.596449125,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.9999955840176
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 24.080777833005413,
+      "ended_monotonic": 741748.991219125,
+      "operation": "PUT",
+      "started_monotonic": 741724.91044225,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999833398033
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.5714471669634804,
+      "ended_monotonic": 741749.564111208,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741748.992664291,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 59.99999970791396
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.909694500034675,
+      "ended_monotonic": 741751.477908083,
+      "operation": "assemble",
+      "started_monotonic": 741749.568221375,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999583000317
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.8850555000826716,
+      "ended_monotonic": 741753.367220708,
+      "operation": "mkdir",
+      "started_monotonic": 741751.482175416,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999998999992386
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.152110041002743,
+      "ended_monotonic": 741755.521964208,
+      "operation": "PUT",
+      "started_monotonic": 741753.36985575,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999775004108
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 3.1463358330074698,
+      "ended_monotonic": 741756.520274666,
+      "operation": "PUT",
+      "started_monotonic": 741753.373939583,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.99999816692434
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.6930363749852404,
+      "ended_monotonic": 741758.216600541,
+      "operation": "PUT",
+      "started_monotonic": 741756.523569125,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.99999583302997
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.176987042068504,
+      "ended_monotonic": 741758.698699458,
+      "operation": "PUT",
+      "started_monotonic": 741756.521713333,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999795807526
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.9218149579828605,
+      "ended_monotonic": 741760.624533708,
+      "operation": "assemble",
+      "started_monotonic": 741758.702726875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999542022124
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3551247499417514,
+      "ended_monotonic": 741762.984421916,
+      "operation": "mkdir",
+      "started_monotonic": 741760.629307208,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999375082552
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0810334170237184,
+      "ended_monotonic": 741764.74489175,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741763.663861708,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999998875078745
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.92174045892898,
+      "ended_monotonic": 741764.908663416,
+      "operation": "PUT",
+      "started_monotonic": 741762.986923916,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999749998096
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.263332749949768,
+      "ended_monotonic": 741765.254307375,
+      "operation": "PUT",
+      "started_monotonic": 741762.990975833,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.99999816599302
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.0557610830292106,
+      "ended_monotonic": 741767.31612375,
+      "operation": "PUT",
+      "started_monotonic": 741765.260364583,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.99999845807906
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 40.3775654170895,
+      "ended_monotonic": 741805.634309291,
+      "operation": "PUT",
+      "started_monotonic": 741765.256747708,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.9999961660942
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 20.79120395798236,
+      "ended_monotonic": 741815.5390285,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741794.747826333,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999812501483
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 9.926671292050742,
+      "ended_monotonic": 741815.562308083,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741805.635637083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 59.99999808310531
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 14.487266208045185,
+      "ended_monotonic": 741830.053014666,
+      "operation": "assemble",
+      "started_monotonic": 741815.56575875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999707913958
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0310459170723334,
+      "ended_monotonic": 741831.085031083,
+      "operation": "PUT",
+      "started_monotonic": 741830.053985458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999733304139
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.305778125068173,
+      "ended_monotonic": 741833.392231375,
+      "operation": "verify",
+      "started_monotonic": 741831.086463708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.99999895808287
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.282973292050883,
+      "ended_monotonic": 741835.684774791,
+      "operation": "mkdir",
+      "started_monotonic": 741833.401807708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.99999912502244
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.148666957975365,
+      "ended_monotonic": 741837.837833833,
+      "operation": "PUT",
+      "started_monotonic": 741835.689168708,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.99999899999239
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.562893374939449,
+      "ended_monotonic": 741838.249428416,
+      "operation": "PUT",
+      "started_monotonic": 741835.686536625,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999400007073
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.4632272500311956,
+      "ended_monotonic": 741840.719376875,
+      "operation": "PUT",
+      "started_monotonic": 741838.256152375,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999870802276
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.51995949994307,
+      "ended_monotonic": 741840.772286541,
+      "operation": "PUT",
+      "started_monotonic": 741838.252327541,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.99999645794742
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.3301921249367297,
+      "ended_monotonic": 741843.104081166,
+      "operation": "PUT",
+      "started_monotonic": 741840.773891375,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999837495852
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.608911667019129,
+      "ended_monotonic": 741843.385441375,
+      "operation": "PUT",
+      "started_monotonic": 741840.776530958,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.99999891698826
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.334059457993135,
+      "ended_monotonic": 741845.723040541,
+      "operation": "PUT",
+      "started_monotonic": 741843.388982625,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999774992466
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.810603874968365,
+      "ended_monotonic": 741846.203613333,
+      "operation": "PUT",
+      "started_monotonic": 741843.393012,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.9999985829927
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.1645062919706106,
+      "ended_monotonic": 741846.714852458,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741845.550348083,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999996374943294
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0339609580114484,
+      "ended_monotonic": 741847.238572333,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741846.204611708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 59.999999208026566
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.5827966659562662,
+      "ended_monotonic": 741848.823265791,
+      "operation": "PUT",
+      "started_monotonic": 741847.24047075,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999762501102
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.533702625078149,
+      "ended_monotonic": 741851.365132916,
+      "operation": "assemble",
+      "started_monotonic": 741848.831437666,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.99999924993608
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0076658329926431,
+      "ended_monotonic": 741852.373312375,
+      "operation": "PUT",
+      "started_monotonic": 741851.365646958,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999875004869
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3073571670101956,
+      "ended_monotonic": 741854.681306083,
+      "operation": "verify",
+      "started_monotonic": 741852.373956541,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999332940206
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.5307127500418574,
+      "ended_monotonic": 741855.212564708,
+      "operation": "PUT",
+      "started_monotonic": 741854.681852291,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999837495852
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.869247708003968,
+      "ended_monotonic": 741857.082330625,
+      "operation": "verify",
+      "started_monotonic": 741855.213090458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.99999958393164
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0400943749118596,
+      "ended_monotonic": 741858.123024083,
+      "operation": "PUT",
+      "started_monotonic": 741857.082930083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999825004488
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3223846670007333,
+      "ended_monotonic": 741860.446134083,
+      "operation": "verify",
+      "started_monotonic": 741858.123760458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.99999945797026
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.024309542030096,
+      "ended_monotonic": 741877.750074208,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741876.725766541,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999908392783
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 24.33225841599051,
+      "ended_monotonic": 741884.782078458,
+      "operation": "control",
+      "started_monotonic": 741860.4498265,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999583000317
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.49533370800782,
+      "ended_monotonic": 741886.278098,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741884.782764625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 59.99999929103069
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.4256517499452457,
+      "ended_monotonic": 741888.722194166,
+      "operation": "control",
+      "started_monotonic": 741886.296550333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999945797026
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.6563259579706937,
+      "ended_monotonic": 741889.379326708,
+      "operation": "control",
+      "started_monotonic": 741888.723011333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999904201832
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.4381733329501003,
+      "ended_monotonic": 741889.817548291,
+      "operation": "control",
+      "started_monotonic": 741889.379381833,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999720801134
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.349311541998759,
+      "ended_monotonic": 741892.168741166,
+      "operation": "renewal",
+      "started_monotonic": 741889.819437791,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999954097439
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0503860000753775,
+      "ended_monotonic": 741908.812354541,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741907.761970916,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999654199928
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.8606014169054106,
+      "ended_monotonic": 741909.037727583,
+      "operation": "renewal",
+      "started_monotonic": 741907.177135791,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999895901419
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 5.434911249903962,
+      "ended_monotonic": 741929.47653325,
+      "operation": "renewal",
+      "started_monotonic": 741924.041635583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999929196201
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0180081250146031,
+      "ended_monotonic": 741939.833539583,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741938.815533208,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999745900277
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.9308029999956489,
+      "ended_monotonic": 741946.411952166,
+      "operation": "renewal",
+      "started_monotonic": 741944.481165666,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999985829927
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.5092846249463037,
+      "ended_monotonic": 741961.923533625,
+      "operation": "control",
+      "started_monotonic": 741961.414257708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999433301855
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.44199845800176263,
+      "ended_monotonic": 741962.365566541,
+      "operation": "control",
+      "started_monotonic": 741961.923579375,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999699997716
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 4.10093616694212,
+      "ended_monotonic": 741966.46856075,
+      "operation": "renewal",
+      "started_monotonic": 741962.367631291,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999937496614
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 38.53336958400905,
+      "ended_monotonic": 742008.377761708,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741969.844394416,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999641708564
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.1760025839321315,
+      "ended_monotonic": 742039.564999083,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742038.388997916,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999997874954715
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.019445416983217,
+      "ended_monotonic": 742070.596640041,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742069.577196666,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999566702172
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 120.00695683294907,
+      "ended_monotonic": 742101.483412958,
+      "operation": "renewal",
+      "started_monotonic": 741981.476465333,
+      "status": "failed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999992090743
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0254953750409186,
+      "ended_monotonic": 742101.634039125,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742100.608545666,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999996625003405
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.4342831670073792,
+      "ended_monotonic": 742105.794036375,
+      "operation": "renewal",
+      "started_monotonic": 742104.359765708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999968749471
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.8484465000219643,
+      "ended_monotonic": 742122.650166208,
+      "operation": "renewal",
+      "started_monotonic": 742120.801733875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999949999619
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.05800483294297,
+      "ended_monotonic": 742132.694077416,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742131.636075375,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999774992466
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.407792582991533,
+      "ended_monotonic": 742140.067736875,
+      "operation": "renewal",
+      "started_monotonic": 742137.659954333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999980420107
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.7750879999948665,
+      "ended_monotonic": 742155.850696333,
+      "operation": "control",
+      "started_monotonic": 742155.075621333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999375001062
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.6845166250132024,
+      "ended_monotonic": 742156.535255083,
+      "operation": "control",
+      "started_monotonic": 742155.850751291,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999608297367
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.8570265410235152,
+      "ended_monotonic": 742158.394843708,
+      "operation": "renewal",
+      "started_monotonic": 742156.537824,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999929207843
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0946661670459434,
+      "ended_monotonic": 742163.797353291,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742162.702689833,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999741697684
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.8301548750605434,
+      "ended_monotonic": 742176.234796791,
+      "operation": "renewal",
+      "started_monotonic": 742173.404650791,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999812501483
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.33012041694019,
+      "ended_monotonic": 742193.576203416,
+      "operation": "renewal",
+      "started_monotonic": 742191.246089583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999941606075
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.5573542909696698,
+      "ended_monotonic": 742194.365527833,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742193.808177,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999779101927
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 36.79894499992952,
+      "ended_monotonic": 742245.387205833,
+      "operation": "renewal",
+      "started_monotonic": 742208.588266958,
+      "status": "failed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999666702934
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 30.438261416042224,
+      "ended_monotonic": 742254.813476166,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742224.37521725,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999429099262
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 15.345779333030805,
+      "ended_monotonic": 742263.6323645,
+      "operation": "renewal",
+      "started_monotonic": 742248.28659375,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999916693196
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.4572842080378905,
+      "ended_monotonic": 742279.091813791,
+      "operation": "control",
+      "started_monotonic": 742278.634536583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999762501102
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.6271709590218961,
+      "ended_monotonic": 742279.719003291,
+      "operation": "control",
+      "started_monotonic": 742279.091841541,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999783292878
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.8583282919134945,
+      "ended_monotonic": 742281.579851791,
+      "operation": "renewal",
+      "started_monotonic": 742279.721530916,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999983399175
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0240852910792455,
+      "ended_monotonic": 742285.847621125,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742284.823537875,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999924993608
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.363682167022489,
+      "ended_monotonic": 742298.955226625,
+      "operation": "renewal",
+      "started_monotonic": 742296.591556166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999912490603
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3069361250381917,
+      "ended_monotonic": 742316.267719875,
+      "operation": "renewal",
+      "started_monotonic": 742313.960789958,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999912502244
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.5450830420013517,
+      "ended_monotonic": 742316.399022125,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742315.853940791,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999695806764
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.893499083002098,
+      "ended_monotonic": 742333.165322541,
+      "operation": "renewal",
+      "started_monotonic": 742331.271830833,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999749998096
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.081583125051111,
+      "ended_monotonic": 742347.48572525,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742346.40414525,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999996625003405
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.4784689999651164,
+      "ended_monotonic": 742348.651921333,
+      "operation": "control",
+      "started_monotonic": 742348.17345975,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999300006311
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.41850229201372713,
+      "ended_monotonic": 742349.070448791,
+      "operation": "control",
+      "started_monotonic": 742348.651953208,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999787507113
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3025578749366105,
+      "ended_monotonic": 742351.37445225,
+      "operation": "renewal",
+      "started_monotonic": 742349.071901625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999966705218
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.042301999987103,
+      "ended_monotonic": 742378.529826916,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742377.487527666,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999998791958205
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.5835244579939172,
+      "ended_monotonic": 742409.123906666,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742408.540385833,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999904201832
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 35.06243983306922,
+      "ended_monotonic": 742474.19469425,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742439.1322565,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.9999985829927
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 120.01134862506296,
+      "ended_monotonic": 742486.391894541,
+      "operation": "renewal",
+      "started_monotonic": 742366.380550458,
+      "status": "failed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999766703695
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.329584459075704,
+      "ended_monotonic": 742491.116018416,
+      "operation": "renewal",
+      "started_monotonic": 742488.786440166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999929091427
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3985239160247147,
+      "ended_monotonic": 742493.516246958,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 742491.11773075,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999945808668
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.406597499968484,
+      "ended_monotonic": 742495.923320208,
+      "operation": "GET",
+      "started_monotonic": 742493.516723083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999916704837
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.2136227500159293,
+      "ended_monotonic": 742498.138493416,
+      "operation": "GET",
+      "started_monotonic": 742495.924871,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999762501102
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.4004779999377206,
+      "ended_monotonic": 742500.548637375,
+      "operation": "cleanup",
+      "started_monotonic": 742498.148171541,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999954202212
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.0409222090383992,
+      "ended_monotonic": 742501.590208125,
+      "operation": "GET",
+      "started_monotonic": 742500.549286291,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999012495391
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.0343069579685107,
+      "ended_monotonic": 742502.624597666,
+      "operation": "GET",
+      "started_monotonic": 742501.590291083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99998616601806
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.076367084053345,
+      "ended_monotonic": 742505.272452208,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742504.196087666,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999699997716
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.3917177920229733,
+      "ended_monotonic": 742519.034948875,
+      "operation": "renewal",
+      "started_monotonic": 742517.643237791,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999695795123
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.028178707929328,
+      "ended_monotonic": 742536.308061708,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742535.279884375,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999997750041075
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.331349499989301,
+      "ended_monotonic": 742536.368705833,
+      "operation": "renewal",
+      "started_monotonic": 742534.037359666,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999666691292
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.4651588329579681,
+      "ended_monotonic": 742551.844688333,
+      "operation": "control",
+      "started_monotonic": 742551.379534875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999566702172
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.39644191693514585,
+      "ended_monotonic": 742552.241146166,
+      "operation": "control",
+      "started_monotonic": 742551.844713291,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999812501483
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.8171287089353427,
+      "ended_monotonic": 742554.05984775,
+      "operation": "renewal",
+      "started_monotonic": 742552.242726166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999949999619
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0242141250055283,
+      "ended_monotonic": 742567.342712208,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742566.318500166,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999999124906026
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.8918940419098362,
+      "ended_monotonic": 742570.95946375,
+      "operation": "renewal",
+      "started_monotonic": 742569.067583041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999758298509
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3526872500078753,
+      "ended_monotonic": 742588.321735833,
+      "operation": "renewal",
+      "started_monotonic": 742585.969055,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999879102688
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.056908208061941,
+      "ended_monotonic": 742598.409364375,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742597.352459,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999998082988895
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.8774496670812368,
+      "ended_monotonic": 742605.204443833,
+      "operation": "renewal",
+      "started_monotonic": 742603.327000208,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999795795884
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3450789590133354,
+      "ended_monotonic": 742607.550936458,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 742605.205864166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999962502625
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.8402915409533307,
+      "ended_monotonic": 742609.39164875,
+      "operation": "GET",
+      "started_monotonic": 742607.551357625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999916704837
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.1480160410283133,
+      "ended_monotonic": 742611.542944875,
+      "operation": "GET",
+      "started_monotonic": 742609.39492925,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999437504448
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.8784192920429632,
+      "ended_monotonic": 742613.433634833,
+      "operation": "cleanup",
+      "started_monotonic": 742611.555223458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999929207843
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.0396452500717714,
+      "ended_monotonic": 742614.473624375,
+      "operation": "GET",
+      "started_monotonic": 742613.433979541,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999487504829
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 11.291846208041534,
+      "ended_monotonic": 742625.765533375,
+      "operation": "GET",
+      "started_monotonic": 742614.4736875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999045697041
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.503899083007127,
+      "ended_monotonic": 742641.285868416,
+      "operation": "control",
+      "started_monotonic": 742640.781977375,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999145802576
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.44165137503296137,
+      "ended_monotonic": 742641.7275465,
+      "operation": "control",
+      "started_monotonic": 742641.285902375,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999795900658
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 29.70204499992542,
+      "ended_monotonic": 742658.113408708,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742628.411366875,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999997584032826
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0342557500116527,
+      "ended_monotonic": 742689.158732041,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742688.12447825,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999816599302
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.068308416986838,
+      "ended_monotonic": 742720.235328958,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742719.167023666,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999679089524
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0679647909710184,
+      "ended_monotonic": 742751.311988666,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742750.244025,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999804107938
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 120.01153116708156,
+      "ended_monotonic": 742761.74082625,
+      "operation": "renewal",
+      "started_monotonic": 742641.729306291,
+      "status": "failed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999941606075
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.8821736249374226,
+      "ended_monotonic": 742766.540153416,
+      "operation": "renewal",
+      "started_monotonic": 742764.657991708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999645899516
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.4807416250696406,
+      "ended_monotonic": 742769.02362925,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 742766.542896541,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999950011261
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.8713862500153482,
+      "ended_monotonic": 742770.895544416,
+      "operation": "GET",
+      "started_monotonic": 742769.024158583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999920895789
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.2116113329539075,
+      "ended_monotonic": 742773.108584416,
+      "operation": "GET",
+      "started_monotonic": 742770.8969735,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999799998477
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3144065419910476,
+      "ended_monotonic": 742775.435552375,
+      "operation": "cleanup",
+      "started_monotonic": 742773.121154041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999954202212
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 0.555774417007342,
+      "ended_monotonic": 742775.991633958,
+      "operation": "GET",
+      "started_monotonic": 742775.435860041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999947079923
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.064991833991371,
+      "ended_monotonic": 742777.056697208,
+      "operation": "GET",
+      "started_monotonic": 742775.991705916,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99998733308166
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3959695419762284,
+      "ended_monotonic": 742779.461280166,
+      "operation": "control",
+      "started_monotonic": 742777.065318833,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999887496233
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.0016840409953147,
+      "ended_monotonic": 742780.463558833,
+      "operation": "GET",
+      "started_monotonic": 742779.461875125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999899999239
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0518945410149172,
+      "ended_monotonic": 742782.3742595,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742781.322365375,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999908299651
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3395207499852404,
+      "ended_monotonic": 742797.813364916,
+      "operation": "renewal",
+      "started_monotonic": 742795.47385625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999904097058
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0677284590201452,
+      "ended_monotonic": 742813.449516541,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742812.381788541,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999541591387
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.298938583000563,
+      "ended_monotonic": 742815.123306333,
+      "operation": "renewal",
+      "started_monotonic": 742812.824373083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999916600063
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3733335830038413,
+      "ended_monotonic": 742832.505814791,
+      "operation": "renewal",
+      "started_monotonic": 742830.132493833,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999975420069
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0225826250389218,
+      "ended_monotonic": 742844.480232291,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742843.457649875,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999824992847
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.4673761670710519,
+      "ended_monotonic": 742847.981491125,
+      "operation": "control",
+      "started_monotonic": 742847.514122041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999516597018
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.4139587079407647,
+      "ended_monotonic": 742848.395468916,
+      "operation": "control",
+      "started_monotonic": 742847.981518083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999812501483
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3160397919127718,
+      "ended_monotonic": 742850.713113458,
+      "operation": "renewal",
+      "started_monotonic": 742848.397083166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999949999619
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0455724589992315,
+      "ended_monotonic": 742875.535932208,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742874.490360041,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999908299651
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 36.817601749906316,
+      "ended_monotonic": 742902.536515375,
+      "operation": "renewal",
+      "started_monotonic": 742865.718916916,
+      "status": "failed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999858404044
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.099975583027117,
+      "ended_monotonic": 742906.64684,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742905.546864833,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999625002965
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.408819583011791,
+      "ended_monotonic": 742916.437921,
+      "operation": "renewal",
+      "started_monotonic": 742914.029115625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999620893504
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 4.037951666978188,
+      "ended_monotonic": 742920.479298291,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 742916.441354916,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999912502244
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.4352075000060722,
+      "ended_monotonic": 742922.915011458,
+      "operation": "GET",
+      "started_monotonic": 742920.47980425,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999904201832
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.197108166059479,
+      "ended_monotonic": 742925.113573166,
+      "operation": "GET",
+      "started_monotonic": 742922.916465375,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999766692054
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3611379580106586,
+      "ended_monotonic": 742927.485397958,
+      "operation": "cleanup",
+      "started_monotonic": 742925.124267375,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.999999459018
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.0354872499592602,
+      "ended_monotonic": 742928.521215125,
+      "operation": "GET",
+      "started_monotonic": 742927.485728333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999487504829
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.0506400419399142,
+      "ended_monotonic": 742929.571933291,
+      "operation": "GET",
+      "started_monotonic": 742928.521293708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99998608301394
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.433473667013459,
+      "ended_monotonic": 742932.013281833,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 742929.579825708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999958300032
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.4122034170432016,
+      "ended_monotonic": 742934.426324791,
+      "operation": "GET",
+      "started_monotonic": 742932.014122041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999849998858
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.2172964580822736,
+      "ended_monotonic": 742936.646267833,
+      "operation": "GET",
+      "started_monotonic": 742934.42897175,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999683292117
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.5610481669427827,
+      "ended_monotonic": 742937.210503958,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742936.649456333,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999833398033
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.5083040420431644,
+      "ended_monotonic": 742939.170837541,
+      "operation": "cleanup",
+      "started_monotonic": 742936.662540916,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999941699207
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.0116282919188961,
+      "ended_monotonic": 742940.182904208,
+      "operation": "GET",
+      "started_monotonic": 742939.171276333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999241693877
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 0.5565323329064995,
+      "ended_monotonic": 742940.739482458,
+      "operation": "GET",
+      "started_monotonic": 742940.182950583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999154207762
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.9449933340074494,
+      "ended_monotonic": 742942.691848,
+      "operation": "control",
+      "started_monotonic": 742940.746871541,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999937496614
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 0.9905794580699876,
+      "ended_monotonic": 742943.68339725,
+      "operation": "GET",
+      "started_monotonic": 742942.692818083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999799998477
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.562941374955699,
+      "ended_monotonic": 742946.249765083,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 742943.686831666,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999949999619
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.8256304999813437,
+      "ended_monotonic": 742948.075896916,
+      "operation": "GET",
+      "started_monotonic": 742946.250266791,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999912502244
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.9835132920416072,
+      "ended_monotonic": 742950.060196833,
+      "operation": "renewal",
+      "started_monotonic": 742948.076698583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999958300032
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.4376282920129597,
+      "ended_monotonic": 742952.501572333,
+      "operation": "GET",
+      "started_monotonic": 742950.063944416,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999604199547
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.4545599579578266,
+      "ended_monotonic": 742954.963089416,
+      "operation": "GET",
+      "started_monotonic": 742952.508529833,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999729194678
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.376148249953985,
+      "ended_monotonic": 742957.344991916,
+      "operation": "GET",
+      "started_monotonic": 742954.968844083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999787495472
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.8302471250062808,
+      "ended_monotonic": 742959.184208041,
+      "operation": "GET",
+      "started_monotonic": 742957.353961375,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999799998477
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.270314666093327,
+      "ended_monotonic": 742960.45750175,
+      "operation": "GET",
+      "started_monotonic": 742959.1871875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999729101546
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.9715476670535281,
+      "ended_monotonic": 742962.449982458,
+      "operation": "cleanup",
+      "started_monotonic": 742960.478447791,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999949999619
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.0299680411117151,
+      "ended_monotonic": 742963.4804745,
+      "operation": "GET",
+      "started_monotonic": 742962.450506875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999249994289
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.0470254580723122,
+      "ended_monotonic": 742964.527581166,
+      "operation": "GET",
+      "started_monotonic": 742963.480556333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99998708302155
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 0.5496211660793051,
+      "ended_monotonic": 742965.095263375,
+      "operation": "GET",
+      "started_monotonic": 742964.545642625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999920895789
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.1077811249997467,
+      "ended_monotonic": 742966.203269375,
+      "operation": "GET",
+      "started_monotonic": 742965.095488625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99998970900197
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.026642666081898,
+      "ended_monotonic": 742967.229995125,
+      "operation": "GET",
+      "started_monotonic": 742966.203352875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99998462491203
+    },
+    {
+      "attempt": 1,
+      "command": "stop",
+      "elapsed_seconds": 0.857780916034244,
+      "ended_monotonic": 742968.089244125,
+      "operation": "control",
+      "started_monotonic": 742967.231494625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 74.99999854201451
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.0081652500666678,
+      "ended_monotonic": 742968.230205666,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742967.222040791,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999741697684
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.6134224580600858,
+      "ended_monotonic": 742968.702713041,
+      "operation": "control",
+      "started_monotonic": 742968.08930225,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 59.99999445793219
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.4574420000426471,
+      "ended_monotonic": 742969.160547666,
+      "operation": "control",
+      "started_monotonic": 742968.703123,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999949169578
+    }
+  ],
+  "commit": "911426dbace94ca2925d737d00d5d8ca8456cb6a",
+  "contents_transfers": [
+    {
+      "bytes_per_second": 867.819674270338,
+      "direction": "upload",
+      "elapsed_seconds": 0.5392825420713052,
+      "ended_monotonic": 741670.969193541,
+      "operation": "PUT",
+      "remote": "/content/snake-cli-ac84655a6de340a8a5c4f33a3fcfc8c5-release.json",
+      "size_bytes": 468,
+      "started_monotonic": 741670.429901958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": null,
+      "direction": "upload",
+      "elapsed_seconds": 0.5460732500068843,
+      "ended_monotonic": 741671.517475333,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": null,
+      "started_monotonic": 741670.9713955,
+      "status": "failed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 5854.298527930456,
+      "direction": "upload",
+      "elapsed_seconds": 0.5541227500652894,
+      "ended_monotonic": 741691.503257916,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/bootstrap.sh",
+      "size_bytes": 3244,
+      "started_monotonic": 741690.949126208,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 26002.322185480873,
+      "direction": "upload",
+      "elapsed_seconds": 0.5580655410885811,
+      "ended_monotonic": 741694.390792041,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/source.py",
+      "size_bytes": 14511,
+      "started_monotonic": 741693.8327195,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 690178.4998767509,
+      "direction": "upload",
+      "elapsed_seconds": 1.962508250027895,
+      "ended_monotonic": 741701.341978,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-372470112e2f4287ae2593b497d27e75/00000001.part",
+      "size_bytes": 1354481,
+      "started_monotonic": 741699.379463666,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 907507.1028060764,
+      "direction": "upload",
+      "elapsed_seconds": 2.3108932079048827,
+      "ended_monotonic": 741701.687620875,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-372470112e2f4287ae2593b497d27e75/00000000.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741699.376706875,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 80.58423892043507,
+      "direction": "upload",
+      "elapsed_seconds": 1.054796832962893,
+      "ended_monotonic": 741702.584168666,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741701.529362375,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 156.52449333601461,
+      "direction": "upload",
+      "elapsed_seconds": 0.5430459999479353,
+      "ended_monotonic": 741706.954620208,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741706.411511791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 695942.139257737,
+      "direction": "upload",
+      "elapsed_seconds": 1.9432089590700343,
+      "ended_monotonic": 741708.90459275,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-548d74b7b6e34422a1f711e804ac5739/00000001.part",
+      "size_bytes": 1352361,
+      "started_monotonic": 741706.961369416,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 978195.3347538282,
+      "direction": "upload",
+      "elapsed_seconds": 2.1438990000169724,
+      "ended_monotonic": 741709.102095083,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-548d74b7b6e34422a1f711e804ac5739/00000000.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741706.958193708,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 500712.68582468084,
+      "direction": "upload",
+      "elapsed_seconds": 2.7051421670475975,
+      "ended_monotonic": 741727.618178625,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-225e09ad1f2846ff88d98afa479b4b4e/00000001.part",
+      "size_bytes": 1354499,
+      "started_monotonic": 741724.912993333,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 80.10696945725334,
+      "direction": "upload",
+      "elapsed_seconds": 1.0610812089871615,
+      "ended_monotonic": 741733.658552458,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741732.597415416,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 87088.95695505518,
+      "direction": "upload",
+      "elapsed_seconds": 24.080573167069815,
+      "ended_monotonic": 741748.991189083,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-225e09ad1f2846ff88d98afa479b4b4e/00000000.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741724.910612416,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 148.92844886088403,
+      "direction": "upload",
+      "elapsed_seconds": 0.5707438749959692,
+      "ended_monotonic": 741749.563666791,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741748.992852791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 974602.3231382123,
+      "direction": "upload",
+      "elapsed_seconds": 2.1518027919810265,
+      "ended_monotonic": 741755.521880625,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-07395ace435845c09112016f02c0e014/00000000.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741753.370059208,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 666579.5052324812,
+      "direction": "upload",
+      "elapsed_seconds": 3.146139333024621,
+      "ended_monotonic": 741756.520242458,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-07395ace435845c09112016f02c0e014/00000001.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741753.374101083,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 358946.7540941262,
+      "direction": "upload",
+      "elapsed_seconds": 1.6924487910000607,
+      "ended_monotonic": 741758.2164265,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-07395ace435845c09112016f02c0e014/00000003.part",
+      "size_bytes": 607499,
+      "started_monotonic": 741756.5239625,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 963436.3100260176,
+      "direction": "upload",
+      "elapsed_seconds": 2.1767417090013623,
+      "ended_monotonic": 741758.698667416,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-07395ace435845c09112016f02c0e014/00000002.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741756.521923291,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 78.66132615050688,
+      "direction": "upload",
+      "elapsed_seconds": 1.080581833026372,
+      "ended_monotonic": 741764.744771333,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741763.66414175,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 1091422.093551787,
+      "direction": "upload",
+      "elapsed_seconds": 1.9214857500046492,
+      "ended_monotonic": 741764.908636083,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-fc15e21354754aa49ea470f98dd5e16c/00000000.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741762.987148416,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 926681.44292418,
+      "direction": "upload",
+      "elapsed_seconds": 2.263077582931146,
+      "ended_monotonic": 741765.254260958,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-fc15e21354754aa49ea470f98dd5e16c/00000001.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741762.991180083,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 299091.4683961521,
+      "direction": "upload",
+      "elapsed_seconds": 2.0555283749708906,
+      "ended_monotonic": 741767.316068666,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-fc15e21354754aa49ea470f98dd5e16c/00000003.part",
+      "size_bytes": 614791,
+      "started_monotonic": 741765.260534458,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 51939.11997784067,
+      "direction": "upload",
+      "elapsed_seconds": 40.37711845897138,
+      "ended_monotonic": 741805.634181125,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-fc15e21354754aa49ea470f98dd5e16c/00000002.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741765.257012541,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 4.088353766090677,
+      "direction": "upload",
+      "elapsed_seconds": 20.790764415985905,
+      "ended_monotonic": 741815.538961208,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741794.748188625,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 8.56306260346348,
+      "direction": "upload",
+      "elapsed_seconds": 9.926355083007365,
+      "ended_monotonic": 741815.562282958,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741805.635925333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 2110.263618022463,
+      "direction": "upload",
+      "elapsed_seconds": 1.030676917056553,
+      "ended_monotonic": 741831.084905916,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/timing-fixtures.json",
+      "size_bytes": 2175,
+      "started_monotonic": 741830.054178083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 976143.0534274605,
+      "direction": "upload",
+      "elapsed_seconds": 2.148406417109072,
+      "ended_monotonic": 741837.837751375,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-da938008a8fd41a2b09e4d248b0ed962/00000001.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741835.689338291,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 818338.6001663867,
+      "direction": "upload",
+      "elapsed_seconds": 2.5626947080018,
+      "ended_monotonic": 741838.249379541,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-da938008a8fd41a2b09e4d248b0ed962/00000000.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741835.68668075,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 851475.3217454127,
+      "direction": "upload",
+      "elapsed_seconds": 2.4629627499962226,
+      "ended_monotonic": 741840.719271416,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-da938008a8fd41a2b09e4d248b0ed962/00000003.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741838.25629725,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 832336.2275175926,
+      "direction": "upload",
+      "elapsed_seconds": 2.519597165985033,
+      "ended_monotonic": 741840.772265791,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-da938008a8fd41a2b09e4d248b0ed962/00000002.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741838.252667375,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 900097.4765206686,
+      "direction": "upload",
+      "elapsed_seconds": 2.3299165420467034,
+      "ended_monotonic": 741843.103996583,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-da938008a8fd41a2b09e4d248b0ed962/00000004.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741840.774071208,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 803895.6019343453,
+      "direction": "upload",
+      "elapsed_seconds": 2.608736750087701,
+      "ended_monotonic": 741843.385397166,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-da938008a8fd41a2b09e4d248b0ed962/00000005.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741840.776657583,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 898614.0676632732,
+      "direction": "upload",
+      "elapsed_seconds": 2.3337627080036327,
+      "ended_monotonic": 741845.722977916,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-da938008a8fd41a2b09e4d248b0ed962/00000006.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741843.3892115,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 746214.556764504,
+      "direction": "upload",
+      "elapsed_seconds": 2.81038741604425,
+      "ended_monotonic": 741846.203555833,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-da938008a8fd41a2b09e4d248b0ed962/00000007.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 741843.393162,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 73.04527356398758,
+      "direction": "upload",
+      "elapsed_seconds": 1.1636618750635535,
+      "ended_monotonic": 741846.714768083,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741845.551099125,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 82.2280015680368,
+      "direction": "upload",
+      "elapsed_seconds": 1.0337111249100417,
+      "ended_monotonic": 741847.238535,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741846.204819833,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 720947.0647679776,
+      "direction": "upload",
+      "elapsed_seconds": 1.5825530829606578,
+      "ended_monotonic": 741848.823208333,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/.snake-transfer-da938008a8fd41a2b09e4d248b0ed962/00000008.part",
+      "size_bytes": 1140937,
+      "started_monotonic": 741847.240650833,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 495.2991249539942,
+      "direction": "upload",
+      "elapsed_seconds": 1.007471999968402,
+      "ended_monotonic": 741852.373245166,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/verified-ledger.json",
+      "size_bytes": 499,
+      "started_monotonic": 741851.365752083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 163.99512237623037,
+      "direction": "upload",
+      "elapsed_seconds": 0.5305035829078406,
+      "ended_monotonic": 741855.21249875,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/verified-ledger.json.sha256",
+      "size_bytes": 87,
+      "started_monotonic": 741854.681989458,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 8.655492985617643,
+      "direction": "upload",
+      "elapsed_seconds": 1.039802125073038,
+      "ended_monotonic": 741858.122932958,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/verified-ledger.json.complete",
+      "size_bytes": 9,
+      "started_monotonic": 741857.083093041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 83.00339142912618,
+      "direction": "upload",
+      "elapsed_seconds": 1.0240545420674607,
+      "ended_monotonic": 741877.750003,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741876.725943666,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 56.8560224647386,
+      "direction": "upload",
+      "elapsed_seconds": 1.4950043340213597,
+      "ended_monotonic": 741886.278027791,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741884.783018291,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 80.98667495210455,
+      "direction": "upload",
+      "elapsed_seconds": 1.0495553750079125,
+      "ended_monotonic": 741908.812232416,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741907.762665375,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 83.53609608158767,
+      "direction": "upload",
+      "elapsed_seconds": 1.0175242079421878,
+      "ended_monotonic": 741939.833479291,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741938.81594825,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 2.205930216474081,
+      "direction": "upload",
+      "elapsed_seconds": 38.53249725000933,
+      "ended_monotonic": 742008.377669666,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 741969.845164583,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 72.31754548991532,
+      "direction": "upload",
+      "elapsed_seconds": 1.1753717500250787,
+      "ended_monotonic": 742039.564946208,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742038.389551125,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 83.4310683382457,
+      "direction": "upload",
+      "elapsed_seconds": 1.0188051249133423,
+      "ended_monotonic": 742070.596568125,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742069.577733583,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 82.94489838688186,
+      "direction": "upload",
+      "elapsed_seconds": 1.0247767090331763,
+      "ended_monotonic": 742101.633981291,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742100.609199291,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 80.37983097736948,
+      "direction": "upload",
+      "elapsed_seconds": 1.0574792079860345,
+      "ended_monotonic": 742132.693951833,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742131.636458708,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 77.69592283865475,
+      "direction": "upload",
+      "elapsed_seconds": 1.094008499989286,
+      "ended_monotonic": 742163.797231833,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742162.703158458,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 152.65553269108418,
+      "direction": "upload",
+      "elapsed_seconds": 0.5568091670284048,
+      "ended_monotonic": 742194.365404833,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742193.808549833,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 2.7926052109663977,
+      "direction": "upload",
+      "elapsed_seconds": 30.437528250040486,
+      "ended_monotonic": 742254.813395458,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742224.375834625,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 83.02231164413921,
+      "direction": "upload",
+      "elapsed_seconds": 1.023821167065762,
+      "ended_monotonic": 742285.847538375,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742284.823709791,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 156.25786314617446,
+      "direction": "upload",
+      "elapsed_seconds": 0.5439726250478998,
+      "ended_monotonic": 742316.39898925,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742315.855014208,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 78.63136714631591,
+      "direction": "upload",
+      "elapsed_seconds": 1.080993540934287,
+      "ended_monotonic": 742347.485601458,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742346.40459875,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 81.58381708481411,
+      "direction": "upload",
+      "elapsed_seconds": 1.041873291018419,
+      "ended_monotonic": 742378.529712,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742377.487794,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 145.74883849188348,
+      "direction": "upload",
+      "elapsed_seconds": 0.583195042097941,
+      "ended_monotonic": 742409.123784416,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742408.540577833,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 2.424273837509451,
+      "direction": "upload",
+      "elapsed_seconds": 35.062045666971244,
+      "ended_monotonic": 742474.194626291,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742439.132576041,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 3485990.0409899172,
+      "direction": "download",
+      "elapsed_seconds": 2.4063775000395253,
+      "ended_monotonic": 742495.923261083,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/.snake-transfer-27ee85dea5674aecb4de6d9b0806a38a/00000000.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 742493.516861041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 2273275.5457142456,
+      "direction": "download",
+      "elapsed_seconds": 2.213292625034228,
+      "ended_monotonic": 742498.1383855,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/.snake-transfer-27ee85dea5674aecb4de6d9b0806a38a/00000001.part",
+      "size_bytes": 5031424,
+      "started_monotonic": 742495.925047583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 74.9647641836244,
+      "direction": "download",
+      "elapsed_seconds": 1.040488832979463,
+      "ended_monotonic": 742501.590103833,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/before.json.sha256",
+      "size_bytes": 78,
+      "started_monotonic": 742500.5495665,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 8.70508267971733,
+      "direction": "download",
+      "elapsed_seconds": 1.0338787500513718,
+      "ended_monotonic": 742502.624485166,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/before.json.complete",
+      "size_bytes": 9,
+      "started_monotonic": 742501.590564208,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 79.0088938429328,
+      "direction": "upload",
+      "elapsed_seconds": 1.0758282500319183,
+      "ended_monotonic": 742505.272363916,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742504.196525375,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 82.70803624817648,
+      "direction": "upload",
+      "elapsed_seconds": 1.0277115000644699,
+      "ended_monotonic": 742536.308002958,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742535.280285041,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 83.01007890040462,
+      "direction": "upload",
+      "elapsed_seconds": 1.0239720420213416,
+      "ended_monotonic": 742567.342636833,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742566.318657416,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 80.45941698158043,
+      "direction": "upload",
+      "elapsed_seconds": 1.0564332080539316,
+      "ended_monotonic": 742598.409284208,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742597.352843125,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 4558902.203747232,
+      "direction": "download",
+      "elapsed_seconds": 1.8400499999988824,
+      "ended_monotonic": 742609.391544291,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/.snake-transfer-7b921eb9c48648899c5b3b4ae7a9d6c0/00000000.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 742607.551483041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 2342728.6725599277,
+      "direction": "download",
+      "elapsed_seconds": 2.147676791995764,
+      "ended_monotonic": 742611.542891208,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/.snake-transfer-7b921eb9c48648899c5b3b4ae7a9d6c0/00000001.part",
+      "size_bytes": 5031424,
+      "started_monotonic": 742609.395209041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 85.62849910001125,
+      "direction": "download",
+      "elapsed_seconds": 1.039373583975248,
+      "ended_monotonic": 742614.473543208,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/after-fixture-672.json.sha256",
+      "size_bytes": 89,
+      "started_monotonic": 742613.434138166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 0.7970559969480219,
+      "direction": "download",
+      "elapsed_seconds": 11.291552957962267,
+      "ended_monotonic": 742625.765469958,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/after-fixture-672.json.complete",
+      "size_bytes": 9,
+      "started_monotonic": 742614.473898375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 2.86181375005021,
+      "direction": "upload",
+      "elapsed_seconds": 29.701443708036095,
+      "ended_monotonic": 742658.113272416,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742628.411814958,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 82.22426964921614,
+      "direction": "upload",
+      "elapsed_seconds": 1.0337580420309678,
+      "ended_monotonic": 742689.158669458,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742688.124889708,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 79.63210902206751,
+      "direction": "upload",
+      "elapsed_seconds": 1.067408625036478,
+      "ended_monotonic": 742720.235200791,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742719.16773525,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 79.63605699955893,
+      "direction": "upload",
+      "elapsed_seconds": 1.0673557079862803,
+      "ended_monotonic": 742751.311895833,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742750.244531,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 4483192.021565934,
+      "direction": "download",
+      "elapsed_seconds": 1.8711239580297843,
+      "ended_monotonic": 742770.89548075,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/.snake-transfer-956a9f36f88c4fa39609076ac5d78fdc/00000000.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 742769.024334,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 2275262.838693362,
+      "direction": "download",
+      "elapsed_seconds": 2.211359458975494,
+      "ended_monotonic": 742773.108522833,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/.snake-transfer-956a9f36f88c4fa39609076ac5d78fdc/00000001.part",
+      "size_bytes": 5031424,
+      "started_monotonic": 742770.897157666,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 160.2241580028227,
+      "direction": "download",
+      "elapsed_seconds": 0.5554717909544706,
+      "ended_monotonic": 742775.991531541,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/after-fixture-673.json.sha256",
+      "size_bytes": 89,
+      "started_monotonic": 742775.436012875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 8.453741420254946,
+      "direction": "download",
+      "elapsed_seconds": 1.0646173750283197,
+      "ended_monotonic": 742777.0566095,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/after-fixture-673.json.complete",
+      "size_bytes": 9,
+      "started_monotonic": 742775.9919835,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 6516.717750218622,
+      "direction": "download",
+      "elapsed_seconds": 1.0014243749901652,
+      "ended_monotonic": 742780.463473958,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/.snake-export-batch-21f823e3530c47ca996701ed864d633c.zip",
+      "size_bytes": 6526,
+      "started_monotonic": 742779.462040583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 80.82589159196036,
+      "direction": "upload",
+      "elapsed_seconds": 1.0516432089498267,
+      "ended_monotonic": 742782.374185375,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742781.322535666,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 79.65684453761723,
+      "direction": "upload",
+      "elapsed_seconds": 1.0670771669829264,
+      "ended_monotonic": 742813.44938,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742812.382289208,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 83.16018144503197,
+      "direction": "upload",
+      "elapsed_seconds": 1.0221237919759005,
+      "ended_monotonic": 742844.480180625,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742843.458052666,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 81.32103312833671,
+      "direction": "upload",
+      "elapsed_seconds": 1.045240040984936,
+      "ended_monotonic": 742875.535841708,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742874.490560875,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 77.31816048003034,
+      "direction": "upload",
+      "elapsed_seconds": 1.0993536249734461,
+      "ended_monotonic": 742906.646762208,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742905.547400083,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 3445024.9881595643,
+      "direction": "download",
+      "elapsed_seconds": 2.434991916990839,
+      "ended_monotonic": 742922.914948458,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/.snake-transfer-8f899bb3260048b1bca312bc53fe7775/00000000.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 742920.479952583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 2290277.808192014,
+      "direction": "download",
+      "elapsed_seconds": 2.1968618750106543,
+      "ended_monotonic": 742925.113508583,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/.snake-transfer-8f899bb3260048b1bca312bc53fe7775/00000001.part",
+      "size_bytes": 5031424,
+      "started_monotonic": 742922.916641708,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 74.38049560066167,
+      "direction": "download",
+      "elapsed_seconds": 1.0352176249725744,
+      "ended_monotonic": 742928.521106041,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/after.json.sha256",
+      "size_bytes": 77,
+      "started_monotonic": 742927.485879875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 8.56939639963004,
+      "direction": "download",
+      "elapsed_seconds": 1.0502490000799298,
+      "ended_monotonic": 742929.571813083,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/after.json.complete",
+      "size_bytes": 9,
+      "started_monotonic": 742928.521556041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3478053.874342386,
+      "direction": "download",
+      "elapsed_seconds": 2.411868333001621,
+      "ended_monotonic": 742934.426210333,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/paired/.snake-transfer-9e3ec95136cb4d1face7b4eed7c370c9/00000000.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 742932.014333208,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 2269463.3156700614,
+      "direction": "download",
+      "elapsed_seconds": 2.21701049990952,
+      "ended_monotonic": 742936.646185916,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/paired/.snake-transfer-9e3ec95136cb4d1face7b4eed7c370c9/00000001.part",
+      "size_bytes": 5031424,
+      "started_monotonic": 742934.429169291,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 151.59868616126434,
+      "direction": "upload",
+      "elapsed_seconds": 0.5606908750487491,
+      "ended_monotonic": 742937.2103865,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742936.649686083,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 92.94973767055184,
+      "direction": "download",
+      "elapsed_seconds": 1.011299250065349,
+      "ended_monotonic": 742940.182841416,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/paired/assignment-environment.json.sha256",
+      "size_bytes": 94,
+      "started_monotonic": 742939.171538041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 16.17867972569692,
+      "direction": "download",
+      "elapsed_seconds": 0.5562876670155674,
+      "ended_monotonic": 742940.739398291,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/paired/assignment-environment.json.complete",
+      "size_bytes": 9,
+      "started_monotonic": 742940.183103958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 8449.097062625677,
+      "direction": "download",
+      "elapsed_seconds": 0.990283332997933,
+      "ended_monotonic": 742943.683339375,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/.snake-export-batch-1167739dcc7047a9a5bd6fee77274cdc.zip",
+      "size_bytes": 8367,
+      "started_monotonic": 742942.693052375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4595600.027445407,
+      "direction": "download",
+      "elapsed_seconds": 1.825356416986324,
+      "ended_monotonic": 742948.0757765,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/qualification/.snake-transfer-770fbbfda8fb4acaa46f36716f85a4c5/00000000.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 742946.250410666,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3441792.2016879697,
+      "direction": "download",
+      "elapsed_seconds": 2.4372790419729427,
+      "ended_monotonic": 742952.501496375,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/qualification/.snake-transfer-770fbbfda8fb4acaa46f36716f85a4c5/00000001.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 742950.064214708,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3417935.420027652,
+      "direction": "download",
+      "elapsed_seconds": 2.4542909590527415,
+      "ended_monotonic": 742954.963026208,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/qualification/.snake-transfer-770fbbfda8fb4acaa46f36716f85a4c5/00000002.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 742952.508731541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3530705.540372245,
+      "direction": "download",
+      "elapsed_seconds": 2.3759013330563903,
+      "ended_monotonic": 742957.344913541,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/qualification/.snake-transfer-770fbbfda8fb4acaa46f36716f85a4c5/00000003.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 742954.969009958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4583947.459828265,
+      "direction": "download",
+      "elapsed_seconds": 1.829996541957371,
+      "ended_monotonic": 742959.184132916,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/qualification/.snake-transfer-770fbbfda8fb4acaa46f36716f85a4c5/00000004.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 742957.354132166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 99691.69335733129,
+      "direction": "download",
+      "elapsed_seconds": 1.2700556659838185,
+      "ended_monotonic": 742960.457422875,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/qualification/.snake-transfer-770fbbfda8fb4acaa46f36716f85a4c5/00000005.part",
+      "size_bytes": 126614,
+      "started_monotonic": 742959.187363,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 82.55592490046139,
+      "direction": "download",
+      "elapsed_seconds": 1.0296050840988755,
+      "ended_monotonic": 742963.480362791,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/qualification/qualification.json.sha256",
+      "size_bytes": 85,
+      "started_monotonic": 742962.450748666,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 8.598938007809258,
+      "direction": "download",
+      "elapsed_seconds": 1.0466408749343827,
+      "ended_monotonic": 742964.527488166,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/qualification/qualification.json.complete",
+      "size_bytes": 9,
+      "started_monotonic": 742963.480834583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 1843.748670489511,
+      "direction": "download",
+      "elapsed_seconds": 0.5494241249980405,
+      "ended_monotonic": 742965.095178625,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/resume/verified-skip-proof.json",
+      "size_bytes": 1013,
+      "started_monotonic": 742964.545749166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 82.16823308526168,
+      "direction": "download",
+      "elapsed_seconds": 1.1074839580105618,
+      "ended_monotonic": 742966.203149916,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/resume/verified-skip-proof.json.sha256",
+      "size_bytes": 91,
+      "started_monotonic": 742965.095657625,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 8.769539073662587,
+      "direction": "download",
+      "elapsed_seconds": 1.0262797080213204,
+      "ended_monotonic": 742967.229921666,
+      "operation": "GET",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/resume/verified-skip-proof.json.complete",
+      "size_bytes": 9,
+      "started_monotonic": 742966.203636708,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 84.35619695966464,
+      "direction": "upload",
+      "elapsed_seconds": 1.0076319590443745,
+      "ended_monotonic": 742968.23012875,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 742967.222467041,
+      "status": "completed",
+      "thread": "colab-lease"
+    }
+  ],
+  "control_operations": [
+    {
+      "elapsed_seconds": 0.539521166938357,
+      "ended_monotonic": 741670.969310625,
+      "operation": "PUT",
+      "started_monotonic": 741670.429789458,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5466005420312285,
+      "ended_monotonic": 741671.517613583,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741670.971013041,
+      "status": "failed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.3756398749537766,
+      "ended_monotonic": 741676.354570041,
+      "operation": "renewal",
+      "started_monotonic": 741673.978930166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8765693330205977,
+      "ended_monotonic": 741690.948695416,
+      "operation": "mkdir",
+      "started_monotonic": 741689.072126083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5544621669687331,
+      "ended_monotonic": 741691.503446708,
+      "operation": "PUT",
+      "started_monotonic": 741690.948984541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.3283782090293244,
+      "ended_monotonic": 741693.832162,
+      "operation": "verify",
+      "started_monotonic": 741691.503783791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5583686250029132,
+      "ended_monotonic": 741694.390953375,
+      "operation": "PUT",
+      "started_monotonic": 741693.83258475,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.570641207974404,
+      "ended_monotonic": 741696.961815041,
+      "operation": "verify",
+      "started_monotonic": 741694.391173833,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.4109297919785604,
+      "ended_monotonic": 741699.374584958,
+      "operation": "mkdir",
+      "started_monotonic": 741696.963655166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.9628374580061063,
+      "ended_monotonic": 741701.342109333,
+      "operation": "PUT",
+      "started_monotonic": 741699.379271875,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 2.311227957950905,
+      "ended_monotonic": 741701.687687833,
+      "operation": "PUT",
+      "started_monotonic": 741699.376459875,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 1.0555921249324456,
+      "ended_monotonic": 741702.584285875,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741701.52869375,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.390042542014271,
+      "ended_monotonic": 741704.079584875,
+      "operation": "assemble",
+      "started_monotonic": 741701.689542333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.3291801660088822,
+      "ended_monotonic": 741706.410868041,
+      "operation": "mkdir",
+      "started_monotonic": 741704.081687875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5434756249887869,
+      "ended_monotonic": 741706.954737333,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741706.411261708,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5445359169971198,
+      "ended_monotonic": 741706.955446208,
+      "operation": "renewal",
+      "started_monotonic": 741706.410910291,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.943615874974057,
+      "ended_monotonic": 741708.904731333,
+      "operation": "PUT",
+      "started_monotonic": 741706.961115458,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 2.144244500086643,
+      "ended_monotonic": 741709.102134083,
+      "operation": "PUT",
+      "started_monotonic": 741706.957889583,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 1.8948837090283632,
+      "ended_monotonic": 741710.99877425,
+      "operation": "assemble",
+      "started_monotonic": 741709.103890541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 13.907897582976148,
+      "ended_monotonic": 741724.908932791,
+      "operation": "mkdir",
+      "started_monotonic": 741711.001035208,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.705486583057791,
+      "ended_monotonic": 741727.618314041,
+      "operation": "PUT",
+      "started_monotonic": 741724.912827458,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 1.062247792026028,
+      "ended_monotonic": 741733.65868525,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741732.596437458,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 24.080787250073627,
+      "ended_monotonic": 741748.991226125,
+      "operation": "PUT",
+      "started_monotonic": 741724.910438875,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 0.5715388329699636,
+      "ended_monotonic": 741749.564196916,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741748.992658083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5725758339976892,
+      "ended_monotonic": 741749.564969625,
+      "operation": "renewal",
+      "started_monotonic": 741748.992393791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.910886999918148,
+      "ended_monotonic": 741751.478219125,
+      "operation": "assemble",
+      "started_monotonic": 741749.567332125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8860420419368893,
+      "ended_monotonic": 741753.367615958,
+      "operation": "mkdir",
+      "started_monotonic": 741751.481573916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.1521258340217173,
+      "ended_monotonic": 741755.521977,
+      "operation": "PUT",
+      "started_monotonic": 741753.369851166,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 3.146343208034523,
+      "ended_monotonic": 741756.520276958,
+      "operation": "PUT",
+      "started_monotonic": 741753.37393375,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 1.6930798750836402,
+      "ended_monotonic": 741758.216639333,
+      "operation": "PUT",
+      "started_monotonic": 741756.523559458,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 2.176994915935211,
+      "ended_monotonic": 741758.698703666,
+      "operation": "PUT",
+      "started_monotonic": 741756.52170875,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 1.9227834589546546,
+      "ended_monotonic": 741760.6249095,
+      "operation": "assemble",
+      "started_monotonic": 741758.702126041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.356091708992608,
+      "ended_monotonic": 741762.98475425,
+      "operation": "mkdir",
+      "started_monotonic": 741760.628662541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0810523750260472,
+      "ended_monotonic": 741764.744910625,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741763.66385825,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.921749374945648,
+      "ended_monotonic": 741764.908668416,
+      "operation": "PUT",
+      "started_monotonic": 741762.986919041,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 2.2633424589876086,
+      "ended_monotonic": 741765.254312125,
+      "operation": "PUT",
+      "started_monotonic": 741762.990969666,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 2.055774208973162,
+      "ended_monotonic": 741767.316133125,
+      "operation": "PUT",
+      "started_monotonic": 741765.260358916,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 40.37759658298455,
+      "ended_monotonic": 741805.634337791,
+      "operation": "PUT",
+      "started_monotonic": 741765.256741208,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 20.791214917087927,
+      "ended_monotonic": 741815.539037583,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741794.747822666,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 9.926677457988262,
+      "ended_monotonic": 741815.562311708,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741805.63563425,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 9.927242040983401,
+      "ended_monotonic": 741815.562461416,
+      "operation": "renewal",
+      "started_monotonic": 741805.635219375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 14.488254833035171,
+      "ended_monotonic": 741830.053496041,
+      "operation": "assemble",
+      "started_monotonic": 741815.565241208,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0310679590329528,
+      "ended_monotonic": 741831.08504875,
+      "operation": "PUT",
+      "started_monotonic": 741830.053980791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.3073074580170214,
+      "ended_monotonic": 741833.392679583,
+      "operation": "verify",
+      "started_monotonic": 741831.085372125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.283904458046891,
+      "ended_monotonic": 741835.685032791,
+      "operation": "mkdir",
+      "started_monotonic": 741833.401128333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.148681209073402,
+      "ended_monotonic": 741837.83784575,
+      "operation": "PUT",
+      "started_monotonic": 741835.689164541,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 2.5629047920228913,
+      "ended_monotonic": 741838.249433583,
+      "operation": "PUT",
+      "started_monotonic": 741835.686528791,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 2.4632458749692887,
+      "ended_monotonic": 741840.719393416,
+      "operation": "PUT",
+      "started_monotonic": 741838.256147541,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 2.519971792004071,
+      "ended_monotonic": 741840.772288708,
+      "operation": "PUT",
+      "started_monotonic": 741838.252316916,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 2.330210709013045,
+      "ended_monotonic": 741843.104097125,
+      "operation": "PUT",
+      "started_monotonic": 741840.773886416,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 2.6089180409908295,
+      "ended_monotonic": 741843.385445541,
+      "operation": "PUT",
+      "started_monotonic": 741840.7765275,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 2.3340745830209926,
+      "ended_monotonic": 741845.723050333,
+      "operation": "PUT",
+      "started_monotonic": 741843.38897575,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 2.8106124999467283,
+      "ended_monotonic": 741846.203619708,
+      "operation": "PUT",
+      "started_monotonic": 741843.393007208,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 1.1645259580109268,
+      "ended_monotonic": 741846.714864291,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741845.550338333,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.0339675419963896,
+      "ended_monotonic": 741847.238577875,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741846.204610333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.034906999906525,
+      "ended_monotonic": 741847.2391245,
+      "operation": "renewal",
+      "started_monotonic": 741846.2042175,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.5828138749348,
+      "ended_monotonic": 741848.82327975,
+      "operation": "PUT",
+      "started_monotonic": 741847.240465875,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 2.534555249963887,
+      "ended_monotonic": 741851.3653965,
+      "operation": "assemble",
+      "started_monotonic": 741848.83084125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0076791669707745,
+      "ended_monotonic": 741852.373323708,
+      "operation": "PUT",
+      "started_monotonic": 741851.365644541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.3081220000749454,
+      "ended_monotonic": 741854.681605375,
+      "operation": "verify",
+      "started_monotonic": 741852.373483375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5307271250057966,
+      "ended_monotonic": 741855.21257525,
+      "operation": "PUT",
+      "started_monotonic": 741854.681848125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8699503340758383,
+      "ended_monotonic": 741857.082661375,
+      "operation": "verify",
+      "started_monotonic": 741855.212711041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0401135829742998,
+      "ended_monotonic": 741858.123040083,
+      "operation": "PUT",
+      "started_monotonic": 741857.0829265,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.323381291003898,
+      "ended_monotonic": 741860.446640041,
+      "operation": "verify",
+      "started_monotonic": 741858.12325875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0243189580505714,
+      "ended_monotonic": 741877.750082666,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741876.725763708,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.4953439999371767,
+      "ended_monotonic": 741886.278107291,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741884.782763291,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.4958472090074793,
+      "ended_monotonic": 741886.278261125,
+      "operation": "renewal",
+      "started_monotonic": 741884.782413916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.349911291967146,
+      "ended_monotonic": 741892.16908525,
+      "operation": "renewal",
+      "started_monotonic": 741889.819173958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0504082920961082,
+      "ended_monotonic": 741908.812369083,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741907.761960791,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.861881708027795,
+      "ended_monotonic": 741909.038287666,
+      "operation": "renewal",
+      "started_monotonic": 741907.176405958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 5.435927084065042,
+      "ended_monotonic": 741929.4770855,
+      "operation": "renewal",
+      "started_monotonic": 741924.041158416,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0180191659601405,
+      "ended_monotonic": 741939.833547791,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741938.815528625,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.9321802499471232,
+      "ended_monotonic": 741946.412549375,
+      "operation": "renewal",
+      "started_monotonic": 741944.480369125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 4.10154808301013,
+      "ended_monotonic": 741966.468854041,
+      "operation": "renewal",
+      "started_monotonic": 741962.367305958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 38.53338708402589,
+      "ended_monotonic": 742008.377774375,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 741969.844387291,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.1760141249978915,
+      "ended_monotonic": 742039.565007791,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742038.388993666,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.0194609169848263,
+      "ended_monotonic": 742070.596650125,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742069.577189208,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.0255085420794785,
+      "ended_monotonic": 742101.63404775,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742100.608539208,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.8670970828970894,
+      "ended_monotonic": 742102.350675416,
+      "operation": "recovery-idle",
+      "started_monotonic": 742101.483578333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 124.31851883395575,
+      "ended_monotonic": 742105.794584875,
+      "operation": "renewal",
+      "started_monotonic": 741981.476066041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.84934100008104,
+      "ended_monotonic": 742122.65068475,
+      "operation": "renewal",
+      "started_monotonic": 742120.80134375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0580230409977958,
+      "ended_monotonic": 742132.694094666,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742131.636071625,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.409862875007093,
+      "ended_monotonic": 742140.068173375,
+      "operation": "renewal",
+      "started_monotonic": 742137.6583105,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8577374580781907,
+      "ended_monotonic": 742158.395134291,
+      "operation": "renewal",
+      "started_monotonic": 742156.537396833,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0946822920814157,
+      "ended_monotonic": 742163.797367083,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742162.702684791,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.8315448340727016,
+      "ended_monotonic": 742176.235203625,
+      "operation": "renewal",
+      "started_monotonic": 742173.403658791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.33086208300665,
+      "ended_monotonic": 742193.576489208,
+      "operation": "renewal",
+      "started_monotonic": 742191.245627125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5573695420753211,
+      "ended_monotonic": 742194.365542875,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742193.808173333,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.8891690419986844,
+      "ended_monotonic": 742246.276573,
+      "operation": "recovery-idle",
+      "started_monotonic": 742245.387403958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 30.438281334005296,
+      "ended_monotonic": 742254.813486625,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742224.375205291,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 55.04626154201105,
+      "ended_monotonic": 742263.632927875,
+      "operation": "renewal",
+      "started_monotonic": 742208.586666333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8590087079210207,
+      "ended_monotonic": 742281.580209708,
+      "operation": "renewal",
+      "started_monotonic": 742279.721201,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0240956249181181,
+      "ended_monotonic": 742285.847631958,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742284.823536333,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.3645948340417817,
+      "ended_monotonic": 742298.955730875,
+      "operation": "renewal",
+      "started_monotonic": 742296.591136041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.3079262499231845,
+      "ended_monotonic": 742316.268153291,
+      "operation": "renewal",
+      "started_monotonic": 742313.960227041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.545096541987732,
+      "ended_monotonic": 742316.399025333,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742315.853928791,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.8948903329437599,
+      "ended_monotonic": 742333.165614083,
+      "operation": "renewal",
+      "started_monotonic": 742331.27072375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0815998748876154,
+      "ended_monotonic": 742347.485739208,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742346.404139333,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.303078875062056,
+      "ended_monotonic": 742351.37472325,
+      "operation": "renewal",
+      "started_monotonic": 742349.071644375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0423161250073463,
+      "ended_monotonic": 742378.529840125,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742377.487524,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.5835388330742717,
+      "ended_monotonic": 742409.123923041,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742408.540384208,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 35.06244962499477,
+      "ended_monotonic": 742474.1947035,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742439.132253875,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.38545929198153317,
+      "ended_monotonic": 742486.7774765,
+      "operation": "recovery-idle",
+      "started_monotonic": 742486.392017208,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 124.7365576250013,
+      "ended_monotonic": 742491.116314958,
+      "operation": "renewal",
+      "started_monotonic": 742366.379757333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.3992173339938745,
+      "ended_monotonic": 742493.51653275,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 742491.117315416,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.406607999932021,
+      "ended_monotonic": 742495.923328458,
+      "operation": "GET",
+      "started_monotonic": 742493.516720458,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.213648083037697,
+      "ended_monotonic": 742498.138512708,
+      "operation": "GET",
+      "started_monotonic": 742495.924864625,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.4013629580149427,
+      "ended_monotonic": 742500.549160041,
+      "operation": "cleanup",
+      "started_monotonic": 742498.147797083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.040940709062852,
+      "ended_monotonic": 742501.590223375,
+      "operation": "GET",
+      "started_monotonic": 742500.549282666,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0343287920113653,
+      "ended_monotonic": 742502.624614083,
+      "operation": "GET",
+      "started_monotonic": 742501.590285291,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.076380499987863,
+      "ended_monotonic": 742505.272463416,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742504.196082916,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.3935595420189202,
+      "ended_monotonic": 742519.035237833,
+      "operation": "renewal",
+      "started_monotonic": 742517.641678291,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0281928749755025,
+      "ended_monotonic": 742536.308070333,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742535.279877458,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.3325307089835405,
+      "ended_monotonic": 742536.368961125,
+      "operation": "renewal",
+      "started_monotonic": 742534.036430416,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8176790829747915,
+      "ended_monotonic": 742554.060162666,
+      "operation": "renewal",
+      "started_monotonic": 742552.242483583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0242239169310778,
+      "ended_monotonic": 742567.342722375,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742566.318498458,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.893250250024721,
+      "ended_monotonic": 742570.959862333,
+      "operation": "renewal",
+      "started_monotonic": 742569.066612083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.3540308750234544,
+      "ended_monotonic": 742588.32202175,
+      "operation": "renewal",
+      "started_monotonic": 742585.967990875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0569207499502227,
+      "ended_monotonic": 742598.40937625,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742597.3524555,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.8787164579844102,
+      "ended_monotonic": 742605.204712666,
+      "operation": "renewal",
+      "started_monotonic": 742603.325996208,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.3456712920451537,
+      "ended_monotonic": 742607.551187,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 742605.205515708,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8403130000224337,
+      "ended_monotonic": 742609.391668333,
+      "operation": "GET",
+      "started_monotonic": 742607.551355333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.1480355840176344,
+      "ended_monotonic": 742611.542952875,
+      "operation": "GET",
+      "started_monotonic": 742609.394917291,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8790347919566557,
+      "ended_monotonic": 742613.433904083,
+      "operation": "cleanup",
+      "started_monotonic": 742611.554869291,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.039658125024289,
+      "ended_monotonic": 742614.473635458,
+      "operation": "GET",
+      "started_monotonic": 742613.433977333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 11.291858833981678,
+      "ended_monotonic": 742625.765541875,
+      "operation": "GET",
+      "started_monotonic": 742614.473683041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 29.702064541052096,
+      "ended_monotonic": 742658.113427291,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742628.41136275,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.0342678329907358,
+      "ended_monotonic": 742689.158742541,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742688.124474708,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.0683281250530854,
+      "ended_monotonic": 742720.235345375,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742719.16701725,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.0679787079570815,
+      "ended_monotonic": 742751.311999833,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742750.244021125,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.9068799170199782,
+      "ended_monotonic": 742762.648019875,
+      "operation": "recovery-idle",
+      "started_monotonic": 742761.741139958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 124.81167962506879,
+      "ended_monotonic": 742766.540695708,
+      "operation": "renewal",
+      "started_monotonic": 742641.729016083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.481648499961011,
+      "ended_monotonic": 742769.023941541,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 742766.542293041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8713969169184566,
+      "ended_monotonic": 742770.895552708,
+      "operation": "GET",
+      "started_monotonic": 742769.024155791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.2116252499399707,
+      "ended_monotonic": 742773.108592875,
+      "operation": "GET",
+      "started_monotonic": 742770.896967625,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.3149882920552045,
+      "ended_monotonic": 742775.435795333,
+      "operation": "cleanup",
+      "started_monotonic": 742773.120807041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5557900000130758,
+      "ended_monotonic": 742775.991647875,
+      "operation": "GET",
+      "started_monotonic": 742775.435857875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.06500895798672,
+      "ended_monotonic": 742777.056710083,
+      "operation": "GET",
+      "started_monotonic": 742775.991701125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.001697292085737,
+      "ended_monotonic": 742780.463569625,
+      "operation": "GET",
+      "started_monotonic": 742779.461872333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0519047079142183,
+      "ended_monotonic": 742782.374268416,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742781.322363708,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.3407757920213044,
+      "ended_monotonic": 742797.813796208,
+      "operation": "renewal",
+      "started_monotonic": 742795.473020416,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.067750292015262,
+      "ended_monotonic": 742813.449530458,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742812.381780166,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.299724749987945,
+      "ended_monotonic": 742815.123586958,
+      "operation": "renewal",
+      "started_monotonic": 742812.823862208,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.374944334034808,
+      "ended_monotonic": 742832.506241875,
+      "operation": "renewal",
+      "started_monotonic": 742830.131297541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0225912079913542,
+      "ended_monotonic": 742844.480237791,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742843.457646583,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.316682333010249,
+      "ended_monotonic": 742850.713502708,
+      "operation": "renewal",
+      "started_monotonic": 742848.396820375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0455901670502499,
+      "ended_monotonic": 742875.535947375,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742874.490357208,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.0999950419645756,
+      "ended_monotonic": 742906.64685,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742905.546854958,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 9.482499375008047,
+      "ended_monotonic": 742912.019141291,
+      "operation": "recovery-idle",
+      "started_monotonic": 742902.536641916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 50.72070516704116,
+      "ended_monotonic": 742916.438489333,
+      "operation": "renewal",
+      "started_monotonic": 742865.717784166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 4.038785750046372,
+      "ended_monotonic": 742920.479596458,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 742916.440810708,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.435220333049074,
+      "ended_monotonic": 742922.915021833,
+      "operation": "GET",
+      "started_monotonic": 742920.4798015,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.1971210000338033,
+      "ended_monotonic": 742925.113580666,
+      "operation": "GET",
+      "started_monotonic": 742922.916459666,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.361770417075604,
+      "ended_monotonic": 742927.485667375,
+      "operation": "cleanup",
+      "started_monotonic": 742925.123896958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0355079580331221,
+      "ended_monotonic": 742928.521234333,
+      "operation": "GET",
+      "started_monotonic": 742927.485726375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0506656669313088,
+      "ended_monotonic": 742929.571953833,
+      "operation": "GET",
+      "started_monotonic": 742928.521288166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.434474500012584,
+      "ended_monotonic": 742932.013805125,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 742929.579330625,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.412224791944027,
+      "ended_monotonic": 742934.426342375,
+      "operation": "GET",
+      "started_monotonic": 742932.014117583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.2173187909647822,
+      "ended_monotonic": 742936.646282916,
+      "operation": "GET",
+      "started_monotonic": 742934.428964125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5610627080313861,
+      "ended_monotonic": 742937.210516541,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742936.649453833,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.5089925000211224,
+      "ended_monotonic": 742939.171189,
+      "operation": "cleanup",
+      "started_monotonic": 742936.6621965,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.01164316595532,
+      "ended_monotonic": 742940.182916416,
+      "operation": "GET",
+      "started_monotonic": 742939.17127325,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.556550791952759,
+      "ended_monotonic": 742940.739497833,
+      "operation": "GET",
+      "started_monotonic": 742940.182947041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.9905903339385986,
+      "ended_monotonic": 742943.68340425,
+      "operation": "GET",
+      "started_monotonic": 742942.692813916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.563613084028475,
+      "ended_monotonic": 742946.2500645,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 742943.686451416,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8256515000248328,
+      "ended_monotonic": 742948.075915416,
+      "operation": "GET",
+      "started_monotonic": 742946.250263916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.9847360829589888,
+      "ended_monotonic": 742950.060695583,
+      "operation": "renewal",
+      "started_monotonic": 742948.0759595,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.4376519999932498,
+      "ended_monotonic": 742952.501588291,
+      "operation": "GET",
+      "started_monotonic": 742950.063936291,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.4545755420112982,
+      "ended_monotonic": 742954.9630985,
+      "operation": "GET",
+      "started_monotonic": 742952.508522958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.3761608339846134,
+      "ended_monotonic": 742957.34499975,
+      "operation": "GET",
+      "started_monotonic": 742954.968838916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8302600000752136,
+      "ended_monotonic": 742959.184216125,
+      "operation": "GET",
+      "started_monotonic": 742957.353956125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.2703280829591677,
+      "ended_monotonic": 742960.457508958,
+      "operation": "GET",
+      "started_monotonic": 742959.187180875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.9723705829819664,
+      "ended_monotonic": 742962.450403666,
+      "operation": "cleanup",
+      "started_monotonic": 742960.478033083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0299916249932721,
+      "ended_monotonic": 742963.480495583,
+      "operation": "GET",
+      "started_monotonic": 742962.450503958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0470470830332488,
+      "ended_monotonic": 742964.527597791,
+      "operation": "GET",
+      "started_monotonic": 742963.480550708,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5496392089407891,
+      "ended_monotonic": 742965.095272625,
+      "operation": "GET",
+      "started_monotonic": 742964.545633416,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.1078051249496639,
+      "ended_monotonic": 742966.203288,
+      "operation": "GET",
+      "started_monotonic": 742965.095482875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.026659584022127,
+      "ended_monotonic": 742967.2300055,
+      "operation": "GET",
+      "started_monotonic": 742966.203345916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0081820000195876,
+      "ended_monotonic": 742968.230213125,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 742967.222031125,
+      "status": "completed",
+      "thread": "colab-lease"
+    }
+  ],
+  "elapsed_seconds": 1307.429406041978,
+  "endpoint": "gpu-l4-s-ass1a0-n6i5x5fmz3qu",
+  "error": null,
+  "exports": [
+    {
+      "path": "environment/before.json",
+      "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+      "size": 13420032
+    },
+    {
+      "path": "environment/after-fixture-672.json",
+      "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+      "size": 13420032
+    },
+    {
+      "path": "environment/after-fixture-673.json",
+      "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+      "size": 13420032
+    },
+    {
+      "path": "timing-canary/fixture-672.json",
+      "sha256": "fd1d0ef68dce6ac7e04b5ed88884885735982b1c8d939b70993a370946c15f35",
+      "size": 2119
+    },
+    {
+      "path": "timing-canary/fixture-673.json",
+      "sha256": "bde837e31f5fa43b8665edace261240108d1505c3558037fb7008bd0039f1812",
+      "size": 2123
+    },
+    {
+      "path": "timing-canary/verified-ledger.json",
+      "sha256": "e7ab562b30324937a37c548851f7dcd47e502f3c83c0643de196f17de18a52e8",
+      "size": 638
+    },
+    {
+      "path": "environment/after.json",
+      "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+      "size": 13420032
+    },
+    {
+      "path": "paired/assignment-environment.json",
+      "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+      "size": 13420032
+    },
+    {
+      "path": "paired/f5-state-C.pt",
+      "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+      "size": 1453
+    },
+    {
+      "path": "paired/f5-state-W.pt",
+      "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+      "size": 1453
+    },
+    {
+      "path": "paired/fit-C.pth",
+      "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+      "size": 1453
+    },
+    {
+      "path": "paired/fit-W.pth",
+      "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+      "size": 1453
+    },
+    {
+      "path": "paired/fit-receipt.json",
+      "sha256": "932814c03c56a7094d3fa7159d29bcdc79613a2c0a77b78abc9e04def77c9918",
+      "size": 223
+    },
+    {
+      "path": "qualification/qualification.json",
+      "sha256": "8eeaf6bcda3ec9d81720499b3de88c100cc0f42cb25cf6350d9a1b2d4c431f3c",
+      "size": 42069654
+    },
+    {
+      "path": "resume/verified-skip-proof.json",
+      "sha256": "85946e7c81648113dfd2bb3e23c8fb27caa17e7c67cfb2fd40439fd9a2f535f3",
+      "size": 1013
+    }
+  ],
+  "failure_class": null,
+  "generation": "ac84655a6de340a8a5c4f33a3fcfc8c5",
+  "job_id": "bl-f5-family-canary-911426db-20261026-04",
+  "manifest_sha256": "35a920147f797fbb6e10b9cf2653e528b730f39bb81230674d59fec6dfeeaf6b",
+  "session": "snake-bl-f5-family-canary-911426db-20261026-04-ac84655a6de3",
+  "status": "PASS",
+  "stop_verified": true,
+  "supervisor_sha256": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+  "terminal": {
+    "canary_observations": [
+      {
+        "caller": "research/bl_residual/f5_qualification.py:136:_select_cuda",
+        "cuda_decisions": 1,
+        "device": "cuda:0",
+        "operation": "Tensor.argmax",
+        "package": "research/bl_residual",
+        "pid": 9317,
+        "root": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5",
+        "shape": [
+          1,
+          6
+        ],
+        "version": 1
+      }
+    ],
+    "export_scanner": {
+      "inventory": [
+        {
+          "path": "environment/after-fixture-672.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        {
+          "path": "environment/after-fixture-673.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        {
+          "path": "environment/after.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        {
+          "path": "environment/before.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        {
+          "path": "paired/assignment-environment.json",
+          "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+          "size": 13420032
+        },
+        {
+          "path": "paired/f5-state-C.pt",
+          "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+          "size": 1453
+        },
+        {
+          "path": "paired/f5-state-W.pt",
+          "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+          "size": 1453
+        },
+        {
+          "path": "paired/fit-C.pth",
+          "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+          "size": 1453
+        },
+        {
+          "path": "paired/fit-W.pth",
+          "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+          "size": 1453
+        },
+        {
+          "path": "paired/fit-receipt.json",
+          "sha256": "932814c03c56a7094d3fa7159d29bcdc79613a2c0a77b78abc9e04def77c9918",
+          "size": 223
+        },
+        {
+          "path": "qualification/qualification.json",
+          "sha256": "8eeaf6bcda3ec9d81720499b3de88c100cc0f42cb25cf6350d9a1b2d4c431f3c",
+          "size": 42069654
+        },
+        {
+          "path": "resume/verified-skip-proof.json",
+          "sha256": "85946e7c81648113dfd2bb3e23c8fb27caa17e7c67cfb2fd40439fd9a2f535f3",
+          "size": 1013
+        },
+        {
+          "path": "timing-canary/fixture-672.json",
+          "sha256": "fd1d0ef68dce6ac7e04b5ed88884885735982b1c8d939b70993a370946c15f35",
+          "size": 2119
+        },
+        {
+          "path": "timing-canary/fixture-673.json",
+          "sha256": "bde837e31f5fa43b8665edace261240108d1505c3558037fb7008bd0039f1812",
+          "size": 2123
+        },
+        {
+          "path": "timing-canary/verified-ledger.json",
+          "sha256": "e7ab562b30324937a37c548851f7dcd47e502f3c83c0643de196f17de18a52e8",
+          "size": 638
+        }
+      ],
+      "name": "runtime._exports"
+    },
+    "exports": [
+      {
+        "path": "environment/after-fixture-672.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "environment/after-fixture-673.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "environment/after.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "environment/before.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "paired/assignment-environment.json",
+        "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+        "size": 13420032
+      },
+      {
+        "path": "paired/f5-state-C.pt",
+        "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+        "size": 1453
+      },
+      {
+        "path": "paired/f5-state-W.pt",
+        "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-C.pth",
+        "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-W.pth",
+        "sha256": "779dfdb17175f667562cced4bf09b7cf9d65086b61945ba9fecbe351f9ced7f4",
+        "size": 1453
+      },
+      {
+        "path": "paired/fit-receipt.json",
+        "sha256": "932814c03c56a7094d3fa7159d29bcdc79613a2c0a77b78abc9e04def77c9918",
+        "size": 223
+      },
+      {
+        "path": "qualification/qualification.json",
+        "sha256": "8eeaf6bcda3ec9d81720499b3de88c100cc0f42cb25cf6350d9a1b2d4c431f3c",
+        "size": 42069654
+      },
+      {
+        "path": "resume/verified-skip-proof.json",
+        "sha256": "85946e7c81648113dfd2bb3e23c8fb27caa17e7c67cfb2fd40439fd9a2f535f3",
+        "size": 1013
+      },
+      {
+        "path": "timing-canary/fixture-672.json",
+        "sha256": "fd1d0ef68dce6ac7e04b5ed88884885735982b1c8d939b70993a370946c15f35",
+        "size": 2119
+      },
+      {
+        "path": "timing-canary/fixture-673.json",
+        "sha256": "bde837e31f5fa43b8665edace261240108d1505c3558037fb7008bd0039f1812",
+        "size": 2123
+      },
+      {
+        "path": "timing-canary/verified-ledger.json",
+        "sha256": "e7ab562b30324937a37c548851f7dcd47e502f3c83c0643de196f17de18a52e8",
+        "size": 638
+      }
+    ],
+    "finished_at": 1793044558.673144,
+    "generation": "ac84655a6de340a8a5c4f33a3fcfc8c5",
+    "job_id": "bl-f5-family-canary-911426db-20261026-04",
+    "last_traceback_line": "{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 634.251, \"fixtures_completed\": 2, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"export\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"COMPLETE\"}",
+    "reason": null,
+    "returncode": 0,
+    "started_at": 1793043349.949411,
+    "status": "succeeded"
+  },
+  "transfers": [
+    {
+      "bytes_per_second": 1125.1080529559633,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 2.88327862508595,
+      "ended_monotonic": 741693.832200916,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/bootstrap.sh",
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+      "size_bytes": 3244,
+      "started_monotonic": 741690.94892125,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 4637.116760611798,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 3.129315207945183,
+      "ended_monotonic": 741696.961840666,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/source.py",
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+      "size_bytes": 14511,
+      "started_monotonic": 741693.83252475,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 484932.77969388897,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 7.1177555829053745,
+      "ended_monotonic": 741704.079705416,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/best_apex_fs.pth",
+      "sha256": "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+      "size_bytes": 3451633,
+      "started_monotonic": 741696.961949125,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 498552.3680733243,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 6.919058499974199,
+      "ended_monotonic": 741710.998910541,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/best_apex_pre_fs.pth",
+      "sha256": "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+      "size_bytes": 3449513,
+      "started_monotonic": 741704.079851541,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 85269.67088511711,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 40.47923445899505,
+      "ended_monotonic": 741751.478303708,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/best_apex_stage1_fs.pth",
+      "sha256": "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+      "size_bytes": 3451651,
+      "started_monotonic": 741710.999068916,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 754262.9692342107,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 9.146617667051032,
+      "ended_monotonic": 741760.625036958,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/champion_a5_freespace_20260621.pth",
+      "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+      "size_bytes": 6898955,
+      "started_monotonic": 741751.478418833,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 99472.88422554202,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 69.42843824997544,
+      "ended_monotonic": 741830.053609416,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/frp3_m3_s12_u60000_20261005.pth",
+      "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+      "size_bytes": 6906247,
+      "started_monotonic": 741760.625170916,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 651.4027771641744,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 3.338947999989614,
+      "ended_monotonic": 741833.392708833,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/timing-fixtures.json",
+      "sha256": "737b2c61eabeb570456c8d7c287a5e615ac642a71d320db44925c58c252201aa",
+      "size_bytes": 2175,
+      "started_monotonic": 741830.053760458,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 996969.4203402228,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 17.97262045799289,
+      "ended_monotonic": 741851.365464083,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/control.json",
+      "sha256": "2c45718cd192f0a7dd61c96fc25d1d962d677a35b515d9e3fb32e71d66777964",
+      "size_bytes": 17918153,
+      "started_monotonic": 741833.392843333,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 150.47801839357396,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 3.31609895802103,
+      "ended_monotonic": 741854.681638416,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/verified-ledger.json",
+      "sha256": "30da303cf972a76fe02e8041e7a5ead015ddfae42385abed3daf93e8371f6c42",
+      "size_bytes": 499,
+      "started_monotonic": 741851.365539,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 36.23584348674437,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 2.4009376249741763,
+      "ended_monotonic": 741857.082685458,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/verified-ledger.json.sha256",
+      "sha256": "f315c9ee51c86e391e8960ae36dda1db79ba32a958d24c367b969a89590e619c",
+      "size_bytes": 87,
+      "started_monotonic": 741854.681747416,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 2.6754787026019513,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 3.3638839999912307,
+      "ended_monotonic": 741860.446680166,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/inputs/verified-ledger.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size_bytes": 9,
+      "started_monotonic": 741857.082795416,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 1422826.2900836347,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:944",
+      "direction": "download",
+      "elapsed_seconds": 9.431953917024657,
+      "ended_monotonic": 742500.549211083,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/before.json",
+      "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+      "size_bytes": 13420032,
+      "started_monotonic": 742491.117254791,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 1630925.8700572257,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:944",
+      "direction": "download",
+      "elapsed_seconds": 8.22847454098519,
+      "ended_monotonic": 742613.433937958,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/after-fixture-672.json",
+      "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+      "size_bytes": 13420032,
+      "started_monotonic": 742605.205462125,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 1508947.2374553832,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:944",
+      "direction": "download",
+      "elapsed_seconds": 8.893639000016265,
+      "ended_monotonic": 742775.43582,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/after-fixture-673.json",
+      "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+      "size_bytes": 13420032,
+      "started_monotonic": 742766.542179708,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 6513.443974839088,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/export_batches.py:335",
+      "direction": "download",
+      "elapsed_seconds": 1.0019277090905234,
+      "ended_monotonic": 742780.463750833,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/.snake-export-batch-21f823e3530c47ca996701ed864d633c.zip",
+      "sha256": "4cfe40326355b9b0ce937c76e286e4df96e69158950385865f6be7ceee694d48",
+      "size_bytes": 6526,
+      "started_monotonic": 742779.461821541,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 1215034.1007105843,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:944",
+      "direction": "download",
+      "elapsed_seconds": 11.044983833911829,
+      "ended_monotonic": 742927.485691666,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/environment/after.json",
+      "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+      "size_bytes": 13420032,
+      "started_monotonic": 742916.440706916,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 1399091.1073213092,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:944",
+      "direction": "download",
+      "elapsed_seconds": 9.591964332968928,
+      "ended_monotonic": 742939.171217583,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/paired/assignment-environment.json",
+      "sha256": "58f2b8a4e19a71dbc7401f7cfef76f8532de4c15b3df90f79f50c75f8ee9e15d",
+      "size_bytes": 13420032,
+      "started_monotonic": 742929.579252708,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 8445.03387017984,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/export_batches.py:335",
+      "direction": "download",
+      "elapsed_seconds": 0.9907597919227555,
+      "ended_monotonic": 742943.683508,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/.snake-export-batch-1167739dcc7047a9a5bd6fee77274cdc.zip",
+      "sha256": "8d2eec625c17850c36f02945a02998854c441dd996e780d852b5e2daea1c687e",
+      "size_bytes": 8367,
+      "started_monotonic": 742942.692747083,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 2242034.4253432374,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:944",
+      "direction": "download",
+      "elapsed_seconds": 18.764053541934118,
+      "ended_monotonic": 742962.450448791,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/qualification/qualification.json",
+      "sha256": "8eeaf6bcda3ec9d81720499b3de88c100cc0f42cb25cf6350d9a1b2d4c431f3c",
+      "size_bytes": 42069654,
+      "started_monotonic": 742943.686393041,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 1842.337804820371,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-f5-family-canary-911426db-04.noindex/research/colab_cli/supervisor.py:944",
+      "direction": "download",
+      "elapsed_seconds": 0.5498448750004172,
+      "ended_monotonic": 742965.095449833,
+      "remote": "/content/snake-cli/ac84655a6de340a8a5c4f33a3fcfc8c5/output/resume/verified-skip-proof.json",
+      "sha256": "85946e7c81648113dfd2bb3e23c8fb27caa17e7c67cfb2fd40439fd9a2f535f3",
+      "size_bytes": 1013,
+      "started_monotonic": 742964.5456035,
+      "status": "verified"
+    }
+  ],
+  "usage_after": {
+    "assignments": 0.0,
+    "balance": 1062.71,
+    "rate": 0.0
+  },
+  "usage_before": {
+    "assignments": 0.0,
+    "balance": 1063.23,
+    "rate": 0.0
+  },
+  "warmup_seconds": 4.209253833047114
+}

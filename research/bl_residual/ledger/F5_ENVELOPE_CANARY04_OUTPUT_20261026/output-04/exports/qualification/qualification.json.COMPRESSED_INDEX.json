@@ -1,0 +1,15 @@
+{
+  "encoding": "gzip-concatenated-parts",
+  "parts": [
+    "output-04/exports/qualification/qualification.json.gz.part-000",
+    "output-04/exports/qualification/qualification.json.gz.part-001",
+    "output-04/exports/qualification/qualification.json.gz.part-002",
+    "output-04/exports/qualification/qualification.json.gz.part-003",
+    "output-04/exports/qualification/qualification.json.gz.part-004",
+    "output-04/exports/qualification/qualification.json.gz.part-005",
+    "output-04/exports/qualification/qualification.json.gz.part-006",
+    "output-04/exports/qualification/qualification.json.gz.part-007"
+  ],
+  "sha256": "8eeaf6bcda3ec9d81720499b3de88c100cc0f42cb25cf6350d9a1b2d4c431f3c",
+  "size": 42069654
+}
