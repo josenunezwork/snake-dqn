@@ -1,0 +1,30 @@
+command: nice -n 15 env SNAKE_DQN_DEVICE=cpu PYTHONDONTWRITEBYTECODE=1 "$PY" -m pytest -q tests/test_bl_residual_f5_capture.py tests/test_bl_residual_f5_qualification.py tests/test_bl_residual_f5_package.py tests/test_bl_residual_f5_broker.py tests/test_f5_environment_memory_v5.py tests/test_colab_cli_rpc_recovery.py tests/test_colab_cli_staging_repair.py tests/test_ops_qualification.py tests/test_ops_dispatch.py
+cwd: /Users/josenunez/Projects/ml/snake-dqn-f5-cap05
+started_utc: 2026-10-26T11:19:24Z
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-f5-cap05
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 182 items
+
+tests/test_bl_residual_f5_capture.py ...............................     [ 17%]
+tests/test_bl_residual_f5_qualification.py .........s.                   [ 23%]
+tests/test_bl_residual_f5_package.py ................                    [ 31%]
+tests/test_bl_residual_f5_broker.py ......s                              [ 35%]
+tests/test_f5_environment_memory_v5.py .....                             [ 38%]
+tests/test_colab_cli_rpc_recovery.py ......                              [ 41%]
+tests/test_colab_cli_staging_repair.py ..........                        [ 47%]
+tests/test_ops_qualification.py ........                                 [ 51%]
+tests/test_ops_dispatch.py ............................................. [ 76%]
+...........................................                              [100%]
+
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_bl_residual_f5_qualification.py:103: requires a real CUDA runtime
+SKIPPED [1] tests/test_bl_residual_f5_broker.py:267: requires a real CUDA runtime
+================== 180 passed, 2 skipped in 130.36s (0:02:10) ==================
+Exit: macOS OpenMP-isolated pytest finished
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!
+finished_utc: 2026-10-26T11:21:35Z
+return_code: 0
