@@ -230,6 +230,7 @@ def _environment_admission(
         capture_environment_diagnostic,
         compare_environment,
         policy_binding,
+        refuse_environment_receipt,
     )
 
     failures = _environment_configuration_failures()
@@ -254,9 +255,12 @@ def _environment_admission(
             except ValueError as exc:
                 failures.append(str(exc))
     if diagnostic:
+        if failures:
+            capture = refuse_environment_receipt(capture, failures)
         return {
             "schema": "bl-residual-f5-environment-diagnostic/v1",
             **evidence,
+            "raw_receipt": capture,
             "admission_failures": list(dict.fromkeys(failures)),
             "admissible": not failures,
             "evidence_only": True,
@@ -269,7 +273,13 @@ def _environment_admission(
 
 def export_environment_capture(output: Path) -> dict[str, Any]:
     """Publish complete raw diagnostics before refusing; never publish invalid admission."""
+    from research.bl_residual.f5_environment import refuse_environment_receipt
+
     evidence = _environment_admission(None, diagnostic=True)
+    if not evidence["admissible"]:
+        evidence["raw_receipt"] = refuse_environment_receipt(
+            evidence["raw_receipt"], evidence["admission_failures"]
+        )
     # These exports are collected by the unchanged supervisor even on child failure.
     # The admissible environment filename is deliberately absent on refusal.
     export_json(output.with_name("environment-raw.json"), evidence["raw_receipt"])

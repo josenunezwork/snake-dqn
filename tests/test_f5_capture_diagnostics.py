@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -32,7 +33,12 @@ def test_capture_cli_exports_all_diagnostics_before_refusal(monkeypatch, tmp_pat
     with pytest.raises(f5_job.F5FitRefusal, match="package read failed; UUID mismatch; capability"):
         f5_job.main()
     assert not output.exists()
-    assert json.loads(output.with_name("environment-raw.json").read_text()) == raw
+    evidence["raw_receipt"] = f5_environment.refuse_environment_receipt(
+        raw, evidence["admission_failures"]
+    )
+    assert (
+        json.loads(output.with_name("environment-raw.json").read_text()) == evidence["raw_receipt"]
+    )
     diagnostic = output.with_name("environment-diagnostic.json")
     assert json.loads(diagnostic.read_text()) == evidence
     verify_export(diagnostic)
@@ -92,7 +98,9 @@ def test_admission_aggregates_config_and_raw_failures(monkeypatch):
         "UUID",
     ]
     assert not result["admissible"]
-    assert result["raw_receipt"] == {"gpu": "NVIDIA L4"}
+    assert result["raw_receipt"] == f5_environment.refuse_environment_receipt(
+        {"gpu": "NVIDIA L4"}, result["admission_failures"]
+    )
     assert not result["scientific_use_authorized"]
 
 
@@ -137,3 +145,169 @@ def test_l40_name_cannot_pass_l4_configuration(monkeypatch):
     assert any(
         "exact NVIDIA L4 name" in value for value in f5_job._environment_configuration_failures()
     )
+
+
+@pytest.fixture(params=["failed-parseable-smi", "configuration-only"])
+def refused_capture(request, monkeypatch, tmp_path):
+    """Real capture/export refusal with otherwise admissible isolated-L4 observations."""
+    from tests.test_bl_residual_f5_capture import RAW_SMI, _install_isolated_l4
+
+    _install_isolated_l4(monkeypatch, tmp_path)
+    successful = f5_environment.capture_environment()
+    f5_environment.validate_environment(successful)
+    monkeypatch.setattr(f5_job, "_environment_configuration_failures", lambda: [])
+    if request.param == "failed-parseable-smi":
+
+        def failed(*args, **kwargs):
+            raise subprocess.CalledProcessError(
+                3, args[0], output=RAW_SMI, stderr="driver warning\n"
+            )
+
+        monkeypatch.setattr(f5_environment.subprocess, "check_output", failed)
+        # The collector's raw content must refuse even without job-layer marking.
+        collected = f5_environment.capture_environment_diagnostic()
+        assert not collected["admissible"]
+        assert collected["raw_receipt"]["capture_status"] == "REFUSED"
+        assert collected["raw_receipt"]["_acquisition_failures"]
+        with pytest.raises(f5_environment.F5EnvironmentRefusal):
+            f5_environment.validate_environment(collected["raw_receipt"])
+    else:
+        monkeypatch.setattr(
+            f5_job, "_environment_configuration_failures", lambda: ["configuration-only refusal"]
+        )
+    output = tmp_path / "output" / "environment.json"
+    with pytest.raises(f5_job.F5FitRefusal):
+        f5_job.export_environment_capture(output)
+    assert not output.exists()
+    raw_path = output.with_name("environment-raw.json")
+    diagnostic_path = output.with_name("environment-diagnostic.json")
+    verify_export(raw_path)
+    verify_export(diagnostic_path)
+    raw = json.loads(raw_path.read_text())
+    wrapper = json.loads(diagnostic_path.read_text())
+    assert wrapper["admissible"] is False
+    assert raw == wrapper["raw_receipt"]
+    assert raw["capture_status"] == "REFUSED"
+    assert raw["_admission_failures"]
+    assert raw["gpu_driver_query_raw"] == RAW_SMI
+    if request.param == "failed-parseable-smi":
+        assert raw["_acquisition_failures"] == wrapper["acquisition_failures"]
+        assert raw["_acquisition_evidence"]["gpu_driver_query_raw"]["stderr"] == "driver warning\n"
+    else:
+        assert wrapper["acquisition_failures"] == wrapper["validation_failures"] == []
+        assert raw["_admission_failures"] == ["configuration-only refusal"]
+    # A fresh, successful current capture cannot legitimize the refused reference.
+    monkeypatch.setattr(f5_job, "capture_environment", lambda: copy.deepcopy(successful))
+    monkeypatch.setattr(
+        f5_environment,
+        "capture_environment_diagnostic",
+        lambda: {
+            "raw_receipt": copy.deepcopy(successful),
+            "acquisition_failures": [],
+            "validation_failures": [],
+            "admissible": True,
+        },
+    )
+    monkeypatch.setattr(f5_job, "_environment_configuration_failures", lambda: [])
+    return raw, wrapper, successful
+
+
+def test_refused_raw_cannot_escape_receipt_validation(refused_capture):
+    raw, wrapper, _ = refused_capture
+    for candidate in (raw, wrapper):
+        with pytest.raises(f5_environment.F5EnvironmentRefusal):
+            f5_environment.validate_environment(candidate)
+
+
+@pytest.mark.parametrize("mode", ["same-assignment", "cross-assignment"])
+def test_refused_raw_cannot_escape_environment_comparison(refused_capture, mode):
+    raw, wrapper, successful = refused_capture
+    for candidate in (raw, wrapper):
+        for expected, actual in (
+            (candidate, candidate),
+            (candidate, successful),
+            (successful, candidate),
+        ):
+            with pytest.raises(f5_environment.F5EnvironmentRefusal):
+                f5_environment.compare_environment(expected, actual, mode=mode)
+
+
+def test_refused_raw_cannot_escape_control_admission(refused_capture):
+    raw, wrapper, _ = refused_capture
+    for candidate in (raw, wrapper):
+        control = {
+            "environment_policy": f5_environment.policy_binding(),
+            "environment_capture": candidate,
+        }
+        with pytest.raises(f5_job.F5FitRefusal):
+            f5_job._environment_admission(control)
+        diagnostic = f5_job._environment_admission(control, diagnostic=True)
+        assert not diagnostic["admissible"]
+        with pytest.raises(f5_environment.F5EnvironmentRefusal):
+            f5_environment.validate_environment(diagnostic["raw_receipt"])
+
+
+def test_refused_reference_sweep(refused_capture, monkeypatch, tmp_path):
+    from research.bl_ppo.exports import export_json
+    from research.bl_residual import f5_package, f5_qualification
+
+    raw, wrapper, successful = refused_capture
+    inputs = tmp_path / "bootstrap"
+    inputs.mkdir()
+    checkpoint = inputs / "b8.pth"
+    checkpoint.write_bytes(b"synthetic checkpoint")
+    monkeypatch.setattr(f5_qualification, "digest", lambda _: f5_job.B8_SHA256)
+    monkeypatch.setattr(f5_package, "source_inventory", lambda _: {"fixture": "source"})
+    (inputs / "bootstrap-control.json").write_text(
+        json.dumps(
+            {
+                "schema": "bl-f5-bootstrap-qualification/v1",
+                "source_hashes": {"fixture": "source"},
+                "environment_policy": f5_environment.policy_binding(),
+                "qualification_fixture_sha256": "fixture-sha",
+                "b8_sha256": f5_job.B8_SHA256,
+            }
+        )
+    )
+    snapshot = tmp_path / "snapshot.pt"
+    required = [
+        "model_residual",
+        "optimizer_state",
+        "updates_completed",
+        "losses",
+        "identity",
+        "recipe",
+        "plan_sha256",
+        "python_rng_state",
+        "numpy_rng_state",
+        "torch_cpu_rng_state",
+        "torch_cuda_rng_states",
+        "plan_generator_state",
+    ]
+    export_json(snapshot, {key: None for key in required})
+    monkeypatch.setattr(f5_job.torch, "load", lambda *a, **k: {key: None for key in required})
+    for candidate in (raw, wrapper):
+        with pytest.raises(f5_environment.F5EnvironmentRefusal):
+            f5_environment.canonical_environment(candidate)
+        with pytest.raises(f5_environment.F5EnvironmentRefusal):
+            f5_job._assignment_boundary(candidate)
+        with pytest.raises(f5_environment.F5EnvironmentRefusal):
+            f5_job._environment_evidence({"environment_capture": candidate}, successful)
+        (inputs / "environment.json").write_text(json.dumps(candidate))
+        with pytest.raises(f5_environment.F5EnvironmentRefusal):
+            f5_qualification._bootstrap_admission(inputs, inputs, "fixture-sha", checkpoint)
+        with pytest.raises(f5_environment.F5EnvironmentRefusal):
+            f5_job._resume_state(snapshot, None, candidate)
+
+
+@pytest.mark.parametrize("status", [None, "REFUSED", "success", True, {}, []])
+def test_successful_provenance_is_mandatory(status):
+    from tests.test_bl_residual_f5_environment import _receipt
+
+    receipt = _receipt()
+    receipt["capture_status"] = status
+    with pytest.raises(f5_environment.F5EnvironmentRefusal):
+        f5_environment.validate_environment(receipt)
+    del receipt["capture_status"]
+    with pytest.raises(f5_environment.F5EnvironmentRefusal):
+        f5_environment.validate_environment(receipt)

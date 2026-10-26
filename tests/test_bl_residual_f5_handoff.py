@@ -89,6 +89,7 @@ def _environment(
     packages["numpy"]["version"] = "2.2.0"
     return {
         "schema": f5_environment.SCHEMA,
+        "capture_status": "SUCCESS",
         "schema_sha256": hashlib.sha256(
             (Path(f5_environment.__file__).with_name("f5_environment_schema_v4.json")).read_bytes()
         ).hexdigest(),

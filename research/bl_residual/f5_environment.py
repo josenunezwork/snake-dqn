@@ -37,6 +37,7 @@ ADOPTED_AMENDMENT_SHA256 = "a1dc92ffb8fa341fb51738a56fe0097d75e15b0aff7194940c12
 REQUIRED_TOP_LEVEL = frozenset(
     {
         "schema",
+        "capture_status",
         "schema_sha256",
         "platform",
         "python",
@@ -230,7 +231,7 @@ def canonical_json(value: Any) -> str:
 
 
 def receipt_sha256(value: Mapping[str, Any]) -> str:
-    """Hash raw receipt bytes semantically after strict typed validation."""
+    """Fingerprint raw receipt content; this hash alone never establishes admission."""
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
@@ -346,6 +347,8 @@ def collect_environment_failures(receipt: Mapping[str, Any]) -> list[str]:
     top = receipt if isinstance(receipt, Mapping) else {}
     if set(top) != REQUIRED_TOP_LEVEL:
         failures.append("F5 environment receipt has unknown or missing fields")
+    if top.get("capture_status") != "SUCCESS":
+        failures.append("F5 environment capture status is not SUCCESS")
     if top.get("schema") != SCHEMA:
         failures.append("F5 environment receipt schema differs")
     if top.get("schema_sha256") != schema_sha256():
@@ -712,6 +715,8 @@ def _validate_environment_first(receipt: Mapping[str, Any]) -> None:
     validate_schema_artifact()
     top = _exact_mapping(receipt, REQUIRED_TOP_LEVEL, "receipt")
     classify_receipt(top)
+    if top["capture_status"] != "SUCCESS":
+        raise F5EnvironmentRefusal("F5 environment capture status is not SUCCESS")
     if top["schema"] != SCHEMA:
         raise F5EnvironmentRefusal("F5 environment receipt schema differs")
     _sha(top["schema_sha256"], "schema_sha256")
@@ -1355,11 +1360,15 @@ def _driver_query() -> tuple[dict[str, str], str]:
 def _capture_environment_raw() -> dict[str, Any]:
     """Observe each source once, retaining successful fields after any refusal.
 
-    The private acquisition-error key is moved into the diagnostic envelope
-    before schema validation. Unavailable fields remain null and can never
-    become admissible evidence. No failed read suppresses independent reads.
+    Acquisition errors stay in the raw receipt as well as its diagnostic envelope.
+    Refused observations retain their bytes but cannot become reference evidence.
+    No failed read suppresses independent reads.
     """
-    receipt: dict[str, Any] = {"schema": SCHEMA, "memory_units": dict(MEMORY_UNITS)}
+    receipt: dict[str, Any] = {
+        "schema": SCHEMA,
+        "capture_status": "SUCCESS",
+        "memory_units": dict(MEMORY_UNITS),
+    }
     errors: list[str] = []
     acquisition_evidence: dict[str, Any] = {}
 
@@ -1506,9 +1515,21 @@ def _capture_environment_raw() -> dict[str, Any]:
     }
     receipt["thread_env"] = {name: os.environ.get(name, "") for name in sorted(THREAD_ENV_KEYS)}
     if errors:
+        receipt["capture_status"] = "REFUSED"
         receipt["_acquisition_failures"] = errors
         receipt["_acquisition_evidence"] = acquisition_evidence
     return receipt
+
+
+def refuse_environment_receipt(receipt: Mapping[str, Any], failures: list[str]) -> dict[str, Any]:
+    """Retain refused observations with a status no evidence consumer can admit."""
+    return {
+        **receipt,
+        "capture_status": "REFUSED",
+        "_admission_failures": list(
+            dict.fromkeys([*receipt.get("_admission_failures", []), *failures])
+        ),
+    }
 
 
 def capture_environment_diagnostic() -> dict[str, Any]:
@@ -1519,14 +1540,16 @@ def capture_environment_diagnostic() -> dict[str, Any]:
         # Defensive last resort for an unexpected collector-level programming
         # error; ordinary source failures are retained field by field above.
         return {
-            "raw_receipt": {},
+            "raw_receipt": refuse_environment_receipt({}, [str(exc)]),
             "acquisition_failures": [str(exc)],
             "validation_failures": [],
             "admissible": False,
         }
-    acquisition = receipt.pop("_acquisition_failures", [])
-    details = receipt.pop("_acquisition_evidence", {})
+    acquisition = receipt.get("_acquisition_failures", [])
+    details = receipt.get("_acquisition_evidence", {})
     failures = collect_environment_failures(receipt)
+    if acquisition or failures:
+        receipt = refuse_environment_receipt(receipt, [*acquisition, *failures])
     result = {
         "raw_receipt": receipt,
         "acquisition_failures": acquisition,

@@ -62,7 +62,8 @@
       "numpy_blas_lapack_build",
       "installed_packages.*.version",
       "memory_units.gpu_memory",
-      "memory_units.gpu_driver_query.memory_total"
+      "memory_units.gpu_driver_query.memory_total",
+      "capture_status"
     ],
     "invariant_integer": [
       "cpu_count",
@@ -723,6 +724,13 @@
       ],
       "comparison": "invariant",
       "type": "null-only-when-absent"
+    },
+    {
+      "path": [
+        "capture_status"
+      ],
+      "comparison": "invariant",
+      "type": "string"
     }
   ],
   "leaf_rule_contract": {
@@ -756,5 +764,6 @@
     "collection": "Each independent source is observed once. Continue sibling fields/packages after failure; unavailable fields stay null. Preserve raw SMI stdout before parsing and subprocess stdout/stderr (base64 for bytes) in acquisition_evidence.",
     "validation": "Collect independent top-level, nested field, package/content/metadata and source consistency failures in deterministic order; dependencies that cannot be read remain explicit failures.",
     "exports": "Before nonzero refusal, publish environment-raw.json and environment-diagnostic.json create-only with SHA256 sidecars and complete markers last. evidence_only=true, scientific_use_authorized=false. Unchanged supervisor collects completed diagnostics before raising child failure."
-  }
+  },
+  "capture_provenance": "capture_status is mandatory and must be SUCCESS. Acquisition, validation, configuration or reference-admission refusal sets REFUSED in the raw receipt and retains failure details there. Refusal-only keys are intentionally outside the admissible schema. Diagnostic envelopes and their refused raw contents are never reference evidence."
 }

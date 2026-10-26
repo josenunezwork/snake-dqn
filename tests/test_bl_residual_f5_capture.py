@@ -655,7 +655,9 @@ def test_capture_diagnostic_retains_raw_receipt_and_all_independent_l4_mismatche
 
     assert diagnostic["admissible"] is False
     assert diagnostic["acquisition_failures"] == []
-    assert diagnostic["raw_receipt"] == malformed
+    assert diagnostic["raw_receipt"] == environment.refuse_environment_receipt(
+        malformed, diagnostic["validation_failures"]
+    )
     assert set(diagnostic["validation_failures"]) >= {
         "F5 environment GPU UUID provenance fields disagree",
         "F5 environment GPU name provenance fields disagree",
@@ -675,7 +677,7 @@ def test_capture_diagnostic_reports_acquisition_refusal_without_forging_a_receip
         lambda: (_ for _ in ()).throw(environment.F5EnvironmentRefusal("no CUDA device")),
     )
     assert environment.capture_environment_diagnostic() == {
-        "raw_receipt": {},
+        "raw_receipt": environment.refuse_environment_receipt({}, ["no CUDA device"]),
         "acquisition_failures": ["no CUDA device"],
         "validation_failures": [],
         "admissible": False,

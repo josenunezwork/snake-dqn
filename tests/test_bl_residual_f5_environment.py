@@ -67,6 +67,7 @@ def _receipt(*, uuid: str = "A", node: str = "host-a", root: str = "/venv-a") ->
     }
     return {
         "schema": environment.SCHEMA,
+        "capture_status": "SUCCESS",
         "schema_sha256": environment.schema_sha256(),
         "platform": "Linux-6.1-x86_64",
         "python": "3.12.3 fixture",
