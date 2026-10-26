@@ -25,7 +25,9 @@ from typing import Any, BinaryIO, Callable
 
 import numpy as np
 
-SCHEMA = "bl-f5-status-extractor/v3"
+SCHEMA = "bl-f5-status-extractor/v4"
+REVIEW_FOLDER = "research/bl_residual/f5_status_reconciliation_20261025"
+RECONCILIATION_RULING_SHA = "a77f026a07052cf86abf4094d73703276d68d6529b19d0b116b1739b8eaf44b7"
 STATUSES = frozenset({"EXACT", "NOT_EVALUATED", "UNKNOWN"})
 NPZ_OPEN = frozenset(
     {
@@ -66,10 +68,19 @@ SOURCE_PATH = (
     "d1024-pack-04/inputs/train-1024.npz"
 )
 SOURCE_SHA = "6906bffc7241de568965c1a91f4faebe799895ee0b4650e59b20e43db1dac494"
+PROPOSED_OUTPUT = (
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/"
+    "F5_STATUS_SCAN_RECONCILED_20261025_REVIEW01.json"
+)
+RECEIPT_FOLDER = (
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/f5-scan-reconcile-review01"
+)
 
 
 class Refused(ValueError):
     """A redacted refusal; source values must never appear in the error."""
+
+    reconciliation: dict[str, Any] | None = None
 
 
 def refuse(category: str) -> None:
@@ -131,6 +142,87 @@ def validate_bindings(
             "ordinary_only": ordinary,
         }
     return result
+
+
+def valid_retained_counts(bindings: dict[str, dict[str, Any]], evidence: Any) -> bool:
+    """Check complete per-life stratum count metadata without opening a source."""
+    return (
+        isinstance(evidence, dict)
+        and set(evidence) == set(bindings)
+        and all(
+            isinstance(row, dict)
+            and set(row) == {"ordinary", "doom"}
+            and all(type(v) is int and v >= 0 for v in row.values())
+            and row["ordinary"] <= 8
+            and row["doom"] <= (0 if bindings[life]["ordinary_only"] else 90)
+            for life, row in evidence.items()
+        )
+    )
+
+
+def reconcile_ids(
+    bindings: dict[str, dict[str, Any]],
+    lives: list[str],
+    ordinary: np.ndarray,
+    retained_counts: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Reconcile exact IDs using only row metadata and separately pinned counts.
+
+    Absence and ordinary-only membership are not proof of zero original rows.
+    Count evidence must cover the entire frozen set and agree with every observed
+    stratum count. Its provenance is part of independent inventory acceptance.
+    No source references are followed and no aliases are made.
+    """
+    frozen, observed = set(bindings), set(lives)
+    missing, extra = sorted(frozen - observed), sorted(observed - frozen)
+    report = {
+        "schema": "bl-f5-id-reconciliation/v1",
+        "frozen_ids": sorted(frozen),
+        "observed_ids": sorted(observed),
+        "missing_ids": missing,
+        "extra_ids": extra,
+        "differences": [],
+        "count_evidence_present": retained_counts is not None,
+        "accepted": False,
+    }
+    counts = Counter((life, "ordinary" if flag else "doom") for life, flag in zip(lives, ordinary))
+    valid_evidence = valid_retained_counts(bindings, retained_counts)
+    report["count_evidence_sha256"] = (
+        hashlib.sha256(canonical(retained_counts)).hexdigest() if valid_evidence else None
+    )
+    for life in missing:
+        classification = "REFUSE_MISSING_SELECTED_ID"
+        if bindings[life]["ordinary_only"]:
+            if not valid_evidence:
+                classification = "REFUSE_UNPROVEN_ZERO_ROW_SIBLING"
+            elif retained_counts[life] != {"ordinary": 0, "doom": 0}:
+                classification = "REFUSE_MISSING_NONZERO_ROW_SIBLING"
+            else:
+                classification = "PROVEN_ZERO_ROW_ORDINARY_ONLY_OMISSION"
+        report["differences"].append({"life_id": life, "classification": classification})
+    report["differences"].extend(
+        {"life_id": life, "classification": "REFUSE_EXTRA_ID"} for life in extra
+    )
+    contradictions = []
+    if valid_evidence:
+        contradictions = [
+            life
+            for life in sorted(frozen)
+            if any(counts[(life, s)] != retained_counts[life][s] for s in ("ordinary", "doom"))
+        ]
+    report["count_contradiction_ids"] = contradictions
+    report["count_evidence_valid"] = valid_evidence
+    rejected = (
+        (retained_counts is not None and not valid_evidence)
+        or contradictions
+        or any(d["classification"].startswith("REFUSE_") for d in report["differences"])
+    )
+    if rejected:
+        error = Refused("status extractor refused: frozen life coverage reconciliation")
+        error.reconciliation = report
+        raise error
+    report["accepted"] = True
+    return report
 
 
 class Budget:
@@ -255,6 +347,7 @@ def _project(
     exclusions: frozenset[str],
     budget: Budget,
     require_both_strata: bool = True,
+    retained_counts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     bindings = validate_bindings(frozen_lives, exclusions)
     widths = {
@@ -297,8 +390,7 @@ def _project(
     ids, lives, parents = (values[k].tolist() for k in ("row_id", "life_id", "parent_world"))
     if len(set(ids)) != n:
         refuse("duplicate row identity")
-    if set(lives) != set(bindings):
-        refuse("frozen life coverage")
+    reconciliation = reconcile_ids(bindings, lives, ordinary, retained_counts)
     per_life, per_stratum, rows, strata = Counter(), Counter(), [], Counter()
     for index in range(n):
         if index % 256 == 0:
@@ -355,6 +447,7 @@ def _project(
     budget.check()
     result = {
         "schema": SCHEMA,
+        "id_reconciliation": reconciliation,
         "rows": n,
         "strata": {s: strata[s] for s in ("ordinary", "doom")},
         "status_inventory": rows,
@@ -370,6 +463,7 @@ def _project(
         "count_reconciliation": {
             "eligible_lives": len(bindings),
             "observed_lives": len(per_life),
+            "proven_zero_row_omissions": len(reconciliation["missing_ids"]),
             "rows": n,
             "rows_from_strata": sum(strata.values()),
             "action_units": len(rows),
@@ -388,6 +482,7 @@ def project_synthetic_npz(
     exclusions: frozenset[str] = frozenset(),
     require_both_strata: bool = True,
     clock: Callable[[], float] = time.monotonic,
+    retained_counts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Exercise the same projection on a bounded tempfile fixture only.
 
@@ -400,7 +495,14 @@ def project_synthetic_npz(
         refuse("synthetic tempfile boundary")
     try:
         with path.open("rb") as stream:
-            return _project(stream, frozen_lives, exclusions, Budget(clock), require_both_strata)
+            return _project(
+                stream,
+                frozen_lives,
+                exclusions,
+                Budget(clock),
+                require_both_strata,
+                retained_counts,
+            )
     except Refused:
         raise
     except Exception:
@@ -409,18 +511,29 @@ def project_synthetic_npz(
 
 def validate_acceptance(receipt: dict[str, Any], pins: dict[str, str]) -> None:
     """Offline-testable source-bound acceptance check; it grants no adoption."""
-    expected = {"schema", "decision", "independent_reviewer", "ruling_sha256", "pins"}
+    expected = {
+        "schema",
+        "decision",
+        "independent_reviewer",
+        "ruling_sha256",
+        "pins",
+        "reconciliation_ruling_sha256",
+    }
     if (
         not isinstance(receipt, dict)
         or set(receipt) != expected
-        or receipt["schema"] != "bl-f5-extractor-independent-acceptance/v1"
+        or receipt["schema"] != "bl-f5-extractor-independent-acceptance/v2"
         or receipt["decision"] != "ACCEPT_STATUS_ONLY_EXTRACTOR"
         or not isinstance(receipt["independent_reviewer"], str)
         or not receipt["independent_reviewer"].strip()
         or receipt["ruling_sha256"] != RULING_SHA
+        or receipt["reconciliation_ruling_sha256"] != RECONCILIATION_RULING_SHA
+        or not isinstance(pins, dict)
         or receipt["pins"] != pins
         or set(pins) != {"source", "tests", "contract", "inventory"}
-        or any(not re.fullmatch(r"[0-9a-f]{64}", p) for p in pins.values())
+        or any(
+            not isinstance(p, str) or not re.fullmatch(r"[0-9a-f]{64}", p) for p in pins.values()
+        )
     ):
         refuse("independent acceptance required")
 
@@ -445,15 +558,66 @@ def open_source(path: Path) -> BinaryIO:
         os.close(descriptor)
 
 
-def extract_accepted(acceptance: dict[str, Any]) -> dict[str, Any]:
+def open_output(path: Path) -> BinaryIO:
+    """Create the fixed fresh output through no-follow directory descriptors."""
+    safe_path(path)
+    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for component in path.parts[1:-1]:
+            child = os.open(
+                component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor
+            )
+            os.close(descriptor)
+            descriptor = child
+        final = os.open(
+            path.name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=descriptor,
+        )
+        return os.fdopen(final, "xb")
+    finally:
+        os.close(descriptor)
+
+
+def validate_authorization(authorization: Any, pins: dict[str, str]) -> None:
+    """Renewed authority is separate from code acceptance and never inherited."""
+    required = {
+        "schema",
+        "decision",
+        "authorized_by",
+        "pins",
+        "output_path",
+        "reconciliation_ruling_sha256",
+    }
+    if (
+        not isinstance(authorization, dict)
+        or set(authorization) != required
+        or authorization["schema"] != "bl-f5-renewed-scan-authorization/v1"
+        or authorization["decision"] != "AUTHORIZE_ONE_METADATA_SCAN"
+        or not isinstance(authorization["authorized_by"], str)
+        or not authorization["authorized_by"].strip()
+        or authorization["pins"] != pins
+        or authorization["output_path"] != PROPOSED_OUTPUT
+        or authorization["reconciliation_ruling_sha256"] != RECONCILIATION_RULING_SHA
+    ):
+        refuse("renewed one-scan authorization required")
+
+
+def extract_accepted(
+    acceptance: dict[str, Any],
+    authorization: dict[str, Any] | None = None,
+    *,
+    reservation: BinaryIO | None = None,
+) -> dict[str, Any]:
     """Later operator API: exact acceptance and frozen identity precede real open.
 
-    This function is NOT invoked during package preparation or by its CLI. The
+    This function is NOT invoked during package preparation. The
     independent judge supplies the acceptance object; the implementer cannot
     grant it. The API performs no scientific work or mechanism selection.
     """
     root = Path(__file__).absolute().parents[2]
-    folder = root / "research/bl_residual/f5_r10a_closure_20261026"
+    folder = root / REVIEW_FOLDER
     paths = {
         "source": Path(__file__).absolute(),
         "tests": root / "tests/test_f5_status_extractor.py",
@@ -468,10 +632,32 @@ def extract_accepted(acceptance: dict[str, Any]) -> dict[str, Any]:
         content[name] = path.read_bytes()
     pins = {key: hashlib.sha256(value).hexdigest() for key, value in content.items()}
     validate_acceptance(acceptance, pins)
+    validate_authorization(authorization, pins)
+    if (
+        reservation is None
+        or reservation.closed
+        or not stat.S_ISREG(os.fstat(reservation.fileno()).st_mode)
+        or reservation.mode != "xb"
+        or os.fstat(reservation.fileno()).st_size != 0
+    ):
+        refuse("fresh exclusive output reservation required")
+    safe_path(Path(PROPOSED_OUTPUT))
+    expected_output = os.stat(PROPOSED_OUTPUT, follow_symlinks=False)
+    actual_output = os.fstat(reservation.fileno())
+    if (actual_output.st_dev, actual_output.st_ino) != (
+        expected_output.st_dev,
+        expected_output.st_ino,
+    ):
+        refuse("fixed output reservation identity")
+    # Consume the one-shot reservation before source access. Even an API caller
+    # cannot reuse the same empty descriptor after a failed or interrupted scan.
+    reservation.write(canonical({"schema": SCHEMA, "status": "RESERVED"}))
+    reservation.flush()
+    os.fsync(reservation.fileno())
     try:
         inventory = json.loads(content["inventory"])
         if (
-            inventory["schema"] != "bl-f5-status-input-inventory/v1"
+            inventory["schema"] != "bl-f5-status-input-inventory/v2"
             or inventory["annex_sha256"]
             != "8ee06291b23a1ef8c657b59a4f4990349ae4c524a680c47f06785a47d227f764"
             or inventory["counts"] != {"selected": 960, "ordinary_only_siblings": 9, "total": 969}
@@ -495,6 +681,25 @@ def extract_accepted(acceptance: dict[str, Any]) -> dict[str, Any]:
         mapping = {r["life_id"]: r for r in records}
         exclusions = frozenset(inventory["training_exclusions"])
         validate_bindings(mapping, exclusions)
+        evidence = inventory["retained_row_count_metadata"]
+        retained_counts = None
+        if evidence is not None:
+            # The accepted inventory must contain the evidence itself, not a
+            # path to a life payload or an assertion inferred from NPZ absence.
+            if (
+                not isinstance(evidence, dict)
+                or set(evidence)
+                != {"schema", "container_sha256", "life_sources_sha256", "provenance", "counts"}
+                or evidence["schema"] != "bl-f5-retained-row-count-metadata/v1"
+                or evidence["container_sha256"] != SOURCE_SHA
+                or evidence["life_sources_sha256"] != inventory["original_life_sources_sha256"]
+                or not isinstance(evidence["provenance"], str)
+                or not evidence["provenance"].strip()
+            ):
+                refuse("row count evidence binding")
+            retained_counts = evidence["counts"]
+            if not valid_retained_counts(mapping, retained_counts):
+                refuse("row count evidence schema")
     except Refused:
         raise
     except Exception:
@@ -512,7 +717,7 @@ def extract_accepted(acceptance: dict[str, Any]) -> dict[str, Any]:
             if digest.hexdigest() != SOURCE_SHA:
                 refuse("source hash mismatch")
             stream.seek(0)
-            result = _project(stream, mapping, exclusions, budget)
+            result = _project(stream, mapping, exclusions, budget, retained_counts=retained_counts)
             after = os.fstat(stream.fileno())
             if (before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
                 after.st_ino,
@@ -532,10 +737,65 @@ def extract_accepted(acceptance: dict[str, Any]) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """This submission exposes no real-source CLI before independent acceptance."""
+    """Require exact acceptance AND renewed one-scan authorization before access."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args(argv)
-    parser.error("refused: real-input scan is disabled; independent acceptance must precede access")
+    parser.add_argument("--acceptance", type=Path, required=True)
+    parser.add_argument("--authorization", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args(argv)
+    if (
+        args.acceptance != Path(RECEIPT_FOLDER) / "acceptance.json"
+        or args.authorization != Path(RECEIPT_FOLDER) / "authorization.json"
+    ):
+        refuse("fixed receipt paths required")
+
+    # Receipt paths are metadata only, bounded, no-follow, and never traversed.
+    def receipt(path: Path) -> dict[str, Any]:
+        with open_source(path) as stream:
+            raw = stream.read(65537)
+        if len(raw) > 65536:
+            refuse("receipt byte bound")
+        try:
+            value = json.loads(raw)
+        except Exception:
+            refuse("receipt encoding")
+        if not isinstance(value, dict):
+            refuse("receipt schema")
+        return value
+
+    acceptance = receipt(args.acceptance)
+    authorization = receipt(args.authorization)
+    validate_acceptance(acceptance, acceptance.get("pins", {}))
+    validate_authorization(authorization, acceptance["pins"])
+    if str(args.output) != PROPOSED_OUTPUT:
+        refuse("fixed fresh output required")
+    # Create-only reservation precedes input access; it is never removed on failure.
+    # O_EXCL also refuses a symlink at the final output component.
+    with open_output(args.output) as output:
+        try:
+            result = extract_accepted(acceptance, authorization, reservation=output)
+        except Refused as error:
+            output.seek(0)
+            output.write(
+                canonical(
+                    {
+                        "schema": SCHEMA,
+                        "status": "REFUSED",
+                        "category": str(error),
+                        "id_reconciliation": error.reconciliation,
+                    }
+                )
+            )
+            output.truncate()
+            output.flush()
+            os.fsync(output.fileno())
+            return 2
+        output.seek(0)
+        output.write(canonical(result))
+        output.truncate()
+        output.flush()
+        os.fsync(output.fileno())
+    return 0
 
 
 if __name__ == "__main__":

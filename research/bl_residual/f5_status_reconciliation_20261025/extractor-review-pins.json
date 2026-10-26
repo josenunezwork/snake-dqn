@@ -1,0 +1,10 @@
+{
+  "pins": {
+    "contract": "2d9edb5ab598c6ce5ba61412e51757fcfde0b9a09552eebbebb55956e8254cb9",
+    "inventory": "f9e1de54440d892600a738839f48a70b7e5988ee75621c319bbf350cefb77589",
+    "source": "49f7cb0fcadc2b95569aabe6d2e1613d2f46c5ed5aec6c24f1cbeebf60a157df",
+    "tests": "f1084cbbfb547a7e6d02f2328e9cef1930a7a0860be0d275be385ee25c382def"
+  },
+  "schema": "bl-f5-extractor-review-pins/v2",
+  "status": "SUBMITTED_NOT_ACCEPTED_REAL_UNRUN"
+}

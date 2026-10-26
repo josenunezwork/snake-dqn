@@ -313,10 +313,11 @@ def test_full_U_can_exceed_work_ceiling_without_truncation(tmp_path: Path) -> No
 def test_missing_acceptance_or_any_changed_source_pin_is_refused() -> None:
     pins = {key: "a" * 64 for key in ("source", "tests", "contract", "inventory")}
     receipt = {
-        "schema": "bl-f5-extractor-independent-acceptance/v1",
+        "schema": "bl-f5-extractor-independent-acceptance/v2",
         "decision": "ACCEPT_STATUS_ONLY_EXTRACTOR",
         "independent_reviewer": "fixture judge",
         "ruling_sha256": subject.RULING_SHA,
+        "reconciliation_ruling_sha256": subject.RECONCILIATION_RULING_SHA,
         "pins": pins.copy(),
     }
     subject.validate_acceptance(receipt, pins)
@@ -359,3 +360,313 @@ def test_CLI_exposes_no_real_input_mode() -> None:
         subject.main([])
     with pytest.raises(SystemExit):
         subject.main(["--synthetic-life", "/not/an/allowed/path"])
+
+
+def sibling_bindings() -> dict:
+    return {
+        **bindings(),
+        "n/p/1": {"parent_world": "p", "allocation_order": 18, "ordinary_only": True},
+    }
+
+
+def row_counts() -> dict:
+    return {"n/p/0": {"ordinary": 1, "doom": 1}, "n/p/1": {"ordinary": 0, "doom": 0}}
+
+
+def test_missing_sibling_requires_explicit_zero_metadata(tmp_path: Path) -> None:
+    path = fixture(tmp_path / "missing-sibling.npz")
+    with pytest.raises(subject.Refused) as error:
+        subject.project_synthetic_npz(path, sibling_bindings())
+    report = error.value.reconciliation
+    assert report["frozen_ids"] == ["n/p/0", "n/p/1"]
+    assert report["observed_ids"] == ["n/p/0"]
+    assert report["missing_ids"] == ["n/p/1"] and report["extra_ids"] == []
+    assert report["differences"] == [
+        {"life_id": "n/p/1", "classification": "REFUSE_UNPROVEN_ZERO_ROW_SIBLING"}
+    ]
+    assert report["accepted"] is False
+    assert "n/p" not in str(error.value)
+    result = subject.project_synthetic_npz(path, sibling_bindings(), retained_counts=row_counts())
+    assert result["id_reconciliation"]["differences"] == [
+        {"life_id": "n/p/1", "classification": "PROVEN_ZERO_ROW_ORDINARY_ONLY_OMISSION"}
+    ]
+    assert result["count_reconciliation"]["eligible_lives"] == 2
+    assert result["count_reconciliation"]["observed_lives"] == 1
+    assert result["count_reconciliation"]["proven_zero_row_omissions"] == 1
+    assert result["count_U"] == 1
+    assert len(result["status_inventory"]) == 12  # No invented rows or actions.
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "nonzero",
+        "selected",
+        "partial",
+        "foreign",
+        "bool",
+        "negative",
+        "doom_sibling",
+        "observed_count",
+        "empty",
+    ],
+)
+def test_zero_row_proof_faults_refuse_without_losing_id_report(tmp_path: Path, fault: str) -> None:
+    mapping, evidence = sibling_bindings(), row_counts()
+    if fault == "nonzero":
+        evidence["n/p/1"]["ordinary"] = 1
+    elif fault == "selected":
+        mapping["n/p/1"]["ordinary_only"] = False
+    elif fault == "partial":
+        del evidence["n/p/0"]
+    elif fault == "foreign":
+        evidence["n/p/2"] = evidence.pop("n/p/1")
+    elif fault == "bool":
+        evidence["n/p/1"]["ordinary"] = False
+    elif fault == "negative":
+        evidence["n/p/1"]["ordinary"] = -1
+    elif fault == "doom_sibling":
+        evidence["n/p/1"]["doom"] = 1
+    elif fault == "observed_count":
+        evidence["n/p/0"]["ordinary"] = 0
+    elif fault == "empty":
+        evidence = {}
+    with pytest.raises(subject.Refused) as error:
+        subject.project_synthetic_npz(
+            fixture(tmp_path / "bad-proof.npz"), mapping, retained_counts=evidence
+        )
+    assert error.value.reconciliation["missing_ids"] == ["n/p/1"]
+    assert error.value.reconciliation["accepted"] is False
+
+
+def test_extra_and_missing_classified_together_without_aliases(tmp_path: Path) -> None:
+    values = arrays()
+    values["life_id"][1] = "n/p/2"
+    values["row_id"][1] = "n/p/2/4"
+    with pytest.raises(subject.Refused) as error:
+        subject.project_synthetic_npz(
+            fixture(tmp_path / "extra.npz", values),
+            sibling_bindings(),
+            retained_counts=row_counts(),
+        )
+    report = error.value.reconciliation
+    assert report["observed_ids"] == ["n/p/0", "n/p/2"]
+    assert report["extra_ids"] == ["n/p/2"]
+    assert report["differences"][-1] == {"life_id": "n/p/2", "classification": "REFUSE_EXTRA_ID"}
+
+
+def test_all_nine_siblings_zero_proven_without_reducing_969_frozen_ids(tmp_path: Path) -> None:
+    mapping, evidence = {}, {}
+    for i in range(969):
+        life = f"n/p-{i:04d}/0"
+        mapping[life] = {
+            "parent_world": f"p-{i:04d}",
+            "allocation_order": i,
+            "ordinary_only": i >= 960,
+        }
+        evidence[life] = {"ordinary": int(i < 960), "doom": int(i < 960)}
+    lives = [life for life in mapping if not mapping[life]["ordinary_only"] for _ in range(2)]
+    ordinary = np.tile([True, False], 960)
+    values = {
+        "life_id": np.array(lives),
+        "parent_world": np.array([life.split("/")[1] for life in lives]),
+        "row_id": np.array([f"{life}/{j % 2}" for j, life in enumerate(lives)]),
+        "ordinary": ordinary,
+        "natural_stream": ordinary.copy(),
+        "legal": np.ones((1920, 6), dtype=bool),
+        "action_mask": np.ones((1920, 6), dtype=bool),
+        "status": np.full((1920, 6), "UNKNOWN"),
+    }
+    result = subject.project_synthetic_npz(
+        fixture(tmp_path / "969.npz", values), mapping, retained_counts=evidence
+    )
+    report = result["id_reconciliation"]
+    assert len(report["frozen_ids"]) == 969 and len(report["observed_ids"]) == 960
+    assert len(report["differences"]) == 9 and report["accepted"]
+    assert result["count_U"] == 5760
+    assert len(result["status_inventory"]) == 11520
+
+
+def test_CLI_refuses_unbound_receipt_paths_before_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    def no_open(*args, **kwargs):
+        raise AssertionError("unbound receipt path opened")
+
+    monkeypatch.setattr(subject, "open_source", no_open)
+    with pytest.raises(subject.Refused, match="fixed receipt"):
+        subject.main(
+            [
+                "--acceptance",
+                subject.SOURCE_PATH,
+                "--authorization",
+                subject.SOURCE_PATH,
+                "--output",
+                subject.PROPOSED_OUTPUT,
+            ]
+        )
+
+
+def synthetic_acceptance(pins: dict) -> dict:
+    return {
+        "schema": "bl-f5-extractor-independent-acceptance/v2",
+        "decision": "ACCEPT_STATUS_ONLY_EXTRACTOR",
+        "independent_reviewer": "SYNTHETIC_ONLY",
+        "ruling_sha256": subject.RULING_SHA,
+        "reconciliation_ruling_sha256": subject.RECONCILIATION_RULING_SHA,
+        "pins": pins,
+    }
+
+
+def synthetic_authorization(pins: dict) -> dict:
+    return {
+        "schema": "bl-f5-renewed-scan-authorization/v1",
+        "decision": "AUTHORIZE_ONE_METADATA_SCAN",
+        "authorized_by": "SYNTHETIC_ONLY",
+        "pins": pins,
+        "output_path": subject.PROPOSED_OUTPUT,
+        "reconciliation_ruling_sha256": subject.RECONCILIATION_RULING_SHA,
+    }
+
+
+@pytest.mark.parametrize("fault", ["absent", "old_ruling", "old_output", "old_pins"])
+def test_renewed_authority_is_required_and_bound(fault: str) -> None:
+    pins = {key: "a" * 64 for key in ("source", "tests", "contract", "inventory")}
+    authorization = synthetic_authorization(pins)
+    subject.validate_authorization(authorization, pins)
+    if fault == "absent":
+        authorization = None
+    elif fault == "old_ruling":
+        authorization["reconciliation_ruling_sha256"] = subject.RULING_SHA
+    elif fault == "old_output":
+        authorization["output_path"] = "/historical-reservation.json"
+    elif fault == "old_pins":
+        authorization["pins"] = {**pins, "source": "b" * 64}
+    with pytest.raises(subject.Refused, match="renewed"):
+        subject.validate_authorization(authorization, pins)
+
+
+def test_API_requires_renewal_before_real_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib
+
+    root = Path(subject.__file__).absolute().parents[2]
+    folder = root / subject.REVIEW_FOLDER
+    paths = {
+        "source": Path(subject.__file__),
+        "tests": Path(__file__),
+        "contract": folder / "extractor-contract.json",
+        "inventory": folder / "extractor-input-inventory.json",
+    }
+    pins = {key: hashlib.sha256(path.read_bytes()).hexdigest() for key, path in paths.items()}
+
+    def no_open(*args, **kwargs):
+        raise AssertionError("real source opened without renewed authorization")
+
+    monkeypatch.setattr(subject, "open_source", no_open)
+    with pytest.raises(subject.Refused, match="renewed"):
+        subject.extract_accepted(synthetic_acceptance(pins))
+
+
+@pytest.mark.parametrize("refusal", [False, True])
+def test_operator_entrypoint_synthetic_receipts_and_create_only_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    refusal: bool,
+) -> None:
+    import json
+
+    monkeypatch.setattr(subject, "RECEIPT_FOLDER", str(tmp_path))
+    monkeypatch.setattr(subject, "PROPOSED_OUTPUT", str(tmp_path / "fresh.json"))
+    pins = {key: "a" * 64 for key in ("source", "tests", "contract", "inventory")}
+    for name, data in [
+        ("acceptance", synthetic_acceptance(pins)),
+        ("authorization", synthetic_authorization(pins)),
+    ]:
+        (tmp_path / f"{name}.json").write_bytes(subject.canonical(data))
+    calls = []
+
+    def synthetic_extract(acceptance, authorization, *, reservation):
+        assert reservation.mode == "xb"
+        reservation.write(b"SYNTHETIC reservation")
+        reservation.flush()
+        calls.append(True)
+        if refusal:
+            subject.reconcile_ids(sibling_bindings(), ["n/p/0"], np.array([True]), None)
+        return {"SYNTHETIC_ONLY": True}
+
+    monkeypatch.setattr(subject, "extract_accepted", synthetic_extract)
+    args = [
+        "--acceptance",
+        str(tmp_path / "acceptance.json"),
+        "--authorization",
+        str(tmp_path / "authorization.json"),
+        "--output",
+        subject.PROPOSED_OUTPUT,
+    ]
+    assert subject.main(args) == (2 if refusal else 0)
+    data = json.loads(Path(subject.PROPOSED_OUTPUT).read_bytes())
+    if refusal:
+        assert data["status"] == "REFUSED"
+        assert data["id_reconciliation"]["missing_ids"] == ["n/p/1"]
+    else:
+        assert data == {"SYNTHETIC_ONLY": True}
+    before = Path(subject.PROPOSED_OUTPUT).read_bytes()
+    with pytest.raises(FileExistsError):
+        subject.main(args)
+    assert calls == [True]
+    assert Path(subject.PROPOSED_OUTPUT).read_bytes() == before
+
+
+def test_API_consumes_reservation_once_before_any_source_access(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hashlib
+
+    monkeypatch.setattr(subject, "PROPOSED_OUTPUT", str(tmp_path / "reservation.json"))
+    root = Path(subject.__file__).absolute().parents[2]
+    folder = root / subject.REVIEW_FOLDER
+    paths = {
+        "source": Path(subject.__file__),
+        "tests": Path(__file__),
+        "contract": folder / "extractor-contract.json",
+        "inventory": folder / "extractor-input-inventory.json",
+    }
+    pins = {key: hashlib.sha256(path.read_bytes()).hexdigest() for key, path in paths.items()}
+    acceptance, authorization = synthetic_acceptance(pins), synthetic_authorization(pins)
+    calls = []
+
+    def no_source(*args, **kwargs):
+        calls.append(True)
+        subject.refuse("synthetic source stop")
+
+    monkeypatch.setattr(subject, "open_source", no_source)
+    with pytest.raises(subject.Refused, match="reservation"):
+        subject.extract_accepted(acceptance, authorization)
+    assert calls == []
+    with Path(subject.PROPOSED_OUTPUT).open("xb") as output:
+        with pytest.raises(subject.Refused, match="synthetic source stop"):
+            subject.extract_accepted(acceptance, authorization, reservation=output)
+        with pytest.raises(subject.Refused, match="reservation"):
+            subject.extract_accepted(acceptance, authorization, reservation=output)
+    assert calls == [True]
+    assert Path(subject.PROPOSED_OUTPUT).stat().st_size > 0
+
+
+def test_output_ancestor_substitution_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent, elsewhere = tmp_path / "parent", tmp_path / "elsewhere"
+    parent.mkdir()
+    elsewhere.mkdir()
+    original = subject.safe_path
+
+    def substitute(path):
+        original(path)
+        parent.rename(tmp_path / "moved")
+        parent.symlink_to(elsewhere, target_is_directory=True)
+
+    monkeypatch.setattr(subject, "safe_path", substitute)
+    with pytest.raises(OSError):
+        subject.open_output(parent / "fresh.json")
+    assert not (elsewhere / "fresh.json").exists()
+    assert not (tmp_path / "moved" / "fresh.json").exists()

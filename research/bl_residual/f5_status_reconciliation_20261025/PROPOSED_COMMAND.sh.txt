@@ -1,0 +1,5 @@
+cd /Users/josenunez/Projects/ml/snake-dqn-f5annex
+nice -n 15 env PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -m research.bl_residual.f5_status_extractor \
+  --acceptance /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/f5-scan-reconcile-review01/acceptance.json \
+  --authorization /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/f5-scan-reconcile-review01/authorization.json \
+  --output /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_STATUS_SCAN_RECONCILED_20261025_REVIEW01.json
