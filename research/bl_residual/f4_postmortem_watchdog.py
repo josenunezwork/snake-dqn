@@ -127,9 +127,19 @@ def supervise(
             if remaining is not None and remaining <= 0:
                 kill_and_record("hard_ceiling")
                 raise RuntimeError("F4 watchdog killed worker at ceiling; no retry authorized")
-            done, status = os.waitpid(pid, os.WNOHANG)
+            # A successful wait releases the PID for reuse. Defer terminal
+            # handlers until ownership is cleared, including signals delivered
+            # while waitpid returns from the kernel to Python.
+            saved_mask = signal.pthread_sigmask(
+                signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM, signal.SIGHUP}
+            )
+            try:
+                done, status = os.waitpid(pid, os.WNOHANG)
+                if done:
+                    reaped = True
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, saved_mask)
             if done:
-                reaped = True
                 if status != 0 or started is None:
                     raise RuntimeError("F4 worker incomplete; no retry authorized")
                 return

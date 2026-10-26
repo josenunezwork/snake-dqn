@@ -8,12 +8,98 @@ import os
 import signal
 import time
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 from research.bl_ppo.exports import export_json, verify_export
 from research.bl_residual import f4_postmortem as entry
 from research.bl_residual import f4_postmortem_watchdog as watchdog
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM, signal.SIGHUP])
+@pytest.mark.parametrize("status", [0, 256])
+def test_signal_at_successful_reap_never_kills_recycled_pid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, signum: int, status: int
+) -> None:
+    """Model a signal after the kernel reaps, before waitpid returns to Python."""
+    pid = 424242
+    parent, child = Mock(), Mock()
+    parent.recv.return_value = b"A"
+    handlers = {
+        signal.SIGINT: signal.default_int_handler,
+        signal.SIGTERM: signal.SIG_DFL,
+        signal.SIGHUP: signal.SIG_DFL,
+    }
+    original_handlers = handlers.copy()
+    original_mask = {signal.SIGUSR1}
+    blocked = original_mask.copy()
+    pending = []
+    kills = []
+    records = []
+    polls = 0
+    kernel_reaped = False
+
+    def deliver_pending() -> None:
+        if pending and signum not in blocked:
+            pending.pop()
+            handlers[signum](signum, None)
+
+    def sigmask(how: int, mask: set[int]) -> set[int]:
+        previous = blocked.copy()
+        if how == signal.SIG_BLOCK:
+            blocked.update(mask)
+        else:
+            assert how == signal.SIG_SETMASK
+            blocked.clear()
+            blocked.update(mask)
+        deliver_pending()
+        return previous
+
+    def install(sig: int, handler: object) -> object:
+        previous = handlers[sig]
+        handlers[sig] = handler
+        return previous
+
+    def waitpid(wait_pid: int, options: int) -> tuple[int, int]:
+        nonlocal polls, kernel_reaped
+        assert wait_pid == pid
+        if options == 0:
+            # Old cleanup would signal this now-unowned/recycled PID. Keep the
+            # mock nonfatal so the assertion below reports that exact attempt.
+            assert kernel_reaped
+            return pid, signal.SIGKILL
+        assert options == os.WNOHANG
+        polls += 1
+        if polls == 1:
+            return 0, 0  # allow ACK before the synthetic terminal wait
+        assert polls == 2
+        kernel_reaped = True
+        pending.append(signum)
+        deliver_pending()  # deferred only if the reap/state transition is masked
+        return pid, status
+
+    monkeypatch.setattr(watchdog.socket, "socketpair", lambda: (parent, child))
+    monkeypatch.setattr(watchdog.os, "fork", lambda: pid)
+    monkeypatch.setattr(watchdog.os, "waitpid", waitpid)
+    monkeypatch.setattr(watchdog.os, "kill", lambda *args: kills.append(args))
+    monkeypatch.setattr(watchdog.signal, "signal", install)
+    monkeypatch.setattr(watchdog.signal, "pthread_sigmask", sigmask)
+    monkeypatch.setattr(watchdog.select, "select", lambda *_: ([parent], [], []))
+    monkeypatch.setattr(watchdog, "export_json", lambda *args: records.append(args))
+    error = KeyboardInterrupt if signum == signal.SIGINT else RuntimeError
+    with pytest.raises(error):
+        watchdog.supervise(
+            lambda _arm: pytest.fail("mock must never run worker"),
+            kill_receipt=tmp_path / "kill.json",
+        )
+    assert kernel_reaped and polls == 2
+    assert kills == []  # no signal to the reaped PID, even on exceptional cleanup
+    assert records == []
+    assert blocked == original_mask and pending == []
+    assert handlers == original_handlers
+    parent.close.assert_called_once_with()
+    child.close.assert_called_once_with()
 
 
 @pytest.mark.parametrize("phase", ["compute", "finalization"])

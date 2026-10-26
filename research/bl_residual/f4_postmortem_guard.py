@@ -12,7 +12,7 @@ from typing import Any
 from research.bl_ppo.exports import digest, verify_export
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGE = "research/bl_residual/f4_postmortem_fix_20261025"
+PACKAGE = "research/bl_residual/f4_postmortem_signal_fix_20261025"
 RULING_SHA = "8c4480a5e80f63ec500abd7baa6062adc757866937ce560291cbbaab68b5eeec"
 OUTPUT = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/"
