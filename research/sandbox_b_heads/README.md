@@ -33,6 +33,8 @@ Commit the manifest before preflight. Use the qualified broker's offline `--dry-
 
 The manifest's unit guard is only the prospective wall-time liability at an 8 units/hour pricing ceiling; it does not ration development credits. The broker checks actual calibrated prices, capacity, assignment isolation and coexistence at dispatch. Claude dispatches; these modules never call Colab.
 
+The packet runs the entire development sweep once through the qualified transport's instrumented `probe` mode. It is not a separate prerequisite timing canary and grants no registered-study authority. Real validation action selection runs on the requested device and feeds the reported metrics. This compatibility route preserves the transport tree and retains its ≤30-minute probe limit, 150-second transfer and 300-second staging guards. This single-job packet does not use retained main-job chaining.
+
 ## Completion and resume
 
 Each fixed allocation index 0–59 has an immutable tar unit containing checkpoint, report, internal hashes and full frozen identity. The fingerprint binds the source bytes, input/B8 hashes, salt, seed, updates, batch size, learning rate and smoke selection. Payloads publish atomically; SHA sidecars precede atomic completion markers. The qualified exporter can pull completed units throughout the run. The terminal ledger is sealed once, so exporter polling never observes a mutated completed file.

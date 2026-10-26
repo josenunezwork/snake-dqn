@@ -223,7 +223,15 @@ def build(
             "SANDBOX_B_SALT": SALT,
             "SNAKE_DQN_DEVICE": "cuda",
             "COLAB_CLI_REQUIREMENTS": "research/sandbox_b_heads/requirements.txt",
+            "SNAKE_COLAB_CANARY": "1",
+            "SNAKE_COLAB_CANARY_PACKAGE": "research/sandbox_b_heads",
         },
+        "canary": {
+            "schema": "colab-family-canary/v1",
+            "mode": "probe",
+            "family": "research/sandbox_b_heads/run_job.sh",
+        },
+        "sandbox_execution": "entire development sweep once; no prerequisite timing canary",
         "requirements_file": "research/sandbox_b_heads/requirements.txt",
         # The qualified supervisor requires unit_cap.  This is the doubled wall-time
         # runaway guard at a prospective A100 pricing ceiling, not an economic allocation cap.

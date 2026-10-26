@@ -115,9 +115,10 @@ def _survival_pair_loss(q: torch.Tensor, table: dict[str, torch.Tensor]) -> torc
 
 
 def metrics(
-    corrected: torch.Tensor, table: dict[str, torch.Tensor]
+    corrected: torch.Tensor, table: dict[str, torch.Tensor], selected: torch.Tensor | None = None
 ) -> dict[str, float | int | None]:
-    selected, base = _served(corrected, table["action_mask"]), table["bare"].long()
+    selected = _served(corrected, table["action_mask"]) if selected is None else selected
+    base = table["bare"].long()
     row = torch.arange(len(selected))
     exact = table["status"]
     selected_ok = exact[row, selected] & table["legal"][row, selected]
@@ -406,13 +407,16 @@ def run(args: argparse.Namespace) -> Path:
                     if any(not torch.isfinite(parameter).all() for parameter in model.parameters()):
                         raise RuntimeError(f"non-finite parameter for {config.id}")
                 with torch.no_grad():
-                    corrected = (
-                        tensors["q"][val_index]
-                        + model(features[val_index], length[val_index], margin[val_index])
-                    ).cpu()
+                    corrected = tensors["q"][val_index] + model(
+                        features[val_index], length[val_index], margin[val_index]
+                    )
+                    selected = _served(corrected, tensors["action_mask"][val_index]).cpu()
+                    corrected = corrected.cpu()
                 if not torch.isfinite(corrected).all():
                     raise RuntimeError(f"non-finite final corrected Q for {config.id}")
-                report = metrics(corrected, {k: v[val_index].cpu() for k, v in tensors.items()})
+                report = metrics(
+                    corrected, {k: v[val_index].cpu() for k, v in tensors.items()}, selected
+                )
                 torch.save(
                     {
                         "schema": "sandbox-b-head/v1",

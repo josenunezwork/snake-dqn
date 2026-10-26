@@ -285,3 +285,19 @@ def test_survivor_target_never_uses_unknown_or_dead_high_mass():
     loss.backward()
     assert q.grad[0, 0] > 0 and q.grad[0, 1] < 0
     assert torch.equal(q.grad[0, 2:], torch.zeros(4))
+
+
+def test_metrics_uses_real_precomputed_validation_actions():
+    table = {
+        "q": torch.zeros(1, 6),
+        "action_mask": torch.ones(1, 6, dtype=torch.bool),
+        "bare": torch.tensor([0]),
+        "legal": torch.ones(1, 6, dtype=torch.bool),
+        "died": torch.tensor([[True, False, False, False, False, False]]),
+        "ordinary": torch.tensor([False]),
+        "status": torch.ones(1, 6, dtype=torch.bool),
+        "life_id": torch.tensor([0]),
+    }
+    q = torch.tensor([[0.0, 2.0, 0.0, 0.0, 0.0, 0.0]])
+    assert metrics(q, table) == metrics(q, table, _served(q, table["action_mask"]))
+    assert metrics(q, table, torch.tensor([0]))["rescue_retention"] == 0.0
