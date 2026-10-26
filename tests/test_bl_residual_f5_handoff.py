@@ -85,10 +85,12 @@ def _environment(
         name: _package(name, f"/opt/{name}/{uuid.lower()}")
         for name in ("torch", "numpy", "numba", "llvmlite", "scipy")
     }
+    packages["torch"]["version"] = "2.9.1+cu126"
+    packages["numpy"]["version"] = "2.2.0"
     return {
         "schema": f5_environment.SCHEMA,
         "schema_sha256": hashlib.sha256(
-            (Path(f5_environment.__file__).with_name("f5_environment_schema_v1.json")).read_bytes()
+            (Path(f5_environment.__file__).with_name("f5_environment_schema_v2.json")).read_bytes()
         ).hexdigest(),
         "platform": "Linux-6.1-x86_64-with-glibc2.35",
         "python": "3.12.3 (main, synthetic)",
@@ -99,7 +101,8 @@ def _environment(
         "gpu": "L4 Synthetic",
         "gpu_uuid": uuid,
         "gpu_capability": [8, 9],
-        "gpu_memory": 24576,
+        "gpu_memory": 24576 * f5_environment.MIB_BYTES,
+        "memory_units": dict(f5_environment.MEMORY_UNITS),
         "os_kernel": {
             "system": "Linux",
             "node": node,

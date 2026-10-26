@@ -31,6 +31,7 @@ ASSIGNMENT_AMENDMENT = "F5_L4_ASSIGNMENT_IDENTITY_AMENDMENT_ADOPTED_20261025.md"
 ASSIGNMENT_AMENDMENT_SHA = "a1dc92ffb8fa341fb51738a56fe0097d75e15b0aff7194940c12979adbb04d62"
 ASSIGNMENT_DRAFT_SHA = "7eda19efb72f89a7e2269d40863288f9295358f2566f3a02d3ca4d3c11933359"
 REJECTION_SHA = "b672b7b62bd7744e3226aabbd516a8a3a562b6d57f97c128b16c7f130d1e5aed"
+CAPTURE_REJECTION_SHA = "f1b0244d36f9cef541a3293a4749fa0cd7f6ef49b7de31fc056ca9c0ad8bd6e8"
 ALLOCATION_SHA = "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7"
 SEMANTIC_COMMIT = "124dd22cd560a74a210a61f0ba473461328e82f8"
 FIT_SHA = "85c7e77d34e14a3b5036984cc1af92df4e3724f4c9fe453d813a56c1963822a7"
@@ -137,6 +138,7 @@ def governance(repo: Path = ROOT, artifacts: Path = ART) -> dict[str, Any]:
                 ASSIGNMENT_DRAFT_SHA,
             ),
             binding(artifacts / "REJECT_F5_W_IMPLEMENTATION_36561254.md", REJECTION_SHA),
+            binding(artifacts / "REJECT_F5_W_IMPLEMENTATION_22e86986.md", CAPTURE_REJECTION_SHA),
         ]
     )
     # Adoption explicitly incorporates these exact metadata references. D4096 is
@@ -287,7 +289,7 @@ def source_inventory(repo: Path = ROOT) -> dict[str, str]:
                     if source.is_file() and source not in seen:
                         pending.append(source)
     seen.add(repo / "research/bl_residual/f5_colab.sh")
-    seen.add(repo / "research/bl_residual/f5_environment_schema_v1.json")
+    seen.add(repo / "research/bl_residual/f5_environment_schema_v2.json")
     seen.add(repo / "research/bl_residual/f5_calibration_schema_v1.json")
     seen.add(repo / "research/apex_safety_20260926/deployment.yaml")
     seen.update((repo / "configs").glob("*.yaml"))

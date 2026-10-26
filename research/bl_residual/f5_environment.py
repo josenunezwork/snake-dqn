@@ -27,7 +27,7 @@ from urllib.parse import unquote, urlparse
 import numpy as np
 import torch
 
-SCHEMA = "bl-residual-f5-environment-receipt/v1"
+SCHEMA = "bl-residual-f5-environment-receipt/v2"
 AMENDMENT_SHA256 = "7eda19efb72f89a7e2269d40863288f9295358f2566f3a02d3ca4d3c11933359"
 ADOPTED_AMENDMENT_SHA256 = "a1dc92ffb8fa341fb51738a56fe0097d75e15b0aff7194940c12979adbb04d62"
 
@@ -48,6 +48,7 @@ REQUIRED_TOP_LEVEL = frozenset(
         "gpu_uuid",
         "gpu_capability",
         "gpu_memory",
+        "memory_units",
         "os_kernel",
         "python_build",
         "python_compiler",
@@ -73,6 +74,9 @@ REQUIRED_TOP_LEVEL = frozenset(
     }
 )
 NUMERIC_PACKAGES = frozenset({"torch", "numpy", "numba", "llvmlite", "scipy"})
+REQUIRED_NUMERIC_PACKAGES = NUMERIC_PACKAGES - {"scipy"}
+MEMORY_UNITS = {"gpu_memory": "bytes", "gpu_driver_query.memory_total": "MiB"}
+MIB_BYTES = 1024 * 1024
 PACKAGE_KEYS = frozenset(
     {
         "version",
@@ -121,7 +125,7 @@ class F5EnvironmentRefusal(ValueError):
 
 def schema_path() -> Path:
     """Return the frozen, source-pinned classification schema."""
-    return Path(__file__).with_name("f5_environment_schema_v1.json")
+    return Path(__file__).with_name("f5_environment_schema_v2.json")
 
 
 def schema_sha256() -> str:
@@ -334,6 +338,8 @@ def validate_environment(receipt: Mapping[str, Any]) -> None:
     _sha(top["schema_sha256"], "schema_sha256")
     if top["schema_sha256"] != schema_sha256():
         raise F5EnvironmentRefusal("F5 environment schema source pin differs")
+    if top["memory_units"] != MEMORY_UNITS:
+        raise F5EnvironmentRefusal("F5 environment GPU memory units differ")
     for name in (
         "platform",
         "python",
@@ -429,15 +435,26 @@ def validate_environment(receipt: Mapping[str, Any]) -> None:
         raise F5EnvironmentRefusal(
             "F5 environment parsed GPU capability/memory is malformed"
         ) from exc
-    if capability != top["gpu_capability"] or memory != top["gpu_memory"]:
+    # SMI reports integer MiB; Torch reports bytes. Admit only a sub-MiB
+    # quantization discrepancy, never a larger accounting difference. Each raw
+    # observation remains an exact invariant in cross-assignment comparison.
+    if (
+        capability != top["gpu_capability"]
+        or memory <= 0
+        or abs(memory * MIB_BYTES - top["gpu_memory"]) >= MIB_BYTES
+    ):
         raise F5EnvironmentRefusal("F5 environment parsed GPU capability/memory differs")
     packages = _exact_mapping(top["installed_numeric_packages"], NUMERIC_PACKAGES, "packages")
     all_packages = top["installed_packages"]
-    if not isinstance(all_packages, dict) or not set(all_packages) >= NUMERIC_PACKAGES:
+    if not isinstance(all_packages, dict) or not set(all_packages) >= REQUIRED_NUMERIC_PACKAGES:
         raise F5EnvironmentRefusal("F5 environment installed package closure is incomplete")
     wheels = top["locked_wheels"]
-    if not isinstance(wheels, dict) or not set(wheels) >= NUMERIC_PACKAGES:
+    if not isinstance(wheels, dict) or not set(wheels) >= REQUIRED_NUMERIC_PACKAGES:
         raise F5EnvironmentRefusal("F5 locked wheel closure is incomplete")
+    if not set(all_packages) >= set(wheels):
+        raise F5EnvironmentRefusal("F5 installed closure omits a locked wheel package")
+    if ("scipy" in all_packages) != ("scipy" in wheels):
+        raise F5EnvironmentRefusal("F5 optional scipy installed/locked presence differs")
     for name, wheel in wheels.items():
         wheel = _exact_mapping(wheel, LOCKED_WHEEL_KEYS, f"locked_wheels.{name}")
         _text(wheel["filename"], f"locked_wheels.{name}.filename")
@@ -453,8 +470,11 @@ def validate_environment(receipt: Mapping[str, Any]) -> None:
         if not isinstance(name, str) or not name or name != name.lower() or "_" in name:
             raise F5EnvironmentRefusal("F5 environment installed package name is malformed")
         _validate_package(name, value, wheels.get(name))
-    if {name: all_packages[name] for name in NUMERIC_PACKAGES} != packages:
+    if {name: all_packages.get(name) for name in NUMERIC_PACKAGES} != packages:
         raise F5EnvironmentRefusal("F5 numeric package receipt disagrees with installed closure")
+    for name in ("torch", "numpy"):
+        if top[name] != all_packages[name]["version"]:
+            raise F5EnvironmentRefusal(f"F5 {name} version disagrees with installed closure")
     _sha(top["installed_versions_sha256"], "installed_versions_sha256")
     _sha(top["environment_lock_sha256"], "environment_lock_sha256")
     _sha(top["environment_descriptor_sha256"], "environment_descriptor_sha256")
@@ -506,7 +526,7 @@ def canonical_environment(receipt: Mapping[str, Any]) -> dict[str, Any]:
         raise F5EnvironmentRefusal("F5 raw driver query UUID is ambiguous")
     canonical["gpu_driver_query_raw"] = raw_query.replace(uuid, "ASSIGNMENT_LOCAL", 1)
     canonical["installed_numeric_packages"] = {
-        name: _canonical_package(package)
+        name: None if package is None else _canonical_package(package)
         for name, package in receipt["installed_numeric_packages"].items()
     }
     canonical["installed_packages"] = {
@@ -565,6 +585,7 @@ def compare_environment(
                 "installation_roots": {
                     name: package["installation_root"]
                     for name, package in expected["installed_numeric_packages"].items()
+                    if package is not None
                 },
             },
             "actual": {
@@ -574,6 +595,7 @@ def compare_environment(
                 "installation_roots": {
                     name: package["installation_root"]
                     for name, package in actual["installed_numeric_packages"].items()
+                    if package is not None
                 },
             },
         },
@@ -836,7 +858,7 @@ def _driver_query() -> tuple[dict[str, str], str]:
             ],
             text=True,
             timeout=15,
-        ).strip()
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         raise F5EnvironmentRefusal("F5 cannot capture parsed nvidia-smi identity") from exc
     parts = [part.strip() for part in raw.split(",")]
@@ -908,6 +930,7 @@ def capture_environment() -> dict[str, Any]:
         "gpu_uuid": str(device.uuid),
         "gpu_capability": list(torch.cuda.get_device_capability(0)),
         "gpu_memory": int(device.total_memory),
+        "memory_units": dict(MEMORY_UNITS),
         "os_kernel": {
             "system": uname["system"],
             "node": uname["node"],
@@ -929,7 +952,7 @@ def capture_environment() -> dict[str, Any]:
         "numpy": np.__version__,
         "numpy_blas_lapack_build": numpy_build.getvalue(),
         "installed_numeric_packages": {
-            name: all_packages[name] for name in sorted(NUMERIC_PACKAGES)
+            name: all_packages.get(name) for name in sorted(NUMERIC_PACKAGES)
         },
         "installed_packages": all_packages,
         "installed_versions_sha256": hashlib.sha256(canonical_json(installed).encode()).hexdigest(),

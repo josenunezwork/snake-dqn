@@ -54,6 +54,8 @@ def _package(root: str) -> dict[str, Any]:
 
 def _receipt(*, uuid: str = "GPU-A", node: str = "host-a", root: str = "/venv-a") -> dict[str, Any]:
     packages = {name: _package(root) for name in sorted(environment.NUMERIC_PACKAGES)}
+    packages["torch"]["version"] = "2.9.1+cu126"
+    packages["numpy"]["version"] = "2.1"
     wheels = {
         name: {
             "filename": f"{name}-1.0-py3-none-any.whl",
@@ -75,7 +77,8 @@ def _receipt(*, uuid: str = "GPU-A", node: str = "host-a", root: str = "/venv-a"
         "gpu": "NVIDIA L4",
         "gpu_uuid": uuid,
         "gpu_capability": [8, 9],
-        "gpu_memory": 23034,
+        "gpu_memory": 23034 * environment.MIB_BYTES,
+        "memory_units": dict(environment.MEMORY_UNITS),
         "os_kernel": {
             "system": "Linux",
             "node": node,
