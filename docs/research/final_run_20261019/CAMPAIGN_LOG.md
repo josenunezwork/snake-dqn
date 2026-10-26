@@ -1463,3 +1463,66 @@ the exact command in the new `DISPATCH.txt`. Capture/CUDA transport only; inclus
 transfer/staging bars and all identity/lease/export/release checks remain binding. Fitting still
 requires actual L4 plan/RNG, full timing/feasibility/inventory canary, verified ledger and separate
 `ACCEPT_F5_FIT`; the sole registered numerical-look token remains unconsumed.
+
+### 2026-10-26 — F5 W attempt-02 refused; receipt v4/final-07 sealed; attempt-03 DRAFT
+
+Attempt-02 (`bl-f5-w-capture-repair-22e86986-02`, pin
+`a840fc2cf54aea4ee324bcc98a84a7fa6b4611bc`) refused before science:
+`F5 environment GPU provenance fields disagree`, CHILD_NONZERO_EXIT,
+558.1542476670584 seconds, no exports, stop verified. All 49 original output
+payloads are copied byte-identically with SHA256/completion sidecars under
+`research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/output-02/`.
+Failure publication SHA256
+`7ef587313bfe99720823aea136b1e1fc98f90031caf0b15508c740962ac1c286`;
+accounting clarification SHA256
+`462ba4535a0abf292f2388935585a254edc1cbefa692891e0aca9cabf32e5482`.
+Both prior elapsed/debits remain retained. The observed account debit totals
+0.22000000000002728 units; the observed-rate integration at the last crosschecks
+is 0.38727258491587513 units. Priced integration and full-elapsed exposure are
+separately disclosed; the final post-stop debit is unknown, never imputed.
+
+Root cause confirmed against pinned PyTorch 2.9.1: Torch formats a bare UUID;
+SMI prefixes `GPU-`. Direct equality failed, and earlier fixtures incorrectly
+gave Torch the SMI prefix. New source pin
+`2c8bc80b06bbc4244b1ecdd8ab184a7fbc21cf8c` prospectively uses receipt v4:
+retain both raw strings, require exactly one case-sensitive leading `GPU-` on
+SMI, remove that one prefix from SMI only, and compare the remainder exactly.
+Names remain exact; F5 requires exactly `NVIDIA L4` instead of an L4 substring.
+No other normal-L4 representation mismatch was confirmed. The complete audit
+covers capability, byte/MiB units, CPU/affinity, driver/CUDA/cuDNN versions,
+kernel/platform strings, packages and wheel evidence. Attempt-02's unexported
+raw fields cannot be retrospectively certified.
+
+Single-pass capture preserves all available raw observations and continues
+independent sources/packages after refusal. Validation reports independent
+schema/field/content/metadata/source failures. Raw SMI stdout and failed-command
+stdout/stderr survive. Capture exports `environment-raw.json` and
+`environment-diagnostic.json` with sidecars before nonzero refusal; invalid
+capture never publishes admissible `environment.json`, and qualification/science
+cannot follow. Unchanged runtime/supervisor collect completed diagnostics first.
+Seven science files and schemas v1/v2/v3 remain byte-identical. Source review
+found no open blockers. Local verification: 493 passed/3 skipped (614.03 s),
+then final focused 93 passed (11.92 s); changed Python lint and shell/CLI smoke
+pass. Test commands use nice 15, numerical threads 1, one pytest worker.
+
+Create-only final-07:
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_PREFIT_20261025/final-07/`.
+REVIEW_PACKET SHA256
+`b479518dce7d1367ad14b5cdb3857597f8c01ea5ed12588a54f07c5faf4a65c0`;
+REVIEW_BUNDLE SHA256
+`c549293fb83f685310a8abce96c02eeea930d3ae89f38edf65415aec879d7f5c`.
+Main ledger publication `research/bl_residual/ledger/F5_W_REPAIR_FINAL07_20261026.json`
+SHA256 `77b30680e212aafd2e8be6be93f882a52c10cc9bc1200cf35439716353b4d860`.
+
+Attempt-03 operational package is a **DRAFT, not accepted or dispatched**:
+`F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/environment-capture.draft.json`,
+SHA256 `204e1edd621c977dc8abf848dd2c8d56aaed8e3a8d789de6a783d13980ac6f95`;
+PACKAGE_SEAL SHA256
+`f11a4776877aa56ad5c8ff93ae03cb7553381494ad8fbbd7f2a92dbaa9651eaf`.
+Job `bl-f5-w-capture-repair-22e86986-03`, unused `output-03`/`state-03`, one L4,
+six allocated CPUs, threads 1, timeout/exemption both 30 minutes under the exact
+owner budget ruling. Historical accounting is disclosed, never a budget blocker;
+current account/transport preflight and prospective v4 acceptance remain operator
+steps. Offline supervisor validation and native canary shape pass; ten exports
+include the prior eight plus both diagnostics. No dispatch, live Colab calls,
+science, numerical look, serving or release change occurred in this repair.
