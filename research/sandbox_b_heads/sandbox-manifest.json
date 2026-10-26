@@ -5,6 +5,6 @@
 "endpoint": {"broker_manifest": "research/sandbox_b_heads/dispatch-manifest.json", "kind": "updates", "value": 15000},
 "timeout": {"measured_estimate_seconds": 618.0, "seconds": 1236.0},
 "excluded_studies": ["F5", "F4-fold-0", "R30", "strict", "probe", "serving"],
-"owner_rule": "docs/research/governance_a100_sandbox_20261026/ADOPTED.md#2-governance-adopt-this-rule-text", "outputs": {"broker_manifest": {"path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/dispatch-manifest.json", "sha256": "7a618c26889e25c5ac0b640edcddc183d4a02e76136713d0884b4536b1a1d589"}, "label": "simulator-D", "paths": ["checkpoints", "results.json", "timing.json"]},
+"owner_rule": "docs/research/governance_a100_sandbox_20261026/ADOPTED.md#2-governance-adopt-this-rule-text", "outputs": {"broker_manifest": {"path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/dispatch-manifest.json", "sha256": "41b5746866a2d47ad08ceadd9c02beaab5d90531efeeb298ffc664a900dd8444"}, "label": "simulator-D", "paths": ["checkpoints", "results.json", "timing.json"]},
 "crossing": {"max_frozen_checkpoint_shas": 1}
 }

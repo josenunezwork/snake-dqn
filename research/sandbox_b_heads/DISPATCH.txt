@@ -1,6 +1,6 @@
 READY: Standing A100 Development Sandbox Job B, original attempt.
 Authority: docs/research/governance_a100_sandbox_20261026/ADOPTED.md.
-Runtime source fd3e2c4e2f4a38fa3d9241501b48a1c0cab541ae is published on main.
+Runtime source b8c96f45123e22bb11ae684dba8e326b8b51b2e8 is published on main.
 Run committed sandbox preflight and the offline broker dry-run before dispatch.
 Claude/operator alone performs dispatch and confirms current account capacity,
 separate assignment isolation, registered-study coexistence and calibrated rate.

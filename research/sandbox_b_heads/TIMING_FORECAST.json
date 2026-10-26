@@ -1,6 +1,6 @@
 {
   "schema": "sandbox-b-timing-forecast/v1",
-  "runtime_commit": "fd3e2c4e2f4a38fa3d9241501b48a1c0cab541ae",
+  "runtime_commit": "b8c96f45123e22bb11ae684dba8e326b8b51b2e8",
   "platform": "Mac CPU one thread nice15",
   "smoke_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/cpu-smoke-03",
   "smoke_timing_sha256": "386ef53800a3f7f8a63929632c6af84925d189447ba938380c051f3705564d24",
@@ -31,5 +31,7 @@
   "estimated_minutes": 10.3,
   "timeout_minutes": 20.6,
   "forecast_kind": "conservative CPU-equivalent whole-job projection for A100; no GPU speedup assumed",
-  "a100_measured": false
+  "a100_measured": false,
+  "measurement_source_commit": "fd3e2c4e2f4a38fa3d9241501b48a1c0cab541ae",
+  "source_change_since_smoke": "packaging source closure and bootstrap requirements only; identical job/model/resume implementation hashes"
 }
