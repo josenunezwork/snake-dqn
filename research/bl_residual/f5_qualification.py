@@ -530,7 +530,14 @@ def run(
             input_sha256=input_sha256,
         )
         try:
-            verified_units = f5_timing_resume.load_ledger(ledger, resume_binding)
+            from research.bl_residual import f5_raw_envelope
+
+            verified_units = f5_raw_envelope.load_ledger(
+                ledger,
+                resume_binding,
+                control.get("timing_raw_envelopes"),
+                root / "resume" / "raw-envelope-imports",
+            )
             if canary_tiny_workload:
                 # A completion canary validates the exact nonempty uploaded
                 # timing ledger too. Its tiny work uses an isolated namespace

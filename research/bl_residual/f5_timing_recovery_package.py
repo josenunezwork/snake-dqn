@@ -1,8 +1,8 @@
 """Create-only F5 timing04 recovery package builder.
 
 This module prepares no provider work.  It reads only attempt04 manifest
-metadata and file statistics, then seals the current-source control, empty
-ledgers, timing/canary manifests, and synthetic transport authority.
+metadata and file statistics, then seals the current-source control, ledgers,
+optional completed-unit raw envelopes, timing/canary manifests and transport authority.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from research.bl_ppo.exports import export_bytes, export_json, verify_export
-from research.bl_residual import f5_package
+from research.bl_residual import f5_package, f5_raw_envelope
 from research.bl_residual.f5_r10a_annex import allocate
 from research.bl_residual.f5_timing_resume import empty_ledger, identity
 
@@ -188,6 +188,7 @@ def _control(
     environment_reference: dict[str, Any],
     ledger_sha256: str,
     attempt_id: str = "unsealed-test-attempt",
+    raw_envelopes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     value: dict[str, Any] = {
         "schema": "bl-residual-f5-runtime/v1",
@@ -218,6 +219,8 @@ def _control(
         "ledger_sha256": ledger_sha256,
         "status": "HOLD_PENDING_CURRENT_SOURCE_ENVIRONMENT_AND_FAMILY_RECEIPT",
     }
+    if raw_envelopes is not None:
+        value["timing_raw_envelopes"] = raw_envelopes
     value["allocation"] = hashlib.sha256(
         json.dumps(
             {
@@ -263,7 +266,11 @@ def _admission(authority_path: Path) -> dict[str, Any]:
 
 
 def build(
-    output: Path, attempt04_manifest: Path, *, repo: Path = f5_package.ROOT
+    output: Path,
+    attempt04_manifest: Path,
+    *,
+    repo: Path = f5_package.ROOT,
+    resume_spec: Path | None = None,
 ) -> dict[str, Any]:
     """Build a fresh, create-only package from a clean committed source closure."""
     if output.exists():
@@ -321,8 +328,37 @@ def build(
         input_sha256=input_sha,
     )
     ledger_path = output / "inputs" / "verified-ledger.json"
-    ledger_export = _export_input(ledger_path, empty_ledger(binding))
-    ledger_sidecars = _export_sidecars(ledger_path)
+    envelope_inputs: list[dict[str, Any]] = []
+    raw_envelopes = None
+    resume_reference = None
+    attempt_index = 0
+    if resume_spec is None:
+        ledger_export = _export_input(ledger_path, empty_ledger(binding))
+        ledger_sidecars = _export_sidecars(ledger_path)
+    else:
+        from research.bl_residual import f5_timing_resume
+
+        resume_reference = f5_timing_resume.metadata_reference(resume_spec)
+        spec = f5_timing_resume._bound_metadata(resume_reference)
+        if (
+            set(spec) != {"schema", "ledger", "attempts", "attempt_index"}
+            or spec["schema"] != "bl-f5-raw-envelope-resume-spec/v1"
+            or not isinstance(spec["attempts"], list)
+            or type(spec["attempt_index"]) is not int
+            or not 1 <= spec["attempt_index"] <= 2
+            or len(spec["attempts"]) != spec["attempt_index"]
+        ):
+            raise ValueError("malformed raw-envelope resume specification")
+        attempt_index = spec["attempt_index"]
+        f5_timing_resume._bound_metadata(spec["ledger"], immutable=True)
+        resume_inputs, raw_envelopes = f5_raw_envelope.package_inputs(
+            output, Path(spec["ledger"]["path"]), binding, spec["attempts"]
+        )
+        ledger_export = next(row for row in resume_inputs if row["dest"] == "verified-ledger.json")
+        ledger_sidecars = [
+            row for row in resume_inputs if row["dest"].startswith("verified-ledger.json.")
+        ]
+        envelope_inputs = [row for row in resume_inputs if row["dest"].startswith("timing-units/")]
     control = _control(
         hashes,
         runtime_inputs,
@@ -330,14 +366,26 @@ def build(
         fixture["sha256"],
         environment_reference,
         ledger_export["sha256"],
-        attempt_id=f"bl-f5-timing-recovery-{commit[:8]}-01",
+        attempt_id=f"bl-f5-timing-recovery-{commit[:8]}-{attempt_index + 1:02d}",
+        raw_envelopes=raw_envelopes,
     )
+    if resume_spec is not None:
+        prior_ids = {
+            f5_timing_resume._bound_metadata(attempt["broker_receipt"]).get("job_id")
+            for attempt in spec["attempts"]
+        }
+        if control["timing_attempt_id"] in prior_ids:
+            raise ValueError("completion attempt identity already appears in prior receipts")
     control_export = _export_input(control_path, control)
-    inputs = [*runtime_inputs, control_export, ledger_export, *ledger_sidecars]
+    inputs = [*runtime_inputs, control_export, ledger_export, *ledger_sidecars, *envelope_inputs]
     # The transport authority names every transferred byte, including the
     # package-local fixture/control/empty-ledger records.  It intentionally
     # excludes itself to avoid a self-referential file digest.
     authority = _authority(commit, tree, sorted(inputs, key=lambda row: row["dest"]))
+    from research.colab_cli.transfer_policy import validate_f5_timing_inventory
+
+    # The application envelope earns no new transport role or byte allowance.
+    validate_f5_timing_inventory(authority, expected_commit=commit, expected_tree=tree)
     authority_path = output / "f5-timing-synthetic-inventory.json"
     export_json(authority_path, authority)
     verify_export(authority_path)
@@ -410,12 +458,12 @@ def build(
     }
     long = {
         **base,
-        "job_id": f"bl-f5-timing-recovery-{commit[:8]}-01",
+        "job_id": f"bl-f5-timing-recovery-{commit[:8]}-{attempt_index + 1:02d}",
         "output_dir": str(output / "output-01"),
     }
     canary = {
         **base,
-        "job_id": f"bl-f5-timing-recovery-canary-{commit[:8]}-01",
+        "job_id": f"bl-f5-timing-recovery-canary-{commit[:8]}-{attempt_index + 1:02d}",
         "output_dir": str(output / "canary-output-01"),
         "supervisor_state_dir": str(output / "canary-state-01"),
         "requirements": {**base["requirements"], "est_minutes": 15},
@@ -495,6 +543,12 @@ def build(
         "dispatch_authorized": False,
         "scientific_payload_opened": False,
     }
+    if resume_reference is not None:
+        packet.pop("empty_ledger")
+        packet["verified_ledger"] = ledger_export
+        packet["raw_envelopes"] = raw_envelopes
+        packet["resume_spec"] = resume_reference
+        packet["attempt_index"] = attempt_index
     return export_json(output / "PACKAGE.json", packet)
 
 
@@ -502,9 +556,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--attempt04-manifest", type=Path, required=True)
+    parser.add_argument("--resume-spec", type=Path)
     parser.add_argument("--dry-run", action="store_true", required=True)
     args = parser.parse_args()
-    print(json.dumps(build(args.output, args.attempt04_manifest), sort_keys=True))
+    print(
+        json.dumps(
+            build(args.output, args.attempt04_manifest, resume_spec=args.resume_spec),
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":
