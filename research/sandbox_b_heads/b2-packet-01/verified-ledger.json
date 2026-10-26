@@ -1,0 +1,365 @@
+{
+  "allocation": "split-v1",
+  "fingerprint": "793ee73fbfaf46f2d603513aa45d181e01908017bee31cb03f58b46c3202a632",
+  "namespace": "a100-dev/sandbox-b/heads-v2",
+  "recipe": {
+    "algorithm": "frozen-b8-heads/v2",
+    "b8_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "batch_size": 512,
+    "configs": [
+      {
+        "head": "normed_linear",
+        "loss": "kl_pairs",
+        "ratio": 0.5,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "kl_pairs",
+        "ratio": 0.5,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "kl_pairs",
+        "ratio": 2.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "kl_pairs",
+        "ratio": 2.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "kl_pairs",
+        "ratio": 8.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "kl_pairs",
+        "ratio": 8.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "kl_pairs",
+        "ratio": 32.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "kl_pairs",
+        "ratio": 32.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "hinge_top",
+        "ratio": 0.5,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "hinge_top",
+        "ratio": 0.5,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "hinge_top",
+        "ratio": 2.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "hinge_top",
+        "ratio": 2.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "hinge_top",
+        "ratio": 8.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "hinge_top",
+        "ratio": 8.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "hinge_top",
+        "ratio": 32.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "normed_linear",
+        "loss": "hinge_top",
+        "ratio": 32.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "kl_pairs",
+        "ratio": 0.5,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "kl_pairs",
+        "ratio": 0.5,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "kl_pairs",
+        "ratio": 2.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "kl_pairs",
+        "ratio": 2.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "kl_pairs",
+        "ratio": 8.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "kl_pairs",
+        "ratio": 8.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "kl_pairs",
+        "ratio": 32.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "kl_pairs",
+        "ratio": 32.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "hinge_top",
+        "ratio": 0.5,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "hinge_top",
+        "ratio": 0.5,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "hinge_top",
+        "ratio": 2.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "hinge_top",
+        "ratio": 2.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "hinge_top",
+        "ratio": 8.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "hinge_top",
+        "ratio": 8.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "hinge_top",
+        "ratio": 32.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "cosine_fastgain",
+        "loss": "hinge_top",
+        "ratio": 32.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "kl_pairs",
+        "ratio": 0.5,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "kl_pairs",
+        "ratio": 0.5,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "kl_pairs",
+        "ratio": 2.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "kl_pairs",
+        "ratio": 2.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "kl_pairs",
+        "ratio": 8.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "kl_pairs",
+        "ratio": 8.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "kl_pairs",
+        "ratio": 32.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "kl_pairs",
+        "ratio": 32.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "hinge_top",
+        "ratio": 0.5,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "hinge_top",
+        "ratio": 0.5,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "hinge_top",
+        "ratio": 2.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "hinge_top",
+        "ratio": 2.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "hinge_top",
+        "ratio": 8.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "hinge_top",
+        "ratio": 8.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "hinge_top",
+        "ratio": 32.0,
+        "sampling": "row_uniform",
+        "updates": 500
+      },
+      {
+        "head": "supervised_gated_normed",
+        "loss": "hinge_top",
+        "ratio": 32.0,
+        "sampling": "decisive_life_balanced",
+        "updates": 1500
+      }
+    ],
+    "data_sha256": "91647489f1f6d1f35e03dac6cec17da496d4c08de08f1bd8f27d0bf60b880e99",
+    "implementation_sha256": {
+      "core_b2.py": "07527d8a8d3032dc4f369269f85e18c15e6fa3e9f2433e8086776925aa474421",
+      "job.py": "b5cd1096e5efbe04f6c79d46938c29a0fbe64fc9091932dcbf0e3075ef767c48",
+      "job_b2.py": "1c0bb74e7b8052021e3479cb26c1b54666a2ac04abe71c31ae6eb68770283999",
+      "model.py": "50cc1d6e248637f1fee146345e9483be5714bec7c4c577f77f88f976348cb9d8",
+      "model_b2.py": "270e530cd7f58efe4093ba3caa9eba8f0cff197f4b4a46520eac559567a6846f",
+      "resume.py": "6bcd27e1655634256f0342e1350813a8db54438e4b30c9ba472a1d93826c8093",
+      "resume_b2.py": "4ae55892bb49226775762ad2d4f0bfd1b31b36e472703b748ef737b4dcb695f5"
+    },
+    "learning_rate": 0.003,
+    "salt": "a100-dev/sandbox-b/split-v1",
+    "seed": 3403,
+    "smoke_rows": 0,
+    "updates": 0
+  },
+  "schema": "sandbox-b-verified-ledger/v4",
+  "units": []
+}
