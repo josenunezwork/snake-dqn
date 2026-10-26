@@ -1,0 +1,27 @@
+{
+  "implementation_pin_commit": "701ed7c9fabd3bb6fa96ea625f1dfa0ddba1cd0b",
+  "receipts": {
+    "NEXT_SCAN_COMMAND.txt": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/f5-selected960-49fd1dfa/NEXT_SCAN_COMMAND.txt",
+      "sha256": "34ba590abc6721d1d14dde97f7f9b05a3be1aa4f9a6bd522da8fb13c260c3f75"
+    },
+    "acceptance.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/f5-selected960-49fd1dfa/acceptance.json",
+      "sha256": "eae00367d69dc96104eafafb3b52dbc64a6eea4601fd6c690b7b48595a8bc6ca"
+    },
+    "authorization.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/f5-selected960-49fd1dfa/authorization.json",
+      "sha256": "f60ecf45851582c7ac299505f4a4aec0803b6a78693425c5522b009b2f00a96b"
+    },
+    "implementation.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/f5-selected960-49fd1dfa/implementation.json",
+      "sha256": "4009e20cd70bd0bf13468053d2c108b2875ff9bd31a0b2911d0dda4356172ecc"
+    },
+    "materialize_receipts.py": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/f5-selected960-49fd1dfa/materialize_receipts.py",
+      "sha256": "259ea889fd514126e5708582ba1de312ae5d94a588b2f6e145fcdaca097f5d7b"
+    }
+  },
+  "scan_executed": false,
+  "schema": "bl-f5-selected960-materialized-receipt-index/v1"
+}
