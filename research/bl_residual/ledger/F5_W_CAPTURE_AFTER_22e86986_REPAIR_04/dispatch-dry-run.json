@@ -1,0 +1,45 @@
+{
+  "allocations": 0,
+  "command": {
+    "argv": [
+      "/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh",
+      "bl-f5-w-capture-repair-22e86986-04",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/environment-capture.json",
+      "--broker",
+      "/Users/josenunez/Projects/ml/snake-dqn-f5w",
+      "--cwd",
+      "/Users/josenunez/Projects/ml/snake-dqn-f5w",
+      "--state-dir",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/state-04",
+      "--dispatch-txt",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/DISPATCH.txt",
+      "--dry-run"
+    ],
+    "exit_code": 0,
+    "finished_utc": "2026-10-26T08:58:13.951985+00:00",
+    "started_utc": "2026-10-26T08:58:13.238045+00:00",
+    "stderr": "",
+    "stdout": "PASS_DRY_RUN bl-f5-w-capture-repair-22e86986-04 allocations=0 live_accounting=NOT_CHECKED\n"
+  },
+  "created_utc": "2026-10-26T08:58:13.952151+00:00",
+  "dispatch_instructions": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/DISPATCH.txt",
+    "sha256": "708cea61332ab188a38c794f3d85e2ee4695e3d03e800367a62b0156249588be",
+    "size": 4626
+  },
+  "live_accounting": "NOT_CHECKED_BY_DRY_RUN",
+  "manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/environment-capture.json",
+    "sha256": "48da2cd767fa20d31bff3654a030dd0d4bee12ab30baf3bedd69b5229ea9c4fd",
+    "size": 28935
+  },
+  "output_absent": true,
+  "schema": "bl-f5-dispatch-dry-run/v3",
+  "separate_live_preflight": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/live-account-preflight.json",
+    "sha256": "cf4ade8a485c1a108e7d9f9998314bdfe9f18252ea6f3083aabced7d3dcd8c91",
+    "size": 3310
+  },
+  "state_absent": true,
+  "status": "PASS"
+}

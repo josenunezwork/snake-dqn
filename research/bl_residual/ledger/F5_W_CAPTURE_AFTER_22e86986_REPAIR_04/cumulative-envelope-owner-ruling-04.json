@@ -1,0 +1,68 @@
+{
+  "accounting": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/accounting-owner-ruling-04.json",
+    "sha256": "6433c3553cbe059fd8d008eb6453e2177cc15614bb3426c1dc4fe071870b3728",
+    "size": 24478
+  },
+  "automatic_retries": false,
+  "created_utc": "2026-10-26T08:57:04.279903+00:00",
+  "guards": {
+    "base_reserve_units": 0.5,
+    "base_timeout_minutes": 15,
+    "base_unit_cap": 1.0,
+    "effective_reserve_units": 1.0,
+    "effective_timeout_minutes": 30,
+    "effective_unit_cap": 2.0,
+    "estimate_minutes": 5,
+    "estimate_status": "INHERITED_FORECAST_NOT_MEASURED_CUDA_FEASIBILITY",
+    "owner_multiplier": 2,
+    "rate_units_per_hour_ceiling": 2.0,
+    "registered_L4_rate_units_per_hour": 1.54,
+    "timeout_rate_charge_units": 1.0,
+    "unit_cap_includes_cleanup_margin": true
+  },
+  "historical_remaining_aggregate_seconds": 12790.009206707939,
+  "historical_remaining_capture_seconds": -1009.9907932920614,
+  "historical_reservations_minutes": {
+    "aggregate": 240,
+    "canary": 30,
+    "capture": 10,
+    "fit": 200
+  },
+  "inherited_10_30_200_240_minute_ceilings_control_admission": false,
+  "owner_quote": "budget isnt important pretendit doesnt exist for colab",
+  "owner_ruling": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/OWNER_RULING_COLAB_BUDGET_20261025.txt",
+    "sha256": "48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d",
+    "size": 288
+  },
+  "prior_elapsed_seconds": 1609.9907932920614,
+  "prior_observed_account_debit_units": 0.4199999999998454,
+  "rate_integrated_observations_and_full_elapsed_exposure": {
+    "attributable_account_debit_units": 0.4199999999998454,
+    "elapsed_seconds": 1609.9907932920614,
+    "last_crosscheck_observed_rate_integration_units": 0.6376490257068362,
+    "last_crosscheck_priced_rate_exposure_units": 0.828115617801086,
+    "observed_account_debit_units": 0.4199999999998454,
+    "whole_session_observed_rate_exposure_units": 0.6887182837971596,
+    "whole_session_priced_rate_exposure_units": 0.8944393296067008
+  },
+  "schema": "bl-f5-cumulative-envelope-owner-ruling/v3",
+  "scientific_N_recipe_allocations_one_look_and_retry_rules_unchanged": true,
+  "scope": {
+    "automatic_retries": false,
+    "capture_and_cuda_transport_only": true,
+    "numerical_outcome_look_authorized": false,
+    "release_authorized": false,
+    "scientific_fit_authorized": false
+  },
+  "status": "ADMITTED_CAPTURE_TRANSPORT_ONLY",
+  "technical_guards_only": true,
+  "unchanged_integrity_bars": {
+    "max_export_bytes": 2147483648,
+    "private_upload_bytes_max": 45397643,
+    "staging_seconds": 300,
+    "transfer_seconds": 150
+  },
+  "unit_allowances_control_admission": false
+}

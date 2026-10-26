@@ -1,0 +1,26 @@
+ADMITTED: single operator dispatch after operational v5 sealing and main-ledger publication.
+Capture plus disjoint genuine CUDA transport only. Scientific fitting, numerical outcome reads, serving and release are unauthorized.
+Acceptance: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/ACCEPT_F5_W_IMPLEMENTATION_c989f673.md SHA256 8658d2968a49be69704bb31444fd9fcd75b90fd0f2bd3be5b08eb63b12157b9c
+Owner ruling: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/OWNER_RULING_COLAB_BUDGET_20261025.txt SHA256 48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d
+Owner quote: "budget isnt important pretendit doesnt exist for colab". No new budget approval required.
+Manifest: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/environment-capture.json SHA256 48da2cd767fa20d31bff3654a030dd0d4bee12ab30baf3bedd69b5229ea9c4fd
+Seal: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/PACKAGE_SEAL_OPERATIONAL_V5.json; its SHA256 sidecar and published ledger bind exact bytes.
+Job: bl-f5-w-capture-repair-22e86986-04
+Implementation: c989f6738f6aad143eb97bc47f6bd9e6687057ce
+Qualified broker: /Users/josenunez/Projects/ml/snake-dqn-f5w; transport tree c148431277f4e33c3f589251df892ea158407e25; registry /Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json SHA256 579e9638c23692352a5f0c0467a9abbe093cc820cc45cd52ec4f77900dbdd5bb
+State (fresh): /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/state-04
+Output (fresh): /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/output-04
+30-minute manifest and exemption runaway timeout: base15 x2. Estimate5 remains forecast. Technical cap2/reserve1: base1/0.5 x2; rate ceiling2 u/h, registered L4 observed1.54 u/h, actual new rate calibrated after allocation.
+Three stopped attempts retained: cumulative1609.9907932920614 seconds; observed/attributable debit0.4199999999998454 units. Raw accounting, observed-rate integration and full-elapsed priced exposure are distinct; final post-stop debit unknown. No history reset.
+Historical10/30/200/240-minute reservations and units are disclosure/runaway guards, never budget-only admission barriers.
+No automatic allocation, job or completion retry. OAuth2, account-wide maximum3 assignments with all other endpoints/rates bound; lease fencing; one exact NVIDIA L4 and at least6 allocated vCPUs; 2-GiB export bound.
+Python3.12.3, exact69-wheel cu126 lock, --no-compile, cuda:0, deterministic fp32 and numerical threads1.
+Exactly three pinned uploads: B8 to b8.pth; final-09 timing-fixtures.json to timing-fixtures.json; final-09 bootstrap-control.json to bootstrap-control.json. Ten declared exports required. No selected-training/outcome payload.
+All twelve disjoint fixtures require real source-native six-action CUDA observer/parity; scanner/upload/export-recovery proof; inclusive transfer<=150 seconds, whole staging<=300 seconds; existing private-byte bounds retained.
+Refusal publishes completed raw/diagnostic exports with nonzero exit and no admissible environment.json. Paired bootstrap artifacts are calibration-only/non-scientific.
+After operation require fresh actual successful raw v5 receipt and CUDA/observer/transport evidence, Mac-verified immutable exports, terminal receipt and independent assignment disappearance, or retained refusal diagnostics.
+Before science require L4-materialized ordered2000x256 plan/RNG, current-source timing/feasibility, full science inventory and matching canary, verified ledger, separate ACCEPT_F5_FIT and sole registered look token.
+Account snapshot is preflight evidence only. Wrapper refreshes account assignments/rates under its lock at real dispatch. Preserve every predecessor byte.
+
+Exact operator command:
+/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh bl-f5-w-capture-repair-22e86986-04 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/environment-capture.json --broker /Users/josenunez/Projects/ml/snake-dqn-f5w --cwd /Users/josenunez/Projects/ml/snake-dqn-f5w --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/state-04 --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/DISPATCH.txt

@@ -1666,3 +1666,76 @@ payloads, five attempt04 payloads, 88 nested bindings, 192 Git-pinned source
 hashes, all 11 test-source hashes, science/schema preservation, prior-debit
 sums and byte-identical ledger mirrors. Sealed logs verified, tests not rerun
 by reviewer. No provider calls or dispatch.
+
+
+### 2026-10-26 — F5 W c989f673 accepted; attempt-04 operational v5 sealed (no dispatch)
+
+Astra acceptance `ACCEPT_F5_W_IMPLEMENTATION_c989f673.md` SHA256
+`8658d2968a49be69704bb31444fd9fcd75b90fd0f2bd3be5b08eb63b12157b9c`
+accepts implementation `c989f6738f6aad143eb97bc47f6bd9e6687057ce` and prospectively freezes receipt v5
+SHA256 `aa0a172c0f5ddf892aab534b3a4a7ebb3aaebfd745f6c6e7bf1f6ea8be1b38f2`.
+Owner ruling SHA256 `48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d`
+retains time/unit values as generous runaway guards, never budget-only admission
+barriers; no new budget approval required. Acceptance and all operative package
+files are mirrored byte-identically under
+`research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/`.
+
+Create-only artifact package: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/`.
+The existing draft/seal remains immutable predecessor evidence; the operative
+manifest is `environment-capture.json`, job `bl-f5-w-capture-repair-22e86986-04`, with fresh
+`output-04` and `state-04` inside that package. Implementation pin unchanged.
+Manifest SHA256 `48da2cd767fa20d31bff3654a030dd0d4bee12ab30baf3bedd69b5229ea9c4fd`;
+`PACKAGE_SEAL_OPERATIONAL_V5.json` SHA256
+`669147782d17a4c134be2d86e056b82d3e387c23dc614f12b1099ed0ae9c6650`;
+`OPERATIONAL_PUBLICATION_V5.json` SHA256
+`2caf64dfbb1cc953ca0c728a6d37cd10f4934a54b689ac92d2fb3132db2d5efc`.
+Seal exhaustively binds 22 preseal payloads, 44 companions and 938 external
+source/authority/input/history evidence files; all original predecessor files
+remain byte-identical. Lossless attempt-03 raw/diagnostic reconstruction passes.
+
+Three stopped attempts are carried forward without reset: elapsed
+**1609.9907932920614 seconds**, observed/attributable debit
+**0.4199999999998454 units**. Raw accounting, observed-rate integration
+(0.6376490257068362), priced integration (0.828115617801086) and full-elapsed
+priced exposure (0.8944393296067008) remain separate. Final post-stop debit
+remains unknown and is not imputed; historical failed captures remain non-admissible.
+
+Fresh OAuth2 account preflight observed zero assignments, zero rate and
+1066.65 units; timestamped raw calls are retained in `live-account-preflight.json`.
+No new L4 rate is claimed without allocation: registered/prior observed 1.54 u/h
+and the 2.0 u/h technical ceiling remain distinct; dispatch refreshes all other
+endpoints/rates under its lock and calibrates the new assignment. Broker HEAD
+and manifest pin match qualified transport tree
+`c148431277f4e33c3f589251df892ea158407e25`. Fresh source preparation verifies
+194 selected paths (192 packet pins plus exact 69-wheel lock/common environment),
+200 archive members, native six-action CUDA observer/probe shape and input hashes.
+
+Wrapper output:
+`PASS_DRY_RUN bl-f5-w-capture-repair-22e86986-04 allocations=0 live_accounting=NOT_CHECKED`.
+Separate live preflight supplies current-account evidence. Targeted operational
+checks passed **140 passed, 1 real-CUDA skip in 78.88 seconds**: broker,
+source delivery, manifest schema, dispatch and immutable refusal diagnostics;
+serial CPU, absolute niceness 15, numerical threads 1. Independent read-only
+preseal review reports no blocking findings. All SHA sidecars and completion
+markers verify; unused state/output paths were rechecked immediately before seal.
+
+Single future operator dispatch is limited to environment capture plus disjoint
+genuine CUDA transport: one L4, at least six allocated vCPUs, Python 3.12.3,
+exact cu126 69-wheel lock, --no-compile, deterministic fp32, cuda:0, threads 1,
+5-minute forecast and 30-minute timeout/exemption (base 15 x2). Finite technical
+cap 2/reserve 1 (base 1/0.5 x2), lease fencing and 2-GiB export bound retained.
+Exactly B8, final-09 timing fixtures and bootstrap control are uploaded; all ten
+exports, twelve disjoint fixtures, scanner/upload/export-recovery proof, inclusive
+transfer <=150 s, whole staging <=300 s and private-byte bounds remain required.
+`DISPATCH.txt` binds the exact qualified wrapper command, manifest and paths.
+No automatic allocation, job or completion retry.
+
+No dispatch/runtime allocation, scientific fit, numerical outcome look, tmux
+operation, serving/release change or protected payload inspection occurred.
+Actual successful raw v5 capture plus CUDA/transport proof, verified exports,
+terminal receipt and independent assignment disappearance remain future evidence;
+refusal must retain completed raw/diagnostic evidence and nonzero exit. Before
+science: L4-materialized ordered 2000x256 plan/RNG, current-source timing and
+feasibility, complete science inventory/matching canary, verified ledger and
+separate ACCEPT_F5_FIT. Exploratory interpretation and owner-only release authority
+remain binding.

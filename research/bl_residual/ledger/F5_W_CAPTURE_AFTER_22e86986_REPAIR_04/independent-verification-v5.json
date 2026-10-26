@@ -1,0 +1,41 @@
+{
+  "checks": {
+    "archive_members_git_and_plan_matches": 200,
+    "binding_occurrences_reviewed": 646,
+    "cumulative_elapsed_seconds": 1609.9907932920614,
+    "cumulative_observed_attributable_units": 0.4199999999998454,
+    "dispatch_command_matches_dry_run": true,
+    "packet_source_pins_agree": 192,
+    "predecessor_preserved": true,
+    "source_closure_git_and_checkout_matches": 194,
+    "three_stopped_attempts_raw_accounting_agrees": true,
+    "unique_bound_paths": 603,
+    "v5_authority_inputs_exports_fixtures_timeout_scope_agree": true
+  },
+  "created_utc": "2026-10-26T09:01:42.234923+00:00",
+  "files_changed_by_reviewer": [],
+  "finding_resolution": "Two historical receipt-relative diagnostic names resolve through absolute original/ledger evidence bindings; not missing files.",
+  "limitations": [
+    "Reviewer ran no tests, provider calls or runtime.",
+    "Root-generated dry-run/test records are observed evidence.",
+    "Actual CUDA capture, transport, science/fit and numerical outcome inspection are not claimed.",
+    "Final seal and publication pending at preseal review."
+  ],
+  "manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_04/environment-capture.json",
+    "sha256": "48da2cd767fa20d31bff3654a030dd0d4bee12ab30baf3bedd69b5229ea9c4fd",
+    "size": 28935
+  },
+  "recorded_by": "root from reviewer report; no reviewer file mutation",
+  "reviewer": "/root/package_review (reviewer role; read-only)",
+  "schema": "bl-f5-independent-operational-verification/v5",
+  "scope": "Preseal operative package consistency review; seal/publication separately verified afterward",
+  "scope_permissions": {
+    "automatic_retries": false,
+    "capture_and_cuda_transport_only": true,
+    "numerical_outcome_look_authorized": false,
+    "release_authorized": false,
+    "scientific_fit_authorized": false
+  },
+  "status": "NO_BLOCKING_FINDINGS"
+}
