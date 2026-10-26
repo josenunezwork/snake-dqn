@@ -1,0 +1,524 @@
+{
+  "schema": "sandbox-a2-preparation-evidence/v1",
+  "status": "PREPARED_PREFLIGHT_AND_DRY_RUN_PASS",
+  "source_commit": "e491a63cc6b74cbe9a7aea5dffe77180f0ce45e3",
+  "packet": "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-02",
+  "packet_manifest_lines": 10,
+  "runtime_source_count": 97,
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "resident_tests": {
+    "passed": 37,
+    "preflight_seconds": 9.18,
+    "pytest_seconds": 3.46,
+    "priority": "nice 15",
+    "math_threads": 1
+  },
+  "broader_tests": {
+    "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts='' tests/test_colab_cli_supervisor.py tests/test_colab_cli_source.py tests/test_colab_cli_guard.py tools/sandbox/tests",
+    "passed": 204,
+    "seconds": 732.42
+  },
+  "lint": "black/isort/flake8 and bash -n PASS",
+  "preflight_log": "macOS pytest: restarting with a single OpenMP runtime\n.....................................                                    [100%]\n37 passed in 3.46s\nExit: macOS OpenMP-isolated pytest finished\n!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!\nPASS_SANDBOX_A_PREFLIGHT seeds=3545904 tests=PASS schema=PASS registry=PASS allocations=0\nreal 9.18\nuser 7.55\nsys 1.37\n",
+  "dispatch_dry_run_log": "PASS_DRY_RUN sandbox-a-resident-a2-20261026-01 allocations=0 live_accounting=NOT_CHECKED\nreal 32.65\nuser 23.89\nsys 7.39\n",
+  "dispatch_command": "/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a2-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/state",
+  "allocation_performed": false,
+  "live_accounting": "NOT_CHECKED by dry-run; enforced at actual admission",
+  "local_timings": "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/LOCAL_VERIFICATION_A2.json",
+  "local_timing_scope": "Mac CPU, full arena E2/E4 H3, limits2/8; busy host; no GPU projection",
+  "per_cell_results": [
+    {
+      "id": "a100-dev/sandbox-a/ep2/e2/cached",
+      "steady_rows_per_second": 397.4665304219927,
+      "cycles": [
+        {
+          "cycle": 0,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 8.749775588512421e-07,
+          "learner_seconds": 0.014357458101585507,
+          "seconds": 0.014358333079144359,
+          "hero_rows_per_second": 417.8758054244519
+        },
+        {
+          "cycle": 1,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 3.3294782042503357e-07,
+          "learner_seconds": 0.016318958019837737,
+          "seconds": 0.016319290967658162,
+          "hero_rows_per_second": 367.6630321679354
+        },
+        {
+          "cycle": 2,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 2.919696271419525e-07,
+          "learner_seconds": 0.01460891601163894,
+          "seconds": 0.014609207981266081,
+          "hero_rows_per_second": 410.69988240936937
+        }
+      ],
+      "cycle_stability": {
+        "rows_per_second_mean": 398.7462400005856,
+        "rows_per_second_min": 367.6630321679354,
+        "rows_per_second_max": 417.8758054244519,
+        "rows_per_second_cv": 0.05560811087333157,
+        "first_to_last_rows_per_second_ratio": 0.9828276178665245
+      }
+    },
+    {
+      "id": "a100-dev/sandbox-a/ep2/e2/collection",
+      "steady_rows_per_second": 18.948570140371174,
+      "cycles": [
+        {
+          "cycle": 0,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 0.3139315420994535,
+          "learner_seconds": 3.3294782042503357e-07,
+          "seconds": 0.31393187504727393,
+          "hero_rows_per_second": 19.112426857248824
+        },
+        {
+          "cycle": 1,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 0.28113120899070054,
+          "learner_seconds": 2.0791776478290558e-07,
+          "seconds": 0.2811314169084653,
+          "hero_rows_per_second": 21.342331874468385
+        },
+        {
+          "cycle": 2,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 0.3548758750548586,
+          "learner_seconds": 5.83939254283905e-07,
+          "seconds": 0.3548764589941129,
+          "hero_rows_per_second": 16.907292236309015
+        }
+      ],
+      "cycle_stability": {
+        "rows_per_second_mean": 19.12068365600874,
+        "rows_per_second_min": 16.907292236309015,
+        "rows_per_second_max": 21.342331874468385,
+        "rows_per_second_cv": 0.09469362059742623,
+        "first_to_last_rows_per_second_ratio": 0.8846229922861177
+      }
+    },
+    {
+      "id": "a100-dev/sandbox-a/ep2/e2/integrated",
+      "steady_rows_per_second": 16.96385480631527,
+      "cycles": [
+        {
+          "cycle": 0,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 0.3323197920108214,
+          "learner_seconds": 0.02210924995597452,
+          "seconds": 0.3544290419667959,
+          "hero_rows_per_second": 16.92863532487301
+        },
+        {
+          "cycle": 1,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 0.2818054169183597,
+          "learner_seconds": 0.02368737501092255,
+          "seconds": 0.30549279192928225,
+          "hero_rows_per_second": 19.640397935768398
+        },
+        {
+          "cycle": 2,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 0.3812331670196727,
+          "learner_seconds": 0.019924583029933274,
+          "seconds": 0.40115775004960597,
+          "hero_rows_per_second": 14.956709671589438
+        }
+      ],
+      "cycle_stability": {
+        "rows_per_second_mean": 17.17524764407695,
+        "rows_per_second_min": 14.956709671589438,
+        "rows_per_second_max": 19.640397935768398,
+        "rows_per_second_cv": 0.11179127952455878,
+        "first_to_last_rows_per_second_ratio": 0.8835153799794926
+      }
+    },
+    {
+      "id": "a100-dev/sandbox-a/ep2/e4/cached",
+      "steady_rows_per_second": 266.0186964635017,
+      "cycles": [
+        {
+          "cycle": 0,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 2.919696271419525e-07,
+          "learner_seconds": 0.04612025001551956,
+          "seconds": 0.0461205419851467,
+          "hero_rows_per_second": 260.1877489615071
+        },
+        {
+          "cycle": 1,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 2.08965502679348e-07,
+          "learner_seconds": 0.0470015830360353,
+          "seconds": 0.04700179200153798,
+          "hero_rows_per_second": 255.30941457737057
+        },
+        {
+          "cycle": 2,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 2.50060111284256e-07,
+          "learner_seconds": 0.042206249898299575,
+          "seconds": 0.04220649995841086,
+          "hero_rows_per_second": 284.31639704368934
+        }
+      ],
+      "cycle_stability": {
+        "rows_per_second_mean": 266.604520194189,
+        "rows_per_second_min": 255.30941457737057,
+        "rows_per_second_max": 284.31639704368934,
+        "rows_per_second_cv": 0.047566888775335506,
+        "first_to_last_rows_per_second_ratio": 1.0927355272432595
+      }
+    },
+    {
+      "id": "a100-dev/sandbox-a/ep2/e4/collection",
+      "steady_rows_per_second": 27.999782129178726,
+      "cycles": [
+        {
+          "cycle": 0,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 0.5022363329771906,
+          "learner_seconds": 2.50060111284256e-07,
+          "seconds": 0.5022365830373019,
+          "hero_rows_per_second": 23.89312209682014
+        },
+        {
+          "cycle": 1,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 0.3471114160493016,
+          "learner_seconds": 3.7497375160455704e-07,
+          "seconds": 0.34711179102305323,
+          "hero_rows_per_second": 34.57099502333825
+        },
+        {
+          "cycle": 2,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 0.43637541600037366,
+          "learner_seconds": 5.00003807246685e-07,
+          "seconds": 0.4363759160041809,
+          "hero_rows_per_second": 27.49922614859668
+        }
+      ],
+      "cycle_stability": {
+        "rows_per_second_mean": 28.654447756251688,
+        "rows_per_second_min": 23.89312209682014,
+        "rows_per_second_max": 34.57099502333825,
+        "rows_per_second_cv": 0.15477870413243205,
+        "first_to_last_rows_per_second_ratio": 1.1509264480867683
+      }
+    },
+    {
+      "id": "a100-dev/sandbox-a/ep2/e4/integrated",
+      "steady_rows_per_second": 21.782779852058265,
+      "cycles": [
+        {
+          "cycle": 0,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 0.5317730000242591,
+          "learner_seconds": 0.03754349995870143,
+          "seconds": 0.5693164999829605,
+          "hero_rows_per_second": 21.07790657807943
+        },
+        {
+          "cycle": 1,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 0.44626604195218533,
+          "learner_seconds": 0.045157874934375286,
+          "seconds": 0.4914239168865606,
+          "hero_rows_per_second": 24.418835932989516
+        },
+        {
+          "cycle": 2,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 0.5565216669347137,
+          "learner_seconds": 0.03541954106185585,
+          "seconds": 0.5919412079965696,
+          "hero_rows_per_second": 20.272283527301823
+        }
+      ],
+      "cycle_stability": {
+        "rows_per_second_mean": 21.923008679456924,
+        "rows_per_second_min": 20.272283527301823,
+        "rows_per_second_max": 24.418835932989516,
+        "rows_per_second_cv": 0.08188663696304897,
+        "first_to_last_rows_per_second_ratio": 0.9617787920354749
+      }
+    },
+    {
+      "id": "a100-dev/sandbox-a/ep8/e2/cached",
+      "steady_rows_per_second": 314.56547729046395,
+      "cycles": [
+        {
+          "cycle": 0,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 3.7497375160455704e-07,
+          "learner_seconds": 0.019287875038571656,
+          "seconds": 0.01928825001232326,
+          "hero_rows_per_second": 311.0702109401631
+        },
+        {
+          "cycle": 1,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 2.4994369596242905e-07,
+          "learner_seconds": 0.019562416011467576,
+          "seconds": 0.01956266595516354,
+          "hero_rows_per_second": 306.70666328156096
+        },
+        {
+          "cycle": 2,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 2.0803418010473251e-07,
+          "learner_seconds": 0.01837066700682044,
+          "seconds": 0.018370875041000545,
+          "hero_rows_per_second": 326.60393076590316
+        }
+      ],
+      "cycle_stability": {
+        "rows_per_second_mean": 314.7936016625424,
+        "rows_per_second_min": 306.70666328156096,
+        "rows_per_second_max": 326.60393076590316,
+        "rows_per_second_cv": 0.027125866497168277,
+        "first_to_last_rows_per_second_ratio": 1.049936378603376
+      }
+    },
+    {
+      "id": "a100-dev/sandbox-a/ep8/e2/collection",
+      "steady_rows_per_second": 25.09599804934538,
+      "cycles": [
+        {
+          "cycle": 0,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 0.2086070419754833,
+          "learner_seconds": 2.9103830456733704e-07,
+          "seconds": 0.20860733301378787,
+          "hero_rows_per_second": 28.762172035454913
+        },
+        {
+          "cycle": 1,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 0.31208320800215006,
+          "learner_seconds": 2.4994369596242905e-07,
+          "seconds": 0.312083457945846,
+          "hero_rows_per_second": 19.225626502258073
+        },
+        {
+          "cycle": 2,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 0.19655479094944894,
+          "learner_seconds": 2.50060111284256e-07,
+          "seconds": 0.19655504100956023,
+          "hero_rows_per_second": 30.525800657069723
+        }
+      ],
+      "cycle_stability": {
+        "rows_per_second_mean": 26.17119973159424,
+        "rows_per_second_min": 19.225626502258073,
+        "rows_per_second_max": 30.525800657069723,
+        "rows_per_second_cv": 0.18966489272862588,
+        "first_to_last_rows_per_second_ratio": 1.0613176438636414
+      }
+    },
+    {
+      "id": "a100-dev/sandbox-a/ep8/e2/integrated",
+      "steady_rows_per_second": 22.840178271380285,
+      "cycles": [
+        {
+          "cycle": 0,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 0.20534704194869846,
+          "learner_seconds": 0.025405375054106116,
+          "seconds": 0.23075241700280458,
+          "hero_rows_per_second": 26.001894489049167
+        },
+        {
+          "cycle": 1,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 0.30322933301795274,
+          "learner_seconds": 0.02095466700848192,
+          "seconds": 0.32418400002643466,
+          "hero_rows_per_second": 18.508007796531437
+        },
+        {
+          "cycle": 2,
+          "hero_rows": 6,
+          "collection_gae_resets_seconds": 0.21202745800837874,
+          "learner_seconds": 0.021121042082086205,
+          "seconds": 0.23314850009046495,
+          "hero_rows_per_second": 25.73467124031214
+        }
+      ],
+      "cycle_stability": {
+        "rows_per_second_mean": 23.41485784196425,
+        "rows_per_second_min": 18.508007796531437,
+        "rows_per_second_max": 26.001894489049167,
+        "rows_per_second_cv": 0.14825550518618158,
+        "first_to_last_rows_per_second_ratio": 0.9897229315790982
+      }
+    },
+    {
+      "id": "a100-dev/sandbox-a/ep8/e4/cached",
+      "steady_rows_per_second": 277.6377271352516,
+      "cycles": [
+        {
+          "cycle": 0,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 3.330642357468605e-07,
+          "learner_seconds": 0.04065741703379899,
+          "seconds": 0.04065775009803474,
+          "hero_rows_per_second": 295.1466810402782
+        },
+        {
+          "cycle": 1,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 3.3294782042503357e-07,
+          "learner_seconds": 0.04124954203143716,
+          "seconds": 0.041249874979257584,
+          "hero_rows_per_second": 290.90997260074545
+        },
+        {
+          "cycle": 2,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 1.6693957149982452e-07,
+          "learner_seconds": 0.047757582971826196,
+          "seconds": 0.047757749911397696,
+          "hero_rows_per_second": 251.26811925316696
+        }
+      ],
+      "cycle_stability": {
+        "rows_per_second_mean": 279.10825763139684,
+        "rows_per_second_min": 251.26811925316696,
+        "rows_per_second_max": 295.1466810402782,
+        "rows_per_second_cv": 0.07080330860309027,
+        "first_to_last_rows_per_second_ratio": 0.8513330333498711
+      }
+    },
+    {
+      "id": "a100-dev/sandbox-a/ep8/e4/collection",
+      "steady_rows_per_second": 26.63203430947912,
+      "cycles": [
+        {
+          "cycle": 0,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 0.4335672080051154,
+          "learner_seconds": 2.08965502679348e-07,
+          "seconds": 0.43356741697061807,
+          "hero_rows_per_second": 27.677356577773494
+        },
+        {
+          "cycle": 1,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 0.5670892919879407,
+          "learner_seconds": 2.50060111284256e-07,
+          "seconds": 0.567089542048052,
+          "hero_rows_per_second": 21.160679416978542
+        },
+        {
+          "cycle": 2,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 0.3510983749292791,
+          "learner_seconds": 2.0908191800117493e-07,
+          "seconds": 0.3510985840111971,
+          "hero_rows_per_second": 34.178434623414205
+        }
+      ],
+      "cycle_stability": {
+        "rows_per_second_mean": 27.67215687272208,
+        "rows_per_second_min": 21.160679416978542,
+        "rows_per_second_max": 34.178434623414205,
+        "rows_per_second_cv": 0.19205144018954737,
+        "first_to_last_rows_per_second_ratio": 1.2348879679810698
+      }
+    },
+    {
+      "id": "a100-dev/sandbox-a/ep8/e4/integrated",
+      "steady_rows_per_second": 27.68733195697762,
+      "cycles": [
+        {
+          "cycle": 0,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 0.36499866598751396,
+          "learner_seconds": 0.041194959077984095,
+          "seconds": 0.40619362506549805,
+          "hero_rows_per_second": 29.542561132181778
+        },
+        {
+          "cycle": 1,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 0.46489620790816844,
+          "learner_seconds": 0.045450709061697125,
+          "seconds": 0.5103469169698656,
+          "hero_rows_per_second": 23.51341724811196
+        },
+        {
+          "cycle": 2,
+          "hero_rows": 12,
+          "collection_gae_resets_seconds": 0.3367507919901982,
+          "learner_seconds": 0.046942291082814336,
+          "seconds": 0.38369308307301253,
+          "hero_rows_per_second": 31.274996942586355
+        }
+      ],
+      "cycle_stability": {
+        "rows_per_second_mean": 28.110325107626696,
+        "rows_per_second_min": 23.51341724811196,
+        "rows_per_second_max": 31.274996942586355,
+        "rows_per_second_cv": 0.11833944498577803,
+        "first_to_last_rows_per_second_ratio": 1.0586420318351266
+      }
+    }
+  ],
+  "isolated_bundle": {
+    "status": "PASS",
+    "cells": 12,
+    "real_checkpoint": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "parity": {
+      "status": "PASS",
+      "kind": "same-platform bit equality",
+      "worlds": 2,
+      "horizon": 3,
+      "state_sha256": "5572147e51e989b3448966630f7f19f0e866f85ce22c22d6e5ceb8214576788a",
+      "next_rows_sha256": "e9f7a36cca379570d8326196279293e9affe638a2cd6ee56effae7dedd6cc91d",
+      "cross_platform_claim": false,
+      "numerical_settings": {
+        "deterministic_algorithms": true,
+        "deterministic_algorithms_warn_only": false,
+        "cuda_matmul_allow_tf32": false,
+        "cudnn_allow_tf32": false,
+        "cudnn_benchmark": false
+      }
+    },
+    "all_97_source_bytes_match_final_worktree": true,
+    "manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-local-01/runtime-bundle-manifest.json"
+  },
+  "deferred_bootstrap_oracle": {
+    "observations": "byte-equal against immediate pre-reset oracle",
+    "critic_value_atol": 2e-05,
+    "critic_value_rtol": 2e-05,
+    "deterministic_resume": "exact byte equality within A2 mode; not old-vs-new training bit equality"
+  },
+  "compiler": {
+    "hook": "CUDA actor/GAE none/default; no silent fallback",
+    "packet_mode": "none",
+    "compiled_gpu_execution_verified": false
+  },
+  "prior_offline_timeouts_preserved": [
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-local-01/dispatch-dry-run.log",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-local-01/dispatch-dry-run-reseal-01.log"
+  ],
+  "artifact_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-local-01/output/summary.json": "22e2bc34e0eaa2dcbfe2aaf35b585fc12a8c32fd35712ecbb94c2bdf16c6c516",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-local-01/runtime-bundle-output/summary.json": "f955b4e8a9d024310098789357acebee29e5114c33d7f7803ba8ab31173bea4f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-local-01/runtime-bundle-manifest.json": "575a1d7475dc220c09b224bd4bc9c9c8206ead2e3424d599bf11a5b5f429ed5b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-local-01/collection-comparison.json": "e5ec2a9956375cbe53464bc8b16c62e9ae033e0d23f763f77cf97d088458608a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-local-01/preflight-reseal-02.log": "31b307044a096de5773b18c53c187a3f54057480a176c94a5bbae6b1d0dffdf5",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-local-01/dispatch-dry-run-reseal-02.log": "be77ca3e2e8f33ea9a9bf16dbe6bb303f9bf267f9f47fdf998c5536abfcb9cb1",
+    "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-02/sandbox.json": "a29063a92043bda8686f16938269505e39a916c58a6ba434c83077ed845b750a",
+    "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-02/dispatch-manifest.json": "5e3a21ffcfca1f24c3a082cd33fa32542c05a315831aa9d5028fd5fd0bbc2cf7",
+    "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-02/SEAL.json": "9f8bf612ef7717bea860c048b9f9584b8d268b49816fb6706ccac87f466b2ece"
+  }
+}

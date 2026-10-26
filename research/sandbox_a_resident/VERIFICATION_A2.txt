@@ -1,0 +1,52 @@
+A-2 preparation and admission evidence; simulator-D only.
+Source pin: e491a63cc6b74cbe9a7aea5dffe77180f0ce45e3
+Dispatchable packet: /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-02
+37 resident tests PASS (preflight: 3.46s); 204 supervisor/source/guard/shared tests PASS (732.42s).
+All tests nice 15, one math thread, no xdist.
+Black/isort/flake8 and bash -n job.sh PASS.
+Preflight PASS: all 3,545,904 roots, committed ten-line manifest, schema, registry, tests; 9.18s.
+Dispatch dry-run PASS: 32.65s, allocations=0, live_accounting=NOT_CHECKED.
+Prior parent/reseal-01 offline validation timeouts preserved; no GPU allocation or data collection.
+Runtime bundle: 97 audited source files; copied isolated full-arena CPU entrypoint completed all 12 cells.
+Isolated resume proof exactly equals worktree proof; all shipped source hashes match final worktree.
+PPO/core runtime unchanged across admission reseals. Compile hook remains opt-in; packet uses eager none.
+No F5, qualified transport, serving pins, checkpoints or tmux sessions edited/killed by this work.
+
+Full-arena Mac CPU smoke: E2/E4, H3, limits 2/8, one warmup +3 measured cycles; busy shared host.
+Cached rates are learner-processed rows; collection/integrated count one useful hero row per world/tick.
+Cell | rows/s | cycle rates | CV | last/first rate
+a100-dev/sandbox-a/ep2/e2/cached | 397.47 | 417.88, 367.66, 410.70 | 0.056 | 0.983
+a100-dev/sandbox-a/ep2/e2/collection | 18.95 | 19.11, 21.34, 16.91 | 0.095 | 0.885
+a100-dev/sandbox-a/ep2/e2/integrated | 16.96 | 16.93, 19.64, 14.96 | 0.112 | 0.884
+a100-dev/sandbox-a/ep2/e4/cached | 266.02 | 260.19, 255.31, 284.32 | 0.048 | 1.093
+a100-dev/sandbox-a/ep2/e4/collection | 28.00 | 23.89, 34.57, 27.50 | 0.155 | 1.151
+a100-dev/sandbox-a/ep2/e4/integrated | 21.78 | 21.08, 24.42, 20.27 | 0.082 | 0.962
+a100-dev/sandbox-a/ep8/e2/cached | 314.57 | 311.07, 306.71, 326.60 | 0.027 | 1.050
+a100-dev/sandbox-a/ep8/e2/collection | 25.10 | 28.76, 19.23, 30.53 | 0.190 | 1.061
+a100-dev/sandbox-a/ep8/e2/integrated | 22.84 | 26.00, 18.51, 25.73 | 0.148 | 0.990
+a100-dev/sandbox-a/ep8/e4/cached | 277.64 | 295.15, 290.91, 251.27 | 0.071 | 0.851
+a100-dev/sandbox-a/ep8/e4/collection | 26.63 | 27.68, 21.16, 34.18 | 0.192 | 1.235
+a100-dev/sandbox-a/ep8/e4/integrated | 27.69 | 29.54, 23.51, 31.27 | 0.118 | 1.059
+
+The actual A100 E128/E1024 H128 limit64/512 sweep remains prepared, not executed.
+CPU A1/A2 matched collection diagnostic is mixed/noisy; no GPU speedup or stability claim.
+Deferred observations equal immediate oracle bytes; nonzero critic values tolerate 2e-5 batch-reduction differences.
+Deterministic resume is exact within A2; no claim old and new training trajectories are identical.
+
+Exact resident test command:
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts='' research/sandbox_a_resident
+
+Exact lint commands:
+./venv/bin/python -m black --check --line-length 100 research/sandbox_a_resident
+./venv/bin/python -m isort --check-only --profile black research/sandbox_a_resident
+./venv/bin/python -m flake8 research/sandbox_a_resident
+bash -n research/sandbox_a_resident/job.sh
+
+Committed preflight:
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.preflight /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-02
+
+Dry-run:
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a2-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/state --dry-run
+
+Exact operator dispatch command:
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a2-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/state
