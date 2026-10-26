@@ -1,0 +1,87 @@
+{
+  "job_id": "sandbox-b-heads-v1",
+  "commit": "fd3e2c4e2f4a38fa3d9241501b48a1c0cab541ae",
+  "script": "research/sandbox_b_heads/run_job.sh",
+  "source_paths": [
+    "research/sandbox_b_heads/__init__.py",
+    "research/sandbox_b_heads/model.py",
+    "research/sandbox_b_heads/job.py",
+    "research/sandbox_b_heads/resume.py",
+    "research/sandbox_b_heads/run_job.sh",
+    "research/sandbox_b_heads/requirements.txt",
+    "research/a100_a2/model.py",
+    "research/bl_residual/data.py",
+    "src/__init__.py",
+    "src/model/__init__.py",
+    "src/model/base_network.py",
+    "src/model/apex_network.py",
+    "src/model/checkpoint_manager.py",
+    "src/model/checkpoint_io.py",
+    "src/model/ego2s_network.py",
+    "src/model/obs_spec.py",
+    "tools/sandbox/__init__.py",
+    "tools/sandbox/registry.py"
+  ],
+  "requirements": {
+    "gpu": "A100",
+    "allowed_gpus": [
+      "A100"
+    ],
+    "min_vcpu": 4,
+    "est_minutes": 10.3
+  },
+  "timeout_minutes": 20.6,
+  "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/a100-attempt-01",
+  "inputs": [
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/inputs/d1024-allowed.npz",
+      "dest": "d1024-admitted.npz",
+      "sha256": "91647489f1f6d1f35e03dac6cec17da496d4c08de08f1bd8f27d0bf60b880e99"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+      "dest": "b8.pth",
+      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
+      "dest": "SANDBOX_INPUT_REGISTRY.json",
+      "sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/dispatch-manifest-runtime-ledger.json",
+      "dest": "verified-ledger.json",
+      "sha256": "0bd707f59e95eed11b420d6df71996618af202dc25b0a348694f6db78fcc27d2"
+    }
+  ],
+  "required_exports": [
+    "checkpoints.tar",
+    "results.json",
+    "results.csv",
+    "verified-ledger.json",
+    "timing.json"
+  ],
+  "resume": {
+    "unit_kind": "head-loss-config",
+    "ledger_path": "inputs/verified-ledger.json",
+    "skip_verified": true,
+    "max_outcome_blind_retries": 2
+  },
+  "env": {
+    "SANDBOX_B_SALT": "a100-dev/sandbox-b/split-v1",
+    "SNAKE_DQN_DEVICE": "cuda",
+    "COLAB_CLI_REQUIREMENTS": "research/sandbox_b_heads/requirements.txt"
+  },
+  "requirements_file": "research/sandbox_b_heads/requirements.txt",
+  "budget": {
+    "rate_units_per_hour": 8.0,
+    "unit_cap": 2.746666666666667,
+    "reserve_units": 0,
+    "other_assignments": {}
+  },
+  "technical_envelope": {
+    "base_timeout_minutes": 10.3,
+    "effective_timeout_minutes": 20.6,
+    "includes_setup_and_export": true
+  }
+}
