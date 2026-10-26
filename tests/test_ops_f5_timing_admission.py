@@ -316,6 +316,7 @@ def test_timing_recovery_requires_the_exact_long_resumable_contract(tmp_path) ->
         (lambda value: value["f5"].update({"transfer_bar_seconds": 150}), "300-second"),
         (lambda value: value["f5"].update({"sizing_basis": "measured"}), "unmeasured"),
         (lambda value: value["requirements"].update({"est_minutes": 15}), "120/240"),
+        (lambda value: value["requirements"].update({"min_vcpu": 5}), "L4 placement"),
         (lambda value: value.update({"timeout_minutes": 30}), "120/240"),
         (lambda value: value["resume"].update({"unit_kind": "episode"}), "resumable unit"),
         (lambda value: value.update({"resume_exemption": {}}), "forbids exemption"),

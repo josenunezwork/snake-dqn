@@ -1409,9 +1409,11 @@ def _require_f5_recovery_common(manifest: dict[str, Any], admission: dict[str, A
         or env.get("F5_DEVICE") != "cuda:0"
     ):
         raise Refused("F5 timing recovery requires the exact qualification mode")
-    if manifest.get("requirements", {}).get("gpu") != "L4" or manifest.get("requirements", {}).get(
-        "allowed_gpus"
-    ) != ["L4"]:
+    if (
+        manifest.get("requirements", {}).get("gpu") != "L4"
+        or manifest.get("requirements", {}).get("allowed_gpus") != ["L4"]
+        or manifest.get("requirements", {}).get("min_vcpu") != 6
+    ):
         raise Refused("F5 timing recovery requires the exact L4 placement")
     if any(
         admission.get(field) is not False
