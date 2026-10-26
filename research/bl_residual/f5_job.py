@@ -223,12 +223,14 @@ def _environment_configuration_failures() -> list[str]:
 
 
 def _environment_admission(
-    control: Mapping[str, Any] | None, *, diagnostic: bool = False
+    control: Mapping[str, Any] | None,
+    *,
+    diagnostic: bool = False,
+    refusal_output: Path | None = None,
 ) -> dict[str, Any]:
     """Attest the common L4 environment, retaining all refusal evidence for capture."""
     from research.bl_residual.f5_environment import (
         capture_environment_diagnostic,
-        compare_environment,
         policy_binding,
         refuse_environment_receipt,
     )
@@ -251,7 +253,7 @@ def _environment_admission(
             failures.append("F5 environment policy/capture differs from sealed control")
         elif capture:
             try:
-                compare_environment(expected, capture, mode="cross-assignment")
+                _compare_assignment_environment(expected, capture, refusal_output=refusal_output)
             except ValueError as exc:
                 failures.append(str(exc))
     if diagnostic:
@@ -299,15 +301,36 @@ def _assignment_boundary(reference: Mapping[str, Any]) -> dict[str, Any]:
     return compare_environment(reference, actual, mode="same-assignment")
 
 
-def _environment_evidence(control: Mapping[str, Any], actual: Mapping[str, Any]) -> dict[str, Any]:
+def _compare_assignment_environment(
+    expected: Mapping[str, Any],
+    actual: Mapping[str, Any],
+    *,
+    refusal_output: Path | None = None,
+) -> dict[str, Any]:
+    """Export non-admissible diagnostics on mismatch, then preserve the refusal."""
+    from research.bl_residual.f5_environment import F5CrossAssignmentRefusal, compare_environment
+
+    try:
+        return compare_environment(expected, actual, mode="cross-assignment")
+    except F5CrossAssignmentRefusal as exc:
+        if refusal_output is not None:
+            export_json(refusal_output, exc.diagnostic)
+        raise
+
+
+def _environment_evidence(
+    control: Mapping[str, Any],
+    actual: Mapping[str, Any],
+    *,
+    refusal_output: Path | None = None,
+) -> dict[str, Any]:
     """Disclose a distinct-assignment comparison and preserve both raw captures."""
-    from research.bl_residual.f5_environment import compare_environment
 
     return {
         "reference_raw": control["environment_capture"],
         "assignment_raw": dict(actual),
-        "comparison": compare_environment(
-            control["environment_capture"], actual, mode="cross-assignment"
+        "comparison": _compare_assignment_environment(
+            control["environment_capture"], actual, refusal_output=refusal_output
         ),
         "disclosure": (
             "Separate assignments compared on adopted invariant build/scientific identity; "
@@ -410,16 +433,18 @@ def _acceptance(path: Path, control: Mapping[str, Any], plan: BatchPlan) -> dict
 def prepare(inputs: Path, output: Path) -> dict[str, Any]:
     """Materialize the common plan from selected training rows without fitting."""
     inputs, output = inputs.resolve(), output.resolve()
+    if output.exists():
+        raise FileExistsError("F5 plan output must be fresh")
     control = _control(inputs)
     _source_admission(control)
-    assignment = _environment_admission(control)
+    assignment = _environment_admission(
+        control, refusal_output=output / "environment-cross-assignment-refusal.json"
+    )
     _bound_inputs(
         inputs,
         control,
         names={"selected-training.tar.xz"},
     )
-    if output.exists():
-        raise FileExistsError("F5 plan output must be fresh")
     metadata, _ = _payload_metadata(inputs, control)
     plan = materialize_batch_plan(metadata, _identity(control))
     closing_environment = _assignment_boundary(assignment)
@@ -575,7 +600,14 @@ def fit_pair(
     )
     control = _control(inputs)
     _source_admission(control)
-    assignment = _environment_admission(control)
+    assignment = _environment_admission(
+        control,
+        # An existing verified pair may still be skipped below, but prior
+        # evidence must never acquire a new diagnostic on failed admission.
+        refusal_output=(
+            output / "environment-cross-assignment-refusal.json" if not output.exists() else None
+        ),
+    )
     _bound_inputs(
         inputs,
         control,

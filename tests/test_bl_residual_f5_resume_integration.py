@@ -99,7 +99,9 @@ def _install_outer_seams(
     monkeypatch.setattr(f5_job, "_source_admission", lambda control: None)
     monkeypatch.setattr(f5_job, "_identity", lambda control: _identity())
     monkeypatch.setattr(f5_job, "_environment_admission", lambda control: {"assignment": "offline"})
-    monkeypatch.setattr(f5_job, "_environment_evidence", lambda control, actual: {"offline": True})
+    monkeypatch.setattr(
+        f5_job, "_environment_evidence", lambda control, actual, **kwargs: {"offline": True}
+    )
     monkeypatch.setattr(f5_job, "_assignment_boundary", lambda actual: {})
 
     def export_boundary(reference: dict, output: Path, name: str) -> dict:

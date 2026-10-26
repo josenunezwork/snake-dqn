@@ -144,7 +144,7 @@ def test_prepare_uses_fresh_child_of_existing_supervisor_output(
     (inputs / "selected-training.tar.xz").write_bytes(b"synthetic package boundary")
     control = f5_job._control(inputs)
     monkeypatch.setattr(f5_job, "_source_admission", lambda _: None)
-    monkeypatch.setattr(f5_job, "_environment_admission", lambda _: {})
+    monkeypatch.setattr(f5_job, "_environment_admission", lambda _, **kwargs: {})
     # This legacy unit isolates supervisor child-directory ownership. Complete
     # real admission/assignment coverage lives in test_bl_residual_f5_handoff.
     monkeypatch.setattr(f5_job, "_assignment_boundary", lambda _: {})

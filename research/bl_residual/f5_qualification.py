@@ -479,7 +479,11 @@ def run(
         assignment = f5_job._environment_admission(None)
         if progress is not None:
             progress.phase("environment-compare")
-        environment_evidence = f5_job._environment_evidence(control, assignment)
+        environment_evidence = f5_job._environment_evidence(
+            control,
+            assignment,
+            refusal_output=root / "environment" / "cross-assignment-refusal.json",
+        )
     if progress is not None:
         progress.phase("initial-boundary")
     f5_job._assignment_boundary(assignment)

@@ -131,6 +131,14 @@ class F5EnvironmentRefusal(ValueError):
     """A receipt cannot establish the prospective F5 environment identity."""
 
 
+class F5CrossAssignmentRefusal(F5EnvironmentRefusal):
+    """Carry outcome-blind refusal diagnostics without creating admissible evidence."""
+
+    def __init__(self, diagnostic: dict[str, Any]) -> None:
+        super().__init__("F5 cross-assignment invariant environment differs")
+        self.diagnostic = diagnostic
+
+
 def schema_path() -> Path:
     """Return the frozen, source-pinned classification schema."""
     return Path(__file__).with_name("f5_environment_schema_v5.json")
@@ -923,6 +931,20 @@ def canonical_environment(receipt: Mapping[str, Any]) -> dict[str, Any]:
     return canonical
 
 
+def _differing_canonical_keys(expected: Any, actual: Any, path: str = "") -> list[str]:
+    """List differing canonical keys as sorted JSON pointers; lists are exact values."""
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        differences: list[str] = []
+        for key in sorted(expected.keys() | actual.keys()):
+            child = path + "/" + key.replace("~", "~0").replace("/", "~1")
+            if key not in expected or key not in actual:
+                differences.append(child)
+            else:
+                differences.extend(_differing_canonical_keys(expected[key], actual[key], child))
+        return differences
+    return [path] if expected != actual else []
+
+
 def compare_environment(
     expected: Mapping[str, Any], actual: Mapping[str, Any], *, mode: str = "cross-assignment"
 ) -> dict[str, Any]:
@@ -944,7 +966,28 @@ def compare_environment(
         if expected_raw_sha != actual_raw_sha:
             raise F5EnvironmentRefusal("F5 same-assignment environment raw receipt differs")
     elif expected_canonical != actual_canonical:
-        raise F5EnvironmentRefusal("F5 cross-assignment invariant environment differs")
+        # Retain this exact observation rather than recapturing a changed runtime.
+        # Mark the raw receipt refused so even direct reference consumers reject it.
+        raise F5CrossAssignmentRefusal(
+            {
+                "schema": "bl-residual-f5-cross-assignment-refusal-diagnostic/v1",
+                "kind": "OUTCOME_BLIND_NON_ADMISSIBLE_DIAGNOSTIC",
+                "mode": mode,
+                "admissible": False,
+                "scientific_use_authorized": False,
+                "fit_usable": False,
+                "expected_raw_sha256": expected_raw_sha,
+                "actual_raw_sha256": actual_raw_sha,
+                "expected_canonical_sha256": receipt_sha256(expected_canonical),
+                "actual_canonical_sha256": receipt_sha256(actual_canonical),
+                "differing_canonical_keys": _differing_canonical_keys(
+                    expected_canonical, actual_canonical
+                ),
+                "raw_receipt": refuse_environment_receipt(
+                    actual, ["F5 cross-assignment invariant environment differs"]
+                ),
+            }
+        )
     return {
         **policy_binding(),
         "field_classification": classify_receipt(actual),
