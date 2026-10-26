@@ -41,6 +41,10 @@ class GuardError(RuntimeError):
     """A bounded helper could not establish the requested safe fact."""
 
 
+class ReadHelperTimeout(GuardError, TimeoutError):
+    """A read-only helper exhausted its deadline, without proving kernel idle."""
+
+
 def _timeout_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     """Supply the real requests timeout the upstream CLI otherwise omits."""
     patched = dict(kwargs)
@@ -272,7 +276,7 @@ def _run_read_helper(
             delay = min(READ_HELPER_BACKOFF_SECONDS[attempt], max(0.0, deadline - time.monotonic()))
             if delay:
                 time.sleep(delay)
-    raise GuardError("read helper operation budget exhausted") from last_error
+    raise ReadHelperTimeout("read helper operation budget exhausted") from last_error
 
 
 def recover_assignment(

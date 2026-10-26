@@ -305,12 +305,16 @@ class CLI:
         self._lease_stop = threading.Event()
         self._lease_thread: threading.Thread | None = None
 
-    def remaining_seconds(self, allowance: float) -> float:
+    def remaining_seconds(self, allowance: float, *, staging_control: bool = True) -> float:
         """Clip non-CLI helpers to the same first-cap-wins session clock."""
         staging_deadline = getattr(self._control_context, "deadline", math.inf)
         remaining = min(
             allowance,
-            policy.STAGING_CONTROL_SECONDS if staging_deadline != math.inf else math.inf,
+            (
+                policy.STAGING_CONTROL_SECONDS
+                if staging_control and staging_deadline != math.inf
+                else math.inf
+            ),
             staging_deadline - time.monotonic(),
             (self.deadline if self.deadline is not None else math.inf) - time.monotonic(),
             (self.priced_deadline if self.priced_deadline is not None else math.inf)
@@ -406,7 +410,14 @@ class CLI:
                 # The watchdog validates the generation and VM mtime. Staging
                 # needs no kernel state read, and must not queue renewal execs
                 # behind data PUTs. The caller retains credential/account checks.
-                self._put_lease(root, generation, self.remaining_seconds(60))
+                # Contents heartbeats do not execute kernel controls.
+                # Match the background heartbeat's 60s allowance;
+                # keep the real staging/session caps and single dispatch.
+                self._put_lease(
+                    root,
+                    generation,
+                    self.remaining_seconds(policy.STAGING_HEARTBEAT_SECONDS, staging_control=False),
+                )
                 return None
             operation = (
                 f"read_state({root!r},{generation!r},renew=True,compact=True)"
