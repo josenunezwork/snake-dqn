@@ -1,0 +1,3 @@
+The final packet-02 dispatch successor is reseal-02/DISPATCH.txt.
+The initial parent seal remains immutable evidence of offline validation timeouts.
+No allocation occurred under either seal during preparation.

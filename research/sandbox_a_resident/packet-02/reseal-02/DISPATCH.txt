@@ -1,0 +1,33 @@
+Sandbox A packet-02 final successor seal: reseal-02. Prepared; no allocation performed.
+Source pin: 3b76077b2dc026c57e7601c19c8acd300bf34a5d (published).
+Broker manifest SHA256: d0f8882a3fc28890ce925e3ccfa0a3356df79a57bd2a42f94c19540fb615772a
+Sandbox manifest SHA256: ab8d51cf91df88b05b699ae5025e09b0f2c3298e3971a4a84fe80a7c8c06635a
+Packet seal SHA256: 5aa7cbb83b5e4d6d8a65dc55f2d553083981687f27f6c99f6491cf343eb25c46
+Explicit sandbox admission; no probe/canary controls. Qualified transport tree unchanged.
+Endpoint: E128/E1024, H128, cached/collection/integrated, one warmup plus three measured cycles/cell.
+Time limit:64 ticks, positive measured truncation coverage required for production collection cells.
+Runaway allowance: base4h/effective8h; prospective8 units/hour,64-unit technical guard only.
+No economic Colab budget. Simulator-D timing/parity only; no efficacy or release selection.
+
+The initial parent seal is preserved as evidence of validation timeouts, with no execution.
+This successor changes admission preflight only: all shared static checks, all reset seeds,
+and resident tests remain; the adapter itself runs the shared sandbox test suite.
+Verification outcomes are recorded at ../../VERIFICATION_02.txt after the seal.
+
+Committed preflight:
+cd /Users/josenunez/Projects/ml/snake-dqn-sbxA
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.preflight /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-02/reseal-02
+
+Offline dispatch validation (standard control priority; test subprocesses use nice15):
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-20261026-02 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-02/reseal-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-02/state --dry-run
+
+Claude's exact dispatch command:
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-20261026-02 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-02/reseal-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-02/state
+
+Fresh live-account inventory, assignment isolation and protected-study coexistence remain enforced.
+After verified terminal PASS and release, aggregate:
+./venv/bin/python -m research.sandbox_a_resident.postprocess aggregate --control /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-02/reseal-02/control.json --output /absolute/fresh/timing-decision.json /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-02/output/receipt.json
+
+No automatic completion retries; at most two outcome-blind completions after verified stop
+and mechanical failure, using fresh manifests/outputs/receipts and a metadata-verified ledger.
+Keep all previous seals immutable. No Colab allocation was made by packet preparation.

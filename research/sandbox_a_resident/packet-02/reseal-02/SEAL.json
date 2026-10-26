@@ -1,0 +1,14 @@
+{
+  "schema": "sandbox-a-packet-seal/v1",
+  "packet": "packet-02/reseal-02",
+  "source_commit": "3b76077b2dc026c57e7601c19c8acd300bf34a5d",
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "supersedes_for_dispatch": "packet-02 initial seal; offline validation timed out, no allocation",
+  "files": {
+    "control.json": "5b947a096fe8fa7e2f3b3f0f2a0215e217ed32c785097b87419538b84582affd",
+    "dispatch-manifest.json": "d0f8882a3fc28890ce925e3ccfa0a3356df79a57bd2a42f94c19540fb615772a",
+    "registry-check.json": "4205215761e125137f39fd6ee21dd73708d73b25d84dff9f4724650c5cb9ff41",
+    "sandbox.json": "ab8d51cf91df88b05b699ae5025e09b0f2c3298e3971a4a84fe80a7c8c06635a",
+    "verified-ledger.json": "6f5f639e7eec4ba81408a58be10fcf96166c80581ec7744459a12c3d791ec6c1"
+  }
+}
