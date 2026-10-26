@@ -1,0 +1,17 @@
+{
+  "kind": "A-2 finite simulator-D engineering assay; prepared only",
+  "source_commit": "c6b10607879e9026bd4a329cd99ac11d96434672",
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "files_sha256": {
+    "control.json": "cba3c9665ab22cab5df3f5c48547599ce7cd88816ae1e25f633fbae42f50c608",
+    "dispatch-manifest.json": "8d4d5c70635a73295d6c7bd601f0f315aac3eba4a70a974cc0942116fbee5958",
+    "registry-check.json": "1e63cd71f1f1475501ceeb2957bc5234239fb857d9dd73125f8b095e2ca186e5",
+    "sandbox.json": "8e79f5a82b9ba89b18ccf97e50e85e476a3075bf12df0c6d78b9d65f9bbab536",
+    "verified-ledger.json": "79d2b71b2355e067824bc7b9dfbc1e35d405136594c8a72320640012361c1aae"
+  },
+  "endpoint": "12 cells: E128/E1024 x episode_limit64/512 x cached/collection/integrated; H128; one excluded warmup + three measured cycles",
+  "runaway_base_seconds": 14400,
+  "runaway_effective_seconds": 28800,
+  "compile_mode": "none",
+  "allocation_performed": false
+}

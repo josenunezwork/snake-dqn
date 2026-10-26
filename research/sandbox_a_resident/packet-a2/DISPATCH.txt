@@ -1,0 +1,27 @@
+Sandbox A-2, fresh finite engineering assay; no runtime allocation during preparation.
+Published source: c6b10607879e9026bd4a329cd99ac11d96434672
+Qualified transport tree: 5833e54e9c5396121cbbf99a5cd4e52006e564fd (unchanged).
+Manifest: exactly10physicalJSONlines, bound broker packet, empty verified ledger.
+Endpoint: E128/E1024 x episode_limit64/512 x cached/collection/integrated.
+H128, minibatch2048, one excluded warmup +3 measured cycles, compile_mode=none.
+Fresh seed blocks20m..31m; parity90m; all3545904 roots registry-checked.
+Runaway guard base4h/effective8h; no economic Colab budget or timing canary.
+Simulator-D only; no policy selection, F5, registered bank, strict gate or serving work.
+
+Committed preflight (nice15, one math thread):
+cd /Users/josenunez/Projects/ml/snake-dqn-sbxA
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.preflight /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2
+
+Dry-run validation (control process standard priority; test children nice15):
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a2-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/state --dry-run
+
+Exact operator dispatch command:
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a2-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/state
+
+Prepared only. Verification_A2 is recorded outside the immutable seal after admission.
+Live-account inventory, assignment isolation and protected-study coexistence are
+checked at actual admission. No automatic completion retries. Any mechanical
+completion attempt requires verified stop, a new identity/output, and an A2 ledger.
+
+After terminal PASS and verified release, aggregate all cells:
+./venv/bin/python -m research.sandbox_a_resident.postprocess aggregate --control /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/control.json --output /absolute/fresh/a2-timing-decision.json /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/output/receipt.json
