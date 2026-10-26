@@ -81,9 +81,20 @@ class SupervisedGatedNormedResidual(nn.Module):
     def forward(
         self, features: torch.Tensor, length: torch.Tensor, margin: torch.Tensor
     ) -> torch.Tensor:
+        return self.forward_components(features, length, margin)[0]
+
+    def forward_components(
+        self, features: torch.Tensor, length: torch.Tensor, margin: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return gated residual, ungated body, and supervised logits in one pass.
+
+        The same soft gate is used in train and eval. Q losses train the body;
+        only balanced BCE trains the gate, independent of preservation ratio.
+        """
         logits = self.gate_logits(features, length, margin)
-        gate = torch.sigmoid(logits) if self.training else (logits > 0).to(features.dtype)
-        return 8.0 * self.body(_unit(features)) * gate.unsqueeze(1)
+        gate = torch.sigmoid(logits).detach()
+        body = 8.0 * self.body(_unit(features))
+        return body * gate.unsqueeze(1), body, logits
 
 
 def make_head(name: str) -> nn.Module:

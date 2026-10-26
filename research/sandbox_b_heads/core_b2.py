@@ -66,21 +66,30 @@ def _zero(q: torch.Tensor) -> torch.Tensor:
     return q.sum() * 0.0
 
 
-def _kl(q: torch.Tensor, base_q: torch.Tensor, rows: torch.Tensor) -> torch.Tensor:
+def _kl(
+    q: torch.Tensor, base_q: torch.Tensor, selectable: torch.Tensor, rows: torch.Tensor
+) -> torch.Tensor:
     if not rows.any():
         return _zero(q)
-    return functional.kl_div(
-        functional.log_softmax(q[rows], dim=1),
-        functional.softmax(base_q[rows], dim=1),
-        reduction="batchmean",
-    )
+    sel = selectable[rows]
+    log_q = functional.log_softmax(q[rows].masked_fill(~sel, -torch.inf), dim=1)
+    log_base = functional.log_softmax(base_q[rows].masked_fill(~sel, -torch.inf), dim=1)
+    # Clear excluded log probabilities before subtraction: -inf - -inf would
+    # otherwise leave NaNs in backward even when the forward result is masked.
+    log_ratio = log_base.masked_fill(~sel, 0.0) - log_q.masked_fill(~sel, 0.0)
+    return (log_base.exp() * log_ratio).sum(1).mean()
 
 
-def _pair_loss(q: torch.Tensor, survivor: torch.Tensor, bad: torch.Tensor) -> torch.Tensor:
-    pairs = survivor[:, :, None] & bad[:, None, :]
+def _pair_loss(
+    q: torch.Tensor, survivor: torch.Tensor, bad: torch.Tensor, decisive: torch.Tensor
+) -> torch.Tensor:
+    pairs = decisive[:, None, None] & survivor[:, :, None] & bad[:, None, :]
     if not pairs.any():
         return _zero(q)
-    return functional.softplus(q[:, None, :] - q[:, :, None])[pairs].mean()
+    pair_losses = functional.softplus(q[:, None, :] - q[:, :, None]).masked_fill(~pairs, 0.0)
+    counts = pairs.flatten(1).sum(1)
+    valid = counts > 0
+    return (pair_losses.flatten(1).sum(1)[valid] / counts[valid]).mean()
 
 
 def _top_survivor_loss(
@@ -116,26 +125,33 @@ def training_loss(
     table: dict[str, torch.Tensor],
     config: Config,
     gate_logits: torch.Tensor | None = None,
+    ordinary_q: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Return the finite B-2 objective with safe empty-set behavior.
 
-    ``q`` is the corrected Q value, with any soft training gate already applied;
-    ``base_q`` is the frozen B8 Q vector.  The ordinary:survival ratio is the
-    only global loss-weight degree of freedom.
+    ``q`` includes the detached soft gate. For the gated head, ``ordinary_q``
+    is base Q plus the ungated body, so ordinary preservation cannot vanish
+    quadratically with the gate. ``base_q`` is the frozen B8 Q vector.
     """
     selectable, survivor, bad, decisive, gate_supervised, gate_target = masks(table)
     ordinary = table["ordinary"].bool()
+    preservation_q = q if ordinary_q is None else ordinary_q
     if config.loss == "kl_pairs":
-        loss = _pair_loss(q, survivor, bad) + config.ratio * _kl(q, base_q, ordinary)
+        loss = _pair_loss(q, survivor, bad, decisive) + config.ratio * _kl(
+            preservation_q, base_q, selectable, ordinary
+        )
     elif config.loss == "hinge_top":
-        ordinary_term = _ordinary_hinge(q, table["bare"].long(), selectable, ordinary)
-        ordinary_term = ordinary_term + 0.1 * _kl(q, base_q, ordinary)
+        ordinary_term = _ordinary_hinge(preservation_q, table["bare"].long(), selectable, ordinary)
+        ordinary_term = ordinary_term + 0.1 * _kl(preservation_q, base_q, selectable, ordinary)
         loss = _top_survivor_loss(q, survivor, bad, decisive) + config.ratio * ordinary_term
     else:
         raise ValueError(f"unknown B-2 loss {config.loss!r}")
     if gate_logits is not None and gate_supervised.any():
+        positive = gate_target[gate_supervised].sum()
+        negative = gate_supervised.sum() - positive
+        pos_weight = negative / positive.clamp_min(1.0) if positive > 0 and negative > 0 else None
         loss = loss + functional.binary_cross_entropy_with_logits(
-            gate_logits[gate_supervised], gate_target[gate_supervised]
+            gate_logits[gate_supervised], gate_target[gate_supervised], pos_weight=pos_weight
         )
     return loss
 
@@ -162,44 +178,64 @@ def build_sampling_weights(table: dict[str, torch.Tensor], config: Config) -> to
     return torch.ones_like(weights)
 
 
+@dataclass(frozen=True)
+class SamplingPlan:
+    """Cached training-only row distribution and optional exact-half strata."""
+
+    indices: torch.Tensor
+    weights: torch.Tensor | None
+    strata: tuple[tuple[torch.Tensor, torch.Tensor], ...]
+
+
+def prepare_sampling(
+    table: dict[str, torch.Tensor],
+    config: Config,
+    indices: torch.Tensor | None = None,
+) -> SamplingPlan:
+    """Prepare once per fit; life weights are computed within the selected split."""
+    if indices is None:
+        indices = torch.arange(len(table["bare"]), device=table["bare"].device)
+    if not len(indices):
+        raise ValueError("cannot sample an empty index set")
+    selected = {key: value[indices] for key, value in table.items()}
+    weights = build_sampling_weights(selected, config)
+    strata = ()
+    if weights is not None:
+        decisive = masks(selected)[3]
+        if decisive.any() and (~decisive).any():
+            strata = tuple((indices[part], weights[part]) for part in (decisive, ~decisive))
+    return SamplingPlan(indices, weights, strata)
+
+
 def sample_indices(
     table: dict[str, torch.Tensor],
     config: Config,
     batch_size: int,
     indices: torch.Tensor | None = None,
+    *,
+    plan: SamplingPlan | None = None,
 ) -> torch.Tensor:
-    """Sample a batch, drawing exact balanced halves when both strata exist.
-
-    ``indices`` confines a draw to a training split while preserving the
-    declared stratum/life weights.  The returned batch may contain duplicates,
-    matching the replacement sampling used by the original finite sweep.
-    """
+    """Draw from the shared cached sampler, balancing exact halves when possible."""
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
-    if indices is None:
-        indices = torch.arange(len(table["bare"]), device=table["bare"].device)
-    if not len(indices):
-        raise ValueError("cannot sample an empty index set")
-    weights = build_sampling_weights(table, config)
+    prepared = plan if plan is not None else prepare_sampling(table, config, indices)
+    indices, weights = prepared.indices, prepared.weights
     if weights is None:
         choices = torch.randint(
             len(indices), (min(batch_size, len(indices)),), device=indices.device
         )
         return indices[choices]
-    decisive = masks(table)[3][indices]
     # Retain exact 50/50 sampling rather than merely its expectation.  An odd
     # batch puts the single remainder in the complement deterministically.
-    if decisive.any() and (~decisive).any():
-        decisive_count = batch_size // 2
-        complement_count = batch_size - decisive_count
-        local = weights[indices]
-        positive = local[decisive]
-        negative = local[~decisive]
+    if prepared.strata:
         drawn = torch.cat(
-            (
-                indices[decisive][torch.multinomial(positive, decisive_count, replacement=True)],
-                indices[~decisive][torch.multinomial(negative, complement_count, replacement=True)],
-            )
+            [
+                pool[torch.multinomial(probabilities, count, replacement=True)]
+                for (pool, probabilities), count in zip(
+                    prepared.strata, (batch_size // 2, batch_size - batch_size // 2)
+                )
+                if count
+            ]
         )
         return drawn[torch.randperm(len(drawn), device=drawn.device)]
-    return indices[torch.multinomial(weights[indices], batch_size, replacement=True)]
+    return indices[torch.multinomial(weights, batch_size, replacement=True)]

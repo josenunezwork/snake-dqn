@@ -24,9 +24,18 @@ import torch
 
 from research.a100_a2.model import b8_features
 from research.bl_residual.data import validate_rows
-from research.sandbox_b_heads.core_b2 import CONFIGS, build_sampling_weights, masks, training_loss
+from research.sandbox_b_heads.core_b2 import (
+    CONFIGS,
+    prepare_sampling,
+    sample_indices,
+    training_loss,
+)
 from research.sandbox_b_heads.job import metrics as base_metrics
-from research.sandbox_b_heads.model_b2 import make_head, optimizer_groups
+from research.sandbox_b_heads.model_b2 import (
+    SupervisedGatedNormedResidual,
+    make_head,
+    optimizer_groups,
+)
 from research.sandbox_b_heads.resume_b2 import (
     CONFIG_IDS,
     atomic_json,
@@ -177,6 +186,27 @@ def _load_table(path: Path) -> dict[str, np.ndarray]:
         table = {key: archive[key] for key in archive.files}
     validate_rows(table)
     return table
+
+
+def smoke_indices(parents: np.ndarray, count: int) -> np.ndarray:
+    """Take outcome-blind rows round-robin across parents in first-seen order."""
+    groups: dict[str, list[int]] = {}
+    for index, parent in enumerate(parents):
+        groups.setdefault(str(parent), []).append(index)
+    selected = []
+    depth = 0
+    active = list(groups.values())
+    while active and len(selected) < count:
+        next_active = []
+        for group in active:
+            selected.append(group[depth])
+            if len(selected) == count:
+                break
+            if len(group) > depth + 1:
+                next_active.append(group)
+        active = next_active
+        depth += 1
+    return np.asarray(selected, dtype=np.int64)
 
 
 def _seal(path: Path, completion: dict[str, Any] | None = None) -> None:
@@ -354,9 +384,7 @@ def run(args: argparse.Namespace) -> Path:
     table = _load_table(input_path)
     smoke_rows = getattr(args, "smoke_rows", 0)
     if smoke_rows:
-        # Deterministic parent-first prefix; never select using outcome labels.
-        _, first = np.unique(table["parent_world"], return_index=True)
-        selected = np.sort(first)[:smoke_rows]
+        selected = smoke_indices(table["parent_world"], smoke_rows)
         table = {key: value[selected] for key, value in table.items()}
     val = parent_split(table["parent_world"], args.salt)
     if not val.any() or val.all():
@@ -408,33 +436,22 @@ def run(args: argparse.Namespace) -> Path:
         optimizer = torch.optim.Adam(optimizer_groups(model, args.learning_rate))
         updates = args.updates or config.updates
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=updates)
-        weights = build_sampling_weights(train_table, config)
-        strata = None
-        if weights is not None:
-            decisive = masks(train_table)[3]
-            if decisive.any() and (~decisive).any():
-                strata = [(torch.where(part)[0], weights[part]) for part in (decisive, ~decisive)]
+        sampling = prepare_sampling(train_table, config)
         for step in range(updates):
             batch = min(args.batch_size, len(train_index))
-            if strata is not None:
-                parts = []
-                for (pool, probabilities), size in zip(strata, (batch // 2, batch - batch // 2)):
-                    if size:
-                        parts.append(pool[torch.multinomial(probabilities, size, replacement=True)])
-                local_picks = torch.cat(parts)
-            elif weights is not None:
-                local_picks = torch.multinomial(weights, batch, replacement=True)
-            else:
-                local_picks = torch.randint(len(train_index), (batch,), device=device)
+            local_picks = sample_indices(train_table, config, batch, plan=sampling)
             picks = train_index[local_picks]
             sampled = {k: v[picks] for k, v in tensors.items()}
-            q = tensors["q"][picks] + model(features[picks], length[picks], margin[picks])
-            gate = (
-                model.gate_logits(features[picks], length[picks], margin[picks])
-                if hasattr(model, "gate_logits")
-                else None
-            )
-            loss = training_loss(q, tensors["q"][picks], sampled, config, gate)
+            base_q = tensors["q"][picks]
+            gate, ordinary_q = None, None
+            if isinstance(model, SupervisedGatedNormedResidual):
+                residual, body, gate = model.forward_components(
+                    features[picks], length[picks], margin[picks]
+                )
+                q, ordinary_q = base_q + residual, base_q + body
+            else:
+                q = base_q + model(features[picks], length[picks], margin[picks])
+            loss = training_loss(q, base_q, sampled, config, gate, ordinary_q)
             if not torch.isfinite(loss):
                 raise RuntimeError(f"non-finite loss for {config.id}")
             optimizer.zero_grad(set_to_none=True)
@@ -476,7 +493,9 @@ def run(args: argparse.Namespace) -> Path:
                 "salt": args.salt,
                 "recipe_fingerprint": ledger["fingerprint"],
                 "updates_completed": updates,
-                "gate_threshold": 0.5,
+                "gate_function": (
+                    "detached_sigmoid" if isinstance(model, SupervisedGatedNormedResidual) else None
+                ),
                 "thresholds": THRESHOLDS,
             },
             checkpoint,

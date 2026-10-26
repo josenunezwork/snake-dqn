@@ -7,10 +7,27 @@ from research.sandbox_b_heads.core_b2 import (
     Config,
     build_sampling_weights,
     masks,
+    prepare_sampling,
     sample_indices,
     training_loss,
 )
 from research.sandbox_b_heads.model_b2 import CosineFastGainResidual, make_head, optimizer_groups
+
+
+def test_cached_sampler_matches_shared_helper_and_handles_one_row_batches():
+    table = _table()
+    config = Config("normed_linear", "hinge_top", 2.0, 1500, "decisive_life_balanced")
+    indices = torch.tensor([0, 1, 2])
+    plan = prepare_sampling(table, config, indices)
+    torch.manual_seed(5)
+    cached = sample_indices(table, config, 7, plan=plan)
+    torch.manual_seed(5)
+    direct = sample_indices(table, config, 7, indices)
+    assert torch.equal(cached, direct)
+    assert masks(table)[3][cached].sum() == 3
+    assert set(cached.tolist()) <= set(indices.tolist())
+    single = sample_indices(table, config, 1, plan=plan)
+    assert single.tolist() == [1]  # The odd remainder always goes to complement.
 
 
 def _table() -> dict[str, torch.Tensor]:
@@ -68,7 +85,7 @@ def test_life_balanced_sampler_weights_each_stratum_and_life_equally():
     assert masks({key: value[sampled] for key, value in table.items()})[3].sum() == 10
 
 
-def test_heads_are_finite_and_supervised_gate_switches_to_hard_eval():
+def test_heads_are_finite_and_supervised_gate_stays_soft_in_eval():
     features, length, margin = torch.randn(3, 256), torch.rand(3), torch.tensor([0.0, 2.0, 32.0])
     for name in ("normed_linear", "cosine_fastgain", "supervised_gated_normed"):
         model = make_head(name)
@@ -77,9 +94,8 @@ def test_heads_are_finite_and_supervised_gate_switches_to_hard_eval():
     gated = make_head("supervised_gated_normed")
     gated.eval()
     with torch.no_grad():
-        logits = gated.gate_logits(features, length, margin)
-        output = gated(features, length, margin)
-        assert torch.equal(output[logits <= 0], torch.zeros_like(output[logits <= 0]))
+        output, body, logits = gated.forward_components(features, length, margin)
+        assert torch.equal(output, body * logits.sigmoid().unsqueeze(1))
 
 
 def test_cosine_gain_and_bias_receive_tenfold_optimizer_rate():

@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from research.sandbox_b_heads.job import parent_split
-from research.sandbox_b_heads.job_b2 import pareto_frontier, run, threshold_actions
+from research.sandbox_b_heads.job_b2 import pareto_frontier, run, smoke_indices, threshold_actions
 from research.sandbox_b_heads.resume_b2 import (
     atomic_json,
     build_ledger,
@@ -24,10 +24,11 @@ def test_tiny_cpu_entrypoint_exports_all_config_hashes(tmp_path, monkeypatch, ca
     candidate_parents = np.array([f"synthetic-{i}" for i in range(50)], dtype="U16")
     split = parent_split(candidate_parents)
     parents = np.array(
-        [candidate_parents[np.where(~split)[0][0]], candidate_parents[np.where(split)[0][0]]],
+        [candidate_parents[np.where(~split)[0][0]]] * 2
+        + [candidate_parents[np.where(split)[0][0]]] * 2,
         dtype="U16",
     )
-    n = 2
+    n = 4
     table = {
         "local": np.zeros((n, 7, 31, 31), np.uint8),
         "global": np.zeros((n, 4, 37, 37), np.uint8),
@@ -38,15 +39,16 @@ def test_tiny_cpu_entrypoint_exports_all_config_hashes(tmp_path, monkeypatch, ca
         "bare": np.zeros(n, np.int64),
         "died": np.array(
             [[True, False, False, False, False, False], [False, True, False, False, False, False]]
+            * 2
         ),
         "status": np.full((n, 6), "EXACT", dtype="U13"),
         "mass": np.ones((n, 6), np.float32),
-        "ordinary": np.array([False, True]),
-        "natural_stream": np.array([False, True]),
+        "ordinary": np.array([False, True] * 2),
+        "natural_stream": np.array([False, True] * 2),
         "sampling_weight": np.ones(n, np.float32),
         "parent_world": parents,
-        "life_id": np.array(["life-a", "life-b"]),
-        "row_id": np.array(["row-a", "row-b"]),
+        "life_id": np.array(["life-a", "life-a", "life-b", "life-b"]),
+        "row_id": np.array(["row-a", "row-b", "row-c", "row-d"]),
     }
     data, b8, output = tmp_path / "synthetic.npz", tmp_path / "b8.pt", tmp_path / "out"
     np.savez(data, **table)
@@ -72,6 +74,25 @@ def test_tiny_cpu_entrypoint_exports_all_config_hashes(tmp_path, monkeypatch, ca
     (root / "output").symlink_to(output, target_is_directory=True)
     cache = {}
     publish = job._publish_bundle
+    original_loss, original_sample = job.training_loss, job.sample_indices
+    gated_steps, sampled_steps, ordinary_steps = [], [], []
+
+    def checked_loss(q, base, table, config, gate=None, ordinary_q=None):
+        if config.head == "supervised_gated_normed":
+            assert gate is not None and ordinary_q is not None
+            assert torch.allclose(q - base, (ordinary_q - base) * gate.sigmoid().unsqueeze(1))
+            gated_steps.append(config.id)
+            if table["ordinary"].any():
+                ordinary_steps.append(config.id)
+        return original_loss(q, base, table, config, gate, ordinary_q)
+
+    def checked_sample(*a, **kw):
+        assert kw["plan"] is not None
+        sampled_steps.append(True)
+        return original_sample(*a, **kw)
+
+    monkeypatch.setattr(job, "training_loss", checked_loss)
+    monkeypatch.setattr(job, "sample_indices", checked_sample)
 
     def publish_then_poll(*a, **kw):
         publish(*a, **kw)
@@ -91,6 +112,14 @@ def test_tiny_cpu_entrypoint_exports_all_config_hashes(tmp_path, monkeypatch, ca
     assert exported[-1]["completed_configs"] == 48
     assert exported[-1]["eta_seconds"] == pytest.approx(0.0)
     assert len(payload["configs"]) == 48
+    assert len(gated_steps) == 16 and len(sampled_steps) == 48
+    assert ordinary_steps
+    for path in (output / "checkpoints").glob("*.pt"):
+        saved = torch.load(path, map_location="cpu", weights_only=False)
+        assert "gate_threshold" not in saved
+        assert saved["gate_function"] == (
+            "detached_sigmoid" if saved["config"]["head"] == "supervised_gated_normed" else None
+        )
     assert len(payload["rows"]) == 240
     assert {r["tau"] for r in payload["rows"]} == {0.0, 0.1, 0.2, 0.4, 0.8}
     assert json.loads((output / "pareto.json").read_text())["rows"] == payload["pareto"]
@@ -202,3 +231,10 @@ def test_frontier_preserves_micro_macro_tradeoffs_and_equal_points():
     a, b, c, d = point(0.8, 0.5, 1), point(0.7, 0.6, 1), point(0.6, 0.4, 2), point(0.8, 0.5, 1)
     assert pareto_frontier([a, b, c, d]) == [a, b, d]
     assert pareto_frontier([point(None, None, 0)]) == []
+
+
+def test_smoke_rows_round_robin_visits_multiple_rows_per_parent():
+    parents = np.array(["b", "b", "a", "c", "a", "b"])
+    assert smoke_indices(parents, 5).tolist() == [0, 2, 3, 1, 4]
+    assert smoke_indices(parents, 20).tolist() == [0, 2, 3, 1, 4, 5]
+    assert smoke_indices(parents, 0).size == 0
