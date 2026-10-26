@@ -104,6 +104,9 @@ def test_canonical_funding_producer_enters_i3_with_frozen_control_identity(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A producer result derived from controls passes I3 without matched constants."""
+    # This fixture tests an invented funding series, never the operator's real
+    # terminal-discard state. Keep all admission metadata in the temporary world.
+    monkeypatch.setattr(job, "D4096_DISCARD_SEAL", tmp_path / "synthetic-discard.json")
     identity, paths = _frozen_controls(monkeypatch, tmp_path)
     d256_control, d1024_control, d256_allocation, d1024_allocation = paths
     before = {path: path.read_bytes() for path in paths}

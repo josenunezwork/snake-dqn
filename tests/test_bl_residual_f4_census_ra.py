@@ -677,6 +677,8 @@ def test_full_funding_entrypoint_passes_unchanged_i3_consumer(
     from tests import test_bl_residual_collection_receipts as i3
     from tests.test_bl_residual_funding_consumer import _funding_look
 
+    monkeypatch.setattr(job, "D4096_DISCARD_SEAL", tmp_path / "synthetic-discard.json")
+
     _prepare(ra_world, tmp_path)
     packet = _packet(tmp_path)
     identity = packet["lock"]["reserve"]

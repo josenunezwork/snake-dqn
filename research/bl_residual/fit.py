@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import torch
 import torch.nn.functional as functional
@@ -372,6 +372,7 @@ def heldout_metrics(
     natural_archive_complete: bool = False,
     candidate_q: torch.Tensor | None = None,
     reserve_life_ids: torch.Tensor | None = None,
+    diagnostics_observer: Callable[[Mapping[str, torch.Tensor]], None] | None = None,
 ) -> dict[str, Any]:
     """Report frozen, threshold-free exact-label metrics for a held-out cache.
 
@@ -479,8 +480,10 @@ def heldout_metrics(
             )
     margin = (controller_q[row, selected] - controller_q[row, base]).abs()
     margin_bins: list[dict[str, Any]] = []
+    margin_bin_masks: list[torch.Tensor] = []
     for lower, upper in ((0.0, 0.01), (0.01, 0.1), (0.1, 0.5), (0.5, float("inf"))):
         in_bin = natural_rows & (margin >= lower) & (margin < upper)
+        margin_bin_masks.append(in_bin)
         count = int(in_bin.sum().cpu())
         decisive_in_bin = decisive & in_bin
         margin_bins.append(
@@ -494,6 +497,27 @@ def heldout_metrics(
                     if decisive_in_bin.any()
                     else None
                 ),
+            }
+        )
+    if diagnostics_observer is not None:
+        unknown_selected_only = changed & ~selected_outcome_exact & base_outcome_exact
+        unknown_b8_only = changed & selected_outcome_exact & ~base_outcome_exact
+        unknown_both = changed & ~selected_outcome_exact & ~base_outcome_exact
+        diagnostics_observer(
+            {
+                "natural": natural_rows,
+                "changed": changed,
+                "changed_both_exact": changed & selected_outcome_exact & base_outcome_exact,
+                "changed_b8_exact_survives_selected_exact": (
+                    changed & selected_outcome_exact & base_outcome_exact & ~data["died"][row, base]
+                ),
+                "harmful_exact": harmful_exact,
+                "unknown_selected_only": unknown_selected_only,
+                "unknown_b8_only": unknown_b8_only,
+                "unknown_both": unknown_both,
+                "harmful_unknown": harmful_unknown,
+                "harmful": harmful,
+                "margin_bins": tuple(margin_bin_masks),
             }
         )
     reserve = (

@@ -10,6 +10,7 @@ import argparse
 import dataclasses
 import json
 import platform
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import numpy as np
@@ -95,6 +96,9 @@ def evaluate(
     approval_path: Path,
     archive_receipt: Path | None = None,
     joint_claim_path: Path | None = None,
+    diagnostics_observer: (
+        Callable[[Mapping[str, torch.Tensor], tuple[str, ...]], None] | None
+    ) = None,
 ) -> dict:
     """Score a frozen candidate; archive completeness needs a verified census."""
     if archive_receipt is None:
@@ -198,12 +202,18 @@ def evaluate(
                 )
             )
     life_codes = {life: index for index, life in enumerate(sorted(set(table["life_id"].tolist())))}
+
+    def observe_diagnostics(masks: Mapping[str, torch.Tensor]) -> None:
+        if diagnostics_observer is not None:
+            diagnostics_observer(masks, tuple(str(parent) for parent in table["parent_world"]))
+
     result = heldout_metrics(
         FrozenB8Residual(base),
         cache,
         natural_archive_complete=archive_complete,
         candidate_q=torch.cat(chunks),
         reserve_life_ids=torch.as_tensor(sorted(life_codes[life] for life in heldout)),
+        diagnostics_observer=observe_diagnostics if diagnostics_observer is not None else None,
     )
     for record in result["life_retention"]:
         record["life_id"] = sorted(life_codes)[record["life_id"]]
