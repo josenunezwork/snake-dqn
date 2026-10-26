@@ -39,10 +39,10 @@ def test_packet02_admission_and_generous_runaway_guard(monkeypatch, tmp_path: Pa
         packet / "dispatch-manifest.json"
     )
     assert len((packet / "sandbox.json").read_text().splitlines()) == 10
-    assert manifest["job_id"].endswith("-02")
-    assert manifest["output_dir"].endswith("/attempt-02/output")
+    assert manifest["job_id"].endswith("-01")
+    assert manifest["output_dir"].endswith("/a2-attempt-01/output")
     assert "pyproject.toml" not in manifest["source_paths"]
-    assert json.loads(manifest["env"]["SANDBOX_A_CONTROL_JSON"])["episode_limit"] == 64
+    assert json.loads(manifest["env"]["SANDBOX_A_CONTROL_JSON"])["episode_limits"] == [64, 512]
     for base in (0, float("nan"), float("inf"), 1e308):
         with pytest.raises(ValueError, match="positive finite"):
             prepare.prepare(

@@ -20,10 +20,58 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
-def unit_id(worlds: int, phase: str) -> str:
+def unit_stem(worlds: int, phase: str, episode_limit: int | None = None) -> str:
+    """Stable file identity; legacy controls retain their original names."""
+    if (
+        type(worlds) is not int
+        or worlds < 1
+        or phase not in PHASES
+        or (episode_limit is not None and (type(episode_limit) is not int or episode_limit < 1))
+    ):
+        raise ValueError("foreign allocation")
+    prefix = "" if episode_limit is None else f"ep{episode_limit}-"
+    return f"{prefix}e{worlds}-{phase}"
+
+
+def cell_specs(control: dict[str, Any]) -> list[tuple[int, str, int | None, int]]:
+    """Enumerate disjoint fixed cells, preserving pre-A2 ledger identities."""
+    limits = control.get("episode_limits", [None])
+    if "episode_limits" in control and (
+        not isinstance(limits, list) or any(type(limit) is not int or limit < 1 for limit in limits)
+    ):
+        raise ValueError("positive integer episode limits required")
+    if (
+        not isinstance(control["worlds"], list)
+        or not control["worlds"]
+        or any(type(worlds) is not int or worlds < 1 for worlds in control["worlds"])
+    ):
+        raise ValueError("positive integer worlds required")
+    if (
+        not limits
+        or len(limits) != len(set(limits))
+        or len(control["worlds"]) != len(set(control["worlds"]))
+    ):
+        raise ValueError("duplicate/empty cell sweep")
+    base = control.get("seed_offset_base", 0)
+    if type(base) is not int or base < 0:
+        raise ValueError("nonnegative integer seed base required")
+    return [
+        (worlds, phase, limit, base + index * 1_000_000)
+        for index, (limit, worlds, phase) in enumerate(
+            (limit, worlds, phase)
+            for limit in limits
+            for worlds in control["worlds"]
+            for phase in PHASES
+        )
+    ]
+
+
+def unit_id(worlds: int, phase: str, episode_limit: int | None = None) -> str:
     if worlds < 1 or phase not in PHASES:
         raise ValueError("foreign allocation")
-    return f"{NAMESPACE}/e{worlds}/{phase}"
+    unit_stem(worlds, phase, episode_limit)
+    prefix = "" if episode_limit is None else f"/ep{episode_limit}"
+    return f"{NAMESPACE}{prefix}/e{worlds}/{phase}"
 
 
 def allocation(control: dict[str, Any]) -> str:
@@ -36,7 +84,7 @@ def allocation(control: dict[str, Any]) -> str:
 def load_ledger(path: Path, control: dict[str, Any]) -> dict[str, dict]:
     """Mac-verified descriptors only; the runtime never opens prior numerical outputs."""
     value = json.loads(path.read_text())
-    expected = {unit_id(e, p) for e in control["worlds"] for p in PHASES}
+    expected = {unit_id(e, p, limit) for e, p, limit, _ in cell_specs(control)}
     if (
         value.get("schema") != "sandbox-a-ledger/v1"
         or value.get("namespace") != NAMESPACE

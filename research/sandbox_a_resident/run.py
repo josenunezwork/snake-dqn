@@ -11,6 +11,7 @@ import platform
 import tarfile
 import tempfile
 import time
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -20,12 +21,13 @@ import torch
 from research.sandbox_a_resident.core import Recipe, ResidentAssay, distribution, gae
 from research.sandbox_a_resident.proof import prove
 from research.sandbox_a_resident.units import (
-    PHASES,
     allocation,
+    cell_specs,
     digest,
     load_ledger,
     publish,
     unit_id,
+    unit_stem,
 )
 from src.model.ego2s_network import load_ego2s_checkpoint
 
@@ -34,6 +36,51 @@ def sync(device: str) -> float:
     if device.startswith("cuda"):
         torch.cuda.synchronize()
     return time.perf_counter()
+
+
+def numerical_settings() -> dict[str, bool]:
+    """Return the Torch switches that materially affect the timing/proof claim."""
+    return {
+        "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+        "deterministic_algorithms_warn_only": torch.is_deterministic_algorithms_warn_only_enabled(),
+        "cuda_matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
+        "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
+        "cudnn_benchmark": torch.backends.cudnn.benchmark,
+    }
+
+
+@contextmanager
+def numerical_mode(*, deterministic: bool, tf32: bool):
+    """Apply proof or timing numerics and restore process-global Torch state exactly."""
+    before = numerical_settings()
+    try:
+        torch.use_deterministic_algorithms(deterministic, warn_only=False)
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cuda.matmul.allow_tf32 = tf32
+        torch.backends.cudnn.allow_tf32 = tf32
+        yield numerical_settings()
+    finally:
+        torch.use_deterministic_algorithms(
+            before["deterministic_algorithms"],
+            warn_only=before["deterministic_algorithms_warn_only"],
+        )
+        torch.backends.cuda.matmul.allow_tf32 = before["cuda_matmul_allow_tf32"]
+        torch.backends.cudnn.allow_tf32 = before["cudnn_allow_tf32"]
+        torch.backends.cudnn.benchmark = before["cudnn_benchmark"]
+
+
+def cycle_stability(cycles: list[dict[str, float]], rows_per_cycle: int) -> dict[str, float]:
+    """Report excluded-warmup cycle-rate stability without concealing slow tail cycles."""
+    rates = [rows_per_cycle / row["seconds"] for row in cycles]
+    mean = sum(rates) / len(rates)
+    variance = sum((rate - mean) ** 2 for rate in rates) / len(rates)
+    return {
+        "rows_per_second_mean": mean,
+        "rows_per_second_min": min(rates),
+        "rows_per_second_max": max(rates),
+        "rows_per_second_cv": variance**0.5 / mean if mean else 0.0,
+        "first_to_last_rows_per_second_ratio": rates[-1] / rates[0] if rates[0] else 0.0,
+    }
 
 
 def synthetic_observations(recipe: Recipe, device: torch.device) -> tuple:
@@ -135,6 +182,7 @@ def run_cell(
     output: Path,
     device: str,
     deadline: float,
+    episode_limit: int | None = None,
 ) -> dict:
     begin = sync(device)
     if device.startswith("cuda"):
@@ -144,13 +192,20 @@ def run_cell(
         horizon=control["horizon"],
         minibatch=control["minibatch"],
         epochs=control["epochs"],
-        episode_limit=control["episode_limit"],
+        episode_limit=control["episode_limit"] if episode_limit is None else episode_limit,
         seed_offset=offset,
         max_episodes=1 + (control["cycles"] + control["warmups"]) * control["horizon"],
         tiny=control.get("tiny_arena", control["tiny"]),
         **control.get("recipe_parameters", {}),
     )
     runner = ResidentAssay(recipe, load_ego2s_checkpoint(str(checkpoint), device), device)
+    compile_mode = control.get("compile_mode", "none")
+    if compile_mode not in ("none", "default"):
+        raise ValueError("compile_mode must be none or default")
+    if compile_mode != "none":
+        if runner.device.type != "cuda":
+            raise ValueError("compiled timing cell requires CUDA")
+        runner.enable_compile(compile_mode)
     cached = synthetic(runner) if phase == "cached" else None
     setup_seconds = sync(device) - begin
     # Excluded warmup cycles are charged to total cell time, not steady-state rate.
@@ -177,15 +232,17 @@ def run_cell(
         cycles.append(
             {
                 "cycle": index,
+                "hero_rows": worlds * recipe.horizon,
                 "collection_gae_resets_seconds": collected - started,
                 "learner_seconds": ended - collected,
                 "seconds": ended - started,
+                "hero_rows_per_second": worlds * recipe.horizon / (ended - started),
             }
         )
         print(
             json.dumps(
                 {
-                    "progress": unit_id(worlds, phase),
+                    "progress": unit_id(worlds, phase, episode_limit),
                     "done": index + 1,
                     "total": control["cycles"],
                     "seconds": ended - started,
@@ -193,20 +250,23 @@ def run_cell(
             ),
             flush=True,
         )
-    rows = worlds * recipe.horizon * control["cycles"]
+    rows_per_cycle = worlds * recipe.horizon
+    rows = rows_per_cycle * control["cycles"]
     elapsed = sum(row["seconds"] for row in cycles)
     terminal_rows, truncated_rows = boundary_counts.cpu().tolist()
     if not control["tiny"] and phase != "cached" and not truncated_rows:
         raise RuntimeError("INVALID: measured phase did not exercise time-limit bootstrap")
     report = {
-        "schema": "sandbox-a-timing/v1",
+        "schema": "sandbox-a-timing/v2",
         "label": "simulator-D",
-        "id": unit_id(worlds, phase),
+        "id": unit_id(worlds, phase, episode_limit),
         "allocation": allocation(control),
         "recipe": asdict(recipe),
         "phase": phase,
         "cycles": cycles,
         "hero_rows": rows,
+        "cached_rows": rows if phase == "cached" else 0,
+        "useful_hero_rows": 0 if phase == "cached" else rows,
         "steady_rows_per_second": rows / elapsed,
         "steady_useful_hero_rows_per_second": None if phase == "cached" else rows / elapsed,
         "setup_seconds": setup_seconds,
@@ -216,12 +276,17 @@ def run_cell(
         "reset_count": int(runner.reset_count),
         "measured_terminal_rows": terminal_rows,
         "measured_truncated_rows": truncated_rows,
+        "cycle_stability": cycle_stability(cycles, rows_per_cycle),
+        "numerical_settings": numerical_settings(),
+        "compile_mode": compile_mode,
+        "compile_scope": "actor_critic_and_gae" if compile_mode != "none" else "disabled",
         "efficacy_selection": False,
         "peak_device_allocated_bytes": (
             torch.cuda.max_memory_allocated() if device.startswith("cuda") else None
         ),
     }
-    path = output / f"e{worlds}-{phase}.tar"
+    stem = unit_stem(worlds, phase, episode_limit)
+    path = output / f"{stem}.tar"
     export_start = sync(device)
     descriptor = publish(
         path,
@@ -242,7 +307,7 @@ def run_cell(
         "payload": descriptor,
     }
     publish(
-        output / f"e{worlds}-{phase}.json",
+        output / f"{stem}.json",
         lambda target: target.write_text(json.dumps(result, indent=2) + "\n"),
     )
     del runner, cached, data
@@ -277,24 +342,21 @@ def main() -> int:
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
     torch.manual_seed(3403)
-    torch.use_deterministic_algorithms(True)
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cuda.matmul.allow_tf32 = False
-    torch.backends.cudnn.allow_tf32 = False
     verified = load_ledger(args.ledger, control)
     args.output.mkdir(parents=True, exist_ok=False)
     deadline = time.monotonic() + control["timeout_seconds"]
     results, skipped = [], []
     start = time.perf_counter()
+    # prove owns its strict deterministic/TF32-off mode and restores this process afterwards.
     proof = prove(load_ego2s_checkpoint(str(args.checkpoint), args.device), args.device)
+    proof_settings = proof["numerical_settings"]
     publish(args.output / "parity.json", lambda target: target.write_text(json.dumps(proof) + "\n"))
-    for shape_index, worlds in enumerate(control["worlds"]):
-        for phase_index, phase in enumerate(PHASES):
-            identity = unit_id(worlds, phase)
+    with numerical_mode(deterministic=False, tf32=True) as timing_settings:
+        for worlds, phase, episode_limit, offset in cell_specs(control):
+            identity = unit_id(worlds, phase, episode_limit)
             if identity in verified:
                 skipped.append(identity)
                 continue
-            offset = (shape_index * len(PHASES) + phase_index) * 1_000_000
             results.append(
                 run_cell(
                     control,
@@ -305,10 +367,11 @@ def main() -> int:
                     args.output,
                     args.device,
                     deadline,
+                    episode_limit,
                 )
             )
     summary = {
-        "schema": "sandbox-a-run/v1",
+        "schema": "sandbox-a-run/v2",
         "status": "PASS",
         "label": "simulator-D",
         "allocation": allocation(control),
@@ -323,6 +386,9 @@ def main() -> int:
         "hardware": torch.cuda.get_device_name() if args.device == "cuda" else platform.processor(),
         "source_commit": os.environ.get("SANDBOX_A_SOURCE_COMMIT", "local-unpinned-smoke"),
         "parity": proof,
+        "proof_numerical_settings": proof_settings,
+        "timing_numerical_settings": timing_settings,
+        "compile_mode": control.get("compile_mode", "none"),
         "numerical_outputs": "timing/parity only; no efficacy or candidate selection",
     }
     publish(

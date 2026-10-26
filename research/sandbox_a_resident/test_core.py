@@ -182,20 +182,17 @@ def test_reset_compacts_spawn_and_never_prepares_unselected_worlds(monkeypatch) 
     runner.sim.slot_constant = torch.arange(6)
     before = runner.sim.slot_constant.clone()
     spawn_sizes, prepared_sizes = [], []
-    original_spawn, original_prepare = DeviceSim._respawn, DeviceSim.prepare
-
-    def spawn(sim):
-        spawn_sizes.append(sim.E)
-        return original_spawn(sim)
+    original_prepare = DeviceSim.prepare
 
     def prepare(sim):
         prepared_sizes.append(sim.E)
         return original_prepare(sim)
 
-    monkeypatch.setattr(DeviceSim, "_respawn", spawn)
     monkeypatch.setattr(DeviceSim, "prepare", prepare)
     runner._reset(torch.tensor([False, False, True, False, False, False]))
-    assert spawn_sizes == [1]
+    # A fresh world uses the analytic first respawn trial in-place; no compact
+    # DeviceSim copy or full-E respawn is permitted on the collection path.
+    assert spawn_sizes == []
     assert prepared_sizes == []
     assert_exact(before, runner.sim.slot_constant)
     runner.observe()
@@ -208,11 +205,11 @@ def test_bootstrap_compacts_only_live_truncations_on_simultaneous_death(monkeypa
     observed, forwarded = [], []
     original_observe, original_forward = runner.observe, runner.actor.forward
 
-    def observe(sim=None):
+    def observe(sim=None, advisory_mask=None):
         active = runner.sim if sim is None else sim
         assert active.alive[:, 0].all(), "dead hero reached observation"
         observed.append(active.E)
-        return original_observe(sim)
+        return original_observe(sim, advisory_mask)
 
     def forward(*obs):
         forwarded.append(obs[0].shape[0])
@@ -229,8 +226,10 @@ def test_bootstrap_compacts_only_live_truncations_on_simultaneous_death(monkeypa
     monkeypatch.setattr(runner.actor, "forward", forward)
     monkeypatch.setattr(runner.sim, "step", simultaneous)
     data = runner.collect()
-    assert observed == [2, 1, 2, 1, 2, 1, 2]
-    assert forwarded == observed
+    # Three full actor passes, a final bootstrap, then one combined 3-row
+    # critic-only observation.  Terminal hero 0 never reaches the latter.
+    assert observed == [2, 2, 2, 2, 3]
+    assert forwarded == [2, 2, 2]
     assert data["terminal"][:, 0].all()
     assert data["truncated"][:, 1].all()
     assert data["next_value"][:, 0].eq(0).all()
@@ -244,18 +243,17 @@ def test_default_time_limit_is_reached_inside_real_horizon(monkeypatch) -> None:
         runner.sim._last_done.zero_()
         runner.sim._last_reward.zero_()
 
-    def observe(sim=None):
-        active = runner.sim if sim is None else sim
-        return (torch.zeros(active.E, 1),) * 3, torch.ones(active.E, 6, dtype=torch.bool)
+    original_observe = runner.observe
 
-    def forward(obs, *_):
-        return torch.zeros(obs.shape[0], 6), torch.full((obs.shape[0],), 3.0)
+    def observe(sim=None, advisory_mask=None):
+        return original_observe(sim, advisory_mask)
 
     monkeypatch.setattr(runner.sim, "step", survive)
     monkeypatch.setattr(runner, "observe", observe)
-    monkeypatch.setattr(runner.actor, "forward", forward)
     monkeypatch.setattr(runner.policy, "actions", lambda sim, action: action)
     monkeypatch.setattr(runner.policy, "after_step", lambda sim: None)
+    with torch.no_grad():
+        runner.actor.critic.bias.fill_(3)
     data = runner.collect()
     assert data["truncated"].sum() == 4
     assert data["truncated"][63].all() and data["truncated"][127].all()

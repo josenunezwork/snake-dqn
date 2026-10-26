@@ -212,3 +212,39 @@ def test_source_or_recipe_drift_changes_verified_allocation() -> None:
     }
     assert allocation(control) != allocation({**control, "source_commit": "c" * 40})
     assert allocation(control) != allocation({**control, "recipe_parameters": {"gamma": 0.9}})
+
+
+def test_a2_sweep_has_distinct_resume_units_and_exports(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.postprocess import expected_stems, ledger
+    from research.sandbox_a_resident.units import cell_specs, unit_stem
+
+    control = {
+        "worlds": [2],
+        "episode_limits": [64, 512],
+        "seed_offset_base": 20_000_000,
+        "source_commit": "a" * 40,
+    }
+    cells = cell_specs(control)
+    assert len(cells) == 6
+    assert len({unit_id(e, p, limit) for e, p, limit, _ in cells}) == 6
+    assert [row[3] for row in cells] == list(range(20_000_000, 26_000_000, 1_000_000))
+    assert expected_stems(control) == {unit_stem(e, p, limit) for e, p, limit, _ in cells}
+    directory = tmp_path / "exports" / "assay"
+    directory.mkdir(parents=True)
+    stem = unit_stem(2, "cached", 512)
+    checkpoint = publish(directory / f"{stem}.tar", lambda p: p.write_bytes(b"checkpoint"))
+    timing = publish(directory / f"{stem}.json", lambda p: p.write_bytes(b"{}"))
+    receipt = receipt_for(
+        control,
+        directory,
+        [
+            {**checkpoint, "path": f"assay/{stem}.tar"},
+            {**timing, "path": f"assay/{stem}.json"},
+        ],
+    )
+    value = ledger(control, [receipt])
+    path = tmp_path / "ledger.json"
+    path.write_text(json.dumps(value))
+    assert list(load_ledger(path, control)) == [unit_id(2, "cached", 512)]
+    with pytest.raises(ValueError, match="foreign"):
+        load_ledger(path, {**control, "episode_limits": [64]})

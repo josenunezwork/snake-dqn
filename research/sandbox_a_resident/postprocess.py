@@ -9,10 +9,11 @@ import re
 from pathlib import Path
 
 from research.sandbox_a_resident.units import (
-    PHASES,
     allocation,
+    cell_specs,
     digest,
     unit_id,
+    unit_stem,
     verified_descriptor,
 )
 
@@ -45,7 +46,7 @@ def checked_descriptor(path: Path, identity: str) -> dict:
 
 
 def expected_stems(control: dict) -> set[str]:
-    return {f"e{worlds}-{phase}" for worlds in control["worlds"] for phase in PHASES}
+    return {unit_stem(e, p, limit) for e, p, limit, _ in cell_specs(control)}
 
 
 def export_stem(path: str) -> str | None:
@@ -136,35 +137,32 @@ def ledger(control: dict, receipts: list[Path]) -> dict:
         exports = checked_exports(receipt, control, allow_terminal_metadata=True)
         directory = allowed_path(receipt_path.parent / "exports" / "assay")
         checked_assay_directory(directory, control)
-        for worlds in control["worlds"]:
-            for phase in PHASES:
-                path = directory / f"e{worlds}-{phase}.tar"
-                tar_complete = Path(str(path) + ".complete")
-                json_path = path.with_suffix(".json")
-                json_complete = Path(str(json_path) + ".complete")
-                tar_complete_exists = allowed_path(tar_complete).exists()
-                json_complete_exists = allowed_path(json_complete).exists()
-                if json_complete_exists and not tar_complete_exists:
-                    raise ValueError(
-                        "timing completion marker without checkpoint completion marker"
-                    )
-                if not tar_complete_exists:
-                    continue
-                if not json_complete_exists:
-                    # A wall-clock stop can happen after TAR publication but before timing export.
-                    # It is incomplete and must be retried as a fresh receipt/output attempt.
-                    continue
-                identity = unit_id(worlds, phase)
-                if identity in found:
-                    raise ValueError("duplicate completed unit")
-                checkpoint = checked_descriptor(path, identity)
-                timing = checked_descriptor(json_path, identity)
-                for descriptor in (checkpoint, timing):
-                    relative = "assay/" + Path(descriptor["path"]).name
-                    entry = exports.get(relative)
-                    if entry is None or any(entry[k] != descriptor[k] for k in ("size", "sha256")):
-                        raise ValueError("unit absent from verified broker export inventory")
-                found[identity] = {**checkpoint, "timing": timing}
+        for worlds, phase, limit, _ in cell_specs(control):
+            path = directory / f"{unit_stem(worlds, phase, limit)}.tar"
+            tar_complete = Path(str(path) + ".complete")
+            json_path = path.with_suffix(".json")
+            json_complete = Path(str(json_path) + ".complete")
+            tar_complete_exists = allowed_path(tar_complete).exists()
+            json_complete_exists = allowed_path(json_complete).exists()
+            if json_complete_exists and not tar_complete_exists:
+                raise ValueError("timing completion marker without checkpoint completion marker")
+            if not tar_complete_exists:
+                continue
+            if not json_complete_exists:
+                # A wall-clock stop can happen after TAR publication but before timing export.
+                # It is incomplete and must be retried as a fresh receipt/output attempt.
+                continue
+            identity = unit_id(worlds, phase, limit)
+            if identity in found:
+                raise ValueError("duplicate completed unit")
+            checkpoint = checked_descriptor(path, identity)
+            timing = checked_descriptor(json_path, identity)
+            for descriptor in (checkpoint, timing):
+                relative = "assay/" + Path(descriptor["path"]).name
+                entry = exports.get(relative)
+                if entry is None or any(entry[k] != descriptor[k] for k in ("size", "sha256")):
+                    raise ValueError("unit absent from verified broker export inventory")
+            found[identity] = {**checkpoint, "timing": timing}
     return {
         "schema": "sandbox-a-ledger/v1",
         "namespace": "a100-dev/sandbox-a",
@@ -175,7 +173,7 @@ def ledger(control: dict, receipts: list[Path]) -> dict:
 
 def aggregate(control: dict, receipts: list[Path]) -> dict:
     """The sole timing look: require verified terminal receipts and complete union."""
-    expected = {unit_id(e, p) for e in control["worlds"] for p in PHASES}
+    expected = {unit_id(e, p, limit) for e, p, limit, _ in cell_specs(control)}
     found, seen_sessions = {}, set()
     elapsed = 0.0
     for receipt_path in receipts:
@@ -222,7 +220,11 @@ def aggregate(control: dict, receipts: list[Path]) -> dict:
             identity = result["id"]
             if identity not in expected or identity in found:
                 raise ValueError("duplicate/foreign result")
-            stem = f"e{result['recipe']['worlds']}-{result['phase']}"
+            stem = unit_stem(
+                result["recipe"]["worlds"],
+                result["phase"],
+                result["recipe"]["episode_limit"] if "episode_limits" in control else None,
+            )
             for suffix in ("tar", "json"):
                 path = root / f"{stem}.{suffix}"
                 row = exports.get(f"assay/{stem}.{suffix}")

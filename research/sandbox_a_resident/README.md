@@ -1,5 +1,36 @@
 # Job A: resident collector + learner feasibility
 
+## Current runtime: A-2
+
+[`A2.md`](A2.md) is the authoritative A-2 runtime protocol. It supersedes the
+A-1 runtime description below while preserving it and every A-1 packet,
+verification file, receipt, and export as historical evidence.
+
+A-2 is still simulator-D engineering evidence under
+[`ADOPTED.md`](../../docs/research/governance_a100_sandbox_20261026/ADOPTED.md).
+It does not touch F5 or `research/colab_cli`; it does not select a checkpoint,
+authorize serving, or establish gameplay efficacy. It runs 12 finite cells:
+E128/E1024 × episode limit 64/512 × cached/collection/integrated, with H128,
+one excluded warmup, and three measured cycles per cell. The A-2 recipe uses a
+2,048-row minibatch, fresh allocation offsets 20,000,000 through 31,000,000,
+and same-device proof offset 90,000,000. Its packet is `packet-a2`, its output
+root is `/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/output`,
+and its four-hour/eight-hour envelope is a technical runaway guard.
+
+The A-2 timing cells record TF32 enabled with deterministic algorithms disabled.
+The separate exact-resume proof records TF32 disabled with deterministic
+algorithms enabled. Timing mode is not a whole-training bit-equality claim;
+only the same-platform deterministic proof makes that claim. The A-2 manifest
+uses eager `compile_mode=none`; the explicit compiler hook is reserved for a
+future fresh packet, so this sweep makes no compiled GPU timing claim. Actual
+source pins, test results, local timings, preflight, and dispatch dry-run
+evidence are recorded in `VERIFICATION_A2.*`, not inferred from this README.
+
+## Historical A-1 runtime description and evidence
+
+The remaining text describes A-1 and its packet-02 path. It is retained for
+provenance and must not be used as an A-2 dispatch recipe or performance claim.
+
 Authority: `docs/research/governance_a100_sandbox_20261026/ADOPTED.md`, Fable §3 Job A,
 and Astra §3 rank 1. This package is simulator-D engineering evidence only. It
 never selects a policy by efficacy, exports gameplay scores, or crosses a

@@ -10,7 +10,14 @@ from pathlib import Path
 from typing import Any
 
 from research.sandbox_a_resident.core import seed64
-from research.sandbox_a_resident.units import PHASES, allocation, digest, load_ledger, unit_id
+from research.sandbox_a_resident.units import (
+    allocation,
+    cell_specs,
+    digest,
+    load_ledger,
+    unit_id,
+    unit_stem,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
@@ -19,9 +26,8 @@ B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 def seed_allocations(control: dict) -> list[dict]:
     episodes = 1 + (control["cycles"] + control["warmups"]) * control["horizon"]
     return [
-        {"offset": (i * 3 + j) * 1_000_000, "count": e * episodes, "worlds": e, "phase": p}
-        for i, e in enumerate(control["worlds"])
-        for j, p in enumerate(PHASES)
+        {"offset": offset, "count": e * episodes, "worlds": e, "phase": p, "episode_limit": limit}
+        for e, p, limit, offset in cell_specs(control)
     ]
 
 
@@ -38,7 +44,10 @@ def registry_check(control: dict[str, Any], registry_path: Path, checkpoint: Pat
     excluded = {int(x) & 0x7FFF_FFFF_FFFF_FFFF for x in registry["excluded_seeds"]}
     seen: set[int] = set()
     count = 0
-    for row in [*seed_allocations(control), {"offset": 9_000_000, "count": 48}]:
+    for row in [
+        *seed_allocations(control),
+        {"offset": control.get("parity_seed_offset", 9_000_000), "count": 48},
+    ]:
         if row["count"] >= 1_000_000:
             raise ValueError("frozen seed allocations overlap")
         for index in range(row["offset"], row["offset"] + row["count"]):
@@ -91,11 +100,15 @@ def prepare(
         },
         "worlds": [128, 1024],
         "horizon": 128,
-        "minibatch": 256,
+        "minibatch": 2048,
         "epochs": 1,
         "cycles": 3,
         "warmups": 1,
-        "episode_limit": 64,
+        "episode_limits": [64, 512],
+        "recipe_version": "A-2",
+        "compile_mode": "none",
+        "seed_offset_base": 20_000_000,
+        "parity_seed_offset": 90_000_000,
         "tiny": False,
         "timeout_seconds": estimate_seconds * 2,
     }
@@ -111,15 +124,15 @@ def prepare(
     write_json(packet / "verified-ledger.json", ledger)
     verified = load_ledger(packet / "verified-ledger.json", control)
     required = ["assay/summary.json", "assay/parity.json"]
-    for worlds in control["worlds"]:
-        for phase in PHASES:
-            if unit_id(worlds, phase) not in verified:
-                required += [f"assay/e{worlds}-{phase}.{suffix}" for suffix in ("tar", "json")]
+    for worlds, phase, limit, _ in cell_specs(control):
+        if unit_id(worlds, phase, limit) not in verified:
+            stem = unit_stem(worlds, phase, limit)
+            required += [f"assay/{stem}.{suffix}" for suffix in ("tar", "json")]
     output = Path(
-        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-02/output"
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/output"
     )
     manifest = {
-        "job_id": "sandbox-a-resident-20261026-02",
+        "job_id": "sandbox-a-resident-a2-20261026-01",
         "commit": commit,
         "script": "research/sandbox_a_resident/job.sh",
         "device": "cuda",
@@ -190,13 +203,16 @@ def prepare(
         "requirements_file": "research/sandbox_a_resident/requirements.txt",
         "sandbox_a": {
             "seed_allocations": seed_allocations(control),
-            "parity_seed_allocation": {"offset": 9_000_000, "count": 48},
+            "parity_seed_allocation": {
+                "offset": control.get("parity_seed_offset", 9_000_000),
+                "count": 48,
+            },
             "numerical_outputs": "timing/parity only",
         },
         "technical_envelope": {
             "base_seconds": estimate_seconds,
             "effective_seconds": 2 * estimate_seconds,
-            "endpoint": "3 cycles per phase and shape; one excluded warmup",
+            "endpoint": "3 cycles per phase, shape and episode limit; one excluded warmup",
         },
     }
     write_json(packet / "dispatch-manifest.json", manifest)
@@ -224,7 +240,7 @@ def prepare(
             {"kind": "registry", "path": str(registry.resolve()), "sha256": digest(registry)},
         ],
         "salt": "a100-dev/sandbox-a/",
-        "endpoint": {"kind": "steps", "value": 3 * 128 * (128 + 1024) * 3},
+        "endpoint": {"kind": "steps", "value": 3 * 128 * (128 + 1024) * 3 * 2},
         "timeout": {
             "base_seconds": estimate_seconds,
             "seconds": 2 * estimate_seconds,
