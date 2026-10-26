@@ -292,7 +292,7 @@ def source_inventory(repo: Path = ROOT) -> dict[str, str]:
                     if source.is_file() and source not in seen:
                         pending.append(source)
     seen.add(repo / "research/bl_residual/f5_colab.sh")
-    seen.add(repo / "research/bl_residual/f5_environment_schema_v4.json")
+    seen.add(repo / "research/bl_residual/f5_environment_schema_v5.json")
     seen.add(repo / "research/bl_residual/f5_calibration_schema_v1.json")
     seen.add(repo / "research/apex_safety_20260926/deployment.yaml")
     seen.update((repo / "configs").glob("*.yaml"))
@@ -448,6 +448,28 @@ def capture_remainder(prior_receipt: Path | None) -> dict[str, Any]:
     }
 
 
+def _diagnostic_only_capture_exports(exports: Any) -> bool:
+    """Permit attempt-03 refusal diagnostics, never admitted/scientific exports."""
+    if not isinstance(exports, list) or len(exports) != 2:
+        return False
+    expected = {"environment-raw.json", "environment-diagnostic.json"}
+    paths = set()
+    for row in exports:
+        if (
+            not isinstance(row, dict)
+            or set(row) != {"path", "sha256", "size"}
+            or not isinstance(row["path"], str)
+            or row["path"] not in expected
+            or not isinstance(row["sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) is None
+            or type(row["size"]) is not int
+            or row["size"] <= 0
+        ):
+            return False
+        paths.add(row["path"])
+    return paths == expected
+
+
 def capture_history(prior_receipts: list[Path]) -> dict[str, Any]:
     """Bind all stopped failed captures and retain their raw accounting evidence.
 
@@ -457,9 +479,11 @@ def capture_history(prior_receipts: list[Path]) -> dict[str, Any]:
     expected_jobs = (
         "bl-f5-w-capture-repair-22e86986-01",
         "bl-f5-w-capture-repair-22e86986-02",
+        "bl-f5-w-capture-repair-22e86986-03",
     )
-    if len(prior_receipts) != len(expected_jobs):
-        raise ValueError("capture history requires both published stopped attempts")
+    if len(prior_receipts) not in {2, 3}:
+        raise ValueError("capture history requires two or three published stopped attempts")
+    expected_jobs = expected_jobs[: len(prior_receipts)]
     rows = []
     for expected_job, path in zip(expected_jobs, prior_receipts, strict=True):
         absolute = path.absolute()
@@ -470,7 +494,11 @@ def capture_history(prior_receipts: list[Path]) -> dict[str, Any]:
             receipt.get("job_id") != expected_job
             or receipt.get("stop_verified") is not True
             or receipt.get("failure_class") != "CHILD_NONZERO_EXIT"
-            or receipt.get("exports") != []
+            or (
+                receipt.get("exports") != []
+                if expected_job != "bl-f5-w-capture-repair-22e86986-03"
+                else not _diagnostic_only_capture_exports(receipt.get("exports"))
+            )
             or isinstance(elapsed, bool)
             or not isinstance(elapsed, (int, float))
             or not math.isfinite(elapsed)
@@ -772,7 +800,7 @@ def build(
         30 if capture_override is not None else capture_accounting["remaining_capture_seconds"] / 60
     )
     capture_attempt = (
-        "03"
+        f"{len(capture_history_value['attempts']) + 1:02d}"
         if capture_history_value is not None
         else ("01" if prior_capture_receipt is None else "02")
     )

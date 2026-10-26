@@ -1,0 +1,25 @@
+{
+  "schema": "bl-f5-attempt03-accounting-clarification/v1",
+  "status": "CLARIFICATION_ONLY_NO_SCIENCE",
+  "scope": "Create-only correction to the published field lookup. The original publication remains unchanged.",
+  "original_publication": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/ATTEMPT_03_ACCOUNTING_PUBLICATION.json",
+    "sha256": "ac27339917aa9346d0eafb0cbf8c8bc6e55a9b11cce21955aaf870b09090fccf"
+  },
+  "correction": {
+    "field": "attempt_03.priced_rate_units_per_hour",
+    "original_value": null,
+    "corrected_value": 2.0,
+    "source": "output-03/receipt.json:accounting.priced_rate_units_per_hour",
+    "explanation": "The initial publication read a non-existent nested field under accounting.last_crosscheck. The receipt records the fixed priced rate at accounting.priced_rate_units_per_hour. The already-published last-crosscheck priced exposure (0.32516420881943003) and whole-session priced exposure (0.35000338819447074) were correct."
+  },
+  "accounting_interpretation": {
+    "observed_provider_account_debit_units": 0.1999999999998181,
+    "observed_rate_units_per_hour": 1.54,
+    "last_crosscheck_observed_rate_integration_units": 0.2503764407909611,
+    "priced_rate_units_per_hour": 2.0,
+    "last_crosscheck_priced_rate_exposure_units": 0.32516420881943003,
+    "whole_session_priced_rate_exposure_units": 0.35000338819447074,
+    "final_post_stop_debit": "Unknown; no charge after the final observed balance is imputed."
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "schema": "bl-f5-failed-capture-publication/v3",
+  "status": "INCOMPLETE",
+  "job_id": "bl-f5-w-capture-repair-22e86986-03",
+  "source_commit": "b9e48d882049622a8506f05cf00947f3500b1e1a",
+  "failure_class": "CHILD_NONZERO_EXIT",
+  "error": "ClassifiedFailure('remote child exited 1: research.bl_residual.f5_fit.F5FitRefusal: F5 environment parsed GPU memory differs')",
+  "elapsed_seconds": 630.0060987500474,
+  "exact_single_refusal": "research.bl_residual.f5_fit.F5FitRefusal: F5 environment parsed GPU memory differs",
+  "stop_verified": true,
+  "terminal": {
+    "canary_observations": [],
+    "export_scanner": {
+      "inventory": [
+        {
+          "path": "environment-diagnostic.json",
+          "sha256": "c23155e2f1cd390e639896d29214f41560ee1d04086c80eddcfcceda93895a6a",
+          "size": 13420361
+        },
+        {
+          "path": "environment-raw.json",
+          "sha256": "464c3be2185d21fb4576ae09f2129904eb16234703b334816f9b2adfa1a6ccbe",
+          "size": 13420045
+        }
+      ],
+      "name": "runtime._exports"
+    },
+    "exports": [
+      {
+        "path": "environment-diagnostic.json",
+        "sha256": "c23155e2f1cd390e639896d29214f41560ee1d04086c80eddcfcceda93895a6a",
+        "size": 13420361
+      },
+      {
+        "path": "environment-raw.json",
+        "sha256": "464c3be2185d21fb4576ae09f2129904eb16234703b334816f9b2adfa1a6ccbe",
+        "size": 13420045
+      }
+    ],
+    "finished_at": 1793003488.7483354,
+    "generation": "aaed3cade1d8425dbaaf677463a388b4",
+    "job_id": "bl-f5-w-capture-repair-22e86986-03",
+    "last_traceback_line": "research.bl_residual.f5_fit.F5FitRefusal: F5 environment parsed GPU memory differs",
+    "reason": null,
+    "returncode": 1,
+    "started_at": 1793002947.4798186,
+    "status": "failed"
+  },
+  "science_evidence": {
+    "science_ran": false,
+    "statement": "The real L4 capture refused before any fit or scientific look. The two retained environment exports are operational diagnostic evidence only.",
+    "terminal_canary_observations": [],
+    "terminal_export_inventory": [
+      {
+        "path": "environment-diagnostic.json",
+        "sha256": "c23155e2f1cd390e639896d29214f41560ee1d04086c80eddcfcceda93895a6a",
+        "size": 13420361
+      },
+      {
+        "path": "environment-raw.json",
+        "sha256": "464c3be2185d21fb4576ae09f2129904eb16234703b334816f9b2adfa1a6ccbe",
+        "size": 13420045
+      }
+    ]
+  },
+  "raw_environment_evidence": {
+    "admissibility": "NON_ADMISSIBLE_UNDER_V4_ONLY",
+    "reason": "The sole V4 admission refusal was F5 environment parsed GPU memory differs. The export is retained exactly for V5 regression and provenance validation; it is not a scientific result.",
+    "compressed_mirrors": [
+      "output-03/exports/environment-raw.json.COMPRESSED_INDEX.json",
+      "output-03/exports/environment-diagnostic.json.COMPRESSED_INDEX.json"
+    ]
+  },
+  "inventory": {
+    "source_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/output-03",
+    "destination_root": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/output-03",
+    "payload_file_count": 57,
+    "published_payload_bytes": 9383134,
+    "inventory_sha256": "c33c42708e08d93dccbaeaba5ee441b2140b3effa95074065485c4cf2b2a95de",
+    "ordinary_payload_contract": "Every ordinary source payload is an exact byte-for-byte mirror with a SHA-256 sidecar and completion marker.",
+    "compressed_export_contract": "The two oversized raw exports are represented by ordered deterministic gzip parts, each with a SHA-256 sidecar and completion marker. Their adjacent compressed indexes bind the original source SHA-256 and size, the concatenated gzip SHA-256, and byte-exact reconstruction.",
+    "copy_identity_verified": true
+  },
+  "prior_attempt_publication": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/ATTEMPT_02_FAILURE_PUBLICATION.json",
+    "sha256": "7ef587313bfe99720823aea136b1e1fc98f90031caf0b15508c740962ac1c286",
+    "science_ran": false
+  },
+  "no_provider_contact_after_source_capture": true
+}

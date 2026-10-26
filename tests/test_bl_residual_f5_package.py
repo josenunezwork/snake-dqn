@@ -83,7 +83,7 @@ def test_capture_history_binds_both_stopped_attempts_and_discloses_all_debits(
     assert value["cumulative_observed_account_debit_units"] == pytest.approx(0.22)
     assert value["attempts"][1]["raw_accounting"]["raw_usage_preserved"] is True
     assert value["budget_status"] == "DISCLOSED_NOT_AN_ADMISSION_BLOCKER"
-    with pytest.raises(ValueError, match="both published"):
+    with pytest.raises(ValueError, match="two or three published"):
         package.capture_history([first])
     second.write_text(json.dumps(_stopped_capture("foreign", 558.0, 0.10, 0.10)))
     with pytest.raises(ValueError, match="stopped non-science"):
@@ -236,3 +236,27 @@ def test_final_canary_binds_every_science_byte_and_producer(tmp_path: Path) -> N
     Path(rows[0]["path"]).write_bytes(b"changed")
     with pytest.raises(ValueError, match="digest"):
         package.bind_qualification_inventory(science, probe)
+
+
+def test_capture_history_carries_attempt03_diagnostics_and_refuses_science(tmp_path: Path) -> None:
+    paths = []
+    for attempt in range(1, 4):
+        value = _stopped_capture(
+            f"bl-f5-w-capture-repair-22e86986-{attempt:02d}", 100.0 * attempt, 0.1, 0.1
+        )
+        if attempt == 3:
+            value["exports"] = [
+                {"path": name, "sha256": "a" * 64, "size": 123}
+                for name in ("environment-raw.json", "environment-diagnostic.json")
+            ]
+        path = tmp_path / f"attempt-{attempt}.json"
+        path.write_text(json.dumps(value))
+        paths.append(path)
+    history = package.capture_history(paths)
+    assert len(history["attempts"]) == 3
+    assert history["cumulative_actual_elapsed_seconds"] == 600.0
+    assert history["cumulative_accounting_debit_units"] == pytest.approx(0.3)
+    value["exports"][0]["path"] = "environment.json"
+    paths[-1].write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="stopped non-science"):
+        package.capture_history(paths)

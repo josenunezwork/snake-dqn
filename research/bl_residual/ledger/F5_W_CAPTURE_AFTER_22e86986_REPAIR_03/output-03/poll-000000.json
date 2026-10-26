@@ -1,0 +1,15 @@
+{
+  "exports": [],
+  "job_log_tail": "",
+  "state": {
+    "generation": "aaed3cade1d8425dbaaf677463a388b4",
+    "job_id": "bl-f5-w-capture-repair-22e86986-03",
+    "max_export_bytes": 2147483648,
+    "pid": 824,
+    "started_at": 1793002947.4798186,
+    "status": "running",
+    "updated_at": 1793003053.2399755
+  },
+  "supervisor_log_tail": "",
+  "terminal": null
+}

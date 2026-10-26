@@ -1,0 +1,38 @@
+{
+  "canary_observations": [],
+  "export_scanner": {
+    "inventory": [
+      {
+        "path": "environment-diagnostic.json",
+        "sha256": "c23155e2f1cd390e639896d29214f41560ee1d04086c80eddcfcceda93895a6a",
+        "size": 13420361
+      },
+      {
+        "path": "environment-raw.json",
+        "sha256": "464c3be2185d21fb4576ae09f2129904eb16234703b334816f9b2adfa1a6ccbe",
+        "size": 13420045
+      }
+    ],
+    "name": "runtime._exports"
+  },
+  "exports": [
+    {
+      "path": "environment-diagnostic.json",
+      "sha256": "c23155e2f1cd390e639896d29214f41560ee1d04086c80eddcfcceda93895a6a",
+      "size": 13420361
+    },
+    {
+      "path": "environment-raw.json",
+      "sha256": "464c3be2185d21fb4576ae09f2129904eb16234703b334816f9b2adfa1a6ccbe",
+      "size": 13420045
+    }
+  ],
+  "finished_at": 1793003488.7483354,
+  "generation": "aaed3cade1d8425dbaaf677463a388b4",
+  "job_id": "bl-f5-w-capture-repair-22e86986-03",
+  "last_traceback_line": "research.bl_residual.f5_fit.F5FitRefusal: F5 environment parsed GPU memory differs",
+  "reason": null,
+  "returncode": 1,
+  "started_at": 1793002947.4798186,
+  "status": "failed"
+}

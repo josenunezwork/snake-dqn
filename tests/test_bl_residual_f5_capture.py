@@ -619,14 +619,20 @@ def test_capture_in_fresh_isolated_python_blocks_scipy_import(tmp_path: Path) ->
     ("torch_bytes", "accepted"),
     [
         (L4_BYTES, True),
-        (L4_BYTES + 1024 * 1024 - 1, True),
+        (L4_BYTES + 1, False),
         (L4_BYTES - 1024 * 1024 + 1, True),
         (L4_BYTES + 1024 * 1024, False),
-        (L4_BYTES - 1024 * 1024, False),
+        (L4_BYTES - 1024 * 1024, True),
+        (23_659_151_360, True),
+        ((95 * L4_BYTES + 99) // 100, True),
+        ((95 * L4_BYTES + 99) // 100 - 1, False),
+        (0, False),
+        (-1, False),
+        (True, False),
         (L4_MIB, False),
     ],
 )
-def test_capture_normalizes_torch_bytes_against_smi_mib(
+def test_capture_checks_fixed_physical_memory_relation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, torch_bytes: int, accepted: bool
 ) -> None:
     _install_isolated_l4(monkeypatch, tmp_path, torch_bytes=torch_bytes)
@@ -702,7 +708,7 @@ def _assigned_copy(receipt: dict[str, object], *, torch_uuid: str) -> dict[str, 
 def test_cross_assignment_keeps_each_raw_memory_measurement_invariant(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, memory_field: str
 ) -> None:
-    baseline = _capture_isolated_l4(monkeypatch, tmp_path, torch_bytes=L4_BYTES + 512 * 1024)
+    baseline = _capture_isolated_l4(monkeypatch, tmp_path, torch_bytes=L4_BYTES - 512 * 1024)
     assert isinstance(baseline["gpu_memory"], int)
     fractional = _assigned_copy(baseline, torch_uuid="fedcba98-7654-3210-fedc-ba9876543210")
     accepted = environment.compare_environment(baseline, fractional, mode="cross-assignment")

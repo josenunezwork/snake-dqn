@@ -1,0 +1,33 @@
+{
+  "schema": "bl-f5-compressed-environment-export/v1",
+  "source": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/output-03/exports/environment-diagnostic.json",
+    "sha256": "c23155e2f1cd390e639896d29214f41560ee1d04086c80eddcfcceda93895a6a",
+    "size": 13420361
+  },
+  "encoding": {
+    "algorithm": "gzip",
+    "deterministic": true,
+    "command": "gzip -n -c",
+    "sha256": "fcd3c2e43db00322f747125110cdd78dd77406472e38cdb55b42bacc0b2c9d34",
+    "size": 4091015
+  },
+  "parts": [
+    {
+      "path": "exports/environment-diagnostic.json.gz.part-000",
+      "sha256": "47ebdd1ad9b7a8c8b50350be440c37325d8138c13c06440e3313b57dfa10dbd2",
+      "size": 1500000
+    },
+    {
+      "path": "exports/environment-diagnostic.json.gz.part-001",
+      "sha256": "3319fe9e195ea50af70b1c202047088947eb974fb6e36b3e8c06fb077d4aa6fd",
+      "size": 1500000
+    },
+    {
+      "path": "exports/environment-diagnostic.json.gz.part-002",
+      "sha256": "94c31d0277b877da4b309b1bf62a53d6633054616a157c6fb3eee529b5b9b7d2",
+      "size": 1091015
+    }
+  ],
+  "reconstruction": "Concatenate parts in listed order, verify compressed sha256, then gzip -dc; decoded bytes must match source sha256 and size."
+}

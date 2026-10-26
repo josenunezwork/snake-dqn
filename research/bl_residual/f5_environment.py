@@ -27,7 +27,7 @@ from urllib.parse import unquote, urlparse
 import numpy as np
 import torch
 
-SCHEMA = "bl-residual-f5-environment-receipt/v4"
+SCHEMA = "bl-residual-f5-environment-receipt/v5"
 AMENDMENT_SHA256 = "7eda19efb72f89a7e2269d40863288f9295358f2566f3a02d3ca4d3c11933359"
 ADOPTED_AMENDMENT_SHA256 = "a1dc92ffb8fa341fb51738a56fe0097d75e15b0aff7194940c12979adbb04d62"
 
@@ -78,6 +78,9 @@ NUMERIC_PACKAGES = frozenset({"torch", "numpy", "numba", "llvmlite", "scipy"})
 REQUIRED_NUMERIC_PACKAGES = NUMERIC_PACKAGES - {"scipy"}
 MEMORY_UNITS = {"gpu_memory": "bytes", "gpu_driver_query.memory_total": "MiB"}
 MIB_BYTES = 1024 * 1024
+# A fixed physical-consistency guard, never a cross-assignment equality tolerance.
+GPU_MEMORY_MIN_NUMERATOR = 95
+GPU_MEMORY_MIN_DENOMINATOR = 100
 PACKAGE_KEYS = frozenset(
     {
         "version",
@@ -130,7 +133,7 @@ class F5EnvironmentRefusal(ValueError):
 
 def schema_path() -> Path:
     """Return the frozen, source-pinned classification schema."""
-    return Path(__file__).with_name("f5_environment_schema_v4.json")
+    return Path(__file__).with_name("f5_environment_schema_v5.json")
 
 
 def schema_sha256() -> str:
@@ -262,7 +265,10 @@ def _source_consistency_failures(receipt: Mapping[str, Any]) -> list[str]:
 
     The fields originate in APIs with intentionally different representations:
     Torch reports UUID without ``GPU-`` and memory in bytes, while SMI reports
-    UUID with the prefix, capacity in MiB, and a dotted capability string.
+    UUID with the prefix, framebuffer capacity in MiB, and a dotted capability string. Torch usable
+    capacity and SMI framebuffer capacity are different quantities: require
+    95% <= Torch/SMI <= 100%, using exact integer arithmetic. Neither raw
+    observation is rounded or relaxed in cross-assignment comparisons.
     Keep every raw observation and report every independently checkable
     disagreement so an L4 diagnostic run is not consumed one bug at a time.
     """
@@ -322,7 +328,11 @@ def _source_consistency_failures(receipt: Mapping[str, Any]) -> list[str]:
             memory_mib <= 0
             or isinstance(memory_bytes, bool)
             or not isinstance(memory_bytes, int)
-            or abs(memory_mib * MIB_BYTES - memory_bytes) >= MIB_BYTES
+            or memory_bytes > memory_mib * MIB_BYTES
+            or (
+                memory_bytes * GPU_MEMORY_MIN_DENOMINATOR
+                < memory_mib * MIB_BYTES * GPU_MEMORY_MIN_NUMERATOR
+            )
         ):
             failures.append("F5 environment parsed GPU memory differs")
     return failures

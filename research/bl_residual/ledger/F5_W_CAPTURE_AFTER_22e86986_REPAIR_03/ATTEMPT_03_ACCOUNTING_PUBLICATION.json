@@ -1,0 +1,43 @@
+{
+  "schema": "bl-f5-attempt03-accounting-publication/v1",
+  "status": "DISCLOSED_NOT_AN_ADMISSION_BLOCKER",
+  "scope": "Create-only accounting publication for the operational real-L4 V4 refusal; no science was run.",
+  "attempt_03": {
+    "elapsed_seconds": 630.0060987500474,
+    "observed_provider_account_debit_units": 0.1999999999998181,
+    "observed_debit_definition": "Observed provider-account balance debit at the receipt last crosscheck. This is the retained actual debit evidence.",
+    "observed_rate_units_per_hour": 1.54,
+    "last_crosscheck_observed_rate_integration_units": 0.2503764407909611,
+    "priced_rate_units_per_hour": null,
+    "last_crosscheck_priced_rate_exposure_units": 0.32516420881943003,
+    "whole_session_priced_rate_exposure_units": 0.35000338819447074,
+    "whole_session_observed_rate_exposure_units": 0.2695026089097425,
+    "final_post_stop_debit": "Unknown; no charge after the final observed balance is imputed.",
+    "usage_before": {
+      "assignments": 0.0,
+      "balance": 1066.85,
+      "rate": 0.0
+    },
+    "usage_after": {
+      "assignments": 0.0,
+      "balance": 1066.65,
+      "rate": 0.0
+    },
+    "receipt": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/output-03/receipt.json",
+      "sha256": "d9269a935b27eaed5174f2cda24392e35d36412c8fe977a0ece9ce4c16e99fc9"
+    }
+  },
+  "cumulative_observed_provider_account_debit_units": {
+    "attempt_01": 0.12000000000011823,
+    "attempt_02": 0.09999999999990905,
+    "attempt_03": 0.1999999999998181,
+    "total": 0.4199999999998454,
+    "statement": "Only observed provider-account debits are summed. Rate integrations and full-session priced exposures are disclosed separately and are never represented as observed debit."
+  },
+  "cumulative_actual_elapsed_seconds": 1609.9907932920614,
+  "publication": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_03/ATTEMPT_03_FAILURE_PUBLICATION.json",
+    "sha256": "86a263d6834824c5f33cd3beb24261b7854ec1e44c3a34286cb68fe15a88ce81"
+  }
+}
