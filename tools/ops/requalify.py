@@ -110,6 +110,10 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
     ):
         raise ValueError("reviewed D1024 transfer authority differs from ruling")
     f5_authority = review.get("f5_timing_authority")
+    if (f5_authority is not None) != ("f5_timing_synthetic_inventory" in prepared) or (
+        (f5_authority is not None) != ("f5_timing_transfer_exception" in prepared)
+    ):
+        raise ValueError("reviewed F5 timing inventory/authority selection differs from plan")
     if f5_authority is not None:
         if (
             not isinstance(f5_authority, dict)

@@ -115,28 +115,112 @@ def test_missing_authority_keeps_150_second_default(tmp_path: Path) -> None:
 
 
 def test_combined_f5_union_keeps_d1024_subset_at_150_seconds(tmp_path: Path) -> None:
-    """The F5 union may exceed 150s without silently widening D1024's subset."""
+    """Only sealed F5 inputs leave D1024's helpers inside its 150-second bar."""
     measurement = tmp_path / "upload-measurement.json"
+    f5_inventory = {"inputs": [{"dest": "f5-control.json", "transport": "upload"}]}
     measurement.write_text(
         json.dumps(
             {
                 "elapsed_seconds": 240.0,
-                "transfer_seconds": 221.0,
+                "transfer_seconds": 210.0,
                 "source_delivery_seconds": 16.0,
                 "input_transfer_seconds": {
                     "factory-verified-ledger.json": 45.0,
                     "train-1024.npz": 55.0,
                     "metadata.tar": 50.0,
-                    "f5-control.json": 71.0,
+                    "f5-control.json": 50.0,
+                },
+            }
+        )
+    )
+    # Astra's reproduction: 150 seconds of D1024 uploads + 50 exclusively F5
+    # seconds + 10 seconds of shared bootstrap/source helpers.  The old subset
+    # sum accepted 150; only the F5 input duration may be subtracted, so 160
+    # must fail D1024's unchanged bar.
+    with pytest.raises(supervisor.Refused, match="150-second bar"):
+        acceptance._d1024_subset_transfer_measurement(
+            measurement, acceptance.d1024_synthetic_inventory(), f5_inventory
+        )
+
+
+def test_combined_f5_subset_keeps_helper_and_fallback_residuals(tmp_path: Path) -> None:
+    measurement = tmp_path / "upload-measurement.json"
+    f5_inventory = {"inputs": [{"dest": "f5-control.json", "transport": "upload"}]}
+    measurement.write_text(
+        json.dumps(
+            {
+                "elapsed_seconds": 240.0,
+                # 140 D1024 + 50 exclusive F5 + 10 shared helper/fallback = 200.
+                "transfer_seconds": 200.0,
+                "source_delivery_seconds": 16.0,
+                "input_transfer_seconds": {
+                    "factory-verified-ledger.json": 40.0,
+                    "train-1024.npz": 50.0,
+                    "metadata.tar": 50.0,
+                    "f5-control.json": 50.0,
                 },
             }
         )
     )
     evidence = acceptance._d1024_subset_transfer_measurement(
-        measurement, acceptance.d1024_synthetic_inventory()
+        measurement, acceptance.d1024_synthetic_inventory(), f5_inventory
     )
-    assert evidence["transfer_seconds"] == 221.0
     assert evidence["d1024_transfer_seconds"] == 150.0
+    assert evidence["f5_exclusive_transfer_seconds"] == 50.0
+
+    # A second ten-second source fallback residual is not an F5 input and
+    # therefore pushes the unchanged D1024 quantity to 160 seconds.
+    raw = json.loads(measurement.read_text())
+    raw["transfer_seconds"] = 210.0
+    measurement.write_text(json.dumps(raw))
+    with pytest.raises(supervisor.Refused, match="150-second bar"):
+        acceptance._d1024_subset_transfer_measurement(
+            measurement, acceptance.d1024_synthetic_inventory(), f5_inventory
+        )
+
+
+@pytest.mark.parametrize(
+    "input_rows",
+    [
+        {"f5-control.json": -1.0},
+        {"f5-control.json": float("inf")},
+        {"f5-control.json": 301.0},
+    ],
+)
+def test_f5_scoped_bar_refuses_nonconserved_input_components(
+    tmp_path: Path, input_rows: dict[str, float]
+) -> None:
+    """F5's scoped 300-second path accounts for helpers through total transfer."""
+    measurement = tmp_path / "upload-measurement.json"
+    measurement.write_text(
+        json.dumps(
+            {
+                "elapsed_seconds": 300.0,
+                "transfer_seconds": 300.0,
+                "source_delivery_seconds": 0.0,
+                "input_transfer_seconds": input_rows,
+            }
+        )
+    )
+    with pytest.raises(supervisor.Refused, match="input transfer"):
+        acceptance._d1024_staging_measurement(measurement, 300.0)
+
+
+def test_f5_scoped_bar_retains_helper_and_fallback_residuals(tmp_path: Path) -> None:
+    measurement = tmp_path / "upload-measurement.json"
+    measurement.write_text(
+        json.dumps(
+            {
+                "elapsed_seconds": 300.0,
+                # The 250-second helper/fallback residual remains in F5's
+                # whole scoped quantity; it is never reconstructed from input rows.
+                "transfer_seconds": 300.0,
+                "source_delivery_seconds": 0.0,
+                "input_transfer_seconds": {"f5-control.json": 50.0},
+            }
+        )
+    )
+    assert acceptance._d1024_staging_measurement(measurement, 300.0)["transfer_seconds"] == 300.0
 
 
 def test_foreign_authority_and_non_d1024_opt_in_refuse(tmp_path: Path) -> None:

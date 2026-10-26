@@ -5,13 +5,18 @@ from __future__ import annotations
 import json
 import math
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
 
 def require_final_only(result: dict[str, Any], repo: Path) -> dict[str, Any]:
     """Require the final-only safety gates and measured L4 final-export evidence."""
-    from research.colab_cli.acceptance import FINAL_ARTIFACT_BYTES, review_gates, source_manifest
+    from research.colab_cli.acceptance import (
+        FINAL_ARTIFACT_BYTES,
+        plan_review_gates,
+        source_manifest,
+    )
     from research.colab_cli.supervisor import Refused, sha256
 
     plan = result.get("final_plan", {})
@@ -30,21 +35,34 @@ def require_final_only(result: dict[str, Any], repo: Path) -> dict[str, Any]:
         raise Refused("final-only acceptance is not bound to the current transport source")
     from research.colab_cli import transfer_policy
 
-    if result.get("transfer_exception") != plan.get("transfer_exception"):
+    if any(
+        result.get(key) != plan.get(key)
+        for key in ("transfer_exception", "f5_timing_transfer_exception")
+    ):
         raise Refused("final-only acceptance transfer exception authority differs")
+    f5_selected = "f5_timing_synthetic_inventory" in plan
+    if f5_selected != ("f5_timing_transfer_exception" in plan) or (
+        f5_selected and not isinstance(plan["f5_timing_synthetic_inventory"], dict)
+    ):
+        raise Refused("final-only acceptance F5 inventory/authority selection differs")
     try:
         transfer_policy.acceptance_limit(plan)
     except (ValueError, OSError, KeyError, TypeError) as exc:
         raise Refused(str(exc)) from exc
     gates = plan.get("gates")
-    expected = review_gates("final-only")
-    d1024_gate = "d1024-synthetic-full-inventory-staging"
     synthetic = plan.get("d1024_synthetic_inventory")
-    allowed_count = len(expected) + (1 if isinstance(synthetic, dict) else 0)
+    if "d1024_synthetic_inventory" in plan and not isinstance(synthetic, dict):
+        raise Refused("final-only acceptance D1024 inventory is malformed")
+    expected = plan_review_gates(
+        "final-only", d1024_inventory=isinstance(synthetic, dict), f5_timing_inventory=f5_selected
+    )
+    allowed_count = len(expected)
     if not isinstance(gates, list) or len(gates) != allowed_count:
         raise Refused("final-only acceptance lacks the complete gate inventory")
-    by_id = {gate.get("id"): gate for gate in gates}
-    if len(by_id) != allowed_count or set(by_id) - {gate["id"] for gate in expected} - {d1024_gate}:
+    if any(not isinstance(gate, dict) or not isinstance(gate.get("id"), str) for gate in gates):
+        raise Refused("final-only acceptance has malformed gates")
+    by_id = {gate["id"]: gate for gate in gates}
+    if len(by_id) != allowed_count or set(by_id) != {gate["id"] for gate in expected}:
         raise Refused("final-only acceptance has duplicate gates")
     for gate in expected:
         actual = by_id.get(gate["id"], {})
@@ -52,10 +70,6 @@ def require_final_only(result: dict[str, Any], repo: Path) -> dict[str, Any]:
             "OBSERVED" if gate["required"] else "NOT_REQUIRED"
         ):
             raise Refused(f"final-only acceptance gate incomplete: {gate['id']}")
-    if isinstance(synthetic, dict):
-        d1024 = by_id.get(d1024_gate, {})
-        if d1024.get("required") is not True or d1024.get("status") != "OBSERVED":
-            raise Refused("final-only acceptance synthetic D1024 staging gate incomplete")
     cold = by_id["cold-kernel-metadata-recovery"].get("evidence_record")
     if not isinstance(cold, dict) or cold.get("status") != "PASS":
         raise Refused("final-only acceptance lacks cold-kernel recovery evidence")
@@ -104,6 +118,8 @@ def require_final_only(result: dict[str, Any], repo: Path) -> dict[str, Any]:
         receipt = json.loads(receipt_path.read_text())
         if receipt.get("stop_verified") is not True or receipt.get("cleanup_error"):
             raise Refused("final-only acceptance release was not verified clean")
+    if f5_selected:
+        _require_f5_staging(result, by_id, repo)
     transfer = result.get("final_artifact_transfer")
     if not isinstance(transfer, dict) or transfer != by_id["final-artifact-download"].get(
         "evidence_record"
@@ -137,6 +153,54 @@ def require_final_only(result: dict[str, Any], repo: Path) -> dict[str, Any]:
     ):
         raise Refused("final-only downloaded artifact is absent or changed")
     return transfer
+
+
+def _require_f5_staging(result: dict[str, Any], gates: dict[str, Any], repo: Path) -> None:
+    """Recompute persisted F5 proof from the exact L4 receipt and measured bytes."""
+    from research.colab_cli import acceptance, transfer_policy
+    from research.colab_cli.supervisor import Refused
+
+    plan = result["final_plan"]
+    try:
+        inventory = plan["f5_timing_synthetic_inventory"]
+        source_tree = subprocess.check_output(
+            ["git", "rev-parse", f"{plan['commit']}^{{tree}}"], cwd=repo, text=True, timeout=15
+        ).strip()
+        transfer_policy.validate_f5_timing_inventory(
+            inventory, expected_commit=plan["commit"], expected_tree=source_tree
+        )
+        if result.get("f5_timing_synthetic_inventory_sha256") != inventory["sha256"]:
+            raise ValueError("F5 result inventory digest differs")
+        l4 = next(row for row in plan["execution"] if row["job"] == "l4")
+        receipt_path = Path(l4["receipt"])
+        receipt = json.loads(receipt_path.read_text())
+        job = next(row for row in plan["jobs"] if row["name"] == "l4")
+        manifest = json.loads(Path(job["manifest"]).read_text())
+        if Path(manifest["output_dir"]).resolve() != receipt_path.parent.resolve():
+            raise ValueError("F5 staging receipt is not from the planned L4 output")
+        expected = acceptance.f5_timing_synthetic_staging_evidence(
+            plan, job, receipt, receipt_path.parent
+        )
+        if gates["f5-timing-synthetic-full-inventory-staging"].get("evidence_record") != expected:
+            raise ValueError("F5 staging evidence differs from persisted proof")
+        if "d1024_synthetic_inventory" in plan:
+            expected_d1024 = acceptance.d1024_synthetic_staging_evidence(
+                plan, job, receipt, receipt_path.parent
+            )
+            if (
+                gates["d1024-synthetic-full-inventory-staging"].get("evidence_record")
+                != expected_d1024
+            ):
+                raise ValueError("combined D1024 staging evidence differs from persisted proof")
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        StopIteration,
+        subprocess.SubprocessError,
+    ) as exc:
+        raise Refused(f"final-only acceptance F5 staging proof invalid: {exc}") from exc
 
 
 def check_study_manifest(manifest: dict[str, Any], repo: Path) -> None:

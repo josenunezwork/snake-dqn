@@ -379,6 +379,35 @@ def review_gates(profile: str = "final-only") -> list[dict[str, Any]]:
     return gates
 
 
+def plan_review_gates(
+    profile: str = "final-only", *, d1024_inventory: bool = False, f5_timing_inventory: bool = False
+) -> list[dict[str, Any]]:
+    """Share the exact conditional gate inventory between planning and admission."""
+    gates = review_gates(profile)
+    for selected, name, description in (
+        (
+            d1024_inventory,
+            "d1024-synthetic-full-inventory-staging",
+            "L4 verified every D1024 synthetic role, public preflight and measured transfer bar",
+        ),
+        (
+            f5_timing_inventory,
+            "f5-timing-synthetic-full-inventory-staging",
+            "L4 verified the sealed F5 timing inventory under its scoped transfer bar",
+        ),
+    ):
+        if selected:
+            gates.append(
+                {
+                    "id": name,
+                    "evidence": description,
+                    "owner": "Mac supervisor + acceptance verifier",
+                    "required": True,
+                }
+            )
+    return gates
+
+
 def source_manifest(root: Path) -> dict[str, str]:
     """Bind acceptance to every transport implementation and maintained launch file."""
     return {
@@ -582,7 +611,9 @@ def verify_qualified_transport_record(
     combined_f5 = "f5_timing_transfer_exception" in plan and binding is None
     d1024_limit = D1024_TRANSFER_BAR_SECONDS if combined_f5 else actual_transfer_limit
     recomputed = (
-        _d1024_subset_transfer_measurement(measurement_path, inventory)
+        _d1024_subset_transfer_measurement(
+            measurement_path, inventory, plan["f5_timing_synthetic_inventory"]
+        )
         if combined_f5
         else _d1024_staging_measurement(measurement_path, d1024_limit)
     )
@@ -738,11 +769,13 @@ def d1024_synthetic_staging_evidence(
         raise supervisor.Refused("synthetic D1024 transfer authority differs from plan")
     try:
         # A combined final-only L4 arm measures the complete union against F5's
-        # scoped 300-second bar, while this independent D1024 gate measures
-        # only its three uploaded roles against the unchanged 150-second bar.
-        # It never relabels that subset duration as the whole transfer.
+        # scoped 300-second bar. D1024 retains all shared helper/fallback costs
+        # under its unchanged 150-second bar; only exclusive F5 uploads leave
+        # its measured quantity.
         if "f5_timing_transfer_exception" in manifest and "transfer_exception" not in manifest:
-            measurement = _d1024_subset_transfer_measurement(measurement_path, inventory)
+            measurement = _d1024_subset_transfer_measurement(
+                measurement_path, inventory, plan["f5_timing_synthetic_inventory"]
+            )
             transfer_seconds = D1024_TRANSFER_BAR_SECONDS
         else:
             transfer_seconds = transfer_policy.receipt_limit(manifest, receipt, output)
@@ -798,36 +831,63 @@ def _d1024_staging_measurement(
         > measured["elapsed_seconds"] + 1e-6
     ):
         raise supervisor.Refused("synthetic D1024 staging components exceed elapsed time")
+    _input_transfer_components(raw, measured["transfer_seconds"])
     return measured
 
 
-def _d1024_subset_transfer_measurement(path: Path, inventory: dict[str, Any]) -> dict[str, float]:
-    """Verify D1024's own uploads without applying its bar to F5's union."""
-    measured = _d1024_staging_measurement(path, D1024_STAGING_CAP_SECONDS)
-    raw = json.loads(path.read_text())
+def _input_transfer_components(raw: dict[str, Any], total: float) -> dict[str, float]:
+    """Validate per-input durations without dropping unlabelled transfer residuals."""
     rows = raw.get("input_transfer_seconds")
+    if rows is None:
+        return {}
     if not isinstance(rows, dict):
-        raise supervisor.Refused("combined acceptance lacks per-input transfer measurements")
-    destinations = {row["dest"] for row in inventory["inputs"] if row.get("transport") == "upload"}
-    if not destinations <= set(rows):
-        raise supervisor.Refused("combined acceptance D1024 transfer measurements are incomplete")
-    subset = 0.0
-    for dest in destinations:
-        value = rows[dest]
+        raise supervisor.Refused("combined acceptance input transfer measurements are malformed")
+    components: dict[str, float] = {}
+    for dest, value in rows.items():
         if (
-            isinstance(value, bool)
+            not isinstance(dest, str)
+            or not dest
+            or isinstance(value, bool)
             or not isinstance(value, (int, float))
             or not math.isfinite(value)
+            or value < 0
         ):
-            raise supervisor.Refused("combined acceptance D1024 transfer measurement is invalid")
-        if value <= 0:
-            raise supervisor.Refused(
-                "combined acceptance D1024 transfer measurement is not positive"
-            )
-        subset += float(value)
-    if subset > D1024_TRANSFER_BAR_SECONDS:
+            raise supervisor.Refused("combined acceptance input transfer measurement is invalid")
+        components[dest] = float(value)
+    if sum(components.values()) > total + 1e-6:
+        raise supervisor.Refused("combined acceptance input transfer components exceed total")
+    return components
+
+
+def _d1024_subset_transfer_measurement(
+    path: Path, inventory: dict[str, Any], f5_inventory: dict[str, Any]
+) -> dict[str, float]:
+    """Apply D1024's bar after subtracting only sealed, exclusive F5 uploads."""
+    measured = _d1024_staging_measurement(path, D1024_STAGING_CAP_SECONDS)
+    raw = json.loads(path.read_text())
+    rows = _input_transfer_components(raw, measured["transfer_seconds"])
+    if not rows:
+        raise supervisor.Refused("combined acceptance lacks per-input transfer measurements")
+    destinations = {row["dest"] for row in inventory["inputs"] if row.get("transport") == "upload"}
+    f5_destinations = {
+        row["dest"] for row in f5_inventory["inputs"] if row.get("transport") == "upload"
+    }
+    if destinations & f5_destinations:
+        raise supervisor.Refused("combined acceptance D1024 and F5 upload roles overlap")
+    if not destinations <= set(rows) or not f5_destinations <= set(rows):
+        raise supervisor.Refused("combined acceptance D1024 transfer measurements are incomplete")
+    f5_exclusive = sum(rows[dest] for dest in f5_destinations)
+    d1024_total = measured["transfer_seconds"] - f5_exclusive
+    if d1024_total < -1e-6:
+        raise supervisor.Refused("combined acceptance F5 transfer subtraction is not conserved")
+    d1024_total = max(0.0, d1024_total)
+    if d1024_total > D1024_TRANSFER_BAR_SECONDS:
         raise supervisor.Refused("combined acceptance D1024 uploads exceed the 150-second bar")
-    return {**measured, "d1024_transfer_seconds": subset}
+    return {
+        **measured,
+        "d1024_transfer_seconds": d1024_total,
+        "f5_exclusive_transfer_seconds": f5_exclusive,
+    }
 
 
 def verify_plan_sources(plan: dict[str, Any], repo: Path) -> None:
@@ -862,7 +922,6 @@ def build_plan(
     transfer_authority_sha256: str | None = None,
     f5_timing_authority: Path | None = None,
 ) -> dict[str, Any]:
-    gates = review_gates(profile)
     if cpu_rate is None:
         cpu_rate = CPU_RATE_UNITS_PER_HOUR
     if not math.isfinite(cpu_rate) or cpu_rate <= 0:
@@ -977,34 +1036,13 @@ def build_plan(
             }
         )
     plan_gates = [
-        {**gate, "status": "INCOMPLETE" if gate["required"] else "NOT_REQUIRED"} for gate in gates
+        {**gate, "status": "INCOMPLETE" if gate["required"] else "NOT_REQUIRED"}
+        for gate in plan_review_gates(
+            profile,
+            d1024_inventory=synthetic_inventory is not None,
+            f5_timing_inventory=f5_inventory is not None,
+        )
     ]
-    if synthetic_inventory is not None:
-        plan_gates.append(
-            {
-                "id": "d1024-synthetic-full-inventory-staging",
-                "evidence": (
-                    "L4 receipt verified every local synthetic input with the D1024 sizes and "
-                    "hashes; the B8 HTTPS role has its preflight evidence"
-                ),
-                "owner": "Mac supervisor + acceptance verifier",
-                "required": True,
-                "status": "INCOMPLETE",
-            }
-        )
-    if f5_inventory is not None:
-        plan_gates.append(
-            {
-                "id": "f5-timing-synthetic-full-inventory-staging",
-                "evidence": (
-                    "L4 receipt verified the sealed synthetic F5 timing inventory "
-                    "under its scoped bar"
-                ),
-                "owner": "Mac supervisor + acceptance verifier",
-                "required": True,
-                "status": "INCOMPLETE",
-            }
-        )
     plan = {
         "schema": "snake-dqn-colab-cli-acceptance/v1",
         "status": "NOT_RUN",
@@ -1090,6 +1128,92 @@ def _record_d1024_synthetic_staging(
     return None
 
 
+def f5_timing_synthetic_staging_evidence(
+    plan: dict[str, Any],
+    job: dict[str, Any],
+    receipt: dict[str, Any],
+    output: Path,
+) -> dict[str, Any]:
+    """Build side-effect-free F5 timing staging evidence for execution and admission."""
+    if job["name"] != "l4" or "f5_timing_synthetic_inventory" not in plan:
+        raise supervisor.Refused("synthetic F5 timing staging is not required for this job")
+    inventory = plan["f5_timing_synthetic_inventory"]
+    manifest = json.loads(Path(job["manifest"]).read_text())
+    if manifest.get("f5_timing_synthetic_inventory") != inventory or manifest.get(
+        "f5_timing_transfer_exception"
+    ) != plan.get("f5_timing_transfer_exception"):
+        raise supervisor.Refused("synthetic F5 timing authority differs from plan")
+    requested = {row["dest"]: row for row in inventory["inputs"]}
+    actual = {row.get("dest"): row for row in manifest.get("inputs", [])}
+    if not set(requested).issubset(actual):
+        raise supervisor.Refused("synthetic F5 timing inventory is absent from acceptance manifest")
+    uploads = {
+        row["remote"].split("/inputs/", 1)[1]: row
+        for row in receipt.get("transfers", [])
+        if isinstance(row, dict)
+        and row.get("direction") == "upload"
+        and row.get("status") == "verified"
+        and isinstance(row.get("remote"), str)
+        and "/inputs/" in row["remote"]
+    }
+    observed = []
+    for dest, expected in requested.items():
+        row = actual[dest]
+        if row.get("size_bytes") != expected["size_bytes"]:
+            raise supervisor.Refused(f"synthetic F5 timing size mismatch for {dest}")
+        if expected["transport"] == "https":
+            if row.get("url") != expected.get("url") or row.get("sha256") != expected.get("sha256"):
+                raise supervisor.Refused("synthetic F5 timing public input role differs")
+            observed.append({"dest": dest, "transport": "https", "status": "manifest-bound"})
+        else:
+            path = Path(row.get("path", ""))
+            transfer = uploads.get(dest, {})
+            digest = sha256_file(path) if path.is_file() else None
+            if (
+                digest is None
+                or path.stat().st_size != expected["size_bytes"]
+                or row.get("sha256") != digest
+                or transfer.get("size_bytes") != expected["size_bytes"]
+                or transfer.get("sha256") != digest
+            ):
+                raise supervisor.Refused(
+                    f"synthetic F5 timing verified upload is absent for {dest}"
+                )
+            observed.append(
+                {
+                    "dest": dest,
+                    "transport": "upload",
+                    "status": "verified",
+                    "size_bytes": expected["size_bytes"],
+                    "sha256": digest,
+                    "remote": transfer["remote"],
+                }
+            )
+    preflight = output / "public-input-preflight.json"
+    if not preflight.is_file():
+        raise supervisor.Refused("synthetic F5 timing public-input preflight is absent")
+    limit = transfer_policy.receipt_limit(manifest, receipt, output)
+    measurement = _d1024_staging_measurement(output / "upload-measurement.json", limit)
+    return {
+        "status": "PASS",
+        "inventory_sha256": inventory["sha256"],
+        "inputs": observed,
+        "public_input_preflight": str(preflight),
+        "public_input_preflight_sha256": sha256_file(preflight),
+        "upload_measurement": {
+            "path": str(output / "upload-measurement.json"),
+            "sha256": sha256_file(output / "upload-measurement.json"),
+            "transfer_limit_seconds": limit,
+            "f5_timing_transfer_exception": plan["f5_timing_transfer_exception"],
+            **measurement,
+        },
+        "receipt": {
+            "path": str(output / "receipt.json"),
+            "sha256": sha256_file(output / "receipt.json"),
+        },
+    }
+
+
 def _record_f5_timing_synthetic_staging(
     observer: AcceptanceObserver,
     plan: dict[str, Any],
@@ -1101,83 +1225,7 @@ def _record_f5_timing_synthetic_staging(
     if job["name"] != "l4" or "f5_timing_synthetic_inventory" not in plan:
         return None
     try:
-        inventory = plan["f5_timing_synthetic_inventory"]
-        manifest = json.loads(Path(job["manifest"]).read_text())
-        if manifest.get("f5_timing_synthetic_inventory") != inventory or manifest.get(
-            "f5_timing_transfer_exception"
-        ) != plan.get("f5_timing_transfer_exception"):
-            raise supervisor.Refused("synthetic F5 timing authority differs from plan")
-        requested = {row["dest"]: row for row in inventory["inputs"]}
-        actual = {row.get("dest"): row for row in manifest.get("inputs", [])}
-        if not set(requested).issubset(actual):
-            raise supervisor.Refused(
-                "synthetic F5 timing inventory is absent from acceptance manifest"
-            )
-        uploads = {
-            row["remote"].split("/inputs/", 1)[1]: row
-            for row in receipt.get("transfers", [])
-            if isinstance(row, dict)
-            and row.get("direction") == "upload"
-            and row.get("status") == "verified"
-            and isinstance(row.get("remote"), str)
-            and "/inputs/" in row["remote"]
-        }
-        observed = []
-        for dest, expected in requested.items():
-            row = actual[dest]
-            if row.get("size_bytes") != expected["size_bytes"]:
-                raise supervisor.Refused(f"synthetic F5 timing size mismatch for {dest}")
-            if expected["transport"] == "https":
-                if row.get("url") != expected.get("url") or row.get("sha256") != expected.get(
-                    "sha256"
-                ):
-                    raise supervisor.Refused("synthetic F5 timing public input role differs")
-                observed.append({"dest": dest, "transport": "https", "status": "manifest-bound"})
-            else:
-                path = Path(row.get("path", ""))
-                transfer = uploads.get(dest, {})
-                digest = sha256_file(path) if path.is_file() else None
-                if (
-                    digest is None
-                    or path.stat().st_size != expected["size_bytes"]
-                    or row.get("sha256") != digest
-                    or transfer.get("size_bytes") != expected["size_bytes"]
-                    or transfer.get("sha256") != digest
-                ):
-                    raise supervisor.Refused(
-                        f"synthetic F5 timing verified upload is absent for {dest}"
-                    )
-                observed.append(
-                    {
-                        "dest": dest,
-                        "transport": "upload",
-                        "status": "verified",
-                        "size_bytes": expected["size_bytes"],
-                        "sha256": digest,
-                        "remote": transfer["remote"],
-                    }
-                )
-        if not (output / "public-input-preflight.json").is_file():
-            raise supervisor.Refused("synthetic F5 timing public-input preflight is absent")
-        limit = transfer_policy.receipt_limit(manifest, receipt, output)
-        measurement = _d1024_staging_measurement(output / "upload-measurement.json", limit)
-        evidence = {
-            "status": "PASS",
-            "inventory_sha256": inventory["sha256"],
-            "inputs": observed,
-            "public_input_preflight": str(output / "public-input-preflight.json"),
-            "upload_measurement": {
-                "path": str(output / "upload-measurement.json"),
-                "sha256": sha256_file(output / "upload-measurement.json"),
-                "transfer_limit_seconds": limit,
-                "f5_timing_transfer_exception": plan["f5_timing_transfer_exception"],
-                **measurement,
-            },
-            "receipt": {
-                "path": str(output / "receipt.json"),
-                "sha256": sha256_file(output / "receipt.json"),
-            },
-        }
+        evidence = f5_timing_synthetic_staging_evidence(plan, job, receipt, output)
     except (OSError, KeyError, TypeError, ValueError, supervisor.Refused) as exc:
         failure = {"status": "INCOMPLETE", "error": str(exc), "exception_type": type(exc).__name__}
         observer._record("f5-timing-synthetic-full-inventory-staging", **failure)
