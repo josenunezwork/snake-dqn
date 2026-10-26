@@ -1,0 +1,74 @@
+Sandbox A Argon repairs / packet-02 final verification
+
+Scope: implementation edits confined to research/sandbox_a_resident/.
+Read Argon review-sbx-a/answer.md fully and review-sbx-b/answer.md including findings4-5.
+Adopted admission route arrived on origin/main as a4027fa3; rebased and used without tools/ edits.
+Final runtime source pin: 3b76077b2dc026c57e7601c19c8acd300bf34a5d (published).
+Final packet: /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-02/reseal-02
+All previous sealed packet bytes retained. Initial packet-02 failed two offline dry-runs
+at the fixed60s wrapper validation timeout, without allocation. The final successor
+avoids duplicate shared-suite execution inside Job A preflight. It retains all static
+schema/registry/source checks, all reset seeds and resident tests. The adapter still
+runs shared sandbox tests. No canary/probe workaround or qualified transport edit.
+
+Fixes:
+- Explicit environment-state fields; compact only reset rows; respawn only selected worlds.
+  No eager scratch prepare; next observation prepares merged simulator once.
+- Bootstrap observes/forwards only live truncated world subset; simultaneous terminal
+  heroes never enter observations/critic. E==S does not confuse seat constants.
+- Sticky device overflow/allocation/spawn flags read once per horizon; loss/gradient
+  flags read once per update; distribution validation and nonfinite grad clip host
+  checks removed from minibatches. Necessary dynamic nonzero compaction and inherited
+  simulator/R2 synchronizations remain; no zero-host-sync claim.
+- Time limit64 is reachable within H128. Reports count measured terminal/truncated
+  rows; production collection/integrated cells refuse zero truncation coverage.
+- Restore moves loaded simulator/counter tensors onto the target device.
+- Ledger retains complete phases across interrupted TAR-before-JSON export; rejects
+  inverted markers, foreign files/receipt exports, duplicate receipt paths, protected
+  path tokens, final/parent/manifest/sidecar symlinks. Known publication partials and
+  parity/summary metadata are allowed. Harmless hexadecimal f5 fragments are allowed.
+- Finite endpoint unchanged; base4h/effective8h runaway allowance. No economic Colab
+  time/unit budget. Legacy rate8 units/hour/64-unit field is technical runaway guard.
+
+Verification commands (all tests nice15/thread1; no xdist):
+env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts='' research/sandbox_a_resident
+PASS: 25 passed in2.81s (final standalone preflight reran25:1.94s).
+
+env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.preflight /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-02/reseal-02
+PASS_SANDBOX_A_PREFLIGHT seeds=1772976 tests=PASS schema=PASS registry=PASS allocations=0
+Shared adapter sandbox suite:59 passed; independent core review15 passed and admission
+preparation test1 passed. Review found no remaining actionable correctness defects.
+
+env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts='' research/sandbox_a_resident tests/test_colab_cli_supervisor.py tests/test_ops_dispatch.py
+PASS:192 passed in948.87s (15m48s). Collection began with22 resident cases;
+the final25-case resident suite was separately rerun and passed under the final seal.
+
+nice -n 15 ./venv/bin/python -m black --check --line-length 100 research/sandbox_a_resident
+nice -n 15 ./venv/bin/python -m isort --check-only --profile black research/sandbox_a_resident
+nice -n 15 ./venv/bin/python -m flake8 research/sandbox_a_resident
+bash -n research/sandbox_a_resident/job.sh
+git diff --check
+PASS: all style/syntax/diff checks.
+
+Real tiny CPU entrypoint, production arena, three measured cycles plus one warmup:
+env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.run --checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth --control research/sandbox_a_resident/.local/argon-fixes-01/control.json --ledger research/sandbox_a_resident/.local/argon-fixes-01/verified-ledger.json --output research/sandbox_a_resident/.local/argon-fixes-01/output --device cpu
+PASS_SANDBOX_A units=6 skipped=0 allocations=0_by_entrypoint
+7.840842167s; same-platform full-state/next-row resume PASS. All four collection cells
+exercised truncations: E2 collection/integrated each6; E4 collection/integrated each12.
+LOCAL_VERIFICATION_02.json binds that smoke; final core/run/units/proof hashes match
+both the smoke receipt and source pin. ADMISSION_VERIFICATION_02.json binds final
+admission sources and manifest/seal digests. Seals verified by SHA256 after dry-run.
+
+Actual wrapper dry-run (standard control priority; its test subprocesses nice15):
+env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-20261026-02 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-02/reseal-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-02/state --dry-run
+PASS_DRY_RUN sandbox-a-resident-20261026-02 allocations=0 live_accounting=NOT_CHECKED
+
+Exact dispatch command for Claude:
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-20261026-02 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-02/reseal-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-02/state
+
+Not executed: Colab allocation, CUDA work, live account/coexistence verification,
+training efficacy/promotion, strict gate or serving changes. Dispatch retains fresh
+live-account and protected-study isolation checks. No automatic completion retry.
+No tmux sessions were killed/modified; no released checkpoints or serving pins changed;
+no previous hash-bound packet/receipt bytes edited; qualified colab_cli tree remains
+5833e54e9c5396121cbbf99a5cd4e52006e564fd. No user changes existed at baseline.

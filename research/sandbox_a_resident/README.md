@@ -134,6 +134,12 @@ bash -n research/sandbox_a_resident/job.sh
 
 ## Operator packaging
 
+The dispatchable packet-02 seal is `packet-02/reseal-02/` (see
+`packet-02/FINAL.txt`). The parent seal is preserved after its offline validation
+timeout. Job A preflight retains all static shared checks and its full resident
+suite; the adapter runs the shared suite separately, avoiding duplicate suites
+inside the 60-second dispatch validation bound.
+
 The source pin must already be published. Rebase onto main containing the shared
 sandbox infrastructure before preparing the final packet. The packet generator
 never calls Colab, reads protected outputs, or modifies the transport.

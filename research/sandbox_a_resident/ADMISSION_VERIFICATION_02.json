@@ -1,0 +1,45 @@
+{
+  "schema": "sandbox-a-admission-verification/v1",
+  "source_commit": "3b76077b2dc026c57e7601c19c8acd300bf34a5d",
+  "final_packet": "research/sandbox_a_resident/packet-02/reseal-02",
+  "broker_manifest_sha256": "d0f8882a3fc28890ce925e3ccfa0a3356df79a57bd2a42f94c19540fb615772a",
+  "sandbox_manifest_sha256": "ab8d51cf91df88b05b699ae5025e09b0f2c3298e3971a4a84fe80a7c8c06635a",
+  "seal_sha256": "5aa7cbb83b5e4d6d8a65dc55f2d553083981687f27f6c99f6491cf343eb25c46",
+  "source_sha256": {
+    "__init__.py": "9a0705415e5dda3526074013d7f7a4e67977891009a7b36fc193e23dacd3c4e8",
+    "core.py": "560ee0eb24b3abda57b9451a1ffb2aeb49f2e0c87b77c69c0200acb7cfd68d40",
+    "job.sh": "f659db9fb4906c805d72f78f6e60829de885d6dffebf5f12c541e65077125bb8",
+    "postprocess.py": "b3a51850f5614aa504bbf79cbd3317afef5edfd526d0a0f5badb8b8fa2c8e75b",
+    "preflight.py": "785216818ec79f950f934776aa1d1d8042de56ac637b8dd0640b6eb11cb2fbba",
+    "prepare.py": "3a727600123b10d8a3f967b601f4d7b8656a0edd70c8de78d0fa85dfa84d3aee",
+    "proof.py": "088c3def55427ad2a2822bbe3ccd0ad5bfada186c63d0acb54f22782dfe3d0cf",
+    "requirements.txt": "a8cb011aef6cec18444a823578e9029cb1c05d362f25dc227ecb20d8f82f5e62",
+    "run.py": "5ad92a9b012df57460cc11d9c2c1a339d0843159d2a7104b09446e0f3eb036f1",
+    "test_core.py": "785e98765677f799f9ae9f1cd66e356a4b4b109892c6d09f4458f89073d275a1",
+    "test_prepare.py": "519795ccc0181a0f4ed03a47bc3fe84f9ef17b9b82788e51f99586df4ee59792",
+    "test_run.py": "7536b8c237b920806ac2105bd309d0b1bd331e50c257e7118b64dadf5eb91ffb",
+    "test_units.py": "6fd692413c46388693da0b675e66eeb965f04dd2d9a2dbcec5545be711c72c0d",
+    "units.py": "c20db54838b4c1ca4ab6cef8bc6e3ed8b7afe46f48f622447b21af8eb46dbc5a"
+  },
+  "preflight": "PASS_SANDBOX_A_PREFLIGHT seeds=1772976 tests=PASS schema=PASS registry=PASS allocations=0",
+  "resident_tests": 25,
+  "shared_sandbox_tests": 59,
+  "dry_run": "PASS_DRY_RUN sandbox-a-resident-20261026-02 allocations=0 live_accounting=NOT_CHECKED",
+  "runaway_guard": {
+    "base_seconds": 14400,
+    "effective_seconds": 28800,
+    "purpose": "technical runaway guard, no economic allocation budget"
+  },
+  "scope": {
+    "colab_allocations": 0,
+    "cuda_execution": false,
+    "live_accounting_checked": false
+  },
+  "initial_seal_validation": "Two initial dry-runs timed out at fixed60s; preserved without allocation. Own preflight now avoids repeated shared suites while retaining all static/shared checks, reset seed checks and resident tests. Adapter shared suite unchanged.",
+  "broader_regression": {
+    "command": "env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts='' research/sandbox_a_resident tests/test_colab_cli_supervisor.py tests/test_ops_dispatch.py",
+    "passed": 192,
+    "seconds": 948.87,
+    "collection_note": "Collected22 resident cases before addition of the2 report tests and1 prepare test; final25 passed separately. Qualified transport remained unchanged."
+  }
+}
