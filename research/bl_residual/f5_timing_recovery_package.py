@@ -140,6 +140,7 @@ def _authority(commit: str, tree: str, inputs: list[dict[str, Any]]) -> dict[str
         rows.append(record)
     unsigned = {
         "schema": "f5-timing-recovery-synthetic-input-inventory/v1",
+        "namespace": NAMESPACE,
         "ruling_sha256": RULING_SHA256,
         "source_commit": commit,
         "source_tree": tree,
@@ -180,6 +181,7 @@ def _control(
     environment_policy: dict[str, Any],
     environment_capture: dict[str, Any],
     ledger_sha256: str,
+    attempt_id: str = "unsealed-test-attempt",
 ) -> dict[str, Any]:
     value: dict[str, Any] = {
         "schema": "bl-residual-f5-runtime/v1",
@@ -203,6 +205,7 @@ def _control(
         },
         "input_hashes": {row["dest"]: row["sha256"] for row in runtime_inputs},
         "timing_input_sha256": input_sha,
+        "timing_attempt_id": attempt_id,
         "environment_policy": environment_policy,
         "environment_capture": environment_capture,
         "ledger_sha256": ledger_sha256,
@@ -311,6 +314,7 @@ def build(
         environment_policy,
         environment_capture,
         ledger_export["sha256"],
+        attempt_id=f"bl-f5-timing-recovery-{commit[:8]}-01",
     )
     control_export = _export_input(control_path, control)
     inputs = [*runtime_inputs, control_export, ledger_export, *ledger_sidecars]

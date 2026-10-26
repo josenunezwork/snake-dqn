@@ -124,6 +124,7 @@ def _control() -> dict[str, Any]:
         ),
         "qualification_checkpoint_pool": {},
         "timing_input_sha256": "f" * 64,
+        "timing_attempt_id": "offline-timing-attempt",
         "source_hashes": {"research/bl_residual/f5_qualification.py": "0" * 64},
         "ledger_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
     }

@@ -593,6 +593,11 @@ def run(
             "q_shape": [1, ACTION_COUNT],
             **timing,
         }
+        if resume_binding is not None:
+            attempt_id = control.get("timing_attempt_id")
+            if not isinstance(attempt_id, str) or not attempt_id:
+                _refuse("timing operation requires a sealed attempt identity")
+            sample["timing_attempt_id"] = attempt_id
         samples.append(sample)
         if resume_binding is not None:
             from research.bl_residual import f5_timing_resume
@@ -624,6 +629,7 @@ def run(
                 environment_sha256=resume_binding["environment_sha256"],
                 progress=progress,
             )
+            calibration["timing_attempt_id"] = control["timing_attempt_id"]
             completed_units.append(
                 f5_timing_resume.publish_unit(
                     root, resume_binding, f5_timing_resume.CALIBRATION_KEY, calibration
