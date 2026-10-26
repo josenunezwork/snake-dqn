@@ -39,9 +39,7 @@ def _manifest(repo: Path, tmp_path: Path, context: str = "timing") -> dict:
     control = tmp_path / "f5-control.json"
     control.write_bytes(b"x" * 12)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
-    tree = subprocess.check_output(
-        ["git", "rev-parse", "HEAD:research/colab_cli"], cwd=repo, text=True
-    ).strip()
+    tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=repo, text=True).strip()
     authority = _authority(commit, tree)
     manifest = {
         "commit": commit,
@@ -111,9 +109,7 @@ def test_f5_timing_scope_rejects_changed_input_or_foreign_authority(tmp_path: Pa
 
 def test_final_only_acceptance_binds_the_scoped_authority(tmp_path: Path) -> None:
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
-    tree = subprocess.check_output(
-        ["git", "rev-parse", "HEAD:research/colab_cli"], cwd=REPO, text=True
-    ).strip()
+    tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=REPO, text=True).strip()
     authority = _authority(commit, tree)
     authority_path = tmp_path / "f5-authority.json"
     authority_path.write_text(json.dumps(authority))

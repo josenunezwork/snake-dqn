@@ -205,7 +205,7 @@ def check(manifest: dict[str, Any], repo: Path) -> None:
     if isinstance(f5_inventory, dict):
         try:
             tree = subprocess.check_output(
-                ["git", "rev-parse", f"{manifest['commit']}:research/colab_cli"],
+                ["git", "rev-parse", f"{manifest['commit']}^{{tree}}"],
                 cwd=repo,
                 text=True,
                 timeout=10,
