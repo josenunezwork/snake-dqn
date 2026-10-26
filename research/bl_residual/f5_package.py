@@ -61,6 +61,24 @@ def canonical(value: Any) -> bytes:
     return (json.dumps(value, sort_keys=True, allow_nan=False) + "\n").encode()
 
 
+def hold_timing_envelope(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Remove transport-only sizing from a full timing proposal.
+
+    Unknown numeric fields deliberately fail broker validation. A HOLD label
+    alone would not prevent a copied transport canary from being dispatched.
+    A reviewed successor must supply its own forecast and resume contract.
+    """
+    proposal = {
+        **manifest,
+        "requirements": {**manifest["requirements"], "est_minutes": None},
+        "timeout_minutes": None,
+        "timing_envelope_status": "HOLD_REQUIRES_REVIEWED_FORECAST_TIMEOUT_AND_RESUME",
+    }
+    proposal.pop("resume", None)
+    proposal.pop("resume_exemption", None)
+    return proposal
+
+
 def safe_metadata(path: Path) -> bytes:
     """Read only an explicit non-protected metadata file with no symlink ancestry."""
     if any("d4096" in part.lower() or part == "t34-round0-study-01" for part in path.parts):
@@ -925,7 +943,7 @@ def build(
         if timing_bytes > 45_397_643:
             raise ValueError("timing qualification inventory exceeds unchanged private cap")
         timing_qualification["known_private_input_bytes"] = timing_bytes
-    timing_qualification.pop("resume", None)
+    timing_qualification = hold_timing_envelope(timing_qualification)
     files["timing-qualification.draft.json"] = export_json(
         output / "timing-qualification.draft.json", timing_qualification
     )
@@ -988,11 +1006,11 @@ def build(
     for name, probe in (
         ("capture", capture),
         ("prepare", canary),
-        ("timing", timing_qualification),
         ("final_transport", qualification),
     ):
         broker_canary.check(probe, repo)
         broker_shapes[name] = "PASS_REAL_BROKER_PROBE_SHAPE_ONLY_NOT_EXECUTION"
+    broker_shapes["timing"] = timing_qualification["timing_envelope_status"]
     dry_run = {
         "schema": "bl-f5-offline-dry-run/v1",
         "status": "PASS_OFFLINE_PREPARATION",
@@ -1009,9 +1027,11 @@ def build(
         "actual_timing_feasibility": "HOLD_PENDING_MEASURED_L4_AND_MAC_RECEIPTS",
         "qualification_envelope": {
             "capture_minutes": 10,
-            "all_remaining_qualification_substeps_minutes": 30,
+            "transport_only_qualification_minutes": 30,
+            "full_timing_minutes": None,
             "paired_fit_minutes": 200,
-            "aggregate_minutes": 240,
+            "historical_aggregate_minutes": 240,
+            "aggregate_minutes": None,
             "capture_accounting": capture_accounting,
             "rule": (
                 "all elapsed and accounting evidence is retained; the exact owner ruling "

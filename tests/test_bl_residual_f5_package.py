@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -137,6 +138,31 @@ def test_draft_is_reviewable_and_cannot_claim_admission() -> None:
     value["scientific_admission"] = True
     with pytest.raises(ValueError, match="refuse operational"):
         package.validate_draft_manifest(value)
+
+
+def test_full_timing_cannot_inherit_transport_forecast_or_resume_exemption() -> None:
+    from research.colab_cli import supervisor
+
+    transport = {
+        **draft(),
+        "job_id": "f5-timing-envelope-test",
+        "commit": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=package.ROOT, text=True
+        ).strip(),
+        "script": "research/bl_residual/f5_colab.sh",
+        "budget": {"rate_units_per_hour": 2, "unit_cap": 100, "reserve_units": 0},
+        "requirements": {"gpu": "L4", "min_vcpu": 6, "est_minutes": 15},
+        "timeout_minutes": 30,
+        "resume_exemption": {"kind": "short-canary", "timeout_minutes": 30},
+    }
+    original = copy.deepcopy(transport)
+    proposal = package.hold_timing_envelope(transport)
+    assert transport == original
+    assert proposal["requirements"]["est_minutes"] is None
+    assert proposal["timeout_minutes"] is None
+    assert "resume" not in proposal and "resume_exemption" not in proposal
+    with pytest.raises(supervisor.Refused, match="est_minutes must be numeric"):
+        supervisor.validate(proposal, repo=package.ROOT)
 
 
 @pytest.mark.parametrize(
