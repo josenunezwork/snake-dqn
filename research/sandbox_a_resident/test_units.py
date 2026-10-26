@@ -18,6 +18,9 @@ def test_immutable_publication_and_metadata_only_ledger(tmp_path: object) -> Non
     path = tmp_path / "unit.tar"
     publish(path, lambda p: p.write_bytes(b"opaque-checkpoint-bytes"))
     descriptor = verified_descriptor(path, unit_id(2, "integrated"))
+    timing_path = path.with_suffix(".json")
+    publish(timing_path, lambda p: p.write_bytes(b"{}"))
+    descriptor["timing"] = verified_descriptor(timing_path, unit_id(2, "integrated"))
     ledger = tmp_path / "ledger.json"
     payload = {
         "schema": "sandbox-a-ledger/v1",
@@ -41,3 +44,15 @@ def test_immutable_publication_and_metadata_only_ledger(tmp_path: object) -> Non
     ledger.write_text(json.dumps(payload))
     with pytest.raises(ValueError, match="foreign"):
         load_ledger(ledger, control)
+
+
+def test_partial_export_pair_cannot_become_verified_unit(tmp_path: object) -> None:
+    from research.sandbox_a_resident.postprocess import ledger
+
+    control = {"worlds": [2]}
+    path = tmp_path / "e2-integrated.tar"
+    publish(path, lambda p: p.write_bytes(b"opaque-checkpoint"))
+    with pytest.raises(FileNotFoundError):
+        ledger(control, [tmp_path])
+    with pytest.raises(ValueError, match="protected"):
+        ledger(control, [tmp_path / "f5-state"])

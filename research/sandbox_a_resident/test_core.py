@@ -153,3 +153,20 @@ def test_seed_namespace_and_restore_drift_refused() -> None:
         runner.restore(state)
     with pytest.raises(ValueError):
         replace(runner.recipe, seed_namespace="foreign")
+
+
+def test_cached_full_state_reconstruction_and_next_update(tmp_path: object) -> None:
+    from research.sandbox_a_resident.run import package_unit, restore_unit_checkpoint, synthetic
+
+    runner = assay()
+    cached = synthetic(runner)
+    runner.update(cached)
+    path = tmp_path / "cached.tar"
+    package_unit(path, runner, {"phase": "cached", "cycles": [0]}, cached)
+    runner.update(cached)
+    expected = runner.snapshot()
+    restored = assay()
+    actual_cached = restore_unit_checkpoint(path, restored)
+    assert_exact(cached, actual_cached)
+    restored.update(actual_cached)
+    assert_exact(expected, restored.snapshot())

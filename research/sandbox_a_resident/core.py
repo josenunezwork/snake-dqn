@@ -151,13 +151,13 @@ class ResidentAssay:
         # A fixed finite allocation: even one death per tick cannot exhaust the table.
         self.keys = torch.tensor(
             [
-                seed64(recipe.seed_namespace, recipe.seed_offset + i) & 0x7FFF_FFFF_FFFF_FFFF
+                (seed64(recipe.seed_namespace, recipe.seed_offset + i) + 2**63) % 2**64 - 2**63
                 for i in range(recipe.worlds * recipe.max_episodes)
             ],
             dtype=torch.long,
             device=self.device,
         ).reshape(recipe.max_episodes, recipe.worlds)
-        if not bool((self.keys != 0).all()):
+        if not bool(((self.keys & 0x7FFF_FFFF_FFFF_FFFF) != 0).all()):
             raise ValueError("zero effective seed refused")
         self.episode = torch.zeros(recipe.worlds, dtype=torch.long, device=self.device)
         self.age = torch.zeros_like(self.episode)
@@ -328,6 +328,7 @@ class ResidentAssay:
         return copy.deepcopy(
             {
                 "schema": "sandbox-a-full-state/v1",
+                "device": str(self.device),
                 "recipe": asdict(self.recipe),
                 "actor": self.actor.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
@@ -348,6 +349,8 @@ class ResidentAssay:
         """Restore all state and invalidate derived R2 cache; refuse recipe drift."""
         if state["schema"] != "sandbox-a-full-state/v1" or state["recipe"] != asdict(self.recipe):
             raise ValueError("checkpoint recipe/namespace differs")
+        if state.get("device") != str(self.device):
+            raise ValueError("same-platform resume requires the same device")
         state = copy.deepcopy(state)
         self.actor.load_state_dict(state["actor"])
         self.optimizer.load_state_dict(state["optimizer"])

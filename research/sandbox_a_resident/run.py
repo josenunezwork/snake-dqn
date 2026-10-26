@@ -18,6 +18,7 @@ from typing import Any
 import torch
 
 from research.sandbox_a_resident.core import Recipe, ResidentAssay, distribution, gae
+from research.sandbox_a_resident.proof import prove
 from research.sandbox_a_resident.units import (
     PHASES,
     allocation,
@@ -35,16 +36,25 @@ def sync(device: str) -> float:
     return time.perf_counter()
 
 
+def synthetic_observations(recipe: Recipe, device: torch.device) -> tuple:
+    """Reconstruct frozen cached observations without saving gigabytes of random bytes."""
+    n = recipe.worlds * recipe.horizon
+    obs_gen = torch.Generator(device=device).manual_seed(74031)
+    obs = (
+        torch.randint(0, 256, (n, 7, 31, 31), dtype=torch.uint8, device=device, generator=obs_gen),
+        torch.randint(0, 256, (n, 4, 37, 37), dtype=torch.uint8, device=device, generator=obs_gen),
+        torch.rand((n, 60), device=device, generator=obs_gen),
+    )
+    shape = (recipe.horizon, recipe.worlds)
+    return tuple(x.reshape(*shape, *x.shape[1:]) for x in obs)
+
+
 @torch.no_grad()
 def synthetic(runner: ResidentAssay) -> dict[str, Any]:
     """Frozen synthetic on-device learner tensors; no collection throughput claim."""
     recipe, device, gen = runner.recipe, runner.device, runner.generator
     n = recipe.worlds * recipe.horizon
-    obs = (
-        torch.randint(0, 256, (n, 7, 31, 31), dtype=torch.uint8, device=device, generator=gen),
-        torch.randint(0, 256, (n, 4, 37, 37), dtype=torch.uint8, device=device, generator=gen),
-        torch.rand((n, 60), device=device, generator=gen),
-    )
+    obs = tuple(x.flatten(0, 1) for x in synthetic_observations(recipe, device))
     mask = torch.ones((n, 6), dtype=torch.bool, device=device)
     values, logps, actions = [], [], []
     for start in range(0, n, recipe.minibatch):
@@ -80,13 +90,40 @@ def package_unit(
     """Snapshot includes cached tensors when they are the phase's future input."""
     with tempfile.TemporaryDirectory(prefix="sandbox-a-export-") as directory:
         checkpoint = Path(directory) / "state.pt"
-        torch.save({"state": runner.snapshot(), "cached": cached}, checkpoint)
+        torch.save(
+            {
+                "state": runner.snapshot(),
+                "phase": report["phase"],
+                "completed_cycles": len(report["cycles"]),
+                "cached": (
+                    None if cached is None else {k: v for k, v in cached.items() if k != "obs"}
+                ),
+                "cached_observation_seed": 74031 if cached is not None else None,
+            },
+            checkpoint,
+        )
         report_bytes = json.dumps(report, sort_keys=True).encode()
         with tarfile.open(path, "w") as archive:
             archive.add(checkpoint, arcname="state.pt")
             info = tarfile.TarInfo("timing.json")
             info.size = len(report_bytes)
             archive.addfile(info, io.BytesIO(report_bytes))
+
+
+def restore_unit_checkpoint(path: Path, runner: ResidentAssay) -> dict | None:
+    """Restore the immutable phase boundary and reconstruct exact frozen learner inputs."""
+    with tarfile.open(path, "r") as archive:
+        stream = archive.extractfile("state.pt")
+        if stream is None:
+            raise ValueError("checkpoint payload absent")
+        payload = torch.load(io.BytesIO(stream.read()), weights_only=False)
+    runner.restore(payload["state"])
+    cached = payload["cached"]
+    if cached is not None:
+        if payload.get("cached_observation_seed") != 74031:
+            raise ValueError("unknown cached observation generator")
+        cached["obs"] = synthetic_observations(runner.recipe, runner.device)
+    return cached
 
 
 def run_cell(
@@ -100,6 +137,8 @@ def run_cell(
     deadline: float,
 ) -> dict:
     begin = sync(device)
+    if device.startswith("cuda"):
+        torch.cuda.reset_peak_memory_stats()
     recipe = Recipe(
         worlds=worlds,
         horizon=control["horizon"],
@@ -108,7 +147,8 @@ def run_cell(
         episode_limit=control["episode_limit"],
         seed_offset=offset,
         max_episodes=1 + (control["cycles"] + control["warmups"]) * control["horizon"],
-        tiny=control["tiny"],
+        tiny=control.get("tiny_arena", control["tiny"]),
+        **control.get("recipe_parameters", {}),
     )
     runner = ResidentAssay(recipe, load_ego2s_checkpoint(str(checkpoint), device), device)
     cached = synthetic(runner) if phase == "cached" else None
@@ -169,6 +209,9 @@ def run_cell(
         "host_tensor_staging_in_cycle": False,
         "reset_count": int(runner.reset_count),
         "efficacy_selection": False,
+        "peak_device_allocated_bytes": (
+            torch.cuda.max_memory_allocated() if device.startswith("cuda") else None
+        ),
     }
     path = output / f"e{worlds}-{phase}.tar"
     export_start = sync(device)
@@ -210,6 +253,13 @@ def main() -> int:
     parser.add_argument("--device", choices=("cpu", "cuda"), required=True)
     args = parser.parse_args()
     control = json.loads(args.control.read_text())
+    if "checkpoint_sha256" in control and digest(args.checkpoint) != control["checkpoint_sha256"]:
+        raise ValueError("frozen input checkpoint differs")
+    if (
+        "source_commit" in control
+        and os.environ.get("SANDBOX_A_SOURCE_COMMIT") != control["source_commit"]
+    ):
+        raise ValueError("frozen allocation source commit differs")
     if args.device == "cpu" and not control["tiny"]:
         raise ValueError("Mac permits tiny preparation only")
     if args.device == "cuda" and (
@@ -228,6 +278,8 @@ def main() -> int:
     deadline = time.monotonic() + control["timeout_seconds"]
     results, skipped = [], []
     start = time.perf_counter()
+    proof = prove(load_ego2s_checkpoint(str(args.checkpoint), args.device), args.device)
+    publish(args.output / "parity.json", lambda target: target.write_text(json.dumps(proof) + "\n"))
     for shape_index, worlds in enumerate(control["worlds"]):
         for phase_index, phase in enumerate(PHASES):
             identity = unit_id(worlds, phase)
@@ -262,6 +314,7 @@ def main() -> int:
         "cuda": torch.version.cuda,
         "hardware": torch.cuda.get_device_name() if args.device == "cuda" else platform.processor(),
         "source_commit": os.environ.get("SANDBOX_A_SOURCE_COMMIT", "local-unpinned-smoke"),
+        "parity": proof,
         "numerical_outputs": "timing/parity only; no efficacy or candidate selection",
     }
     publish(

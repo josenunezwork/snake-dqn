@@ -43,6 +43,8 @@ def load_ledger(path: Path, control: dict[str, Any]) -> dict[str, dict]:
         or value.get("allocation") != allocation(control)
     ):
         raise ValueError("foreign ledger namespace/allocation")
+    if not isinstance(value.get("units"), list):
+        raise ValueError("ledger units must be an array")
     units: dict[str, dict] = {}
     for row in value.get("units", []):
         identity = row.get("id")
@@ -50,6 +52,14 @@ def load_ledger(path: Path, control: dict[str, Any]) -> dict[str, dict]:
             raise ValueError("foreign/duplicate verified unit")
         if type(row.get("size")) is not int or row["size"] < 1 or len(row.get("sha256", "")) != 64:
             raise ValueError("malformed verified unit descriptor")
+        timing = row.get("timing")
+        if (
+            not isinstance(timing, dict)
+            or type(timing.get("size")) is not int
+            or timing["size"] < 1
+            or len(timing.get("sha256", "")) != 64
+        ):
+            raise ValueError("complete unit requires verified timing and checkpoint descriptors")
         units[identity] = row
     return units
 
