@@ -1,0 +1,15 @@
+{
+  "attributable_account_debit_units": 0.32999999999992724,
+  "balance_crosscheck_status": "OK",
+  "balance_discrepancy_tolerance_units": 0.13833333333333334,
+  "balance_discrepancy_units": -0.13273708330216238,
+  "baseline_integrated_units": 0.0,
+  "elapsed_seconds": 1081.7230518750148,
+  "expected_account_debit_units": 0.4627370833020896,
+  "observed_account_debit_units": 0.32999999999992724,
+  "observed_elapsed_units": 0.4627370833020896,
+  "observed_rate_units_per_hour": 1.54,
+  "own_elapsed_units": 0.6009572510416749,
+  "provider_transition_mismatch_polls": 0,
+  "provider_transition_status": "OK"
+}
