@@ -1,0 +1,116 @@
+{
+  "schema": "sandbox-b-remediation-verification/v1",
+  "checked_at_utc": "2026-10-26T22:31:34.585136+00:00",
+  "checked_head": "6b39a22c0bcd296e801ab593ee258c70dda00f82",
+  "runtime_pin": "a4027fa3e48d0a9ea04ad59e184f043624b747b2",
+  "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "qualified_transport_changed": false,
+  "manifest_sha256": "b1cc455109602ae99e74861906ee9a81b4b30f3a6c9b44026d40acf14d71809a",
+  "sandbox_manifest_sha256": "c3053cdf28610e52c37a798a69326bd84fb47579055d3b8a065ce0bb2b0f4bc8",
+  "sandbox_manifest_physical_lines": 10,
+  "registry_sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+  "admission": {
+    "schema": "standing-a100-development-sandbox-admission/v1",
+    "manifest_path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/packet-02/sandbox-manifest.json"
+  },
+  "canary_controls_present": false,
+  "endpoint_updates": 15000,
+  "runaway_guard": {
+    "base_minutes": 60,
+    "effective_minutes": 120,
+    "estimate_is_a_duration_forecast": false,
+    "required_transport_liability_units": 16,
+    "rate_ceiling_units_per_hour": 8
+  },
+  "focused_tests": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q -p no:xdist tools/sandbox/tests research/sandbox_b_heads/tests",
+    "passed": 59,
+    "preflight_seconds": 3.64
+  },
+  "regression_tests": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q -p no:xdist tests/test_ops_dispatch.py tests/test_colab_cli_supervisor.py tests/test_colab_cli_canary.py tests/test_colab_cli_schema_failures.py",
+    "status": "279_PASSED_1_FAILED",
+    "passed": 279,
+    "failed": 1,
+    "seconds": 862.28,
+    "failed_test": "tests/test_colab_cli_supervisor.py::test_provider_calibration_timeout_is_a_real_elapsed_bound",
+    "failure": "Expected mocked elapsed_seconds135; observed7543.113000018853. Refusal and stop_verified checks passed before the elapsed assertion.",
+    "test_and_qualified_transport_identical_to_baseline": true,
+    "baseline_commit": "fb5948d25b44cd2218f56655691798a519bdacb7",
+    "isolated_baseline": {
+      "passed": 1,
+      "seconds": 12.42
+    },
+    "isolated_candidate": {
+      "passed": 1,
+      "seconds": 13.72
+    },
+    "interpretation": "Timing assertion did not reproduce in isolated baseline or candidate; broader run is not claimed all-green. No qualified transport or out-of-scope test bytes changed.",
+    "isolated_command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q -p no:xdist tests/test_colab_cli_supervisor.py::test_provider_calibration_timeout_is_a_real_elapsed_bound",
+    "baseline_worktree": "Temporary detached baseline worktree created for one test and removed cleanly after completion."
+  },
+  "preflight": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m tools.sandbox.preflight research/sandbox_b_heads/packet-02/sandbox-manifest.json",
+    "stdout": "PREFLIGHT PASS: schema, registry, committed manifest, qualified transport, focused tests"
+  },
+  "dispatch_dry_run": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/ops/dispatch.sh sandbox-b-heads-v1-02 /Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/packet-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxB --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxB --dry-run",
+    "stdout": "PASS_DRY_RUN sandbox-b-heads-v1-02 allocations=0 live_accounting=NOT_CHECKED"
+  },
+  "dispatch_command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/ops/dispatch.sh sandbox-b-heads-v1-02 /Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/packet-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxB --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxB",
+  "clean_import": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/review-remediation-02/clean-import.json",
+    "sha256": "ffe7cae67810f2933d182152570e25e5bfae4808f4fc983158f3b88e926e4681",
+    "status": "PASS",
+    "python": "3.12.15",
+    "roots": 3,
+    "import_statements": 59,
+    "local_modules": 21,
+    "system_site_packages": false,
+    "user_site": false
+  },
+  "cpu_cli_smoke": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/review-remediation-02/cpu-cli-smoke",
+    "device": "cpu",
+    "registered_input": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/inputs/d1024-allowed.npz",
+    "smoke_rows": 128,
+    "updates_per_config": 1,
+    "configs": 60,
+    "unit_hashes_verified": 60,
+    "duration_used_for_forecast": false,
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m research.sandbox_b_heads.job --input /Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/inputs/d1024-allowed.npz --b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth --registry /Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/sandbox/SANDBOX_INPUT_REGISTRY.json --output /Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/review-remediation-02/cpu-cli-smoke --namespace a100-dev/sandbox-b/remediation-cpu-smoke --device cpu --updates 1 --batch-size 32 --smoke-rows 128"
+  },
+  "static_checks": {
+    "black": "PASS --check --workers 1 --line-length 100 tools/ops/dispatch.py tools/sandbox research/sandbox_b_heads",
+    "isort": "PASS --check-only --profile black tools/ops/dispatch.py tools/sandbox research/sandbox_b_heads",
+    "flake8": "PASS --jobs 1 tools/ops/dispatch.py tools/sandbox research/sandbox_b_heads",
+    "bash_syntax": "PASS tools/sandbox/launch.sh research/sandbox_b_heads/run_job.sh",
+    "shell_entrypoint": "PASS bash tools/ops/tests/test_dispatch.sh",
+    "diff_check": "PASS"
+  },
+  "independent_code_review": "No remaining actionable findings; full Job B/admission source read, early-input and output-namespace boundary findings fixed before closeout. Argon re-review has not been performed.",
+  "review_packet": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/review-remediation-02",
+    "scoped_diff_sha256": "3b10f36eba9b9770b58c02a624f4b54f454f35f0b3c9df0f8229714cee6f71c8",
+    "scoped_diff_bytes": 75817
+  },
+  "historical_evidence_preserved": [
+    "research/sandbox_b_heads/dispatch-manifest.json",
+    "research/sandbox_b_heads/sandbox-manifest.json",
+    "research/sandbox_b_heads/TIMING_FORECAST.json",
+    "research/sandbox_b_heads/LOCAL_VERIFICATION.json"
+  ],
+  "execution": {
+    "allocations": 0,
+    "a100_executed": false,
+    "live_accounting_checked": false,
+    "output_path_fresh": true
+  },
+  "untouched": [
+    "research/colab_cli",
+    "F5 packages and outputs",
+    "released checkpoints",
+    "serving pins",
+    "live tmux sessions"
+  ]
+}
