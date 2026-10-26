@@ -93,6 +93,10 @@ def _validate_payload(
             or payload.get("parity") != "PASS"
             or payload.get("q_shape") != [1, 6]
             or payload.get("canary_only") is True
+            or payload.get("full_h300") is not True
+            or payload.get("long_body") is not True
+            or payload.get("full_h5000_natural") is not True
+            or (key in {672, 673, 674} and payload.get("watch_fixture_frames") != 14_400)
         ):
             raise ResumeRefusal("fixture completed-unit payload differs")
         return

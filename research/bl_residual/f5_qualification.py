@@ -520,6 +520,26 @@ def run(
     # skip path and the following missing unit exercises the real producer.
     active_rows = rows[:2] if canary_tiny_workload else rows
     for completed, row in enumerate(active_rows):
+        if canary_tiny_workload and completed == 1:
+            # Exercise the identical producer -> immutable ledger -> scanner
+            # path in this assignment.  The original uploaded ledger is empty;
+            # this second scanner pass must skip the just-exported tiny 672.
+            from research.bl_residual import f5_timing_resume
+
+            f5_timing_resume.build_ledger(
+                root,
+                resume_binding,
+                completed_units,
+                name="timing-canary/verified-ledger.json",
+                canary_only=True,
+            )
+            verified_units.update(
+                f5_timing_resume.load_ledger(
+                    root / "timing-canary/verified-ledger.json",
+                    resume_binding,
+                    canary_only=True,
+                )
+            )
         key = int(row["allocation_index"])
         if key in verified_units:
             payload = verified_units[key]
