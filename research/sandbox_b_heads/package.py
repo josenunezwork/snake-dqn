@@ -19,14 +19,25 @@ def _git_commit() -> str:
 
 
 def _write_ten_line_sandbox_manifest(
-    path: Path, data: Path, registry: Path, b8: Path, ledger: Path, estimated_minutes: float
+    path: Path,
+    data: Path,
+    registry: Path,
+    b8: Path,
+    ledger: Path,
+    broker: Path,
+    estimated_minutes: float,
 ) -> None:
     """Emit the human-reviewable ten-physical-line sandbox manifest."""
     payload = {
         "schema": "standing-a100-development-sandbox/v1",
         "study": "sandbox-b-heads-v1",
         "inputs": [
-            {"kind": "closed-f0", "path": str(data.resolve()), "sha256": sha256(data)},
+            {
+                "kind": "closed-f0",
+                "dose": "D1024",
+                "path": str(data.resolve()),
+                "sha256": sha256(data),
+            },
             {"kind": "frozen-checkpoint", "path": str(b8.resolve()), "sha256": sha256(b8)},
             {"kind": "verified-ledger", "path": str(ledger.resolve()), "sha256": sha256(ledger)},
             {"kind": "registry", "path": str(registry.resolve()), "sha256": sha256(registry)},
@@ -46,6 +57,7 @@ def _write_ten_line_sandbox_manifest(
         "outputs": {
             "label": "simulator-D",
             "paths": ["checkpoints", "results.json", "timing.json"],
+            "broker_manifest": {"path": str(broker.resolve()), "sha256": sha256(broker)},
         },
         "crossing": {"max_frozen_checkpoint_shas": 1},
     }
@@ -154,7 +166,7 @@ def build(
     output.with_suffix(output.suffix + ".sha256").write_text(f"{sha256(output)}  {output.name}\n")
     if sandbox_manifest is not None:
         _write_ten_line_sandbox_manifest(
-            sandbox_manifest, data, registry, b8, ledger, estimated_minutes
+            sandbox_manifest, data, registry, b8, ledger, output, estimated_minutes
         )
     return output
 

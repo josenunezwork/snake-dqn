@@ -162,7 +162,10 @@ def _load_ledger(path: Path) -> set[str]:
     if not path.exists():
         return set()
     payload = json.loads(path.read_text())
-    return set(payload.get("verified_units", []))
+    units = payload.get("units", payload.get("verified_units", []))
+    if not isinstance(units, list):
+        raise ValueError("verified ledger units must be a list")
+    return {item["id"] if isinstance(item, dict) else item for item in units}
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -279,6 +282,7 @@ def run(args: argparse.Namespace) -> Path:
                     {
                         "schema": "sandbox-b-verified-ledger/v1",
                         "namespace": args.namespace,
+                        "units": sorted(done),
                         "verified_units": sorted(done),
                     },
                 )
