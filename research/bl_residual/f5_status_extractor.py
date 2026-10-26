@@ -25,9 +25,9 @@ from typing import Any, BinaryIO, Callable
 
 import numpy as np
 
-SCHEMA = "bl-f5-status-extractor/v4"
-REVIEW_FOLDER = "research/bl_residual/f5_status_reconciliation_20261025"
-RECONCILIATION_RULING_SHA = "a77f026a07052cf86abf4094d73703276d68d6529b19d0b116b1739b8eaf44b7"
+SCHEMA = "bl-f5-status-extractor/v5"
+REVIEW_FOLDER = "research/bl_residual/f5_status_selected960_20261025"
+RECONCILIATION_RULING_SHA = "638372aab7eddcfd7eba5f1725ecb7824b25031c2c2232fbcf43e58efe17410f"
 STATUSES = frozenset({"EXACT", "NOT_EVALUATED", "UNKNOWN"})
 NPZ_OPEN = frozenset(
     {
@@ -57,7 +57,9 @@ NPZ_MEMBERS = NPZ_OPEN | frozenset(
 NPZ_SOURCE_BYTES = 45397643
 MAX_TOTAL_ROWS = 94152
 MAX_ORDINARY_ROWS = 7752
-MAX_OUTPUT_UNITS = 46512
+MAX_SELECTED_ROWS = 94080
+MAX_SELECTED_ORDINARY_ROWS = 7680
+MAX_OUTPUT_UNITS = 46080
 MAX_WALL_SECONDS = 120.0
 MAX_HEADER_BYTES = 4096
 MAX_CENTRAL_DIRECTORY_BYTES = 16384
@@ -70,10 +72,11 @@ SOURCE_PATH = (
 SOURCE_SHA = "6906bffc7241de568965c1a91f4faebe799895ee0b4650e59b20e43db1dac494"
 PROPOSED_OUTPUT = (
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/"
-    "F5_STATUS_SCAN_RECONCILED_20261025_REVIEW01.json"
+    "f5-selected960-49fd1dfa/scan.json"
 )
 RECEIPT_FOLDER = (
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/f5-scan-reconcile-review01"
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/"
+    "f5-selected960-49fd1dfa"
 )
 
 
@@ -144,84 +147,56 @@ def validate_bindings(
     return result
 
 
-def valid_retained_counts(bindings: dict[str, dict[str, Any]], evidence: Any) -> bool:
-    """Check complete per-life stratum count metadata without opening a source."""
-    return (
-        isinstance(evidence, dict)
-        and set(evidence) == set(bindings)
-        and all(
-            isinstance(row, dict)
-            and set(row) == {"ordinary", "doom"}
-            and all(type(v) is int and v >= 0 for v in row.values())
-            and row["ordinary"] <= 8
-            and row["doom"] <= (0 if bindings[life]["ordinary_only"] else 90)
-            for life, row in evidence.items()
-        )
-    )
-
-
 def reconcile_ids(
     bindings: dict[str, dict[str, Any]],
     lives: list[str],
-    ordinary: np.ndarray,
-    retained_counts: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Reconcile exact IDs using only row metadata and separately pinned counts.
+    """Reconcile the container universe separately from selected F5 eligibility.
 
-    Absence and ordinary-only membership are not proof of zero original rows.
-    Count evidence must cover the entire frozen set and agree with every observed
-    stratum count. Its provenance is part of independent inventory acceptance.
-    No source references are followed and no aliases are made.
+    Excluded siblings are removed by the fixed pre-data amendment, whether
+    present or absent. Neither classification asserts zero retained rows.
     """
     frozen, observed = set(bindings), set(lives)
-    missing, extra = sorted(frozen - observed), sorted(observed - frozen)
+    selected = {life for life, row in bindings.items() if not row["ordinary_only"]}
+    excluded = frozen - selected
+    missing, extra = sorted(selected - observed), sorted(observed - frozen)
+    present, absent = sorted(excluded & observed), sorted(excluded - observed)
     report = {
-        "schema": "bl-f5-id-reconciliation/v1",
+        "schema": "bl-f5-id-reconciliation/v2",
         "frozen_ids": sorted(frozen),
         "observed_ids": sorted(observed),
+        "source_observed_ids": sorted(observed),
+        "selected_expected_ids": sorted(selected),
+        "selected_observed_ids": sorted(selected & observed),
+        "excluded_present_ids": present,
+        "excluded_absent_ids": absent,
+        "counts": {
+            "source_observed": len(observed),
+            "selected_expected": len(selected),
+            "selected_observed": len(selected & observed),
+            "excluded_present": len(present),
+            "excluded_absent": len(absent),
+        },
         "missing_ids": missing,
         "extra_ids": extra,
-        "differences": [],
-        "count_evidence_present": retained_counts is not None,
-        "accepted": False,
+        "differences": [
+            {"life_id": life, "classification": classification}
+            for ids, classification in (
+                (missing, "REFUSE_MISSING_SELECTED_ID"),
+                (present, "EXCLUDED_BY_PREDATA_AMENDMENT_PRESENT"),
+                (absent, "EXCLUDED_BY_PREDATA_AMENDMENT_ABSENT"),
+                (extra, "REFUSE_EXTRA_ID"),
+            )
+            for life in ids
+        ],
+        "count_evidence_present": False,
+        "count_evidence_sha256": None,
+        "accepted": not (missing or extra),
     }
-    counts = Counter((life, "ordinary" if flag else "doom") for life, flag in zip(lives, ordinary))
-    valid_evidence = valid_retained_counts(bindings, retained_counts)
-    report["count_evidence_sha256"] = (
-        hashlib.sha256(canonical(retained_counts)).hexdigest() if valid_evidence else None
-    )
-    for life in missing:
-        classification = "REFUSE_MISSING_SELECTED_ID"
-        if bindings[life]["ordinary_only"]:
-            if not valid_evidence:
-                classification = "REFUSE_UNPROVEN_ZERO_ROW_SIBLING"
-            elif retained_counts[life] != {"ordinary": 0, "doom": 0}:
-                classification = "REFUSE_MISSING_NONZERO_ROW_SIBLING"
-            else:
-                classification = "PROVEN_ZERO_ROW_ORDINARY_ONLY_OMISSION"
-        report["differences"].append({"life_id": life, "classification": classification})
-    report["differences"].extend(
-        {"life_id": life, "classification": "REFUSE_EXTRA_ID"} for life in extra
-    )
-    contradictions = []
-    if valid_evidence:
-        contradictions = [
-            life
-            for life in sorted(frozen)
-            if any(counts[(life, s)] != retained_counts[life][s] for s in ("ordinary", "doom"))
-        ]
-    report["count_contradiction_ids"] = contradictions
-    report["count_evidence_valid"] = valid_evidence
-    rejected = (
-        (retained_counts is not None and not valid_evidence)
-        or contradictions
-        or any(d["classification"].startswith("REFUSE_") for d in report["differences"])
-    )
-    if rejected:
+    if missing or extra:
         error = Refused("status extractor refused: frozen life coverage reconciliation")
         error.reconciliation = report
         raise error
-    report["accepted"] = True
     return report
 
 
@@ -347,7 +322,6 @@ def _project(
     exclusions: frozenset[str],
     budget: Budget,
     require_both_strata: bool = True,
-    retained_counts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     bindings = validate_bindings(frozen_lives, exclusions)
     widths = {
@@ -390,8 +364,10 @@ def _project(
     ids, lives, parents = (values[k].tolist() for k in ("row_id", "life_id", "parent_world"))
     if len(set(ids)) != n:
         refuse("duplicate row identity")
-    reconciliation = reconcile_ids(bindings, lives, ordinary, retained_counts)
+    reconciliation = reconcile_ids(bindings, lives)
     per_life, per_stratum, rows, strata = Counter(), Counter(), [], Counter()
+    source_strata = Counter()
+    selected = {life for life, row in bindings.items() if not row["ordinary_only"]}
     for index in range(n):
         if index % 256 == 0:
             budget.check()
@@ -410,6 +386,9 @@ def _project(
             refuse("per-life stratum bound")
         order = per_life[life]
         per_life[life] += 1
+        source_strata[stratum] += 1
+        if life not in selected:
+            continue
         strata[stratum] += 1
         masks = values["action_mask"][index]
         selectable = masks if masks.any() else np.array([True, True, True, False, False, False])
@@ -431,8 +410,12 @@ def _project(
             )
     if require_both_strata and (not strata["ordinary"] or not strata["doom"]):
         refuse("both strata required")
-    if strata["ordinary"] > MAX_ORDINARY_ROWS:
-        refuse("ordinary inventory bound")
+    if source_strata["ordinary"] > MAX_ORDINARY_ROWS:
+        refuse("source ordinary inventory bound")
+    if sum(strata.values()) > MAX_SELECTED_ROWS:
+        refuse("selected inventory bound")
+    if strata["ordinary"] > MAX_SELECTED_ORDINARY_ROWS:
+        refuse("selected ordinary inventory bound")
     rows.sort(key=lambda row: (row["allocation_order"], row["row_order"], row["action"]))
     missing = [
         r
@@ -448,26 +431,27 @@ def _project(
     result = {
         "schema": SCHEMA,
         "id_reconciliation": reconciliation,
-        "rows": n,
+        "source_rows": n,
+        "eligible_rows": sum(strata.values()),
+        "rows": sum(strata.values()),
         "strata": {s: strata[s] for s in ("ordinary", "doom")},
         "status_inventory": rows,
         "status_inventory_sha256": hashlib.sha256(canonical(rows)).hexdigest(),
         "cov_missing_ordinary_units": missing,
         "count_U": len(missing),
         "U_inventory_sha256": hashlib.sha256(canonical(missing)).hexdigest(),
-        "if_COV_selected": (
-            "HOLD_NO_TARGET"
-            if not missing
-            else ("HOLD_COVERAGE_IMPLEMENTATION" if len(missing) > 46080 else "PENDING_R4_SELECTOR")
-        ),
+        "if_COV_selected": ("HOLD_NO_TARGET" if not missing else "PENDING_R4_SELECTOR"),
         "count_reconciliation": {
-            "eligible_lives": len(bindings),
+            "eligible_lives": len(selected),
+            "observed_selected_lives": len(selected & set(lives)),
             "observed_lives": len(per_life),
-            "proven_zero_row_omissions": len(reconciliation["missing_ids"]),
-            "rows": n,
+            "source_rows": n,
+            "source_ordinary_rows": source_strata["ordinary"],
+            "eligible_rows": sum(strata.values()),
+            "rows": sum(strata.values()),
             "rows_from_strata": sum(strata.values()),
             "action_units": len(rows),
-            "expected_action_units": 6 * n,
+            "expected_action_units": 6 * sum(strata.values()),
             "U": len(missing),
         },
     }
@@ -482,7 +466,6 @@ def project_synthetic_npz(
     exclusions: frozenset[str] = frozenset(),
     require_both_strata: bool = True,
     clock: Callable[[], float] = time.monotonic,
-    retained_counts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Exercise the same projection on a bounded tempfile fixture only.
 
@@ -501,7 +484,6 @@ def project_synthetic_npz(
                 exclusions,
                 Budget(clock),
                 require_both_strata,
-                retained_counts,
             )
     except Refused:
         raise
@@ -604,6 +586,89 @@ def validate_authorization(authorization: Any, pins: dict[str, str]) -> None:
         refuse("renewed one-scan authorization required")
 
 
+PRIOR_INVENTORY = (
+    "research/bl_residual/f5_status_reconciliation_20261025/extractor-input-inventory.json"
+)
+PRIOR_INVENTORY_SHA = "f9e1de54440d892600a738839f48a70b7e5988ee75621c319bbf350cefb77589"
+PRIOR_RECORDS_SHA = "d75101a176fd39896f498a7d72078a855a06c116bffebace5e25d3420029c611"
+SELECTED_RECORDS_SHA = "58d04a067a00daf1758f732fcd83a652746f01299b160c97c6ca824a8ffbe0be"
+EXCLUDED_RECORDS_SHA = "800a93e1e89c8fd1eee66246374868f9171096ac90cdd64e6cabd95997932208"
+
+
+def validate_inventory(raw: bytes, root: Path) -> tuple[dict[str, Any], frozenset[str]]:
+    """Validate only sealed repository metadata; never follow life-source paths."""
+    try:
+        inventory = json.loads(raw)
+        if (
+            inventory["schema"] != "bl-f5-status-input-inventory/v3"
+            or inventory["annex_sha256"]
+            != "8ee06291b23a1ef8c657b59a4f4990349ae4c524a680c47f06785a47d227f764"
+            or inventory["counts"] != {"selected": 960, "ordinary_only_siblings": 0, "total": 960}
+            or inventory["retained_row_count_metadata"] is not None
+        ):
+            refuse("frozen inventory schema")
+        source = inventory["converted_container"]
+        if (source["path"], source["sha256"], source["size"]) != (
+            SOURCE_PATH,
+            SOURCE_SHA,
+            NPZ_SOURCE_BYTES,
+        ):
+            refuse("frozen source identity")
+        selected = inventory["original_life_sources"]
+        excluded = inventory["excluded_ordinary_only_sibling_sources"]
+        for records, count, ordinary, field, pinned in (
+            (selected, 960, False, "original_life_sources_sha256", SELECTED_RECORDS_SHA),
+            (
+                excluded,
+                9,
+                True,
+                "excluded_ordinary_only_sibling_sources_sha256",
+                EXCLUDED_RECORDS_SHA,
+            ),
+        ):
+            if (
+                len(records) != count
+                or len({r["life_id"] for r in records}) != count
+                or any(r["ordinary_only"] is not ordinary for r in records)
+                or hashlib.sha256(canonical(records)).hexdigest() != pinned
+                or inventory[field] != pinned
+            ):
+                refuse("frozen life list")
+        mapping = {r["life_id"]: r for r in selected + excluded}
+        if len(mapping) != 969:
+            refuse("disjoint life lists")
+        # Original serialization order differs from allocation order. Read only
+        # the pinned repository inventory; no referenced payload is traversed.
+        prior_path = root / PRIOR_INVENTORY
+        safe_path(prior_path)
+        with open_source(prior_path) as stream:
+            prior_raw = stream.read(2_000_001)
+        if (
+            len(prior_raw) > 2_000_000
+            or hashlib.sha256(prior_raw).hexdigest() != PRIOR_INVENTORY_SHA
+            or inventory["prior_inventory_sha256"] != PRIOR_INVENTORY_SHA
+        ):
+            refuse("prior inventory binding")
+        prior = json.loads(prior_raw)
+        prior_records = prior["original_life_sources"]
+        union = [mapping[r["life_id"]] for r in prior_records]
+        if (
+            len(union) != 969
+            or len({r["life_id"] for r in union}) != 969
+            or hashlib.sha256(canonical(union)).hexdigest() != PRIOR_RECORDS_SHA
+            or inventory["source_container_original_life_sources_sha256"] != PRIOR_RECORDS_SHA
+            or inventory["training_exclusions"] != prior["training_exclusions"]
+        ):
+            refuse("prior canonical provenance")
+        exclusions = frozenset(inventory["training_exclusions"])
+        validate_bindings(mapping, exclusions)
+        return mapping, exclusions
+    except Refused:
+        raise
+    except Exception:
+        refuse("frozen inventory encoding")
+
+
 def extract_accepted(
     acceptance: dict[str, Any],
     authorization: dict[str, Any] | None = None,
@@ -612,9 +677,10 @@ def extract_accepted(
 ) -> dict[str, Any]:
     """Later operator API: exact acceptance and frozen identity precede real open.
 
-    This function is NOT invoked during package preparation. The
-    independent judge supplies the acceptance object; the implementer cannot
-    grant it. The API performs no scientific work or mechanism selection.
+    This function is NOT invoked on real input during package preparation.
+    Astra delegated mechanical receipt serialization to Sol under RULING_V2,
+    after the specified finite synthetic/style checks; Sol grants no authority.
+    The API performs no scientific work or mechanism selection.
     """
     root = Path(__file__).absolute().parents[2]
     folder = root / REVIEW_FOLDER
@@ -654,56 +720,7 @@ def extract_accepted(
     reservation.write(canonical({"schema": SCHEMA, "status": "RESERVED"}))
     reservation.flush()
     os.fsync(reservation.fileno())
-    try:
-        inventory = json.loads(content["inventory"])
-        if (
-            inventory["schema"] != "bl-f5-status-input-inventory/v2"
-            or inventory["annex_sha256"]
-            != "8ee06291b23a1ef8c657b59a4f4990349ae4c524a680c47f06785a47d227f764"
-            or inventory["counts"] != {"selected": 960, "ordinary_only_siblings": 9, "total": 969}
-        ):
-            refuse("frozen inventory schema")
-        source = inventory["converted_container"]
-        if (source["path"], source["sha256"], source["size"]) != (
-            SOURCE_PATH,
-            SOURCE_SHA,
-            NPZ_SOURCE_BYTES,
-        ):
-            refuse("frozen source identity")
-        records = inventory["original_life_sources"]
-        if (
-            len(records) != 969
-            or len({r["life_id"] for r in records}) != 969
-            or hashlib.sha256(canonical(records)).hexdigest()
-            != inventory["original_life_sources_sha256"]
-        ):
-            refuse("frozen life list")
-        mapping = {r["life_id"]: r for r in records}
-        exclusions = frozenset(inventory["training_exclusions"])
-        validate_bindings(mapping, exclusions)
-        evidence = inventory["retained_row_count_metadata"]
-        retained_counts = None
-        if evidence is not None:
-            # The accepted inventory must contain the evidence itself, not a
-            # path to a life payload or an assertion inferred from NPZ absence.
-            if (
-                not isinstance(evidence, dict)
-                or set(evidence)
-                != {"schema", "container_sha256", "life_sources_sha256", "provenance", "counts"}
-                or evidence["schema"] != "bl-f5-retained-row-count-metadata/v1"
-                or evidence["container_sha256"] != SOURCE_SHA
-                or evidence["life_sources_sha256"] != inventory["original_life_sources_sha256"]
-                or not isinstance(evidence["provenance"], str)
-                or not evidence["provenance"].strip()
-            ):
-                refuse("row count evidence binding")
-            retained_counts = evidence["counts"]
-            if not valid_retained_counts(mapping, retained_counts):
-                refuse("row count evidence schema")
-    except Refused:
-        raise
-    except Exception:
-        refuse("frozen inventory encoding")
+    mapping, exclusions = validate_inventory(content["inventory"], root)
     budget = Budget()
     try:
         with open_source(Path(SOURCE_PATH)) as stream:
@@ -717,7 +734,7 @@ def extract_accepted(
             if digest.hexdigest() != SOURCE_SHA:
                 refuse("source hash mismatch")
             stream.seek(0)
-            result = _project(stream, mapping, exclusions, budget, retained_counts=retained_counts)
+            result = _project(stream, mapping, exclusions, budget)
             after = os.fstat(stream.fileno())
             if (before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
                 after.st_ino,

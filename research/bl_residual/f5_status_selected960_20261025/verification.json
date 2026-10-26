@@ -1,0 +1,51 @@
+{
+  "baseline_commit": "49fd1dfaa656c9c5baa469828e77ab11205d95e7",
+  "commands": [
+    {
+      "command": "nice -n 15 env PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -B -m pytest -q -n 0 -o addopts='' tests/test_f5_status_extractor.py",
+      "exit_code": 0,
+      "result": "68 passed in 1.07s; macOS single-OpenMP isolated re-exec; no xdist workers"
+    },
+    {
+      "command": "nice -n 15 env PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -B -m black --check --workers 1 --line-length 100 research/bl_residual/f5_status_extractor.py tests/test_f5_status_extractor.py",
+      "exit_code": 0,
+      "result": "2 files would be left unchanged"
+    },
+    {
+      "command": "nice -n 15 env PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -B -m isort --profile black --check-only research/bl_residual/f5_status_extractor.py tests/test_f5_status_extractor.py",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "nice -n 15 env PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -B -m flake8 --jobs 1 research/bl_residual/f5_status_extractor.py tests/test_f5_status_extractor.py",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "passed"
+    }
+  ],
+  "initial_checks": {
+    "flake8": "E501 docstring line length fixed; final check passes",
+    "pytest": "68 passed in 1.03s"
+  },
+  "outcome_payloads_opened": false,
+  "pins": {
+    "contract": "b63b678d001723d19374bde1799644989b70970697fd50b6b6231f153de95b89",
+    "inventory": "cc20e1e7f5c321de5a1f63b94945c92c15c852a8499e88ab56659d1d2d7c1615",
+    "source": "530d51cc6956dc8c17d1c12f563a84788ae1f19074d21062835c8ab79bf8e7cf",
+    "tests": "5f3ae08bfc51ac971b46ff8b616c789c57e5a613489b2f6c5f82dd3abea05eb3"
+  },
+  "real_container_or_life_payload_opened": false,
+  "real_scan_executed": false,
+  "resource_limits": {
+    "fixtures": "OS-temp only",
+    "max_test_processes": 2,
+    "nice": 15,
+    "pytest_workers": 0,
+    "threads": 1
+  },
+  "schema": "bl-f5-selected960-finite-verification/v1"
+}

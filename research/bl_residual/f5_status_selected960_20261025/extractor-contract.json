@@ -1,0 +1,213 @@
+{
+  "acceptance_schema": {
+    "decision": "ACCEPT_STATUS_ONLY_EXTRACTOR",
+    "independent_reviewer": "Astra via selected-960 ruling; mechanically materialized by Sol",
+    "pins": [
+      "source",
+      "tests",
+      "contract",
+      "inventory"
+    ],
+    "reconciliation_ruling_sha256": "638372aab7eddcfd7eba5f1725ecb7824b25031c2c2232fbcf43e58efe17410f",
+    "ruling_sha256": "exact authority SHA",
+    "schema": "bl-f5-extractor-independent-acceptance/v2"
+  },
+  "amendment": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/f5-selected960-49fd1dfa/RULING_V2.md",
+    "scope": "Exactly one selected-960 metadata scan; delegated acceptance/authorization serialization by Sol only after finite synthetic/style checks. No completion, fitting, dispatch, adoption or serving authority.",
+    "sha256": "638372aab7eddcfd7eba5f1725ecb7824b25031c2c2232fbcf43e58efe17410f"
+  },
+  "authority_sha256": "d6e2f029da689bbbe44e6c9c337ad989202a36af1fc26bcadad2f6f3be7e4fa6",
+  "bound_derivation": "Container: 960*98+9*8=94152 rows, ordinary <=7752. Selected output: 960*98=94080 rows, ordinary <=7680, U_scan<=46080. Header and byte bounds remain container-wide; excluded rows are validated before being discarded.",
+  "bounds": {
+    "max_U": 46080,
+    "max_central_directory_bytes": 16384,
+    "max_files": 1,
+    "max_header_bytes": 4096,
+    "max_life_chars": 98,
+    "max_metadata_array_bytes": 116560176,
+    "max_ordinary_rows": 7680,
+    "max_parent_chars": 26,
+    "max_per_life_ordinary": 8,
+    "max_per_selected_life_doom": 90,
+    "max_read_chunk_bytes": 65536,
+    "max_row_chars": 104,
+    "max_rows": 94080,
+    "max_status_chars": 13,
+    "processes": 1,
+    "source_bytes_exact": 45397643,
+    "threads": 1,
+    "total_command_wall_seconds": 180,
+    "wall_seconds": 120
+  },
+  "container_bounds": {
+    "max_U": 46512,
+    "max_metadata_array_bytes": 116560176,
+    "max_ordinary_rows": 7752,
+    "max_rows": 94152,
+    "source_bytes_exact": 45397643
+  },
+  "exclusions": "No D4096 or t34-round0-study-01 path, symlink component, foreign life, excluded parent/fold, dynamic reference traversal or unknown schema. Source open uses no-follow directory FDs.",
+  "fixed_consequences": {
+    "U0_if_COV_selected": "HOLD_NO_TARGET",
+    "U1_to_46080": "PENDING_R4_SELECTOR",
+    "U_over_46080": "REFUSED; never truncate"
+  },
+  "frozen_inventory": {
+    "container_lives": 969,
+    "eligible_lives": 960,
+    "excluded_ordinary_only_siblings": 9,
+    "excluded_records_sha256": "800a93e1e89c8fd1eee66246374868f9171096ac90cdd64e6cabd95997932208",
+    "ordinary_only_siblings": 0,
+    "path": "extractor-input-inventory.json",
+    "selected": 960,
+    "selected_records_sha256": "58d04a067a00daf1758f732fcd83a652746f01299b160c97c6ca824a8ffbe0be",
+    "sha256": "cc20e1e7f5c321de5a1f63b94945c92c15c852a8499e88ab56659d1d2d7c1615"
+  },
+  "historical_provenance": {
+    "interpretation": "Historical refusal followed status metadata access; no claim of zero retained sibling rows or pre-all-metadata amendment. Historical files/reservations unchanged.",
+    "prior_canonical_records_sha256": "d75101a176fd39896f498a7d72078a855a06c116bffebace5e25d3420029c611",
+    "prior_inventory_path": "research/bl_residual/f5_status_reconciliation_20261025/extractor-input-inventory.json",
+    "prior_inventory_sha256": "f9e1de54440d892600a738839f48a70b7e5988ee75621c319bbf350cefb77589",
+    "refusal_path": "research/bl_residual/f5_status_reconciliation_20261025/ASTRA_SCAN_REFUSAL.md",
+    "refusal_sha256": "a77f026a07052cf86abf4094d73703276d68d6529b19d0b116b1739b8eaf44b7"
+  },
+  "original_annex_sha256": "8ee06291b23a1ef8c657b59a4f4990349ae4c524a680c47f06785a47d227f764",
+  "outputs": [
+    "full allowed row/action metadata inventory",
+    "EXACT/non-exact only",
+    "all U ordinary legal selectable non-exact units",
+    "both-stratum counts and reconciliation",
+    "separate full-inventory and U hashes",
+    "source bindings and accepted review pins",
+    "exact source observed IDs, selected expected/observed IDs, excluded present/absent IDs and counts; source/eligible row counts separately"
+  ],
+  "prohibitions": [
+    "outcome/observation member opens",
+    "subtype counts",
+    "per-parent diagnostics",
+    "status inference from values",
+    "mechanism selection",
+    "label completion",
+    "post-mortem",
+    "fit",
+    "Colab",
+    "dispatch",
+    "serving"
+  ],
+  "projection_fields": [
+    "row_id",
+    "life_id",
+    "parent_world",
+    "allocation_order",
+    "row_order",
+    "source_row_index",
+    "stratum",
+    "action",
+    "legal",
+    "served_selectable",
+    "status"
+  ],
+  "proposed_output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/f5-selected960-49fd1dfa/scan.json",
+  "raw_JSON": "HOLD: original lives lack direct served selectability. No observation-derived mask, raw JSON adapter, replay or inference.",
+  "real_access_gate": "Fixed-path bounded acceptance and separate renewed one-scan authorization receipts are required. v2 acceptance binds both rulings and exact source/tests/contract/inventory pins; the authorization binds same pins and the fixed fresh output. CLI reserves output create-only before extract_accepted verifies current pins and source identity. No real scan is executed during preparation. Prior never-retry authority does not transfer. The direct API also requires an empty exclusive regular-file reservation FD at the exact fixed output inode; it writes/fsyncs RESERVED before source access, preventing reuse. Output creation uses no-follow directory descriptors. Delegated receipt serialization is expressly authorized by RULING_V2 after finite synthetic/style checks, using final actual four pins. External 180-second command guard; parser 120 seconds, one process/thread. Reservation consumed on failure/interruption; preserve and seal; never retry automatically.",
+  "receipt_folder": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/f5-selected960-49fd1dfa",
+  "reconciliation": {
+    "current_evidence": null,
+    "on_refusal": "Refused.reconciliation preserves metadata ID sets, difference classifications and count contradictions. Redacted exception text contains no source identities. Gated CLI writes REFUSED metadata to the one fresh output and returns 2; no automatic retry.",
+    "policy": "Require every selected ID; refuse foreign IDs. Each of exactly nine frozen ordinary-only siblings may be absent or present with nonzero ordinary rows, within original caps; classify EXCLUDED_BY_PREDATA_AMENDMENT_PRESENT/ABSENT, never proven-zero. Validate container identity, ancestry, duplicate rows, statuses and caps before selected-ID filtering. Reconstruct selected/excluded union using pinned prior inventory serialized ID order and verify old canonical digest. Record exact source observed, selected expected/observed and excluded present/absent IDs and counts; no per-parent outcome diagnostics."
+  },
+  "reconciliation_ruling_sha256": "638372aab7eddcfd7eba5f1725ecb7824b25031c2c2232fbcf43e58efe17410f",
+  "renewed_authorization_schema": {
+    "authorized_by": "Astra via selected-960 ruling; mechanically materialized by Sol",
+    "decision": "AUTHORIZE_ONE_METADATA_SCAN",
+    "output_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/f5-selected960-49fd1dfa/scan.json",
+    "pins": "same four exact acceptance pins",
+    "reconciliation_ruling_sha256": "638372aab7eddcfd7eba5f1725ecb7824b25031c2c2232fbcf43e58efe17410f",
+    "schema": "bl-f5-renewed-scan-authorization/v1"
+  },
+  "schema": "bl-f5-status-extractor-contract/v5",
+  "serialization": {
+    "NPY_versions": [
+      [
+        1,
+        0
+      ],
+      [
+        2,
+        0
+      ]
+    ],
+    "arrays": "C-order, bool |b1; Unicode little-endian <U; no objects, bytestrings or structured dtypes",
+    "exact_members": [
+      "action_mask.npy",
+      "bare.npy",
+      "died.npy",
+      "global.npy",
+      "legal.npy",
+      "life_id.npy",
+      "local.npy",
+      "mass.npy",
+      "natural_stream.npy",
+      "ordinary.npy",
+      "parent_world.npy",
+      "q.npy",
+      "row_id.npy",
+      "sampling_prob.npy",
+      "sampling_weight.npy",
+      "scalars.npy",
+      "status.npy"
+    ],
+    "export_status_enum": [
+      "EXACT",
+      "NONEXACT"
+    ],
+    "format": "np.savez compressed/stored NPZ; seventeen independent NPY members",
+    "opened_members": [
+      "action_mask.npy",
+      "legal.npy",
+      "life_id.npy",
+      "natural_stream.npy",
+      "ordinary.npy",
+      "parent_world.npy",
+      "row_id.npy",
+      "status.npy"
+    ],
+    "status_enum": [
+      "EXACT",
+      "NOT_EVALUATED",
+      "UNKNOWN"
+    ],
+    "unopened_members": [
+      "bare.npy",
+      "died.npy",
+      "global.npy",
+      "local.npy",
+      "mass.npy",
+      "q.npy",
+      "sampling_prob.npy",
+      "sampling_weight.npy",
+      "scalars.npy"
+    ]
+  },
+  "source_files": [
+    {
+      "correspondence_source": "research/bl_residual/f4_d1024_package.py",
+      "pack_commit": "de5bde2d7866eb6cd01060f7c2fe4ed8d1253759",
+      "pack_metadata_sha256": "ee84de223246131d7468c115bf0158f3c656ab5834e8bc502d7d3b39f9a3e6ff",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/f4/d1024-pack-04/inputs/train-1024.npz",
+      "schema_source": "research/bl_residual/f4_d256_package.py::_table",
+      "sha256": "6906bffc7241de568965c1a91f4faebe799895ee0b4650e59b20e43db1dac494",
+      "size": 45397643
+    }
+  ],
+  "status": "RATIFIED_SELECTED960_PENDING_FINITE_IMPLEMENTATION_CHECKS",
+  "synthetic_helper": "Only OS-tempfile fixtures. Real source lies outside that tree; excluded paths and symlink ancestors fail before input open.",
+  "training_support_estimand": {
+    "COV": "All original ordinary rows of selected lives; enumerate every physically legal served-selectable NONEXACT action without truncation. U_scan is not R4 U_unknown and cannot select a mechanism or revise historical aggregate C,U,H,C_low.",
+    "batch_plan": "Generate common life-uniform batch plan once over remaining nonempty groups per stratum before completion/fitting. Assign no mass to absent ordinary groups.",
+    "corpus": "Exactly frozen selected 960 lives in BOTH arms; nine ordinary-only siblings excluded from frozen corpus, ordinary KL, ordinary growth, ordinary survival-pair terms (including W weighting) and sampling regardless of presence/status/rows/outcomes.",
+    "limitation": "Narrower training-support estimand; ordinary-life sampling probabilities and attainable preservation may change. No nine-sibling preservation or equivalence to historical 969-life objective claimed.",
+    "unchanged": "Loss definitions, coefficients, pair denominators, seed 3403, 2000 updates, 128+128 stratum sampling; fresh natural-ordinary validation, harm archive, thresholds, sample sizes, exclusions and release rules. Original replay/continuation and exact-label preservation remain binding."
+  }
+}
