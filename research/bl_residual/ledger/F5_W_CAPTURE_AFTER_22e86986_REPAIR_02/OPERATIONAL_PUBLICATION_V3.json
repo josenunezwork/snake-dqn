@@ -1,0 +1,40 @@
+{
+  "acceptance": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/ACCEPT_F5_W_IMPLEMENTATION_a840fc2c.md",
+    "sha256": "8c87cfadbee33c709c357d52109981c5c78c361b6ea86432fa16a6fca05d0826",
+    "size": 13727
+  },
+  "allocation_calls": 0,
+  "created_utc": "2026-10-26T06:58:20.528157+00:00",
+  "dispatches": 0,
+  "exact_dispatch_command": "/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh bl-f5-w-capture-repair-22e86986-02 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/environment-capture.json --broker /Users/josenunez/Projects/ml/snake-dqn-f5w --cwd /Users/josenunez/Projects/ml/snake-dqn-f5w --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/state-02 --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/DISPATCH.txt",
+  "implementation_commit": "a840fc2cf54aea4ee324bcc98a84a7fa6b4611bc",
+  "main_ledger_path": "research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02",
+  "manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/environment-capture.json",
+    "sha256": "179a03d1b1ef0bb5094db6be3c304cbcb19ad77ed8f170b601190634a00022a3",
+    "size": 35521
+  },
+  "numerical_outcome_look_authorized": false,
+  "original_hold_bytes_unchanged": true,
+  "owner_ruling": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/OWNER_RULING_COLAB_BUDGET_20261025.txt",
+    "sha256": "48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d",
+    "size": 288
+  },
+  "package_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02",
+  "package_seal": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/PACKAGE_SEAL_OPERATIONAL_V3.json",
+    "sha256": "a6c52b7875356a40734c1ac18343b4216d76753071a2aba4535a9faced924e8e",
+    "size": 25889
+  },
+  "prior_attempt_elapsed_seconds": 421.83044687495567,
+  "release_authorized": false,
+  "schema": "bl-f5-w-attempt02-operational-publication/v3",
+  "scientific_fit_authorized": false,
+  "source_archive_members": 200,
+  "source_pin_count": 192,
+  "status": "SEALED_CAPTURE_TRANSPORT_ONLY_NOT_DISPATCHED",
+  "timeout_minutes": 30,
+  "verification": "130 passed, 1 CUDA skip; broker qualification/validation PASS; wrapper PASS_DRY_RUN allocations=0 live_accounting=NOT_CHECKED; separate fresh OAuth2 zero-assignment account preflight."
+}

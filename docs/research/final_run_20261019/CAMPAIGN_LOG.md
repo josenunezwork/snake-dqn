@@ -1429,3 +1429,37 @@ No Colab calls or live dispatch; no excluded scientific payloads were opened.
 | 2026-10-25 17:40 PT | **F4 post-mortem exporter ACCEPTED (gated); F5 adoption HOLD on R10a annex gaps** | Exporter: Sol a31a1d54/7f3c0857 → Astra FIX-FIRST (published-binding-only parsing; hard watchdog) → 1fe60c99 → FIX-FIRST (stale-PID race) → **69b14c95 ACCEPT** (ACCEPT_F4_POSTMORTEM_69b14c95…), runnable only after F5 is ADOPTED and published. F5: draft v2 6aeda9e6… → independent judge REVISE (needs R10a metadata annex at adoption) → Sol annex c13d8b28 (684 parents = 672 science + 12 timing; 960 lives/372 parents; 29 census parents + descendants and 167 fold-0 excluded; D4096 excluded) with gaps: COV count U unknown, original runtime identities incomplete, collision audit partial (3,024 seeds). Astra JUDGMENT_F5_R10A_GAP_CLOSURE (d6e2f029…): status-only COV extractor (never decodes outcomes) after independent acceptance; runtime identities from contemporaneous metadata; complete historical collision catalog; U must be closed (ceiling-only needs a separate amendment) → sol-f5closure. |
 | 2026-10-25 19:00 PT | **Notes cleanup published; F5 status scan U=0; adoption HOLD on 2 items** | Owner-requested notes pipeline (1 Fable → 10 Opus fact sheets → 14 Astra writers) published docs/notes/ (adfbdd6d: 14 topic notes + README/STYLE/GLOSSARY, ~2,000 citations; flagged conflicts/unsourced rules listed in the coordinator report). F5: status-scan refusal (969 frozen IDs vs observed) → Astra ratified path (a): drop the 9 ordinary-only siblings pre-data (f5-selected960-49fd1dfa/RULING_V2.md) → Sol f64b7ac7 + receipts → Astra conformance → **scan: count_U = 0** (519,138 action units, 960 lives, 86,523 rows; U inventory 37517e5f…). Astra JUDGMENT_F5_ADOPTION_REMAINING (e74e8f32…): HOLD on collision closure (register reconciliation + sealed first clear whole-684 round + custodian certificate) and a pinned common F5 environment/RNG amendment; U_scan=0 ⇒ COV cannot be selected (P/W or HOLD_NO_TARGET). → sol-f5collenv. |
 | 2026-10-25 20:30 PT | **F5 adopted (exploratory) → F4 post-mortem → F5 selects W** | D4096 seeds added to the collision catalog (Sol dfa5183a: 1,447,055 seeds; whole-684 round 0 clear, 0 D4096 collisions). Astra rejected the "paired cancels history" argument as stated but issued the minimal step: F5_EXPLORATORY_SCREENING_AMENDMENT (9b2ad9e7…) accepting unresolved historical-overlap risk for both contrasts, exploratory screening only, confirmatory claims reserved for an independently audited fresh-bank test → **F5 ADOPTED** (F5_REGISTRATION_ADOPTED_20261025.md 4e218263…; published 1e968236). Then F4 post-mortem ran once (f4-postmortem-harm-20261025-01, pin 69b14c95; sealed b015c03e…; published f4a7d8dc before read; VERIFIED_COMPLETE): **D1024 H=19 (19 confirmed / 0 unknown; 560 natural rows, 541 changed actions; margin bins 0/1/11/7; 11/29 parents, max 4)**; D256 H=20 (bins 0/3/6/11; 10/29 parents). F5 frozen selector: U=0 < C=19; C_low=1; 2×1 < 19 → **W** (4× weight on ordinary B8-exact-survivor / alternative-exact-dier pairs, original denominator). Selection receipt F5_SELECTION_W_20261025… published. Next: Sol builds W vs matched control (seed 3403, 2,000 updates, shared batches); gates: one-difference/source/batch-plan review, synthetic/parity/resume tests, sealed timing qualification, packet acceptance, then offline admission → H5000 → Watch6. Exploratory only; F4 STOP_FUNDING stands; no release authorized. |
+
+
+### 2026-10-25 — F5 W a840fc2c accepted; attempt-02 operational v3 sealed (no dispatch)
+
+Astra `ACCEPT_F5_W_IMPLEMENTATION_a840fc2c.md` SHA256 `8c87cfadbee33c709c357d52109981c5c78c361b6ea86432fa16a6fca05d0826`
+accepts implementation `a840fc2cf54aea4ee324bcc98a84a7fa6b4611bc` and prospectively freezes environment receipt v3
+`6063cf7db787757318228d2bd20c53a4b6303ea19e736bf13c1bbe091fbecb6b`.
+Owner ruling SHA256 `48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d`: "budget isnt important pretendit doesnt exist for colab".
+The preserved attempt-02 budget-only HOLD is superseded for admission; original draft, HOLD,
+accounting, envelope and old seal bytes remain unchanged. Attempt-01 elapsed
+421.83044687495567 seconds and its terminal accounting/release evidence remain disclosed;
+observed account debit stays separate from elapsed-rate integration and final billing is not invented.
+
+Create-only operational package: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02`; ledger mirror
+`research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/OPERATIONAL_PUBLICATION_V3.json`.
+New seal SHA256 `a6c52b7875356a40734c1ac18343b4216d76753071a2aba4535a9faced924e8e`; executable manifest
+SHA256 `179a03d1b1ef0bb5094db6be3c304cbcb19ad77ed8f170b601190634a00022a3`. Job `bl-f5-w-capture-repair-22e86986-02` uses fresh
+`output-02/` and `state-02/` (both absent), a 15/30-minute base/effective runaway guard,
+five-minute forecast, one L4 >=6 vCPUs, the accepted 69-wheel cu126 lock, all 192 source pins,
+exactly B8 + final-06 fixtures + bootstrap-control uploads and all eight producer exports.
+Technical cap/reserve base 1.0/0.5 units become effective 2.0/1.0 under the 2x rule,
+at a 2.0 u/hr ceiling (registered/prior observed L4 rate 1.54); fresh allocation calibration
+remains required. These fields are runaway guards, not scientific budgets.
+
+Fresh OAuth2 read-only preflight: zero sessions/assignments, rate 0, balance 1067.08.
+Broker and pin transport qualification PASS; real broker validation PASS; 200-member sparse
+archive verified; focused serial nice-15 CPU tests **130 passed, 1 real-CUDA skip** in 78.41 s.
+Wrapper evidence: `PASS_DRY_RUN bl-f5-w-capture-repair-22e86986-02 allocations=0 live_accounting=NOT_CHECKED`
+(the fresh account proof is separate). No automatic retry, allocation, runtime, science fit,
+numerical outcome look, serving or release. One operator dispatch may follow publication via
+the exact command in the new `DISPATCH.txt`. Capture/CUDA transport only; inclusive 150/300-second
+transfer/staging bars and all identity/lease/export/release checks remain binding. Fitting still
+requires actual L4 plan/RNG, full timing/feasibility/inventory canary, verified ledger and separate
+`ACCEPT_F5_FIT`; the sole registered numerical-look token remains unconsumed.

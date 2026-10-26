@@ -1,0 +1,20 @@
+ADMITTED: one operator dispatch after operational sealing and main-ledger publication.
+Capture plus genuine CUDA transport qualification only. Scientific fitting, numerical outcome reads, serving and release are not authorized.
+The preserved budget-only HOLD is superseded prospectively by the bound owner ruling and Astra acceptance; older draft files remain historical evidence.
+No further budget approval is required. No automatic allocation or job retry. This instruction does not execute the command.
+Acceptance: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/ACCEPT_F5_W_IMPLEMENTATION_a840fc2c.md SHA256 8c87cfadbee33c709c357d52109981c5c78c361b6ea86432fa16a6fca05d0826
+Owner ruling: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/OWNER_RULING_COLAB_BUDGET_20261025.txt SHA256 48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d
+Manifest: /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/environment-capture.json SHA256 179a03d1b1ef0bb5094db6be3c304cbcb19ad77ed8f170b601190634a00022a3
+Job: bl-f5-w-capture-repair-22e86986-02
+State (fresh): /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/state-02
+Output (fresh): /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/output-02
+Implementation: a840fc2cf54aea4ee324bcc98a84a7fa6b4611bc
+30-minute effective timeout; base 15 minutes x2. Five-minute forecast only. Attempt-01 elapsed disclosed in full: 421.83044687495567 seconds.
+Qualified broker/ops wrapper, OAuth2, one L4 >=6 vCPU, lease fencing and 2-GiB verified immutable export bound. Exactly B8, final-06 timing fixtures and bootstrap control are uploaded.
+All eight producer exports remain required. Paired bootstrap calibration envelopes retain unusable-as-science markers. All twelve disjoint fixtures need source-native six-action CUDA observer/parity proof.
+Inclusive transfer <=150 seconds and whole staging <=300 seconds, source/fixture parity, scanner, upload/export recovery and runtime-release verification remain mandatory.
+After capture publish full raw v3 receipt, CUDA/observer/transport results, Mac hash-verified exports, terminal receipt and independent runtime disappearance proof. CLI exit alone does not prove success.
+Before fitting require actual L4 2000x256 plan/RNG, current-source L4/Mac timing/feasibility, full science inventory and matching canary, verified ledger and separate ACCEPT_F5_FIT. Numerical reads retain the sole registered look token.
+
+Exact operator command:
+/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.sh bl-f5-w-capture-repair-22e86986-02 /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/environment-capture.json --broker /Users/josenunez/Projects/ml/snake-dqn-f5w --cwd /Users/josenunez/Projects/ml/snake-dqn-f5w --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/state-02 --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/DISPATCH.txt

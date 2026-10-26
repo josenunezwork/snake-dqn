@@ -1,0 +1,427 @@
+{
+  "acceptance": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/ACCEPT_F5_W_IMPLEMENTATION_a840fc2c.md",
+    "sha256": "8c87cfadbee33c709c357d52109981c5c78c361b6ea86432fa16a6fca05d0826",
+    "size": 13727
+  },
+  "allocation_calls": 0,
+  "consistency_checks": {
+    "accepted_source_and_input_hashes": true,
+    "all_new_sidecars_and_completion_markers": true,
+    "broker_qualification_and_validation": true,
+    "dry_run": "PASS_DRY_RUN bl-f5-w-capture-repair-22e86986-02 allocations=0 live_accounting=NOT_CHECKED",
+    "focused_tests": "130 passed, 1 real-CUDA test skipped",
+    "immutable_predecessors_unchanged": true,
+    "manifest_raw_and_canonical_identity": true,
+    "wrapper_no_automatic_retry": true
+  },
+  "created_utc": "2026-10-26T06:58:20.483790+00:00",
+  "dispatches": 0,
+  "environment_schema": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/f5_environment_schema_v3.json",
+    "sha256": "6063cf7db787757318228d2bd20c53a4b6303ea19e736bf13c1bbe091fbecb6b",
+    "size": 18788
+  },
+  "files": {
+    "ACCEPT_F5_W_IMPLEMENTATION_a840fc2c.md": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/ACCEPT_F5_W_IMPLEMENTATION_a840fc2c.md",
+      "sha256": "8c87cfadbee33c709c357d52109981c5c78c361b6ea86432fa16a6fca05d0826",
+      "size": 13727
+    },
+    "ACCEPT_F5_W_IMPLEMENTATION_a840fc2c.md.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/ACCEPT_F5_W_IMPLEMENTATION_a840fc2c.md.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "ACCEPT_F5_W_IMPLEMENTATION_a840fc2c.md.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/ACCEPT_F5_W_IMPLEMENTATION_a840fc2c.md.sha256",
+      "sha256": "1b9e35bdcf25fa33db5989c34e7e18f0fe4a90fa01df73e7d7091295b7f549e3",
+      "size": 105
+    },
+    "DISPATCH.txt": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/DISPATCH.txt",
+      "sha256": "842ff95eba0c878ac53503209238b6d1cb714d3f227b282c71149879a50fb7bf",
+      "size": 3306
+    },
+    "DISPATCH.txt.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/DISPATCH.txt.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "DISPATCH.txt.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/DISPATCH.txt.sha256",
+      "sha256": "6e88cad0439ba6dc51678ec06accdba43276d82d869af27b1c2a16f75ac6b814",
+      "size": 79
+    },
+    "OWNER_RULING_COLAB_BUDGET_20261025.txt": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/OWNER_RULING_COLAB_BUDGET_20261025.txt",
+      "sha256": "48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d",
+      "size": 288
+    },
+    "OWNER_RULING_COLAB_BUDGET_20261025.txt.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/OWNER_RULING_COLAB_BUDGET_20261025.txt.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "OWNER_RULING_COLAB_BUDGET_20261025.txt.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/OWNER_RULING_COLAB_BUDGET_20261025.txt.sha256",
+      "sha256": "c482151f748332de060a8cd2ebb6ff8e16a10e5aaa4899cf4021422cbaa20586",
+      "size": 105
+    },
+    "accounting-owner-ruling.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/accounting-owner-ruling.json",
+      "sha256": "4cce02ff8496901604e2a0995ce5b52202314424e1be1dd59f907dd89ef7c700",
+      "size": 5628
+    },
+    "accounting-owner-ruling.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/accounting-owner-ruling.json.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "accounting-owner-ruling.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/accounting-owner-ruling.json.sha256",
+      "sha256": "dfe6e3818ac92754ecf52657fe0d31c38603a5bb26de7c4c676b12544d8d5d10",
+      "size": 95
+    },
+    "bindings-v3.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/bindings-v3.json",
+      "sha256": "78fb1301d29288b251c12d2876c4b0c2bf859d4822c9760a44b9ec5505d3dfa4",
+      "size": 43700
+    },
+    "bindings-v3.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/bindings-v3.json.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "bindings-v3.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/bindings-v3.json.sha256",
+      "sha256": "704f666990cd4ebd1114e160b33862962f95196db5ae2e10ae3ec8f60db06dde",
+      "size": 83
+    },
+    "broker-validation.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/broker-validation.json",
+      "sha256": "f17a35e8d7b63bc8e24f2a8ba4e2e8d1a17fa8bc934054100b6472c6bdccf756",
+      "size": 40087
+    },
+    "broker-validation.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/broker-validation.json.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "broker-validation.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/broker-validation.json.sha256",
+      "sha256": "d0e0906c1ca6a6d1aeebe4c44195edbdd0b8485a15ee10c829ca46b3d3601e80",
+      "size": 89
+    },
+    "cumulative-envelope-owner-ruling.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/cumulative-envelope-owner-ruling.json",
+      "sha256": "d7823ca640d964df0dae2c7fce431efe923d4a6be7400b69d2a1bb090702e38d",
+      "size": 5184
+    },
+    "cumulative-envelope-owner-ruling.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/cumulative-envelope-owner-ruling.json.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "cumulative-envelope-owner-ruling.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/cumulative-envelope-owner-ruling.json.sha256",
+      "sha256": "c12b78cb8573e09fb0d1e09031b2474e7fcf001cd8397becc095ce2254d9dab7",
+      "size": 104
+    },
+    "dispatch-dry-run.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/dispatch-dry-run.json",
+      "sha256": "d426bd76e984d351dbdeb31546b65632328fb3a3af0260c87f7113d4d317d355",
+      "size": 2119
+    },
+    "dispatch-dry-run.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/dispatch-dry-run.json.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "dispatch-dry-run.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/dispatch-dry-run.json.sha256",
+      "sha256": "5bc1e55b39d751bd51d6c47fe8850b1622d83c99a3ea0023d79106305744f2af",
+      "size": 88
+    },
+    "environment-capture.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/environment-capture.json",
+      "sha256": "179a03d1b1ef0bb5094db6be3c304cbcb19ad77ed8f170b601190634a00022a3",
+      "size": 35521
+    },
+    "environment-capture.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/environment-capture.json.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "environment-capture.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/environment-capture.json.sha256",
+      "sha256": "b86487127af90428070d0d73c72c8929e1b0bfc70633333331c50fdea37f76a2",
+      "size": 91
+    },
+    "independent-verification.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/independent-verification.json",
+      "sha256": "74c071f9a3fca30033bd10529e9e4566711d3ca003980200abef81698f533548",
+      "size": 2108
+    },
+    "independent-verification.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/independent-verification.json.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "independent-verification.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/independent-verification.json.sha256",
+      "sha256": "83de489cb458d46e08e3bbb12ad03afa82971babebc0fae0b1dbfc19edec7185",
+      "size": 96
+    },
+    "live-account-preflight.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/live-account-preflight.json",
+      "sha256": "004ba355284c3ba744af1f99f80f50c95ff2c4d2e076d2362f2c3e608179bece",
+      "size": 3593
+    },
+    "live-account-preflight.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/live-account-preflight.json.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "live-account-preflight.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/live-account-preflight.json.sha256",
+      "sha256": "8e72cbfa7f98d0f37dcf0fdcc2d57b5ac7e0285794a2955532a7500d8c5c5c49",
+      "size": 94
+    },
+    "operational-tests.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/operational-tests.json",
+      "sha256": "3c24f2663086148874d45b75d133b67fe7ebe8947d4175bc31cd70a14e136c4b",
+      "size": 1054
+    },
+    "operational-tests.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/operational-tests.json.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "operational-tests.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/operational-tests.json.sha256",
+      "sha256": "32137f2d39b6c5e7c4af37561f7fc20d5cda0158b82393e663ebf79752d11125",
+      "size": 89
+    },
+    "operational-tests.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/operational-tests.log",
+      "sha256": "f704afc182925bc5ee63d53673432cad7ccb765c641db8bdd53acd59e664ddf1",
+      "size": 1097
+    },
+    "operational-tests.log.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/operational-tests.log.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "operational-tests.log.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/operational-tests.log.sha256",
+      "sha256": "d5343892a0b48ec6d8f6c680638e46a2d4d0e15d997ab16eba4ae2a9c6aa3291",
+      "size": 88
+    },
+    "source-preflight-artifacts/schema-validation.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight-artifacts/schema-validation.json",
+      "sha256": "be84670514c2d61d239adb8b3e010d091f241de5ac6e7e7c2ed52a7c28f91c10",
+      "size": 418
+    },
+    "source-preflight-artifacts/schema-validation.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight-artifacts/schema-validation.json.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "source-preflight-artifacts/schema-validation.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight-artifacts/schema-validation.json.sha256",
+      "sha256": "32621b2259f9380f73ba17fcbfa96f273cf437d79bbb6fe4218e6a597759e349",
+      "size": 89
+    },
+    "source-preflight-artifacts/source-plan.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight-artifacts/source-plan.json",
+      "sha256": "e55844e4d035181804a359fcbd03eb4b9bdd0fcb2122dafade4238b9e73eefc3",
+      "size": 43443
+    },
+    "source-preflight-artifacts/source-plan.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight-artifacts/source-plan.json.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "source-preflight-artifacts/source-plan.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight-artifacts/source-plan.json.sha256",
+      "sha256": "817f8cefe7109286294d600e27f9bc9c6acd864711fb71b6e292302438f06fb9",
+      "size": 83
+    },
+    "source-preflight-artifacts/source.tar.gz": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight-artifacts/source.tar.gz",
+      "sha256": "8ea63431519110cdb914c72897787a7965d757da6d86a2a2934cd19b0c682074",
+      "size": 926880
+    },
+    "source-preflight-artifacts/source.tar.gz.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight-artifacts/source.tar.gz.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "source-preflight-artifacts/source.tar.gz.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight-artifacts/source.tar.gz.sha256",
+      "sha256": "04ec733bb59ac52c8b6886c815debd8a5da692c804edb2b2320fe3df0ca2eead",
+      "size": 80
+    },
+    "source-preflight.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight.json",
+      "sha256": "9e72abe212f9da4f5263c69cb2780d75c7357a88ea91ebadd6aa3527a8140da3",
+      "size": 57617
+    },
+    "source-preflight.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight.json.complete",
+      "sha256": "a4bccf5c13ef5ff8311e59b34d492bc7072a55298723601a6a9c127053aee8fc",
+      "size": 9
+    },
+    "source-preflight.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight.json.sha256",
+      "sha256": "925494d36a0d4c106f78895e39518268eb08ec6c29236017b9adafd1b365904e",
+      "size": 88
+    }
+  },
+  "guards": {
+    "base_reserve_units": 0.5,
+    "base_timeout_minutes": 15,
+    "base_unit_cap": 1.0,
+    "effective_reserve_units": 1.0,
+    "effective_timeout_minutes": 30,
+    "effective_unit_cap": 2.0,
+    "estimate_minutes": 5,
+    "estimate_status": "INHERITED_FORECAST_NOT_MEASURED_CUDA_FEASIBILITY",
+    "owner_multiplier": 2,
+    "rate_units_per_hour_ceiling": 2.0,
+    "registered_L4_rate_units_per_hour": 1.54,
+    "timeout_rate_charge_units": 1.0,
+    "unit_cap_includes_cleanup_margin": true
+  },
+  "immutable_predecessors": {
+    "HOLD.md": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/HOLD.md",
+      "sha256": "fa9654efa0187f4588372493f56114be61afbed2307bbd355d23ee450e30af4a",
+      "size": 3833
+    },
+    "HOLD.md.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/HOLD.md.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "HOLD.md.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/HOLD.md.sha256",
+      "sha256": "0eb79658f9b9b8ca060a048d37e4f40a86c02fa1bf99f8fb5f4d640241d4de1b",
+      "size": 74
+    },
+    "PACKAGE_SEAL.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/PACKAGE_SEAL.json",
+      "sha256": "7f0d471cce823ca7f163c0c72ddf1d882d90d3538ac6ce1a06f7753913dadbb4",
+      "size": 1840
+    },
+    "PACKAGE_SEAL.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/PACKAGE_SEAL.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "PACKAGE_SEAL.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/PACKAGE_SEAL.json.sha256",
+      "sha256": "8e5211d2e832e0b7acf9fc8e4acb7a42b640b2cce899c391e7f58d8b22cb59fb",
+      "size": 84
+    },
+    "accounting.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/accounting.json",
+      "sha256": "29297d5291aed32f563930669379da31a60b89f5f36af70b640f566bae949d94",
+      "size": 5396
+    },
+    "accounting.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/accounting.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "accounting.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/accounting.json.sha256",
+      "sha256": "e9c5efd78ce99acb3680b1401871afbf5a2592eb3b82c332a66ca9793e76720c",
+      "size": 82
+    },
+    "cumulative-envelope.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/cumulative-envelope.json",
+      "sha256": "8c6b9819a9b59ecf4b83aab15169462d4342064b936ddb8f4f73c8337a0ea8b9",
+      "size": 2331
+    },
+    "cumulative-envelope.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/cumulative-envelope.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "cumulative-envelope.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/cumulative-envelope.json.sha256",
+      "sha256": "61379383e8af3c249b59b84c5779e2f9a939922e0130f5ad86855256c97f2713",
+      "size": 91
+    },
+    "environment-capture.draft.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/environment-capture.draft.json",
+      "sha256": "35e657d29bffd02aed41047799db42c922943208e978d4ddfb1c0e9362e22c6d",
+      "size": 13837
+    },
+    "environment-capture.draft.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/environment-capture.draft.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "environment-capture.draft.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/environment-capture.draft.json.sha256",
+      "sha256": "160f0e6566b9ef83cda5e71ef0817865ea10b53202c1a7f184c7060ae4401b9d",
+      "size": 97
+    },
+    "offline-verification.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/offline-verification.json",
+      "sha256": "82986efd9102685494f11b1d733e7135fdca7d59f930584fc9476a3a7940cf0a",
+      "size": 972
+    },
+    "offline-verification.json.complete": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/offline-verification.json.complete",
+      "sha256": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+      "size": 9
+    },
+    "offline-verification.json.sha256": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/offline-verification.json.sha256",
+      "sha256": "f663ea20b8bb3c9010170f8c3609d99486e47c0286a1b09b0cf3bcb56c6657a2",
+      "size": 92
+    }
+  },
+  "implementation_commit": "a840fc2cf54aea4ee324bcc98a84a7fa6b4611bc",
+  "job_id": "bl-f5-w-capture-repair-22e86986-02",
+  "manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/environment-capture.json",
+    "sha256": "179a03d1b1ef0bb5094db6be3c304cbcb19ad77ed8f170b601190634a00022a3",
+    "size": 35521
+  },
+  "manifest_canonical_sha256": "df341139efc834f575177d51b40f335db54c34966801c2d55d1e4ad237444696",
+  "numerical_outcome_looks": 0,
+  "original_budget_only_hold_superseded_for_admission": true,
+  "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/output-02",
+  "output_observed_absent": true,
+  "owner_ruling": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/OWNER_RULING_COLAB_BUDGET_20261025.txt",
+    "sha256": "48df0ca878dea69a6e0608946f8770cd56e7d017d79890b9566ab31debba767d",
+    "size": 288
+  },
+  "package_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02",
+  "prior_elapsed_seconds": 421.83044687495567,
+  "publication_required_before_operator_dispatch": true,
+  "schema": "bl-f5-capture-operational-package-seal/v3",
+  "schema_validation_hash_semantics": "research.colab_cli.source.prepare hashes canonical parsed JSON with sort_keys=True,separators=(comma,colon); outer manifest reference hashes exact serialized file bytes including whitespace/newline. Both independently verified against the same current manifest.",
+  "scientific_fits": 0,
+  "scope": {
+    "automatic_retries": false,
+    "capture_and_cuda_transport_only": true,
+    "numerical_outcome_look_authorized": false,
+    "release_authorized": false,
+    "scientific_fit_authorized": false
+  },
+  "seal_self_reference": "Seal is excluded from its own files inventory; exact seal bytes bound by sibling SHA256 and main-ledger publication.",
+  "source_paths_count": 194,
+  "source_paths_note": "192 accepted packet source pins plus separately hash-bound frozen lock and common environment files",
+  "source_pin_count": 192,
+  "state_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/state-02",
+  "state_observed_absent": true,
+  "status": "SEALED_ADMITTED_CAPTURE_TRANSPORT_ONLY",
+  "validated_archive_members": 200
+}

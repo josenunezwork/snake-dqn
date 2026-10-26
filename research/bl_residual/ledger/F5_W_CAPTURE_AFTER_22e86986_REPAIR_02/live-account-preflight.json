@@ -1,0 +1,91 @@
+{
+  "account_assignment_cap": 3,
+  "account_assignments": 0,
+  "active_broker_records": [],
+  "allocation_calls": 0,
+  "auth": "oauth2",
+  "calls": [
+    {
+      "argv": [
+        "/Users/josenunez/.local/bin/colab",
+        "--auth",
+        "oauth2",
+        "version"
+      ],
+      "exit_code": 0,
+      "finished_utc": "2026-10-26T06:53:24.201993+00:00",
+      "started_utc": "2026-10-26T06:53:23.986808+00:00",
+      "stderr": "",
+      "stdout": "Version: 0.7.4\n"
+    },
+    {
+      "argv": [
+        "/Users/josenunez/.local/bin/colab",
+        "--auth",
+        "oauth2",
+        "sessions"
+      ],
+      "exit_code": 0,
+      "finished_utc": "2026-10-26T06:53:24.787336+00:00",
+      "started_utc": "2026-10-26T06:53:24.202008+00:00",
+      "stderr": "",
+      "stdout": "\n[colab] A new version of Colab CLI is available: 0.7.5 (current: 0.7.4)\n[colab] Run 'colab update' to update.\n[colab] To silence this check, set \"enable_update_check\": false in ~/.config/colab-cli/settings.json\n\n[colab] No active sessions found on server.\n"
+    },
+    {
+      "argv": [
+        "/Users/josenunez/.local/bin/colab",
+        "--auth",
+        "oauth2",
+        "usage"
+      ],
+      "exit_code": 0,
+      "finished_utc": "2026-10-26T06:53:25.248667+00:00",
+      "started_utc": "2026-10-26T06:53:24.787356+00:00",
+      "stderr": "",
+      "stdout": "\n[colab] A new version of Colab CLI is available: 0.7.5 (current: 0.7.4)\n[colab] Run 'colab update' to update.\n[colab] To silence this check, set \"enable_update_check\": false in ~/.config/colab-cli/settings.json\n\nCurrent balance: 1067.08 compute units\nUsage rate: 0.00/hr\nActive assignments: 0\n"
+    },
+    {
+      "argv": [
+        "/Users/josenunez/.local/bin/colab",
+        "--auth",
+        "oauth2",
+        "sessions"
+      ],
+      "exit_code": 0,
+      "finished_utc": "2026-10-26T06:53:25.682213+00:00",
+      "started_utc": "2026-10-26T06:53:25.248701+00:00",
+      "stderr": "",
+      "stdout": "\n[colab] A new version of Colab CLI is available: 0.7.5 (current: 0.7.4)\n[colab] Run 'colab update' to update.\n[colab] To silence this check, set \"enable_update_check\": false in ~/.config/colab-cli/settings.json\n\n[colab] No active sessions found on server.\n"
+    }
+  ],
+  "dispatch_rechecks_live_account_under_lock": true,
+  "observed_utc": "2026-10-26T06:53:25.682854+00:00",
+  "other_assignments": {},
+  "own_rate_freshly_measured": false,
+  "own_rate_rule": "Actual new L4 rate requires broker calibration after allocation; ceiling 2.0 exceeds registered/prior 1.54; unexplained rate or identity mismatch refuses.",
+  "pending_broker_records": [],
+  "prior_L4_observed_rate_units_per_hour": 1.54,
+  "prior_measurement": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/research/bl_residual/ledger/F5_W_CAPTURE_AFTER_22e86986_REPAIR_01/output-01/receipt.json",
+    "sha256": "ac4ed564263cf2f2374cb060dfb402fe1f8e7f05b86f2f5ee8f7a9a66728494c",
+    "size": 58509
+  },
+  "qualified_registry": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/colab-cli-qualified.json",
+    "sha256": "579e9638c23692352a5f0c0467a9abbe093cc820cc45cd52ec4f77900dbdd5bb",
+    "size": 521
+  },
+  "registered_L4_rate_units_per_hour": 1.54,
+  "registered_rate_source": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-f5w/tools/ops/dispatch.py",
+    "sha256": "4148c663a3451b90ffab76bd368cbb121a6fa64f493ad4cc2ee80ea30f77544e",
+    "size": 56557
+  },
+  "schema": "bl-f5-live-account-preflight/v1",
+  "status": "PASS",
+  "usage": {
+    "assignments": 0,
+    "balance": 1067.08,
+    "rate": 0.0
+  }
+}

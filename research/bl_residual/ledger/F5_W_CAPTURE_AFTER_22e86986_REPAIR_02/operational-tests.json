@@ -1,0 +1,36 @@
+{
+  "absolute_nice": 15,
+  "allocation_calls": 0,
+  "argv": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "-m",
+    "pytest",
+    "-n",
+    "0",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_bl_residual_f5_broker.py",
+    "tests/test_bl_residual_f5_capture.py",
+    "tests/test_ops_dispatch.py",
+    "tests/test_colab_cli_source.py"
+  ],
+  "environment": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "SNAKE_DQN_DEVICE": "cpu",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  },
+  "exit_code": 0,
+  "finished_utc": "2026-10-26T06:55:45.115397+00:00",
+  "log": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/operational-tests.log",
+    "sha256": "f704afc182925bc5ee63d53673432cad7ccb765c641db8bdd53acd59e664ddf1",
+    "size": 1097
+  },
+  "schema": "bl-f5-operational-tests/v1",
+  "started_utc": "2026-10-26T06:54:25.862634+00:00"
+}

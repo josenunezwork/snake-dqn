@@ -1,0 +1,31 @@
+{
+  "allocation_calls": 0,
+  "blocking_findings": [],
+  "created_utc": "2026-10-26T06:58:20.439727+00:00",
+  "files_changed": [],
+  "limitations": [
+    "Read-only offline package verification only; actual L4 CUDA, observer, transport bars and release remain unproved until operator capture."
+  ],
+  "manifest_canonical_sha256": "df341139efc834f575177d51b40f335db54c34966801c2d55d1e4ad237444696",
+  "manifest_raw_sha256": "179a03d1b1ef0bb5094db6be3c304cbcb19ad77ed8f170b601190634a00022a3",
+  "report": "Independent read-only verification PASS: 192 source pins match pinned Git objects and working files; all 200 source archive members match source-plan; all three input hashes match; all 18 immutable predecessor hashes and current sidecars match; OAuth2 zero-assignment account preflight and broker/pin qualification plus manifest validation pass; wrapper dry-run PASS allocations=0 live_accounting=NOT_CHECKED; output/state absent. An apparent schema-validation SHA discrepancy was independently resolved by source.py:207 canonical JSON hashing; no stale evidence.",
+  "reviewer": "/root/seal_verification",
+  "role": "verifier",
+  "schema": "bl-f5-independent-operational-verification/v1",
+  "source_archive": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight-artifacts/source.tar.gz",
+    "sha256": "8ea63431519110cdb914c72897787a7965d757da6d86a2a2934cd19b0c682074",
+    "size": 926880
+  },
+  "source_schema_validation": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/source-preflight-artifacts/schema-validation.json",
+    "sha256": "be84670514c2d61d239adb8b3e010d091f241de5ac6e7e7c2ed52a7c28f91c10",
+    "size": 418
+  },
+  "status": "PASS",
+  "test_results": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/F5_W_CAPTURE_AFTER_22e86986_REPAIR_02/operational-tests.json",
+    "sha256": "3c24f2663086148874d45b75d133b67fe7ebe8947d4175bc31cd70a14e136c4b",
+    "size": 1054
+  }
+}

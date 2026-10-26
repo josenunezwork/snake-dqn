@@ -1,0 +1,19 @@
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-f5w
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 131 items
+
+tests/test_bl_residual_f5_broker.py ......s                              [  5%]
+tests/test_bl_residual_f5_capture.py .......................             [ 22%]
+tests/test_ops_dispatch.py ............................................. [ 57%]
+...........................................                              [ 90%]
+tests/test_colab_cli_source.py .............                             [100%]
+
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_bl_residual_f5_broker.py:267: requires a real CUDA runtime
+================== 130 passed, 1 skipped in 78.41s (0:01:18) ===================
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!
+Exit: macOS OpenMP-isolated pytest finished
