@@ -1,10 +1,12 @@
 READY: Standing A100 Development Sandbox Job B, original attempt.
 Authority: docs/research/governance_a100_sandbox_20261026/ADOPTED.md.
-Runtime source b8c96f45123e22bb11ae684dba8e326b8b51b2e8 is published on main.
+Runtime source 4eaf9c0c8d3b42931824b29348e1ad079631041e is published on main.
 Run committed sandbox preflight and the offline broker dry-run before dispatch.
 Claude/operator alone performs dispatch and confirms current account capacity,
 separate assignment isolation, registered-study coexistence and calibrated rate.
-Finite endpoint: 60 configurations x 250 updates. Estimate10.3min; timeout20.6min.
-Development outputs only, tagged simulator-D. One frozen SHA crossing maximum.
-Retain original evidence. At most two outcome-blind completion attempts after
-verified mechanical failure, verified stop and missing units; fresh packet each.
+Finite endpoint: 60 configurations x 250 updates. Estimate 10.3500 min; timeout 20.7000 min.
+Entire development sweep executes once in native instrumented probe mode;
+no separate prerequisite timing canary or extra allocation. Development only.
+Outputs tagged simulator-D. One frozen SHA crossing maximum.
+At most two outcome-blind completion attempts after verified mechanical failure,
+verified stop and missing units; retain originals and prepare a fresh packet.

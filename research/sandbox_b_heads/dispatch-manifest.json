@@ -1,6 +1,6 @@
 {
   "job_id": "sandbox-b-heads-v1",
-  "commit": "b8c96f45123e22bb11ae684dba8e326b8b51b2e8",
+  "commit": "4eaf9c0c8d3b42931824b29348e1ad079631041e",
   "script": "research/sandbox_b_heads/run_job.sh",
   "source_paths": [
     "research/sandbox_b_heads/__init__.py",
@@ -33,9 +33,9 @@
       "A100"
     ],
     "min_vcpu": 4,
-    "est_minutes": 10.3
+    "est_minutes": 10.35
   },
-  "timeout_minutes": 20.6,
+  "timeout_minutes": 20.7,
   "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/a100-attempt-01",
   "inputs": [
     {
@@ -56,7 +56,7 @@
     {
       "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/dispatch-manifest-runtime-ledger.json",
       "dest": "verified-ledger.json",
-      "sha256": "0bd707f59e95eed11b420d6df71996618af202dc25b0a348694f6db78fcc27d2"
+      "sha256": "94e0ca29ec0c74265f7e1eef8a8489c0dd5ab6b18ff5305f9091a84f28b4b9d2"
     }
   ],
   "required_exports": [
@@ -75,18 +75,26 @@
   "env": {
     "SANDBOX_B_SALT": "a100-dev/sandbox-b/split-v1",
     "SNAKE_DQN_DEVICE": "cuda",
-    "COLAB_CLI_REQUIREMENTS": "research/sandbox_b_heads/requirements.txt"
+    "COLAB_CLI_REQUIREMENTS": "research/sandbox_b_heads/requirements.txt",
+    "SNAKE_COLAB_CANARY": "1",
+    "SNAKE_COLAB_CANARY_PACKAGE": "research/sandbox_b_heads"
   },
+  "canary": {
+    "schema": "colab-family-canary/v1",
+    "mode": "probe",
+    "family": "research/sandbox_b_heads/run_job.sh"
+  },
+  "sandbox_execution": "entire development sweep once; no prerequisite timing canary",
   "requirements_file": "research/sandbox_b_heads/requirements.txt",
   "budget": {
     "rate_units_per_hour": 8.0,
-    "unit_cap": 2.746666666666667,
+    "unit_cap": 2.76,
     "reserve_units": 0,
     "other_assignments": {}
   },
   "technical_envelope": {
-    "base_timeout_minutes": 10.3,
-    "effective_timeout_minutes": 20.6,
+    "base_timeout_minutes": 10.35,
+    "effective_timeout_minutes": 20.7,
     "includes_setup_and_export": true
   }
 }

@@ -1,6 +1,6 @@
 {
   "allocation": "split-v1",
-  "fingerprint": "90436dac967c22df7f4b4b2724cf382aa73dff6aca80b610dae515e3c10037d5",
+  "fingerprint": "ca79c0877a4d3d85afcec954c6e9fd5bbf1061caeec44a479ca45dfa3a8d8aac",
   "namespace": "a100-dev/sandbox-b/heads-v1",
   "recipe": {
     "algorithm": "frozen-b8-heads/v1",
@@ -70,7 +70,7 @@
     ],
     "data_sha256": "91647489f1f6d1f35e03dac6cec17da496d4c08de08f1bd8f27d0bf60b880e99",
     "implementation_sha256": {
-      "job.py": "0106d3a5962c000dcbf47a5d35c0a9714f0b2c7d435618dd4d3ec809779be549",
+      "job.py": "65f952c083fb9733bf3d0b098a6b2fa15b56d8ce04654137dde1162a8e06f889",
       "model.py": "50cc1d6e248637f1fee146345e9483be5714bec7c4c577f77f88f976348cb9d8",
       "resume.py": "6bcd27e1655634256f0342e1350813a8db54438e4b30c9ba472a1d93826c8093"
     },
