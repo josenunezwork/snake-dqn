@@ -1,0 +1,16 @@
+{
+  "canary_observations": [],
+  "export_scanner": {
+    "inventory": [],
+    "name": "runtime._exports"
+  },
+  "exports": [],
+  "finished_at": 1793034535.9431162,
+  "generation": "14d444261c974df893273178c70cc3b4",
+  "job_id": "bl-f5-family-canary-57a89e7d-20261026-01",
+  "last_traceback_line": "research.bl_residual.f5_environment.F5EnvironmentRefusal: F5 cross-assignment invariant environment differs",
+  "reason": null,
+  "returncode": 1,
+  "started_at": 1793033902.6585085,
+  "status": "failed"
+}

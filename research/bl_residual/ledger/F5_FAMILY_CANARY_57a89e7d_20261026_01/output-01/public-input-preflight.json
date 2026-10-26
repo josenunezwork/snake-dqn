@@ -1,0 +1,12 @@
+{
+  "inputs": [
+    {
+      "attempt": 1,
+      "bytes_per_second": 11770718.70027853,
+      "elapsed_seconds": 0.5574855000013486,
+      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "size_bytes": 6562005,
+      "url": "https://github.com/josenunezwork/snake-dqn/releases/download/s1-inputs-20261019/B8_s3_final.pth"
+    }
+  ]
+}

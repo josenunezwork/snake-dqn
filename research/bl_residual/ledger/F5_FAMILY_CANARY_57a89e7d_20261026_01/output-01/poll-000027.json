@@ -1,0 +1,32 @@
+{
+  "exports": [],
+  "job_log_tail": "2, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"startup\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"STARTED\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 0.0, \"fixtures_completed\": 0, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"admission\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"PHASE\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 0.109, \"fixtures_completed\": 0, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"fixture-load\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"PHASE\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 0.546, \"fixtures_completed\": 0, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"control-source-checks\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"PHASE\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 2.653, \"fixtures_completed\": 0, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"environment-capture\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"PHASE\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 60.021, \"fixtures_completed\": 0, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"environment-capture\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"HEARTBEAT\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 68.154, \"fixtures_completed\": 0, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"environment-compare\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"PHASE\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 77.702, \"failure_class\": \"F5EnvironmentRefusal\", \"fixtures_completed\": 0, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"environment-compare\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"FAILED\"}\n{\"device_roles\": {\"cpu\": \"source evaluator and CPU parity reference\", \"cuda\": \"B8 parity and timing-only calibration\"}, \"elapsed_seconds\": 77.702, \"fixtures_completed\": 0, \"fixtures_total\": 12, \"kind\": \"OUTCOME_BLIND_OPERATIONAL_TELEMETRY\", \"phase\": \"environment-compare\", \"schema\": \"bl-f5-qualification-progress/v1\", \"status\": \"STOPPED\"}\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/content/snake-cli/14d444261c974df893273178c70cc3b4/repo/research/bl_residual/f5_qualification.py\", line 780, in <module>\n    main()\n  File \"/content/snake-cli/14d444261c974df893273178c70cc3b4/repo/research/bl_residual/f5_qualification.py\", line 760, in main\n    run(\n  File \"/content/snake-cli/14d444261c974df893273178c70cc3b4/repo/research/bl_residual/f5_qualification.py\", line 482, in run\n    environment_evidence = f5_job._environment_evidence(control, assignment)\n                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/content/snake-cli/14d444261c974df893273178c70cc3b4/repo/research/bl_residual/f5_job.py\", line 309, in _environment_evidence\n    \"comparison\": compare_environment(\n                  ^^^^^^^^^^^^^^^^^^^^\n  File \"/content/snake-cli/14d444261c974df893273178c70cc3b4/repo/research/bl_residual/f5_environment.py\", line 947, in compare_environment\n    raise F5EnvironmentRefusal(\"F5 cross-assignment invariant environment differs\")\nresearch.bl_residual.f5_environment.F5EnvironmentRefusal: F5 cross-assignment invariant environment differs\n",
+  "state": {
+    "generation": "14d444261c974df893273178c70cc3b4",
+    "job_id": "bl-f5-family-canary-57a89e7d-20261026-01",
+    "max_export_bytes": 2147483648,
+    "pid": 4203,
+    "reason": null,
+    "returncode": 1,
+    "started_at": 1793033902.6585085,
+    "status": "failed",
+    "updated_at": 1793034535.9475994
+  },
+  "supervisor_log_tail": "",
+  "terminal": {
+    "canary_observations": [],
+    "export_scanner": {
+      "inventory": [],
+      "name": "runtime._exports"
+    },
+    "exports": [],
+    "finished_at": 1793034535.9431162,
+    "generation": "14d444261c974df893273178c70cc3b4",
+    "job_id": "bl-f5-family-canary-57a89e7d-20261026-01",
+    "last_traceback_line": "research.bl_residual.f5_environment.F5EnvironmentRefusal: F5 cross-assignment invariant environment differs",
+    "reason": null,
+    "returncode": 1,
+    "started_at": 1793033902.6585085,
+    "status": "failed"
+  }
+}
