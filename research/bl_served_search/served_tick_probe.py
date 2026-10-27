@@ -401,9 +401,16 @@ def source_binding(require_clean: bool = True) -> dict[str, Any]:
         Path(__file__).with_name("host_load.py"),
         Path(__file__).with_name("background_report.py"),
         Path(__file__).with_name("HOST_LOAD_AMENDMENT_20261027.md"),
+        Path(__file__).with_name("REMOTE_SUPERVISION_AMENDMENT_20261027.md"),
+        Path(__file__).with_name("remote_supervision.py"),
+        Path(__file__).with_name("supervision_io.py"),
+        Path(__file__).with_name("supervision_identity.py"),
+        Path(__file__).with_name("supervision_cpu.py"),
+        Path(__file__).with_name("supervision_report.py"),
         Path(__file__).with_name("production_probe.py"),
         Path(__file__).with_name("isolated_game.py"),
         root / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
+        root / "tools/sandbox/supervision_accounting.py",
     ]
     return {
         "commit": git("rev-parse", "HEAD"),
@@ -537,13 +544,23 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
         (raw.get("lease") or {}).get("monitor_status") == "INVALID"
     ):
         return {"verdict": "INVALID", "reason": "missing or contaminated host evidence"}
-    classified = raw.get("load_policy") == "classified-v1"
+    supervised = raw.get("load_policy") == "classified-supervised-v2"
+    classified = raw.get("load_policy") == "classified-v1" or supervised
     if raw.get("load_policy") != raw.get("host", {}).get("load_policy"):
         return {"verdict": "INVALID", "reason": "host load policy binding differs"}
-    if raw.get("load_policy") not in (None, "classified-v1"):
+    if raw.get("load_policy") not in (None, "classified-v1", "classified-supervised-v2"):
         return {"verdict": "INVALID", "reason": "unsupported host load policy"}
-    if classified and raw["host"].get("schema") != "served-tick-host/v2":
+    expected_schema = "served-tick-host/v3" if supervised else "served-tick-host/v2"
+    if classified and raw["host"].get("schema") != expected_schema:
         return {"verdict": "INVALID", "reason": "classified host schema differs"}
+    supervision = None
+    if supervised:
+        from research.bl_served_search.supervision_io import replay_host
+
+        try:
+            supervision = replay_host(raw["host"], raw.get("supervision_intent", {}))
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"verdict": "INVALID", "reason": f"supervision evidence: {exc}"}
     arms: list[dict[str, Any]] = []
     for cell in raw.get("cells", []):
         result = cell["result"]
@@ -561,12 +578,23 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
             from research.bl_served_search.background_report import summarize_background
 
             try:
-                covariates["background_load"] = summarize_background(
-                    result,
-                    raw["host"],
-                    production=cell["cell"].get("arm") == "production",
-                    fps=int(raw["manifest"]["fps"]),
-                )
+                if supervised:
+                    from research.bl_served_search.supervision_report import summarize_supervision
+
+                    covariates["background_load"] = summarize_supervision(
+                        result,
+                        raw["host"],
+                        supervision,
+                        production=cell["cell"].get("arm") == "production",
+                        fps=int(raw["manifest"]["fps"]),
+                    )
+                else:
+                    covariates["background_load"] = summarize_background(
+                        result,
+                        raw["host"],
+                        production=cell["cell"].get("arm") == "production",
+                        fps=int(raw["manifest"]["fps"]),
+                    )
             except (KeyError, TypeError, ValueError) as exc:
                 return {"verdict": "INVALID", "reason": f"background evidence: {exc}"}
         if cell["cell"].get("arm") == "production":
@@ -659,6 +687,17 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
             )
         )
     )
+    supervision_summary: dict[str, Any] = {}
+    if supervised and supervision is not None:
+        from research.bl_served_search.supervision_report import summarize_scope
+
+        intervals = supervision["intervals"]
+        supervision_summary["supervision_overall"] = {
+            **summarize_scope(intervals[0]["start_ns"], intervals[-1]["end_ns"], supervision),
+            "poll_overlap_ticks": sum(
+                arm["background_load"]["counts"]["poll_overlap"] for arm in arms
+            ),
+        }
     return {
         "schema": f"{SCHEMA}-reducer",
         "arms": arms,
@@ -668,6 +707,7 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
         "recorder_overhead": overhead,
         "paired_recorder_wall_delta_ns": _distribution(overhead_delta),
         "scope": "engineering timing only; no release authority",
+        **supervision_summary,
     }
 
 
@@ -914,12 +954,34 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--reduce", type=Path)
+    parser.add_argument("--remote-supervision-registry", type=Path)
+    parser.add_argument("--host-only-seconds", type=int, choices=[600])
+    parser.add_argument("--qualification-receipt", type=Path)
     parser.add_argument(
         "--classified-host-load",
         action="store_true",
         help="record macOS/desktop background CPU covariates; abort sustained >150%% for >60s",
     )
     args = parser.parse_args(argv)
+    if args.host_only_seconds and args.remote_supervision_registry is None:
+        parser.error("--host-only-seconds requires --remote-supervision-registry")
+    if args.qualification_receipt is not None and args.remote_supervision_registry is None:
+        parser.error("--qualification-receipt requires --remote-supervision-registry")
+    if args.host_only_seconds and args.qualification_receipt is not None:
+        parser.error("host-only observation cannot consume a panel qualification receipt")
+    if args.reduce is not None and (
+        args.remote_supervision_registry is not None or args.host_only_seconds
+    ):
+        parser.error("reduction uses only the sealed raw evidence; do not supply live options")
+    if args.remote_supervision_registry is not None and args.reduce is None:
+        if not args.classified_host_load or args.smoke:
+            parser.error("remote supervision requires --classified-host-load and no --smoke")
+        from research.bl_served_search.supervision_io import read_registry
+
+        # Refuse before output creation, lease acquisition, product imports or
+        # gameplay. The current root cannot supply the required exit evidence.
+        # Neither a registry flag nor a qualification filename bypasses this.
+        read_registry(args.remote_supervision_registry, live=True)
     manifest = json.loads(args.manifest.read_text())
     if args.reduce is not None:
         if args.output is None:

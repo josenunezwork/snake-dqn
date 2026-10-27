@@ -129,3 +129,53 @@ def test_report_refuses_matching_but_unknown_policy():
     raw = fixture_raw()
     raw["load_policy"] = raw["host"]["load_policy"] = "classified-v2"
     assert probe.reduce_trace(raw)["reason"] == "unsupported host load policy"
+
+
+def test_prospective_reducer_retains_every_cell_and_authoritative_fail(monkeypatch):
+    from research.bl_served_search import supervision_io, supervision_report, tick_trace
+
+    monkeypatch.setattr(tick_trace, "reduce_trace", lambda *a, **kw: {"verdict": "FAIL"})
+    monkeypatch.setattr(probe, "_production_summary", lambda *a: {"verdict": "FAIL"})
+    monkeypatch.setattr(
+        supervision_io,
+        "replay_host",
+        lambda *a: {"intervals": [{"start_ns": 0, "end_ns": 65_000_000_000}]},
+    )
+    calls = []
+
+    def summarize(result, host, replay, *, production=False, fps=24):
+        calls.append((production, fps))
+        return {
+            "counts": {"poll_overlap": 7},
+            "timing": {"overall": {"count": 2400}, "low_background": {"count": 0}},
+        }
+
+    monkeypatch.setattr(supervision_report, "summarize_supervision", summarize)
+    monkeypatch.setattr(supervision_report, "summarize_scope", lambda *a: {"complete": True})
+    raw = fixture_raw()
+    raw["load_policy"] = raw["host"]["load_policy"] = "classified-supervised-v2"
+    raw["host"]["schema"] = "served-tick-host/v3"
+    result = probe.reduce_trace(raw)
+    assert result["verdict"] == "FAIL"
+    assert len(calls) == len(raw["manifest"]["order"])
+    assert sum(production for production, _ in calls) == 3
+    assert result["supervision_overall"]["poll_overlap_ticks"] == 7 * len(calls)
+    assert all(
+        arm["background_load"]["timing"]["overall"]["count"] == 2400 for arm in result["arms"]
+    )
+
+
+def test_prospective_reducer_refuses_unavailable_live_observer(monkeypatch):
+    from research.bl_served_search import supervision_io
+
+    def refuse(*args):
+        raise ValueError("observer not qualified")
+
+    monkeypatch.setattr(supervision_io, "replay_host", refuse)
+    raw = fixture_raw()
+    raw["load_policy"] = raw["host"]["load_policy"] = "classified-supervised-v2"
+    raw["host"]["schema"] = "served-tick-host/v3"
+    assert probe.reduce_trace(raw) == {
+        "verdict": "INVALID",
+        "reason": "supervision evidence: observer not qualified",
+    }
