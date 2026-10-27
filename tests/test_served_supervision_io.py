@@ -148,3 +148,109 @@ def test_registry_digest_is_the_actual_payload_digest(tmp_path):
     value = {"one": "two"}
     digest = export_json(tmp_path / "value.json", value)
     assert io.digest(value) == digest
+
+
+@pytest.mark.parametrize("bad", [None, [], 3])
+def test_replay_host_rejects_nonobject_evidence_as_invalid_data(bad):
+    host, intent = _host_intent()
+    with pytest.raises(ValueError, match="objects"):
+        io.replay_host(host, bad)
+    with pytest.raises(ValueError, match="objects"):
+        io.replay_host(bad, intent)
+    host["supervisor_registry"] = bad
+    with pytest.raises(ValueError, match="object"):
+        io.replay_host(host, intent)
+
+
+def test_declaration_roundtrip_and_schema_checked_before_live_identity(tmp_path, monkeypatch):
+    from tests.test_served_supervision_identity import fixture
+
+    registry, _, _ = fixture()
+    registry.update(ruling_sha256=io.RULING_SHA256, declaration_only=True)
+    path = tmp_path / "registry.json"
+    export_json(path, registry)
+    assert io.read_registry(path) == registry
+    called = []
+    monkeypatch.setattr(io, "verify_root", lambda root: called.append(root))
+    registry["roots"][0].pop("uid")
+    broken = tmp_path / "broken.json"
+    export_json(broken, registry)
+    with pytest.raises(ValueError, match="invalid supervisor registry"):
+        io.read_registry(broken, live=True)
+    assert not called
+
+
+def test_captured_declaration_contains_full_v2_metadata_and_roundtrips(tmp_path, monkeypatch):
+    import json
+    import shutil
+    import sys
+    from pathlib import Path
+
+    repo = tmp_path / "repo"
+    qualified = repo / "research/colab_cli"
+    qualified.mkdir(parents=True)
+    for name in ("supervisor.py", "policy.py", "cli_guard.py"):
+        shutil.copyfile(Path(__file__).parents[1] / "research/colab_cli" / name, qualified / name)
+    sandbox = repo / "tools/sandbox"
+    sandbox.mkdir(parents=True)
+    (sandbox / "supervisor.py").write_text("# declared adapter\n")
+    state = tmp_path / "state"
+    lane = state / "job"
+    hook_dir = lane / "cli-hook"
+    hook_dir.mkdir(parents=True)
+    guard = str(qualified / "cli_guard.py")
+    (hook_dir / "sitecustomize.py").write_text(
+        "import os,runpy\ntry:\n    runpy.run_path("
+        + repr(guard)
+        + ", run_name='snake_cli_guard')\nexcept BaseException:\n    os._exit(70)\n"
+    )
+    (lane / "assignment.json").write_text(
+        json.dumps({"endpoint": "endpoint", "session": "session", "generation": "generation"})
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"job_id": "job"}))
+    cli = tmp_path / "colab"
+    interpreter = str(Path(sys.executable).resolve())
+    cli.write_text("#!" + interpreter + "\n")
+    argv = [
+        interpreter,
+        "-m",
+        "tools.sandbox.supervisor",
+        "--state-dir",
+        str(state),
+        "--colab",
+        str(cli),
+        "run",
+        str(manifest),
+    ]
+    monkeypatch.setattr(io, "verify_root", lambda root: None)
+    registry = io._registry_from_identity(123, 501, 456, interpreter, argv, repo)
+    path = tmp_path / "declaration.json"
+    export_json(path, registry)
+    assert io.read_registry(path) == registry
+    assert registry["declaration_only"] is True
+    with pytest.raises(RuntimeError, match="admission unavailable"):
+        io.read_registry(path, live=True)
+
+
+@pytest.mark.parametrize("bad", [None, [], 3])
+def test_panel_reducer_returns_invalid_for_malformed_supervision_intent(bad):
+    import json
+    from pathlib import Path
+
+    manifest = json.loads(
+        Path(served_tick_probe.__file__).with_name("served_tick_manifest.json").read_text()
+    )
+    binding = {"source_sha256": {"source": "a" * 64}, "tracked_dirty": "", "commit": "a" * 40}
+    raw = {
+        "manifest": manifest,
+        "cells": [{"cell": cell} for cell in manifest["order"]],
+        "source_before": binding,
+        "source_after": binding,
+        "load_policy": io.POLICY,
+        "host": {"status": "COMPLETE", "schema": "served-tick-host/v3", "load_policy": io.POLICY},
+        "supervision_intent": bad,
+    }
+    result = served_tick_probe.reduce_trace(raw)
+    assert result["verdict"] == "INVALID"
+    assert "supervision evidence" in result["reason"]

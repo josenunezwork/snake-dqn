@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shlex
+import time
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +64,7 @@ def capture_registry(pid: int) -> dict[str, Any]:
         uid = process.uids().real
     if len(argv) != 9 or argv[1:3] not in (
         ["-m", "tools.sandbox.supervisor"],
+        ["-m", "tools.sandbox.supervisor_v2"],
         ["-m", "research.colab_cli.supervisor"],
     ):
         raise ValueError("root must have the exact known supervisor run argv structure")
@@ -73,6 +76,10 @@ def capture_registry(pid: int) -> dict[str, Any]:
 def _registry_from_identity(
     pid: int, uid: int, birth_ns: int, interpreter: str, argv: list[str], cwd: Path
 ) -> dict[str, Any]:
+    import psutil
+
+    capture_start = time.monotonic_ns()
+    boot_id = "boot-" + str(psutil.boot_time())
     state_dir = Path(argv[4]).resolve(strict=True)
     manifest_path = Path(argv[-1]).resolve(strict=True)
     manifest = json.loads(manifest_path.read_text())
@@ -86,11 +93,21 @@ def _registry_from_identity(
         hook,
     ]
     sources = {str(path.resolve(strict=True)): file_digest(path) for path in paths}
+    colab = Path(argv[6]).resolve(strict=True)
+    with colab.open("rb") as handle:
+        shebang = handle.readline(4096)
+    if not shebang.startswith(b"#!"):
+        raise ValueError("CLI declaration requires an unambiguous Python shebang")
+    command = shlex.split(shebang[2:].decode().strip())
+    if len(command) != 1 or not Path(command[0]).is_absolute():
+        raise ValueError("CLI declaration has ambiguous interpreter")
+    guard = cwd / "research/colab_cli/cli_guard.py"
     root = {
         "id": f"pid-{pid}-birth-{birth_ns}",
         "uid": uid,
         "pid": pid,
         "birth_ns": birth_ns,
+        "boot_id": boot_id,
         "interpreter": interpreter,
         "module": argv[2],
         "argv": argv,
@@ -99,7 +116,16 @@ def _registry_from_identity(
         "state_dir": str(state_dir),
         "source_hashes": sources,
         "startup_hook_hash": file_digest(hook),
+        "manifest": str(manifest_path),
         "manifest_digest": file_digest(manifest_path),
+        "colab": str(colab),
+        "config": str(lane / "sessions.json"),
+        "cli_interpreter": str(Path(command[0]).resolve(strict=True)),
+        "cli_source_hashes": {
+            str(path.resolve(strict=True)): file_digest(path) for path in (colab, hook, guard)
+        },
+        "cli_startup_hook_hash": file_digest(hook),
+        "operation_timeout_seconds": 120,
         "assignment": assignment["endpoint"],
         "session": assignment["session"],
         "generation": assignment["generation"],
@@ -111,6 +137,10 @@ def _registry_from_identity(
     return {
         "schema": "served-supervisor-registry/v2",
         "policy": POLICY,
+        "boot_id": boot_id,
+        "capture_start_ns": capture_start,
+        "capture_end_ns": max(time.monotonic_ns(), capture_start + 1),
+        "policy_source_hash": digest(policy_sources()),
         "ruling_sha256": RULING_SHA256,
         "ruling_hash": RULING_SHA256,
         "roots": [root],
@@ -151,10 +181,6 @@ def read_registry(path: Path, *, live: bool = False) -> dict[str, Any]:
     registry = read_export(path)
     if registry.get("policy") != POLICY or registry.get("ruling_sha256") != RULING_SHA256:
         raise ValueError("supervisor registry policy/ruling mismatch")
-    if live and registry.get("declaration_only") is True:
-        for root in registry.get("roots", []):
-            verify_root(root)
-        raise RuntimeError(BLOCKER)
     checked = validate_registry(registry)
     if not checked["valid"]:
         raise ValueError(f"invalid supervisor registry: {checked['errors']}")
@@ -171,7 +197,11 @@ def replay_host(host: dict[str, Any], intent: dict[str, Any]) -> dict[str, Any]:
     """Independent replay of the source-bound prospective evidence protocol."""
     from research.bl_served_search.remote_supervision import replay
 
+    if not isinstance(host, dict) or not isinstance(intent, dict):
+        raise ValueError("host and supervision intent must be objects")
     registry = host["supervisor_registry"]
+    if not isinstance(registry, dict):
+        raise ValueError("supervisor registry must be an object")
     if (
         host.get("load_policy") != POLICY
         or intent.get("load_policy") != POLICY
@@ -218,6 +248,10 @@ def policy_sources() -> dict[str, str]:
     )
     return {
         **{name: file_digest(base / name) for name in names},
+        **{
+            f"tools/sandbox/{name}": file_digest(base.parents[1] / "tools/sandbox" / name)
+            for name in ("collector_v2.py", "supervisor_v2.py", "supervisor.py")
+        },
         "tools/sandbox/supervision_accounting.py": file_digest(
             base.parents[1] / "tools/sandbox/supervision_accounting.py"
         ),

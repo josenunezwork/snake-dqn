@@ -162,6 +162,7 @@ def replay_ordinary(points: list, intervals: list, lifecycles: dict, ledger: dic
                 raise ValueError("ordinary CPU coverage/churn evidence missing")
             rows = []
             totals = {"background": 0.0, "workload": 0.0, "unknown": 0.0}
+            seen_permitted = set()
             for row in sample["processes"]:
                 if (
                     not _number(row.get("cpu_percent"))
@@ -174,6 +175,9 @@ def replay_ordinary(points: list, intervals: list, lifecycles: dict, ledger: dic
                     raise ValueError("malformed interval CPU/executable")
                 if _permitted_interval(row, a, b, lifecycles):
                     key = supervision_identity.process_id(row)
+                    if key in seen_permitted:
+                        errors.append("duplicate permitted process in ordinary interval")
+                    seen_permitted.add(key)
                     numerator = row.get("cpu_delta_numerator")
                     denominator = row.get("counter_denominator")
                     expected = sum(
@@ -214,19 +218,26 @@ def replay_ordinary(points: list, intervals: list, lifecycles: dict, ledger: dic
                 )
                 totals[group] += row["cpu_percent"]
                 rows.append(row)
+            required = {
+                key
+                for key, proc in lifecycles.items()
+                if proc["launch_ns"] < b and (proc["exit_ns"] is None or proc["exit_ns"] > a)
+            } | {c["process_id"] for c in ledger.get("charges", []) if a < c["end_ns"] <= b}
+            if required != seen_permitted:
+                errors.append("missing permitted process reconciliation in ordinary interval")
             sample.update(processes=rows, **{k + "_cpu_percent": v for k, v in totals.items()})
             projected.append(sample)
             try:
                 guard.check(sample)
             except RuntimeError as exc:
                 errors.append(str(exc))
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
         errors.append(str(exc))
     try:
         # Validate only the unchanged wire shape on our derived v2 projection;
         # never read a historical v1 artifact through this policy path.
         _samples({"load_policy": "classified-v1", "cpu_samples": projected})
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
         errors.append("ordinary CPU wire evidence: " + str(exc))
     return {
         "valid": not errors,
@@ -255,7 +266,7 @@ def replay(
     if identity["valid"] and cpu["valid"]:
         try:
             _crosscheck(identity, cpu_evidence, registry, errors)
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
             errors.append("identity/CPU binding malformed: " + str(exc))
     ordinary = replay_ordinary(point_screens, ordinary_intervals, identity["lifecycles"], cpu)
     errors.extend(ordinary["errors"])

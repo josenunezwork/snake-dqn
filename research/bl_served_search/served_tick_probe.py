@@ -426,6 +426,9 @@ def source_binding(require_clean: bool = True) -> dict[str, Any]:
         Path(__file__).with_name("served_dto_split_manifest.json"),
         root / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
         root / "tools/sandbox/supervision_accounting.py",
+        root / "tools/sandbox/collector_v2.py",
+        root / "tools/sandbox/supervisor_v2.py",
+        root / "tools/sandbox/supervisor.py",
     ]
     return {
         "commit": git("rev-parse", "HEAD"),
@@ -506,7 +509,7 @@ def _production_summary(result: Mapping[str, Any], expected: int) -> dict[str, A
             latencies.append(receive - row["start_ns"])
             sends.append(receive - send["start_ns"])
             measured_receipts.append(receive)
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, AttributeError):
             return {"verdict": "INVALID", "reason": "production span/delivery", "tick": index}
     gaps = [b - a for a, b in zip(measured_receipts, measured_receipts[1:])]
     if any(value < 0 for values in (step_cpu, snapshot_cpu, gaps) for value in values):
@@ -514,7 +517,7 @@ def _production_summary(result: Mapping[str, Any], expected: int) -> dict[str, A
     update_summary = _distribution(updates)
     try:
         breakdowns = summarize_breakdowns(rows)
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
         return {"verdict": "INVALID", "reason": f"production breakdowns: {exc}"}
     return {
         "verdict": "PASS" if update_summary["p95"] <= 11_688_000 else "FAIL",
@@ -535,12 +538,16 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
     """Use the trace owner's reducer; combine fixed cells without reinterpretation."""
     from research.bl_served_search.tick_trace import reduce_trace as reduce_one
 
+    if not isinstance(raw, Mapping) or not isinstance(raw.get("host", {}), Mapping):
+        return {"verdict": "INVALID", "reason": "malformed raw/host evidence"}
     manifest = raw.get("manifest", {})
     try:
         preflight(manifest)
-    except (ValueError, KeyError, TypeError) as exc:
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
         return {"verdict": "INVALID", "reason": f"manifest: {exc}"}
     cells = raw.get("cells", [])
+    if not isinstance(cells, list) or any(not isinstance(entry, Mapping) for entry in cells):
+        return {"verdict": "INVALID", "reason": "malformed cell evidence"}
     actual_order = [entry.get("cell") for entry in cells]
     if actual_order != manifest["order"]:
         return {
@@ -550,12 +557,15 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
         }
     binding = raw.get("source_before", {})
     if (
-        binding != raw.get("source_after")
+        not isinstance(binding, Mapping)
+        or binding != raw.get("source_after")
         or not binding.get("source_sha256")
         or binding.get("tracked_dirty") != ""
         or len(binding.get("commit", "")) != 40
     ):
         return {"verdict": "INVALID", "reason": "missing or changed source binding"}
+    if not isinstance(raw.get("lease") or {}, Mapping):
+        return {"verdict": "INVALID", "reason": "malformed lease evidence"}
     if raw.get("host", {}).get("status") != "COMPLETE" or (
         (raw.get("lease") or {}).get("monitor_status") == "INVALID"
     ):
@@ -594,7 +604,7 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
 
         try:
             supervision = replay_host(raw["host"], raw.get("supervision_intent", {}))
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
             return {"verdict": "INVALID", "reason": f"supervision evidence: {exc}"}
     arms: list[dict[str, Any]] = []
     for cell in raw.get("cells", []):
@@ -634,7 +644,7 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
                         production=cell["cell"].get("arm") == "production",
                         fps=int(raw["manifest"]["fps"]),
                     )
-            except (KeyError, TypeError, ValueError) as exc:
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
                 return {"verdict": "INVALID", "reason": f"background evidence: {exc}"}
         if cell["cell"].get("arm") == "production":
             arms.append(
@@ -1214,7 +1224,7 @@ def main(argv: list[str] | None = None) -> int:
             if status == "COMPLETE":
                 try:
                     observation["summary"] = desktop_overall(host)
-                except (KeyError, TypeError, ValueError) as exc:
+                except (KeyError, TypeError, ValueError, AttributeError) as exc:
                     observation["status"] = "INVALID"
                     observation["reason"] = f"desktop host reduction: {type(exc).__name__}: {exc}"
             export_json(args.output / "observation.json", observation)

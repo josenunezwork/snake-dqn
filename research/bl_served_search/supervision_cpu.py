@@ -111,7 +111,7 @@ def replay_cpu(evidence: dict[str, Any], *, final: bool = True) -> dict[str, Any
     }
     try:
         _replay(evidence, result, final=final)
-    except (KeyError, TypeError, _Invalid) as exc:
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as exc:
         result["errors"].append(str(exc))
     result["valid"] = not result["errors"]
     result["admission_ready"] = bool(
@@ -353,19 +353,32 @@ def _replay(e: dict[str, Any], out: dict[str, Any], *, final: bool) -> None:
             raise _Invalid("unexpected process in independent sampler")
         for pid, row in processes.items():
             alive = pid in roots or (
-                row["launch_ns"] <= time and (row.get("exit_ns") is None or time < row["exit_ns"])
+                row["launch_ns"] <= capture_start
+                and (
+                    row.get("exit_ns") is None
+                    or (capture_start < row["exit_ns"] and time <= row["exit_ns"])
+                )
+            )
+            overlaps = pid in roots or (
+                row["launch_ns"] <= time
+                and (row.get("exit_ns") is None or capture_start <= row["exit_ns"])
             )
             if alive and pid not in counters:
                 raise _Invalid("missing live root/helper sample")
             if pid not in counters:
                 continue
             value = _integer(counters[pid], "sample CPU")
-            if not alive and row.get("exit_ns") != time:
+            if not overlaps:
                 raise _Invalid("sample outside process lifecycle")
             if pid in last:
                 previous_time, previous_value = last[pid]
                 charge(pid, previous_time, time, value - previous_value, "sample")
-            last[pid] = (max(capture_start, row.get("launch_ns", capture_start)), value)
+            lower = max(capture_start, row.get("launch_ns", capture_start))
+            # At an exit-boundary read the residual may precede capture_start.
+            # Keep the earlier uncertainty bracket rather than inventing zero time.
+            if row.get("exit_ns") is not None and lower >= row["exit_ns"]:
+                lower = last.get(pid, (row["launch_ns"], 0))[0]
+            last[pid] = (lower, value)
     for pid, own in exclusive.items():
         previous_time, previous_value = last[pid]
         charge(pid, previous_time, processes[pid]["exit_ns"], own - previous_value, "final")

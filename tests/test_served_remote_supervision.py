@@ -80,6 +80,24 @@ def fixture():
         }
         for t in range(65)
     ]
+    for sample in intervals:
+        for proc, amount, parent in (
+            (root, 0, 1),
+            (journal[2]["identity"], SECOND // 10, root["pid"]),
+        ):
+            if proc is not root and sample["start_ns"] != 2 * SECOND:
+                continue
+            sample["processes"].append(
+                {
+                    "pid": proc["pid"],
+                    "ppid": parent,
+                    "birth_ns": proc["birth_ns"],
+                    "command": proc["interpreter"],
+                    "cpu_percent": amount * 100 / SECOND,
+                    "cpu_delta_numerator": amount,
+                    "counter_denominator": 1,
+                }
+            )
     return registry, journal, cpu, observations, points, intervals
 
 
@@ -210,11 +228,16 @@ def test_independent_supervision_interval_counter_must_reconcile(mutation):
         row.pop("cpu_delta_numerator")
     elif mutation == "denominator":
         row["counter_denominator"] = 3
-    parts[5][2]["processes"].append(row)
+    parts[5][2]["processes"][1] = row
     result = run(parts)
     assert result["valid"] is (mutation is None)
     if mutation is None:
-        assert result["sampler_reconciliation"][0]["ledger_delta_numerator"] == SECOND // 10
+        assert (
+            next(
+                r for r in result["sampler_reconciliation"] if r["process_id"] == process_id(helper)
+            )["ledger_delta_numerator"]
+            == SECOND // 10
+        )
         assert not result["ordinary_cpu_samples"][2]["processes"]
 
 
@@ -227,17 +250,7 @@ def test_actual_ledger_projection_and_report_keep_poll_ticks_and_root_bookkeepin
     for index, sample in enumerate(parts[2]["samples"]):
         sample["cpu_ns"][rid] = index * SECOND // 100
     for sample in parts[5]:
-        sample["processes"].append(
-            {
-                "pid": root["pid"],
-                "ppid": 1,
-                "birth_ns": root["birth_ns"],
-                "command": root["interpreter"],
-                "cpu_percent": 1.0,
-                "cpu_delta_numerator": SECOND // 100,
-                "counter_denominator": 1,
-            }
-        )
+        sample["processes"][0].update(cpu_percent=1.0, cpu_delta_numerator=SECOND // 100)
     replayed = run(parts)
     assert replayed["valid"], replayed["errors"]
     rows = [
@@ -263,3 +276,32 @@ def test_actual_ledger_projection_and_report_keep_poll_ticks_and_root_bookkeepin
     assert report["counts"]["poll_overlap"] == 1
     assert not report["ticks"][0]["low_background"]
     assert report["ticks"][1]["low_background"]
+
+
+@pytest.mark.parametrize(
+    "mutation", ["omit_root", "omit_helper", "duplicate_root", "duplicate_helper"]
+)
+def test_every_permitted_interval_process_must_reconcile_exactly_once(mutation):
+    parts = fixture()
+    rows = parts[5][2]["processes"]
+    index = 0 if mutation.endswith("root") else 1
+    if mutation.startswith("omit"):
+        rows.pop(index)
+    else:
+        rows.append(deepcopy(rows[index]))
+    result = run(parts)
+    assert not result["valid"]
+    assert any("permitted process" in error for error in result["errors"])
+
+
+@pytest.mark.parametrize("bad", [None, [], 3])
+def test_nondict_process_and_interval_rows_return_invalid(bad):
+    for target in ("point", "interval", "process"):
+        parts = fixture()
+        if target == "point":
+            parts[4][0]["processes"].append(bad)
+        elif target == "interval":
+            parts[5][0] = bad
+        else:
+            parts[5][0]["processes"].append(bad)
+        assert not run(parts)["valid"]
