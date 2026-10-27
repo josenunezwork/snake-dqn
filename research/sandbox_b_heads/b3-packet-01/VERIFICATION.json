@@ -1,0 +1,136 @@
+{
+  "allocation": "split-v1",
+  "argon_analysis": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/argon-20261026/sandbox-b2-results-01/answer.md",
+    "sha256": "f5aa965dc23c7ed8f29afe21e6ad3a8a08d49da431b38e75b101b0ba44a99afb"
+  },
+  "baseline_results": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b2-20261026/a100-packet02-attempt-01/exports/results.json",
+    "sha256": "4f7bae72570bab03a6338093497123dcddde13cb4c60269223f8af35065f0ecb"
+  },
+  "broker_manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b3-packet-01/dispatch-manifest.json",
+    "sha256": "41f74df87557beedd22c739890078216a80d210518a3c815142ba40f2c956376"
+  },
+  "clean_import_preflight": {
+    "evidence": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/clean-import-preflight.json",
+      "sha256": "2a299fa3ff345f13d829be86f47f46a569083974944c850d37ba3c2eb53696dd"
+    },
+    "local_modules": 30,
+    "python": "3.12.15",
+    "source_paths": 35,
+    "status": "PASS",
+    "system_site_packages": false,
+    "user_site": false
+  },
+  "combined_dispatch_supervisor_regressions": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/venv/bin/python -m pytest -q -p no:xdist tools/sandbox/tests research/sandbox_b_heads/tests tests/test_ops_dispatch.py tests/test_colab_cli_supervisor.py",
+    "failed": 0,
+    "note": "B3 geometry fifth test was added after this process collected; final focused preflight suite separately ran all 115 current tests.",
+    "passed": 284,
+    "seconds": 703.82
+  },
+  "configurations": 12,
+  "criterion": {
+    "ordinary_flip_rate_max": 0.01,
+    "ordinary_harm_count_max": 1,
+    "requires_denominators": true,
+    "retention_micro_min": 0.7
+  },
+  "dispatch_dry_run": {
+    "allocations": 0,
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/ops/dispatch.sh sandbox-b3-a100-packet01-attempt01 /Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b3-packet-01/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxB --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxB --dry-run",
+    "live_accounting": "NOT_CHECKED",
+    "log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/dispatch-dry-run-final.log",
+      "sha256": "683e45e665774221e0608928d22bb87e18ed42b6b6066533a4b3d0c4f8fb14e7"
+    },
+    "status": "PASS_DRY_RUN"
+  },
+  "empty_ledger": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b3-packet-01/verified-ledger.json",
+    "sha256": "f30c25fcf580fdb9924891545e673907fda8628c9b4bcb15d116fe5676d4afc4"
+  },
+  "independent_review": {
+    "implementation_tests_passed": 12,
+    "packet_checks": "35 source paths, four inputs, recipe dependency coverage, transport/registry, committed ten-line record, empty ledger, endpoint/timeouts",
+    "status": "NO_BLOCKERS"
+  },
+  "namespace": "a100-dev/sandbox-b/heads-v3",
+  "neural_updates": 6000,
+  "nice": 15,
+  "notes": "F4 comparison uses source/metadata only; micro decisive denominator same, parent salt and cohorts/archive differ, life-macro zero-denominator handling differs. Crop geometry is approximate; stored v8 features reused directly. Retrieval is an empirical diagnostic, not a Bayes bound.",
+  "preflight": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/venv/bin/python -m tools.sandbox.preflight research/sandbox_b_heads/b3-packet-01/sandbox-manifest.json",
+    "log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/preflight-final.log",
+      "sha256": "175c0ce2119c01cba5a23341ff39b378b6f8e86c37004af130f826eb17863242"
+    },
+    "status": "PASS",
+    "tests_passed": 115
+  },
+  "protected_inputs_opened": false,
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "real_a100_dispatch": false,
+  "registry": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
+    "sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c"
+  },
+  "retrieval_configurations": 6,
+  "runaway_guard_minutes": {
+    "base": 60,
+    "effective": 120
+  },
+  "runtime_commit": "0e08bcd7bf2f286446bf0c178af9fcb519fc64f5",
+  "salt": "a100-dev/sandbox-b/split-v1",
+  "sandbox_manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b3-packet-01/sandbox-manifest.json",
+    "sha256": "27d595d35f0b34b1bd5736a6f8db6676d94ef8bc079a97e6568adba855fe9f10"
+  },
+  "sandbox_manifest_lines": 10,
+  "schema": "sandbox-b3-local-verification/v1",
+  "smoke": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/venv/bin/python -m research.sandbox_b_heads.job_b3 --input /Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/inputs/d1024-allowed.npz --b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth --registry /Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/sandbox/SANDBOX_INPUT_REGISTRY.json --output /Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/local-smoke-frozen --device cpu --updates 3 --smoke-rows 600",
+    "configurations": 12,
+    "different_recipe_from_dispatch": true,
+    "geometry_dim": 12,
+    "log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/local-smoke-frozen.log",
+      "sha256": "21c1fe046f8a652a8df0a74ad6e7a327cb4fa511df31edabe0f6c783992ad1ae"
+    },
+    "output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/local-smoke-frozen",
+    "points": 432,
+    "rows": 600,
+    "timing": {
+      "completed_configs": 12,
+      "export_seconds": 0.04358149995096028,
+      "feature_cache_seconds": 0.28568737499881536,
+      "label": "simulator-D",
+      "restored_configs": 0,
+      "rows": 600,
+      "total_seconds": 1.6716632909374312,
+      "total_updates": 18,
+      "training_seconds": 0.89142570795957
+    },
+    "timing_file": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/local-smoke-frozen/timing.json",
+      "sha256": "b993f0c786c43eef0a1e958979cc85c44858dac196eeed5be7d9639b317c835b"
+    },
+    "updates_per_neural_config": 3
+  },
+  "source_paths_verified": 35,
+  "status": "PREPARED_NOT_DISPATCHED",
+  "style": {
+    "bash_n": "PASS",
+    "black": "PASS",
+    "flake8": "PASS",
+    "git_diff_check": "PASS",
+    "isort": "PASS"
+  },
+  "survival_fit_configurations": 6,
+  "threshold_points": 432,
+  "worker_threads": 1,
+  "world_simulations": 0,
+  "xdist": false
+}
