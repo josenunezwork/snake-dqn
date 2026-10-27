@@ -73,32 +73,48 @@ def _valid_verified_identity(command: str, identity: Any, reg_dict: Mapping[str,
     for app in reg_dict.get("applications", ()):
         if not isinstance(app, Mapping) or app.get("id") != identity.get("entry"):
             continue
+        app_bundle = str(app.get("bundle_path", ""))
         for role in app.get("executables", ()):
-            if isinstance(role, Mapping) and role.get("role") == identity.get("role"):
+            if not isinstance(role, Mapping) or role.get("role") != identity.get("role"):
+                continue
+            rel = role.get("relative_executable_path")
+            if isinstance(rel, str) and str(Path(app_bundle) / rel) == command:
                 matching_role = (app, role)
                 break
     if matching_role is None:
         return False
     app, role = matching_role
-    relative = Path(str(role.get("relative_executable_path", "")))
+    relative_raw = role.get("relative_executable_path")
+    if not isinstance(relative_raw, str) or not relative_raw:
+        return False
+    relative = Path(relative_raw)
     if relative.is_absolute() or ".." in relative.parts:
         return False
     bundle_path = str(app.get("bundle_path", ""))
     if not bundle_path or ".." in Path(bundle_path).parts:
         return False
-    if not _under(Path(command), Path(bundle_path)) or ".." in Path(command).parts:
+    expected_executable = str(Path(bundle_path) / relative)
+    if (
+        command != expected_executable
+        or not _under(Path(command), Path(bundle_path))
+        or ".." in Path(command).parts
+    ):
+        return False
+    role_sha256 = role.get("sha256")
+    if not isinstance(role_sha256, str) or len(role_sha256) != 64:
         return False
     signed = reg_dict.get("signed_identities", {})
-    sealed = signed.get(role.get("sha256"), role) if isinstance(signed, Mapping) else role
+    sealed = signed.get(role_sha256, role) if isinstance(signed, Mapping) else role
     if not isinstance(sealed, Mapping):
         return False
     return not (
         identity.get("application") != app.get("display_name")
         or identity.get("role") != role.get("role")
+        or identity.get("sha256") != role_sha256
         or identity.get("designated_requirement") != sealed.get("designated_requirement")
         or identity.get("cdhash") != sealed.get("cdhash")
         or identity.get("signing_authorities") != sealed.get("signing_authorities")
-        or identity.get("executable") != command
+        or identity.get("executable") != expected_executable
         or identity.get("bundle_path") != bundle_path
         or identity.get("bundle_id") != app.get("bundle_id")
         or identity.get("version") != app.get("version")
@@ -131,6 +147,29 @@ def _extract_argv_evidence(row: Mapping[str, Any]) -> tuple[list[str], str, str 
     if isinstance(command, str) and command:
         return [command], "ok", None
     return [], "unavailable", "argv_identity_unavailable"
+
+
+def _extract_display_argv(
+    row: Mapping[str, Any],
+    argv_list: list[str] | None = None,
+    argv_status: str = "ok",
+) -> str:
+    """Normalize displayed argument evidence (ps args) from a process row."""
+    raw_display = row.get("argv_display") or row.get("args") or row.get("cmdline")
+    if isinstance(raw_display, (list, tuple)):
+        text = " ".join(str(x).strip() for x in raw_display if x is not None and str(x).strip())
+        if text:
+            return text
+    elif isinstance(raw_display, str) and raw_display.strip():
+        return " ".join(raw_display.split())
+    if argv_list is None:
+        argv_list, argv_status, _ = _extract_argv_evidence(row)
+    if argv_status == "ok" and argv_list:
+        return " ".join(str(x).strip() for x in argv_list if str(x).strip())
+    command = row.get("command")
+    if isinstance(command, str) and command.strip():
+        return command.strip()
+    return ""
 
 
 def _intrinsic_workload_reason(
@@ -262,6 +301,7 @@ def _make_history(
     command: str | None,
     argv: list[str] | None = None,
     argv_status: str = "ok",
+    argv_display: str | None = None,
     status: str,
     kind: str,
     reason: str,
@@ -270,19 +310,30 @@ def _make_history(
     identity_binding_changed: bool,
     binding: dict[str, Any] | None,
     executable_status: str,
+    prior_history: Mapping[str, Any] | None = None,
+    sequence: int | None = None,
 ) -> dict[str, Any]:
     resolved_argv = (
         list(argv)
         if isinstance(argv, (list, tuple))
         else ([command] if isinstance(command, str) and command and argv_status == "ok" else [])
     )
-    return {
+    if isinstance(argv_display, str) and argv_display.strip():
+        resolved_display = " ".join(argv_display.split())
+    elif argv_status == "ok" and resolved_argv:
+        resolved_display = " ".join(str(x).strip() for x in resolved_argv if str(x).strip())
+    elif isinstance(command, str) and command.strip():
+        resolved_display = command.strip()
+    else:
+        resolved_display = ""
+    state: dict[str, Any] = {
         "pid": pid,
         "birth": birth,
         "uid": uid,
         "command": command,
         "argv": resolved_argv,
         "argv_status": str(argv_status),
+        "argv_display": resolved_display,
         "status": status,
         "kind": kind,
         "reason": reason,
@@ -292,6 +343,30 @@ def _make_history(
         "binding": dict(binding) if isinstance(binding, Mapping) else None,
         "executable_status": executable_status,
     }
+    if type(sequence) is int and sequence >= 0:
+        seq = sequence
+    elif isinstance(prior_history, Mapping):
+        prior_seq = (
+            prior_history["sequence"]
+            if type(prior_history.get("sequence")) is int and prior_history["sequence"] >= 0
+            else 0
+        )
+        prior_comparable = {k: v for k, v in prior_history.items() if k != "sequence"}
+        if "argv_display" not in prior_comparable:
+            prior_comparable["argv_display"] = _extract_display_argv(
+                prior_comparable,
+                (
+                    [str(x) for x in prior_comparable["argv"]]
+                    if isinstance(prior_comparable.get("argv"), (list, tuple))
+                    else []
+                ),
+                str(prior_comparable.get("argv_status", "ok")),
+            )
+        seq = prior_seq if state == prior_comparable else prior_seq + 1
+    else:
+        seq = 0
+    state["sequence"] = seq
+    return state
 
 
 def decision_from_history(kind: str, history: Mapping[str, Any], reason: str) -> dict[str, Any]:
@@ -412,6 +487,8 @@ def classify_row(
     raw_uid = row.get("uid") if type(row.get("uid")) is int else None
     raw_command = row.get("command") if isinstance(row.get("command"), str) else None
     argv_list, argv_status, obs_error = _extract_argv_evidence(row)
+    argv_display = _extract_display_argv(row, argv_list, argv_status)
+    prior_map = history if isinstance(history, Mapping) else None
     if policy != POLICY:
         reason = "desktop_registry_policy_mismatch"
         return (
@@ -423,16 +500,18 @@ def classify_row(
                 command=raw_command,
                 argv=argv_list,
                 argv_status=argv_status,
+                argv_display=argv_display,
                 status="revoked",
                 kind="unknown",
                 reason=reason,
                 revoked=True,
                 revoked_reason=reason,
                 identity_binding_changed=bool(
-                    isinstance(history, Mapping) and history.get("identity_binding_changed")
+                    prior_map is not None and prior_map.get("identity_binding_changed")
                 ),
                 binding=None,
                 executable_status="policy_mismatch",
+                prior_history=prior_map,
             ),
             reason,
         )
@@ -453,17 +532,25 @@ def classify_row(
     try:
         key = DesktopRegistry._key(row)
     except ValueError:
-        prior_map = history if isinstance(history, Mapping) else None
         changed = bool(
             prior_map is not None
             and (
                 prior_map.get("identity_binding_changed")
-                or (raw_uid, raw_command, argv_list, argv_status)
+                or (raw_uid, raw_command, argv_list, argv_status, argv_display)
                 != (
                     prior_map.get("uid"),
                     prior_map.get("command"),
                     prior_map.get("argv"),
                     prior_map.get("argv_status"),
+                    _extract_display_argv(
+                        prior_map,
+                        (
+                            [str(x) for x in prior_map["argv"]]
+                            if isinstance(prior_map.get("argv"), (list, tuple))
+                            else []
+                        ),
+                        str(prior_map.get("argv_status", "ok")),
+                    ),
                 )
             )
         )
@@ -477,6 +564,7 @@ def classify_row(
                     command=raw_command,
                     argv=argv_list,
                     argv_status=argv_status,
+                    argv_display=argv_display,
                     status="revoked",
                     kind="agent_workload",
                     reason=workload_reason,
@@ -485,6 +573,7 @@ def classify_row(
                     identity_binding_changed=changed,
                     binding=None,
                     executable_status="workload",
+                    prior_history=prior_map,
                 ),
                 workload_reason,
             )
@@ -498,6 +587,7 @@ def classify_row(
                 command=raw_command,
                 argv=argv_list,
                 argv_status=argv_status,
+                argv_display=argv_display,
                 status="revoked",
                 kind="unknown",
                 reason=reason,
@@ -506,6 +596,7 @@ def classify_row(
                 identity_binding_changed=changed,
                 binding=None,
                 executable_status=reason,
+                prior_history=prior_map,
             ),
             reason,
         )
@@ -595,6 +686,7 @@ def classify_row(
                     command=command,
                     argv=argv_list,
                     argv_status=argv_status,
+                    argv_display=argv_display,
                     status="revoked",
                     kind="agent_workload",
                     reason=intrinsic_reason,
@@ -616,11 +708,12 @@ def classify_row(
                     command=command,
                     argv=argv_list,
                     argv_status=argv_status,
+                    argv_display=argv_display,
                     status="non_desktop",
                     kind="macos_service",
                     reason="system_executable_root",
-                    revoked=True,
-                    revoked_reason="system_executable_root",
+                    revoked=False,
+                    revoked_reason=None,
                     identity_binding_changed=False,
                     binding=None,
                     executable_status=executable_status,
@@ -637,6 +730,7 @@ def classify_row(
                     command=command,
                     argv=argv_list,
                     argv_status=argv_status,
+                    argv_display=argv_display,
                     status="revoked",
                     kind="unknown",
                     reason="executable_replaced",
@@ -658,6 +752,7 @@ def classify_row(
                     command=command,
                     argv=argv_list,
                     argv_status=argv_status,
+                    argv_display=argv_display,
                     status="revoked",
                     kind="unknown",
                     reason=intrinsic_reason,
@@ -679,6 +774,7 @@ def classify_row(
                     command=command,
                     argv=argv_list,
                     argv_status=argv_status,
+                    argv_display=argv_display,
                     status="bound",
                     kind=intrinsic_kind,
                     reason="enrolled_verified_ui_role",
@@ -699,6 +795,7 @@ def classify_row(
                 command=command,
                 argv=argv_list,
                 argv_status=argv_status,
+                argv_display=argv_display,
                 status="unvalidated",
                 kind="unknown",
                 reason="process_identity_not_revalidated",
@@ -726,6 +823,7 @@ def classify_row(
             else []
         )
     )
+    prior_argv_display = _extract_display_argv(history, prior_argv, prior_argv_status)
     prior_kind = str(history.get("kind", "unknown"))
     prior_revoked_reason = str(history["revoked_reason"]) if history.get("revoked_reason") else None
     prior_changed = bool(history.get("identity_binding_changed"))
@@ -735,10 +833,15 @@ def classify_row(
     prior_exec_status = (
         str(history["executable_status"]) if history.get("executable_status") else None
     )
-    same_argv = (argv_list == prior_argv and argv_status == prior_argv_status) or (
+    same_argv = (
+        argv_list == prior_argv
+        and argv_status == prior_argv_status
+        and argv_display == prior_argv_display
+    ) or (
         is_system
         and prior_status == "non_desktop"
         and (argv_status != "ok" or prior_argv_status != "ok")
+        and argv_display == prior_argv_display
     )
     same_identity = uid == prior_uid and command == prior_command and same_argv
     workload_tainted = intrinsic_kind == "agent_workload"
@@ -781,6 +884,7 @@ def classify_row(
                 command=command,
                 argv=argv_list,
                 argv_status=argv_status,
+                argv_display=argv_display,
                 status="revoked",
                 kind=kind,
                 reason=reason,
@@ -789,6 +893,7 @@ def classify_row(
                 identity_binding_changed=True,
                 binding=prior_binding,
                 executable_status=executable_status,
+                prior_history=history,
             ),
             reason,
         )
@@ -833,6 +938,7 @@ def classify_row(
                 command=command,
                 argv=argv_list,
                 argv_status=argv_status,
+                argv_display=argv_display,
                 status="revoked",
                 kind=kind,
                 reason=reason,
@@ -841,6 +947,7 @@ def classify_row(
                 identity_binding_changed=changed,
                 binding=prior_binding,
                 executable_status=executable_status,
+                prior_history=history,
             ),
             reason,
         )
@@ -866,6 +973,7 @@ def classify_row(
                     command=command,
                     argv=argv_list,
                     argv_status=argv_status,
+                    argv_display=argv_display,
                     status="revoked",
                     kind=kind,
                     reason=reason,
@@ -874,6 +982,7 @@ def classify_row(
                     identity_binding_changed=True,
                     binding=None,
                     executable_status=executable_status,
+                    prior_history=history,
                 ),
                 reason,
             )
@@ -886,14 +995,16 @@ def classify_row(
                 command=command,
                 argv=argv_list,
                 argv_status=argv_status,
+                argv_display=argv_display,
                 status="non_desktop",
                 kind="macos_service",
                 reason="system_executable_root",
-                revoked=True,
-                revoked_reason="system_executable_root",
+                revoked=False,
+                revoked_reason=None,
                 identity_binding_changed=False,
                 binding=None,
                 executable_status=executable_status,
+                prior_history=history,
             ),
             "system_executable_root",
         )
@@ -911,6 +1022,7 @@ def classify_row(
                     command=command,
                     argv=argv_list,
                     argv_status=argv_status,
+                    argv_display=argv_display,
                     status="revoked",
                     kind=kind,
                     reason=reason,
@@ -919,6 +1031,7 @@ def classify_row(
                     identity_binding_changed=True,
                     binding=None,
                     executable_status=executable_status,
+                    prior_history=history,
                 ),
                 reason,
             )
@@ -932,6 +1045,7 @@ def classify_row(
                     command=command,
                     argv=argv_list,
                     argv_status=argv_status,
+                    argv_display=argv_display,
                     status="bound",
                     kind=intrinsic_kind,
                     reason="enrolled_verified_ui_role",
@@ -940,6 +1054,7 @@ def classify_row(
                     identity_binding_changed=False,
                     binding=candidate_binding,
                     executable_status=executable_status,
+                    prior_history=history,
                 ),
                 "enrolled_verified_ui_role",
             )
@@ -952,6 +1067,7 @@ def classify_row(
                 command=command,
                 argv=argv_list,
                 argv_status=argv_status,
+                argv_display=argv_display,
                 status="unvalidated",
                 kind="unknown",
                 reason="process_identity_not_revalidated",
@@ -960,6 +1076,7 @@ def classify_row(
                 identity_binding_changed=False,
                 binding=None,
                 executable_status=executable_status,
+                prior_history=history,
             ),
             "process_identity_not_revalidated",
         )
@@ -986,6 +1103,7 @@ def classify_row(
                 command=command,
                 argv=argv_list,
                 argv_status=argv_status,
+                argv_display=argv_display,
                 status="revoked",
                 kind=kind,
                 reason=reason,
@@ -994,6 +1112,7 @@ def classify_row(
                 identity_binding_changed=True,
                 binding=prior_binding,
                 executable_status=executable_status,
+                prior_history=history,
             ),
             reason,
         )
@@ -1006,6 +1125,7 @@ def classify_row(
             command=command,
             argv=argv_list,
             argv_status=argv_status,
+            argv_display=argv_display,
             status="bound",
             kind=str(prior_binding["kind"]),
             reason="enrolled_verified_ui_role",
@@ -1014,6 +1134,7 @@ def classify_row(
             identity_binding_changed=False,
             binding=prior_binding,
             executable_status=executable_status,
+            prior_history=history,
         ),
         "enrolled_verified_ui_role",
     )
@@ -1348,6 +1469,7 @@ class DesktopRegistry:
             obs_ns = self._last_observation_ns
 
         argv_list, argv_status, obs_error = _extract_argv_evidence(row)
+        argv_display = _extract_display_argv(row, argv_list, argv_status)
         workload_reason = _intrinsic_workload_reason(row, self.registry, self._verified)
         try:
             _, _, uid, command = self._key(row)
@@ -1369,6 +1491,7 @@ class DesktopRegistry:
                     and history_before.get("command") == command
                     and history_before.get("argv") == argv_list
                     and history_before.get("argv_status") == argv_status
+                    and history_before.get("argv_display") == argv_display
                 )
                 executable_status, _, _ = self._probe_executable(
                     command,
@@ -1383,6 +1506,7 @@ class DesktopRegistry:
             "executable_status": executable_status,
             "observation_ns": obs_ns,
             "argv": list(argv_list),
+            "argv_display": argv_display,
         }
         if obs_error is not None:
             normalized["identity_observation_error"] = obs_error
@@ -1409,12 +1533,14 @@ class DesktopRegistry:
         if current is None:
             return None
         argv_list, argv_status, _ = _extract_argv_evidence(row)
+        argv_display = _extract_display_argv(row, argv_list, argv_status)
         if (
             current.get("uid"),
             current.get("command"),
             current.get("argv"),
             current.get("argv_status"),
-        ) == (row.get("uid"), row.get("command"), argv_list, argv_status):
+            current.get("argv_display"),
+        ) == (row.get("uid"), row.get("command"), argv_list, argv_status, argv_display):
             return dict(current)
         for entry in reversed(self._history_log):
             after = entry.get("after")
@@ -1426,8 +1552,9 @@ class DesktopRegistry:
                     after.get("command"),
                     after.get("argv"),
                     after.get("argv_status"),
+                    after.get("argv_display"),
                 )
-                == (row.get("uid"), row.get("command"), argv_list, argv_status)
+                == (row.get("uid"), row.get("command"), argv_list, argv_status, argv_display)
             ):
                 return dict(after)
         return None
@@ -1477,6 +1604,7 @@ class DesktopRegistry:
             log_entry: dict[str, Any] = {
                 "pid": pid,
                 "birth": birth,
+                "sequence": int(new_history.get("sequence", 0)),
                 "observation_ns": event_obs_ns,
                 "before": dict(history_before) if isinstance(history_before, Mapping) else None,
                 "after": dict(new_history),
@@ -1505,6 +1633,7 @@ class DesktopRegistry:
                 **dict(binding),
                 "argv": list(new_history.get("argv", [command])),
                 "argv_status": str(new_history.get("argv_status", "ok")),
+                "argv_display": str(new_history.get("argv_display", command)),
             }
             self._bindings[bkey] = stored_binding
             self._binding_history[bkey] = dict(stored_binding)
@@ -1568,6 +1697,7 @@ class DesktopRegistry:
         proc_key = (pid, birth)
         prior = self._history.get(proc_key)
         argv_list, argv_status, _ = _extract_argv_evidence(row)
+        argv_display = _extract_display_argv(row, argv_list, argv_status)
         revoked = _make_history(
             pid=pid,
             birth=birth,
@@ -1575,6 +1705,7 @@ class DesktopRegistry:
             command=row.get("command") if isinstance(row.get("command"), str) else None,
             argv=argv_list,
             argv_status=argv_status,
+            argv_display=argv_display,
             status="revoked",
             kind=str(prior.get("kind", "unknown")) if isinstance(prior, Mapping) else "unknown",
             reason="identity_binding_changed",
@@ -1595,6 +1726,7 @@ class DesktopRegistry:
                 if isinstance(prior, Mapping)
                 else "transition"
             ),
+            prior_history=prior,
         )
         self._apply_history(prior, revoked)
 
@@ -1637,7 +1769,11 @@ class DesktopRegistry:
             "process_history": [dict(self._history[key]) for key in sorted(self._history)],
             "history_log": [dict(entry) for entry in self._history_log],
             "bindings": [
-                {k: v for k, v in self._bindings[key].items() if k not in {"argv", "argv_status"}}
+                {
+                    k: v
+                    for k, v in self._bindings[key].items()
+                    if k not in {"argv", "argv_status", "argv_display"}
+                }
                 | {"pid": key[0], "birth": key[1], "uid": key[2], "command": key[3]}
                 for key in sorted(self._bindings)
             ],
@@ -1645,7 +1781,7 @@ class DesktopRegistry:
                 {
                     k: v
                     for k, v in self._binding_history[key].items()
-                    if k not in {"argv", "argv_status"}
+                    if k not in {"argv", "argv_status", "argv_display"}
                 }
                 | {"pid": key[0], "birth": key[1], "uid": key[2], "command": key[3]}
                 for key in sorted(self._binding_history)
@@ -1680,6 +1816,7 @@ def _reconstruct_exported_history(
         return None
     pid, birth, uid, command = key
     argv_list, argv_status, _ = _extract_argv_evidence(row)
+    argv_display = _extract_display_argv(row, argv_list, argv_status)
     classification = row.get("classification")
     explicit_changed = isinstance(classification, Mapping) and bool(
         classification.get("identity_binding_changed")
@@ -1721,6 +1858,7 @@ def _reconstruct_exported_history(
                     command=command,
                     argv=argv_list,
                     argv_status=argv_status,
+                    argv_display=argv_display,
                     status="revoked",
                     kind="unknown",
                     reason="desktop_binding_identity_mismatch",
@@ -1743,6 +1881,7 @@ def _reconstruct_exported_history(
                 "identity": dict(identity),
             }
             bound_argv = [command]
+            bound_display = command
             for entry in registry_export.get("history_log") or ():
                 after = entry.get("after") if isinstance(entry, Mapping) else None
                 if (
@@ -1758,6 +1897,7 @@ def _reconstruct_exported_history(
                     and isinstance(after.get("argv"), list)
                 ):
                     bound_argv = [str(x) for x in after["argv"]]
+                    bound_display = str(after.get("argv_display") or " ".join(bound_argv))
                     break
             return _make_history(
                 pid=pid,
@@ -1766,6 +1906,7 @@ def _reconstruct_exported_history(
                 command=command,
                 argv=bound_argv,
                 argv_status="ok",
+                argv_display=bound_display,
                 status="bound",
                 kind=role_kind,
                 reason=reason,
@@ -1801,6 +1942,7 @@ def _reconstruct_exported_history(
                 ),
                 argv=argv_list,
                 argv_status=argv_status,
+                argv_display=argv_display,
                 status="revoked",
                 kind="unknown",
                 reason=rev_reason,
@@ -1819,6 +1961,7 @@ def _reconstruct_exported_history(
             command=command,
             argv=argv_list,
             argv_status=argv_status,
+            argv_display=argv_display,
             status="revoked",
             kind="unknown",
             reason=cls_reason,

@@ -26,10 +26,17 @@ _COMMAND_WIDTH = 2048
 
 def _argv_changed(old: dict[str, Any], row: dict[str, Any]) -> bool:
     """Return True when argument identity or its capture status changed across an interval."""
-    from research.bl_served_search.desktop_apps import _extract_argv_evidence
+    from research.bl_served_search.desktop_apps import (
+        _extract_argv_evidence,
+        _extract_display_argv,
+    )
 
     old_argv, old_status, _ = _extract_argv_evidence(old)
     row_argv, row_status, _ = _extract_argv_evidence(row)
+    old_display = _extract_display_argv(old, old_argv, old_status)
+    row_display = _extract_display_argv(row, row_argv, row_status)
+    if old_display != row_display:
+        return True
     if (old_argv, old_status) == (row_argv, row_status):
         return False
     cmd = row.get("command")
@@ -39,6 +46,7 @@ def _argv_changed(old: dict[str, Any], row: dict[str, Any]) -> bool:
         and row.get("uid") == old.get("uid")
         and cmd.startswith(SYSTEM_EXECUTABLE_ROOTS)
         and ".." not in Path(cmd).parts
+        and _workload_kind(cmd) is None
         and (old_status != "ok" or row_status != "ok")
     ):
         return False
@@ -324,13 +332,17 @@ def cpu_interval(
         row_history_after = None
         row_admit = False
         if use_step_row:
-            from research.bl_served_search.desktop_apps import _extract_argv_evidence
+            from research.bl_served_search.desktop_apps import (
+                _extract_argv_evidence,
+                _extract_display_argv,
+            )
 
             if transition:
                 prior_history_before = desktop_classifier.history_for_row(
                     old, snapshot=prior_snapshot
                 )
                 old_argv, old_argv_status, _ = _extract_argv_evidence(old)
+                old_display = _extract_display_argv(old, old_argv, old_argv_status)
                 old_input = {**old}
                 if (
                     isinstance(prior_history_before, dict)
@@ -339,8 +351,15 @@ def cpu_interval(
                         prior_history_before.get("command"),
                         prior_history_before.get("argv"),
                         prior_history_before.get("argv_status"),
+                        prior_history_before.get("argv_display"),
                     )
-                    == (old.get("uid"), old.get("command"), old_argv, old_argv_status)
+                    == (
+                        old.get("uid"),
+                        old.get("command"),
+                        old_argv,
+                        old_argv_status,
+                        old_display,
+                    )
                     and isinstance(prior_history_before.get("executable_status"), str)
                     and prior_history_before.get("executable_status")
                 ):
@@ -370,10 +389,46 @@ def cpu_interval(
                 row_history_before = prior_history_after
                 row_admit = False
             else:
-                kind, evidence, row_history_before, row_history_after, _ = (
-                    desktop_classifier.step_row(row, admit=True, observation_ns=end)
-                )
-                row_admit = True
+                if old is not None:
+                    old_argv, old_argv_status, _ = _extract_argv_evidence(old)
+                    row_argv, row_argv_status, _ = _extract_argv_evidence(row)
+                    old_display = _extract_display_argv(old, old_argv, old_argv_status)
+                    row_display = _extract_display_argv(row, row_argv, row_argv_status)
+                    if (old_argv, old_argv_status, old_display) != (
+                        row_argv,
+                        row_argv_status,
+                        row_display,
+                    ):
+                        old_hist_before = desktop_classifier.history_for_row(
+                            old, snapshot=prior_snapshot
+                        )
+                        _, _, _, old_hist_after, _ = desktop_classifier.step_row(
+                            old,
+                            admit=True,
+                            history_override=old_hist_before,
+                            commit=True,
+                            observation_ns=start,
+                        )
+                        kind, evidence, row_history_before, row_history_after, _ = (
+                            desktop_classifier.step_row(
+                                row,
+                                admit=True,
+                                history_override=old_hist_after,
+                                commit=True,
+                                observation_ns=end,
+                            )
+                        )
+                        row_admit = True
+                    else:
+                        kind, evidence, row_history_before, row_history_after, _ = (
+                            desktop_classifier.step_row(row, admit=True, observation_ns=end)
+                        )
+                        row_admit = True
+                else:
+                    kind, evidence, row_history_before, row_history_after, _ = (
+                        desktop_classifier.step_row(row, admit=True, observation_ns=end)
+                    )
+                    row_admit = True
         else:
             if transition:
                 # Snapshot the previous identity exactly once, before any current
@@ -418,12 +473,18 @@ def cpu_interval(
                 kind in {"desktop_app", "desktop_renderer"}
                 or evidence.get("identity_binding_changed")
                 or evidence.get("reason") == "known_workload"
+                or (
+                    row_history_before is not None
+                    and row_history_after is not None
+                    and row_history_before != row_history_after
+                )
             )
         ):
             exported = {**row, "kind": kind, "cpu_percent": cpu, "classification": evidence}
             if use_step_row and row_history_after is not None:
                 exported["history_before"] = row_history_before
                 exported["history_after"] = row_history_after
+                exported["sequence"] = row_history_after["sequence"]
                 exported["executable_status"] = row_history_after["executable_status"]
                 exported["admit"] = row_admit
                 exported["observation_ns"] = end
@@ -450,6 +511,7 @@ def cpu_interval(
                 if use_step_row and prior_history_after is not None:
                     transition_export["previous_history_before"] = prior_history_before
                     transition_export["previous_history_after"] = prior_history_after
+                    transition_export["previous_sequence"] = prior_history_after["sequence"]
                     transition_export["previous_executable_status"] = prior_history_after[
                         "executable_status"
                     ]

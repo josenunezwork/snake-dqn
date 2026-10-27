@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import plistlib
@@ -10,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from research.bl_served_search import background_report, host_load
+from research.bl_served_search import background_report, host_load, probe_host
 from research.bl_served_search.desktop_apps import POLICY, DesktopRegistry, classify_exported
 
 
@@ -145,13 +146,15 @@ def test_verified_codex_gui_is_admitted_but_an_unbound_instance_replays_unknown(
         )["kind"]
         == "unknown"
     )
+    del registry._verified[installed_codex]
     codex = bundle / "Contents" / "MacOS" / "Codex"
     codex.write_bytes(b"sealed codex executable")
+    codex_sha = hashlib.sha256(codex.read_bytes()).hexdigest()
     identity = dict(registry._verified[str(executable)])
     identity.update(
         {
             "executable": str(codex),
-            "sha256": hashlib.sha256(codex.read_bytes()).hexdigest(),
+            "sha256": codex_sha,
             "file_identity": {
                 "device": codex.stat().st_dev,
                 "inode": codex.stat().st_ino,
@@ -159,6 +162,13 @@ def test_verified_codex_gui_is_admitted_but_an_unbound_instance_replays_unknown(
                 "mtime_ns": codex.stat().st_mtime_ns,
                 "ctime_ns": codex.stat().st_ctime_ns,
             },
+        }
+    )
+    registry.registry["applications"][0]["executables"].append(
+        {
+            **registry.registry["applications"][0]["executables"][0],
+            "relative_executable_path": "Contents/MacOS/Codex",
+            "sha256": codex_sha,
         }
     )
     registry._verified[str(codex)] = identity
@@ -1402,3 +1412,678 @@ def test_classify_row_is_pure_and_live_exported_semantics_match_identically(enro
     assert live_uid_none == exported_uid_none
     assert live_uid_none[0] == "unknown"
     assert live_uid_none[2] == "desktop_process_identity_missing"
+
+
+def test_macos_service_argv_availability_transitions_replay_both_directions(monkeypatch):
+    """Astra second review Finding 1: macOS-service argv availability changes
+    (available <-> unavailable) are permitted, replayable history transitions in both
+    directions across live collector & reducer.
+    """
+    from research.bl_served_search.desktop_apps import classify_row
+
+    # 1. Exact Astra reproduction on the real default registry
+    # (unavailable -> available -> unavailable).
+    registry = DesktopRegistry()
+    unavail = {
+        "pid": 42,
+        "birth": "b1",
+        "uid": 0,
+        "command": "/usr/libexec/trustd",
+        "argv": [],
+        "identity_observation_error": "argv_identity_unavailable",
+        "observation_ns": 0,
+    }
+    avail = {
+        "pid": 42,
+        "birth": "b1",
+        "uid": 0,
+        "command": "/usr/libexec/trustd",
+        "argv": ["/usr/libexec/trustd"],
+        "observation_ns": 1_000_000_000,
+    }
+    unavail_again = {
+        "pid": 42,
+        "birth": "b1",
+        "uid": 0,
+        "command": "/usr/libexec/trustd",
+        "argv": [],
+        "identity_observation_error": "argv_identity_unavailable",
+        "observation_ns": 2_000_000_000,
+    }
+    d1 = registry.classify(unavail)
+    d2 = registry.classify(avail)
+    d3 = registry.classify(unavail_again)
+    assert d1["kind"] == "macos_service" and d1["identity_binding_changed"] is False
+    assert d2["kind"] == "macos_service" and d2["identity_binding_changed"] is False
+    assert d3["kind"] == "macos_service" and d3["identity_binding_changed"] is False
+
+    exported = registry.read_export()
+    log = exported["history_log"]
+    assert len(log) == 3
+    assert [e["sequence"] for e in log] == [0, 1, 2]
+    assert [e["after"]["argv_status"] for e in log] == ["unavailable", "ok", "unavailable"]
+    assert all(
+        e["after"]["status"] == "non_desktop" and e["after"]["revoked"] is False for e in log
+    )
+
+    # Reducer accepts the history log without raising ValueError.
+    history_map = background_report._validate_registry_history(exported)
+    assert history_map[(42, "b1")][-1]["sequence"] == 2
+    assert history_map[(42, "b1")][-1]["after"]["status"] == "non_desktop"
+    assert history_map[(42, "b1")][-1]["after"]["revoked"] is False
+
+    # Pure classify_row matches live & exported across both availability directions.
+    p1 = classify_row(None, unavail, exported)
+    p2 = classify_row(p1[1], avail, exported)
+    p3 = classify_row(p2[1], unavail_again, exported)
+    assert p1[0] == p2[0] == p3[0] == "macos_service"
+    assert [p1[1]["sequence"], p2[1]["sequence"], p3[1]["sequence"]] == [0, 1, 2]
+
+    # 2. Reverse direction (available -> unavailable) through live collector
+    # (cpu_interval + foreign_load) and full reducer replay
+    # (_samples, validate_desktop_host, desktop_overall).
+    reg_live = DesktopRegistry()
+    s1 = host_load.cpu_interval(
+        _cpu_inventory(1, {**avail, "observation_ns": 1_000_000_000}, 1.0),
+        _cpu_inventory(2, {**unavail, "observation_ns": 2_000_000_000}, 1.25),
+        owner_pid=999_999,
+        desktop_classifier=reg_live,
+    )
+    s2 = host_load.cpu_interval(
+        _cpu_inventory(2, {**unavail, "observation_ns": 2_000_000_000}, 1.25),
+        _cpu_inventory(3, {**avail, "observation_ns": 3_000_000_000}, 1.5),
+        owner_pid=999_999,
+        desktop_classifier=reg_live,
+    )
+    monkeypatch.setattr(
+        probe_host,
+        "_desktop_point_inventory",
+        lambda: (
+            setattr(
+                probe_host,
+                "_LAST_POINT_CAPTURE_BRACKET",
+                (3_500_000_000, 3_600_000_000, 3_550_000_000),
+            )
+            or [
+                {
+                    **avail,
+                    "ppid": 1,
+                    "observation_ns": 3_550_000_000,
+                    "cpu_percent": 2.0,
+                    "rss_kb": 1024,
+                    "state": "S",
+                    "name": "trustd",
+                }
+            ]
+        ),
+    )
+    point_screen: dict = {"foreign_processes": [], "probe_exempt_pids": []}
+    probe_host.foreign_load(
+        point_screen,
+        owner_pid=999_999,
+        classified=True,
+        desktop_classifier=reg_live,
+    )
+    host = _desktop_host(
+        reg_live,
+        [s1, s2],
+        [{"monotonic_ns": 3_400_000_000, "process_screen": point_screen}],
+    )
+    samples = background_report._samples(host)
+    assert samples[0]["service_cpu_percent"] == pytest.approx(25.0)
+    assert samples[1]["service_cpu_percent"] == pytest.approx(25.0)
+    background_report.validate_desktop_host(host)
+    assert background_report.desktop_overall(host)["background_pool"]["cpu_percent_max"][
+        "service"
+    ] == pytest.approx(25.0)
+
+    # 3. Terminal desktop revocation remains enforced; non_desktop cannot transition to bound.
+    forged_bound = copy.deepcopy(reg_live.read_export())
+    last_entry = copy.deepcopy(forged_bound["history_log"][-1])
+    last_entry["sequence"] = last_entry["sequence"] + 1
+    last_entry["before"] = copy.deepcopy(last_entry["after"])
+    last_entry["after"]["sequence"] = last_entry["sequence"]
+    last_entry["after"]["status"] = "bound"
+    last_entry["after"]["revoked"] = False
+    forged_bound["history_log"].append(last_entry)
+    with pytest.raises(ValueError, match="desktop non_desktop process admitted in history log"):
+        background_report._validate_registry_history(forged_bound)
+
+
+def test_reducer_replay_rejects_unenrolled_bundle_helper_and_wrong_digest(enrolled):
+    """Astra second review Finding 2: Reducer replay verifies every admitted desktop row and
+    verified entry against the sealed registry for BOTH exact enrolled path AND sealed sha256."""
+    from research.bl_served_search.desktop_apps import classify_row
+
+    # Reproduce both Astra cases against the real sealed default registry
+    # (preserving registry & sha256).
+    base_reg = DesktopRegistry()
+    base_export = base_reg.read_export()
+    outlook_app = next(
+        app
+        for app in base_export["registry"]["applications"]
+        if app["id"] == "outlook-main-20261027"
+    )
+    outlook_role = outlook_app["executables"][0]
+    outlook_path = str(Path(outlook_app["bundle_path"]) / outlook_role["relative_executable_path"])
+    outlook_sha = outlook_role["sha256"]
+    signed = base_export["registry"].get("signed_identities", {}).get(outlook_sha, outlook_role)
+
+    def _build_forged_host(cmd_path: str, sha: str) -> dict:
+        exp = copy.deepcopy(base_export)
+        identity = {
+            "entry": outlook_app["id"],
+            "application": outlook_app["display_name"],
+            "role": outlook_role["role"],
+            "executable": cmd_path,
+            "bundle_path": outlook_app["bundle_path"],
+            "bundle_id": outlook_app["bundle_id"],
+            "version": outlook_app["version"],
+            "build": outlook_app["build"],
+            "sha256": sha,
+            "team_identifier": outlook_app["team_identifier"],
+            "designated_requirement": signed["designated_requirement"],
+            "cdhash": signed["cdhash"],
+            "signing_authorities": list(signed["signing_authorities"]),
+            "file_identity": {
+                "device": 1,
+                "inode": 2,
+                "size": 100,
+                "mtime_ns": 1,
+                "ctime_ns": 1,
+            },
+        }
+        exp["verified"] = {cmd_path: identity}
+        binding = {
+            "kind": "desktop_app",
+            "reason": "enrolled_verified_ui_role",
+            "entry": outlook_app["id"],
+            "application": outlook_app["display_name"],
+            "role": outlook_role["role"],
+            "identity": dict(identity),
+        }
+        binding_export = {
+            **binding,
+            "pid": 555,
+            "birth": "b-outlook",
+            "uid": base_export["registry"]["owner_uid"],
+            "command": cmd_path,
+        }
+        exp["bindings"] = [binding_export]
+        exp["binding_history"] = [binding_export]
+        hist = {
+            "pid": 555,
+            "birth": "b-outlook",
+            "uid": base_export["registry"]["owner_uid"],
+            "command": cmd_path,
+            "executable_status": "ok",
+            "argv": [cmd_path],
+            "argv_status": "ok",
+            "argv_display": cmd_path,
+            "status": "bound",
+            "kind": "desktop_app",
+            "reason": "enrolled_verified_ui_role",
+            "revoked": False,
+            "revoked_reason": None,
+            "identity_binding_changed": False,
+            "binding": binding,
+            "sequence": 0,
+        }
+        exp["process_history"] = [hist]
+        decision = {
+            "kind": "desktop_app",
+            "entry": outlook_app["id"],
+            "application": outlook_app["display_name"],
+            "role": outlook_role["role"],
+            "reason": "enrolled_verified_ui_role",
+            "identity": dict(identity),
+        }
+        exp["history_log"] = [
+            {
+                "pid": 555,
+                "birth": "b-outlook",
+                "sequence": 0,
+                "observation_ns": 200,
+                "before": None,
+                "after": hist,
+                "row": {
+                    "pid": 555,
+                    "birth": "b-outlook",
+                    "uid": base_export["registry"]["owner_uid"],
+                    "command": cmd_path,
+                    "argv": [cmd_path],
+                    "argv_display": cmd_path,
+                    "admit": True,
+                    "executable_status": "ok",
+                    "observation_ns": 200,
+                },
+                "classification": decision,
+            }
+        ]
+        proc_row = {
+            "pid": 555,
+            "ppid": 1,
+            "birth": "b-outlook",
+            "uid": base_export["registry"]["owner_uid"],
+            "command": cmd_path,
+            "executable_status": "ok",
+            "argv": [cmd_path],
+            "argv_display": cmd_path,
+            "cpu_percent": 25.0,
+            "cpu_seconds": 0.25,
+            "observation_ns": 200,
+            "sequence": 0,
+            "history_before": None,
+            "history_after": hist,
+            "admit": True,
+            "kind": "desktop_app",
+            "classification": decision,
+        }
+        return {
+            "load_policy": host_load.DESKTOP_POLICY,
+            "desktop_registry": exp["registry"],
+            "desktop_registry_sha256": exp["registry_sha256"],
+            "desktop_registry_evidence": exp,
+            "cpu_samples": [
+                {
+                    "start_ns": 100,
+                    "end_ns": 200,
+                    "capture_start_ns": 100,
+                    "capture_end_ns": 200,
+                    "coverage_complete": True,
+                    "process_churn": [],
+                    "background_cpu_percent": 25.0,
+                    "workload_cpu_percent": 0.0,
+                    "unknown_cpu_percent": 0.0,
+                    "macos_service_cpu_percent": 0.0,
+                    "desktop_renderer_cpu_percent": 0.0,
+                    "desktop_app_cpu_percent": 25.0,
+                    "processes": [proc_row],
+                }
+            ],
+            "observations": [{"classified_processes": [], "probe_exempt_pids": []}],
+        }
+
+    # Baseline sanity check: exact enrolled Outlook path + exact sealed SHA is accepted.
+    host_exact = _build_forged_host(outlook_path, outlook_sha)
+    background_report.validate_desktop_host(host_exact)
+    assert background_report.desktop_overall(host_exact)["background_pool"]["cpu_percent_max"][
+        "desktop_app"
+    ] == pytest.approx(25.0)
+
+    # Case A: Exact enrolled path, wrong SHA ("f" * 64).
+    host_wrong_sha = _build_forged_host(outlook_path, "f" * 64)
+    assert (
+        classify_row(
+            None,
+            {
+                "pid": 555,
+                "birth": "b-outlook",
+                "uid": base_export["registry"]["owner_uid"],
+                "command": outlook_path,
+                "argv": [outlook_path],
+                "admit": True,
+            },
+            host_wrong_sha["desktop_registry_evidence"],
+        )[0]
+        == "unknown"
+    )
+    with pytest.raises(
+        ValueError, match="desktop verified executable does not match sealed registry"
+    ):
+        background_report._validate_registry_history(host_wrong_sha["desktop_registry_evidence"])
+    with pytest.raises(
+        ValueError, match="desktop verified executable does not match sealed registry"
+    ):
+        background_report._samples(host_wrong_sha)
+    with pytest.raises(
+        ValueError, match="desktop verified executable does not match sealed registry"
+    ):
+        background_report.validate_desktop_host(host_wrong_sha)
+    with pytest.raises(
+        ValueError, match="desktop verified executable does not match sealed registry"
+    ):
+        background_report.desktop_overall(host_wrong_sha)
+
+    # Case B: Enrolled SHA, unenrolled helper inside the enrolled Outlook bundle.
+    unenrolled_helper = "/Applications/Microsoft Outlook.app/Contents/MacOS/Unenrolled Helper"
+    host_unenrolled_helper = _build_forged_host(unenrolled_helper, outlook_sha)
+    assert (
+        classify_row(
+            None,
+            {
+                "pid": 555,
+                "birth": "b-outlook",
+                "uid": base_export["registry"]["owner_uid"],
+                "command": unenrolled_helper,
+                "argv": [unenrolled_helper],
+                "admit": True,
+            },
+            host_unenrolled_helper["desktop_registry_evidence"],
+        )[0]
+        == "unknown"
+    )
+    with pytest.raises(
+        ValueError, match="desktop verified executable does not match sealed registry"
+    ):
+        background_report._validate_registry_history(
+            host_unenrolled_helper["desktop_registry_evidence"]
+        )
+    with pytest.raises(
+        ValueError, match="desktop verified executable does not match sealed registry"
+    ):
+        background_report._samples(host_unenrolled_helper)
+    with pytest.raises(
+        ValueError, match="desktop verified executable does not match sealed registry"
+    ):
+        background_report.validate_desktop_host(host_unenrolled_helper)
+    with pytest.raises(
+        ValueError, match="desktop verified executable does not match sealed registry"
+    ):
+        background_report.desktop_overall(host_unenrolled_helper)
+
+    # Live collector path also rejects an unenrolled helper in the enrolled bundle on disk.
+    live_reg, row, _, bundle = enrolled
+    helper_disk = bundle / "Contents" / "MacOS" / "Unenrolled Helper"
+    helper_disk.write_bytes(b"sealed executable")
+    helper_row = {
+        **row,
+        "pid": 777,
+        "birth": "b-helper",
+        "command": str(helper_disk),
+        "argv": [str(helper_disk)],
+    }
+    assert live_reg.admit_process(helper_row)["kind"] == "unknown"
+
+
+def test_point_supersession_keyed_on_sequence_and_capture_bracket_binding(enrolled, monkeypatch):
+    """Astra second review Finding 3: Point supersession is keyed on (pid, birth, sequence)
+    and bound to point capture bracket and enclosing snapshot monotonic_ns, defeating
+    historical row reuse."""
+    registry, *_ = enrolled
+
+    # 1. Exact Astra reproduction: retain a valid sysctl service interval from 0 to 1s
+    # (obs_ns=1e9, seq=0).
+    sysctl_t0 = {
+        "pid": 42,
+        "birth": "b-reused",
+        "uid": 0,
+        "command": "/usr/sbin/sysctl",
+        "argv": ["/usr/sbin/sysctl", "-a"],
+        "observation_ns": 0,
+    }
+    sysctl_t1 = {**sysctl_t0, "observation_ns": 1_000_000_000}
+    sample = host_load.cpu_interval(
+        _cpu_inventory(0, sysctl_t0, 1.0),
+        _cpu_inventory(1, sysctl_t1, 1.1),
+        owner_pid=999_999,
+        desktop_classifier=registry,
+    )
+    historical_service_row = copy.deepcopy(sample["processes"][0])
+    assert historical_service_row["observation_ns"] == 1_000_000_000
+    assert historical_service_row["sequence"] == 0
+
+    # At 2s, observe the same (pid, birth) executing /usr/local/bin/python3
+    # (seq=1, terminal revoked).
+    registry.classify(
+        {
+            "pid": 42,
+            "birth": "b-reused",
+            "uid": 0,
+            "command": "/usr/local/bin/python3",
+            "argv": ["/usr/local/bin/python3", "-c", "pass"],
+            "observation_ns": 2_000_000_000,
+        }
+    )
+
+    # Put the intact historical service row (preserving its 1s timestamp and sequence=0) into an
+    # actual-shape host observation at monotonic_ns = 3_000_000_000.
+    stale_point_row = {
+        **historical_service_row,
+        "cpu_percent": 90.0,
+    }
+    host_stale = _desktop_host(
+        registry,
+        [sample],
+        [
+            {
+                "monotonic_ns": 3_000_000_000,
+                "schema": "bl-mac-host/v1",
+                "process_screen": {
+                    "classified_processes": [stale_point_row],
+                    "probe_exempt_pids": [],
+                },
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="desktop process state superseded before observation"):
+        background_report.validate_desktop_host(host_stale)
+
+    # Even if enclosing monotonic_ns is forged to 1s, sequence-keyed supersession still rejects the
+    # superseded sequence=0 row because history_log has sequence=1 for (42, "b-reused").
+    host_stale_1s = copy.deepcopy(host_stale)
+    host_stale_1s["observations"][0]["monotonic_ns"] = 1_000_000_000
+    with pytest.raises(ValueError, match="desktop process state superseded before observation"):
+        background_report.validate_desktop_host(host_stale_1s)
+
+    # 2. Live foreign_load point capture bracket & clock binding checks.
+    reg_live = DesktopRegistry()
+    monkeypatch.setattr(
+        probe_host,
+        "_desktop_point_inventory",
+        lambda: (
+            setattr(
+                probe_host,
+                "_LAST_POINT_CAPTURE_BRACKET",
+                (3_100_000_000, 3_200_000_000, 3_150_000_000),
+            )
+            or [
+                {
+                    "pid": 88,
+                    "ppid": 1,
+                    "birth": "b-live",
+                    "uid": 0,
+                    "command": "/usr/sbin/sysctl",
+                    "argv": ["/usr/sbin/sysctl", "-a"],
+                    "observation_ns": 3_150_000_000,
+                    "cpu_percent": 0.1,
+                    "rss_kb": 512,
+                    "state": "S",
+                    "name": "sysctl",
+                }
+            ]
+        ),
+    )
+    live_screen: dict = {"foreign_processes": [], "probe_exempt_pids": []}
+    probe_host.foreign_load(
+        live_screen,
+        owner_pid=999_999,
+        classified=True,
+        desktop_classifier=reg_live,
+    )
+    assert live_screen["capture_start_ns"] == 3_100_000_000
+    assert live_screen["capture_end_ns"] == 3_200_000_000
+    assert live_screen["observation_ns"] == 3_150_000_000
+    assert live_screen["history_sequence"] == 1
+    assert live_screen["classified_processes"][0]["sequence"] == 0
+
+    reg_live2 = DesktopRegistry()
+    s_live = host_load.cpu_interval(
+        _cpu_inventory(0, sysctl_t0, 1.0),
+        _cpu_inventory(1, sysctl_t1, 1.1),
+        owner_pid=999_999,
+        desktop_classifier=reg_live2,
+    )
+    live_screen = {"foreign_processes": [], "probe_exempt_pids": []}
+    probe_host.foreign_load(
+        live_screen,
+        owner_pid=999_999,
+        classified=True,
+        desktop_classifier=reg_live2,
+    )
+    valid_host = _desktop_host(
+        reg_live2,
+        [s_live],
+        [{"monotonic_ns": 3_000_000_000, "process_screen": live_screen}],
+    )
+    background_report.validate_desktop_host(valid_host)
+
+    # Reject point capture preceding enclosing snapshot monotonic_ns.
+    preceding_host = copy.deepcopy(valid_host)
+    preceding_host["observations"][0]["monotonic_ns"] = 4_000_000_000
+    with pytest.raises(ValueError, match="desktop point capture precedes enclosing snapshot"):
+        background_report.validate_desktop_host(preceding_host)
+
+    # Reject regressing point observation timestamps across observations.
+    regressing_host = copy.deepcopy(valid_host)
+    later_screen = copy.deepcopy(live_screen)
+    later_screen["capture_start_ns"] = 3_500_000_000
+    later_screen["observation_ns"] = 3_550_000_000
+    later_screen["capture_end_ns"] = 3_600_000_000
+    later_screen["classified_processes"][0]["observation_ns"] = 3_550_000_000
+    regressing_host["observations"] = [
+        {"monotonic_ns": 3_000_000_000, "process_screen": later_screen},
+        {"monotonic_ns": 3_000_000_000, "process_screen": live_screen},
+    ]
+    with pytest.raises(
+        ValueError,
+        match=(
+            "desktop point capture inventory regressed|"
+            "desktop point screen observation_ns regressed"
+        ),
+    ):
+        background_report.validate_desktop_host(regressing_host)
+
+
+def test_protected_service_argv_display_change_revokes_and_exports_transition(monkeypatch):
+    """Astra second review Finding 4: When exact argv is unavailable on a protected service,
+    argv_display (ps args) is tracked as identity evidence; changes trigger revocation/workload
+    precedence and are exported across live point, interval, history, and reducer replay paths."""
+    from research.bl_served_search.desktop_apps import classify_row
+
+    # 1. Exact Astra reproduction: same (pid, birth, uid, command="/usr/sbin/sysctl") with exact
+    # argv unavailable in both observations, changing argv_display from "-a" to "kern.maxproc".
+    reg = DesktopRegistry()
+    obs1 = {
+        "pid": 42,
+        "birth": "b1",
+        "uid": 0,
+        "command": "/usr/sbin/sysctl",
+        "argv": [],
+        "identity_observation_error": "argv_identity_unavailable",
+        "argv_display": "/usr/sbin/sysctl -a",
+        "observation_ns": 100,
+    }
+    obs2 = {
+        "pid": 42,
+        "birth": "b1",
+        "uid": 0,
+        "command": "/usr/sbin/sysctl",
+        "argv": [],
+        "identity_observation_error": "argv_identity_unavailable",
+        "argv_display": "/usr/sbin/sysctl kern.maxproc",
+        "observation_ns": 200,
+    }
+    assert host_load._argv_changed(obs1, obs2) is True
+
+    d1 = reg.classify(obs1)
+    d2 = reg.classify(obs2)
+    assert d1["kind"] == "macos_service"
+    assert d1["identity_binding_changed"] is False
+    assert d2["kind"] == "unknown"
+    assert d2["reason"] == "identity_binding_changed"
+    assert d2["identity_binding_changed"] is True
+
+    exported = reg.read_export()
+    assert len(exported["history_log"]) == 2
+    assert exported["history_log"][0]["after"]["argv_display"] == "/usr/sbin/sysctl -a"
+    assert exported["history_log"][0]["sequence"] == 0
+    assert exported["history_log"][0]["after"]["status"] == "non_desktop"
+    assert exported["history_log"][1]["after"]["argv_display"] == "/usr/sbin/sysctl kern.maxproc"
+    assert exported["history_log"][1]["sequence"] == 1
+    assert exported["history_log"][1]["after"]["status"] == "revoked"
+    assert exported["history_log"][1]["after"]["revoked"] is True
+
+    # Pure classify_row matches live & exported.
+    p1 = classify_row(None, obs1, exported)
+    p2 = classify_row(p1[1], obs2, exported)
+    assert p1[0] == "macos_service" and p1[1]["identity_binding_changed"] is False
+    assert (
+        p2[0] == "unknown"
+        and p2[2] == "identity_binding_changed"
+        and p2[1]["identity_binding_changed"] is True
+    )
+
+    # 2. Live cpu_interval + reducer replay path for argv_display change (even with 0 CPU delta).
+    reg_interval = DesktopRegistry()
+    sample = host_load.cpu_interval(
+        _cpu_inventory(1, obs1, 1.0),
+        _cpu_inventory(2, obs2, 1.0),
+        owner_pid=999_999,
+        desktop_classifier=reg_interval,
+    )
+    assert len(sample["processes"]) == 1
+    proc = sample["processes"][0]
+    assert proc["kind"] == "unknown"
+    assert proc["classification"]["identity_binding_changed"] is True
+    assert proc["interval_transition"]["reason"] == "argv_changed_no_delta"
+    assert proc["interval_transition"]["previous_sequence"] == 0
+    assert proc["sequence"] == 1
+
+    host_changed = _desktop_host(
+        reg_interval,
+        [sample],
+        [{"classified_processes": [], "probe_exempt_pids": []}],
+    )
+    samples_changed = background_report._samples(host_changed)
+    assert len(samples_changed) == 1
+    with pytest.raises(ValueError, match="desktop identity binding changed in interval evidence"):
+        background_report.validate_desktop_host(host_changed)
+    # Also verify _classification_changes detects argv_display changes across two intervals.
+    s_first = {
+        **sample,
+        "index": 0,
+        "end_ns": 500_000_000,
+        "processes": [
+            {
+                **proc,
+                "kind": "macos_service",
+                "argv_display": "/usr/sbin/sysctl -a",
+                "classification": d1,
+            }
+        ],
+    }
+    s_second = {
+        **sample,
+        "index": 1,
+        "start_ns": 500_000_000,
+        "processes": [
+            {
+                **proc,
+                "kind": "macos_service",
+                "argv_display": "/usr/sbin/sysctl kern.maxproc",
+                "classification": d1,
+            }
+        ],
+    }
+    assert len(background_report._classification_changes([s_first, s_second])) == 1
+
+    # 3. Workload precedence wins when argv_display changes to indicate a workload.
+    reg_workload = DesktopRegistry()
+    assert reg_workload.classify(obs1)["kind"] == "macos_service"
+    obs_workload = {
+        **obs2,
+        "argv_display": "/usr/sbin/sysctl /Users/owner/Projects/snake-dqn/run.py",
+    }
+    d_workload = reg_workload.classify(obs_workload)
+    assert d_workload["kind"] == "agent_workload"
+    assert d_workload["identity_binding_changed"] is True
+    exp_workload = reg_workload.read_export()
+    assert exp_workload["history_log"][-1]["after"]["kind"] == "agent_workload"
+    assert exp_workload["history_log"][-1]["after"]["revoked"] is True
+    assert (
+        background_report._validate_registry_history(exp_workload)[(42, "b1")][-1]["after"][
+            "revoked"
+        ]
+        is True
+    )
