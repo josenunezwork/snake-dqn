@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Any
 
 from research.bl_served_search.served_tick_probe import _distribution
@@ -47,72 +46,58 @@ def _number(value: Any, name: str) -> float:
     return float(value)
 
 
-def _replay_kind(row: Mapping[str, Any], registry_evidence: Mapping[str, Any]) -> dict[str, Any]:
-    """Replay both identities of an interval transition with conservative precedence."""
+def _replay_kind(
+    row: Mapping[str, Any],
+    registry_evidence: Mapping[str, Any],
+    decisions: dict[int, dict] | None = None,
+) -> dict[str, Any]:
+    """Replay frozen observation references, then the shared interval attribution."""
+    from research.bl_served_search.host_load import interval_classification
+
     transition = row.get("interval_transition")
     if transition is None:
-        return _replay_identity(row, registry_evidence)
+        return _replay_identity(row, registry_evidence, decisions)
     if not isinstance(transition, Mapping):
         raise ValueError("malformed desktop interval transition")
     previous = transition.get("previous")
     prior_classification = transition.get("previous_classification")
+    current_classification = transition.get("current_classification")
     if (
         not isinstance(previous, Mapping)
         or not isinstance(prior_classification, Mapping)
+        or not isinstance(current_classification, Mapping)
         or previous.get("pid") != row.get("pid")
         or previous.get("birth") != row.get("birth")
-        or (previous.get("uid") == row.get("uid") and previous.get("command") == row.get("command"))
+        or (
+            previous.get("uid") == row.get("uid")
+            and previous.get("command") == row.get("command")
+            and previous.get("argv") == row.get("argv")
+        )
     ):
         raise ValueError("malformed desktop interval transition identity")
-    current = _replay_identity(row, registry_evidence)
+    current = _replay_identity(
+        {**row, "classification": current_classification}, registry_evidence, decisions
+    )
     prior = _replay_identity(
-        {**previous, "classification": prior_classification}, registry_evidence
+        {**previous, "classification": prior_classification}, registry_evidence, decisions
     )
-    if prior.get("kind") != prior_classification.get("kind"):
-        raise ValueError("desktop interval previous classification replay differs")
-    kinds = {current.get("kind"), prior.get("kind")}
-    kind = (
-        "agent_workload"
-        if "agent_workload" in kinds
-        else "unknown" if "unknown" in kinds else current.get("kind")
-    )
-    if transition.get("conservative_kind") != kind:
+    if prior != prior_classification or current != current_classification:
+        raise ValueError("desktop interval observation classification replay differs")
+    result = interval_classification(prior, current)
+    if transition.get("conservative_kind") != result["kind"]:
         raise ValueError("desktop interval conservative classification differs")
-    return current if current.get("kind") == kind else {"kind": kind}
+    return result
 
 
 def _replay_identity(
-    row: Mapping[str, Any], registry_evidence: Mapping[str, Any]
+    row: Mapping[str, Any],
+    registry_evidence: Mapping[str, Any],
+    decisions: dict[int, dict] | None = None,
 ) -> dict[str, Any]:
-    """Apply workload and system precedence before sealed desktop admission."""
-    from research.bl_k1.m1_background import SYSTEM_EXECUTABLE_ROOTS
-    from research.bl_served_search.host_load import _workload_kind
+    """Use the same pure classification as the collector, without live I/O."""
+    from research.bl_served_search.desktop_apps import replay_reference
 
-    command = row.get("command")
-    if not isinstance(command, str):
-        return {"kind": "unknown", "reason": "missing_command"}
-    # A declared substantive workload always wins, even when hosted by an
-    # enrolled GUI executable.  Bare executable names alone cannot decide
-    # this: Claude/Codex desktop mains are eligible only through their sealed
-    # PID/birth/UID binding, while their CLI names remain workloads below.
-    if row.get("known_workload") or row.get("workload"):
-        return {"kind": "agent_workload", "reason": "known_workload"}
-    if any(
-        item.get("exact_executable") == command
-        for item in registry_evidence.get("registry", {}).get("workload_exclusions", [])
-    ):
-        return {"kind": "agent_workload", "reason": "workload_exclusion"}
-    workload = _workload_kind(command, registry_evidence)
-    from research.bl_served_search.desktop_apps import classify_exported
-
-    enrolled = classify_exported(dict(row), dict(registry_evidence))
-    if enrolled.get("kind") == "agent_workload" or workload == "agent_workload":
-        return {"kind": "agent_workload", "reason": "workload_precedence"}
-    if enrolled.get("identity_binding_changed") or workload == "unknown":
-        return {**enrolled, "kind": "unknown"}
-    if command.startswith(SYSTEM_EXECUTABLE_ROOTS) and ".." not in Path(command).parts:
-        return {"kind": "macos_service", "reason": "system_executable"}
-    return enrolled
+    return replay_reference(dict(row), dict(registry_evidence), decisions)
 
 
 def _samples(host_evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -134,6 +119,11 @@ def _samples(host_evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
             or registry_evidence.get("registry_sha256") != registry_sha256
         ):
             raise ValueError("desktop policy registry evidence differs")
+    decisions = None
+    if policy == DESKTOP_POLICY:
+        from research.bl_served_search.desktop_apps import replay_history
+
+        decisions = replay_history(dict(registry_evidence))
     raw = host_evidence.get("cpu_samples")
     if not isinstance(raw, list) or not raw:
         raise ValueError("missing CPU samples")
@@ -177,13 +167,17 @@ def _samples(host_evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
             ):
                 raise ValueError("desktop process classification evidence differs")
             if policy == DESKTOP_POLICY:
-                replay = _replay_kind(process, registry_evidence)
-                if replay.get("kind") != process["kind"]:
-                    raise ValueError("desktop registry replay differs")
-                if process["kind"] in {"desktop_app", "desktop_renderer"} and replay != dict(
-                    classification
+                if process.get("observation_ns") != end:
+                    raise ValueError("desktop CPU observation differs from sample endpoint")
+                transition = process.get("interval_transition")
+                if (
+                    isinstance(transition, Mapping)
+                    and transition.get("previous", {}).get("observation_ns") != start
                 ):
-                    raise ValueError("desktop identity replay differs")
+                    raise ValueError("desktop previous observation differs from sample endpoint")
+                replay = _replay_kind(process, registry_evidence, decisions)
+                if replay != dict(classification):
+                    raise ValueError("desktop classification replay differs")
             if process["kind"] == "desktop_app":
                 # The collector binds the process to its sealed enrollment.  Do
                 # not turn a friendly command name into an admission here.
@@ -213,6 +207,12 @@ def _samples(host_evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
                     "pid": process["pid"],
                     "ppid": process["ppid"],
                     "command": process["command"],
+                    **({"argv": process["argv"]} if "argv" in process else {}),
+                    **(
+                        {"observation_ns": process["observation_ns"]}
+                        if "observation_ns" in process
+                        else {}
+                    ),
                     **({"birth": process["birth"]} if "birth" in process else {}),
                     **({"uid": process["uid"]} if "uid" in process else {}),
                     "kind": process["kind"],
@@ -443,6 +443,9 @@ def validate_desktop_host(host_evidence: Mapping[str, Any]) -> None:
     samples = _samples(host_evidence)
     _validate_desktop_guard(samples)
     registry_evidence = host_evidence["desktop_registry_evidence"]
+    from research.bl_served_search.desktop_apps import replay_history
+
+    decisions = replay_history(dict(registry_evidence))
     observations = host_evidence.get("observations")
     if not isinstance(observations, list) or not observations:
         raise ValueError("desktop point observations missing")
@@ -467,11 +470,13 @@ def validate_desktop_host(host_evidence: Mapping[str, Any]) -> None:
             if process["pid"] in exempt_pids:
                 continue
             classification = process.get("classification")
-            replay = _replay_kind(process, registry_evidence)
+            replay = _replay_kind(process, registry_evidence, decisions)
             if (
                 not isinstance(classification, Mapping)
+                or type(process.get("observation_ns")) is not int
+                or process["observation_ns"] < 0
                 or classification.get("kind") != process.get("kind")
-                or replay.get("kind") != process.get("kind")
+                or replay != dict(classification)
             ):
                 raise ValueError("desktop point classification replay differs")
             if (

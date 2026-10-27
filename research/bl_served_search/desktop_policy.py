@@ -14,6 +14,7 @@ POLICY = "classified-desktop-v1"
 RULING_SHA256 = "0210543b502b6d1722ad631d9fc3be740d35c073591b2a02ff157ecc2c57905e"
 RULING = Path(__file__).with_name("ASTRA_DESKTOP_RULING_20261027.md")
 AMENDMENT = Path(__file__).with_name("DESKTOP_APPS_AMENDMENT_20261027.md")
+HISTORY_AMENDMENT = Path(__file__).with_name("DESKTOP_HISTORY_AMENDMENT_20261027_12.md")
 
 
 def digest(value: Any) -> str:
@@ -43,6 +44,7 @@ def freeze_intent(registry_path: Path, source: dict, manifest: dict) -> dict[str
         },
         "ruling_sha256": ruling_hash,
         "amendment_sha256": hashlib.sha256(AMENDMENT.read_bytes()).hexdigest(),
+        "history_amendment_sha256": hashlib.sha256(HISTORY_AMENDMENT.read_bytes()).hexdigest(),
         "source": source,
         "execution_worktree": str(Path(__file__).resolve().parents[2]),
         "manifest_sha256": digest(manifest),
@@ -75,6 +77,8 @@ def observation_binding(path: Path, intent: Mapping[str, Any]) -> dict[str, Any]
         or previous.get("registry") != intent["registry"]
         or previous.get("policy") != POLICY
         or previous.get("amendment_sha256") != intent["amendment_sha256"]
+        or not intent.get("history_amendment_sha256")
+        or previous.get("history_amendment_sha256") != intent["history_amendment_sha256"]
         or previous.get("ruling_sha256") != intent["ruling_sha256"]
         or observation.get("host", {}).get("status") != "COMPLETE"
     ):
@@ -124,6 +128,8 @@ def validate_intent(raw: Mapping[str, Any]) -> None:
         or hashes.get(prefix + RULING.name) != RULING_SHA256
         or not intent.get("amendment_sha256")
         or hashes.get(prefix + AMENDMENT.name) != intent.get("amendment_sha256")
+        or not intent.get("history_amendment_sha256")
+        or hashes.get(prefix + HISTORY_AMENDMENT.name) != intent.get("history_amendment_sha256")
         or not intent.get("registry")
         or digest(intent["registry"]) != intent.get("registry_sha256")
         or host.get("desktop_registry") != intent["registry"]

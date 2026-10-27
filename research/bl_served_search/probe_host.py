@@ -53,32 +53,11 @@ def _point_identities() -> dict[int, dict[str, Any]]:
 
 def _desktop_point_inventory() -> list[dict[str, Any]]:
     """Capture desktop point CPU and identity in one process-table observation."""
-    import subprocess
+    from research.bl_served_search.host_load import capture_process_table
 
-    result = subprocess.run(
-        ["ps", "-ww", "-Ao", "pid,ppid,uid,lstart,pcpu,comm"],
-        capture_output=True,
-        check=True,
-        text=True,
-        timeout=10,
-        env={**os.environ, "LC_ALL": "C"},
-    )
-    rows: list[dict[str, Any]] = []
-    for line in result.stdout.splitlines()[1:]:
-        fields = line.split(None, 9)
-        if len(fields) != 10:
-            raise RuntimeError("unparseable classified point inventory")
-        rows.append(
-            {
-                "pid": int(fields[0]),
-                "ppid": int(fields[1]),
-                "uid": int(fields[2]),
-                "birth": " ".join(fields[3:8]),
-                "cpu_percent": float(fields[8]),
-                "command": fields[9],
-            }
-        )
-    return rows
+    rows = capture_process_table("pcpu")
+    observed = time.perf_counter_ns()
+    return [{**row, "observation_ns": observed} for row in rows]
 
 
 def environment() -> dict[str, Any]:
@@ -126,7 +105,6 @@ def foreign_load(
     from research.bl_served_search.host_load import (
         BACKGROUND_KINDS,
         DESKTOP_BACKGROUND_KINDS,
-        classification_evidence,
         owned_pids,
         process_kind,
     )
@@ -149,10 +127,6 @@ def foreign_load(
     if classified:
         allowed.update(owned_pids(parsed, owner_pid))
         screen["probe_exempt_pids"] = sorted(allowed)
-    if desktop_classifier is not None and admit_desktop:
-        for row in parsed:
-            if row["pid"] not in allowed:
-                row["admission"] = desktop_classifier.admit_process(row)
     rows = []
     background = []
     for row in parsed:
@@ -161,11 +135,18 @@ def foreign_load(
             if pid in allowed:
                 kind = "probe_owned"
             else:
-                kind = process_kind(command, desktop_classifier, row)
                 if desktop_classifier is not None:
-                    row["classification"] = classification_evidence(
-                        kind, desktop_classifier.classify(row)
+                    decision = (
+                        desktop_classifier.admit_process(row)
+                        if admit_desktop
+                        else desktop_classifier.classify(row)
                     )
+                    row["classification"] = decision
+                    if admit_desktop:
+                        row["admission"] = decision
+                    kind = decision["kind"]
+                else:
+                    kind = process_kind(command)
             row["kind"] = kind
             background_kinds = (
                 DESKTOP_BACKGROUND_KINDS if desktop_classifier is not None else BACKGROUND_KINDS
@@ -367,6 +348,8 @@ def _monitor_classified(
                     raise RuntimeError("foreign heavy load; retain entire attempt as contaminated")
                 next_host = time.monotonic() + INTERVAL_SECONDS
             current = host_load.capture_cpu()
+            if classifier is not None:
+                host_load.freeze_cpu_snapshot(current, owner_pid, classifier)
             if previous is not None:
                 sample = host_load.cpu_interval(
                     previous, current, owner_pid, desktop_classifier=classifier

@@ -289,25 +289,38 @@ def test_point_identity_parser_keeps_executables_with_and_without_spaces(monkeyp
     assert identities[21]["command"].endswith("/Claude")
 
 
-def test_desktop_point_inventory_binds_cpu_uid_and_birth_in_one_capture(monkeypatch):
+def test_desktop_point_inventory_binds_cpu_uid_birth_and_argv_in_one_capture(monkeypatch):
+    from research.bl_served_search.host_load import _COMMAND_WIDTH
+
+    command = "/Applications/Microsoft Outlook.app/Contents/MacOS/Microsoft Outlook"
+    monkeypatch.setattr(
+        "research.bl_served_search.host_load.capture_argv",
+        lambda row: {"argv": [command, "--mail"]},
+    )
     monkeypatch.setattr(
         "subprocess.run",
         lambda *args, **kwargs: SimpleNamespace(
             stdout=(
-                "PID PPID UID STARTED %CPU COMMAND\n"
-                "20 1 501 Tue Oct 27 08:00:00 2026 80.0 /Applications/Microsoft Outlook.app/"
-                "Contents/MacOS/Microsoft Outlook\n"
+                "PID PPID UID STARTED %CPU COMMAND ARGS\n"
+                "20 1 501 Tue Oct 27 08:00:00 2026 80.0 "
+                + command.ljust(_COMMAND_WIDTH)
+                + " "
+                + command
+                + " --mail\n"
             )
         ),
     )
     row = probe_host._desktop_point_inventory()[0]
+    assert row.pop("observation_ns") > 0
     assert row == {
         "pid": 20,
         "ppid": 1,
         "uid": 501,
         "birth": "Tue Oct 27 08:00:00 2026",
         "cpu_percent": 80.0,
-        "command": "/Applications/Microsoft Outlook.app/Contents/MacOS/Microsoft Outlook",
+        "command": command,
+        "argv": [command, "--mail"],
+        "argv_display": command + " --mail",
     }
 
 

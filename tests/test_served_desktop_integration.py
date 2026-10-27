@@ -63,12 +63,14 @@ def test_unmocked_desktop_collector_raw_export_and_reducers():
     )
 
     previous = host_load.capture_cpu()
+    host_load.freeze_cpu_snapshot(previous, owner_pid, registry)
     samples = []
     guard = host_load.LoadGuard(desktop_policy=True)
     guard_rejections: list[str] = []
     for _ in range(3):
         time.sleep(host_load.SAMPLE_SECONDS + 0.05)
         current = host_load.capture_cpu()
+        host_load.freeze_cpu_snapshot(current, owner_pid, registry)
         sample = host_load.cpu_interval(previous, current, owner_pid, desktop_classifier=registry)
         samples.append(sample)
         try:

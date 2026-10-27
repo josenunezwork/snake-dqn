@@ -64,6 +64,8 @@ def process_kind(
 
 def _kind_from_evidence(command: str, desktop_classifier: Any | None, evidence: dict) -> str:
     """Apply precedence without reclassifying or mutating registry state."""
+    if desktop_classifier is not None:
+        return str(evidence.get("kind", "unknown"))
     path = Path(command)
     name = path.name.lower()
     workload = _workload_kind(command, desktop_classifier)
@@ -132,48 +134,118 @@ def _cpu_seconds(value: str) -> float:
     return total
 
 
-def capture_cpu() -> dict[str, Any]:
-    """Read cumulative process CPU, including protected macOS services.
+# macOS ps uses header length as column width. MAXPATHLEN is 1024; a wider
+# fixed executable column preserves spaces without splitting/guessing argv.
+_COMMAND_WIDTH = 2048
 
-    psutil CPU times are inaccessible for many system PIDs on macOS. ps TIME
-    supplies user+system cumulative CPU at 10ms resolution without that blind spot.
-    The capture bracket discloses that the inventory is not an atomic snapshot.
-    """
-    started = time.perf_counter_ns()
+
+def capture_argv(row: dict[str, Any]) -> dict[str, Any]:
+    """Read exact argv, checking birth/executable on both sides of the read."""
+    import psutil
+
+    try:
+        before = psutil.Process(row["pid"])
+        birth = before.create_time()
+        uid = before.uids().effective
+        command = before.exe()
+        argv = before.cmdline()
+        after = psutil.Process(row["pid"])
+        if (
+            birth != after.create_time()
+            or uid != row.get("uid")
+            or after.uids().effective != uid
+            or " ".join(time.ctime(birth).split()) != row["birth"]
+            or command != row["command"]
+            or after.exe() != command
+            or after.cmdline() != argv
+            or not argv
+        ):
+            return {"argv": [], "identity_observation_error": "argv_identity_verification_failed"}
+        return {"argv": argv}
+    except (psutil.Error, OSError, ValueError):
+        return {"argv": [], "identity_observation_error": "argv_identity_unavailable"}
+
+
+def capture_process_table(metric: str) -> list[dict[str, Any]]:
+    """Capture executable and displayed argv together, with PID/birth and CPU."""
+    if metric not in {"time", "pcpu"}:
+        raise ValueError("unsupported process CPU metric")
     result = subprocess.run(
-        ["ps", "-ww", "-Ao", "pid,ppid,uid,lstart,time,comm"],
+        [
+            "ps",
+            "-ww",
+            "-Ao",
+            f"pid,ppid,uid,lstart,{metric}",
+            "-o",
+            "comm=" + "C" * _COMMAND_WIDTH,
+            "-o",
+            "args",
+        ],
         capture_output=True,
         text=True,
         check=True,
         timeout=10,
         env={**os.environ, "LC_ALL": "C"},
     )
-    ended = time.perf_counter_ns()
     rows = []
     for line in result.stdout.splitlines()[1:]:
         parts = line.split(None, 9)
-        if len(parts) not in (9, 10):
-            raise ValueError("unparseable cumulative CPU inventory")
-        has_uid = len(parts) == 10
-        offset = 1 if has_uid else 0
-        rows.append(
-            {
-                "pid": int(parts[0]),
-                "ppid": int(parts[1]),
-                "uid": int(parts[2]) if has_uid else None,
-                "birth": " ".join(parts[2 + offset : 7 + offset]),
-                "cpu_seconds": _cpu_seconds(parts[7 + offset]),
-                "command": parts[8 + offset],
-            }
-        )
+        if len(parts) != 10 or len(parts[9]) <= _COMMAND_WIDTH:
+            raise ValueError("unparseable process executable/argv inventory")
+        command = parts[9][:_COMMAND_WIDTH].rstrip()
+        argv = parts[9][_COMMAND_WIDTH:].strip()
+        if not command or not argv:
+            raise ValueError("missing process executable/argv evidence")
+        row = {
+            "pid": int(parts[0]),
+            "ppid": int(parts[1]),
+            "uid": int(parts[2]),
+            "birth": " ".join(parts[3:8]),
+            "command": command,
+            "argv_display": argv,
+            ("cpu_seconds" if metric == "time" else "cpu_percent"): (
+                _cpu_seconds(parts[8]) if metric == "time" else float(parts[8])
+            ),
+        }
+        row.update(capture_argv(row))
+        rows.append(row)
     if not rows:
-        raise ValueError("empty cumulative CPU inventory")
+        raise ValueError("empty process inventory")
+    return rows
+
+
+def capture_cpu() -> dict[str, Any]:
+    """Read cumulative macOS CPU and argv in one bracketed process inventory."""
+    started = time.perf_counter_ns()
+    rows = capture_process_table("time")
+    ended = time.perf_counter_ns()
     return {
         "time_ns": (started + ended) // 2,
         "capture_start_ns": started,
         "capture_end_ns": ended,
         "processes": rows,
     }
+
+
+def freeze_cpu_snapshot(snapshot: dict, owner_pid: int, desktop_classifier: Any) -> None:
+    """Attach decisions at observation time; previous rows are never reclassified."""
+    own = owned_pids(snapshot["processes"], owner_pid)
+    for row in snapshot["processes"]:
+        if row["pid"] not in own and "classification" not in row:
+            row["observation_ns"] = snapshot["time_ns"]
+            observe = getattr(desktop_classifier, "admit_process", desktop_classifier.classify)
+            row["classification"] = observe(row)
+
+
+def interval_classification(previous: dict, current: dict) -> dict:
+    """Conservatively attribute CPU across a transition from two frozen decisions."""
+    kinds = {previous["kind"], current["kind"]}
+    kind = (
+        "agent_workload"
+        if "agent_workload" in kinds
+        else "unknown" if "unknown" in kinds else current["kind"]
+    )
+    return classification_evidence(kind, current)
 
 
 def cpu_interval(
@@ -184,6 +256,14 @@ def cpu_interval(
     if end <= start:
         raise ValueError("CPU sample clock did not advance")
     seconds = (end - start) / 1e9
+    if desktop_classifier is not None:
+        for snapshot in (previous, current):
+            own = owned_pids(snapshot["processes"], owner_pid)
+            if any(
+                row["pid"] not in own and "classification" not in row
+                for row in snapshot["processes"]
+            ):
+                raise ValueError("desktop CPU snapshot was not classified at capture time")
     before = {(row["pid"], row["birth"]): row for row in previous["processes"]}
     after = {(row["pid"], row["birth"]): row for row in current["processes"]}
     own_before = owned_pids(previous["processes"], owner_pid)
@@ -205,7 +285,11 @@ def cpu_interval(
         uid_changed = (
             desktop_classifier is not None and old is not None and old.get("uid") != row.get("uid")
         )
-        transition = old is not None and (old["command"] != row["command"] or uid_changed)
+        transition = old is not None and (
+            old["command"] != row["command"]
+            or uid_changed
+            or (desktop_classifier is not None and old.get("argv") != row.get("argv"))
+        )
         if old is None or transition:
             coverage = False
             churn.append(
@@ -220,27 +304,22 @@ def cpu_interval(
         if delta < 0:
             raise ValueError("process CPU counter decreased")
         prior_evidence = None
-        if transition:
-            # Snapshot the previous identity exactly once, before any current
-            # admission, classification, or revocation can mutate its binding.
-            prior_raw = desktop_classifier.classify(old) if desktop_classifier else {}
-            prior_kind = _kind_from_evidence(old["command"], desktop_classifier, prior_raw)
-            prior_evidence = classification_evidence(prior_kind, prior_raw)
-            if desktop_classifier is not None:
-                desktop_classifier.invalidate_transition(row)
-        elif desktop_classifier is not None:
-            # Dedicated off-tick collector: admit only new/unchanged rows.
-            admit = getattr(desktop_classifier, "admit_process", None)
-            if callable(admit):
-                admit(row)
-        evidence = desktop_classifier.classify(row) if desktop_classifier else {}
-        kind = _kind_from_evidence(row["command"], desktop_classifier, evidence)
-        if transition:
-            kinds = {kind, prior_kind}
-            if "agent_workload" in kinds:
-                kind = "agent_workload"
-            elif "unknown" in kinds:
-                kind = "unknown"
+        if desktop_classifier is not None:
+            evidence = row["classification"]
+            if transition:
+                prior_evidence = old["classification"]
+                final_evidence = interval_classification(prior_evidence, evidence)
+            else:
+                final_evidence = evidence
+            kind = final_evidence["kind"]
+        else:
+            evidence = {}
+            kind = _kind_from_evidence(row["command"], None, evidence)
+            if transition:
+                prior_kind = _kind_from_evidence(old["command"], None, {})
+                prior_evidence = classification_evidence(prior_kind, {})
+                final_evidence = interval_classification(prior_evidence, {"kind": kind})
+                kind = final_evidence["kind"]
         cpu = 100 * delta / seconds
         background_kinds = (
             DESKTOP_BACKGROUND_KINDS if desktop_classifier is not None else BACKGROUND_KINDS
@@ -253,7 +332,12 @@ def cpu_interval(
         totals[group] += cpu
         if kind in {"macos_service", "desktop_renderer", "desktop_app"}:
             totals[kind] += cpu
-        evidence = classification_evidence(kind, evidence)
+        current_evidence = evidence
+        evidence = (
+            final_evidence
+            if desktop_classifier is not None
+            else classification_evidence(kind, evidence)
+        )
         # Preserve every measured CPU contribution and every admitted UI/violation
         # binding. Idle unrelated processes remain in raw point inventories and
         # churn, rather than repeating thousands of zero rows for up to 7200s.
@@ -272,10 +356,11 @@ def cpu_interval(
                 # not a claim that the after identity supplied all its CPU.
                 exported["interval_transition"] = {
                     "reason": "uid_changed_no_delta" if uid_changed else "exec_changed_no_delta",
-                    "previous": dict(old),
-                    "previous_classification": (
-                        prior_evidence if prior_evidence is not None else {"kind": prior_kind}
-                    ),
+                    "previous": {
+                        key: value for key, value in old.items() if key != "classification"
+                    },
+                    "current_classification": current_evidence,
+                    "previous_classification": (prior_evidence),
                     "conservative_kind": kind,
                 }
             rows.append(exported)

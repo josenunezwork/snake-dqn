@@ -193,6 +193,7 @@ def desktop_raw():
     hashes = raw["source_before"]["source_sha256"]
     hashes["research/bl_served_search/" + policy.RULING.name] = policy.RULING_SHA256
     hashes["research/bl_served_search/" + policy.AMENDMENT.name] = "c" * 64
+    hashes["research/bl_served_search/" + policy.HISTORY_AMENDMENT.name] = "e" * 64
     hashes["research/bl_served_search/" + DEFAULT_REGISTRY.name] = registry_file_sha
     for item in enrollment["registry_inputs"]:
         hashes["research/bl_served_search/" + item["path"]] = item["sha256"]
@@ -215,6 +216,7 @@ def desktop_raw():
         "registry_input": {"path": str(DEFAULT_REGISTRY), "sha256": registry_file_sha},
         "ruling_sha256": policy.RULING_SHA256,
         "amendment_sha256": "c" * 64,
+        "history_amendment_sha256": "e" * 64,
         "source": deepcopy(raw["source_before"]),
         "execution_worktree": root,
         "prior_attempts": {"07": "INVALID", "08": "INVALID"},
@@ -230,6 +232,7 @@ def desktop_raw():
         "registry_sha256",
         "ruling_sha256",
         "amendment_sha256",
+        "history_amendment_sha256",
         "source",
         "manifest_sha256",
         "prior_attempts",
@@ -525,7 +528,17 @@ def test_host_only_reducer_error_writes_invalid_observation(monkeypatch, tmp_pat
 
 
 @pytest.mark.parametrize(
-    "change", [None, "source", "registry", "status", "no_app", "short", "invalid_seconds"]
+    "change",
+    [
+        None,
+        "source",
+        "registry",
+        "status",
+        "no_app",
+        "short",
+        "invalid_seconds",
+        "history_amendment",
+    ],
 )
 def test_panel_requires_sealed_same_source_actual_app_observation(monkeypatch, tmp_path, change):
     from research.bl_paced_identity.record import export_json
@@ -553,6 +566,8 @@ def test_panel_requires_sealed_same_source_actual_app_observation(monkeypatch, t
         observation["source_after"]["commit"] = "b" * 40
     elif change == "registry":
         observation["desktop_intent"]["registry_sha256"] = "a" * 64
+    elif change == "history_amendment":
+        observation["desktop_intent"]["history_amendment_sha256"] = "f" * 64
     elif change == "status":
         observation["status"] = "INVALID"
     elif change == "no_app":

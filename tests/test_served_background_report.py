@@ -12,20 +12,61 @@ from research.bl_served_search.background_report import (
 
 @pytest.fixture(autouse=True)
 def _fixture_desktop_registry_replay(monkeypatch):
-    """Keep synthetic covariate tests independent of a real signed app fixture."""
+    """Keep synthetic covariate tests independent of a sealed history fixture.
+
+    The ``a...a`` digest is reserved for the small, deliberately synthetic
+    covariate fixtures in this module.  Production exports always replay their
+    complete history sequence through the real pure classifier.  These mocks
+    model only the pre-existing fixture semantics, including workload and
+    system precedence, so tests which alter an ordinary command still exercise
+    the report's exact-classification check.
+    """
+    from research.bl_k1.m1_background import SYSTEM_EXECUTABLE_ROOTS
     from research.bl_served_search import desktop_apps
 
-    original = desktop_apps.classify_exported
+    original_history = desktop_apps.replay_history
+    original_reference = desktop_apps.replay_reference
+    fixture_sha = "a" * 64
+    fixture_desktops = {
+        "/Applications/Microsoft Outlook.app/Contents/MacOS/Microsoft Outlook",
+        "/Applications/Claude.app/Contents/MacOS/Claude",
+        "/Applications/X.app/Renderer",
+    }
 
-    def classify(row, registry):
-        if registry.get("registry_sha256") == "a" * 64 and row.get("kind") in {
-            "desktop_app",
-            "desktop_renderer",
-        }:
-            return row["classification"]
-        return original(row, registry)
+    def replay_history(registry):
+        if registry.get("registry_sha256") == fixture_sha:
+            return {}
+        return original_history(registry)
 
-    monkeypatch.setattr(desktop_apps, "classify_exported", classify)
+    def replay_reference(row, registry, decisions=None):
+        if registry.get("registry_sha256") != fixture_sha:
+            return original_reference(row, registry, decisions)
+        command = row.get("command")
+        if not isinstance(command, str):
+            return {"kind": "unknown", "reason": "missing_command"}
+        if row.get("known_workload") or row.get("workload"):
+            return {"kind": "agent_workload", "reason": "known_workload"}
+        if any(
+            exclusion.get("exact_executable") == command
+            for exclusion in registry.get("registry", {}).get("workload_exclusions", [])
+        ):
+            return {"kind": "agent_workload", "reason": "workload_exclusion"}
+        if command.startswith(SYSTEM_EXECUTABLE_ROOTS) and ".." not in command.split("/"):
+            return {"kind": "macos_service", "reason": "system_executable"}
+        classification = row.get("classification")
+        if (
+            command in fixture_desktops
+            or command == "python"
+            or (
+                isinstance(classification, dict)
+                and isinstance(classification.get("classifier_decision"), dict)
+            )
+        ) and isinstance(classification, dict):
+            return dict(classification)
+        return {"kind": "unknown"}
+
+    monkeypatch.setattr(desktop_apps, "replay_history", replay_history)
+    monkeypatch.setattr(desktop_apps, "replay_reference", replay_reference)
 
 
 def _sample(start, end, background=10, workload=0, unknown=0, complete=True):
@@ -154,7 +195,10 @@ def _desktop_sample(start, end, *, app=0, renderer=0, service=0, workload=0, unk
             {"pid": 5, "ppid": 1, "command": "/tmp/x", "kind": "unknown", "cpu_percent": unknown}
         )
     for process in processes:
+        process["observation_ns"] = end
         process["classification"] = {"kind": process["kind"]}
+        if process["kind"] == "macos_service":
+            process["classification"]["reason"] = "system_executable"
         if process["kind"] == "desktop_app":
             process["classification"].update(
                 {
@@ -524,6 +568,7 @@ def test_desktop_point_replay_rejects_false_complete_unknown_and_relabelled_serv
         "ppid": 1,
         "uid": 501,
         "birth": "point",
+        "observation_ns": 0,
         "command": "/tmp/unknown",
         "kind": "unknown",
         "cpu_percent": 20,
@@ -535,6 +580,14 @@ def test_desktop_point_replay_rejects_false_complete_unknown_and_relabelled_serv
     with pytest.raises(ValueError, match=">=20%.*point"):
         validate_desktop_host(host)
     unknown["cpu_percent"] = 1
+    unknown.update(
+        {
+            "kind": "desktop_renderer",
+            "classification": {"kind": "desktop_renderer"},
+        }
+    )
+    with pytest.raises(ValueError, match="classification replay"):
+        validate_desktop_host(host)
     unknown.update(
         {
             "command": "/System/Library/Frameworks/X.framework/service",
@@ -553,7 +606,9 @@ def test_desktop_point_replay_rejects_false_complete_unknown_and_relabelled_serv
     )
     host["desktop_registry_sha256"] = "b" * 64
     host["desktop_registry_evidence"]["registry_sha256"] = "b" * 64
-    with pytest.raises(ValueError, match="classification replay"):
+    # Changing the synthetic digest leaves the fixture scope, where a complete
+    # exported history is required before any classification can be trusted.
+    with pytest.raises(ValueError):
         validate_desktop_host(host)
 
 
@@ -620,7 +675,10 @@ def test_replay_exact_system_path_workload_exclusion_precedes_service_class():
     command = "/usr/libexec/computeworker"
     decision = _replay_kind(
         {"command": command},
-        {"registry": {"workload_exclusions": [{"exact_executable": command}]}},
+        {
+            "registry_sha256": "a" * 64,
+            "registry": {"workload_exclusions": [{"exact_executable": command}]},
+        },
     )
     assert decision == {"kind": "agent_workload", "reason": "workload_exclusion"}
 
@@ -629,7 +687,10 @@ def test_exact_workload_exclusion_precedes_system_root_in_replay():
     from research.bl_served_search.background_report import _replay_kind
 
     row = {"command": "/usr/libexec/computeworker"}
-    evidence = {"registry": {"workload_exclusions": [{"exact_executable": row["command"]}]}}
+    evidence = {
+        "registry_sha256": "a" * 64,
+        "registry": {"workload_exclusions": [{"exact_executable": row["command"]}]},
+    }
     assert _replay_kind(row, evidence)["kind"] == "agent_workload"
 
 
