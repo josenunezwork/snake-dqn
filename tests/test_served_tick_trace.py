@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -12,6 +13,7 @@ from research.bl_served_search.tick_trace import (
     TraceOverflowError,
     TraceRecorder,
     reduce_trace,
+    summarize_breakdowns,
 )
 from web.backend import serialize
 
@@ -121,6 +123,8 @@ class _Game:
         self.snakes = []
 
     def update(self) -> str:
+        for snake in self.snakes:
+            snake.update()
         return "updated"
 
 
@@ -147,11 +151,18 @@ class _Forward:
 
 class _Policy:
     def __init__(self) -> None:
+        self.net = _Forward()
         self.dqn = _Forward()
+
+    def _ensure_frame(self, state: object) -> object:
+        return self.net.forward(state)
 
     def select_action(self, state: object) -> int:
         self.dqn.forward(state)
         return 0
+
+    def act(self, state: object) -> int:
+        return self.select_action(state)
 
 
 class _Snake:
@@ -163,6 +174,12 @@ class _Snake:
     def update(self, *_: object) -> None:
         self.policy.select_action(None)
 
+    def get_state(self) -> object:
+        return self.policy._ensure_frame(None)
+
+    def respawn(self) -> None:
+        return None
+
 
 def test_shared_policy_nested_forward_uses_distinct_stage_names() -> None:
     clock = Clock()
@@ -172,8 +189,7 @@ def test_shared_policy_nested_forward_uses_distinct_stage_names() -> None:
     session.game.snakes = [_Snake(1, policy), _Snake(2, policy)]
     with trace.attach(session):
         trace.begin_tick(0, 0, 0)
-        for snake in session.game.snakes:
-            snake.update()
+        session.step()
         trace.end_tick()
     spans = trace.rows()[0]["spans"]
     assert spans["opponent_action_selection"]["calls"] == 2
@@ -208,6 +224,147 @@ def test_attach_constructs_hooks_once_and_restores_methods() -> None:
     assert session.game.update.__func__ is original_update.__func__
     assert isinstance(session._lock, type(threading.RLock()))
     assert trace._gc_callback not in gc.callbacks
+
+
+def test_snapshot_bypasses_step_internal_hooks_while_its_outer_span_records() -> None:
+    clock = Clock()
+    trace = recorder(clock)
+    session = _Session()
+    policy = _Policy()
+
+    class Veto:
+        def apply(self) -> None:
+            return None
+
+    snake = _Snake(1, policy)
+    snake.safety_veto = Veto()
+    session.game.snakes = [snake]
+    session.snapshot = lambda: (
+        policy._ensure_frame(None),
+        policy.net.forward(None),
+        policy.dqn.forward(None),
+        snake.get_state(),
+        snake.respawn(),
+        snake.update(),
+        policy.select_action(None),
+        policy.act(None),
+        snake.safety_veto.apply(),
+    )
+    with trace.attach(session):
+        trace.begin_tick(0, 0, 0)
+        session.snapshot()
+        trace.end_tick()
+    spans = trace.rows()[0]["spans"]
+    assert spans["snapshot"]["calls"] == 1
+    for name in (
+        "observation",
+        "snake_update",
+        "hero_forward",
+        "hero_action_selection",
+        "opponent_forward",
+        "opponent_action_selection",
+        "opponent_veto",
+        "food_spawn_respawn",
+    ):
+        assert spans[name]["calls"] == 0
+
+
+def test_inactive_snapshot_on_executor_thread_bypasses_every_wrapped_hook() -> None:
+    clock = Clock()
+    trace = recorder(clock)
+    session = _Session()
+    policy = _Policy()
+
+    class Veto:
+        def apply(self) -> None:
+            return None
+
+    snake = _Snake(1, policy)
+    snake.safety_veto = Veto()
+    session.game.snakes = [snake]
+    session.snapshot = lambda: (
+        policy._ensure_frame(None),
+        policy.net.forward(None),
+        policy.dqn.forward(None),
+        snake.get_state(),
+        snake.respawn(),
+        snake.update(),
+        policy.select_action(None),
+        policy.act(None),
+        snake.safety_veto.apply(),
+    )
+    with trace.attach(session):
+        trace.begin_tick(0, 0, 0)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(session.snapshot).result()
+        trace.end_tick()
+    assert all(span["calls"] == 0 for span in trace.rows()[0]["spans"].values())
+
+
+class _ClockLock:
+    def __init__(self, clock: Clock, wait_ns: int) -> None:
+        self._clock = clock
+        self._wait_ns = wait_ns
+        self._lock = threading.RLock()
+
+    def acquire(self, *args: object, **kwargs: object) -> bool:
+        self._clock.advance(self._wait_ns)
+        return self._lock.acquire(*args, **kwargs)
+
+    def release(self) -> None:
+        self._lock.release()
+
+
+def test_snapshot_telemetry_routes_gc_and_lock_to_separate_active_recorder() -> None:
+    clock = Clock()
+    step_trace = recorder(clock)
+    snapshot_trace = recorder(clock)
+    session = _Session()
+    session._lock = _ClockLock(clock, wait_ns=5)
+    with step_trace.attach(session), snapshot_trace.attach_telemetry(session):
+        snapshot_trace.begin_tick(0, 0, 0)
+        with snapshot_trace.span("snapshot"):
+            with session._lock:
+                installed = [
+                    callback for callback in gc.callbacks if callback == snapshot_trace._gc_callback
+                ]
+                assert len(installed) == 1
+                installed[0]("start", {"generation": 1})
+                clock.advance(7)
+                installed[0]("stop", {"generation": 1})
+        snapshot_trace.end_tick()
+    row = snapshot_trace.rows()[0]
+    assert row["spans"]["ipc_lock"]["calls"] == 1
+    assert row["spans"]["ipc_lock"]["wall_ns"] == 5
+    assert row["gc_start"] == [0, 1, 0]
+    assert row["gc_stop"] == [0, 1, 0]
+    assert row["gc_overlap_ns"] == [0, 7, 0]
+
+
+def test_capture_session_context_reports_zero_respawns_when_none_occur() -> None:
+    clock = Clock()
+    trace = recorder(clock)
+    session = _Session()
+    trace.begin_tick(0, 0, 0)
+    trace.capture_session_context(session)
+    trace.end_tick()
+    assert trace.rows()[0]["respawns"] == 0
+
+
+def test_breakdown_summary_includes_exclusive_spans_and_gc() -> None:
+    source = tick(end=10, update=5)
+    source["gc_start"] = [1, 0, 0]
+    source["gc_stop"] = [1, 0, 0]
+    source["gc_overlap_ns"] = [4, 0, 0]
+    summary = summarize_breakdowns([source])
+    update = summary["span_summary"]["game_update"]
+    assert update["wall_exclusive_ns"]["max"] == 5
+    assert update["thread_cpu_exclusive_ns"]["max"] == 5
+    assert summary["gc"] == {
+        "overlap_ns": {"p50": 4.0, "p95": 4.0, "p99": 4.0, "max": 4},
+        "start_counts": [1, 0, 0],
+        "stop_counts": [1, 0, 0],
+    }
 
 
 def tick(*, end: int, update: int, target: int = 0, wake: int = 0, index: int = 0) -> dict:

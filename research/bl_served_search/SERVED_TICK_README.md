@@ -48,6 +48,20 @@ children. Unavailable endpoints are identified explicitly. Wall-minus-thread-CPU
 indicates waits/descheduling possibilities, without assigning a unique cause.
 GC overlap does not prove the collector caused a deadline miss.
 
+The production step and snapshot workers each record GC and session-lock waits;
+the report includes their combined GC counts/overlap and inclusive/exclusive span
+breakdowns. Inspector calls made while constructing a snapshot are charged to
+snapshot/DTO work, while step-internal inference hooks are suppressed. Production
+trace, send and receipt rows join in stream order, preserving repeated frame IDs
+across game resets. An explicit client-ready reply gates the first engine tick;
+startup-only connection retries, bounded inactivity/completion waits and exact
+receipt counts reject partial or reconnected streams.
+
+All arms, including observer controls, share one parent-side health poll every
+second, outside the measured tick loop. The independent host sampler retains
+transient process-inspection failures as evidence; a failed final host sample
+still produces an INVALID raw/report pair. No failure authorizes a cell retry.
+
 Complete-state/action/DTO parity runs outside the paced timing window. Source,
 checkpoint, registry, interpreter and environment identities accompany raw traces.
 State hashing, shell telemetry and disk exports must not be inserted into a

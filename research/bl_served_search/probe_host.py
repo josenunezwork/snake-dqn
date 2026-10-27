@@ -51,8 +51,15 @@ def foreign_load(screen: dict, owner_pid: int) -> list[dict]:
     """
     import psutil
 
-    owner = psutil.Process(owner_pid)
-    allowed = {owner_pid, *(process.pid for process in owner.children(recursive=True))}
+    allowed = {owner_pid}
+    try:
+        owner = psutil.Process(owner_pid)
+        allowed.update(process.pid for process in owner.children(recursive=True))
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as exc:
+        # Process inspection on macOS can race an exec or exit.  Retain that
+        # limitation in the immutable sample, but do not turn ordinary churn
+        # into a monitor-process failure.
+        screen["probe_exempt_child_enumeration"] = f"{type(exc).__name__}: {exc}"
     screen["probe_exempt_pids"] = sorted(allowed)
     rows = []
     background = []
@@ -85,7 +92,12 @@ def _owned_inventory(owner_pid: int) -> list[dict[str, Any]]:
     import psutil
 
     rows = []
-    for process in [psutil.Process(owner_pid), *psutil.Process(owner_pid).children()]:
+    try:
+        owner = psutil.Process(owner_pid)
+        processes = [owner, *owner.children()]
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as exc:
+        return [{"pid": owner_pid, "status": f"unavailable_during_sample:{type(exc).__name__}"}]
+    for process in processes:
         try:
             rows.append(
                 {
@@ -96,8 +108,10 @@ def _owned_inventory(owner_pid: int) -> list[dict[str, Any]]:
                     "argv": process.cmdline(),
                 }
             )
-        except psutil.NoSuchProcess:
-            rows.append({"pid": process.pid, "status": "exited_during_sample"})
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as exc:
+            rows.append(
+                {"pid": process.pid, "status": f"unavailable_during_sample:{type(exc).__name__}"}
+            )
     return rows
 
 
@@ -193,14 +207,45 @@ class HostMonitor:
     def __exit__(self, *args: Any) -> None:
         self.stop.set()
         self.process.join(40)
+        shutdown_reason = None
         if self.process.is_alive():
             self.process.terminate()  # Only our exact, still-owned monitor child.
             self.process.join(5)
             self.failed.set()
-        self.receipt["host_path"] = str(self.output / "host.json")
+            shutdown_reason = "host monitor shutdown timeout"
+        host_path = self.output / "host.json"
+        if self.process.exitcode != 0 and shutdown_reason is None:
+            shutdown_reason = f"host monitor exited with code {self.process.exitcode}"
+        # A killed/crashed monitor cannot publish its own final record.  Publish
+        # a parent-side INVALID record only when no child-side evidence exists;
+        # never overwrite a create-only record, including an incomplete one.
+        host_parts = (
+            host_path,
+            Path(str(host_path) + ".sha256"),
+            Path(str(host_path) + ".complete"),
+        )
+        if shutdown_reason is not None and not any(part.exists() for part in host_parts):
+            export_json(
+                host_path,
+                {
+                    "schema": "served-tick-host/v1",
+                    "status": "INVALID",
+                    "reason": shutdown_reason,
+                    "interval_seconds": INTERVAL_SECONDS,
+                    "heavy_percent_one_core": HEAVY_PERCENT,
+                    "elapsed_seconds": None,
+                    "observations": [],
+                },
+            )
+        self.receipt["host_path"] = str(host_path)
         self.receipt["monitor_exitcode"] = self.process.exitcode
-        if args[0] is None and (self.failed.is_set() or self.process.exitcode != 0):
-            raise RuntimeError("host monitor failed; no uncontended timing claim")
+        # A final sampling failure is evidence, not an exception that hides
+        # the sealed INVALID host.json from the parent.  During the run,
+        # check() remains the fail-fast path; after the callback returns the
+        # caller reads host.json and marks raw/report INVALID.
+        self.receipt["monitor_status"] = (
+            "INVALID" if self.failed.is_set() or self.process.exitcode != 0 else "COMPLETE"
+        )
 
 
 def guarded_run(output: Path, callback: Callable[[HostMonitor], Any]) -> Any:

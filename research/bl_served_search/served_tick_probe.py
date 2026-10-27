@@ -16,6 +16,7 @@ import os
 import platform
 import subprocess
 import sys
+import threading
 import time
 from collections import deque
 from contextlib import contextmanager
@@ -110,16 +111,18 @@ def _canonical(value: Any, seen: set[int] | None = None) -> Any:
             return {"rng": _canonical(value.getstate(), seen)}
         except Exception:
             pass
-    slots = getattr(type(value), "__slots__", ())
+    slots = []
+    for cls in type(value).__mro__:
+        names = getattr(cls, "__slots__", ())
+        slots.extend((names,) if isinstance(names, str) else names)
     if slots:
         seen.add(marker)
-        names = (slots,) if isinstance(slots, str) else slots
         result = {
             "slots": type(value).__qualname__,
             "fields": {
                 name: _canonical(getattr(value, name), seen)
-                for name in names
-                if hasattr(value, name)
+                for name in sorted(set(slots))
+                if hasattr(value, name) and not _is_runtime_timing_field(name)
             },
         }
         seen.remove(marker)
@@ -306,21 +309,16 @@ def run_inline_arm(spec: Mapping[str, Any], fresh_process: bool = False) -> dict
         ):
             epoch = time.perf_counter_ns()
             for index in range(measured):
-                monitor = spec.get("host_monitor")
-                if monitor is not None:
-                    monitor.check()
                 target_ns = epoch + (index * 1_000_000_000) // FPS
                 wake_ns = _sleep_until(target_ns)
+                processing_started = time.perf_counter_ns()
+                processing_cpu = time.thread_time_ns()
                 if recorder is not None:
                     recorder.begin_tick(index, target_ns, wake_ns)
                 try:
                     if session is not None:
-                        processing_started = time.perf_counter_ns()
-                        processing_cpu = time.thread_time_ns()
                         session.step()
                         dto = session.snapshot()
-                        processing_wall_ns[index] = time.perf_counter_ns() - processing_started
-                        processing_thread_cpu_ns[index] = time.thread_time_ns() - processing_cpu
                         actions[index] = [
                             getattr(snake, "last_action", None) for snake in session.game.snakes
                         ]
@@ -329,6 +327,8 @@ def run_inline_arm(spec: Mapping[str, Any], fresh_process: bool = False) -> dict
                 finally:
                     if recorder is not None:
                         recorder.end_tick(time.perf_counter_ns())
+                    processing_wall_ns[index] = time.perf_counter_ns() - processing_started
+                    processing_thread_cpu_ns[index] = time.thread_time_ns() - processing_cpu
         final_state = session_state_digest(session) if session is not None else None
         final_dto = dto_digest(dto) if dto is not None else None
         return {
@@ -429,16 +429,25 @@ def _distribution(samples: list[int]) -> dict[str, float | int | None]:
 
 def _production_summary(result: Mapping[str, Any], expected: int) -> dict[str, Any]:
     """Keep Hub's relative sleep and distinct worker clocks out of absolute bars."""
+    from research.bl_served_search.tick_trace import summarize_breakdowns
+
     rows = result.get("trace", [])
     if len(rows) != expected:
         return {"verdict": "INCOMPLETE", "reason": "production exposure"}
     updates, step_cpu, snapshot_cpu, latencies, sends = [], [], [], [], []
-    received = {
-        row["frame"]: row["receive_ns"]
-        for row in result.get("client_receive", [])
-        if row.get("source") == "hub_broadcast"
-    }
-    sent = {row["frame"]: row for row in result.get("frame_send", [])}
+    received = [
+        row for row in result.get("client_receive", []) if row.get("source") == "hub_broadcast"
+    ]
+    sent = list(result.get("frame_send", []))
+    warmup = result.get("warmup_ticks", 0)
+    if (
+        type(warmup) is not int
+        or warmup < 0
+        or len(received) != warmup + expected
+        or len(sent) != warmup + expected
+    ):
+        return {"verdict": "INVALID", "reason": "production delivery exposure"}
+    received, sent = received[warmup:], sent[warmup:]
     measured_receipts = []
     for index, row in enumerate(rows):
         try:
@@ -456,8 +465,14 @@ def _production_summary(result: Mapping[str, Any], expected: int) -> dict[str, A
             ):
                 raise ValueError("update span")
             frame = row["game_age"]
-            receive, send = received[frame], sent[frame]
-            if send["status"] != "ok" or receive < send["start_ns"]:
+            receipt, send = received[index], sent[index]
+            receive = receipt["receive_ns"]
+            if (
+                receipt["frame"] != frame
+                or send["frame"] != frame
+                or send["status"] != "ok"
+                or receive < send["start_ns"]
+            ):
                 raise ValueError("delivery timestamps")
             updates.append(duration)
             step_cpu.append(row["end_cpu_ns"] - row["start_cpu_ns"])
@@ -471,6 +486,10 @@ def _production_summary(result: Mapping[str, Any], expected: int) -> dict[str, A
     if any(value < 0 for values in (step_cpu, snapshot_cpu, gaps) for value in values):
         return {"verdict": "INVALID", "reason": "production CPU/cadence ordering"}
     update_summary = _distribution(updates)
+    try:
+        breakdowns = summarize_breakdowns(rows)
+    except (KeyError, TypeError, ValueError) as exc:
+        return {"verdict": "INVALID", "reason": f"production breakdowns: {exc}"}
     return {
         "verdict": "PASS" if update_summary["p95"] <= 11_688_000 else "FAIL",
         "absolute_overrun_applicable": False,
@@ -481,6 +500,7 @@ def _production_summary(result: Mapping[str, Any], expected: int) -> dict[str, A
         "client_frame_gap_ns": _distribution(gaps),
         "step_to_client_ns": _distribution(latencies),
         "send_to_client_ns": _distribution(sends),
+        **breakdowns,
         "candidate_client_noninferiority": "NOT_TESTED: baseline endpoint only",
     }
 
@@ -510,7 +530,9 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
         or len(binding.get("commit", "")) != 40
     ):
         return {"verdict": "INVALID", "reason": "missing or changed source binding"}
-    if raw.get("host", {}).get("status") != "COMPLETE":
+    if raw.get("host", {}).get("status") != "COMPLETE" or (
+        (raw.get("lease") or {}).get("monitor_status") == "INVALID"
+    ):
         return {"verdict": "INVALID", "reason": "missing or contaminated host evidence"}
     arms: list[dict[str, Any]] = []
     for cell in raw.get("cells", []):
@@ -624,7 +646,47 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+@contextmanager
+def _poll_host(monitor: Any, interval_seconds: float = 1.0) -> Iterator[None]:
+    """Poll every arm on one off-tick parent thread, without serializing the monitor."""
+    if monitor is None:
+        yield
+        return
+    stopped = threading.Event()
+    errors: list[BaseException] = []
+
+    def poll() -> None:
+        while not stopped.wait(interval_seconds):
+            try:
+                monitor.check()
+            except BaseException as exc:
+                errors.append(exc)
+                return
+
+    monitor.check()
+    thread = threading.Thread(target=poll, name="served-tick-host-poll", daemon=True)
+    thread.start()
+    try:
+        yield
+        if errors:
+            raise RuntimeError("host polling failed during panel") from errors[0]
+        monitor.check()
+    finally:
+        stopped.set()
+        thread.join(timeout=2)
+        if thread.is_alive():
+            raise RuntimeError("host polling thread failed to stop")
+
+
 def run_panel(
+    manifest: Mapping[str, Any], output: Path, host_monitor: Any = None
+) -> dict[str, Any]:
+    """Keep host health polling uniform across inline, child and observer workloads."""
+    with _poll_host(host_monitor):
+        return _run_panel(manifest, output, host_monitor)
+
+
+def _run_panel(
     manifest: Mapping[str, Any], output: Path, host_monitor: Any = None
 ) -> dict[str, Any]:
     """Execute the fixed W0 panel in a lease; exporting belongs after its final sample."""
@@ -649,16 +711,13 @@ def run_panel(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("whole diagnostic cap exhausted before next cell")
-        spec["host_monitor"] = host_monitor
         if cell["arm"] == "isolated":
             # A monitor object contains multiprocessing primitives and is not a
             # child input; parent/child transport checks are bounded separately.
-            spec.pop("host_monitor", None)
             result = run_isolated_arm(spec, remaining)
         elif cell["arm"] == "production":
             from research.bl_served_search.production_probe import run_production_arm
 
-            spec.pop("host_monitor", None)
             result = run_production_arm(spec, timeout_seconds=remaining)
         else:
             result = run_inline_arm(spec)

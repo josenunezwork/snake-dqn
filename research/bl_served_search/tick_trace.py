@@ -35,6 +35,22 @@ SPAN_NAMES = (
     "ipc_lock",
 )
 _SPAN_INDEX = {name: index for index, name in enumerate(SPAN_NAMES)}
+# These hooks describe work performed by the serving step itself.  A snapshot can
+# legitimately call some of the same policy/snake helpers for inspector output;
+# that work belongs to DTO/snapshot timing, not to step inference/update spans.
+_STEP_INTERNAL_SPANS = frozenset(
+    {
+        "observation",
+        "snake_update",
+        "hero_forward",
+        "hero_action_selection",
+        "opponent_forward",
+        "opponent_action_selection",
+        "opponent_veto",
+        "simulation_collision",
+        "food_spawn_respawn",
+    }
+)
 
 _TICK_DTYPE = np.dtype(
     [
@@ -96,7 +112,7 @@ class _TimedLock:
         self._recorder = recorder
 
     def acquire(self, *args: Any, **kwargs: Any) -> Any:
-        if self._recorder._active >= 0:
+        if self._recorder._is_active_on_current_thread():
             with self._recorder.span("ipc_lock"):
                 return self._lock.acquire(*args, **kwargs)
         return self._lock.acquire(*args, **kwargs)
@@ -242,9 +258,13 @@ class TraceRecorder:
             had_instance_attribute = attribute in vars(obj)
 
             def traced(*args: Any, **kwargs: Any) -> Any:
+                if not self._is_active_on_current_thread() or (
+                    span_name in _STEP_INTERNAL_SPANS and not self._in_step_internal_context()
+                ):
+                    return original(*args, **kwargs)
                 with self.span(span_name):
                     result = original(*args, **kwargs)
-                if attribute == "respawn" and self._active >= 0:
+                if attribute == "respawn":
                     row = self._require_active()
                     if self._ticks[row]["respawns"] < 0:
                         self._ticks[row]["respawns"] = 0
@@ -323,21 +343,42 @@ class TraceRecorder:
                     wrap(policy, "select_action", action_span)
                     wrap(policy, "act", action_span)
                 wrap(getattr(snake, "safety_veto", None), "apply", "opponent_veto")
-        gc.callbacks.append(self._gc_callback)
-        self._gc_callback_installed = True
+        self._install_gc_callback()
         try:
             yield self
         finally:
             if build_frame_restore is not None:
                 module, original_build_frame = build_frame_restore
                 module.build_frame = original_build_frame
-            if self._gc_callback_installed:
-                try:
-                    gc.callbacks.remove(self._gc_callback)
-                except ValueError:
-                    pass
-                self._gc_callback_installed = False
+            self._remove_gc_callback()
             for obj, attribute, original, had_instance_attribute in reversed(restores):
+                if had_instance_attribute:
+                    setattr(obj, attribute, original)
+                else:
+                    delattr(obj, attribute)
+
+    @contextmanager
+    def attach_telemetry(self, session: Any) -> Iterator["TraceRecorder"]:
+        """Route lock wait and GC activity to this recorder without method hooks.
+
+        Production Hub dispatches the step and snapshot through independent worker
+        threads.  This context can nest inside a step recorder's full attachment:
+        the outer lock proxy records the active snapshot tick while the inner one
+        simply delegates because its step tick is inactive on that thread.
+        """
+        original_lock = getattr(session, "_lock", None)
+        restore_lock: tuple[Any, str, Any, bool] | None = None
+        if original_lock is not None and callable(getattr(original_lock, "acquire", None)):
+            had_instance_lock = "_lock" in vars(session)
+            session._lock = _TimedLock(original_lock, self)
+            restore_lock = (session, "_lock", original_lock, had_instance_lock)
+        self._install_gc_callback()
+        try:
+            yield self
+        finally:
+            self._remove_gc_callback()
+            if restore_lock is not None:
+                obj, attribute, original, had_instance_attribute = restore_lock
                 if had_instance_attribute:
                     setattr(obj, attribute, original)
                 else:
@@ -364,8 +405,10 @@ class TraceRecorder:
         self._ticks[row]["food_count"] = len(getattr(game, "food", ()))
         self._ticks[row]["alive_count"] = int(getattr(game, "alive_snakes", -1))
         # ``attach``'s respawn wrapper records actual calls, including a snake
-        # which respawns then dies in the same tick.
-        # Leave -1 when callers intentionally trace a partial/timer-only tick.
+        # which respawns then dies in the same tick. A completed Watch step with
+        # no respawns is explicitly zero rather than an unknown partial tick.
+        if self._ticks[row]["respawns"] < 0:
+            self._ticks[row]["respawns"] = 0
 
     def arrays(self) -> dict[str, np.ndarray]:
         """Return copied buffers after the tick loop; never call from a live tick."""
@@ -428,6 +471,38 @@ class TraceRecorder:
                 "tick trace crossed threads; begin/end and spans need one tick-owning thread"
             )
         return self._active
+
+    def _is_active_on_current_thread(self) -> bool:
+        """Return whether this recorder owns a tick on this calling thread."""
+        return (
+            not self._failed
+            and self._active >= 0
+            and self._ticks[self._active]["thread_id"] == threading.get_ident()
+        )
+
+    def _in_step_internal_context(self) -> bool:
+        """Whether a step-internal hook is nested under the serving update path."""
+        if not self._is_active_on_current_thread():
+            return False
+        return any(
+            self._stack[depth, 0] in (_SPAN_INDEX["session_step"], _SPAN_INDEX["game_update"])
+            for depth in range(self._stack_depth)
+        )
+
+    def _install_gc_callback(self) -> None:
+        if self._gc_callback_installed:
+            raise TraceError("GC callback is already installed")
+        gc.callbacks.append(self._gc_callback)
+        self._gc_callback_installed = True
+
+    def _remove_gc_callback(self) -> None:
+        if not self._gc_callback_installed:
+            return
+        try:
+            gc.callbacks.remove(self._gc_callback)
+        except ValueError:
+            pass
+        self._gc_callback_installed = False
 
     def _enter_span(self, name: str) -> None:
         row = self._require_active()
@@ -519,6 +594,62 @@ def _bands(
         )
         bands.setdefault(label, []).append(int(row[measure]))
     return {label: _percentiles(samples) for label, samples in sorted(bands.items())}
+
+
+def summarize_breakdowns(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Summarize span and GC accounting shared by all probe transport arms.
+
+    This deliberately does not inspect tick cadence or clocks, so production can
+    use it after combining its independently-clocked step and snapshot rows.
+    Callers that accept external JSON should translate ``ValueError`` into their
+    own invalid-result protocol.
+    """
+    span_summary = {
+        name: {
+            "wall_ns": _percentiles(
+                [int(row.get("spans", {}).get(name, {}).get("wall_ns", 0)) for row in rows]
+            ),
+            "wall_exclusive_ns": _percentiles(
+                [
+                    int(row.get("spans", {}).get(name, {}).get("wall_exclusive_ns", 0))
+                    for row in rows
+                ]
+            ),
+            "thread_cpu_ns": _percentiles(
+                [int(row.get("spans", {}).get(name, {}).get("cpu_ns", 0)) for row in rows]
+            ),
+            "thread_cpu_exclusive_ns": _percentiles(
+                [int(row.get("spans", {}).get(name, {}).get("cpu_exclusive_ns", 0)) for row in rows]
+            ),
+        }
+        for name in SPAN_NAMES
+    }
+    gc_overlap: list[int] = []
+    gc_starts = [0, 0, 0]
+    gc_stops = [0, 0, 0]
+    for source in rows:
+        overlap = source.get("gc_overlap_ns", (0, 0, 0))
+        starts = source.get("gc_start", (0, 0, 0))
+        stops = source.get("gc_stop", (0, 0, 0))
+        if any(
+            not isinstance(values, (list, tuple))
+            or len(values) != 3
+            or any(type(value) is not int or value < 0 for value in values)
+            for values in (overlap, starts, stops)
+        ):
+            raise ValueError("invalid gc counters")
+        gc_overlap.append(sum(overlap))
+        for generation in range(3):
+            gc_starts[generation] += starts[generation]
+            gc_stops[generation] += stops[generation]
+    return {
+        "span_summary": span_summary,
+        "gc": {
+            "overlap_ns": _percentiles(gc_overlap),
+            "start_counts": gc_starts,
+            "stop_counts": gc_stops,
+        },
+    }
 
 
 def reduce_trace(
@@ -659,35 +790,10 @@ def reduce_trace(
         else:
             current = 0
     update_summary = _percentiles(update_ns)
-    span_summary = {
-        name: {
-            "wall_ns": _percentiles(
-                [int(row["spans"].get(name, {}).get("wall_ns", 0)) for row in rows]
-            ),
-            "thread_cpu_ns": _percentiles(
-                [int(row["spans"].get(name, {}).get("cpu_ns", 0)) for row in rows]
-            ),
-        }
-        for name in SPAN_NAMES
-    }
-    gc_overlap = []
-    gc_starts = [0, 0, 0]
-    gc_stops = [0, 0, 0]
-    for source in rows:
-        overlap = source.get("gc_overlap_ns", (0, 0, 0))
-        starts = source.get("gc_start", (0, 0, 0))
-        stops = source.get("gc_stop", (0, 0, 0))
-        if any(
-            not isinstance(values, (list, tuple))
-            or len(values) != 3
-            or any(type(value) is not int or value < 0 for value in values)
-            for values in (overlap, starts, stops)
-        ):
-            return {"verdict": "INVALID", "reason": "invalid gc counters"}
-        gc_overlap.append(sum(overlap))
-        for generation in range(3):
-            gc_starts[generation] += starts[generation]
-            gc_stops[generation] += stops[generation]
+    try:
+        breakdowns = summarize_breakdowns(rows)
+    except ValueError:
+        return {"verdict": "INVALID", "reason": "invalid gc counters"}
     timing_pass = not overruns and update_summary["p95"] <= UPDATE_P95_LIMIT_NS
     enriched = [dict(row, tick_ns=tick_ns[index]) for index, row in enumerate(rows)]
     return {
@@ -710,12 +816,7 @@ def reduce_trace(
         "wake_lateness_ns": _percentiles(wake_lateness),
         "late_wake_count": sum(value > 0 for value in wake_lateness),
         "late_wake_lateness_ns": _percentiles([value for value in wake_lateness if value > 0]),
-        "span_summary": span_summary,
-        "gc": {
-            "overlap_ns": _percentiles(gc_overlap),
-            "start_counts": gc_starts,
-            "stop_counts": gc_stops,
-        },
+        **breakdowns,
         "by_game_age": _bands(enriched, "game_age", "tick_ns"),
         "by_hero_length": _bands(enriched, "hero_length", "tick_ns"),
     }

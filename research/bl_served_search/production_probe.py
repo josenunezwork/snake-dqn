@@ -14,6 +14,7 @@ import contextlib
 import json
 import multiprocessing as mp
 import socket
+import sys
 import tempfile
 import time
 from contextlib import asynccontextmanager
@@ -26,6 +27,10 @@ MEASURED_TICKS = 2400
 FRAME_NS = 1_000_000_000 // FPS
 UPDATE_BAR_NS = 11_688_000
 SCHEMA = "served-production-hub-trace/v1"
+FINAL_ACK_TIMEOUT_SECONDS = 10.0
+CLIENT_INACTIVITY_TIMEOUT_SECONDS = 10.0
+STARTUP_TIMEOUT_SECONDS = 20.0
+RESULT_TIMEOUT_SECONDS = 20.0
 
 
 def _settings(spec: Mapping[str, Any]) -> tuple[int, int, int, int]:
@@ -51,6 +56,38 @@ def _frame_id(message: Mapping[str, Any]) -> int | None:
     if isinstance(game, Mapping) and isinstance(game.get("frame"), int):
         return int(game["frame"])
     return None
+
+
+def _merge_span(left: Mapping[str, Any], right: Mapping[str, Any]) -> dict[str, Any]:
+    """Combine same-named independent-thread span totals into one trace row."""
+    result = dict(left)
+    for name in (
+        "calls",
+        "wall_ns",
+        "wall_exclusive_ns",
+        "cpu_ns",
+        "cpu_exclusive_ns",
+    ):
+        result[name] = int(left.get(name, 0)) + int(right.get(name, 0))
+    starts = [
+        int(value)
+        for value in (left.get("first_wall_start_ns"), right.get("first_wall_start_ns"))
+        if value
+    ]
+    ends = [
+        int(value)
+        for value in (left.get("last_wall_end_ns"), right.get("last_wall_end_ns"))
+        if value
+    ]
+    result["first_wall_start_ns"] = min(starts) if starts else 0
+    result["last_wall_end_ns"] = max(ends) if ends else 0
+    # Durations add; thread CPU timestamps do not share a clock domain. Retain
+    # the original intervals as components instead of inventing a combined one.
+    result.pop("first_cpu_start_ns", None)
+    result.pop("last_cpu_end_ns", None)
+    result["cpu_clock_kind"] = "aggregate_independent_thread_durations"
+    result["components"] = {"step": dict(left), "snapshot": dict(right)}
+    return result
 
 
 def _child(connection: Any, spec: Mapping[str, Any]) -> None:
@@ -91,39 +128,14 @@ def _child(connection: Any, spec: Mapping[str, Any]) -> None:
         original_step = session.step
         original_snapshot = session.snapshot
         original_build_frame = serialize.build_frame
-        # ``TraceRecorder.attach`` owns the policy/update hooks for the step
-        # thread.  The following original methods are restored only while the
-        # distinct snapshot thread builds its inspector DTO; otherwise an
-        # inactive step recorder would correctly refuse that cross-thread span.
-        snapshot_hook_originals: list[tuple[Any, str, Any]] = []
-        seen_hooks: set[tuple[int, str]] = set()
-        for snake in tuple(session.game.snakes):
-            policy = getattr(snake, "policy", None)
-            for obj, attribute in (
-                (policy, "_ensure_frame"),
-                (getattr(policy, "net", None), "forward"),
-                (getattr(policy, "dqn", None), "forward"),
-            ):
-                key = (id(obj), attribute)
-                original = getattr(obj, attribute, None) if obj is not None else None
-                if key not in seen_hooks and callable(original):
-                    seen_hooks.add(key)
-                    snapshot_hook_originals.append((obj, attribute, original))
-
         current_target_ns = 0
         current_wake_ns = 0
         snapshot_expected = False
         completion_loop: asyncio.AbstractEventLoop | None = None
-        initial_snapshot_seen = asyncio.Event()
+        client_ready = asyncio.Event()
         trace_attachment = step_recorder.attach(session)
+        snapshot_telemetry_attachment = snapshot_recorder.attach_telemetry(session)
         attachment_entered = False
-
-        def initial_snapshot() -> Any:
-            """Serve the real connect-time DTO before installing tick hooks."""
-            result = original_snapshot()
-            if completion_loop is not None:
-                completion_loop.call_soon_threadsafe(initial_snapshot_seen.set)
-            return result
 
         def traced_step() -> Any:
             nonlocal snapshot_expected
@@ -159,17 +171,10 @@ def _child(connection: Any, spec: Mapping[str, Any]) -> None:
             if not snapshot_expected:
                 return original_snapshot()
             snapshot_recorder.begin_tick(tick_number, current_target_ns, current_wake_ns)
-            restores: list[tuple[Any, str, Any]] = []
             try:
-                for obj, attribute, original in snapshot_hook_originals:
-                    traced = getattr(obj, attribute)
-                    setattr(obj, attribute, original)
-                    restores.append((obj, attribute, traced))
                 with snapshot_recorder.span("snapshot"):
                     return original_snapshot()
             finally:
-                for obj, attribute, traced in reversed(restores):
-                    setattr(obj, attribute, traced)
                 finished_ns = time.perf_counter_ns()
                 snapshot_recorder.end_tick(finished_ns)
                 last_snapshot_end_ns = finished_ns
@@ -220,12 +225,27 @@ def _child(connection: Any, spec: Mapping[str, Any]) -> None:
                 if engine_task is None or engine_task is not asyncio.current_task():
                     raise RuntimeError("final broadcast did not run on the owned Hub engine task")
                 engine_task.cancel()
+
+                # A dropped final frame must not leave the owned server waiting
+                # for an acknowledgement until the panel-wide timeout.  The
+                # parent rejects the partial receipt set, while this timer gives
+                # the child a bounded, clean shutdown path.
+                async def finish_without_ack() -> None:
+                    await asyncio.sleep(FINAL_ACK_TIMEOUT_SECONDS)
+                    complete.set()
+
+                asyncio.create_task(finish_without_ack())
             if message.get("type") == "error":
                 engine_error = str(message.get("message"))
                 if completion_loop is not None:
                     completion_loop.call_soon(complete.set)
 
         def probe_apply_control(sess: Any, message: object, conn_id: object = None) -> Any:
+            if isinstance(message, Mapping) and message.get("action") == "probe_ready":
+                if completion_loop is None:
+                    raise RuntimeError("probe readiness arrived before server loop startup")
+                completion_loop.call_soon_threadsafe(client_ready.set)
+                return None
             if isinstance(message, Mapping) and message.get("action") == "probe_complete":
                 if completion_loop is None:
                     raise RuntimeError("probe completion arrived before server loop startup")
@@ -247,8 +267,13 @@ def _child(connection: Any, spec: Mapping[str, Any]) -> None:
 
             async def start_engine_after_connect_snapshot() -> None:
                 nonlocal attachment_entered
-                await initial_snapshot_seen.wait()
+                # The loop begins only after the actual client has received the
+                # ordinary connect-time DTO and sent an explicit control reply.
+                # This prevents tick zero from racing client registration or the
+                # endpoint's initial send.
+                await client_ready.wait()
                 trace_attachment.__enter__()
+                snapshot_telemetry_attachment.__enter__()
                 attachment_entered = True
                 # The production endpoint has sent its ordinary initial frame.
                 # From this point onward every frame comes from Hub.engine_loop.
@@ -271,6 +296,7 @@ def _child(connection: Any, spec: Mapping[str, Any]) -> None:
                     probe_hub.store.close()
                 app_module._apply_control = original_apply_control
                 if attachment_entered:
+                    snapshot_telemetry_attachment.__exit__(None, None, None)
                     trace_attachment.__exit__(None, None, None)
                 await asyncio.to_thread(session.close, True)
                 score_dir.cleanup()
@@ -288,10 +314,6 @@ def _child(connection: Any, spec: Mapping[str, Any]) -> None:
 
             nonlocal server, completion_loop
             completion_loop = asyncio.get_running_loop()
-            # ``ws_stream`` sends this frame itself before the actual Hub loop
-            # starts; the start gate prevents a non-tick inspector from touching
-            # tick-only policy wrappers.
-            session.snapshot = initial_snapshot
             config = uvicorn.Config(
                 app_module.app,
                 host="127.0.0.1",
@@ -335,6 +357,14 @@ def _child(connection: Any, spec: Mapping[str, Any]) -> None:
             merged["spans"] = dict(step_row["spans"])
             merged["spans"]["snapshot"] = snapshot_row["spans"]["snapshot"]
             merged["spans"]["dto"] = snapshot_row["spans"]["dto"]
+            merged["spans"]["ipc_lock"] = _merge_span(
+                step_row["spans"]["ipc_lock"], snapshot_row["spans"]["ipc_lock"]
+            )
+            for field in ("gc_start", "gc_stop", "gc_overlap_ns"):
+                merged[field] = [
+                    int(step) + int(snapshot)
+                    for step, snapshot in zip(step_row[field], snapshot_row[field])
+                ]
             trace_rows.append(merged)
         connection.send(
             {
@@ -371,57 +401,91 @@ def _child(connection: Any, spec: Mapping[str, Any]) -> None:
 async def _collect_client(
     port: int, wanted_frames: int, timeout_seconds: float
 ) -> list[dict[str, Any]]:
-    """Collect same-Mac WebSocket receipt times until the owned server closes."""
+    """Collect one same-Mac WebSocket receipt stream from the owned server.
+
+    Connection retries cover startup only.  Once connected, an early close,
+    receive timeout, or malformed completion is evidence of an invalid probe;
+    reconnecting would create a second product snapshot mid-stream.
+    """
     import websockets
 
     uri = f"ws://127.0.0.1:{port}/ws/stream"
     deadline = time.monotonic() + timeout_seconds
+    connect_deadline = min(deadline, time.monotonic() + STARTUP_TIMEOUT_SECONDS)
     last_error: BaseException | None = None
-    while time.monotonic() < deadline:
+    ws = None
+    while time.monotonic() < connect_deadline:
         try:
-            async with websockets.connect(
-                uri, open_timeout=min(2.0, max(0.1, deadline - time.monotonic()))
-            ) as ws:
-                rows: list[dict[str, Any]] = []
-                first_frame = True
-                received_engine_frames = 0
-                acknowledgement_sent = False
-                while True:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise TimeoutError("WebSocket client timed out before server completion")
-                    try:
-                        text = await asyncio.wait_for(ws.recv(), timeout=remaining)
-                    except websockets.ConnectionClosed:
-                        break
-                    received_ns = time.perf_counter_ns()
-                    payload = json.loads(text)
-                    if not isinstance(payload, Mapping):
-                        continue
-                    frame = _frame_id(payload)
-                    if frame is not None:
-                        rows.append(
-                            {
-                                "frame": frame,
-                                "receive_ns": received_ns,
-                                "source": "connect_snapshot" if first_frame else "hub_broadcast",
-                            }
-                        )
-                        if not first_frame:
-                            received_engine_frames += 1
-                        first_frame = False
-                    if len(rows) > wanted_frames + 9:
-                        raise RuntimeError(
-                            "client received more frames than bounded probe exposure"
-                        )
-                    if received_engine_frames >= wanted_frames and not acknowledgement_sent:
-                        await ws.send(json.dumps({"type": "control", "action": "probe_complete"}))
-                        acknowledgement_sent = True
-                return rows
+            ws = await websockets.connect(
+                uri, open_timeout=min(2.0, max(0.001, connect_deadline - time.monotonic()))
+            )
+            break
         except (OSError, asyncio.TimeoutError) as exc:
             last_error = exc
             await asyncio.sleep(0.02)
-    raise RuntimeError(f"production probe could not connect to owned server: {last_error}")
+    if ws is None:
+        raise RuntimeError(f"production probe could not connect to owned server: {last_error}")
+    try:
+        rows: list[dict[str, Any]] = []
+        first_frame = True
+        received_engine_frames = 0
+        acknowledgement_sent = False
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("WebSocket client timed out before server completion")
+            try:
+                text = await asyncio.wait_for(
+                    ws.recv(), timeout=min(CLIENT_INACTIVITY_TIMEOUT_SECONDS, remaining)
+                )
+            except asyncio.TimeoutError as exc:
+                raise TimeoutError("WebSocket client timed out before server completion") from exc
+            except websockets.ConnectionClosed as exc:
+                if received_engine_frames != wanted_frames:
+                    raise RuntimeError(
+                        "production WebSocket closed before all engine frames"
+                    ) from exc
+                break
+            received_ns = time.perf_counter_ns()
+            payload = json.loads(text)
+            if not isinstance(payload, Mapping):
+                continue
+            frame = _frame_id(payload)
+            if frame is None:
+                continue
+            rows.append(
+                {
+                    "frame": frame,
+                    "receive_ns": received_ns,
+                    "source": "connect_snapshot" if first_frame else "hub_broadcast",
+                }
+            )
+            if first_frame:
+                await asyncio.wait_for(
+                    ws.send(json.dumps({"type": "control", "action": "probe_ready"})),
+                    timeout=min(CLIENT_INACTIVITY_TIMEOUT_SECONDS, remaining),
+                )
+            else:
+                received_engine_frames += 1
+            first_frame = False
+            if len(rows) > wanted_frames + 1:
+                raise RuntimeError("client received more frames than bounded probe exposure")
+            if received_engine_frames == wanted_frames and not acknowledgement_sent:
+                await asyncio.wait_for(
+                    ws.send(json.dumps({"type": "control", "action": "probe_complete"})),
+                    timeout=min(CLIENT_INACTIVITY_TIMEOUT_SECONDS, remaining),
+                )
+                acknowledgement_sent = True
+        if not acknowledgement_sent or len(rows) != wanted_frames + 1:
+            raise RuntimeError("production client receipt count incomplete")
+        return rows
+    finally:
+        active_exception = sys.exc_info()[0] is not None
+        try:
+            await asyncio.wait_for(ws.close(), timeout=CLIENT_INACTIVITY_TIMEOUT_SECONDS)
+        except Exception:
+            if not active_exception:
+                raise
 
 
 def run_production_arm(spec: dict, timeout_seconds: float = 900) -> dict[str, Any]:
@@ -441,7 +505,7 @@ def run_production_arm(spec: dict, timeout_seconds: float = 900) -> dict[str, An
     child.close()
     started = time.monotonic()
     try:
-        if not parent.poll(min(60.0, timeout_seconds)):
+        if not parent.poll(min(STARTUP_TIMEOUT_SECONDS, timeout_seconds)):
             raise TimeoutError("production server did not report a loopback port")
         ready = parent.recv()
         if ready.get("kind") != "ready":
@@ -449,7 +513,7 @@ def run_production_arm(spec: dict, timeout_seconds: float = 900) -> dict[str, An
         remaining = timeout_seconds - (time.monotonic() - started)
         client_rows = asyncio.run(_collect_client(int(ready["port"]), warmup + measured, remaining))
         remaining = timeout_seconds - (time.monotonic() - started)
-        if remaining <= 0 or not parent.poll(remaining):
+        if remaining <= 0 or not parent.poll(min(RESULT_TIMEOUT_SECONDS, remaining)):
             raise TimeoutError("production server did not return a bounded result")
         message = parent.recv()
         if message.get("kind") != "result":
@@ -463,10 +527,11 @@ def run_production_arm(spec: dict, timeout_seconds: float = 900) -> dict[str, An
             raise RuntimeError("production trace incomplete")
         return result
     finally:
+        active_exception = sys.exc_info()[0] is not None
         parent.close()
         process.join(timeout=10)
         if process.is_alive():
             process.terminate()  # Exact probe-owned child only.
             process.join(timeout=10)
-        if process.exitcode not in (0, None):
+        if not active_exception and process.exitcode not in (0, None):
             raise RuntimeError(f"production server child exit={process.exitcode}")
