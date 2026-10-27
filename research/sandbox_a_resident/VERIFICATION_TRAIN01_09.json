@@ -1,0 +1,212 @@
+{
+  "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-09-reseal-20261027",
+  "artifact_sha256": {
+    "commands.json": "1b6f220e3e544aae5c387231bbc2e03f70a68a189ca2acf3826acbe46026b38c",
+    "dispatch-command.txt": "0cf8d49774e60662d75d1fda3835deb87dbcfd95d10bfabb58b3a55b743fc2bd",
+    "dispatch-dry-run.command.json": "73ef5abace2475c6b2124b1fec5b420431ba8951dbde051589b919d986b160c5",
+    "dispatch-dry-run.log": "9f47dae082689a86cfa00cb7c89568c5e41d2a97b7b55e8959682b8751d8f3c1",
+    "frozen-admission-final.command.json": "9dd9feacf34a18a6ad45a5dcbe9b057db7780af41dc96cd36f38338ec8201af2",
+    "frozen-admission-final.log": "fbdae2502f0c36899aa0dd038cf5958883e8d9c8e4abd73e278e115b632d6e99",
+    "frozen-admission.command.json": "f66964c4c372b9c95b0bf3cfaed415d0ab03e63f02274f213becc1e5ed73937a",
+    "frozen-admission.log": "065664a2c2e2e0651e3fc353ec352e842213965a3b600b25177ad1d739724b8f",
+    "frozen-cuda-semantics.command.json": "041fbed2e0b8bf8cb68b481b6a643f6f64889943245f1bd470d8ab01b3ea2790",
+    "frozen-cuda-semantics.log": "adad665c837feec58c5028f2c06757fc6627a59c2a59e0ccd41914c31ace73fc",
+    "frozen-preflight-final.command.json": "9e81fab24ccde43a79227b9d548eed9dbaf819b89b93c21ab9d865eb77aa81db",
+    "frozen-preflight-final.log": "fa161674964caafc255b4ba7b302ecc2f1ee61131421e7f730c685259f373ad2",
+    "frozen-preflight.command.json": "130616ca91da3013b17a08757fa976f1ff2047db1a5b9b7731f73eb203e1a637",
+    "frozen-preflight.log": "451d322d73b9dfe85a3a72298633aad46038d28f29dae3e2e84d6822bd9bf6ec",
+    "identity-after-dry-run.json": "ecef8f9408f01aaff939175c8613cce45b0d8b98ad7532a816f39a624c8efec6",
+    "identity-check-final.json": "85f1a52be460f956ee5197349884d40df8ef35a97b04085669c0303a7c8bace2",
+    "identity-check.json": "beba6f0fc8ed7c4c302aea27140a377ea7c8a2bca4e37b4cbc186e252c147d0c",
+    "independent-review.json": "ef81fda0142957d022ace37c9fd0db6f34f9e985c8353e5fa0e4ce10efdf33a3",
+    "protected-before.json": "b633dd199be41587e53f625deb9470810ed094124c4c9e627665c6330646b2fb"
+  },
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex",
+  "broker_seal": "1300802e9ad34039c6be0cef71493474e203ed00",
+  "commands": {
+    "dispatch-dry-run": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/tools/ops/dispatch.sh",
+        "sandbox-a-train01-20261027-09",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/research/sandbox_a_resident/packet-train01-09/dispatch-manifest.json",
+        "--broker",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex",
+        "--cwd",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-09-runtime.noindex",
+        "--state-dir",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-09/state",
+        "--dispatch-txt",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/research/sandbox_a_resident/packet-train01-09/DISPATCH.txt",
+        "--dry-run"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 61.89618416700978
+    },
+    "frozen-admission-final": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-o",
+        "addopts=",
+        "-p",
+        "no:xdist",
+        "tools/sandbox/tests/test_admission.py"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 0.5110667500412092
+    },
+    "frozen-cuda-semantics": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "research.sandbox_a_resident.training_preflight",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/research/sandbox_a_resident/packet-train01-09",
+        "--cuda-semantics"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 5.450004999991506
+    },
+    "frozen-preflight-final": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "research.sandbox_a_resident.training_preflight",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/research/sandbox_a_resident/packet-train01-09"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 31.510471833054908
+    }
+  },
+  "diagnosis": {
+    "allocation_correction": "Zero assignments before/after; one A100 assignment existed during staging and was released. Balance unchanged1021.97; not zero allocation or zero elapsed-rate accounting.",
+    "conclusion": "Existing transport timeout incompatibility can cause legitimate busy kernel; remote cause not proven. No packet-specific defect or supported packet-only remedy. No runtime fix made.",
+    "elapsed_seconds": 85.0399870419642,
+    "failed_control_exec_seconds": 30.01426625007298,
+    "operation": "deliver_source(fetch), inferred from verified staging sequence",
+    "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-08/output/receipt.json",
+    "receipt_sha256": "f56f9b9ec99204932fd9d34f7f698c6425ecc09a137336c2f662c3660479c899",
+    "source_fetch_timeout_seconds": 120,
+    "staging_rpc_cap_seconds": 30
+  },
+  "dispatch_identity": "sandbox-a-train01-20261027-09",
+  "initial_preflight_correction": {
+    "command_record": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-09-reseal-20261027/frozen-preflight.command.json",
+    "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-09-reseal-20261027/frozen-preflight.log",
+    "result": "Initial new-packet preflight refused because sandbox.json was serialized as pretty JSON rather than required ten physical lines. Corrected packet metadata format before final frozen checks. Runtime content unchanged."
+  },
+  "manifest_sha256": "79013260fc8f439caf69d992d7eff44b3926da29ecfafc67310c98f957310887",
+  "not_done_or_limits": [
+    "No dispatch or live provider calls",
+    "Dry-run does not check live account inventory",
+    "No live CUDA or training claim",
+    "120-second source fetch vs30-second staging RPC remains; recurrence possible"
+  ],
+  "nothing_touched": [
+    "packet08 and attempt08:29 files hash-identical",
+    "old detached08 checkouts",
+    "research/colab_cli",
+    "learning recipe and telemetry",
+    "tmux sessions",
+    "released checkpoints and serving pins"
+  ],
+  "operator_dispatch": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-09 /Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/research/sandbox_a_resident/packet-train01-09/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-09-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-09/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/research/sandbox_a_resident/packet-train01-09/DISPATCH.txt",
+  "packet": "research/sandbox_a_resident/packet-train01-09",
+  "packet_seal_sha256": "9745f964adbbe1f5782bea06bf0ff9e1e90b56c82cefc12de3cc430dc61a1055",
+  "publication_receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-09-reseal-20261027/publication.json",
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-09-runtime.noindex",
+  "runtime_pin": "c8ab2e6feefc63ce866e1493bfd2f7f1bf3f64dd",
+  "schema": "sandbox-a-train01-mechanical-reseal-verification/v1",
+  "status": "PASS_PREPARED_NOT_DISPATCHED",
+  "verification": {
+    "dispatch_dry_run": "PASS_DRY_RUN sandbox-a-train01-20261027-09 allocations=0 live_accounting=NOT_CHECKED",
+    "frozen_broker_admission": "40 passed in0.21s",
+    "frozen_cuda_semantics": "4 passed in1.09s; CPU API-contract fixtures only",
+    "frozen_preflight": "245 passed in26.33s; PASS_TRAIN01_PREFLIGHT seeds=114299008 schema=PASS registry=PASS tests=PASS allocations=0",
+    "identity": {
+      "checkouts": {
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex": {
+          "clean": true,
+          "detached": true,
+          "head": "1300802e9ad34039c6be0cef71493474e203ed00",
+          "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+        },
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-09-runtime.noindex": {
+          "clean": true,
+          "detached": true,
+          "head": "c8ab2e6feefc63ce866e1493bfd2f7f1bf3f64dd",
+          "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+        }
+      },
+      "control_ledger_registry_audit_byte_identical": true,
+      "frozen_packet_equals_worktree": true,
+      "manifest_differences": "identity/output/local input and admission paths only",
+      "manifest_sha256": "79013260fc8f439caf69d992d7eff44b3926da29ecfafc67310c98f957310887",
+      "prior_packet_and_attempt08_files_unchanged": 29,
+      "runtime_sources_identical": 186,
+      "sandbox_physical_lines": 10,
+      "seal_sha256": "9745f964adbbe1f5782bea06bf0ff9e1e90b56c82cefc12de3cc430dc61a1055",
+      "state_and_output_absent": true,
+      "status": "PASS",
+      "verified_after_dry_run": true
+    },
+    "independent_review": "No concrete blockers"
+  }
+}
