@@ -17,6 +17,8 @@ from research.sandbox_a_resident.training_prep import (
     PreparationConfig,
     PreparationFailure,
     PreparationState,
+    _empty_support,
+    _record_support,
     _Row,
     _take_cross_life_batch,
     _world_split,
@@ -194,6 +196,39 @@ def test_calibration_emits_collection_and_solver_stage_boundaries() -> None:
     assert all("elapsed_seconds" in payload for _, payload in events)
 
 
+def test_calibration_diagnostics_report_the_solved_departure_and_entropy() -> None:
+    actor, _ = _models()
+    reports = []
+    temperature, rows = calibrate(
+        factory,
+        actor,
+        PreparationConfig.tiny(),
+        torch.Generator().manual_seed(4),
+        on_diagnostics=lambda report: reports.append(dict(report)),
+    )
+    assert rows == 10 and temperature > 0 and len(reports) == 1
+    report = reports[0]
+    assert report["target_departure"] == 0.01
+    assert report["actual_departure"] == pytest.approx(0.01, abs=2e-4)
+    assert report["actual_entropy"] > 0
+    assert report["temperature"] == temperature
+    assert report["rows"] == 10.0
+
+
+def test_prep_support_uses_recorded_pre_action_logical_length_and_mix() -> None:
+    support = _empty_support()
+    rows = [
+        _Row((torch.empty(0),) * 3, 699.0, 0.0, 0.0, 0),
+        _Row((torch.empty(0),) * 3, 700.0, 0.0, 0.0, 1),
+        _Row((torch.empty(0),) * 3, 800.0, 0.0, 0.0, 2),
+    ]
+    _record_support(support, "completed_life_rows", rows[:2])
+    _record_support(support, "censored_rows", rows[2:])
+    assert support["completed_life_rows"]["scripted"]["lt700"] == 1
+    assert support["completed_life_rows"]["frozen"]["700to799"] == 1
+    assert support["censored_rows"]["mixed"]["ge800"] == 1
+
+
 def test_time_based_progress_pulses_before_the_row_interval(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -262,9 +297,13 @@ def test_prepare_matches_frozen_pre_copying_oracle_exactly(
 
         assert actual_failure.value.state is not None
         assert oracle_failure.value.state is not None
-        _assert_exact_tree(
-            actual_failure.value.state.state_dict(), oracle_failure.value.state.state_dict()
-        )
+        actual_state = actual_failure.value.state.state_dict()
+        oracle_state = oracle_failure.value.state.state_dict()
+        diagnostics = actual_state.pop("diagnostics")
+        _assert_exact_tree(actual_state, oracle_state)
+        # The successor adds detached reporting only; every pre-existing
+        # preparation state byte and all learning/RNG state remains identical.
+        assert diagnostics["calibration"]["actual_departure"] == pytest.approx(0.01, abs=2e-4)
         _assert_exact_tree(actual_actor.state_dict(), oracle_actor.state_dict())
         _assert_exact_tree(actual_critic.state_dict(), oracle_critic.state_dict())
         torch.testing.assert_close(
@@ -307,6 +346,73 @@ def test_failed_tiny_critic_endpoint_never_returns_actor_ready():
     # The fixed tiny task has constant return, so late EV cannot meet .10;
     # preparation failure is terminal before the PPO loop receives an actor.
     assert critic.training
+
+
+def test_preparation_state_carries_detached_calibration_and_support_reports() -> None:
+    actor, critic = _models()
+    with pytest.raises(PreparationFailure) as failed:
+        prepare(factory, actor, critic, PreparationConfig.tiny(), torch.Generator().manual_seed(5))
+    diagnostics = failed.value.state.diagnostics
+    assert diagnostics["calibration"]["actual_departure"] == pytest.approx(0.01, abs=2e-4)
+    assert diagnostics["calibration"]["actual_entropy"] > 0
+    support = diagnostics["prep_support"]
+    assert set(support) == {"fit", "holdout"}
+    for phase in support.values():
+        assert set(phase) == {
+            "observed_rows",
+            "completed_life_rows",
+            "fitted_rows",
+            "censored_rows",
+            "completed_lives",
+            "censored_lives",
+        }
+        assert set(phase["completed_life_rows"]) == {"scripted", "frozen", "mixed", "unknown"}
+        assert set(phase["completed_life_rows"]["scripted"]) == {
+            "lt700",
+            "700to799",
+            "ge800",
+        }
+    assert (
+        sum(sum(values.values()) for values in support["fit"]["completed_life_rows"].values()) > 0
+    )
+    assert sum(sum(values.values()) for values in support["fit"]["fitted_rows"].values()) == (
+        failed.value.state.fit_rows
+    )
+
+
+def test_preparation_diagnostics_toggle_preserves_task_model_and_rng_state() -> None:
+    torch.manual_seed(229)
+    reported_actor, reported_critic = _models()
+    quiet_actor, quiet_critic = _models()
+    quiet_actor.load_state_dict(copy.deepcopy(reported_actor.state_dict()))
+    quiet_critic.load_state_dict(copy.deepcopy(reported_critic.state_dict()))
+    reported_generator = torch.Generator().manual_seed(101)
+    quiet_generator = torch.Generator().set_state(reported_generator.get_state())
+    with pytest.raises(PreparationFailure) as reported_failure:
+        prepare(
+            factory,
+            reported_actor,
+            reported_critic,
+            PreparationConfig.tiny(),
+            reported_generator,
+        )
+    with pytest.raises(PreparationFailure) as quiet_failure:
+        prepare(
+            factory,
+            quiet_actor,
+            quiet_critic,
+            replace(PreparationConfig.tiny(), diagnostics=False),
+            quiet_generator,
+        )
+    reported_state = reported_failure.value.state.state_dict()
+    quiet_state = quiet_failure.value.state.state_dict()
+    assert reported_state.pop("diagnostics") and quiet_state.pop("diagnostics") == {}
+    _assert_exact_tree(reported_state, quiet_state)
+    _assert_exact_tree(reported_actor.state_dict(), quiet_actor.state_dict())
+    _assert_exact_tree(reported_critic.state_dict(), quiet_critic.state_dict())
+    torch.testing.assert_close(
+        reported_generator.get_state(), quiet_generator.get_state(), rtol=0, atol=0
+    )
 
 
 def test_critic_batches_wait_for_and_mix_completed_lives() -> None:

@@ -1,14 +1,17 @@
 """Outcome-free immutable training snapshot ledger coverage."""
 
+import json
 from pathlib import Path
 
 import pytest
 
 from research.sandbox_a_resident.training_units import (
+    TRAIN01_07_SOURCE_COMMIT,
     allocation,
     empty_ledger,
     load_ledger,
     publish_snapshot,
+    source_migration,
     write_ledger,
 )
 
@@ -59,3 +62,35 @@ def test_relative_ledger_exports_require_a_safe_input_root(tmp_path: Path) -> No
     write_ledger(unsafe, control(), [unit])
     with pytest.raises(ValueError, match="unsafe"):
         load_ledger(unsafe, control(), input_root=tmp_path)
+
+
+def test_source_migration_accepts_only_bound_train01_07_snapshot_and_new_pin(
+    tmp_path: Path,
+) -> None:
+    predecessor = {**control(), "source_commit": TRAIN01_07_SOURCE_COMMIT}
+    successor = {**predecessor, "source_commit": "b" * 40}
+    unit = publish_snapshot(
+        tmp_path,
+        1,
+        lambda path: path.write_bytes(b"state"),
+        metadata={
+            "allocation": allocation(predecessor),
+            "source_commit": predecessor["source_commit"],
+        },
+    )
+    ledger = tmp_path / "migration.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                **empty_ledger(successor),
+                "units": [unit],
+                "source_migration": source_migration(predecessor, successor),
+            }
+        )
+    )
+    assert list(load_ledger(ledger, successor)) == [1]
+    bad = json.loads(ledger.read_text())
+    bad["source_migration"]["from_source_commit"] = "c" * 40
+    ledger.write_text(json.dumps(bad))
+    with pytest.raises(ValueError, match="does not exactly"):
+        load_ledger(ledger, successor)

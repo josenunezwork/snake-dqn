@@ -89,6 +89,7 @@ class PreparationConfig:
     # A charged-row heartbeat alone can stay silent for hours when completed
     # lives are sparse.  This is operational telemetry, not a science limit.
     progress_seconds: float = 60.0
+    diagnostics: bool = True
 
     def __post_init__(self) -> None:
         if not 0 < self.calibration_departure < 1:
@@ -178,6 +179,7 @@ class PreparationState:
     )
     late_holdout_rows: int = 0
     quality: dict[str, float] = field(default_factory=dict)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
     task_state: dict[str, Any] | None = None
 
     def state_dict(self) -> dict[str, Any]:
@@ -222,6 +224,71 @@ def _departure_probability(logits: torch.Tensor, legal: torch.Tensor, temperatur
     maximizing = legal.bool() & scaled.eq(maximum)
     departed = 1.0 - (torch.softmax(scaled, dim=-1) * maximizing).sum(dim=-1)
     return float(departed.mean().cpu())
+
+
+def _logical_length_band(length: float) -> str:
+    """Return the frozen diagnostic band for a pre-action simulator length."""
+    if length < 700:
+        return "lt700"
+    if length >= 800:
+        return "ge800"
+    return "700to799"
+
+
+def _empty_support() -> dict[str, dict[str, dict[str, int]]]:
+    """Create detached completion/censor counters without retaining row tensors."""
+    bands = ("lt700", "700to799", "ge800")
+    return {
+        outcome: {
+            mix: {band: 0 for band in bands} for mix in ("scripted", "frozen", "mixed", "unknown")
+        }
+        for outcome in (
+            "observed_rows",
+            "completed_life_rows",
+            "fitted_rows",
+            "censored_rows",
+            "completed_lives",
+            "censored_lives",
+        )
+    }
+
+
+def _record_support(
+    support: dict[str, dict[str, dict[str, int]]], outcome: str, rows: list[_Row]
+) -> None:
+    """Count rows by their recorded pre-action mix and logical length.
+
+    This intentionally accepts already-retained rows only.  It neither observes
+    the task nor evaluates a model, so report collection cannot synchronize a
+    per-tick device result or perturb task/RNG state.
+    """
+    for row in rows:
+        mix = _mix_name(row.mix)
+        support[outcome][mix][_logical_length_band(row.length)] += 1
+
+
+def _record_life_endpoint(
+    support: dict[str, dict[str, dict[str, int]]], outcome: str, rows: list[_Row]
+) -> None:
+    """Count one completed or censored life at its final pre-action state."""
+    if rows:
+        _record_support(support, outcome, [rows[-1]])
+
+
+def _calibration_diagnostics(
+    logits: torch.Tensor, legal: torch.Tensor, temperature: float, target: float
+) -> dict[str, float]:
+    """Summarize the fixed calibration bank after the frozen temperature solve."""
+    scaled = logits.float() / temperature
+    canonical = canonical_legal_mask(legal)
+    distribution = categorical(scaled, canonical)
+    return {
+        "target_departure": float(target),
+        "actual_departure": _departure_probability(logits, canonical, temperature),
+        "actual_entropy": float(distribution.entropy().mean().cpu()),
+        "temperature": float(temperature),
+        "rows": float(logits.shape[0]),
+    }
 
 
 @torch.no_grad()
@@ -328,6 +395,7 @@ def calibrate(
     generator: torch.Generator,
     on_progress: Callable[[str, Mapping[str, int]], None] | None = None,
     _reporter: _ProgressReporter | None = None,
+    on_diagnostics: Callable[[Mapping[str, float]], None] | None = None,
 ) -> tuple[float, int]:
     """Collect fresh length-stratified greedy B8 states then freeze temperature."""
     del generator  # Greedy collection has no stochastic policy draw.
@@ -370,6 +438,10 @@ def calibrate(
     reporter.start("calibration-solve", rows, config.calibration_rows)
     temperature = solve_temperature(logits, legal, config.calibration_departure)
     reporter.end("calibration-solve", rows, config.calibration_rows)
+    if on_diagnostics is not None:
+        on_diagnostics(
+            _calibration_diagnostics(logits, legal, temperature, config.calibration_departure)
+        )
     return temperature, len(chosen)
 
 
@@ -509,13 +581,32 @@ def prepare(
     # remain mandatory support, including when no holdout life ever completes.
     for mix in range(3):
         result.holdout_lives_by_mix.setdefault(_mix_name(mix), 0)
+    diagnostics_enabled = getattr(config, "diagnostics", True)
+    support = (
+        result.diagnostics.setdefault(
+            "prep_support", {"fit": _empty_support(), "holdout": _empty_support()}
+        )
+        if diagnostics_enabled
+        else None
+    )
     if result.stage == "ready":
         return PreparationResult(
             result, actor, critic, torch.optim.Adam(critic.parameters(), lr=1e-4)
         )
     newly_calibrated = result.temperature is None
     if newly_calibrated:
-        temperature, rows = calibrate(task_factory, actor, config, generator, _reporter=reporter)
+        temperature, rows = calibrate(
+            task_factory,
+            actor,
+            config,
+            generator,
+            _reporter=reporter,
+            on_diagnostics=(
+                (lambda values: result.diagnostics.__setitem__("calibration", dict(values)))
+                if diagnostics_enabled
+                else None
+            ),
+        )
         _install_temperature(actor, temperature)
         result.temperature, result.calibration_rows, result.stage = temperature, rows, "calibrated"
     else:
@@ -581,6 +672,8 @@ def prepare(
             )
             lives[index].rows.append(row)
             lives[index].total += row.reward
+            if support is not None:
+                _record_support(support["fit"], "observed_rows", [row])
             if (
                 sum(len(life.rows) for life in lives) + sum(map(len, staged_lives))
                 > config.max_open_rows
@@ -591,6 +684,9 @@ def prepare(
                 )
             if bool(cpu_completed[position]):
                 completed_rows = _suffix_rows(lives[index])
+                if support is not None:
+                    _record_support(support["fit"], "completed_life_rows", completed_rows)
+                    _record_life_endpoint(support["fit"], "completed_lives", completed_rows)
                 staged_lives.append(completed_rows)
                 lives[index] = _Life()
         # Stage the entire tick before drawing; imbalanced pools wait across
@@ -600,6 +696,8 @@ def prepare(
                 "critic-fit", result.critic_rows, config.critic_max_rows, fit_rows=result.fit_rows
             )
             _fit_batch(batch, critic, optimizer, config)
+            if support is not None:
+                _record_support(support["fit"], "fitted_rows", batch)
             fit_scalar_chunks.append(
                 torch.tensor(
                     [(row.length, row.clock, row.reward) for row in batch], dtype=torch.float32
@@ -613,6 +711,13 @@ def prepare(
             "critic-fit", result.critic_rows, config.critic_max_rows, fit_rows=result.fit_rows
         )
 
+    # A finite fit cap censors still-open lives whether the endpoint admits
+    # preparation or fails it.  Record them before the endpoint decision so a
+    # failed report retains its denominator too.
+    if support is not None:
+        for life in lives:
+            _record_support(support["fit"], "censored_rows", life.rows)
+            _record_life_endpoint(support["fit"], "censored_lives", life.rows)
     if result.fit_rows < config.critic_min_fit_rows:
         result.stage, result.task_state = "failed", task.state_dict()
         raise PreparationFailure(
@@ -690,20 +795,24 @@ def prepare(
                     if bool(cpu_completed[position]):
                         holdout_started[index] = True
                     continue
-                lives[index].rows.append(
-                    _Row(
-                        _retained_observation(cpu_observation, position),
-                        float(cpu_length[position]),
-                        float(cpu_clock[position]),
-                        float(cpu_reward[position]),
-                        int(cpu_mix[position]),
-                    )
+                row = _Row(
+                    _retained_observation(cpu_observation, position),
+                    float(cpu_length[position]),
+                    float(cpu_clock[position]),
+                    float(cpu_reward[position]),
+                    int(cpu_mix[position]),
                 )
+                lives[index].rows.append(row)
+                if support is not None:
+                    _record_support(support["holdout"], "observed_rows", [row])
                 if sum(len(life.rows) for life in lives) > config.max_open_rows:
                     result.stage, result.task_state = "failed", task.state_dict()
                     raise PreparationFailure("open held-out life storage cap exceeded", result)
                 if bool(cpu_completed[position]):
                     completed_rows = _suffix_rows(lives[index])
+                    if support is not None:
+                        _record_support(support["holdout"], "completed_life_rows", completed_rows)
+                        _record_life_endpoint(support["holdout"], "completed_lives", completed_rows)
                     try:
                         with torch.no_grad():
                             for offset in range(0, len(completed_rows), config.critic_batch):
@@ -744,6 +853,10 @@ def prepare(
             config.critic_max_rows,
             holdout_rows=result.holdout_rows,
         )
+        if support is not None:
+            for life in lives:
+                _record_support(support["holdout"], "censored_rows", life.rows)
+                _record_life_endpoint(support["holdout"], "censored_lives", life.rows)
         reporter.start("critic-quality", result.holdout_rows, config.metric_cache_rows)
         try:
             metrics = critic_quality(

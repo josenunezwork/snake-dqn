@@ -21,9 +21,13 @@ def prepare_completion(
     index: int,
     job_id: str,
     output: Path,
+    successor_template: Path | None = None,
 ) -> None:
     """Seal a successor without allocating, selecting weights or reading outcomes."""
-    for path in (original, receipt, exports, packet, output):
+    paths = (original, receipt, exports, packet, output)
+    if successor_template is not None:
+        paths += (successor_template,)
+    for path in paths:
         safe_path(path)
     manifest_path = original / "dispatch-manifest.json"
     manifest = json.loads(manifest_path.read_text())
@@ -43,6 +47,15 @@ def prepare_completion(
         if executed.get(key) != manifest.get(key):
             raise ValueError(f"executed manifest differs from frozen workload: {key}")
     control = json.loads((original / "control.json").read_text())
+    template = original if successor_template is None else successor_template
+    successor_control = json.loads((template / "control.json").read_text())
+    successor_manifest = json.loads((template / "dispatch-manifest.json").read_text())
+    if (
+        successor_manifest.get("commit") != successor_control.get("source_commit")
+        or json.loads(successor_manifest.get("env", {}).get("SANDBOX_A_CONTROL_JSON", "null"))
+        != successor_control
+    ):
+        raise ValueError("successor template control/source pin differs from its manifest")
     previous = manifest.get("completion_attempt", {}).get("index", 0)
     if index != previous + 1:
         raise ValueError("completion attempts must advance exactly once, at most two")
@@ -55,11 +68,13 @@ def prepare_completion(
         job_id=job_id,
         output_dir=output,
         original_manifest_sha256=digest(executed_path),
+        successor_manifest=successor_manifest,
+        successor_control=successor_control,
     )
     packet.mkdir(parents=True, exist_ok=False)
-    write_once(packet / "control.json", control)
+    write_once(packet / "control.json", successor_control)
     write_once(
-        packet / "registry-check.json", json.loads((original / "registry-check.json").read_text())
+        packet / "registry-check.json", json.loads((template / "registry-check.json").read_text())
     )
     broker = result.manifest
     write_once(packet / "verified-ledger.json", result.ledger)
@@ -72,7 +87,7 @@ def prepare_completion(
     )
     broker["sandbox_admission"]["manifest_path"] = str(packet / "sandbox.json")
     write_once(packet / "dispatch-manifest.json", broker)
-    sandbox = copy.deepcopy(json.loads((original / "sandbox.json").read_text()))
+    sandbox = copy.deepcopy(json.loads((template / "sandbox.json").read_text()))
     old_kinds = {row["sha256"]: row["kind"] for row in sandbox["inputs"] if "sha256" in row}
     worlds = [row for row in sandbox["inputs"] if row["kind"] == "worlds"]
     sandbox["inputs"] = worlds + [
@@ -128,6 +143,11 @@ def main() -> int:
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--index", required=True, type=int, choices=(1, 2))
     parser.add_argument("--job-id", required=True)
+    parser.add_argument(
+        "--successor-template",
+        type=Path,
+        help="sealed target packet whose control/source pin is the new successor",
+    )
     args = parser.parse_args()
     prepare_completion(
         args.original.resolve(),
@@ -137,6 +157,9 @@ def main() -> int:
         index=args.index,
         job_id=args.job_id,
         output=args.output.resolve(),
+        successor_template=(
+            None if args.successor_template is None else args.successor_template.resolve()
+        ),
     )
     return 0
 

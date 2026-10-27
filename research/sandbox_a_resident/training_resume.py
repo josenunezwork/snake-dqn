@@ -13,7 +13,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from research.sandbox_a_resident.training_units import NAMESPACE, allocation, unit_id
+from research.sandbox_a_resident.training_units import (
+    NAMESPACE,
+    allocation,
+    source_migration,
+    unit_id,
+)
 from research.sandbox_a_resident.units import digest
 
 LEDGER_SCHEMA = "sandbox-a-train-ledger/v1"
@@ -159,7 +164,10 @@ def _snapshot_row(
 
 
 def build_ledger(
-    export_root: Path, control: Mapping[str, Any]
+    export_root: Path,
+    control: Mapping[str, Any],
+    *,
+    source_control: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]], int]:
     """Build a relative-path ledger from complete canonical snapshot triples.
 
@@ -167,6 +175,11 @@ def build_ledger(
     snapshot fails closed.  The latest eligible trajectory is selected by the
     runner after it re-verifies the same copied input bytes.
     """
+    target_control = dict(control)
+    snapshot_control = target_control if source_control is None else dict(source_control)
+    migration = (
+        None if source_control is None else source_migration(snapshot_control, target_control)
+    )
     rows: list[dict[str, Any]] = []
     uploads: list[dict[str, str]] = []
     nonresumable: list[tuple[int, Path]] = []
@@ -174,7 +187,7 @@ def build_ledger(
         raise ResumeRefused("snapshot export root must not be a symlink")
     for info_path in sorted(export_root.glob("iteration-*.json")):
         try:
-            candidate = _snapshot_row(export_root, info_path, control)
+            candidate = _snapshot_row(export_root, info_path, snapshot_control)
         except _NonResumableSnapshot:
             # Preparation-only snapshots are valid immutable evidence but
             # cannot be resumed.  A later full PPO trajectory supersedes them;
@@ -197,7 +210,9 @@ def build_ledger(
     rows.sort(key=lambda item: item["iteration"])
     if len({item["iteration"] for item in rows}) != len(rows):
         raise ResumeRefused("duplicate snapshot iteration")
-    endpoint, cadence = control.get("outer_iterations"), control.get("snapshot_interval")
+    endpoint, cadence = target_control.get("outer_iterations"), target_control.get(
+        "snapshot_interval"
+    )
     if cadence is not None:
         if type(endpoint) is not int or endpoint < 1 or type(cadence) is not int or cadence < 1:
             raise ResumeRefused("malformed frozen snapshot cadence")
@@ -212,8 +227,9 @@ def build_ledger(
         {
             "schema": LEDGER_SCHEMA,
             "namespace": NAMESPACE,
-            "allocation": allocation(dict(control)),
+            "allocation": allocation(target_control),
             "units": rows,
+            **({"source_migration": migration} if migration is not None else {}),
         },
         uploads,
         latest,
@@ -255,6 +271,8 @@ def completion_packet(
     job_id: str,
     output_dir: Path,
     original_manifest_sha256: str,
+    successor_manifest: Mapping[str, Any] | None = None,
+    successor_control: Mapping[str, Any] | None = None,
 ) -> ResumePacket:
     """Return a fresh, manually dispatchable successor manifest and its inputs.
 
@@ -268,10 +286,24 @@ def completion_packet(
         raise ResumeRefused("completion attempt requires a fresh job id")
     if str(output_dir) == original_manifest.get("output_dir") or not output_dir.is_absolute():
         raise ResumeRefused("completion attempt requires a fresh absolute output directory")
-    ledger, records, latest = build_ledger(export_root, control)
-    if latest == control.get("outer_iterations"):
+    target_control = dict(control) if successor_control is None else dict(successor_control)
+    target_manifest = (
+        dict(original_manifest) if successor_manifest is None else dict(successor_manifest)
+    )
+    if target_control != dict(control):
+        # This validates the exact train01-07 predecessor pin and permits only
+        # the committed successor source pin to differ.
+        source_migration(dict(control), target_control)
+    if target_manifest.get("commit") != target_control.get("source_commit"):
+        raise ResumeRefused("successor manifest source pin differs from successor control")
+    ledger, records, latest = build_ledger(
+        export_root,
+        target_control,
+        source_control=None if target_control == dict(control) else dict(control),
+    )
+    if latest == target_control.get("outer_iterations"):
         raise ResumeRefused("latest verified snapshot already reaches the frozen endpoint")
-    successor = copy.deepcopy(dict(original_manifest))
+    successor = copy.deepcopy(target_manifest)
     successor["job_id"] = job_id
     successor["output_dir"] = str(output_dir)
     successor["completion_attempt"] = {
@@ -292,7 +324,7 @@ def completion_packet(
     records = [row for row in records if row["dest"] in destinations]
     successor["inputs"] = [
         row
-        for row in copy.deepcopy(original_manifest.get("inputs", []))
+        for row in copy.deepcopy(target_manifest.get("inputs", []))
         if row["dest"] != "verified-ledger.json" and not row["dest"].startswith("resume/")
     ] + records
     return ResumePacket(

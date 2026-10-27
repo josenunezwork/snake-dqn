@@ -92,3 +92,23 @@ def test_progress_reports_completed_proxy_ticks_without_changing_results(monkeyp
     completed = [values for stage, values in messages if stage == "proxy"]
     assert len(completed) == 9
     assert [row["frame"] for row in completed] == [1, 2, 3] * 3
+
+
+def test_proxy_restores_mixed_module_modes() -> None:
+    class MixedActor(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.reference = torch.nn.Linear(1, 1)
+            self.reference.eval()
+
+        def forward(self, local, glob, scalars):
+            return torch.zeros((local.shape[0], 6))
+
+    def factory(mix, worlds, horizon, seed):
+        return Task(worlds, horizon, seed)
+
+    actor = MixedActor().train()
+    actor.reference.eval()
+    before = [(module, module.training) for module in actor.modules()]
+    evaluate(actor, factory, ProxyConfig(horizon=2, worlds_per_mix=2, seed_base=3))
+    assert [(module, module.training) for module in actor.modules()] == before

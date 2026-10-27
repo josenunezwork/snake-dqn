@@ -44,9 +44,17 @@ from research.sandbox_a_resident.training_task import (
     TrainingTaskConfig,
     seed_allocations,
 )
-from research.sandbox_a_resident.training_units import allocation, load_ledger, publish_snapshot
+from research.sandbox_a_resident.training_units import (
+    allocation,
+    load_ledger,
+    migration_source_control,
+    publish_snapshot,
+    source_migration,
+)
 from research.sandbox_a_resident.units import digest, publish
 from src.model.inference_agent import InferenceAgent
+
+DIAGNOSTIC_PROXY_UPDATE = 16
 
 
 @dataclass(frozen=True)
@@ -94,6 +102,7 @@ class TrainControl:
             self.outer_iterations != 384
             or self.worlds != 1024
             or self.rollout_horizon != 256
+            or self.proxy_interval != 64
             or self.proxy_worlds_per_mix != 96
             or self.proxy_horizon != 5000
         ):
@@ -102,6 +111,32 @@ class TrainControl:
     @property
     def actor_rows(self) -> int:
         return self.outer_iterations * self.worlds * self.rollout_horizon
+
+
+def proxy_kind(boundary: int, control: TrainControl) -> str | None:
+    """Return the fixed detached-monitoring schedule without a selection rule."""
+    if boundary == DIAGNOSTIC_PROXY_UPDATE:
+        return "diagnostic-update-16"
+    if boundary % control.proxy_interval == 0:
+        return "regular"
+    return None
+
+
+def rollout_monitoring(rollout: PPORollout) -> dict[str, Any]:
+    """Return detached transition support, retaining the explicit denominators."""
+    rows: dict[str, dict[str, int | float]] = {}
+    for mix_id, name in enumerate(("scripted", "frozen", "mixed")):
+        selected = rollout.mix_ids == mix_id
+        denominator = int(selected.sum().item())
+        rewards = rollout.rewards[selected]
+        rows[name] = {
+            "rows": denominator,
+            # TRAIN-01's task reward is the post-step live hero mass / 1000.
+            "mass_sum": float((rewards.sum() * 1000.0).item()),
+            "terminal_count": int(rollout.terminal[selected].sum().item()),
+            "horizon_count": int(rollout.horizon[selected].sum().item()),
+        }
+    return {"by_mix": rows, "rows": int(rollout.actions.numel())}
 
 
 def _seed(control: TrainControl, index: int) -> int:
@@ -188,9 +223,16 @@ def collect(
     terminals: list[torch.Tensor] = []
     horizons: list[torch.Tensor] = []
     clocks: list[torch.Tensor] = []
+    logical_lengths: list[torch.Tensor] = []
     last_progress = time.monotonic()
     for tick in range(ticks):
         local, glob, scalars, legal = compiled.observe() if compiled is not None else task.observe()
+        # Scalar zero is a log-normalized B8 input.  Detached diagnostics need
+        # the simulator's logical mass at the pre-action instant instead.
+        length = getattr(task, "hero_length", None)
+        length = length() if callable(length) else length
+        if not isinstance(length, torch.Tensor) or length.shape != (local.shape[0],):
+            raise TypeError("resident task must expose pre-action logical hero lengths")
         remaining = (task.config.horizon - task.age).clamp_min(0).float() / task.config.horizon
         logits = (
             compiled.actor_forward(local, glob, scalars)
@@ -201,6 +243,7 @@ def collect(
         distribution = categorical(logits, legal)
         action = torch.multinomial(distribution.probs, 1, generator=generator).squeeze(-1)
         observations.append((local.clone(), glob.clone(), scalars.clone()))
+        logical_lengths.append(length.clone())
         masks.append(legal.clone())
         actions.append(action)
         logps.append(distribution.log_prob(action))
@@ -230,6 +273,7 @@ def collect(
         last_bootstrap=~(terminals[-1] | horizons[-1]),
         remaining_horizon=torch.stack(clocks),
         mix_ids=task.roster_id.expand(ticks, -1),
+        logical_lengths=torch.stack(logical_lengths),
     )
 
 
@@ -271,10 +315,20 @@ def _restore(
     trainer: PPOTrainer,
     task: Any,
     generator: torch.Generator,
+    source_control: dict[str, Any] | None = None,
 ) -> int:
-    if state.get("schema") != "sandbox-a-train-state/v1" or state.get(
-        "control_allocation"
-    ) != allocation(asdict(control)):
+    current_control = asdict(control)
+    expected_control = current_control
+    if source_control is not None:
+        # Keep direct callers just as constrained as ledger-backed resume.
+        source_migration(source_control, current_control)
+        expected_control = source_control
+    expected_allocations = {allocation(expected_control)}
+    if (
+        state.get("schema") != "sandbox-a-train-state/v1"
+        or state.get("control_allocation") not in expected_allocations
+        or state.get("control") != expected_control
+    ):
         raise ValueError("foreign snapshot allocation")
     actor.load_state_dict(state["actor"])
     critic.load_state_dict(state["critic"])
@@ -329,9 +383,12 @@ def run(
     device: str,
     ledger: Path | None = None,
     input_root: Path | None = None,
+    monitoring: bool = True,
     on_progress: Callable[[str, Mapping[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run/resume the bounded trajectory; it never retries failed collection."""
+    if type(monitoring) is not bool:
+        raise TypeError("monitoring must be boolean")
     if digest(checkpoint) != "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8":
         raise ValueError("TRAIN-01 requires the pinned B8 s3 checkpoint")
     if digest(frp3) != FRP3_S12_SHA256 or digest(champion) != CHAMPION_SHA256:
@@ -400,11 +457,16 @@ def run(
     emit("compile-self-check-complete")
     # The screen is a mandatory simulator-D gross-error diagnostic before the
     # real trajectory, deliberately separate from any efficacy/gate evidence.
-    proxy_factory = task.proxy_factory(opponents, list(audited_allocations.values()))
+    proxy_factory: Any = None
     start, metrics, prep_state, resumed = 0, [], None, False
     last_heartbeat = time.monotonic()
     action_window = torch.empty(0, dtype=torch.long)
+    resume_source_control: dict[str, Any] | None = None
     if ledger is not None and ledger.exists():
+        ledger_payload = json.loads(ledger.read_text())
+        predecessor = migration_source_control(ledger_payload, asdict(control))
+        if predecessor != asdict(control):
+            resume_source_control = predecessor
         verified = load_ledger(ledger, asdict(control), input_root=input_root)
         if verified:
             permitted = {
@@ -422,7 +484,16 @@ def run(
             state = torch.load(latest["exports"][0]["path"], map_location="cpu", weights_only=False)
             if int(state.get("iteration", -1)) != int(latest["iteration"]):
                 raise ValueError("ledger descriptor and snapshot iteration differ")
-            start = _restore(state, control, actor, critic, trainer, task, generator)
+            start = _restore(
+                state,
+                control,
+                actor,
+                critic,
+                trainer,
+                task,
+                generator,
+                source_control=resume_source_control,
+            )
             metrics = list(state.get("metrics", []))
             action_window = state.get("action_window", action_window).cpu()
             prep_state = state.get("preparation")
@@ -431,6 +502,7 @@ def run(
                 with torch.no_grad():
                     actor.temperature.fill_(float(prep_state["temperature"]))
     if not control.test_only and start == 0 and not resumed:
+        proxy_factory = task.proxy_factory(opponents, list(audited_allocations.values()))
         os.environ.setdefault("SNAKE_CKPT_DIR", str(frp3.parent))
         cpu_actor = copy.deepcopy(actor.reference).to(dev).eval()
         emit("distribution-screen-start")
@@ -532,7 +604,7 @@ def run(
                 prep_task_factory,
                 actor,
                 critic,
-                PreparationConfig(),
+                PreparationConfig(diagnostics=monitoring),
                 generator,
                 state=prep_state,
                 on_calibrated=calibrated_boundary,
@@ -565,34 +637,69 @@ def run(
         prep_state = {"schema": "sandbox-a-train01-prep/test-only", "stage": "skipped"}
         metrics.append({"iteration": 0, "preparation": _preparation_metrics(prep_state)})
     # Proxy adapters may allocate helper tensors while constructing a factory.
-    # Keep that setup outside the resumed trajectory's RNG stream.
-    factory = proxy_factory
-    proxy = ProxyConfig(
-        horizon=control.proxy_horizon,
-        worlds_per_mix=control.proxy_worlds_per_mix,
-        seed_base=400_000_000,
-    )
-    proxy_identity = hashlib.sha256(
-        json.dumps(
-            {
-                "source_commit": control.source_commit,
-                "provenance": provenance,
-                "world_config": asdict(task.sim.cfg),
-                "proxy": asdict(proxy),
-                "rosters": [roster.identity for roster in task.rosters],
-            },
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
-    baseline_cache = next(
-        (row.get("proxy_baseline") for row in metrics if "proxy_baseline" in row), None
-    )
-    if baseline_cache is not None:
-        saved_identity = next(
-            row.get("proxy_identity") for row in metrics if "proxy_baseline" in row
+    # Monitoring is wholly detached from the training trajectory: when it is
+    # disabled, do not construct/evaluate the cache or mutate telemetry.
+    factory = None
+    proxy = None
+    baseline_cache = None
+    if monitoring:
+        if proxy_factory is None:
+            proxy_factory = task.proxy_factory(opponents, list(audited_allocations.values()))
+        factory = proxy_factory
+        proxy = ProxyConfig(
+            horizon=control.proxy_horizon,
+            worlds_per_mix=control.proxy_worlds_per_mix,
+            seed_base=400_000_000,
         )
-        if saved_identity != proxy_identity:
-            raise ValueError("cached B8 proxy identity differs from frozen engine/roster/config")
+
+        def cache_identity(source_commit: str) -> str:
+            return hashlib.sha256(
+                json.dumps(
+                    {
+                        "source_commit": source_commit,
+                        "provenance": provenance,
+                        "world_config": asdict(task.sim.cfg),
+                        "proxy": asdict(proxy),
+                        "rosters": [roster.identity for roster in task.rosters],
+                    },
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+
+        proxy_identity = cache_identity(control.source_commit)
+        baseline_cache = next(
+            (row.get("proxy_baseline") for row in reversed(metrics) if "proxy_baseline" in row),
+            None,
+        )
+        if baseline_cache is not None:
+            saved_identity = next(
+                row.get("proxy_identity") for row in reversed(metrics) if "proxy_baseline" in row
+            )
+            if resume_source_control is not None:
+                predecessor_identity = cache_identity(resume_source_control["source_commit"])
+                if saved_identity != predecessor_identity:
+                    raise ValueError("cached B8 proxy identity differs from bound predecessor")
+                # Preserve the verified immutable B8 cache bytes.  Rebind the
+                # latest cache metadata to the successor identity instead of
+                # silently recomputing its common-random-number bank.
+                metrics.append(
+                    {
+                        "iteration": start,
+                        "proxy_baseline": baseline_cache,
+                        "proxy_config": asdict(proxy),
+                        "proxy_identity": proxy_identity,
+                        "proxy_cache_migration": {
+                            "from_source_commit": resume_source_control["source_commit"],
+                            "to_source_commit": control.source_commit,
+                            "from_proxy_identity": predecessor_identity,
+                            "to_proxy_identity": proxy_identity,
+                        },
+                    }
+                )
+            elif saved_identity != proxy_identity:
+                raise ValueError(
+                    "cached B8 proxy identity differs from frozen engine/roster/config"
+                )
     if start == 0 and not resumed:
         from research.sandbox_a_resident.training_proxy import masked_argmax
 
@@ -622,7 +729,8 @@ def run(
                     },
                 }
             )
-    if baseline_cache is None:
+    if monitoring and baseline_cache is None:
+        assert factory is not None and proxy is not None
         emit("proxy-baseline-start")
         baseline = evaluate(actor.reference, factory, proxy, emit)
         emit("proxy-baseline-complete")
@@ -634,6 +742,47 @@ def run(
                 "proxy_config": asdict(proxy),
                 "proxy_identity": proxy_identity,
                 "zero_actor_proxy": "identity reuse after fresh-observation B8 greedy agreement",
+            }
+        )
+
+    def detached_proxy(boundary: int, kind: str) -> dict[str, Any]:
+        """Run one fixed-bank monitor with no nomination or stop consequence."""
+        assert factory is not None and proxy is not None and baseline_cache is not None
+        emit("proxy-candidate-start", {"iteration": boundary, "kind": kind})
+        candidate = evaluate(actor, factory, proxy, emit)
+        emit("proxy-candidate-complete", {"iteration": boundary, "kind": kind})
+        baseline = {mix: MixMetrics(**value) for mix, value in baseline_cache.items()}
+        return {
+            "kind": kind,
+            "diagnostic_only": kind == "diagnostic-update-16",
+            "nominates": False,
+            "config": asdict(proxy),
+            "baseline": baseline_cache,
+            "candidate": serializable(candidate),
+            "paired": paired(candidate, baseline),
+        }
+
+    # A train01-07 snapshot at the exact new boundary contains the correct
+    # post-update-16 weights but predates this detached check.  Measure it once
+    # before collecting update 17, then persist it in the successor snapshot.
+    # Once successor telemetry is present, a further resume never repeats it.
+    has_update16_proxy = any(
+        row.get("proxy", {}).get("kind") == "diagnostic-update-16" for row in metrics
+    )
+    if monitoring and resumed and start == DIAGNOSTIC_PROXY_UPDATE and not has_update16_proxy:
+        diagnostic_row = next(
+            (row for row in reversed(metrics) if row.get("iteration") == start), None
+        )
+        if diagnostic_row is None:
+            raise ValueError("resume snapshot lacks its update-16 metrics row")
+        diagnostic_row["proxy"] = detached_proxy(start, "diagnostic-update-16")
+    elif monitoring and resumed and start > DIAGNOSTIC_PROXY_UPDATE and not has_update16_proxy:
+        # Do not backdate a diagnostic against later weights.  It was absent
+        # from the predecessor bytes and is explicitly reported as missed.
+        metrics.append(
+            {
+                "iteration": start,
+                "monitoring_note": "update-16 diagnostic unavailable in predecessor snapshot",
             }
         )
     if start == 0 and not resumed:
@@ -674,27 +823,23 @@ def run(
         learner_started = time.monotonic()
         row = {
             "iteration": iteration + 1,
-            **trainer.update(rollout),
+            **trainer.update(rollout, diagnostics=monitoring),
             "collector_seconds": learner_started - collect_started,
             "learner_seconds": time.monotonic() - learner_started,
             "compile": {"self_check": compile_check, "report": compiled.report},
         }
+        if monitoring:
+            row["transition_support"] = rollout_monitoring(rollout)
         metrics.append(row)
         emit("learner-complete", {"iteration": iteration + 1})
         boundary = iteration + 1
-        if boundary % control.proxy_interval == 0:
+        kind = proxy_kind(boundary, control)
+        if monitoring and kind is not None:
             # The task factory is supplied by the adapter so each candidate and
-            # baseline starts an independent, identical proxy RNG stream.
-            emit("proxy-candidate-start", {"iteration": boundary})
-            candidate = evaluate(actor, factory, proxy, emit)
-            emit("proxy-candidate-complete", {"iteration": boundary})
-            baseline = {mix: MixMetrics(**value) for mix, value in baseline_cache.items()}
-            row["proxy"] = {
-                "config": asdict(proxy),
-                "baseline": baseline_cache,
-                "candidate": serializable(candidate),
-                "paired": paired(candidate, baseline),
-            }
+            # baseline starts an independent, identical proxy RNG stream.  The
+            # update-16 result is diagnostic only: it never expands nomination
+            # or changes retry/stop behaviour.
+            row["proxy"] = detached_proxy(boundary, kind)
         if boundary % control.snapshot_interval == 0 or boundary == control.outer_iterations:
             state = _snapshot_state(
                 boundary,

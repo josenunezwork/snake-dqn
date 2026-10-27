@@ -16,6 +16,10 @@ from research.sandbox_a_resident.units import digest, publish, verified_descript
 
 NAMESPACE = "a100-dev/sandbox-a/train01"
 SCHEMA = "sandbox-a-train-ledger/v1"
+SOURCE_MIGRATION_SCHEMA = "sandbox-a-train-source-migration/v1"
+# Train01-08 may continue only exports produced by the frozen train01-07
+# implementation.  This is intentionally not a general source-trust list.
+TRAIN01_07_SOURCE_COMMIT = "152af938acc32da6aeea9fcb5a300f470d96c53c"
 
 
 def allocation(control: dict[str, Any]) -> str:
@@ -23,6 +27,56 @@ def allocation(control: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(control, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+
+
+def control_digest(control: dict[str, Any]) -> str:
+    """Return the canonical digest used to bind a source-control migration."""
+    return hashlib.sha256(
+        json.dumps(control, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def source_migration(
+    source_control: dict[str, Any], target_control: dict[str, Any]
+) -> dict[str, Any]:
+    """Bind the sole permitted successor change: its committed source pin."""
+    if source_control == target_control:
+        raise ValueError("source migration requires a distinct successor control")
+    if (
+        not isinstance(source_control.get("source_commit"), str)
+        or not isinstance(target_control.get("source_commit"), str)
+        or source_control["source_commit"] != TRAIN01_07_SOURCE_COMMIT
+        or {key: value for key, value in source_control.items() if key != "source_commit"}
+        != {key: value for key, value in target_control.items() if key != "source_commit"}
+    ):
+        raise ValueError("source migration may change only source_commit")
+    return {
+        "schema": SOURCE_MIGRATION_SCHEMA,
+        "from_control": source_control,
+        "from_control_sha256": control_digest(source_control),
+        "from_allocation": allocation(source_control),
+        "from_source_commit": source_control["source_commit"],
+        "to_control_sha256": control_digest(target_control),
+        "to_allocation": allocation(target_control),
+        "to_source_commit": target_control["source_commit"],
+    }
+
+
+def migration_source_control(
+    payload: dict[str, Any], target_control: dict[str, Any]
+) -> dict[str, Any]:
+    """Validate a ledger migration and return the bound snapshot control."""
+    migration = payload.get("source_migration")
+    if migration is None:
+        return target_control
+    if not isinstance(migration, dict) or migration.get("schema") != SOURCE_MIGRATION_SCHEMA:
+        raise ValueError("malformed source migration")
+    source = migration.get("from_control")
+    if not isinstance(source, dict):
+        raise ValueError("source migration lacks predecessor control")
+    if migration != source_migration(source, target_control):
+        raise ValueError("source migration does not exactly bind predecessor and successor")
+    return source
 
 
 def unit_id(iteration: int) -> str:
@@ -47,6 +101,7 @@ def load_ledger(
 ) -> dict[int, dict[str, Any]]:
     """Validate a Mac-verified immutable ledger and return iteration descriptors."""
     payload = json.loads(path.read_text())
+    source_control = migration_source_control(payload, control)
     if (
         payload.get("schema") != SCHEMA
         or payload.get("namespace") != NAMESPACE
@@ -101,7 +156,15 @@ def load_ledger(
         if len(headers) != 1:
             raise ValueError("snapshot requires one metadata header")
         header = json.loads(headers[0].read_text())
-        if header.get("metadata", {}).get("allocation") != allocation(control):
+        metadata = header.get("metadata", {})
+        if (
+            metadata.get("allocation") != allocation(source_control)
+            or (
+                "source_commit" in metadata
+                and metadata["source_commit"] != source_control.get("source_commit")
+            )
+            or (payload.get("source_migration") is not None and "source_commit" not in metadata)
+        ):
             raise ValueError("snapshot metadata allocation differs from ledger control")
         rows[iteration] = row
     return rows

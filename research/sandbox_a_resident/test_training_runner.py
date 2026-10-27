@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import torch
 
-from research.sandbox_a_resident.train import TrainControl, collect
+from research.sandbox_a_resident.train import TrainControl, collect, proxy_kind, rollout_monitoring
 
 
 class Actor(torch.nn.Module):
@@ -32,6 +32,12 @@ class Task:
             torch.ones((3, 6), dtype=torch.bool),
         )
 
+    @property
+    def hero_length(self):
+        # Deliberately unlike scalar zero: collector diagnostics must use this
+        # pre-action logical quantity.
+        return self.age + 10
+
     def step(self, actions):
         self.tick += 1
         terminal = torch.tensor([self.tick == 1, False, False])
@@ -47,6 +53,7 @@ def test_collector_marks_death_and_h5000_without_bootstrap() -> None:
     assert rollout.horizon[0].tolist() == [False, True, False]
     assert rollout.bootstrap[0].tolist() == [False, False, True]
     assert rollout.mix_ids.unique().tolist() == [0, 1, 2]
+    assert rollout.logical_lengths[:, 0].tolist() == [10, 10]
 
 
 def test_control_freezes_100m_shape_and_rejects_wrong_task() -> None:
@@ -58,6 +65,14 @@ def test_control_freezes_100m_shape_and_rejects_wrong_task() -> None:
         pass
     else:
         raise AssertionError("foreign control accepted")
+
+
+def test_proxy_schedule_has_only_diagnostic16_and_existing_regular_boundaries() -> None:
+    control = TrainControl("sandbox-a-train01", "a" * 40, 0)
+    scheduled = [boundary for boundary in range(1, 385) if proxy_kind(boundary, control)]
+    assert scheduled == [16, 64, 128, 192, 256, 320, 384]
+    assert proxy_kind(16, control) == "diagnostic-update-16"
+    assert all(proxy_kind(boundary, control) == "regular" for boundary in scheduled[1:])
 
 
 def test_collector_stores_normal_action_support_for_boxed_in_rows():
@@ -92,3 +107,12 @@ def test_collection_progress_preserves_actions_and_exact_rollout(monkeypatch):
         if isinstance(value, torch.Tensor):
             assert torch.equal(getattr(actual, name), value), name
     assert [value["ticks"] for _, value in messages] == [1, 2]
+
+
+def test_transition_support_has_explicit_mix_denominators() -> None:
+    rollout = collect(Task(), Actor(), Critic(), 2, torch.Generator().manual_seed(3))
+    support = rollout_monitoring(rollout)
+    assert support["rows"] == 6
+    assert [support["by_mix"][mix]["rows"] for mix in ("scripted", "frozen", "mixed")] == [2, 2, 2]
+    assert sum(row["terminal_count"] for row in support["by_mix"].values()) == 1
+    assert sum(row["horizon_count"] for row in support["by_mix"].values()) == 1

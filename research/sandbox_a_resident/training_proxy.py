@@ -83,7 +83,11 @@ def evaluate(
     action path from perturbing baseline RNG.
     """
     result: dict[str, MixMetrics] = {}
-    was_training = bool(getattr(actor, "training", False))
+    # ``Module.train()`` recursively overwrites mixed child modes.  B8 keeps
+    # its frozen reference in eval mode while the trainable actor remains in
+    # train mode, so retain every module flag exactly around detached proxy
+    # inference.
+    modes = [(module, bool(module.training)) for module in actor.modules()]
     if hasattr(actor, "eval"):
         actor.eval()
     try:
@@ -146,8 +150,8 @@ def evaluate(
                 survival=survived.float().cpu().tolist(),
             )
     finally:
-        if was_training and hasattr(actor, "train"):
-            actor.train()
+        for module, was_training in modes:
+            module.training = was_training
     return result
 
 

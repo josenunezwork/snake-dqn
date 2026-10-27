@@ -12,7 +12,7 @@ from research.sandbox_a_resident.training_resume import (
     build_ledger,
     completion_packet,
 )
-from research.sandbox_a_resident.training_units import allocation, unit_id
+from research.sandbox_a_resident.training_units import TRAIN01_07_SOURCE_COMMIT, allocation, unit_id
 from research.sandbox_a_resident.units import publish
 
 
@@ -280,3 +280,69 @@ def test_refuses_foreign_header_and_nonmatching_terminal_generation(tmp_path: Pa
             output_dir=Path("/tmp/train-01-completion-1"),
             original_manifest_sha256="b" * 64,
         )
+
+
+def test_build_ledger_binds_train01_07_snapshot_to_exact_source_only_successor(
+    tmp_path: Path,
+) -> None:
+    predecessor = {**control(), "source_commit": TRAIN01_07_SOURCE_COMMIT}
+    successor = {**predecessor, "source_commit": "b" * 40}
+    snapshot(tmp_path, 2, header_control=predecessor)
+    ledger, _records, latest = build_ledger(tmp_path, successor, source_control=predecessor)
+    assert latest == 2
+    migration = ledger["source_migration"]
+    assert migration["from_source_commit"] == TRAIN01_07_SOURCE_COMMIT
+    assert migration["to_source_commit"] == successor["source_commit"]
+    assert ledger["allocation"] == allocation(successor)
+
+
+def test_build_ledger_refuses_source_migration_that_changes_recipe_or_foreign_predecessor(
+    tmp_path: Path,
+) -> None:
+    predecessor = {**control(), "source_commit": TRAIN01_07_SOURCE_COMMIT}
+    snapshot(tmp_path, 2, header_control=predecessor)
+    with pytest.raises(ValueError, match="only source_commit"):
+        build_ledger(
+            tmp_path,
+            {**predecessor, "source_commit": "b" * 40, "outer_iterations": 5},
+            source_control=predecessor,
+        )
+    with pytest.raises(ValueError, match="only source_commit"):
+        build_ledger(
+            tmp_path,
+            {**predecessor, "source_commit": "b" * 40},
+            source_control={**predecessor, "source_commit": "c" * 40},
+        )
+
+
+def test_completion_packet_rebinds_only_verified_train01_07_snapshot_to_template_pin(
+    tmp_path: Path,
+) -> None:
+    predecessor = {**control(), "source_commit": TRAIN01_07_SOURCE_COMMIT}
+    successor = {**predecessor, "source_commit": "b" * 40}
+    snapshot(tmp_path, 2, header_control=predecessor)
+    prior = {**manifest(), "commit": predecessor["source_commit"]}
+    prior_receipt = receipt()
+    prior_receipt["commit"] = predecessor["source_commit"]
+    target_input = {
+        "path": "/target-detached-checkout/target-input",
+        "dest": "target-input",
+        "sha256": "d" * 64,
+    }
+    target = {**manifest(), "commit": successor["source_commit"], "inputs": [target_input]}
+    packet = completion_packet(
+        prior,
+        prior_receipt,
+        tmp_path,
+        predecessor,
+        completion_index=1,
+        job_id="sandbox-a-train01-08",
+        output_dir=Path("/tmp/sandbox-a-train01-08"),
+        original_manifest_sha256="b" * 64,
+        successor_manifest=target,
+        successor_control=successor,
+    )
+    assert packet.manifest["commit"] == successor["source_commit"]
+    assert packet.manifest["inputs"][0] == target_input
+    assert packet.ledger["source_migration"]["from_source_commit"] == TRAIN01_07_SOURCE_COMMIT
+    assert packet.ledger["source_migration"]["to_source_commit"] == successor["source_commit"]
