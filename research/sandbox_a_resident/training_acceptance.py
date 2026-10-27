@@ -1,0 +1,267 @@
+"""Non-gating acceptance diagnostics for the resident training adapter.
+
+The checks use explicit, frozen actions and state fixtures.  They distinguish
+exact discrete common-state mechanics from distributional simulator-D screens;
+neither result is a Mac gate, release result, or CPU closed-loop identity claim.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from typing import Any, Callable, Sequence
+
+import numpy as np
+import torch
+
+from research.gpu_sim_spike.device_sim import DeviceSim
+from research.gpu_sim_spike.v8_device import v8_decide as device_v8
+from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
+from src.simd_env.batch_sim import BatchSimConfig
+from src.simd_env.grid_sim import GridBatchSim
+from src.simd_env.v8_nb import v8_decide as cpu_v8
+from src.simd_env.vector61_featurizer import Vector61Featurizer, Vector61Memory, Vector61Params
+
+_DISCRETE = ("bodies", "head_ptr", "seg_count", "length", "alive", "direction")
+
+
+def forced_action_common_state(actions: Sequence[Sequence[int]]) -> dict[str, Any]:
+    """Replay forced actions from one manually supplied, RNG-free world state."""
+    cfg = BatchSimConfig(
+        num_envs=1,
+        num_snakes=2,
+        game_width=200,
+        game_height=100,
+        initial_food=0,
+        max_food=0,
+        max_capacity=32,
+        mechanics_version=1,
+    )
+    cpu = GridBatchSim(cfg, seeds=[17], train_mode=True, allow_respawn=False, jit=False)
+    cpu.bodies[0, :, :5] = ((5, 5), (4, 5), (3, 5), (2, 5), (1, 5)), (
+        (12, 5),
+        (13, 5),
+        (14, 5),
+        (15, 5),
+        (16, 5),
+    )
+    cpu.head_ptr[:] = 0
+    cpu.seg_count[:] = 5
+    cpu.length[:] = 5
+    cpu.alive[:] = True
+    cpu.direction[0] = (1, 3)
+    cpu._rebuild_env_grids(0)
+    device = DeviceSim.from_reference(cpu, device="cpu")
+    for action in actions:
+        values = np.asarray(action, dtype=np.int64).reshape(1, 2)
+        cpu.step(values)
+        device.step(torch.as_tensor(values))
+        for name in _DISCRETE:
+            expected = np.asarray(getattr(cpu, name))
+            actual = getattr(device, name).detach().cpu().numpy()
+            if not np.array_equal(actual, expected):
+                return {"status": "MISMATCH", "field": name, "action": list(action)}
+        if int(device.food_count[0]) != len(cpu.food_cells[0]):
+            return {"status": "MISMATCH", "field": "food_count", "action": list(action)}
+    return {"status": "PASS", "frames": len(actions), "claim": "common-state discrete mechanics"}
+
+
+def vector_v8_common_state(sim: GridBatchSim, q: np.ndarray) -> dict[str, Any]:
+    """Compare CPU/device masks and v8 result on a copied state and fixed Q rows."""
+    device = DeviceSim.from_reference(sim, device="cpu")
+    rows_np = np.column_stack((np.zeros(sim.S, dtype=np.int64), np.arange(sim.S, dtype=np.int64)))
+    rows = torch.as_tensor(rows_np)
+    cpu_mask = sim.get_advisory_action_mask()[0]
+    device_mask = device.advisory_mask()[0].cpu().numpy()
+    if not np.array_equal(cpu_mask, device_mask):
+        return {"status": "MISMATCH", "field": "advisory_mask"}
+    expected = cpu_v8(sim, rows_np, q, cpu_mask, features=True)
+    actual = device_v8(
+        device, rows, torch.as_tensor(q), torch.as_tensor(device_mask), features=True
+    )
+    if not np.array_equal(actual.action.cpu().numpy(), expected.action):
+        return {"status": "MISMATCH", "field": "v8_action"}
+    for name in ("base", "v5_action", "v7_action", "outcome", "counts", "area", "landing"):
+        if not np.array_equal(getattr(actual, name).cpu().numpy(), getattr(expected, name)):
+            return {"status": "MISMATCH", "field": f"v8_{name}"}
+    return {"status": "PASS", "slots": sim.S, "claim": "common-state mask/v8"}
+
+
+def vector_carry_common_state(sim: GridBatchSim) -> dict[str, Any]:
+    """Check vector61 rows and their nearest-enemy carry on one copied state."""
+    device = DeviceSim.from_reference(sim, device="cpu")
+    params = replace(Vector61Params.from_game_config(sim.cfg), use_free_space=True)
+    rows_np = np.column_stack((np.zeros(sim.S, dtype=np.int64), np.arange(sim.S, dtype=np.int64)))
+    cpu = Vector61Featurizer(params)
+    memory = Vector61Memory(1, sim.S)
+    expected = cpu.featurize(sim, rows_np, memory, update_memory=True)
+    runtime = DeviceVectorRuntime(params)
+    runtime.bind(device)
+    actual = runtime.features(device, update_memory=True).cpu().numpy()
+    if not np.allclose(actual, expected, rtol=0.0, atol=1e-6):
+        return {"status": "MISMATCH", "field": "vector61_initial"}
+    # Re-featurize without a reset.  This specifically exercises carry, rather
+    # than accepting a stateless row-only comparison.
+    expected = cpu.featurize(sim, rows_np, memory, update_memory=True)
+    actual = runtime.features(device, update_memory=True).cpu().numpy()
+    if not np.allclose(actual, expected, rtol=0.0, atol=1e-6):
+        return {"status": "MISMATCH", "field": "vector61_carry"}
+    return {"status": "PASS", "slots": sim.S, "claim": "common-state vector carry"}
+
+
+def distribution_screen_descriptor(
+    *, worlds_per_mix: int = 32, horizon: int = 5000
+) -> dict[str, Any]:
+    """Describe the required pre-training simulator-D gross-error screen.
+
+    Caller runs B8 on separate CPU and device fresh roots and records support,
+    reset/food/collision rates and mass.  This deliberately contains no test
+    outcomes and cannot be interpreted as a promotion comparison.
+    """
+    if worlds_per_mix < 32 or horizon != 5000:
+        raise ValueError("screen requires at least 32 complete H5000 worlds per mix")
+    return {
+        "schema": "sandbox-a-distribution-screen/v1",
+        "worlds_per_mix": worlds_per_mix,
+        "horizon": horizon,
+        "mixes": ["scripted", "frozen", "mixed"],
+        "compare": ["spawn_spacing", "food_refill", "collisions", "respawns", "mass", "occupancy"],
+        "status_meaning": "simulator-D engineering diagnostic only; not a gate",
+    }
+
+
+@torch.inference_mode()
+def run_distribution_screen(
+    *,
+    cpu_factory: Callable[[str, int, int], Any],
+    device_factory: Callable[[str, int, int], Any],
+    cpu_actor: Any,
+    device_actor: Any,
+    worlds_per_mix: int = 32,
+    horizon: int = 5000,
+) -> dict[str, Any]:
+    """Run the required pre-training CPU/device gross-error screen.
+
+    Factories own fresh domain-separated roots. The result reports separate
+    distributions and is explicitly simulator-D engineering evidence only.
+    """
+    descriptor = distribution_screen_descriptor(worlds_per_mix=worlds_per_mix, horizon=horizon)
+
+    def one(factory: Callable[[str, int, int], Any], actor: Any, mix: str) -> dict[str, Any]:
+        task = factory(mix, worlds_per_mix, horizon)
+        sim = getattr(task, "sim", None)
+        if sim is None:
+            sim = task._shard.sim
+
+        def tensor(value: Any) -> torch.Tensor:
+            return (
+                torch.as_tensor(value, device="cpu").clone()
+                if not isinstance(value, torch.Tensor)
+                else value.detach().cpu()
+            )
+
+        def food_points() -> torch.Tensor:
+            raw = sim.food_cells
+            if isinstance(raw, torch.Tensor):
+                return raw[sim.food_present].detach().cpu().float()
+            return torch.tensor(
+                [point for world in raw for point in world], dtype=torch.float32
+            ).reshape(-1, 2)
+
+        task.observe()
+        heads = tensor(sim.bodies)[
+            torch.arange(worlds_per_mix)[:, None], torch.arange(sim.S)[None], tensor(sim.head_ptr)
+        ]
+        distance = (heads[:, :, None] - heads[:, None]).float().square().sum(-1).sqrt()
+        distance.diagonal(dim1=-2, dim2=-1).fill_(float("inf"))
+        food = food_points()
+        if food.shape[0] < 2 or not torch.isfinite(food).all():
+            raise RuntimeError("distribution screen has invalid initial food support")
+        correlation = float(torch.corrcoef(food.T)[0, 1])
+        initial = {
+            "nearest_spawn_mean_cells": float(distance.min(-1).values.mean()),
+            "headings": torch.bincount(tensor(sim.direction).reshape(-1), minlength=4).tolist(),
+            "initial_food_mean": float(len(food) / worlds_per_mix),
+            "food_xy_correlation": correlation,
+        }
+        mass = torch.zeros(worlds_per_mix)
+        alive_ticks = torch.zeros_like(mass)
+        first_life = torch.ones(worlds_per_mix, dtype=torch.bool)
+        length_bins = torch.zeros(5, dtype=torch.long)
+        causes: dict[str, int] = {}
+        deaths = resets = respawns = food_eaten = 0
+        previous_alive = tensor(sim.alive).bool()
+        for tick in range(horizon):
+            local, glob, scalars, legal = task.observe()
+            logits = actor(local, glob, scalars)
+            if isinstance(logits, tuple):
+                logits = logits[0]
+            fallback = torch.tensor((True, True, True, False, False, False), device=legal.device)
+            legal = torch.where(legal.any(1, keepdim=True), legal, fallback)
+            event = task.step(logits.masked_fill(~legal, -torch.inf).argmax(1))
+            logical_mass = tensor(event.mass).float()
+            terminal = tensor(event.terminal).bool() & first_life
+            alive = tensor(sim.alive).bool()
+            mass += logical_mass * first_life
+            alive_ticks += first_life & ~terminal
+            bins = (logical_mass / 200).long().clamp(0, 4)
+            length_bins += torch.bincount(bins[first_life & ~terminal], minlength=5)
+            deaths += int(terminal.sum())
+            resets += int(tensor(event.reset).bool().sum())
+            respawns += int(((~previous_alive[:, 1:]) & alive[:, 1:] & first_life[:, None]).sum())
+            food_eaten += int((tensor(sim._last_food_ate).bool() & first_life[:, None]).sum())
+            for cause in tensor(sim._last_death_cause)[:, 0][terminal].tolist():
+                causes[str(cause)] = causes.get(str(cause), 0) + 1
+            first_life &= ~terminal
+            previous_alive = alive
+            if not torch.isfinite(mass).all():
+                raise RuntimeError("nonfinite distribution-screen mass")
+            if tick % 256 == 0:
+                print(
+                    f"DISTRIBUTION_SCREEN mix={mix} engine={type(task).__name__} "
+                    f"frame={tick}/{horizon}",
+                    flush=True,
+                )
+        return {
+            **initial,
+            "mean_mass_integral": float(mass.mean() / horizon),
+            "alive_fraction": float(alive_ticks.mean() / horizon),
+            "no_death_fraction": float(first_life.float().mean()),
+            "death_events": deaths,
+            "reset_events": resets,
+            "opponent_respawns": respawns,
+            "food_consumption_events": food_eaten,
+            "hero_death_causes": causes,
+            "alive_length_occupancy_bins_200": length_bins.tolist(),
+        }
+
+    results = {
+        mix: {
+            "cpu": one(cpu_factory, cpu_actor, mix),
+            "device": one(device_factory, device_actor, mix),
+        }
+        for mix in ("scripted", "frozen", "mixed")
+    }
+    gaps = []
+    for mix, pair in results.items():
+        for name in (
+            "nearest_spawn_mean_cells",
+            "initial_food_mean",
+            "mean_mass_integral",
+            "alive_fraction",
+        ):
+            cpu, gpu = pair["cpu"][name], pair["device"][name]
+            if abs(gpu - cpu) > max(abs(cpu), 1e-8) * 0.25:
+                gaps.append({"mix": mix, "metric": name, "cpu": cpu, "device": gpu})
+    return {
+        **descriptor,
+        "status": "COMPLETE_SIMULATOR_D_SCREEN",
+        "results": results,
+        "material_gap_rule": "descriptive relative difference above 25 percent; "
+        "not an efficacy gate",
+        "material_gaps": gaps,
+        "interpretation": "simulator-D pretraining; CPU reset rejection and counter-based device "
+        "sampling use different random streams. Material gaps lower transfer confidence. "
+        "This screen "
+        "checks gross support and records task behavior; it does not certify distributional or "
+        "closed-loop identity.",
+    }

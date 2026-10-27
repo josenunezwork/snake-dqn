@@ -53,6 +53,7 @@ SANDBOX_OUTPUT_ROOTS = {
     "sandbox-b-heads-v2": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b2-20261026",
     "sandbox-b-heads-v3": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b3-20261026",
     "sandbox-a": HERE.parents[1].parent / "snake-dqn-artifacts/sandbox-a-resident",
+    "sandbox-a-train01": HERE.parents[1].parent / "snake-dqn-artifacts/sandbox-a-resident",
 }
 P1_ATTEMPT2_RULING = "55b13197d9d92f8eeb1c895180f01993ca11908f51c74a60d9a67065a0550d13"
 CONTROL_INTERPRETER = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python")
@@ -562,6 +563,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         "technical_envelope",
         "sandbox",
         "sandbox_a",
+        "completion_attempt",
     }
     if set(manifest) - allowed_keys:
         raise Refused("sandbox forbids canary, registered-study or unknown controls")
@@ -570,10 +572,13 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         "research/sandbox_b_heads/run_b2.sh": "sandbox-b-heads-v2",
         "research/sandbox_b_heads/run_b3.sh": "sandbox-b-heads-v3",
         "research/sandbox_a_resident/job.sh": "sandbox-a",
+        "research/sandbox_a_resident/train_job.sh": "sandbox-a-train01",
     }
     study = packages.get(manifest.get("script"))
     if study is None:
         raise Refused("sandbox script is outside adopted development packages")
+    if "completion_attempt" in manifest and study != "sandbox-a-train01":
+        raise Refused("training completion metadata is exclusive to TRAIN-01")
     output = preflight._assert_safe_path(manifest.get("output_dir", ""), "sandbox output")
     if not output.is_absolute() or not output.resolve().is_relative_to(SANDBOX_OUTPUT_ROOTS[study]):
         raise Refused("sandbox output must stay in its isolated development artifact root")
@@ -648,10 +653,15 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
     transfer_policy.transfer_limit(manifest)
     canary.job_device(manifest, broker)
     canary._exports(manifest)
-    if study == "sandbox-a":
+    if study in {"sandbox-a", "sandbox-a-train01"}:
         # Job A owns its control/seed recipe checker and focused tests.
+        module = (
+            "research.sandbox_a_resident.training_preflight"
+            if study == "sandbox-a-train01"
+            else "research.sandbox_a_resident.preflight"
+        )
         command(
-            [sys.executable, "-m", "research.sandbox_a_resident.preflight", str(path.parent)],
+            [sys.executable, "-m", module, str(path.parent)],
             cwd=broker,
         )
 

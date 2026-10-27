@@ -15,6 +15,14 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REGISTRY = Path(__file__).with_name("SANDBOX_INPUT_REGISTRY.json")
 TRANSPORT_TREE = "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+# Positive, training-only extension: released fixed opponents, never label banks.
+# The original hash-bound input registry and B8-only checkpoint kind stay intact.
+TRAINING_OPPONENTS = frozenset(
+    {
+        "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+        "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+    }
+)
 DENIED = re.compile(r"(?:^|[/_.-])(?:f5|d4096|t34-round0-study-01|colab_cli)(?=$|[/_.-])")
 B1_UNIT_NAME = re.compile(
     r"[0-9]{2}-(linear|gated_mlp|cosine)-kl(1|2|4|8|16)-survival(1|2|4|8)\.tar"
@@ -139,6 +147,14 @@ def validate_input(record: dict, registry: dict | None = None) -> None:
     elif kind == "frozen-checkpoint":
         if claimed != B8_SHA:
             raise ValueError("only frozen released B8 input admitted")
+    elif kind == "frozen-opponent":
+        if claimed not in TRAINING_OPPONENTS:
+            raise ValueError("only canonical released TRAIN-01 opponents admitted")
+    elif kind == "training-export":
+        if not re.fullmatch(
+            r"iteration-[0-9]{4}(?:\.pt|\.json|-actor\.pth)(?:\.sha256|\.complete)?", path.name
+        ):
+            raise ValueError("canonical TRAIN-01 exported snapshot path required")
     elif kind == "verified-ledger":
         value = json.loads(path.read_text())
         if not isinstance(value, dict) or not isinstance(value.get("units"), list):

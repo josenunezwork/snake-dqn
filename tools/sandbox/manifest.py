@@ -107,6 +107,8 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
         if kind in {
             "closed-f0",
             "frozen-checkpoint",
+            "frozen-opponent",
+            "training-export",
             "verified-ledger",
             "verified-unit",
             "registry",
@@ -137,6 +139,11 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
                     raise ManifestError("world seed must be an unsigned 64-bit integer")
         else:
             raise ManifestError(f"inputs[{index}].kind is not admitted: {kind!r}")
+        if (
+            kind in {"frozen-opponent", "training-export"}
+            and payload["study"] != "sandbox-a-train01"
+        ):
+            raise ManifestError("training inputs are exclusive to sandbox-a-train01")
 
     endpoint = payload["endpoint"]
     _forbidden(endpoint, "endpoint")

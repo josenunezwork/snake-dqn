@@ -156,6 +156,30 @@ def _validate_registry_inputs(payload: dict[str, Any], registry_path: Path) -> N
         # manifest validation has already rejected protected strings, before any
         # record path is opened by the registry loader/validator.
         validate_input(record, registry)
+    if payload["study"] == "sandbox-a-train01" or any(
+        r["kind"] == "frozen-opponent" for r in payload["inputs"]
+    ):
+        from .registry import TRAINING_OPPONENTS
+
+        opponents = [r for r in payload["inputs"] if r["kind"] == "frozen-opponent"]
+        if payload["study"] != "sandbox-a-train01" or (
+            len(opponents) != 2 or {r["sha256"] for r in opponents} != TRAINING_OPPONENTS
+        ):
+            raise PreflightError("TRAIN-01 requires exactly the two canonical fixed opponents")
+        kinds = {r["kind"] for r in payload["inputs"]}
+        if kinds - {"training-export"} != {
+            "worlds",
+            "frozen-checkpoint",
+            "frozen-opponent",
+            "verified-ledger",
+            "registry",
+        }:
+            raise PreflightError("TRAIN-01 accepts fresh worlds and fixed models only")
+        if any(
+            sum(r["kind"] == kind for r in payload["inputs"]) != 1
+            for kind in ("frozen-checkpoint", "verified-ledger", "registry")
+        ):
+            raise PreflightError("TRAIN-01 requires exactly one B8, ledger and registry")
     # Resume payloads are admitted only by the hash-bound verified ledger. Never
     # open their checkpoint/report contents during Mac admission.
     unit_records = [r for r in payload["inputs"] if r["kind"] == "verified-unit"]
