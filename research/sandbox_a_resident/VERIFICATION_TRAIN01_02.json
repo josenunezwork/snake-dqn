@@ -1,0 +1,208 @@
+{
+  "artifact_logs": {
+    "cuda-semantics.log": "4e3ee73631b8c55d039ef81952bcd3378e87810b853cac47aba1702965f0fab9",
+    "dispatch-dry-run.log": "88282b371c45bafd2dcdb5bf8dad4bca5ff7f8fe73307497ee60f2ed5f45df69",
+    "main-collection.log": "29295a039298c7dc387e5b55ce4df1e84078a792b3301108c6038140c8b75c67",
+    "preflight.log": "c3e6c874c000660096480202323f7020328f471c95b0d2f296265608d6658b6e",
+    "scoped-tests-final.log": "f8d63898d7d2bf84600beed2e7f54638ace00049d3aedf6cb080cbdc22b98ef9"
+  },
+  "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-02-engineering-20261027",
+  "baseline_commit": "e2b42e9c3b949f125eb0588d0f9d9a6531ec934f",
+  "both_detached_clean": true,
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex",
+  "broker_seal": "55776c66e6eb57e1e558f2b4be65d9ee29741131",
+  "commands": {
+    "cuda_semantics": "nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.training_preflight /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex/research/sandbox_a_resident/packet-train01-02 --cuda-semantics",
+    "dispatch": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-02 /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex/research/sandbox_a_resident/packet-train01-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-02-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-02/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex/research/sandbox_a_resident/packet-train01-02/DISPATCH.txt",
+    "dry_run": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-02 /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex/research/sandbox_a_resident/packet-train01-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-02-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-02/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex/research/sandbox_a_resident/packet-train01-02/DISPATCH.txt --dry-run",
+    "focused_lint": [
+      "nice -n 15 ./venv/bin/python -m black --check --line-length 100 research/sandbox_a_resident/training_*.py research/sandbox_a_resident/train.py research/sandbox_a_resident/test_training_*.py tools/sandbox/manifest.py tools/sandbox/preflight.py tools/sandbox/registry.py tools/sandbox/tests/test_registry.py",
+      "nice -n 15 ./venv/bin/python -m isort --profile black --check-only research/sandbox_a_resident/training_*.py research/sandbox_a_resident/train.py research/sandbox_a_resident/test_training_*.py tools/sandbox/manifest.py tools/sandbox/preflight.py tools/sandbox/registry.py tools/sandbox/tests/test_registry.py",
+      "nice -n 15 ./venv/bin/python -m flake8  research/sandbox_a_resident/training_*.py research/sandbox_a_resident/train.py research/sandbox_a_resident/test_training_*.py tools/sandbox/manifest.py tools/sandbox/preflight.py tools/sandbox/registry.py tools/sandbox/tests/test_registry.py"
+    ],
+    "main_collection": "nice -n 15 ./venv/bin/python -m pytest --collect-only -q -o addopts= -p no:xdist -m \"not slow\" tests",
+    "preflight": "nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.training_preflight /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex/research/sandbox_a_resident/packet-train01-02",
+    "scoped_tests": "nice -n 15 ./venv/bin/python -m pytest -q -o addopts= -p no:xdist research/sandbox_a_resident tools/sandbox/tests tools/ops/tests/test_persistence_priority.py tools/ops/tests/test_r2_packet.py",
+    "shared_lint": "nice -n 15 make PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python lint",
+    "shell_entrypoint": "bash tools/ops/tests/test_dispatch.sh",
+    "supervisor_runtime_tests": "nice -n 15 ./venv/bin/python -m pytest -q -o addopts= -p no:xdist tests/test_colab_cli_supervisor.py tests/test_colab_cli_runtime.py"
+  },
+  "control_sha256": "125a2e8092c286a1ccb8414ef487843d200bd45c960fc8bfdda031fa23641e74",
+  "disclosures": [
+    "No A100 allocation or training dispatch was performed.",
+    "CPU world mechanics/features remain host-side in the distribution reference; neural inference routes to CUDA in production. CUDA latency, hardware and Inductor qualification remain runtime checks.",
+    "Production orchestration is tested with test_only=False and bounded dependencies; real CLI smoke uses explicit test_only=True, not the 100M recipe.",
+    "No release, serving pins, released checkpoints, protected campaign bytes, existing packet evidence or tmux sessions were modified."
+  ],
+  "environment": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OMP_THREAD_LIMIT": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "TORCHINDUCTOR_COMPILE_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  },
+  "findings": [
+    {
+      "finding": 1,
+      "fix": "CPU checkpoint decoding plus explicit CPU uint8 normalization for CPU, CUDA and collection RNG restore APIs",
+      "tests": [
+        "test_relocated_rng_states_are_cpu_bytes_at_every_restore_api",
+        "test_iteration_zero_production_resume_skips_screen_and_preserves_rng"
+      ]
+    },
+    {
+      "finding": 2,
+      "fix": "Persisted PopArt EMA debias accumulator with bias-corrected updates and preserved affine/Adam coordinates",
+      "tests": [
+        "test_popart_bias_correction_matches_closed_form_and_survives_state_dict"
+      ]
+    },
+    {
+      "clarification": "The full review asked to verify whether ready preparation retained tensors; ready currently clears task_state. Explicit JSON projection now enforces the boundary even for tensor-bearing preparation state, exercised with test_only=False.",
+      "finding": 3,
+      "fix": "Project preparation diagnostics into JSON metrics/progress without exact task_state tensor payload",
+      "tests": [
+        "test_production_metrics_and_progress_serialize_without_task_tensors (test_only=False)"
+      ]
+    },
+    {
+      "finding": 4,
+      "fix": "Canonical normal-action fallback in collector, PPORollout, masked distribution and calibration",
+      "tests": [
+        "test_collector_stores_normal_action_support_for_boxed_in_rows",
+        "test_rollout_canonicalizes_all_false_advisory_masks",
+        "test_temperature_canonicalizes_all_false_advisory_masks"
+      ]
+    },
+    {
+      "finding": 5,
+      "fix": "Skip distribution screen on resumed iteration zero and preserve metrics/RNG",
+      "tests": [
+        "test_iteration_zero_production_resume_skips_screen_and_preserves_rng",
+        "frozen-smoke/verify_resume.py"
+      ]
+    },
+    {
+      "finding": 6,
+      "fix": "Independent actor/critic backward, clipping and optimizer paths",
+      "tests": [
+        "test_critic_spike_cannot_change_actor_clip_budget"
+      ]
+    },
+    {
+      "finding": 7,
+      "fix": "Latch actor KL stop across all epochs; finish critic minibatches; record beta used before incrementing actor rows",
+      "tests": [
+        "test_kl_stop_latches_actor_across_epochs_but_keeps_critic_updates_sane"
+      ]
+    },
+    {
+      "clarification": "The original registry regex already accepted sidecars; the conditional rejection was not reproduced. New kind makes semantic role explicit without weakening exact broker/admission input equality.",
+      "finding": 8,
+      "fix": "Explicit payload/sidecar admission kinds with canonical sibling validation, real completion-to-preflight integration and corrected TRAIN01.md CLI reference",
+      "tests": [
+        "test_prepare_completion_keeps_required_sidecars_and_preflights_successor",
+        "tools/sandbox/tests/test_registry.py"
+      ]
+    },
+    {
+      "finding": 9,
+      "fix": "CUDA reference neural inference (batched frozen opponents), active-only CPU rasterization, early all-terminal exit retaining H5000 denominator, post-terminal respawn/food exclusion, material-gap engineering stop",
+      "tests": [
+        "test_cpu_reference_can_route_frozen_inference_to_cuda_semantics",
+        "test_cpu_observe_rasterizes_only_active_first_life_worlds",
+        "test_distribution_screen_does_not_count_reset_frame_opponent_respawns",
+        "test_distribution_screen_stops_when_every_first_life_is_terminal",
+        "test_material_distribution_gap_stops_before_preparation"
+      ]
+    },
+    {
+      "finding": 10,
+      "fix": "No-grad startup forward validation at actual collection batch size; no unused startup backward probe",
+      "tests": [
+        "test_runtime_check_validates_real_collection_shape_without_gradients"
+      ]
+    },
+    {
+      "finding": 11,
+      "fix": "Critic baseline coefficients follow design tensor device before matmul",
+      "tests": [
+        "test_critic_quality_baseline_has_cuda_like_same_device_semantics"
+      ]
+    },
+    {
+      "finding": "self-review",
+      "fix": "Normalize relocated roster snapshot row IDs to CPU expected dtype before identity comparison",
+      "tests": [
+        "test_runtime_resume_normalizes_relocated_row_identity_to_cpu",
+        "independent actual-MPS relocated-row restore PASS"
+      ]
+    }
+  ],
+  "manifest_sha256": "1f9303b5a00715b11f4b706f6493a12b3d282f4917e6bdc1cf0ff7c78aac843d",
+  "packet": "research/sandbox_a_resident/packet-train01-02",
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-02-runtime.noindex",
+  "runtime_pin": "1bc437032085f781d426b6b2a35a37ec7a6b3560",
+  "seed_audit_count": 114299008,
+  "seed_audit_reused": "Identical registered allocation and registry; original exhaustive audit bytes preserved.",
+  "self_review": {
+    "training_prep.py": "Reviewed calibration sampling/solve fallback, task tensor staging, scalar quality fields, boundary resume. Fixed raw all-False calibration masks. Tensor state remains checkpoint-only; runner projects JSON diagnostics.",
+    "training_prepare.py": "Reviewed asdict control, JSON primitives, seed audit identity, empty ledger, create-only packet writes. No CUDA tensors in JSON outputs; no change required.",
+    "training_proxy.py": "Reviewed normal-action fallback, deterministic pairing, device-derived accumulators, terminal first-life accounting and CPU lists/items in JSON cache. No change required.",
+    "training_resume.py": "Reviewed opaque payload hash/size/completion verification, phase/cadence guards, latest eligible full snapshot, fresh successor identity, duplicate/foreign refusal, relative upload paths. No change required.",
+    "training_rosters.py": "Reviewed row identity, vector carry and random-safe tape device placement, state restore and normal-action fallback. Fixed relocated row comparison; restored carry/table tensors already explicitly follow runtime device.",
+    "training_sim.py": "Reviewed factory seed conversion, compact state views, temporary tensor device allocation, natural respawn sampler. No new device/JSON/mask/resume defect found.",
+    "training_task.py": "Reviewed reset/proxy device placement, prepared policy seam, episode/age/carry snapshot state, explicit self.device restores. Exact prepared-seam tests retained; no change required.",
+    "training_units.py": "Reviewed JSON envelopes/descriptors/control, immutable completion-last payload publication, allocation/namespace/duplicate validation and runtime ledger verification. No tensor JSON path found; no change required."
+  },
+  "status": "PASS_ENGINEERING_PREREQUISITES",
+  "unchanged_boundaries": {
+    "docs/research/governance_a100_sandbox_20261026": {
+      "baseline": "10654b8516f2a9869ed2cbdcdd0fd6fc5cf34048",
+      "runtime": "10654b8516f2a9869ed2cbdcdd0fd6fc5cf34048"
+    },
+    "research/colab_cli": {
+      "baseline": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+      "runtime": "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+    },
+    "research/gpu_sim_spike": {
+      "baseline": "46e5b17fe0f1b2fee2cd229749c3625c2a2d854f",
+      "runtime": "46e5b17fe0f1b2fee2cd229749c3625c2a2d854f"
+    },
+    "src": {
+      "baseline": "33851114fa40c8403fc3ed0182fad4e9b8285159",
+      "runtime": "33851114fa40c8403fc3ed0182fad4e9b8285159"
+    },
+    "tools/sandbox/SANDBOX_INPUT_REGISTRY.json": {
+      "baseline": "a5c6165de1822c602935bee2e291f09f33635a9e",
+      "runtime": "a5c6165de1822c602935bee2e291f09f33635a9e"
+    },
+    "web": {
+      "baseline": "a0a0fe5b58dc90b5fa0d2b88f0035b9bcd0714d8",
+      "runtime": "a0a0fe5b58dc90b5fa0d2b88f0035b9bcd0714d8"
+    }
+  },
+  "verification": {
+    "cli_smoke": "Actual frozen CLI full and iteration-zero resumed runs: iterations=2 actor_rows=12; test_only=True",
+    "cuda_semantics_mode": "4 passed; PASS_TRAIN01_CUDA_SEMANTICS; strict mocks/meta/routing checks, no CUDA kernels",
+    "dry_run": "PASS_DRY_RUN sandbox-a-train01-20261027-02 allocations=0 live_accounting=NOT_CHECKED",
+    "exact_resume": {
+      "actor_rows": 12,
+      "compared_nodes": 1276,
+      "device": "cpu",
+      "iteration": 2,
+      "source_commit": "1bc437032085f781d426b6b2a35a37ec7a6b3560",
+      "status": "PASS_EXACT_ITERATION_ZERO_RESUME",
+      "test_only": true
+    },
+    "frozen_preflight": "158 passed in 26.39s; PASS_TRAIN01_PREFLIGHT; allocations=0",
+    "independent_review": "29 core tests and 73 completion/roster/production/sandbox tests passed; no unresolved findings",
+    "repository_wide_collection": "Blocked by pre-existing missing qualified-transport imports bundle, cache_environment, retention in three tests. 12026 selected tests collected; transport unchanged.",
+    "scoped_suite": "237 passed in 18.25s",
+    "shell_entrypoint": "bash tools/ops/tests/test_dispatch.sh PASS",
+    "source_lint": "Black/isort/flake8 PASS; make lint PASS; git diff --check PASS",
+    "supervisor_runtime_tests": "101 passed in 591.92s; qualified transport unchanged"
+  }
+}
