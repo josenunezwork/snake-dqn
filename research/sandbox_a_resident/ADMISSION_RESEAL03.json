@@ -1,0 +1,139 @@
+{
+  "scope": "Final A-2 reseal-03 committed admission evidence; no allocation",
+  "runtime_source_commit": "435be1595410a3715c08da7c3b0d5f8b6384dd7d",
+  "packet_commit": "63879cc12a636a4e27010a34dc7be4b9594aab83",
+  "final_regression_commit": "17e822e9efa94554f2b9e267a1b0bc9e3f6afc25",
+  "packet": "research/sandbox_a_resident/packet-a2/reseal-03",
+  "sandbox_manifest_physical_lines": 10,
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "files_sha256": {
+    "research/sandbox_a_resident/test_run.py": "c038a60dd27ad51e158662bbb84bf636c4bb4c4cbe984085af4ac8bccf3c1293",
+    "research/sandbox_a_resident/A2_RESEAL03.md": "06ebefb842b9f2abac5b9de0e60c0c9aaf6f9c8571f1abdf59323091697de209",
+    "research/sandbox_a_resident/packet-a2/reseal-03/SEAL.json": "4045e5172809bc55fe27abe2fb7b67f10cd92a9a794376ed7035ae6e2cfdbaf5",
+    "research/sandbox_a_resident/packet-a2/reseal-03/sandbox.json": "68fc9fcaa1927ad6f5ee14005c786924d4dfc06baade0690a5b21143ad0b80b0",
+    "research/sandbox_a_resident/VERIFICATION_A2_RESEAL03.json": "201a470410303a55c4e0b0b7b0db84c0212189ae1dd40c4535fccd21dbb87ced"
+  },
+  "tests": {
+    "resident": {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts='' research/sandbox_a_resident --durations=5",
+      "passed": 44,
+      "seconds": 5.86
+    },
+    "supervisor": {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts='' tests/test_colab_cli_supervisor.py",
+      "passed": 82,
+      "seconds": 633.28
+    },
+    "nice": 15,
+    "math_threads": 1,
+    "xdist": false,
+    "schedule_regression": {
+      "worlds": 4,
+      "horizon": 128,
+      "warmups": 1,
+      "cycles": 3,
+      "limits": [
+        64,
+        512
+      ],
+      "tiny": false,
+      "phase": "integrated",
+      "expected_measured_truncations": {
+        "64": [
+          8,
+          8,
+          8
+        ],
+        "512": [
+          1,
+          1,
+          1
+        ]
+      },
+      "fixtures": [
+        "cheap trainable actor/critic",
+        "shape-correct cheap observation features",
+        "no-death step",
+        "assert all seats alive and skip empty respawn trials"
+      ],
+      "retained": [
+        "real prepare/advisory masks",
+        "collection/age/reset",
+        "deferred bank/bootstrap/GAE",
+        "PPO/invariant",
+        "immutable cell exports"
+      ]
+    },
+    "prior_real_dynamics_evidence": "VERIFICATION_A2_RESEAL03.json: original real-dynamics E4 regression and unmodified B8 E8 schedule smokes remain preserved"
+  },
+  "lint": {
+    "black": "PASS",
+    "isort": "PASS",
+    "flake8": "PASS",
+    "bash -n job.sh": "PASS",
+    "git diff --check": "PASS"
+  },
+  "preflight": {
+    "command": [
+      "./venv/bin/python",
+      "-m",
+      "research.sandbox_a_resident.preflight",
+      "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-03"
+    ],
+    "returncode": 0,
+    "seconds": 11.747424541972578,
+    "stdout": "macOS pytest: restarting with a single OpenMP runtime\n............................................                             [100%]\n44 passed in 5.62s\n!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!\nPASS_SANDBOX_A_PREFLIGHT seeds=3545904 tests=PASS schema=PASS registry=PASS allocations=0\n",
+    "stderr": "Exit: macOS OpenMP-isolated pytest finished\n"
+  },
+  "dispatch_dry_run": {
+    "command": [
+      "/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh",
+      "sandbox-a-resident-a2-20261026-01",
+      "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-03/dispatch-manifest.json",
+      "--broker",
+      "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+      "--cwd",
+      "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+      "--state-dir",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/state",
+      "--dry-run"
+    ],
+    "returncode": 0,
+    "seconds": 40.61859241593629,
+    "stdout": "PASS_DRY_RUN sandbox-a-resident-a2-20261026-01 allocations=0 live_accounting=NOT_CHECKED\n",
+    "stderr": ""
+  },
+  "earlier_dry_run_timeout": {
+    "command": [
+      "/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh",
+      "sandbox-a-resident-a2-20261026-01",
+      "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-03/dispatch-manifest.json",
+      "--broker",
+      "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+      "--cwd",
+      "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+      "--state-dir",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/state",
+      "--dry-run"
+    ],
+    "returncode": 1,
+    "seconds": 60.283126916969195,
+    "stdout": "",
+    "stderr": "REFUSE: Command '['/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/sandbox/launch.sh', '--state-dir', '/var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/dispatch-validate-mcli9q0q/state', '--colab', '/Users/josenunez/.local/bin/colab', 'validate', '/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-03/dispatch-manifest.json']' timed out after 59.99995566694997 seconds\n"
+  },
+  "timeout_resolution": "Retain all tests/checks and unchanged 60s deadline. Dispatch invokes admission twice; isolate clock regression from mortality/empty respawn work. No sealed runtime or packet byte changed.",
+  "independent_review": "No actionable findings; no-death _respawn seam guarded by alive.all(); real B8 smoke remains separate evidence",
+  "operator_command": [
+    "/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh",
+    "sandbox-a-resident-a2-20261026-01",
+    "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-03/dispatch-manifest.json",
+    "--broker",
+    "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+    "--cwd",
+    "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+    "--state-dir",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/state"
+  ],
+  "allocation_performed": false,
+  "live_accounting": "NOT_CHECKED; actual dispatch owns live admission and coexistence checks"
+}
