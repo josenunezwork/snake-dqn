@@ -114,6 +114,9 @@ def test_all_root_registry_checks_keep_exact_uint64_and_refuse_overlap(
     registry_path.write_text("{}")
     result = prepare.registry_check(control, registry_path, checkpoint)
     assert result["allocated_uint64_seeds"] == 84
+    # Values outside the sorted bank must not index past its end or alias.
+    registry_data["excluded_seeds"] = [0, 0x7FFF_FFFF_FFFF_FFFF]
+    assert prepare.registry_check(control, registry_path, checkpoint)["excluded_intersection"] == 0
     # A neighboring 64-bit integer must not collapse through float64 conversion.
     registry_data["excluded_seeds"] = [effective | (1 << 63)]
     with pytest.raises(ValueError, match="excluded/aliased"):

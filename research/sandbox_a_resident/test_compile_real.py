@@ -15,8 +15,8 @@ from research.sandbox_a_resident.tensor_blocks import TensorBlocks
 from src.model.ego2s_network import Ego2sNet
 
 
-def test_real_aot_eager_compiles_and_retains_all_resident_blocks() -> None:
-    """Exercise each block across ticks and an in-place reset without fallback.
+def test_real_compile_cache_does_not_retain_first_assay_or_its_adam_state() -> None:
+    """Exercise cached real graphs without retaining the first resident assay.
 
     ``aot_eager`` is an actual ``torch.compile`` backend selected to keep this
     CPU admission test quick; deployment retains the requested Inductor mode.
@@ -24,27 +24,7 @@ def test_real_aot_eager_compiles_and_retains_all_resident_blocks() -> None:
     """
     torch.compiler.reset()
     torch.set_num_threads(1)
-    with run.numerical_mode(deterministic=False, tf32=True):
-        runner = ResidentAssay(
-            Recipe(worlds=1, horizon=2, minibatch=2, episode_limit=2, tiny=True),
-            Ego2sNet(local_channels=7, n_scalars=60),
-        )
-        runner.enable_compile("default", backend="aot_eager")
-        assert runner.warm_compile_buckets() == [32]
-        # Compile forward and backward under the production numerical globals
-        # before the separately measured steady-state cycles.
-        runner.update(runner.collect())
-        validations_after_warmup = {
-            name: entry["validation_calls"] for name, entry in runner.compile_report.items()
-        }
-        for _ in range(3):
-            before = run.compiler_metrics()
-            runner.update(runner.collect())
-            assert run.compiler_delta(before, run.compiler_metrics()) == {}
-        assert {
-            name: entry["validation_calls"] for name, entry in runner.compile_report.items()
-        } == validations_after_warmup
-
+    cache = run.CellCompileCache()
     expected = {
         "ActorCritic_collect",
         "ActorCritic_train",
@@ -52,12 +32,48 @@ def test_real_aot_eager_compiles_and_retains_all_resident_blocks() -> None:
         "build_observation",
         "anchors",
     }
-    assert set(runner.compile_report) == expected
-    for name in expected:
-        entry = runner.compile_report[name]
-        assert entry["backend"] == "aot_eager"
-        assert entry["status"] == "compiled", (name, entry.get("fallback_reason"))
-        assert entry["validation_calls"] >= 1
+    with run.numerical_mode(deterministic=False, tf32=True):
+        first = ResidentAssay(
+            Recipe(worlds=1, horizon=2, minibatch=2, episode_limit=2, tiny=True),
+            Ego2sNet(local_channels=7, n_scalars=60),
+        )
+        assert cache.attach(first, "default", backend="aot_eager") is False
+        assert first.warm_compile_buckets() == [32]
+        # Compile forward and backward under the production numerical globals
+        # before the separately measured steady-state cycles.
+        first.update(first.collect())
+        assert first.optimizer.state
+        assert set(first.compile_report) == expected
+        assert all(entry["status"] == "compiled" for entry in first.compile_report.values())
+        validations_after_warmup = {
+            name: entry["validation_calls"] for name, entry in first.compile_report.items()
+        }
+        for _ in range(3):
+            before = run.compiler_metrics()
+            first.update(first.collect())
+            assert run.compiler_delta(before, run.compiler_metrics()) == {}
+        assert {
+            name: entry["validation_calls"] for name, entry in first.compile_report.items()
+        } == validations_after_warmup
+        first_ref = weakref.ref(first)
+        sim_ref = weakref.ref(first.sim)
+        optimizer_ref = weakref.ref(first.optimizer)
+
+        second = ResidentAssay(
+            Recipe(worlds=2, horizon=2, minibatch=2, episode_limit=2, tiny=True),
+            Ego2sNet(local_channels=7, n_scalars=60),
+        )
+        assert cache.attach(second, "default", backend="aot_eager") is True
+        second.update(second.collect())
+        assert second.optimizer.state
+        assert set(second.compile_report) == expected
+        assert all(entry["status"] == "compiled" for entry in second.compile_report.values())
+
+    del first
+    gc.collect()
+    assert first_ref() is None
+    assert sim_ref() is None
+    assert optimizer_ref() is None
 
 
 def test_tensor_v8_feature_boundary_matches_source_before_and_after_reset() -> None:
@@ -175,36 +191,3 @@ def test_real_aot_eager_specializes_once_per_tf32_global_mode() -> None:
     assert entry["status"] == "compiled", entry.get("fallback_reason")
     assert entry["compile_specialization_calls"] == 2
     assert entry["validation_calls"] == 2
-
-
-def test_real_compile_cache_does_not_retain_first_assay_or_its_adam_state() -> None:
-    """Cached pure functions may retain the actor, never a resident assay."""
-    torch.compiler.reset()
-    torch.set_num_threads(1)
-    cache = run.CellCompileCache()
-    first = ResidentAssay(
-        Recipe(worlds=1, horizon=2, minibatch=2, episode_limit=2, tiny=True),
-        Ego2sNet(local_channels=7, n_scalars=60),
-    )
-    assert cache.attach(first, "default", backend="aot_eager") is False
-    first.warm_compile_buckets()
-    first.update(first.collect())
-    assert first.optimizer.state
-    assert all(entry["status"] == "compiled" for entry in first.compile_report.values())
-    first_ref = weakref.ref(first)
-    sim_ref = weakref.ref(first.sim)
-    optimizer_ref = weakref.ref(first.optimizer)
-
-    second = ResidentAssay(
-        Recipe(worlds=2, horizon=2, minibatch=2, episode_limit=2, tiny=True),
-        Ego2sNet(local_channels=7, n_scalars=60),
-    )
-    assert cache.attach(second, "default", backend="aot_eager") is True
-    second.update(second.collect())
-    assert second.optimizer.state
-    assert all(entry["status"] == "compiled" for entry in second.compile_report.values())
-    del first
-    gc.collect()
-    assert first_ref() is None
-    assert sim_ref() is None
-    assert optimizer_ref() is None

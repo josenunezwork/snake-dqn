@@ -152,7 +152,12 @@ def registry_check(control: dict[str, Any], registry_path: Path, checkpoint: Pat
                 raise ValueError("registry canonical seed derivation drift")
     unique = np.unique(values)
     excluded_values = np.fromiter(excluded, dtype=np.uint64, count=len(excluded))
-    if (values == 0).any() or len(unique) != count or np.isin(unique, excluded_values).any():
+    # Both arrays contain exact uint64 values; unique is sorted. Binary search
+    # every excluded seed rather than asking isin to sort the full bank again.
+    positions = np.searchsorted(unique, excluded_values)
+    in_range = positions < len(unique)
+    intersects = (unique[positions[in_range]] == excluded_values[in_range]).any()
+    if unique[0] == 0 or len(unique) != count or intersects:
         raise ValueError("excluded/aliased development seed")
     return {
         "status": "PASS",
