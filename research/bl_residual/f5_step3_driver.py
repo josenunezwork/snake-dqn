@@ -30,6 +30,16 @@ LEDGER_SCHEMA = "bl-f5-step3-component-ledger/v1"
 UNIT_SCHEMA = "bl-f5-step3-component-unit/v1"
 COMPONENT_ID = "f5-step3-long-body-v1"
 FIXTURE_IDS = tuple(range(672, 684))
+PROVISIONAL_STATUS = "PROVISIONAL_TIMING_ONLY_ORDERING_20261026"
+ORDERING_DISPOSITION_SHA256 = "c0306833d29250b2c7be11183fd521ab5a6311d0b39e8d2abce6212fd7fbbf66"
+PROVISIONAL_UNKNOWN_COSTS = (
+    "Current long-body crossing snapshot/restore/digest, features and legal setup",
+    "Actual long-body all-actions bundle and clone+individual H300 path bounds",
+    "Current instrumented crossing-scan incremental cost",
+    "Six spawned workers' imports, model/cache/JIT preparation and pool start/stop",
+    "Per-unit immutable exports, rolling ledgers, summary, transfer and I/O",
+    "Maximum worker imbalance/idle and complete cleanup attribution",
+)
 
 
 class Step3Refusal(ValueError):
@@ -93,6 +103,41 @@ def _validate_source_hashes(control: Mapping[str, Any]) -> None:
         _refuse("executable source inventory omits or adds a runtime dependency")
     if _canonical_sha(checked) != control.get("source_sha256"):
         _refuse("source inventory digest differs")
+
+
+def _is_provisional_envelope(envelope: Mapping[str, Any]) -> bool:
+    """Validate Astra's finite timing-only ordering exception exactly."""
+    if envelope.get("forecast_status") != PROVISIONAL_STATUS:
+        return False
+
+    def exact_int(name: str, expected: int) -> bool:
+        return type(envelope.get(name)) is int and envelope[name] == expected
+
+    if (
+        envelope.get("disposition_sha256") != ORDERING_DISPOSITION_SHA256
+        or "measured_total_seconds" not in envelope
+        or envelope["measured_total_seconds"] is not None
+        or envelope.get("unknown_costs") != list(PROVISIONAL_UNKNOWN_COSTS)
+        or envelope.get("science_admission") is not False
+        or not exact_int("base_timeout_minutes", 60)
+        or not exact_int("effective_timeout_minutes", 120)
+        or not exact_int("double_applied", 1)
+        or not exact_int("qualification_base_timeout_minutes", 15)
+        or not exact_int("qualification_effective_timeout_minutes", 30)
+        or not exact_int("family_canary_base_timeout_minutes", 15)
+        or not exact_int("family_canary_effective_timeout_minutes", 30)
+        or not exact_int("maximum_attempts", 3)
+        or not exact_int("maximum_family_canaries", 3)
+        or not exact_int("global_completion_rounds_maximum", 2)
+        or not exact_int("aggregate_effective_timeout_minutes", 360)
+        or not exact_int("aggregate_effective_with_qualification_and_family_canaries_minutes", 480)
+        or not exact_int("workers", 6)
+        or not exact_int("host_workers", 6)
+        or not exact_int("threads_per_worker", 1)
+        or envelope.get("one_f5_l4_at_a_time") is not True
+    ):
+        _refuse("provisional timing-only envelope differs from the ordering disposition")
+    return True
 
 
 def validate_control(
@@ -192,22 +237,29 @@ def validate_control(
     ):
         _refuse("environment reference or execution envelope is malformed")
     envelope = control["execution_envelope"]
+    provisional = _is_provisional_envelope(envelope)
+    if provisional and not measure:
+        _refuse("provisional timing-only envelope requires independently accepted timing admission")
     if (
         envelope.get("host_workers") != 6
         or envelope.get("threads_per_worker") != 1
         or not isinstance(envelope.get("forecast_status"), str)
-        or (not measure and not envelope["forecast_status"].startswith("HOLD"))
+        or (not measure and not envelope["forecast_status"].startswith("HOLD") and not provisional)
     ):
         _refuse("sealed execution envelope lacks six single-thread workers or HOLD forecast")
-    if measure and (
-        envelope.get("forecast_status") != "QUALIFIED_COMPLETE"
-        or envelope.get("unknown_costs") != []
-        or type(envelope.get("measured_total_seconds")) not in (int, float)
-        or not math.isfinite(envelope["measured_total_seconds"])
-        or envelope["measured_total_seconds"] <= 0
-        or envelope["measured_total_seconds"] > 3600
-        or envelope.get("base_timeout_minutes") != 60
-        or envelope.get("effective_timeout_minutes") != 120
+    if (
+        measure
+        and not provisional
+        and (
+            envelope.get("forecast_status") != "QUALIFIED_COMPLETE"
+            or envelope.get("unknown_costs") != []
+            or type(envelope.get("measured_total_seconds")) not in (int, float)
+            or not math.isfinite(envelope["measured_total_seconds"])
+            or envelope["measured_total_seconds"] <= 0
+            or envelope["measured_total_seconds"] > 3600
+            or envelope.get("base_timeout_minutes") != 60
+            or envelope.get("effective_timeout_minutes") != 120
+        )
     ):
         _refuse("measure requires finite qualified 60/120-minute envelope")
     return control
@@ -388,6 +440,10 @@ def _acceptance(control: Mapping[str, Any], inputs: Path, control_path: Path) ->
         or value.get("acceptance_target_sha256") != _acceptance_target_sha256(control)
         or value.get("execution_envelope_sha256") != _canonical_sha(control["execution_envelope"])
         or value.get("qualification_sha256") != control["qualification_sha256"]
+        or (
+            control["execution_envelope"].get("forecast_status") == PROVISIONAL_STATUS
+            and value.get("ordering_disposition_sha256") != ORDERING_DISPOSITION_SHA256
+        )
     ):
         _refuse("independent acceptance does not bind current package identity")
 
@@ -418,7 +474,7 @@ def run(
     admitted = mode in {"family-canary", "measure"} or (
         mode == "dry-run"
         and _read_json(control_path).get("execution_envelope", {}).get("forecast_status")
-        == "QUALIFIED_COMPLETE"
+        in {"QUALIFIED_COMPLETE", PROVISIONAL_STATUS}
     )
     control = validate_control(control_path, fixtures, inputs, measure=admitted)
     rows = json.loads(fixtures.read_text())

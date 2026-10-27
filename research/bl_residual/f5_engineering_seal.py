@@ -238,6 +238,17 @@ def build(repo: Path = ROOT) -> dict[str, Any]:
     )
     if v4["sha256"] != "e73b2d24144cd3e375aeffca1706dd5c677c3b23da95dce49db30d15ba3f9038":
         raise ValueError("V4 engineering predecessor digest changed")
+    v5 = reference(
+        repo, "research/bl_residual/ledger/F5_ENGINEERING_SEAL_20261026_V5/ENGINEERING_SEAL.json"
+    )
+    if v5["sha256"] != "cf4cb17ea7c02d62a5d30cb3740f39ecf7e51276ee32af98ceb4cc56f0be7093":
+        raise ValueError("V5 engineering predecessor digest changed")
+    from research.bl_residual.f5_step3_driver import ORDERING_DISPOSITION_SHA256
+    from research.bl_residual.f5_step3_package import ORDERING_DISPOSITION
+
+    ordering = external_reference(ORDERING_DISPOSITION)
+    if ordering["sha256"] != ORDERING_DISPOSITION_SHA256:
+        raise ValueError("ordering disposition digest changed")
     return {
         "schema": "bl-f5-engineering-source-closure/v1",
         "status": "SEALED_ENGINEERING_ONLY_HOLD",
@@ -254,6 +265,11 @@ def build(repo: Path = ROOT) -> dict[str, Any]:
         "interim_engineering_predecessor": interim,
         "v3_engineering_predecessor": v3,
         "v4_engineering_predecessor": v4,
+        "v5_engineering_predecessor": v5,
+        "v6_engineering_correction_contract": reference(
+            repo, "research/bl_residual/f5_hold_correction_20261026/ENGINEERING_V6.md"
+        ),
+        "prospective_ordering_disposition": ordering,
         "v5_engineering_correction_contract": reference(
             repo, "research/bl_residual/f5_hold_correction_20261026/ENGINEERING_V5.md"
         ),

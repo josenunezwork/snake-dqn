@@ -52,7 +52,13 @@ def test_input_reference_refuses_symlink(tmp_path: Path) -> None:
         package.reference(alias)
 
 
-def _target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def _target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    provisional: bool = False,
+    stale_qualification: bool = False,
+) -> Path:
     """Synthetic admission evidence only; no production authority is generated."""
     path, fixtures, inputs, control = _control(tmp_path)
     export_json(inputs / "control.json", control)
@@ -92,7 +98,7 @@ def _target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         qualification,
         {
             "status": "PASS",
-            "source_sha256": control["source_sha256"],
+            "source_sha256": "f" * 64 if stale_qualification else control["source_sha256"],
             "fixture_descriptor_sha256": control["fixture_descriptor_sha256"],
             "native_cuda_cpu_parity": "PASS",
         },
@@ -100,12 +106,16 @@ def _target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     forecast = tmp_path / "forecast.json"
     export_json(
         forecast,
-        {
-            **package.envelope(),
-            "forecast_status": "QUALIFIED_COMPLETE",
-            "unknown_costs": [],
-            "measured_total_seconds": 1200.0,
-        },
+        (
+            package.provisional_envelope()
+            if provisional
+            else {
+                **package.envelope(),
+                "forecast_status": "QUALIFIED_COMPLETE",
+                "unknown_costs": [],
+                "measured_total_seconds": 1200.0,
+            }
+        ),
     )
     monkeypatch.setattr(package, "verify", lambda *a, **k: {})
     target = tmp_path / "target"
@@ -127,6 +137,60 @@ def _final(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     output = tmp_path / "final"
     package.seal_final(target, output, acceptance=acceptance, attempt=1)
     return output
+
+
+def test_provisional_target_retains_unknowns_and_binds_disposition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = _target(tmp_path, monkeypatch, provisional=True)
+    authority = json.loads((target / "TARGET.json").read_text())
+    control = json.loads((target / "inputs/control.json").read_text())
+    envelope = control["execution_envelope"]
+    assert envelope["measured_total_seconds"] is None
+    assert envelope["unknown_costs"] == list(driver.PROVISIONAL_UNKNOWN_COSTS)
+    assert envelope["science_admission"] is False
+    assert authority["ordering_disposition_sha256"] == driver.ORDERING_DISPOSITION_SHA256
+    assert authority["execution_envelope_sha256"] == driver._canonical_sha(envelope)
+    assert authority["acceptance_target_sha256"] == driver._acceptance_target_sha256(control)
+    kwargs = dict(
+        control_path=target / "inputs/control.json",
+        fixtures=target / "inputs/timing-fixtures.json",
+        inputs=target / "inputs",
+        ledger=target / "inputs/verified-ledger.json",
+        output=tmp_path / "unused",
+        mode="dry-run",
+    )
+    with pytest.raises(driver.Step3Refusal, match="independent acceptance"):
+        driver.run(**kwargs)
+    acceptance = tmp_path / "external-acceptance.json"
+    export_json(acceptance, {**authority, "status": "ACCEPTED"})
+    final = tmp_path / "provisional-final"
+    package.seal_final(target, final, acceptance=acceptance, attempt=1)
+    package.verify_final(final)
+    main = json.loads((final / "manifest.json").read_text())
+    probe = json.loads((final / "family-canary-manifest.json").read_text())
+    assert main["timeout_minutes"] == 120
+    assert probe["timeout_minutes"] == 30
+    assert canary.input_inventory(main) == canary.input_inventory(probe)
+    canary.check(_broker_proof(final, tmp_path, monkeypatch), tmp_path)
+
+
+def test_provisional_target_refuses_prior_source_qualification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(driver.Step3Refusal, match="qualification input does not match"):
+        _target(tmp_path, monkeypatch, provisional=True, stale_qualification=True)
+    assert not (tmp_path / "target/TARGET.json").exists()
+
+
+def test_provisional_envelope_refuses_mutated_disposition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    changed = tmp_path / "ruling.md"
+    changed.write_text("unaccepted change")
+    monkeypatch.setattr(package, "ORDERING_DISPOSITION", changed)
+    with pytest.raises(ValueError, match="disposition digest changed"):
+        package.provisional_envelope()
 
 
 def _broker_proof(output: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:

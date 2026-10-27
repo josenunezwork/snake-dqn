@@ -19,15 +19,19 @@ from research.bl_residual.f5_environment_reference import capture05_reference
 from research.bl_residual.f5_timing_recovery_package import THREADS
 
 ROOT = Path(__file__).resolve().parents[2]
-NAMESPACE = "f5-step3-long-body-20261026-v5"
-QUALIFICATION_MANIFEST = "qualification-manifest-attempt03.json"
+NAMESPACE = "f5-step3-long-body-20261026-v6"
+QUALIFICATION_MANIFEST = "qualification-manifest-attempt04.json"
 ALLOCATION = "1b9fc89e0a814d68ad075bfc5afb961b5c910cbe37365c0bd678142996ed21d7"
 PRIOR = (
     "research/bl_residual/ledger/F5_W_TIMING_OPERATIONAL_20261026_ROUND08_02_REQUAL/manifest.json"
 )
 AMENDMENT = "research/bl_residual/f5_hold_amendment_20261026"
 ENGINEERING_SEAL = (
-    "research/bl_residual/ledger/F5_ENGINEERING_SEAL_20261026_V5/ENGINEERING_SEAL.json"
+    "research/bl_residual/ledger/F5_ENGINEERING_SEAL_20261026_V6/ENGINEERING_SEAL.json"
+)
+ORDERING_DISPOSITION = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/astra-20261024/"
+    "F5_FORECAST_ORDERING_DISPOSITION_20261026.md"
 )
 MAX_EXPORT_BYTES = 64 * 1024 * 1024
 REJECTION = Path(
@@ -102,6 +106,25 @@ def envelope() -> dict[str, Any]:
             "append-only all attempts/refusals/setup/qualification/idle/transfers/export/cleanup; "
             "no reset or overlap double charge"
         ),
+    }
+
+
+def provisional_envelope() -> dict[str, Any]:
+    """Freeze the prospective runaway guard without inventing measured costs."""
+    from research.bl_residual import f5_step3_driver as driver
+
+    if digest(ORDERING_DISPOSITION) != driver.ORDERING_DISPOSITION_SHA256:
+        raise ValueError("ordering disposition digest changed")
+    return {
+        **envelope(),
+        "forecast_status": driver.PROVISIONAL_STATUS,
+        "disposition_sha256": driver.ORDERING_DISPOSITION_SHA256,
+        "measured_total_seconds": None,
+        "unknown_costs": list(driver.PROVISIONAL_UNKNOWN_COSTS),
+        "science_admission": False,
+        "admission": "independent exact-target acceptance required before timing admission",
+        "cost_status": "PROVISIONAL_RUNAWAY_ENVELOPE_NOT_ACCEPTED_COST_ESTIMATE",
+        "complete_forecast_acceptance": "AFTER_VERIFIED_MEASUREMENT_UNKNOWN_COSTS_KEEP_HOLD",
     }
 
 
@@ -187,7 +210,7 @@ def build(output: Path, *, repo: Path = ROOT) -> dict[str, Any]:
     for suffix in (".sha256", ".complete"):
         inputs.append(reference(Path(str(ledger) + suffix), ledger.name + suffix))
     manifest = {
-        "job_id": "f5-step3-longbody-v5-attempt01",
+        "job_id": "f5-step3-longbody-v6-attempt01",
         "commit": commit,
         "script": "research/bl_residual/f5_step3.sh",
         "device": "cuda:0",
@@ -216,10 +239,11 @@ def build(output: Path, *, repo: Path = ROOT) -> dict[str, Any]:
     export_json(output / "manifest.json", manifest)
     qualification = json.loads(json.dumps(manifest))
     qualification.update(
-        job_id="f5-step3-qualification-v5-attempt03",
+        job_id="f5-step3-qualification-v6-attempt04",
+        preparation_status="DRAFT_PENDING_INDEPENDENT_ENGINEERING_AND_EXACT_PACKAGE_ACCEPTANCE",
         timeout_minutes=30,
-        output_dir=str(output / "qualification-output-attempt03"),
-        supervisor_state_dir=str(output / "qualification-state-attempt03"),
+        output_dir=str(output / "qualification-output-attempt04"),
+        supervisor_state_dir=str(output / "qualification-state-attempt04"),
         required_exports=["qualification.json", "environment.json"],
         resume_exemption={
             "kind": "acceptance",
@@ -242,10 +266,13 @@ def build(output: Path, *, repo: Path = ROOT) -> dict[str, Any]:
     export_json(output / QUALIFICATION_MANIFEST, qualification)
     export_json(output / "source-inventory.json", pins)
     export_json(output / "envelope.json", envelope())
+    export_json(output / "provisional-envelope.json", provisional_envelope())
     refs = [
         reference(REJECTION),
         reference(ARGON),
+        reference(ORDERING_DISPOSITION),
         reference(repo / ENGINEERING_SEAL),
+        reference(repo / "research/bl_residual/f5_hold_correction_20261026/ENGINEERING_V6.md"),
         reference(
             repo / "research/bl_residual/f5_hold_correction_20261026/ENGINEERING_CORRECTIONS.md"
         ),
@@ -265,6 +292,7 @@ def build(output: Path, *, repo: Path = ROOT) -> dict[str, Any]:
                 QUALIFICATION_MANIFEST,
                 "source-inventory.json",
                 "envelope.json",
+                "provisional-envelope.json",
             )
         ]
         + [reference(Path(row["path"])) for row in inputs],
@@ -272,7 +300,8 @@ def build(output: Path, *, repo: Path = ROOT) -> dict[str, Any]:
             "independent engineering acceptance",
             "independent exact-package acceptance",
             "matching genuine CUDA/native-v6 current-driver qualification",
-            "complete measured finite forecast",
+            "independent provisional exact-target and final-package/order acceptance",
+            "complete measured forecast acceptance after measurement",
             "fresh account/rate/path locks",
             "post-acceptance exact-inventory family canary for each attempt",
         ],
@@ -343,6 +372,8 @@ def prepare_target(
         "ledger_sha256": digest(ledger),
         "science_admission": False,
     }
+    if control["execution_envelope"].get("forecast_status") == driver.PROVISIONAL_STATUS:
+        value["ordering_disposition_sha256"] = driver.ORDERING_DISPOSITION_SHA256
     export_json(output / "TARGET.json", value)
     return value
 
@@ -395,7 +426,7 @@ def seal_final(target: Path, output: Path, *, acceptance: Path, attempt: int) ->
     )
     manifest = json.loads((package / "manifest.json").read_text())
     manifest.update(
-        job_id=f"f5-step3-longbody-v5-attempt{attempt:02}",
+        job_id=f"f5-step3-longbody-v6-attempt{attempt:02}",
         output_dir=str(output / "runtime-output"),
         supervisor_state_dir=str(output / "state"),
         inputs=[
@@ -406,7 +437,7 @@ def seal_final(target: Path, output: Path, *, acceptance: Path, attempt: int) ->
     )
     canary = json.loads(json.dumps(manifest))
     canary.update(
-        job_id=f"f5-step3-final-inventory-v5-attempt{attempt:02}",
+        job_id=f"f5-step3-final-inventory-v6-attempt{attempt:02}",
         output_dir=str(output / "canary-output"),
         supervisor_state_dir=str(output / "canary-state"),
         timeout_minutes=30,

@@ -88,3 +88,15 @@ def test_original_hold_and_thirteen_unit_payloads_remain_bound() -> None:
     assert (
         "HOLD_REGISTERED_COVERAGE_FAILED" in (path / "POST_LONGRUN01_VERIFICATION.md").read_text()
     )
+
+
+def test_v6_build_binds_v5_ancestry_and_exact_prospective_ruling() -> None:
+    from research.bl_residual.f5_step3_driver import ORDERING_DISPOSITION_SHA256
+
+    value = seal.build(ROOT)
+    assert value["v5_engineering_predecessor"]["sha256"] == (
+        "cf4cb17ea7c02d62a5d30cb3740f39ecf7e51276ee32af98ceb4cc56f0be7093"
+    )
+    assert value["prospective_ordering_disposition"]["sha256"] == ORDERING_DISPOSITION_SHA256
+    assert value["v6_engineering_correction_contract"]["path"].endswith("ENGINEERING_V6.md")
+    assert value["science_dispatch_authorized"] is False

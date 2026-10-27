@@ -312,7 +312,9 @@ class _InlineExecutor:
         ]
 
 
-def _measure_control(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, Any]]:
+def _measure_control(
+    tmp_path: Path, *, provisional: bool = False
+) -> tuple[Path, Path, Path, dict[str, Any]]:
     control_path, fixtures, inputs, control = _control(tmp_path)
     qualification = {
         "status": "PASS",
@@ -337,6 +339,30 @@ def _measure_control(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, Any]]:
         "base_timeout_minutes": 60,
         "effective_timeout_minutes": 120,
     }
+    if provisional:
+        control["execution_envelope"] = {
+            "host_workers": 6,
+            "threads_per_worker": 1,
+            "workers": 6,
+            "one_f5_l4_at_a_time": True,
+            "forecast_status": subject.PROVISIONAL_STATUS,
+            "disposition_sha256": subject.ORDERING_DISPOSITION_SHA256,
+            "measured_total_seconds": None,
+            "unknown_costs": list(subject.PROVISIONAL_UNKNOWN_COSTS),
+            "science_admission": False,
+            "base_timeout_minutes": 60,
+            "effective_timeout_minutes": 120,
+            "double_applied": 1,
+            "qualification_base_timeout_minutes": 15,
+            "qualification_effective_timeout_minutes": 30,
+            "family_canary_base_timeout_minutes": 15,
+            "family_canary_effective_timeout_minutes": 30,
+            "maximum_attempts": 3,
+            "maximum_family_canaries": 3,
+            "global_completion_rounds_maximum": 2,
+            "aggregate_effective_timeout_minutes": 360,
+            "aggregate_effective_with_qualification_and_family_canaries_minutes": 480,
+        }
     control["input_hashes"]["external-acceptance.json"] = {"sha256": "0" * 64, "size": 1}
     acceptance = {
         "status": "ACCEPTED",
@@ -346,6 +372,8 @@ def _measure_control(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, Any]]:
         "execution_envelope_sha256": subject._canonical_sha(control["execution_envelope"]),
         "qualification_sha256": control["qualification_sha256"],
     }
+    if provisional:
+        acceptance["ordering_disposition_sha256"] = subject.ORDERING_DISPOSITION_SHA256
     export_json(inputs / "external-acceptance.json", acceptance)
     control["input_hashes"]["external-acceptance.json"] = {
         "sha256": digest(inputs / "external-acceptance.json"),
@@ -355,6 +383,151 @@ def _measure_control(tmp_path: Path) -> tuple[Path, Path, Path, dict[str, Any]]:
         Path(str(control_path) + suffix).unlink()
     export_json(control_path, control)
     return control_path, fixtures, inputs, control
+
+
+def test_provisional_envelope_validates_before_independent_acceptance(tmp_path: Path) -> None:
+    path, fixtures, inputs, control = _measure_control(tmp_path, provisional=True)
+    control["input_hashes"].pop("external-acceptance.json")
+    for suffix in ("", ".sha256", ".complete"):
+        Path(str(path) + suffix).unlink()
+    export_json(path, control)
+    subject.validate_control(path, fixtures, inputs, measure=True)
+
+
+def test_provisional_dry_run_requires_and_checks_independent_acceptance(tmp_path: Path) -> None:
+    path, fixtures, inputs, control = _measure_control(tmp_path, provisional=True)
+    result = subject.run(
+        control_path=path,
+        fixtures=fixtures,
+        inputs=inputs,
+        output=tmp_path / "unused",
+        ledger=tmp_path / "verified-ledger.json",
+        mode="dry-run",
+    )
+    assert result["status"] == "DRY_RUN_VALID"
+    acceptance = inputs / "external-acceptance.json"
+    value = json.loads(acceptance.read_text())
+    value["ordering_disposition_sha256"] = "0" * 64
+    for suffix in ("", ".sha256", ".complete"):
+        Path(str(acceptance) + suffix).unlink()
+    export_json(acceptance, value)
+    control["input_hashes"]["external-acceptance.json"] = {
+        "sha256": digest(acceptance),
+        "size": acceptance.stat().st_size,
+    }
+    for suffix in ("", ".sha256", ".complete"):
+        Path(str(path) + suffix).unlink()
+    export_json(path, control)
+    with pytest.raises(subject.Step3Refusal, match="independent acceptance"):
+        subject.run(
+            control_path=path,
+            fixtures=fixtures,
+            inputs=inputs,
+            output=tmp_path / "unused-after-refusal",
+            ledger=tmp_path / "verified-ledger.json",
+            mode="dry-run",
+        )
+
+
+def test_provisional_qualification_refuses_before_cuda_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, fixtures, inputs, _ = _measure_control(tmp_path, provisional=True)
+    monkeypatch.setattr(
+        subject, "_qualification", lambda *args, **kwargs: pytest.fail("reached CUDA runtime")
+    )
+    with pytest.raises(subject.Step3Refusal, match="independently accepted timing admission"):
+        subject.run(
+            control_path=path,
+            fixtures=fixtures,
+            inputs=inputs,
+            output=tmp_path / "qualification",
+            ledger=tmp_path / "verified-ledger.json",
+            mode="qualify",
+        )
+
+
+@pytest.mark.parametrize("mode", ["dry-run", "family-canary", "measure"])
+def test_provisional_missing_acceptance_refuses_before_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    path, fixtures, inputs, control = _measure_control(tmp_path, provisional=True)
+    control["input_hashes"].pop("external-acceptance.json")
+    for suffix in ("", ".sha256", ".complete"):
+        Path(str(path) + suffix).unlink()
+    export_json(path, control)
+    monkeypatch.setattr(
+        subject, "_qualification", lambda *args, **kwargs: pytest.fail("reached CUDA runtime")
+    )
+    output = tmp_path / mode
+    with pytest.raises(subject.Step3Refusal, match="separately bound independent acceptance"):
+        subject.run(
+            control_path=path,
+            fixtures=fixtures,
+            inputs=inputs,
+            output=output,
+            ledger=tmp_path / "verified-ledger.json",
+            mode=mode,
+        )
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("unknown_costs", []),
+        ("measured_total_seconds", 753.1065790839493),
+        ("science_admission", True),
+        ("effective_timeout_minutes", 240),
+        ("double_applied", True),
+        ("threads_per_worker", True),
+        ("disposition_sha256", "f" * 64),
+    ],
+)
+def test_provisional_envelope_refuses_forged_cost_or_guard(
+    tmp_path: Path, field: str, value: Any
+) -> None:
+    path, fixtures, inputs, control = _measure_control(tmp_path, provisional=True)
+    control["execution_envelope"][field] = value
+    for suffix in ("", ".sha256", ".complete"):
+        Path(str(path) + suffix).unlink()
+    export_json(path, control)
+    with pytest.raises(subject.Step3Refusal, match="provisional timing-only envelope"):
+        subject.validate_control(path, fixtures, inputs, measure=True)
+
+
+def test_provisional_requires_explicit_null_cost_field(tmp_path: Path) -> None:
+    path, fixtures, inputs, control = _measure_control(tmp_path, provisional=True)
+    del control["execution_envelope"]["measured_total_seconds"]
+    for suffix in ("", ".sha256", ".complete"):
+        Path(str(path) + suffix).unlink()
+    export_json(path, control)
+    with pytest.raises(subject.Step3Refusal, match="provisional timing-only envelope"):
+        subject.validate_control(path, fixtures, inputs, measure=True)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("forecast_status", "HOLD"),
+        ("unknown_costs", ["unmeasured"]),
+        ("measured_total_seconds", None),
+        ("measured_total_seconds", True),
+        ("measured_total_seconds", 0),
+        ("measured_total_seconds", -1),
+        ("measured_total_seconds", 3600.01),
+    ],
+)
+def test_qualified_complete_retains_strict_forecast_refusals(
+    tmp_path: Path, field: str, value: Any
+) -> None:
+    path, fixtures, inputs, control = _measure_control(tmp_path)
+    control["execution_envelope"][field] = value
+    for suffix in ("", ".sha256", ".complete"):
+        Path(str(path) + suffix).unlink()
+    export_json(path, control)
+    with pytest.raises(subject.Step3Refusal, match="finite qualified 60/120-minute envelope"):
+        subject.validate_control(path, fixtures, inputs, measure=True)
 
 
 def test_measure_carries_absent_through_two_fresh_outputs_without_recompute(
