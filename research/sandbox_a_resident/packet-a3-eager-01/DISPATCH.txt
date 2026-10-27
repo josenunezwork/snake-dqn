@@ -1,0 +1,8 @@
+EAGER ONLY: compile_mode=none; prepared for operator dispatch, allocations=0.
+Source pin: 225e0227db7e35eaa34d7c2f06ebc93561388e27
+24 cells including E128/E1024 controls and E2048/E4096 extension.
+
+Exact operator dispatch:
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a3-eager-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3-eager-01/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-eager-attempt-01/state
+
+Dry run: append --dry-run. No automatic retries.
