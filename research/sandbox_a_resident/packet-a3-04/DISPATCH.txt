@@ -1,0 +1,21 @@
+Mechanical successor of packet-a3-03; prepared only, allocations=0.
+The predecessor dispatch identity was consumed by refusal before allocation.
+Runtime pin: d12bf047c6c954c657d15e104e28a2a6ab7d5c32
+Clean detached broker/cwd: /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex
+Use this dedicated sealed checkout, whose shipped runtime closure equals the runtime pin.
+The checkout HEAD is the host packet seal, not the older runtime-only commit:
+the new manifest must itself be committed for admission. Never dispatch from sbxA/main.
+Host admission validation has a 180-second bound; ordinary validation stays 60 seconds.
+All schema, source, registry, resume, transport and focused-test checks still run.
+Identical controls, seeds, source_paths, input contents, endpoint and runtime caps.
+Fresh job, state and output identities only; empty identical verified ledger.
+No automatic retries. Simulator-D timing/parity only.
+
+Exact operator dispatch (from any shell; the selected checkout owns imports):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex/tools/ops/dispatch.sh sandbox-a-resident-a3-20261026-04 /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex/research/sandbox_a_resident/packet-a3-04/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-04/state
+
+Dry run (does not reserve the dispatch identity or allocate):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex/tools/ops/dispatch.sh sandbox-a-resident-a3-20261026-04 /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex/research/sandbox_a_resident/packet-a3-04/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-04/state --dry-run
+
+Keep this checkout detached at its recorded seal; see A3_DISPATCH_SUCCESSORS.md
+for the immutable seal commits and worktree recreation commands.

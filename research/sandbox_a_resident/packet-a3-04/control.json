@@ -1,0 +1,34 @@
+{
+  "source_commit": "d12bf047c6c954c657d15e104e28a2a6ab7d5c32",
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "recipe_parameters": {
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip": 0.2,
+    "learning_rate": 0.0003,
+    "stagger_initial_age": true
+  },
+  "worlds": [
+    128,
+    1024,
+    2048,
+    4096
+  ],
+  "horizon": 128,
+  "minibatch": 2048,
+  "epochs": 1,
+  "cycles": 3,
+  "warmups": 1,
+  "episode_limits": [
+    64,
+    512
+  ],
+  "recipe_version": "A-3",
+  "compile_mode": "default",
+  "seed_offset_base": 360000000,
+  "allocation_stride": 3000000,
+  "parity_seed_offset": 440000000,
+  "parity_seed_count": 54,
+  "tiny": false,
+  "timeout_seconds": 28800.0
+}
