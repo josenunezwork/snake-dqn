@@ -1,0 +1,30 @@
+Sandbox A-2 dispatchable successor: reseal-03. Prepared only; no allocation.
+Published source pin: 435be1595410a3715c08da7c3b0d5f8b6384dd7d
+Replaces the rejected reseal-02 schedule; all earlier seals remain immutable.
+Initial ages: floor(world_index * episode_limit / worlds), setup only before warmup.
+Ordinary reset ages remain zero. No cycle rephasing or forced survival.
+Every measured collection/integrated cycle requires live truncation bootstrap.
+A missed cycle produces a per-cell INVALID TAR/JSON result, then continues the sweep.
+Summary propagates INVALID; aggregation refuses invalid timing comparisons.
+
+Endpoint: 12 cells, E128/E1024 x episode_limit 64/512 x cached/collection/integrated.
+H128, minibatch 2048, one excluded warmup plus three measured cycles; compile_mode=none.
+Runaway guard: base 4h / effective 8h; no economic Colab budget or timing canary.
+Fresh seed blocks 20m through 31m; parity 90m; all 3,545,904 roots checked.
+Qualified research/colab_cli tree unchanged: 5833e54e9c5396121cbbf99a5cd4e52006e564fd.
+Simulator-D timing/parity only; no efficacy selection or serving change.
+
+Committed preflight:
+cd /Users/josenunez/Projects/ml/snake-dqn-sbxA
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.preflight /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-03
+
+Dry-run validation (standard control priority; tests nice 15, one math thread):
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a2-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-03/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/state --dry-run
+
+Exact operator dispatch command:
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a2-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a2/reseal-03/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/state
+
+Preparation/dry-run do not allocate. Read cell and summary status after actual execution.
+A broker terminal PASS alone is not a timing validity decision.
+Live accounting/coexistence are checked at actual admission. No automatic retries.
+No prior A-2 seal has been allocated; attempt-01 output/state remain fresh.

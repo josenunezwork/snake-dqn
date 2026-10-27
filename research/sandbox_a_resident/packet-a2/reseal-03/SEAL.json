@@ -1,0 +1,21 @@
+{
+  "kind": "A-2 reseal-03: correct truncation schedule and isolate per-cell INVALID",
+  "source_commit": "435be1595410a3715c08da7c3b0d5f8b6384dd7d",
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "runtime_source_count": 97,
+  "files_sha256": {
+    "DISPATCH.txt": "23c250798f9f091dda48c9b26542600f960be03ab70deb9fa95a232e799c45d1",
+    "control.json": "74d622551b4fca82a99dbfa4915b26d023fd9db7dc311cc0405e54d49276f693",
+    "dispatch-manifest.json": "9ebfeefa0ab054a72dc17c505d42f82b5e080dd16e5755249bd4628024abed39",
+    "registry-check.json": "1e63cd71f1f1475501ceeb2957bc5234239fb857d9dd73125f8b095e2ca186e5",
+    "sandbox.json": "68fc9fcaa1927ad6f5ee14005c786924d4dfc06baade0690a5b21143ad0b80b0",
+    "verified-ledger.json": "57b2d54c52a05e2a540c9f1544ac183b1ce79b82598f8bee26cf8ab76b004cc8"
+  },
+  "stagger_initial_age": true,
+  "validity": "At least one truncation in each measured noncached production cycle",
+  "invariant_failure": "Publish INVALID cell checkpoint/timing; continue remaining cells; reject aggregate qualification",
+  "local_verification": "research/sandbox_a_resident/VERIFICATION_A2_RESEAL03.json",
+  "runaway_base_seconds": 14400,
+  "runaway_effective_seconds": 28800,
+  "allocation_performed": false
+}
