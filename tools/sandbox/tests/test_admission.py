@@ -89,6 +89,73 @@ def _bind_preflight(
     return calls
 
 
+def test_sandbox_validation_keeps_checks_and_uses_bounded_focused_test_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sandbox admission may outlast ordinary host validation, but remains bounded."""
+    manifest = tmp_path / "packet.json"
+    manifest.write_text(json.dumps({"sandbox_admission": {}}), encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def fake_command(args: list[str], **kwargs: object) -> None:
+        captured["args"] = args
+        captured.update(kwargs)
+
+    monkeypatch.setattr(dispatch, "command", fake_command)
+    dispatch.validate(ROOT, tmp_path, tmp_path / "state", manifest, tmp_path / "validate.log")
+
+    assert captured["args"] == [
+        str(ROOT / "tools/sandbox/launch.sh"),
+        "--state-dir",
+        str(tmp_path / "state"),
+        "--colab",
+        str(Path.home() / ".local/bin/colab"),
+        "validate",
+        str(manifest),
+    ]
+    assert captured["timeout_seconds"] == dispatch.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS
+    assert captured["timeout_seconds"] > dispatch.COMMAND_TIMEOUT_SECONDS
+
+
+def test_ordinary_validation_retains_standard_host_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The larger admission window cannot apply to ordinary qualified jobs."""
+    manifest = tmp_path / "packet.json"
+    manifest.write_text("{}", encoding="utf-8")
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        dispatch,
+        "command",
+        lambda _args, **kwargs: captured.update(kwargs),
+    )
+
+    dispatch.validate(ROOT, tmp_path, tmp_path / "state", manifest, tmp_path / "validate.log")
+
+    assert captured["timeout_seconds"] == dispatch.COMMAND_TIMEOUT_SECONDS
+
+
+def test_extended_sandbox_timeout_still_respects_allocation_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An allocation lock deadline remains an upper bound for sandbox validation."""
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(dispatch.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(
+        dispatch.subprocess,
+        "run",
+        lambda _args, **kwargs: captured.update(kwargs),
+    )
+
+    dispatch.command(
+        ["true"],
+        deadline=130.0,
+        timeout_seconds=dispatch.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS,
+    )
+
+    assert captured["timeout"] == 30.0
+
+
 def test_b2_is_limited_to_its_distinct_route_and_artifact_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
