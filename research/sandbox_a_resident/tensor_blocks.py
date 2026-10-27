@@ -147,10 +147,30 @@ class TensorBlocks:
         return tuple(getattr(sim, name) for name in STATE_FIELDS)
 
     @staticmethod
-    def v8_inputs(sim: Any, rows: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """Resolve the mutable R2 cache before entering the pure graph."""
+    def v8_bucket_spans(sim: Any) -> tuple[int, ...]:
+        """Return every static R2 live-window bucket representable by ``sim``."""
+        cap, align = int(sim.cap), r2_cache.ALIGN
+        if cap <= align:
+            return (cap,)
+        spans = list(range(align, cap + 1, align))
+        if spans[-1] != cap:
+            spans.append(cap)
+        return tuple(spans)
+
+    @staticmethod
+    def v8_inputs(
+        sim: Any, rows: torch.Tensor, *, span: int | None = None
+    ) -> tuple[torch.Tensor, ...]:
+        """Resolve mutable R2 inputs before entering the pure graph.
+
+        ``span`` is only for excluded compile warmup. It selects an existing
+        aligned R2 bucket without changing live state or the runtime window.
+        """
         env, slot = rows[:, 0], rows[:, 1]
-        span = r2_cache.window(sim)
+        if span is None:
+            span = r2_cache.window(sim)
+        elif span not in TensorBlocks.v8_bucket_spans(sim):
+            raise ValueError("v8 warmup span is not an R2 bucket")
         return (
             r2_cache.all_occupancy(sim)[env],
             r2_cache.other_occupancy(sim, env, slot),

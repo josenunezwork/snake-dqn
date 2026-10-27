@@ -486,3 +486,75 @@ def test_compiler_metrics_are_separate_nested_timer_deltas() -> None:
         "backward": {"seconds": 3.0, "calls": 1},
         "backend": {"seconds": 2.5, "calls": 1},
     }
+
+
+def test_inactive_compile_snapshot_omits_prior_cell_validation_claims() -> None:
+    report = {
+        "ActorCritic_train": {
+            "status": "compiled",
+            "validation_calls": 4,
+            "validation_seconds": 1.5,
+            "compile_factory_seconds": 0.1,
+            "compile_specialization_calls": 4,
+            "compile_specialization_seconds": 2.0,
+            "output_check": "prior cell passed",
+        },
+        "anchors": {"status": "compiled", "validation_calls": 2},
+    }
+    snapshot = run.compile_snapshot(SimpleNamespace(compile_report=report), "default", "collection")
+    assert snapshot["ActorCritic_train"] == {
+        "status": "not_applicable",
+        "counter_scope": "not_applicable",
+    }
+    assert snapshot["anchors"]["counter_scope"] == "run_cache_cumulative"
+    assert snapshot["anchors"]["validation_calls"] == 2
+    assert report["ActorCritic_train"]["validation_calls"] == 4
+    assert report["ActorCritic_train"]["status"] == "compiled"
+
+
+def test_measured_compiler_activity_still_invalidates_cell(monkeypatch, tmp_path: Path) -> None:
+    calls = 0
+
+    def collect():
+        nonlocal calls
+        calls += 1
+        return {
+            "terminal": torch.zeros((1, 1), dtype=torch.bool),
+            "truncated": torch.ones((1, 1), dtype=torch.bool),
+        }
+
+    runner = SimpleNamespace(
+        device=torch.device("cpu"), reset_count=torch.tensor(0), collect=collect
+    )
+    monkeypatch.setattr(run, "ResidentAssay", lambda *args: runner)
+    monkeypatch.setattr(run, "load_ego2s_checkpoint", lambda *args: None)
+    monkeypatch.setattr(run, "publish", lambda *args: {"size": 1})
+    monkeypatch.setattr(
+        run,
+        "compiler_metrics",
+        lambda: {"compile_inner": (float(calls - 1), calls - 1)} if calls > 1 else {},
+    )
+    result = run.run_cell(
+        {
+            "horizon": 1,
+            "minibatch": 1,
+            "epochs": 1,
+            "episode_limit": 1,
+            "cycles": 2,
+            "warmups": 1,
+            "tiny": True,
+        },
+        1,
+        "collection",
+        0,
+        tmp_path / "b8",
+        tmp_path,
+        "cpu",
+        time.monotonic() + 60,
+    )
+    assert result["status"] == "INVALID"
+    assert result["invalid_reasons"] == [
+        f"measured cycle {index} included compiler work; steady-state timing invalid"
+        for index in range(2)
+    ]
+    assert all(row["compiler_activity"] for row in result["cycles"])

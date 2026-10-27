@@ -135,9 +135,22 @@ def compile_snapshot(
             if phase == "cached"
             else ("ActorCritic_train",) if phase == "collection" else ()
         )
-        for name in unused:
-            if name in snapshot:
-                snapshot[name]["status"] = "not_applicable"
+        for name, entry in snapshot.items():
+            if not isinstance(entry, dict) or "status" not in entry:
+                continue
+            entry["counter_scope"] = "run_cache_cumulative"
+            if name in unused:
+                entry["status"] = "not_applicable"
+                entry["counter_scope"] = "not_applicable"
+                for field in (
+                    "compile_factory_seconds",
+                    "compile_specialization_seconds",
+                    "compile_specialization_calls",
+                    "validation_seconds",
+                    "validation_calls",
+                    "output_check",
+                ):
+                    entry.pop(field, None)
         return snapshot
     return {
         "requested_mode": compile_mode,
@@ -327,10 +340,13 @@ def run_cell(
     if compile_mode not in ("none", "default"):
         raise ValueError("compile_mode must be none or default")
     compile_cache_reused = False
+    compile_bucket_warmup: list[int] = []
     if compile_mode != "none":
         if runner.device.type != "cuda":
             raise ValueError("compiled timing cell requires CUDA")
         compile_cache_reused = (compile_cache or CellCompileCache()).attach(runner, compile_mode)
+        if phase != "cached":
+            compile_bucket_warmup = runner.warm_compile_buckets()
     cached = synthetic(runner) if phase == "cached" else None
     setup_seconds = sync(device) - begin
     # Excluded warmup cycles are charged to total cell time, not steady-state rate.
@@ -432,6 +448,7 @@ def run_cell(
         "compile_mode": compile_mode,
         "compile_report": compile_snapshot(runner, compile_mode, phase),
         "compile_cache_reused": compile_cache_reused,
+        "compile_bucket_warmup": compile_bucket_warmup,
         "compiler_setup_warmup": compiler_delta(compiler_before, compiler_warm),
         "compiler_timing_note": (
             "Torch named timers overlap; setup/warmup excluded from steady-state; "
@@ -513,9 +530,9 @@ def main() -> int:
     )
     proof_settings = proof["numerical_settings"]
     publish(args.output / "parity.json", lambda target: target.write_text(json.dumps(proof) + "\n"))
-    # Four world shapes, TF32 validation/runtime variants, and R2 live-window
-    # shapes are intentional static specializations, not mutable-state guards.
-    # Share their code/parameter owner and allow this finite matrix explicitly.
+    # Four world shapes and the finite prewarmed R2 buckets share pure graph
+    # owners. Timing forward, backward and validation keep the same TF32 mode.
+    # This scoped allowance covers the fixed matrix, never measured recompiles.
     with (
         torch._dynamo.config.patch(recompile_limit=64, accumulated_recompile_limit=256),
         numerical_mode(deterministic=False, tf32=True) as timing_settings,

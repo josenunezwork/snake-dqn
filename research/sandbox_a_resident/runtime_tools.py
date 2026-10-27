@@ -78,8 +78,8 @@ class CompiledBlock:
             "mode": mode,
             "backend": backend or "inductor",
             "fallback_reason": None,
-            "validation_policy": "TF32 disabled for compiled and eager first-call comparison; "
-            "floats rtol=atol=2e-5",
+            "validation_policy": "compiled output and no-grad eager reference share caller "
+            "numerical globals; floats rtol=atol=2e-5",
             "compile_factory_seconds": 0.0,
             "compile_specialization_seconds": 0.0,
             "compile_specialization_calls": 0,
@@ -128,6 +128,8 @@ class CompiledBlock:
             return (
                 "tensor",
                 tuple(value.shape),
+                tuple(value.stride()),
+                value.storage_offset(),
                 str(value.dtype),
                 str(value.device),
                 value.requires_grad,
@@ -152,25 +154,23 @@ class CompiledBlock:
         return (
             "grad_enabled",
             torch.is_grad_enabled(),
+            "inference_mode",
+            torch.is_inference_mode_enabled(),
+            "numerical_globals",
+            (
+                torch.are_deterministic_algorithms_enabled(),
+                torch.is_deterministic_algorithms_warn_only_enabled(),
+                torch.backends.cuda.matmul.allow_tf32,
+                torch.backends.cudnn.allow_tf32,
+                torch.backends.cudnn.benchmark,
+                torch.backends.cudnn.deterministic,
+                torch.get_float32_matmul_precision(),
+            ),
             "args",
             tuple(cls._argument_signature(arg) for arg in args),
             "kwargs",
             tuple((key, cls._argument_signature(value)) for key, value in sorted(kwargs.items())),
         )
-
-    @contextmanager
-    def _without_tf32_for_validation(self) -> Iterator[None]:
-        """Make eager and compiled validation use the same FP32 CUDA math mode."""
-        matmul = torch.backends.cuda.matmul
-        cudnn = torch.backends.cudnn
-        previous_matmul, previous_cudnn = matmul.allow_tf32, cudnn.allow_tf32
-        matmul.allow_tf32 = False
-        cudnn.allow_tf32 = False
-        try:
-            yield
-        finally:
-            matmul.allow_tf32 = previous_matmul
-            cudnn.allow_tf32 = previous_cudnn
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         if self.compiled is not None:
@@ -180,23 +180,30 @@ class CompiledBlock:
                 if first_specialization:
                     compile_started = time.perf_counter()
                     self._compiled_specializations.add(specialization)
-                if specialization not in self._validated_specializations:
-                    validation_started = time.perf_counter()
-                    with self._without_tf32_for_validation():
-                        result = self.compiled(*args, **kwargs)
-                        expected = self.eager(*args, **kwargs)
-                    self._compare(result, expected)
-                    self._validated_specializations.add(specialization)
-                    self.validated = True
-                    self.entry["validation_calls"] += 1
-                    self.entry["validation_seconds"] += time.perf_counter() - validation_started
-                    self.entry["output_check"] = "eager match under TF32-disabled validation"
-                else:
-                    result = self.compiled(*args, **kwargs)
+                # Compile and execute once in the caller's exact numerical and
+                # autograd state. Global numerical guards (notably TF32) are
+                # part of the specialization key, so neither validation nor a
+                # later measured call silently compiles a different graph.
+                result = self.compiled(*args, **kwargs)
                 if first_specialization:
                     self.entry["compile_specialization_calls"] += 1
                     self.entry["compile_specialization_seconds"] += (
                         time.perf_counter() - compile_started
+                    )
+                if specialization not in self._validated_specializations:
+                    validation_started = time.perf_counter()
+                    # The reference must not retain a second autograd graph.
+                    # It deliberately inherits the caller's TF32 and other
+                    # numerical globals, matching the graph just compiled.
+                    with torch.no_grad():
+                        expected = self.eager(*args, **kwargs)
+                        self._compare(result, expected)
+                    self._validated_specializations.add(specialization)
+                    self.validated = True
+                    self.entry["validation_calls"] += 1
+                    self.entry["validation_seconds"] += time.perf_counter() - validation_started
+                    self.entry["output_check"] = (
+                        "no-grad eager match under caller numerical globals"
                     )
             except Exception as exc:
                 self._fallback(exc)

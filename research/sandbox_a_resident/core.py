@@ -389,6 +389,35 @@ class ResidentAssay:
         self.compile_mode = mode
 
     @torch.no_grad()
+    def warm_compile_buckets(self) -> list[int]:
+        """Precompile every legal static v8 live-window shape outside timing.
+
+        This reads the current state only. It does not step/reset worlds, draw
+        RNG, or touch the actor/optimizer; extra ring slots remain masked by
+        the existing v8 validity tensors.
+        """
+        if not isinstance(self._v8, CompiledBlock):
+            return []
+        rows = self._rows
+        legal = self.sim.advisory_mask()[:, 0]
+        values = self.tensor_blocks.state(self.sim)
+        spans = self.tensor_blocks.v8_bucket_spans(self.sim)
+        for span in spans:
+            all_occ, other_occ, own_cells, own_valid = self.tensor_blocks.v8_inputs(
+                self.sim, rows, span=span
+            )
+            self._v8(
+                *values,
+                rows=rows,
+                mask=legal,
+                all_occ=all_occ,
+                other_occ=other_occ,
+                own_cells=own_cells,
+                own_valid=own_valid,
+            )
+        return list(spans)
+
+    @torch.no_grad()
     def _reset(self, mask: torch.Tensor, *, initial: bool = False) -> None:
         """Reset selected worlds in place; live rows and their RNG counters never move."""
         indices = torch.where(mask)[0]

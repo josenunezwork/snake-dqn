@@ -1,6 +1,22 @@
 # Job A: resident collector + learner feasibility
 
-## Current runtime: A-3
+## Current packets: eager 01 and compiled reseal 03
+
+[`A3_EAGER01.md`](A3_EAGER01.md) documents the separately sealed
+`packet-a3-eager-01`: `compile_mode=none`, the four non-compile repairs, and the
+E2048/E4096 extension with E128/E1024 controls. Its admission and reduced real
+entrypoint smoke passed before the compiled repair began. See
+`VERIFICATION_A3_EAGER01.json` and the packet's `DISPATCH.txt`.
+
+[`A3_RESEAL03.md`](A3_RESEAL03.md) documents the successor `packet-a3-03`:
+single-mode compile/validation, all four R2 buckets prewarmed before timing,
+real-assay lifetime checks, and explicit cumulative report counters. Each
+packet has its own source pin, output identity, ledger and fresh seed ranges.
+The old `packet-a3-02` remains historical rejected evidence. Both new packets
+are prepared for operator dispatch; admission is not A100 execution evidence.
+
+## Original A-3 protocol (historical packet paths)
+
 
 [`A3.md`](A3.md) is the current prospective sandbox protocol. It keeps the
 resident collector/learner assay as simulator-D development evidence and adds

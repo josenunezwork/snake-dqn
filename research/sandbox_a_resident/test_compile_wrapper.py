@@ -7,13 +7,13 @@ import torch
 from research.sandbox_a_resident.runtime_tools import CompiledBlock
 
 
-def test_validation_disables_tf32_for_both_paths_and_restores_it(monkeypatch) -> None:
+def test_validation_uses_caller_tf32_once_and_keeps_eager_reference_no_grad(monkeypatch) -> None:
     observations: list[tuple[str, bool, bool]] = []
 
     def eager(value: torch.Tensor) -> torch.Tensor:
         observations.append(
             (
-                "eager",
+                "eager_grad" if torch.is_grad_enabled() else "eager_no_grad",
                 torch.backends.cuda.matmul.allow_tf32,
                 torch.backends.cudnn.allow_tf32,
             )
@@ -41,15 +41,16 @@ def test_validation_disables_tf32_for_both_paths_and_restores_it(monkeypatch) ->
         report: dict[str, object] = {}
         block = CompiledBlock(eager, "default", report, "block")
         assert block(torch.tensor([1.0])).tolist() == [2.0]
-        assert observations[0] == ("compiled", False, False)
-        # The mock compiled callable delegates to eager once; the wrapper then
-        # invokes eager a second time as the validation reference.
-        assert observations[1:] == [("eager", False, False), ("eager", False, False)]
+        assert observations == [
+            ("compiled", True, True),
+            ("eager_grad", True, True),
+            ("eager_no_grad", True, True),
+        ]
         assert torch.backends.cuda.matmul.allow_tf32 is True
         assert torch.backends.cudnn.allow_tf32 is True
         entry = report["block"]
         assert isinstance(entry, dict)
-        assert entry["validation_policy"].startswith("TF32 disabled")
+        assert "caller numerical globals" in entry["validation_policy"]
     finally:
         torch.backends.cuda.matmul.allow_tf32 = old_matmul
         torch.backends.cudnn.allow_tf32 = old_cudnn
@@ -72,3 +73,25 @@ def test_setup_and_validation_accounting_are_separate_and_per_specialization(mon
     assert entry["compile_factory_seconds"] >= 0.0
     assert entry["compile_specialization_seconds"] >= 0.0
     assert entry["validation_seconds"] >= 0.0
+
+
+def test_specialization_includes_strides_and_numerical_globals(monkeypatch) -> None:
+    monkeypatch.setattr(torch, "compile", lambda eager, **kwargs: eager)
+    report: dict[str, object] = {}
+    block = CompiledBlock(lambda value: value * 2, "default", report, "block")
+    source = torch.ones(2, 3)
+
+    old_tf32 = torch.backends.cuda.matmul.allow_tf32
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = False
+        block(source)
+        block(source.t())
+        torch.backends.cuda.matmul.allow_tf32 = True
+        block(source)
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = old_tf32
+
+    entry = report["block"]
+    assert isinstance(entry, dict)
+    assert entry["compile_specialization_calls"] == 3
+    assert entry["validation_calls"] == 3

@@ -1,0 +1,81 @@
+{
+  "status": "PASS_CPU_PREPARATION",
+  "tests": {
+    "passed": 79,
+    "seconds": 12.18,
+    "nice": 15,
+    "threads": 1,
+    "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts='' research/sandbox_a_resident"
+  },
+  "lint": "black23files, isort, flake8, bash -n job.sh, git diff --check: PASS",
+  "real_compile": {
+    "backend": "aot_eager",
+    "fullgraph": true,
+    "fallbacks": 0,
+    "measured_cycles": 3,
+    "measured_compiler_activity": {},
+    "tf32_modes": [
+      false,
+      true
+    ],
+    "second_calls_compiler_activity": {},
+    "production_cap": 1024,
+    "warmed_buckets": [
+      256,
+      512,
+      768,
+      1024
+    ],
+    "measured_bucket_order": [
+      1024,
+      256,
+      768,
+      512,
+      256
+    ],
+    "post_warm_bucket_compiler_activity": {},
+    "warmup_purity": "simulator tensors, behavior RNG, actor tensors and optimizer ownership unchanged",
+    "cache_lifetime": "real worlds1 and2 assays; populated Adam; first assay/sim/optimizer weakrefs clear"
+  },
+  "smoke": {
+    "status": "PASS",
+    "units": 12,
+    "seconds": 4.225773999933153,
+    "production_arena": true,
+    "compile_mode": "none",
+    "reason": "timing CLI requires CUDA; actual CPU compile covered by unmocked real-assay tests",
+    "summary": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-03/local-assay/summary.json"
+  },
+  "independent_review": "Read-only reviewer found no actionable findings; full Argon review considered; no tests overlapped",
+  "evidence_sha256": {
+    "tests.log": "71a29c2d12bd2d08cf3fa56352d8b8881731cd31f59a841c46a81224be17b087",
+    "tests-final.log": "f3677205c3be6ee0abe5c8cbee1a974e92b9c66ed0792cfca1c34d54cb87438b",
+    "local-smoke.log": "5c23b038ff656dbee5f610c0e9d00c1633c1c785946effd55f49df368f2ee589"
+  },
+  "sandbox_python_sha256": {
+    "research/sandbox_a_resident/__init__.py": "9a0705415e5dda3526074013d7f7a4e67977891009a7b36fc193e23dacd3c4e8",
+    "research/sandbox_a_resident/core.py": "9ef7dd7a2bb8366bf903d8f110b5b6b29fe209ca015f9b2218a5db110ca6ac3b",
+    "research/sandbox_a_resident/device_sim.py": "fe403559f4cfd8692d750dc690735e160cc77bdd8ba4d5d7b11314749e21300d",
+    "research/sandbox_a_resident/observation_tensor.py": "9856f5382070066bf9ea66cdad883b696fcb0e23e61f99b77ef512849d1c3304",
+    "research/sandbox_a_resident/postprocess.py": "8c6ea33694cc8ab0b84310fcdb57b3cb277a0efddd3b196c2fd64dffc7b72b03",
+    "research/sandbox_a_resident/preflight.py": "785216818ec79f950f934776aa1d1d8042de56ac637b8dd0640b6eb11cb2fbba",
+    "research/sandbox_a_resident/prepare.py": "30bb5342caabffccb49735f3c27869b29ae1ec794a29a67a6d69e74c8c962f40",
+    "research/sandbox_a_resident/proof.py": "0cb85e8fe17aaa3d76ce95c611c51e03d08fbca2a35af61dfcfe9cf0908dfaab",
+    "research/sandbox_a_resident/run.py": "17b0e59ea00ae2e15ed9c532899a6a081a378796bc1ef5dda02c88e5261e497f",
+    "research/sandbox_a_resident/runtime_tools.py": "4cdec26d7d8b65f1bca1618ff9606dfd528c5ca6e0fdfb0950252eb0f51d7baf",
+    "research/sandbox_a_resident/tensor_blocks.py": "6becdcdd938f429139473155f33264a7998e4584151662517fb0887a8d97e6b0",
+    "research/sandbox_a_resident/test_a2.py": "d941650661f3af47cfeb167b1c167fe5c12d6d47419c627b42ce84b96636ef88",
+    "research/sandbox_a_resident/test_a2_reference.py": "5b3f85211390e118b6defada57e2bb13a0bb74cd7b6445dc25bdea2f51c36836",
+    "research/sandbox_a_resident/test_compile_real.py": "59dc42592bd0cd903a2d9ccda5bbe1552af0bfd8bb6d57d0f984576d872ceca1",
+    "research/sandbox_a_resident/test_compile_wrapper.py": "af9ea51d1e501d65b0638763e277417fccabe1a5faea1e381af70de5211337f4",
+    "research/sandbox_a_resident/test_core.py": "09ad2026ddd84c0925e9a4f0f860b33af82a8bc69e8dbc4a24a1b569a328ef3e",
+    "research/sandbox_a_resident/test_observation_tensor.py": "0afc98686fb6bb4a3b0c029aaa3c88cae2c9a37c9d9597acbaaef5902fcf37a8",
+    "research/sandbox_a_resident/test_prepare.py": "c9ed74e2ddf266dd24cd59e913fbf2dbf55601849314b35bda2159961c352245",
+    "research/sandbox_a_resident/test_reset_a3.py": "df6cf28d05116894384e0aacde6598ea9b87053f2161b2564a232a0480a10493",
+    "research/sandbox_a_resident/test_run.py": "f5fcf8653ec7a713ae5b2ad3e9af12cfb6ba8f7d1f9f34fbadaf7a9ad5b27de1",
+    "research/sandbox_a_resident/test_runtime_a3.py": "24d50ca00469353b9fd5ee25c3254ab229aa94245284e8783b669c0c064a4dfa",
+    "research/sandbox_a_resident/test_units.py": "90f1fb3a63cb397edd1e3b2dbc62331405ec1227b1d2c91c3988ee550571a8a5",
+    "research/sandbox_a_resident/units.py": "57de601ef7db341380832147b0fcf70b346fd58be0e2a4ce3fcb3eefa1f3b70d"
+  },
+  "scope": "No CUDA/A100 execution, provider accounting, efficacy, serving, F5 or transport changes."
+}

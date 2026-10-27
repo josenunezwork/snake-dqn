@@ -171,11 +171,39 @@ def write_json(path: Path, value: dict) -> None:
 
 
 def prepare(
-    packet: Path, commit: str, checkpoint: Path, registry: Path, estimate_seconds: float
+    packet: Path,
+    commit: str,
+    checkpoint: Path,
+    registry: Path,
+    estimate_seconds: float,
+    *,
+    variant: str = "a3-03",
 ) -> None:
     """Write the full broker packet plus exactly ten physical sandbox JSON lines."""
     if not math.isfinite(2 * estimate_seconds) or estimate_seconds <= 0:
         raise ValueError("positive finite engineering forecast required")
+    variants = {
+        "a3-eager-01": (
+            "none",
+            240_000_000,
+            320_000_000,
+            "a3-eager-attempt-01",
+            "sandbox-a-resident-a3-eager-20261026-01",
+        ),
+        "a3-03": (
+            "default",
+            360_000_000,
+            440_000_000,
+            "a3-attempt-03",
+            "sandbox-a-resident-a3-20261026-03",
+        ),
+    }
+    if variant not in variants:
+        raise ValueError("unsupported packet variant")
+    compile_mode, seed_base, proof_base, attempt, job_id = variants[variant]
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "--verify", f"{commit}^{{commit}}"], cwd=ROOT, text=True
+    ).strip()
     if digest(checkpoint) != B8_SHA:
         raise ValueError("published B8 s3 hash differs")
     transport = subprocess.check_output(
@@ -202,10 +230,10 @@ def prepare(
         "warmups": 1,
         "episode_limits": [64, 512],
         "recipe_version": "A-3",
-        "compile_mode": "none",
-        "seed_offset_base": 240_000_000,
+        "compile_mode": compile_mode,
+        "seed_offset_base": seed_base,
         "allocation_stride": 3_000_000,
-        "parity_seed_offset": 320_000_000,
+        "parity_seed_offset": proof_base,
         "parity_seed_count": 54,
         "tiny": False,
         "timeout_seconds": estimate_seconds * 2,
@@ -226,12 +254,13 @@ def prepare(
         if unit_id(worlds, phase, limit) not in verified:
             stem = unit_stem(worlds, phase, limit)
             required += [f"assay/{stem}.{suffix}" for suffix in ("tar", "json")]
-    output = Path(
-        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/"
-        "a3-eager-attempt-01/output"
+    output = (
+        Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident")
+        / attempt
+        / "output"
     )
     manifest = {
-        "job_id": "sandbox-a-resident-a3-eager-20261026-01",
+        "job_id": job_id,
         "commit": commit,
         "script": "research/sandbox_a_resident/job.sh",
         "device": "cuda",
@@ -375,6 +404,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--packet", type=Path, required=True)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--variant", choices=("a3-eager-01", "a3-03"), default="a3-03")
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument(
         "--registry", type=Path, default=ROOT / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json"
@@ -384,7 +414,12 @@ def main() -> int:
     )
     args = parser.parse_args()
     prepare(
-        args.packet.resolve(), args.commit, args.checkpoint, args.registry, args.estimate_seconds
+        args.packet.resolve(),
+        args.commit,
+        args.checkpoint,
+        args.registry,
+        args.estimate_seconds,
+        variant=args.variant,
     )
     return 0
 

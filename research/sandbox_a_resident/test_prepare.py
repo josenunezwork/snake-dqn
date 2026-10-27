@@ -11,7 +11,10 @@ from research.sandbox_a_resident import prepare
 from research.sandbox_a_resident.units import digest
 
 
-def test_a3_packet_admission_and_generous_runaway_guard(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("variant", ["a3-eager-01", "a3-03"])
+def test_a3_packet_admission_and_generous_runaway_guard(
+    monkeypatch, tmp_path: Path, variant: str
+) -> None:
     torch.set_num_threads(1)
     checkpoint = tmp_path / "b8.pth"
     checkpoint.write_bytes(b"fake published weights for offline schema test")
@@ -20,7 +23,7 @@ def test_a3_packet_admission_and_generous_runaway_guard(monkeypatch, tmp_path: P
     monkeypatch.setattr(prepare, "registry_check", lambda *args: {"allocated_uint64_seeds": 0})
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     packet = tmp_path / "packet-a3"
-    prepare.prepare(packet, commit, checkpoint, tmp_path / "registry.json", 14400)
+    prepare.prepare(packet, commit, checkpoint, tmp_path / "registry.json", 14400, variant=variant)
     manifest = json.loads((packet / "dispatch-manifest.json").read_text())
     sandbox = json.loads((packet / "sandbox.json").read_text())
     assert manifest["sandbox_admission"] == {
@@ -39,8 +42,12 @@ def test_a3_packet_admission_and_generous_runaway_guard(monkeypatch, tmp_path: P
         packet / "dispatch-manifest.json"
     )
     assert len((packet / "sandbox.json").read_text().splitlines()) == 10
-    assert manifest["job_id"] == "sandbox-a-resident-a3-eager-20261026-01"
-    assert manifest["output_dir"].endswith("/a3-eager-attempt-01/output")
+    eager = variant == "a3-eager-01"
+    assert manifest["job_id"] == (
+        "sandbox-a-resident-a3-eager-20261026-01" if eager else "sandbox-a-resident-a3-20261026-03"
+    )
+    attempt = "a3-eager-attempt-01" if eager else "a3-attempt-03"
+    assert manifest["output_dir"].endswith(f"/{attempt}/output")
     assert "pyproject.toml" not in manifest["source_paths"]
     assert "research/gpu_sim_spike/masks_device.py" in manifest["source_paths"]
     assert "research/gpu_sim_spike/event_cuda.cu" in manifest["source_paths"]
@@ -53,11 +60,11 @@ def test_a3_packet_admission_and_generous_runaway_guard(monkeypatch, tmp_path: P
     assert control["episode_limits"] == [64, 512]
     assert control["worlds"] == [128, 1024, 2048, 4096]
     assert control["recipe_version"] == "A-3"
-    assert control["compile_mode"] == "none"
+    assert control["compile_mode"] == ("none" if eager else "default")
     assert control["parity_seed_count"] == 54
-    assert control["seed_offset_base"] == 240_000_000
+    assert control["seed_offset_base"] == (240_000_000 if eager else 360_000_000)
     assert control["allocation_stride"] == 3_000_000
-    assert control["parity_seed_offset"] == 320_000_000
+    assert control["parity_seed_offset"] == (320_000_000 if eager else 440_000_000)
     allocations = prepare.seed_allocations(control)
     assert min(row["offset"] for row in allocations) > 100_000_000
     assert all(
