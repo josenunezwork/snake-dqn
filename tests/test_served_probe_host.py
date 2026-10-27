@@ -126,3 +126,49 @@ def test_monitor_exit_preserves_final_failure_for_parent_report(tmp_path):
     evidence = read_export(tmp_path / "host.json")
     assert evidence["status"] == "INVALID"
     assert evidence["reason"] == "host monitor exited with code 1"
+
+
+def test_classified_screen_retains_renderer_but_rejects_python_and_unknown(monkeypatch):
+    import psutil
+
+    monkeypatch.setattr(psutil, "Process", lambda _: Mock(children=lambda **kw: []))
+    screen = {
+        "processes": (
+            "PID PPID %CPU COMM\n10 1 90 python\n11 10 90 python\n12 11 80 /bin/ps\n"
+            "20 1 200 /Applications/Codex.app/Contents/Frameworks/Codex Helper (Renderer)\n"
+            "21 1 240 /System/Library/corespotlightd\n"
+            "22 1 60 /usr/libexec/fileproviderd\n23 1 20 /usr/local/bin/python\n"
+            "24 1 30 /bin/ps\n"
+        )
+    }
+    heavy = probe_host.foreign_load(screen, 10, classified=True)
+    assert [row["pid"] for row in heavy] == [23, 24]
+    assert screen["probe_exempt_pids"] == [10, 11, 12]
+    assert [row["pid"] for row in screen["ordinary_system_background"]] == [20, 21, 22]
+
+
+def test_classified_monitor_exports_final_interval_and_policy(monkeypatch, tmp_path):
+    from research.bl_served_search import host_load
+
+    monkeypatch.setattr(probe_host.host, "snapshot", lambda **kw: {"quiet": True})
+    monkeypatch.setattr(probe_host, "_owned_inventory", lambda _: [])
+    ready, stop, failed = threading.Event(), threading.Event(), threading.Event()
+    clock = [0.0]
+
+    def sleep(seconds):
+        clock[0] += seconds
+        stop.set()
+
+    def capture():
+        at = int(clock[0] * 1e9)
+        return {"time_ns": at, "capture_start_ns": at, "capture_end_ns": at, "processes": []}
+
+    monkeypatch.setattr(probe_host.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(probe_host.time, "sleep", sleep)
+    monkeypatch.setattr(host_load, "capture_cpu", capture)
+    probe_host._monitor(10, str(tmp_path), 120, ready, stop, failed, SimpleNamespace(value=0), True)
+    evidence = read_export(tmp_path / "host.json")
+    assert evidence["status"] == "COMPLETE"
+    assert evidence["load_policy"] == "classified-v1"
+    assert evidence["cpu_samples"][0]["end_ns"] == 1_000_000_000
+    assert not failed.is_set()

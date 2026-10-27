@@ -77,3 +77,45 @@ def test_report_recomputes_parity_and_requires_quantified_overhead(monkeypatch) 
 
 def test_empty_parity_fields_never_equal_valid_evidence() -> None:
     assert not probe._verify_pair({}, {})["pass"]
+
+
+def test_classified_report_attaches_all_cells_without_overriding_overall_fail(monkeypatch):
+    from research.bl_served_search import background_report, tick_trace
+
+    monkeypatch.setattr(tick_trace, "reduce_trace", lambda *a, **kw: {"verdict": "FAIL"})
+    monkeypatch.setattr(probe, "_production_summary", lambda *a: {"verdict": "FAIL"})
+    calls = []
+
+    def summarize(result, host, *, production=False):
+        calls.append(production)
+        return {"timing": {"low_background": {"count": 0}}}
+
+    monkeypatch.setattr(background_report, "summarize_background", summarize)
+    raw = fixture_raw()
+    raw["load_policy"] = raw["host"]["load_policy"] = "classified-v1"
+    raw["host"]["schema"] = "served-tick-host/v2"
+    report = probe.reduce_trace(raw)
+    assert report["verdict"] == "FAIL"
+    assert len(calls) == len(raw["manifest"]["order"])
+    assert sum(calls) == 3
+    assert all(
+        arm["background_load"]["timing"]["low_background"]["count"] == 0 for arm in report["arms"]
+    )
+
+
+def test_classified_report_refuses_missing_or_invalid_cpu_evidence():
+    raw = fixture_raw()
+    raw["load_policy"] = "classified-v1"
+    assert probe.reduce_trace(raw)["reason"] == "host load policy binding differs"
+    raw["host"]["load_policy"] = "classified-v1"
+    assert probe.reduce_trace(raw)["reason"] == "classified host schema differs"
+    raw["host"]["schema"] = "served-tick-host/v2"
+    report = probe.reduce_trace(raw)
+    assert report["verdict"] == "INVALID"
+    assert "missing CPU samples" in report["reason"]
+
+
+def test_report_refuses_matching_but_unknown_policy():
+    raw = fixture_raw()
+    raw["load_policy"] = raw["host"]["load_policy"] = "classified-v2"
+    assert probe.reduce_trace(raw)["reason"] == "unsupported host load policy"

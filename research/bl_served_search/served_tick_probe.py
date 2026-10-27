@@ -398,6 +398,9 @@ def source_binding(require_clean: bool = True) -> dict[str, Any]:
     paths = [
         *Path(__file__).parent.glob("*tick*"),
         Path(__file__).with_name("probe_host.py"),
+        Path(__file__).with_name("host_load.py"),
+        Path(__file__).with_name("background_report.py"),
+        Path(__file__).with_name("HOST_LOAD_AMENDMENT_20261027.md"),
         Path(__file__).with_name("production_probe.py"),
         Path(__file__).with_name("isolated_game.py"),
         root / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
@@ -534,6 +537,13 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
         (raw.get("lease") or {}).get("monitor_status") == "INVALID"
     ):
         return {"verdict": "INVALID", "reason": "missing or contaminated host evidence"}
+    classified = raw.get("load_policy") == "classified-v1"
+    if raw.get("load_policy") != raw.get("host", {}).get("load_policy"):
+        return {"verdict": "INVALID", "reason": "host load policy binding differs"}
+    if raw.get("load_policy") not in (None, "classified-v1"):
+        return {"verdict": "INVALID", "reason": "unsupported host load policy"}
+    if classified and raw["host"].get("schema") != "served-tick-host/v2":
+        return {"verdict": "INVALID", "reason": "classified host schema differs"}
     arms: list[dict[str, Any]] = []
     for cell in raw.get("cells", []):
         result = cell["result"]
@@ -546,11 +556,22 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
         ):
             return {"verdict": "INVALID", "reason": "cell workload identity differs"}
         rows = list(cell["result"].get("trace", ()))
+        covariates: dict[str, Any] = {}
+        if classified:
+            from research.bl_served_search.background_report import summarize_background
+
+            try:
+                covariates["background_load"] = summarize_background(
+                    result, raw["host"], production=cell["cell"].get("arm") == "production"
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                return {"verdict": "INVALID", "reason": f"background evidence: {exc}"}
         if cell["cell"].get("arm") == "production":
             arms.append(
                 {
                     "cell": cell["cell"],
                     **_production_summary(cell["result"], int(manifest["measured_ticks"])),
+                    **covariates,
                 }
             )
             continue
@@ -564,6 +585,7 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
                     int(raw["manifest"]["fps"]),
                     require_update=arm != "timer",
                 ),
+                **covariates,
             }
         )
     pairs = []
@@ -889,6 +911,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--reduce", type=Path)
+    parser.add_argument(
+        "--classified-host-load",
+        action="store_true",
+        help="record macOS/desktop background CPU covariates; abort sustained >150%% for >60s",
+    )
     args = parser.parse_args(argv)
     manifest = json.loads(args.manifest.read_text())
     if args.reduce is not None:
@@ -909,7 +936,7 @@ def main(argv: list[str] | None = None) -> int:
 
         result = {
             "probe": preflight(manifest),
-            "host": host_preflight(),
+            "host": host_preflight(classified=args.classified_host_load),
             "source": source_binding(require_clean=False),
         }
         print(json.dumps(result, sort_keys=True))
@@ -943,7 +970,7 @@ def main(argv: list[str] | None = None) -> int:
             result = {
                 "schema": f"{SCHEMA}-smoke/v1",
                 "status": "SMOKE_OK_NOT_TIMING",
-                "host_readonly": host_preflight(),
+                "host_readonly": host_preflight(classified=args.classified_host_load),
                 "inline": inline,
                 "isolated": isolated,
                 "parity": _verify_pair(inline, isolated),
@@ -952,11 +979,16 @@ def main(argv: list[str] | None = None) -> int:
                 result["status"] = "INVALID_SEMANTIC_PARITY"
             export_json(args.output / "smoke.json", result)
             return 0 if result["parity"]["pass"] else 2
-        raw = guarded_run(args.output, lambda monitor: run_panel(manifest, args.output, monitor))
+        guard_options = {"classified": True} if args.classified_host_load else {}
+        raw = guarded_run(
+            args.output, lambda monitor: run_panel(manifest, args.output, monitor), **guard_options
+        )
         # guarded_run returned only after HostMonitor wrote and sealed its final
         # sample.  Verify that immutable evidence before publishing any verdict.
         host = read_export(args.output / "host.json")
         raw["host"] = host
+        if args.classified_host_load:
+            raw["load_policy"] = "classified-v1"
         raw["source_before"] = binding
         raw["source_after"] = source_binding()
         raw["argv"] = list(sys.argv)
@@ -982,6 +1014,7 @@ def main(argv: list[str] | None = None) -> int:
             "status": "INVALID",
             "reason": f"{type(exc).__name__}: {exc}",
             "manifest": manifest,
+            "load_policy": "classified-v1" if args.classified_host_load else "legacy",
             "source_before": binding,
             "completed_cell_files": sorted(path.name for path in args.output.glob("cell-*.json")),
         }
