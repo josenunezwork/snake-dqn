@@ -1,0 +1,79 @@
+"""Fail-closed report checks independent of any long Mac timing execution."""
+
+import json
+from copy import deepcopy
+from pathlib import Path
+
+from research.bl_served_search import served_tick_probe as probe
+
+
+def fixture_raw() -> dict:
+    manifest = json.loads(Path(probe.__file__).with_name("served_tick_manifest.json").read_text())
+    binding = {"commit": "a" * 40, "tracked_dirty": "", "source_sha256": {"probe": "b" * 64}}
+    result = {
+        "actions": [[1]],
+        "state_digest": {"initial": "a", "final": "b"},
+        "dto_digest": {"final": "c"},
+        "processing_wall_ns": [10] * 120,
+        "processing_thread_cpu_ns": [5] * 120,
+    }
+    return {
+        "manifest": manifest,
+        "source_before": binding,
+        "source_after": deepcopy(binding),
+        "host": {"status": "COMPLETE"},
+        "cells": [
+            {
+                "cell": cell,
+                "result": {
+                    **deepcopy(result),
+                    "trace": [],
+                    "seed": manifest["seeds"][cell["seed_index"]],
+                    "fps": 24,
+                    "warmup_ticks": 200,
+                    "measured_ticks": 2400,
+                },
+            }
+            for cell in manifest["order"]
+        ],
+        "observer_control": {
+            "ticks": 120,
+            "arms": [
+                {"name": name, "result": deepcopy(result)}
+                for name in manifest["instrumented_observer_order"]
+            ],
+        },
+    }
+
+
+def test_report_refuses_missing_cells_before_any_pass_label() -> None:
+    raw = fixture_raw()
+    raw["cells"].pop()
+    assert probe.reduce_trace(raw)["verdict"] == "INCOMPLETE"
+
+
+def test_report_refuses_source_or_host_tamper() -> None:
+    raw = fixture_raw()
+    raw["source_after"]["commit"] = "d" * 40
+    assert probe.reduce_trace(raw)["verdict"] == "INVALID"
+    raw = fixture_raw()
+    raw["host"]["status"] = "INVALID"
+    assert probe.reduce_trace(raw)["verdict"] == "INVALID"
+
+
+def test_report_recomputes_parity_and_requires_quantified_overhead(monkeypatch) -> None:
+    from research.bl_served_search import tick_trace
+
+    monkeypatch.setattr(tick_trace, "reduce_trace", lambda *a, **kw: {"verdict": "PASS"})
+    monkeypatch.setattr(probe, "_production_summary", lambda *a: {"verdict": "PASS"})
+    raw = fixture_raw()
+    assert probe.reduce_trace(raw)["verdict"] == "PASS"
+    raw["cells"][1]["result"]["state_digest"]["final"] = "changed"
+    assert probe.reduce_trace(raw)["verdict"] == "INVALID"
+    raw = fixture_raw()
+    raw["observer_control"]["arms"][1]["result"]["processing_wall_ns"] = []
+    assert probe.reduce_trace(raw)["verdict"] == "INVALID"
+
+
+def test_empty_parity_fields_never_equal_valid_evidence() -> None:
+    assert not probe._verify_pair({}, {})["pass"]

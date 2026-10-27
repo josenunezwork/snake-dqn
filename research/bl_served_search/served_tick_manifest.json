@@ -1,0 +1,84 @@
+{
+  "schema": "served-tick-diagnostic/v1",
+  "study": "served-tick-20261026",
+  "fps": 24,
+  "warmup_ticks": 200,
+  "measured_ticks": 2400,
+  "seeds": [
+    526572561647416456,
+    13180491676239199641,
+    6225946669805084767
+  ],
+  "observer_seed": 3333956771624233417,
+  "observer_ticks": 120,
+  "arms": [
+    "timer",
+    "inline",
+    "isolated",
+    "production"
+  ],
+  "order": [
+    {
+      "seed_index": 0,
+      "arm": "timer"
+    },
+    {
+      "seed_index": 0,
+      "arm": "inline"
+    },
+    {
+      "seed_index": 0,
+      "arm": "isolated"
+    },
+    {
+      "seed_index": 0,
+      "arm": "production"
+    },
+    {
+      "seed_index": 1,
+      "arm": "isolated"
+    },
+    {
+      "seed_index": 1,
+      "arm": "production"
+    },
+    {
+      "seed_index": 1,
+      "arm": "timer"
+    },
+    {
+      "seed_index": 1,
+      "arm": "inline"
+    },
+    {
+      "seed_index": 2,
+      "arm": "production"
+    },
+    {
+      "seed_index": 2,
+      "arm": "inline"
+    },
+    {
+      "seed_index": 2,
+      "arm": "isolated"
+    },
+    {
+      "seed_index": 2,
+      "arm": "timer"
+    }
+  ],
+  "base_timeout_seconds": 3600,
+  "timeout_seconds": 7200,
+  "update_bar_ms": 11.688,
+  "workers": 0,
+  "max_pending": 0,
+  "gc_policy": "default",
+  "registry_path": "tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
+  "registry_sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+  "instrumented_observer_order": [
+    "uninstrumented",
+    "instrumented"
+  ],
+  "production_client_trace": "actual Hub.engine_loop and local WebSocket client; separate processing-plus-sleep cadence endpoint",
+  "decision": "W0 current versus fresh process; any overrun or update p95 > 11.688 ms fails timing; no release authority"
+}
