@@ -290,16 +290,24 @@ def test_point_identity_parser_keeps_executables_with_and_without_spaces(monkeyp
 
 
 def test_desktop_point_inventory_binds_cpu_uid_and_birth_in_one_capture(monkeypatch):
+    from research.bl_served_search import host_load
+
+    cmd = "/Applications/Microsoft Outlook.app/Contents/MacOS/Microsoft Outlook"
+    padded_comm = f"{cmd:<{host_load._COMMAND_WIDTH}}"
     monkeypatch.setattr(
         "subprocess.run",
         lambda *args, **kwargs: SimpleNamespace(
             stdout=(
-                "PID PPID UID STARTED %CPU COMMAND\n"
-                "20 1 501 Tue Oct 27 08:00:00 2026 80.0 /Applications/Microsoft Outlook.app/"
-                "Contents/MacOS/Microsoft Outlook\n"
+                "PID PPID UID STARTED %CPU COMMAND ARGS\n"
+                f"20 1 501 Tue Oct 27 08:00:00 2026 80.0 {padded_comm} {cmd} --background\n"
             )
         ),
     )
+    monkeypatch.setattr(
+        host_load, "capture_argv", lambda row: {"argv": [row["command"], "--background"]}
+    )
+    ticks = iter([300, 500])
+    monkeypatch.setattr(host_load.time, "perf_counter_ns", lambda: next(ticks))
     row = probe_host._desktop_point_inventory()[0]
     assert row == {
         "pid": 20,
@@ -307,7 +315,10 @@ def test_desktop_point_inventory_binds_cpu_uid_and_birth_in_one_capture(monkeypa
         "uid": 501,
         "birth": "Tue Oct 27 08:00:00 2026",
         "cpu_percent": 80.0,
-        "command": "/Applications/Microsoft Outlook.app/Contents/MacOS/Microsoft Outlook",
+        "command": cmd,
+        "argv_display": f"{cmd} --background",
+        "argv": [cmd, "--background"],
+        "observation_ns": 400,
     }
 
 

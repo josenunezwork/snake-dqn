@@ -196,21 +196,28 @@ def test_sustained_guard_does_not_bridge_missing_or_long_intervals():
 def test_parse_cumulative_inventory_retains_shared_clock_and_birth(monkeypatch):
     from unittest.mock import Mock
 
+    padded_comm = f"{'/usr/libexec/cloudd':<{load._COMMAND_WIDTH}}"
     capture = Mock(
         return_value=SimpleNamespace(
             stdout=(
-                "PID PPID STARTED TIME COMM\n"
-                "20 1 Tue Oct 27 08:00:00 2026 123:45.67 /usr/libexec/cloudd\n"
+                "PID PPID UID STARTED TIME COMM ARGS\n"
+                f"20 1 0 Tue Oct 27 08:00:00 2026 123:45.67 {padded_comm} "
+                "/usr/libexec/cloudd --daemon\n"
             )
         )
     )
     monkeypatch.setattr(load.subprocess, "run", capture)
+    monkeypatch.setattr(load, "capture_argv", lambda row: {"argv": [row["command"], "--daemon"]})
     ticks = iter([100, 200])
     monkeypatch.setattr(load.time, "perf_counter_ns", lambda: next(ticks))
     result = load.capture_cpu()
     assert result["time_ns"] == 150
     assert result["processes"][0]["birth"] == "Tue Oct 27 08:00:00 2026"
     assert result["processes"][0]["cpu_seconds"] == 7425.67
+    assert result["processes"][0]["command"] == "/usr/libexec/cloudd"
+    assert result["processes"][0]["argv_display"] == "/usr/libexec/cloudd --daemon"
+    assert result["processes"][0]["argv"] == ["/usr/libexec/cloudd", "--daemon"]
+    assert result["processes"][0]["observation_ns"] == 150
 
 
 def test_negative_counter_and_malformed_time_refuse_evidence():

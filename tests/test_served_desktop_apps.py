@@ -1060,3 +1060,345 @@ def test_seeded_randomized_collector_vs_reducer_equivalence_and_tamper_rejection
         with pytest.raises(ValueError):
             background_report._samples(tampered)
         mail_path.write_bytes(sealed_bytes)
+
+
+def test_argv_change_and_capture_failure_permanently_revoke_admitted_process(enrolled):
+    """Finding 1: argv changes and argv capture failures permanently revoke an admitted process."""
+    registry, row, executable, _ = enrolled
+    exe = str(executable)
+    ui_row = {**row, "argv": [exe, "--ordinary-ui"]}
+    bench_row = {**row, "argv": [exe, "--benchmark"]}
+
+    # 1. Point path: [exe, "--ordinary-ui"] -> [exe, "--benchmark"] -> [exe, "--ordinary-ui"]
+    admitted = registry.admit_process(ui_row)
+    assert admitted["kind"] == "desktop_app"
+    assert admitted["reason"] == "enrolled_verified_ui_role"
+
+    changed = registry.classify(bench_row)
+    assert changed["kind"] == "unknown"
+    assert changed["reason"] == "identity_binding_changed"
+    assert changed["identity_binding_changed"] is True
+
+    # Restoring the original argv cannot re-admit the revoked (pid, birth).
+    for restored in (registry.classify(ui_row), registry.admit_process(ui_row)):
+        assert restored["kind"] == "unknown"
+        assert restored["identity_binding_changed"] is True
+
+    # 2. Point path: admitted process loses argv capture (argv_identity_unavailable).
+    row2 = {**row, "pid": 43, "birth": "birth-b"}
+    ui_row2 = {**row2, "argv": [exe, "--ordinary-ui"]}
+    unavail_row2 = {
+        **row2,
+        "argv": [],
+        "identity_observation_error": "argv_identity_unavailable",
+    }
+    assert registry.admit_process(ui_row2)["kind"] == "desktop_app"
+    lost = registry.classify(unavail_row2)
+    assert lost["kind"] == "unknown"
+    assert lost["reason"] == "argv_identity_unavailable"
+    assert lost["identity_binding_changed"] is True
+    for restored in (registry.classify(ui_row2), registry.admit_process(ui_row2)):
+        assert restored["kind"] == "unknown"
+        assert restored["identity_binding_changed"] is True
+
+    # 3. Interval path: argv transition and argv capture failure transition both revoke and replay.
+    row3 = {**row, "pid": 44, "birth": "birth-c"}
+    ui_row3 = {**row3, "argv": [exe, "--ordinary-ui"]}
+    bench_row3 = {**row3, "argv": [exe, "--benchmark"]}
+    s1 = host_load.cpu_interval(
+        _cpu_inventory(0, ui_row3, 1.0),
+        _cpu_inventory(1, ui_row3, 1.1),
+        owner_pid=999_999,
+        desktop_classifier=registry,
+    )
+    assert s1["processes"][0]["kind"] == "desktop_app"
+    s2 = host_load.cpu_interval(
+        _cpu_inventory(1, ui_row3, 1.1),
+        _cpu_inventory(2, bench_row3, 1.2),
+        owner_pid=999_999,
+        desktop_classifier=registry,
+    )
+    p2 = s2["processes"][0]
+    assert p2["kind"] == "unknown"
+    assert p2["classification"]["identity_binding_changed"] is True
+    assert p2["interval_transition"]["reason"] == "argv_changed_no_delta"
+    s3 = host_load.cpu_interval(
+        _cpu_inventory(2, bench_row3, 1.2),
+        _cpu_inventory(3, ui_row3, 1.3),
+        owner_pid=999_999,
+        desktop_classifier=registry,
+    )
+    assert s3["processes"][0]["kind"] == "unknown"
+    assert s3["processes"][0]["classification"]["identity_binding_changed"] is True
+
+    host = _desktop_host(
+        registry,
+        [s1, s2, s3],
+        [{"classified_processes": [], "probe_exempt_pids": []}],
+    )
+    assert len(background_report._samples(host)) == 3
+    with pytest.raises(ValueError, match="desktop identity binding changed in interval evidence"):
+        background_report.validate_desktop_host(host)
+
+
+def test_workload_detected_when_argv_capture_fails_via_argv_display_cwd_and_ancestry(enrolled):
+    """Finding 2 & 5: missing argv keeps workload detection and protected macOS services."""
+    registry, row, executable, _ = enrolled
+    exe = str(executable)
+
+    # Concrete reproduction from Finding 2: argv=[], error set, argv_display has /Projects/ path.
+    with_argv = {
+        **row,
+        "pid": 50,
+        "birth": "b-argv",
+        "argv": [exe, "/Users/owner/Projects/run.js"],
+    }
+    with_display_only = {
+        **row,
+        "pid": 51,
+        "birth": "b-display",
+        "argv": [],
+        "identity_observation_error": "argv_identity_unavailable",
+        "argv_display": f"{exe} /Users/owner/Projects/run.js",
+    }
+    assert registry.admit_process(with_argv)["kind"] == "agent_workload"
+    decision_display = registry.admit_process(with_display_only)
+    assert decision_display["kind"] == "agent_workload"
+    assert classify_exported(with_display_only, registry.read_export())["kind"] == "agent_workload"
+
+    # Workload detection from cwd and ancestry when argv capture fails.
+    with_cwd = {
+        **row,
+        "pid": 52,
+        "birth": "b-cwd",
+        "argv": [],
+        "identity_observation_error": "argv_identity_unavailable",
+        "cwd": "/Users/owner/Projects/snake-dqn",
+    }
+    with_ancestry = {
+        **row,
+        "pid": 53,
+        "birth": "b-ancestry",
+        "argv": [],
+        "identity_observation_error": "argv_identity_unavailable",
+        "ancestry": [{"command": "/opt/homebrew/bin/node", "argv_display": "node worker.js"}],
+    }
+    assert registry.admit_process(with_cwd)["kind"] == "agent_workload"
+    assert registry.admit_process(with_ancestry)["kind"] == "agent_workload"
+
+    # Missing argv without workload evidence never admits as desktop_app.
+    missing_argv = {
+        **row,
+        "pid": 54,
+        "birth": "b-missing-argv",
+        "argv": [],
+        "identity_observation_error": "argv_identity_unavailable",
+        "argv_display": exe,
+    }
+    missing_decision = registry.admit_process(missing_argv)
+    assert missing_decision["kind"] == "unknown"
+    assert missing_decision["reason"] == "argv_identity_unavailable"
+
+    # Protected macOS services whose privileged argv cannot be captured remain macos_service.
+    for idx, service_cmd in enumerate(
+        (
+            "/usr/libexec/syspolicyd",
+            "/usr/libexec/trustd",
+            "/System/Library/PrivateFrameworks/FileProvider.framework/Support/fileproviderd",
+        ),
+        start=60,
+    ):
+        svc_row = {
+            "pid": idx,
+            "birth": f"svc-{idx}",
+            "uid": 0,
+            "command": service_cmd,
+            "argv": [],
+            "identity_observation_error": "argv_identity_unavailable",
+            "argv_display": service_cmd,
+        }
+        svc_decision = registry.admit_process(svc_row)
+        assert svc_decision["kind"] == "macos_service"
+        assert svc_decision["reason"] == "system_executable_root"
+        assert registry.classify(svc_row)["kind"] == "macos_service"
+        assert classify_exported(svc_row, registry.read_export())["kind"] == "macos_service"
+
+
+def test_history_replay_rejects_superseded_identities_history_restarts_and_omitted_transitions(
+    enrolled,
+):
+    """Finding 3: reject superseded states, history restarts/forks, and omitted transitions."""
+    import copy
+
+    registry, row, *_ = enrolled
+    sysctl_row = {
+        "pid": 42,
+        "birth": "b1",
+        "uid": 0,
+        "command": "/usr/sbin/sysctl",
+        "argv": ["/usr/sbin/sysctl"],
+    }
+    s1 = host_load.cpu_interval(
+        _cpu_inventory(0, sysctl_row, 1.0),
+        _cpu_inventory(1, sysctl_row, 1.1),
+        owner_pid=999_999,
+        desktop_classifier=registry,
+    )
+    service_proc = copy.deepcopy(s1["processes"][0])
+    assert service_proc["kind"] == "macos_service"
+
+    # Observe (42, b1) running /usr/local/bin/python3 at 2s.
+    py_row = {
+        "pid": 42,
+        "birth": "b1",
+        "uid": 0,
+        "command": "/usr/local/bin/python3",
+        "argv": ["/usr/local/bin/python3"],
+        "observation_ns": 2_000_000_000,
+    }
+    revoked = registry.classify(py_row)
+    assert revoked["kind"] == "agent_workload"
+    assert revoked["identity_binding_changed"] is True
+
+    # Reuse the earlier [0s, 1s] service row in an interval [3s, 4s] and a point row at 3s.
+    reused_interval_sample = {
+        "start_ns": 3_000_000_000,
+        "end_ns": 4_000_000_000,
+        "capture_start_ns": 3_000_000_000,
+        "capture_end_ns": 4_000_000_000,
+        "coverage_complete": True,
+        "process_churn": [],
+        "background_cpu_percent": service_proc["cpu_percent"],
+        "workload_cpu_percent": 0.0,
+        "unknown_cpu_percent": 0.0,
+        "macos_service_cpu_percent": service_proc["cpu_percent"],
+        "desktop_renderer_cpu_percent": 0.0,
+        "desktop_app_cpu_percent": 0.0,
+        "processes": [{**service_proc, "observation_ns": 4_000_000_000}],
+    }
+    host_interval_reused = _desktop_host(
+        registry,
+        [s1, reused_interval_sample],
+        [{"classified_processes": [], "probe_exempt_pids": []}],
+    )
+    with pytest.raises(ValueError, match="superseded|continuity"):
+        background_report.validate_desktop_host(host_interval_reused)
+
+    # Also test when only [3s, 4s] is in cpu_samples (so replayed_proc_history is empty at 3s).
+    host_single_reused = _desktop_host(
+        registry,
+        [reused_interval_sample],
+        [{"classified_processes": [], "probe_exempt_pids": []}],
+    )
+    with pytest.raises(ValueError, match="desktop process state superseded before observation"):
+        background_report._samples(host_single_reused)
+
+    # Point row at 3s reusing the superseded [0s, 1s] service state.
+    point_reused = {**service_proc, "cpu_percent": 1.0, "observation_ns": 3_000_000_000}
+    host_point_reused = _desktop_host(
+        registry,
+        [s1],
+        [{"classified_processes": [point_reused], "probe_exempt_pids": []}],
+    )
+    with pytest.raises(ValueError, match="desktop process state superseded before observation"):
+        background_report.validate_desktop_host(host_point_reused)
+
+    # Appending {before: None, after: original_service_state} after revocation and resetting
+    # process_history to original_service_state must be rejected by _validate_registry_history.
+    export = registry.read_export()
+    original_service_state = copy.deepcopy(export["history_log"][0]["after"])
+    restarted = copy.deepcopy(export)
+    restarted["history_log"].append(
+        {
+            "pid": 42,
+            "birth": "b1",
+            "observation_ns": 3_000_000_000,
+            "before": None,
+            "after": original_service_state,
+            "row": copy.deepcopy(export["history_log"][0]["row"]),
+        }
+    )
+    restarted["process_history"] = [original_service_state]
+    with pytest.raises(ValueError, match="desktop history log discontinuity"):
+        background_report._validate_registry_history(restarted)
+
+    # Jumping back to an earlier before state (forking from Entry 0 after Entry 1) must fail.
+    forked = copy.deepcopy(export)
+    forked["history_log"].append(
+        {
+            "pid": 42,
+            "birth": "b1",
+            "observation_ns": 3_000_000_000,
+            "before": original_service_state,
+            "after": original_service_state,
+            "row": copy.deepcopy(export["history_log"][0]["row"]),
+        }
+    )
+    forked["process_history"] = [original_service_state]
+    with pytest.raises(ValueError, match="desktop history log discontinuity"):
+        background_report._validate_registry_history(forked)
+
+    # Omitted-transition subcase: deleting interval_transition from sysctl -> unknown interval.
+    registry2, *_ = enrolled
+    unknown_row = {
+        "pid": 77,
+        "birth": "b-trans",
+        "uid": 0,
+        "command": "/tmp/unknown_binary",
+        "argv": ["/tmp/unknown_binary"],
+    }
+    s_trans = host_load.cpu_interval(
+        _cpu_inventory(0, {**sysctl_row, "pid": 77, "birth": "b-trans"}, 1.0),
+        _cpu_inventory(1, unknown_row, 1.1),
+        owner_pid=999_999,
+        desktop_classifier=registry2,
+    )
+    host_omitted = _desktop_host(
+        registry2,
+        [s_trans],
+        [{"classified_processes": [], "probe_exempt_pids": []}],
+    )
+    del host_omitted["cpu_samples"][0]["processes"][0]["interval_transition"]
+    with pytest.raises(ValueError, match="desktop interval transition evidence missing"):
+        background_report._samples(host_omitted)
+
+
+def test_classify_row_is_pure_and_live_exported_semantics_match_identically(enrolled):
+    """Finding 4: classify_row is pure (no disk I/O) and identical for live and exported inputs."""
+    from research.bl_served_search.desktop_apps import classify_row
+
+    registry, row, executable, _ = enrolled
+    same_row_with_admit_true = {**row, "admit": True}
+
+    # Call classify_row before and after mutating executable on disk; output must not change
+    # because classify_row is pure and performs zero filesystem access.
+    out1 = classify_row(None, same_row_with_admit_true, registry)
+    out1_exported = classify_row(None, same_row_with_admit_true, registry.read_export())
+    assert out1 == out1_exported
+    assert out1[0] == "desktop_app"
+    assert out1[2] == "enrolled_verified_ui_role"
+    assert registry._history == {}
+
+    executable.write_bytes(b"mutated on disk")
+    out2 = classify_row(None, same_row_with_admit_true, registry)
+    out2_exported = classify_row(None, same_row_with_admit_true, registry.read_export())
+    assert out2 == out1
+    assert out2_exported == out1
+    assert registry._history == {}
+
+    # Off-tick normalization (normalize_row / admit_process) observes disk replacement and passes
+    # immutable executable_status="executable_replaced" into pure classify_row.
+    normalized = registry.normalize_row(row, admit=True)
+    assert normalized["executable_status"] == "executable_replaced"
+    out_replaced = classify_row(None, normalized, registry)
+    assert out_replaced == classify_row(None, normalized, registry.read_export())
+    assert out_replaced[0] == "unknown"
+    assert out_replaced[2] == "executable_replaced"
+
+    # Parity on uid=None between live DesktopRegistry and exported dict.
+    uid_none_row = {**row, "uid": None, "admit": True}
+    live_uid_none = classify_row(None, uid_none_row, registry)
+    exported_uid_none = classify_row(None, uid_none_row, registry.read_export())
+    assert live_uid_none == exported_uid_none
+    assert live_uid_none[0] == "unknown"
+    assert live_uid_none[2] == "desktop_process_identity_missing"

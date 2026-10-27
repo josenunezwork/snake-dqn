@@ -21,6 +21,28 @@ BACKGROUND_CEILING_PERCENT = 150.0
 BACKGROUND_CEILING_SECONDS = 60.0
 BACKGROUND_KINDS = {"macos_service", "desktop_renderer"}
 DESKTOP_BACKGROUND_KINDS = BACKGROUND_KINDS | {"desktop_app"}
+_COMMAND_WIDTH = 2048
+
+
+def _argv_changed(old: dict[str, Any], row: dict[str, Any]) -> bool:
+    """Return True when argument identity or its capture status changed across an interval."""
+    from research.bl_served_search.desktop_apps import _extract_argv_evidence
+
+    old_argv, old_status, _ = _extract_argv_evidence(old)
+    row_argv, row_status, _ = _extract_argv_evidence(row)
+    if (old_argv, old_status) == (row_argv, row_status):
+        return False
+    cmd = row.get("command")
+    if (
+        isinstance(cmd, str)
+        and cmd == old.get("command")
+        and row.get("uid") == old.get("uid")
+        and cmd.startswith(SYSTEM_EXECUTABLE_ROOTS)
+        and ".." not in Path(cmd).parts
+        and (old_status != "ok" or row_status != "ok")
+    ):
+        return False
+    return True
 
 
 def _workload_kind(command: str, desktop_classifier: Any | None = None) -> str | None:
@@ -132,16 +154,49 @@ def _cpu_seconds(value: str) -> float:
     return total
 
 
-def capture_cpu() -> dict[str, Any]:
-    """Read cumulative process CPU, including protected macOS services.
+def capture_argv(row: dict[str, Any]) -> dict[str, Any]:
+    """Read exact argv, checking birth/executable on both sides of the read."""
+    import psutil
 
-    psutil CPU times are inaccessible for many system PIDs on macOS. ps TIME
-    supplies user+system cumulative CPU at 10ms resolution without that blind spot.
-    The capture bracket discloses that the inventory is not an atomic snapshot.
-    """
+    try:
+        before = psutil.Process(row["pid"])
+        birth = before.create_time()
+        uid = before.uids().effective
+        command = before.exe()
+        argv = before.cmdline()
+        after = psutil.Process(row["pid"])
+        if (
+            birth != after.create_time()
+            or (row.get("uid") is not None and uid != row.get("uid"))
+            or after.uids().effective != uid
+            or " ".join(time.ctime(birth).split()) != row["birth"]
+            or command != row["command"]
+            or after.exe() != command
+            or after.cmdline() != argv
+            or not argv
+        ):
+            return {"argv": [], "identity_observation_error": "argv_identity_verification_failed"}
+        return {"argv": [str(x) for x in argv]}
+    except (psutil.Error, OSError, ValueError, KeyError):
+        return {"argv": [], "identity_observation_error": "argv_identity_unavailable"}
+
+
+def capture_process_table(metric: str) -> tuple[int, int, list[dict[str, Any]]]:
+    """Capture executable and displayed argv together, with PID/birth and CPU."""
+    if metric not in {"time", "pcpu"}:
+        raise ValueError("unsupported process CPU metric")
     started = time.perf_counter_ns()
     result = subprocess.run(
-        ["ps", "-ww", "-Ao", "pid,ppid,uid,lstart,time,comm"],
+        [
+            "ps",
+            "-ww",
+            "-Ao",
+            f"pid,ppid,uid,lstart,{metric}",
+            "-o",
+            "comm=" + "C" * _COMMAND_WIDTH,
+            "-o",
+            "args",
+        ],
         capture_output=True,
         text=True,
         check=True,
@@ -149,25 +204,51 @@ def capture_cpu() -> dict[str, Any]:
         env={**os.environ, "LC_ALL": "C"},
     )
     ended = time.perf_counter_ns()
-    rows = []
+    midpoint = (started + ended) // 2
+    rows: list[dict[str, Any]] = []
     for line in result.stdout.splitlines()[1:]:
         parts = line.split(None, 9)
         if len(parts) not in (9, 10):
-            raise ValueError("unparseable cumulative CPU inventory")
+            raise ValueError(f"unparseable process inventory ({metric})")
         has_uid = len(parts) == 10
         offset = 1 if has_uid else 0
-        rows.append(
-            {
-                "pid": int(parts[0]),
-                "ppid": int(parts[1]),
-                "uid": int(parts[2]) if has_uid else None,
-                "birth": " ".join(parts[2 + offset : 7 + offset]),
-                "cpu_seconds": _cpu_seconds(parts[7 + offset]),
-                "command": parts[8 + offset],
-            }
-        )
+        tail = parts[8 + offset]
+        if len(tail) <= _COMMAND_WIDTH:
+            raise ValueError(f"unparseable process command column ({metric})")
+        command = tail[:_COMMAND_WIDTH].rstrip()
+        argv_display = tail[_COMMAND_WIDTH:].strip()
+        if not command or not argv_display:
+            raise ValueError(f"empty process command ({metric})")
+        row: dict[str, Any] = {
+            "pid": int(parts[0]),
+            "ppid": int(parts[1]),
+            "uid": int(parts[2]) if has_uid else None,
+            "birth": " ".join(parts[2 + offset : 7 + offset]),
+            "metric": parts[7 + offset],
+            "command": command,
+            "argv_display": argv_display,
+            "observation_ns": midpoint,
+        }
+        row.update(capture_argv(row))
+        rows.append(row)
     if not rows:
-        raise ValueError("empty cumulative CPU inventory")
+        raise ValueError(f"empty process inventory ({metric})")
+    return started, ended, rows
+
+
+def capture_cpu() -> dict[str, Any]:
+    """Read cumulative process CPU, including protected macOS services.
+
+    psutil CPU times are inaccessible for many system PIDs on macOS. ps TIME
+    supplies user+system cumulative CPU at 10ms resolution without that blind spot.
+    The capture bracket discloses that the inventory is not an atomic snapshot.
+    """
+    started, ended, raw_rows = capture_process_table("time")
+    rows = []
+    for raw in raw_rows:
+        metric = raw.pop("metric")
+        raw["cpu_seconds"] = _cpu_seconds(metric)
+        rows.append(raw)
     return {
         "time_ns": (started + ended) // 2,
         "capture_start_ns": started,
@@ -211,14 +292,25 @@ def cpu_interval(
         uid_changed = (
             desktop_classifier is not None and old is not None and old.get("uid") != row.get("uid")
         )
-        transition = old is not None and (old["command"] != row["command"] or uid_changed)
+        argv_changed = (
+            desktop_classifier is not None and old is not None and _argv_changed(old, row)
+        )
+        transition = old is not None and (
+            old["command"] != row["command"] or uid_changed or argv_changed
+        )
         if old is None or transition:
             coverage = False
             churn.append(
                 {
                     **row,
                     "reason": (
-                        "uid_changed_no_delta" if uid_changed else "new_or_exec_process_no_delta"
+                        "uid_changed_no_delta"
+                        if uid_changed
+                        else (
+                            "argv_changed_no_delta"
+                            if argv_changed and old is not None and old["command"] == row["command"]
+                            else "new_or_exec_process_no_delta"
+                        )
                     ),
                 }
             )
@@ -232,36 +324,41 @@ def cpu_interval(
         row_history_after = None
         row_admit = False
         if use_step_row:
-            from research.bl_served_search.desktop_apps import (
-                classify_row,
-                decision_from_history,
-            )
+            from research.bl_served_search.desktop_apps import _extract_argv_evidence
 
             if transition:
                 prior_history_before = desktop_classifier.history_for_row(
                     old, snapshot=prior_snapshot
                 )
-                old_input = {**old, "admit": False}
+                old_argv, old_argv_status, _ = _extract_argv_evidence(old)
+                old_input = {**old}
                 if (
                     isinstance(prior_history_before, dict)
-                    and (prior_history_before.get("uid"), prior_history_before.get("command"))
-                    == (old.get("uid"), old.get("command"))
+                    and (
+                        prior_history_before.get("uid"),
+                        prior_history_before.get("command"),
+                        prior_history_before.get("argv"),
+                        prior_history_before.get("argv_status"),
+                    )
+                    == (old.get("uid"), old.get("command"), old_argv, old_argv_status)
                     and isinstance(prior_history_before.get("executable_status"), str)
                     and prior_history_before.get("executable_status")
                 ):
                     old_input["executable_status"] = prior_history_before["executable_status"]
-                prior_kind, prior_history_after, prior_reason = classify_row(
-                    prior_history_before, old_input, desktop_classifier
+                prior_kind, prior_evidence, _, prior_history_after, _ = desktop_classifier.step_row(
+                    old_input,
+                    admit=False,
+                    history_override=prior_history_before,
+                    commit=True,
+                    observation_ns=start,
                 )
-                prior_evidence = decision_from_history(
-                    prior_kind, prior_history_after, prior_reason
+                cur_kind, cur_evidence, _, row_history_after, _ = desktop_classifier.step_row(
+                    row,
+                    admit=False,
+                    history_override=prior_history_after,
+                    commit=True,
+                    observation_ns=end,
                 )
-                desktop_classifier._apply_history(prior_history_before, prior_history_after)
-                cur_kind, row_history_after, reason = classify_row(
-                    prior_history_after, {**row, "admit": False}, desktop_classifier
-                )
-                cur_evidence = decision_from_history(cur_kind, row_history_after, reason)
-                desktop_classifier._apply_history(prior_history_after, row_history_after)
                 kinds = {cur_kind, prior_kind}
                 if "agent_workload" in kinds:
                     kind = "agent_workload"
@@ -274,7 +371,7 @@ def cpu_interval(
                 row_admit = False
             else:
                 kind, evidence, row_history_before, row_history_after, _ = (
-                    desktop_classifier.step_row(row, admit=True)
+                    desktop_classifier.step_row(row, admit=True, observation_ns=end)
                 )
                 row_admit = True
         else:
@@ -329,12 +426,21 @@ def cpu_interval(
                 exported["history_after"] = row_history_after
                 exported["executable_status"] = row_history_after["executable_status"]
                 exported["admit"] = row_admit
+                exported["observation_ns"] = end
             if transition:
                 # Replay needs both identities: this interval's conservative
                 # classification is a precedence over the before/after rows,
                 # not a claim that the after identity supplied all its CPU.
                 transition_export = {
-                    "reason": "uid_changed_no_delta" if uid_changed else "exec_changed_no_delta",
+                    "reason": (
+                        "uid_changed_no_delta"
+                        if uid_changed
+                        else (
+                            "argv_changed_no_delta"
+                            if argv_changed and old["command"] == row["command"]
+                            else "exec_changed_no_delta"
+                        )
+                    ),
                     "previous": dict(old),
                     "previous_classification": (
                         prior_evidence if prior_evidence is not None else {"kind": prior_kind}
@@ -347,6 +453,7 @@ def cpu_interval(
                     transition_export["previous_executable_status"] = prior_history_after[
                         "executable_status"
                     ]
+                    transition_export["previous_observation_ns"] = start
                 exported["interval_transition"] = transition_export
             rows.append(exported)
     for key, row in before.items():

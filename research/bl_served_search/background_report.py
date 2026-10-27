@@ -63,6 +63,8 @@ def _validate_registry_history(
     registry_evidence: Mapping[str, Any],
 ) -> dict[tuple[int, str], list[dict[str, Any]]]:
     """Validate exported per-(pid, birth) history chains and fail-closed permanence."""
+    from research.bl_served_search.desktop_apps import classify_row, decision_from_history
+
     if not isinstance(registry_evidence.get("verified"), Mapping):
         raise ValueError("desktop registry verified map missing")
     for field in (
@@ -77,11 +79,14 @@ def _validate_registry_history(
             raise ValueError(f"desktop registry {field} missing or malformed")
     log_by_proc: dict[tuple[int, str], list[dict[str, Any]]] = {}
     seen_after: dict[tuple[int, str], list[Mapping[str, Any]]] = {}
+    last_obs_by_proc: dict[tuple[int, str], int] = {}
     for entry in registry_evidence["history_log"]:
         if not isinstance(entry, Mapping):
             raise ValueError("malformed desktop history log entry")
         pid, birth = entry.get("pid"), entry.get("birth")
         before, after = entry.get("before"), entry.get("after")
+        obs_ns = entry.get("observation_ns")
+        source_row = entry.get("row")
         if (
             type(pid) is not int
             or pid <= 0
@@ -89,16 +94,23 @@ def _validate_registry_history(
             or not birth
             or not isinstance(after, Mapping)
             or (before is not None and not isinstance(before, Mapping))
+            or type(obs_ns) is not int
+            or obs_ns < 0
+            or not isinstance(source_row, Mapping)
         ):
             raise ValueError("malformed desktop history log state")
         proc_key = (pid, birth)
         if (after.get("pid"), after.get("birth")) != proc_key:
             raise ValueError("desktop history log pid/birth mismatch")
+        if proc_key in last_obs_by_proc and obs_ns < last_obs_by_proc[proc_key]:
+            raise ValueError("desktop history log observation_ns out of order")
+        last_obs_by_proc[proc_key] = obs_ns
         priors = seen_after.setdefault(proc_key, [])
-        if isinstance(before, Mapping):
-            if (before.get("pid"), before.get("birth")) != proc_key or not any(
-                prior == before for prior in priors
-            ):
+        if not priors:
+            if before is not None:
+                raise ValueError("desktop history log initial state must have before=None")
+        else:
+            if not isinstance(before, Mapping) or before != priors[-1]:
                 raise ValueError("desktop history log discontinuity")
             if (before.get("status") == "revoked" or before.get("revoked")) and (
                 after.get("status") != "revoked" or not after.get("revoked")
@@ -106,6 +118,19 @@ def _validate_registry_history(
                 raise ValueError("desktop revoked process re-admitted in history log")
             if before.get("identity_binding_changed") and not after.get("identity_binding_changed"):
                 raise ValueError("desktop identity binding change cleared in history log")
+        replayed_kind, replayed_after, replayed_reason = classify_row(
+            before, source_row, registry_evidence
+        )
+        if replayed_after != dict(after):
+            raise ValueError("desktop history log event replay differs")
+        if "classification" in entry:
+            expected_decision = decision_from_history(
+                replayed_kind, replayed_after, replayed_reason
+            )
+            if not isinstance(entry["classification"], Mapping) or expected_decision != dict(
+                entry["classification"]
+            ):
+                raise ValueError("desktop history log classification replay differs")
         priors.append(after)
         log_by_proc.setdefault(proc_key, []).append(dict(entry))
     hist_by_proc: dict[tuple[int, str], dict[str, Any]] = {}
@@ -142,6 +167,8 @@ def _verify_step_in_log(
     history_before: Mapping[str, Any] | None,
     history_after: Mapping[str, Any],
     log_by_proc: Mapping[tuple[int, str], list[dict[str, Any]]],
+    *,
+    observation_ns: int | None = None,
 ) -> None:
     if proc_key is None:
         return
@@ -149,13 +176,35 @@ def _verify_step_in_log(
     if not entries:
         raise ValueError("desktop process missing from history log")
     if history_before != history_after:
-        if not any(
-            entry["before"] == history_before and entry["after"] == history_after
-            for entry in entries
-        ):
+        matching_indices = [
+            idx
+            for idx, entry in enumerate(entries)
+            if entry["before"] == history_before and entry["after"] == history_after
+        ]
+        if not matching_indices:
             raise ValueError("desktop process transition missing from history log")
-    elif not any(entry["after"] == history_after for entry in entries):
-        raise ValueError("desktop process state missing from history log")
+    else:
+        matching_indices = [
+            idx for idx, entry in enumerate(entries) if entry["after"] == history_after
+        ]
+        if not matching_indices:
+            raise ValueError("desktop process state missing from history log")
+    if type(observation_ns) is int:
+        valid_at_obs = False
+        for idx in matching_indices:
+            entry_ns = entries[idx].get("observation_ns")
+            if type(entry_ns) is int and observation_ns < entry_ns:
+                continue
+            if idx + 1 < len(entries):
+                next_ns = entries[idx + 1].get("observation_ns")
+                if type(next_ns) is int and observation_ns >= next_ns:
+                    continue
+            valid_at_obs = True
+            break
+        if not valid_at_obs:
+            raise ValueError("desktop process state superseded before observation")
+    elif entries[-1]["after"] != history_after:
+        raise ValueError("desktop process state superseded before observation")
 
 
 def _replay_row_strict(
@@ -165,6 +214,9 @@ def _replay_row_strict(
     replayed_proc_history: dict[tuple[int, str], dict[str, Any]] | None = None,
     *,
     is_point: bool = False,
+    sample_start_ns: int | None = None,
+    sample_end_ns: int | None = None,
+    point_obs_ns: int | None = None,
 ) -> dict[str, Any]:
     """Replay a process row via pure ``classify_row`` and require exact reproduction."""
     from research.bl_served_search.desktop_apps import (
@@ -172,6 +224,7 @@ def _replay_row_strict(
         classify_row,
         decision_from_history,
     )
+    from research.bl_served_search.host_load import _argv_changed, classification_evidence
 
     pid, birth = row.get("pid"), row.get("birth")
     proc_key = (
@@ -191,9 +244,24 @@ def _replay_row_strict(
             or (
                 previous.get("uid") == row.get("uid")
                 and previous.get("command") == row.get("command")
+                and not _argv_changed(dict(previous), dict(row))
             )
         ):
             raise ValueError("malformed desktop interval transition identity")
+        if (
+            not is_point
+            and sample_start_ns is not None
+            and "previous_observation_ns" in transition
+            and transition["previous_observation_ns"] != sample_start_ns
+        ):
+            raise ValueError("desktop previous observation timestamp does not match interval")
+        if (
+            not is_point
+            and sample_end_ns is not None
+            and "observation_ns" in row
+            and row["observation_ns"] != sample_end_ns
+        ):
+            raise ValueError("desktop process observation timestamp does not match interval")
         if "previous_history_before" in transition:
             prev_history_before = transition["previous_history_before"]
             if prev_history_before is not None and not isinstance(prev_history_before, Mapping):
@@ -233,17 +301,30 @@ def _replay_row_strict(
             raise ValueError("desktop interval previous history replay differs")
         if "history_before" in row and row["history_before"] != prior_history_after:
             raise ValueError("desktop interval transition history continuity differs")
+        prev_obs = (
+            sample_start_ns
+            if sample_start_ns is not None
+            else (
+                transition.get("previous_observation_ns")
+                if type(transition.get("previous_observation_ns")) is int
+                else None
+            )
+        )
         if log_by_proc is not None and (
             "previous_history_before" in transition
             or (proc_key is not None and proc_key in log_by_proc)
         ):
-            _verify_step_in_log(proc_key, prev_history_before, prior_history_after, log_by_proc)
+            _verify_step_in_log(
+                proc_key,
+                prev_history_before,
+                prior_history_after,
+                log_by_proc,
+                observation_ns=prev_obs,
+            )
         cur_kind, cur_history_after, cur_reason = classify_row(
             prior_history_after, {**row, "admit": False}, registry_evidence
         )
         cur_decision = decision_from_history(cur_kind, cur_history_after, cur_reason)
-        from research.bl_served_search.host_load import classification_evidence
-
         kinds = {cur_kind, prior_kind}
         conservative_kind = (
             "agent_workload"
@@ -258,14 +339,32 @@ def _replay_row_strict(
             raise ValueError("desktop process history replay differs")
         if transition.get("conservative_kind") != conservative_kind:
             raise ValueError("desktop interval conservative classification differs")
+        cur_obs = (
+            sample_end_ns
+            if sample_end_ns is not None
+            else (row.get("observation_ns") if type(row.get("observation_ns")) is int else None)
+        )
         if log_by_proc is not None and (
             "history_after" in row or (proc_key is not None and proc_key in log_by_proc)
         ):
-            _verify_step_in_log(proc_key, prior_history_after, cur_history_after, log_by_proc)
+            _verify_step_in_log(
+                proc_key,
+                prior_history_after,
+                cur_history_after,
+                log_by_proc,
+                observation_ns=cur_obs,
+            )
         if replayed_proc_history is not None and proc_key is not None:
             replayed_proc_history[proc_key] = cur_history_after
         return expected_classification
 
+    if (
+        not is_point
+        and sample_end_ns is not None
+        and "observation_ns" in row
+        and row["observation_ns"] != sample_end_ns
+    ):
+        raise ValueError("desktop process observation timestamp does not match interval")
     if "history_before" in row:
         history_before = row["history_before"]
         if history_before is not None and not isinstance(history_before, Mapping):
@@ -294,6 +393,25 @@ def _replay_row_strict(
     cur_kind, cur_history_after, cur_reason = classify_row(
         history_before, {**row, "admit": admit}, registry_evidence
     )
+    if not is_point and isinstance(history_before, Mapping):
+        if (
+            history_before.get("uid") != cur_history_after.get("uid")
+            or history_before.get("command") != cur_history_after.get("command")
+            or _argv_changed(
+                {
+                    "uid": history_before.get("uid"),
+                    "command": history_before.get("command"),
+                    "argv": history_before.get("argv"),
+                    **(
+                        {"identity_observation_error": "argv_identity_unavailable"}
+                        if history_before.get("argv_status") != "ok"
+                        else {}
+                    ),
+                },
+                dict(row),
+            )
+        ):
+            raise ValueError("desktop interval transition evidence missing")
     cur_decision = decision_from_history(cur_kind, cur_history_after, cur_reason)
     classification = row.get("classification")
     if isinstance(classification, Mapping) and cur_decision != dict(classification):
@@ -304,10 +422,25 @@ def _replay_row_strict(
         )
     if "history_after" in row and cur_history_after != row["history_after"]:
         raise ValueError("desktop process history replay differs")
+    eff_obs_ns = (
+        (row.get("observation_ns") if type(row.get("observation_ns")) is int else point_obs_ns)
+        if is_point
+        else (
+            sample_end_ns
+            if sample_end_ns is not None
+            else (row.get("observation_ns") if type(row.get("observation_ns")) is int else None)
+        )
+    )
     if log_by_proc is not None and (
         "history_before" in row or (proc_key is not None and proc_key in log_by_proc)
     ):
-        _verify_step_in_log(proc_key, history_before, cur_history_after, log_by_proc)
+        _verify_step_in_log(
+            proc_key,
+            history_before,
+            cur_history_after,
+            log_by_proc,
+            observation_ns=eff_obs_ns,
+        )
     if replayed_proc_history is not None and proc_key is not None:
         replayed_proc_history[proc_key] = cur_history_after
     return cur_decision
@@ -320,8 +453,13 @@ def _replay_kind(
     replayed_proc_history: dict[tuple[int, str], dict[str, Any]] | None = None,
     *,
     is_point: bool = False,
+    sample_start_ns: int | None = None,
+    sample_end_ns: int | None = None,
+    point_obs_ns: int | None = None,
 ) -> dict[str, Any]:
     """Replay both identities of an interval transition with conservative precedence."""
+    from research.bl_served_search.host_load import _argv_changed
+
     if _has_full_desktop_history(registry_evidence):
         return _replay_row_strict(
             row,
@@ -329,6 +467,9 @@ def _replay_kind(
             log_by_proc,
             replayed_proc_history,
             is_point=is_point,
+            sample_start_ns=sample_start_ns,
+            sample_end_ns=sample_end_ns,
+            point_obs_ns=point_obs_ns,
         )
     transition = row.get("interval_transition")
     if transition is None:
@@ -342,7 +483,11 @@ def _replay_kind(
         or not isinstance(prior_classification, Mapping)
         or previous.get("pid") != row.get("pid")
         or previous.get("birth") != row.get("birth")
-        or (previous.get("uid") == row.get("uid") and previous.get("command") == row.get("command"))
+        or (
+            previous.get("uid") == row.get("uid")
+            and previous.get("command") == row.get("command")
+            and not _argv_changed(dict(previous), dict(row))
+        )
     ):
         raise ValueError("malformed desktop interval transition identity")
     current = _replay_identity(row, registry_evidence)
@@ -468,6 +613,8 @@ def _samples(host_evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
                     registry_evidence,
                     log_by_proc,
                     replayed_proc_history,
+                    sample_start_ns=start,
+                    sample_end_ns=end,
                 )
                 if replay.get("kind") != process["kind"]:
                     raise ValueError("desktop registry replay differs")
@@ -757,6 +904,15 @@ def validate_desktop_host(host_evidence: Mapping[str, Any]) -> None:
         ):
             raise ValueError("desktop point screen evidence missing")
         exempt_pids = set(exempt)
+        obs_level_ns = (
+            screen.get("observation_ns")
+            if type(screen.get("observation_ns")) is int
+            else (
+                observation.get("observation_ns")
+                if type(observation.get("observation_ns")) is int
+                else None
+            )
+        )
         for process in processes:
             if not isinstance(process, Mapping) or type(process.get("pid")) is not int:
                 raise ValueError("malformed desktop point process")
@@ -768,6 +924,7 @@ def validate_desktop_host(host_evidence: Mapping[str, Any]) -> None:
                 registry_evidence,
                 log_by_proc,
                 is_point=True,
+                point_obs_ns=obs_level_ns,
             )
             if (
                 not isinstance(classification, Mapping)

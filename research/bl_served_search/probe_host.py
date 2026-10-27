@@ -52,32 +52,18 @@ def _point_identities() -> dict[int, dict[str, Any]]:
 
 
 def _desktop_point_inventory() -> list[dict[str, Any]]:
-    """Capture desktop point CPU and identity in one process-table observation."""
-    import subprocess
+    """Capture desktop point CPU, displayed args, argv, and identity in one observation."""
+    from research.bl_served_search.host_load import capture_process_table
 
-    result = subprocess.run(
-        ["ps", "-ww", "-Ao", "pid,ppid,uid,lstart,pcpu,comm"],
-        capture_output=True,
-        check=True,
-        text=True,
-        timeout=10,
-        env={**os.environ, "LC_ALL": "C"},
-    )
+    try:
+        _, _, raw_rows = capture_process_table("pcpu")
+    except ValueError as exc:
+        raise RuntimeError("unparseable classified point inventory") from exc
     rows: list[dict[str, Any]] = []
-    for line in result.stdout.splitlines()[1:]:
-        fields = line.split(None, 9)
-        if len(fields) != 10:
-            raise RuntimeError("unparseable classified point inventory")
-        rows.append(
-            {
-                "pid": int(fields[0]),
-                "ppid": int(fields[1]),
-                "uid": int(fields[2]),
-                "birth": " ".join(fields[3:8]),
-                "cpu_percent": float(fields[8]),
-                "command": fields[9],
-            }
-        )
+    for raw in raw_rows:
+        metric = raw.pop("metric")
+        raw["cpu_percent"] = float(metric)
+        rows.append(raw)
     return rows
 
 
@@ -172,6 +158,11 @@ def foreign_load(
                 row["history_after"] = history_after
                 row["executable_status"] = history_after["executable_status"]
                 row["admit"] = bool(admit_desktop)
+                if (
+                    "observation_ns" not in row
+                    and getattr(desktop_classifier, "_last_observation_ns", None) is not None
+                ):
+                    row["observation_ns"] = desktop_classifier._last_observation_ns
             else:
                 kind = process_kind(command, desktop_classifier, row)
                 if desktop_classifier is not None:
