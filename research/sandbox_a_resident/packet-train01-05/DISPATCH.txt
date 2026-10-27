@@ -1,0 +1,18 @@
+TRAIN-01-05: simulator-D development; Argon MAJOR H5000 storage cap repair only.
+Runtime pin: b4225e2540c6b0cdb2e00e2ce84debc8296f5deb
+Clean detached runtime: /Users/josenunez/Projects/ml/snake-dqn-train01-05-runtime.noindex
+Clean detached broker: /Users/josenunez/Projects/ml/snake-dqn-train01-05-broker.noindex
+Broker HEAD seals this packet; runtime source bytes match the published pin.
+Open plus staged storage cap: 160000 rows; worst case 24*5000 + 7*5000 + 255 = 155255, margin 4745.
+Real collector guard tests admit 155255 rows and refuse 160001 rows.
+Endpoint, controls, 114299008-seed audit, eight-life batching and runtime recipe unchanged.
+Empty allocation-bound ledger; fresh job/output/state identities; prior packets preserved.
+Timeout: 8-hour base / 16-hour effective guard; no efficacy or release claim.
+Manual outcome-blind completion only through training_completion.py.
+CPU tests do not qualify A100 kernels, timing or Inductor behavior.
+Preflight and dry-run allocate no runtime; this packet has not been dispatched.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-05-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-05 /Users/josenunez/Projects/ml/snake-dqn-train01-05-broker.noindex/research/sandbox_a_resident/packet-train01-05/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-05-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-05-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-05/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-05-broker.noindex/research/sandbox_a_resident/packet-train01-05/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve both clean detached checkouts and prior evidence.
