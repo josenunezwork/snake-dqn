@@ -17,9 +17,11 @@ from research.sandbox_a_resident.units import digest, publish, verified_descript
 NAMESPACE = "a100-dev/sandbox-a/train01"
 SCHEMA = "sandbox-a-train-ledger/v1"
 SOURCE_MIGRATION_SCHEMA = "sandbox-a-train-source-migration/v1"
-# Train01-08 may continue only exports produced by the frozen train01-07
-# implementation.  This is intentionally not a general source-trust list.
+# Explicit frozen predecessor pins whose verified snapshots may be migrated to a
+# source-only successor.  This is intentionally not a general source-trust list.
 TRAIN01_07_SOURCE_COMMIT = "152af938acc32da6aeea9fcb5a300f470d96c53c"
+TRAIN01_11_SOURCE_COMMIT = "e86e4b0bc8ea37550103b14652878d1b63f5b0e1"
+ALLOWED_MIGRATION_SOURCE_COMMITS = frozenset({TRAIN01_07_SOURCE_COMMIT, TRAIN01_11_SOURCE_COMMIT})
 
 
 def allocation(control: dict[str, Any]) -> str:
@@ -45,7 +47,7 @@ def source_migration(
     if (
         not isinstance(source_control.get("source_commit"), str)
         or not isinstance(target_control.get("source_commit"), str)
-        or source_control["source_commit"] != TRAIN01_07_SOURCE_COMMIT
+        or source_control["source_commit"] not in ALLOWED_MIGRATION_SOURCE_COMMITS
         or {key: value for key, value in source_control.items() if key != "source_commit"}
         != {key: value for key, value in target_control.items() if key != "source_commit"}
     ):

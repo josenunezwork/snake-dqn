@@ -11,7 +11,11 @@ import torch
 
 from research.sandbox_a_resident import train
 from research.sandbox_a_resident.test_training_runner import Actor, Critic, Task
-from research.sandbox_a_resident.training_units import TRAIN01_07_SOURCE_COMMIT, source_migration
+from research.sandbox_a_resident.training_units import (
+    TRAIN01_07_SOURCE_COMMIT,
+    TRAIN01_11_SOURCE_COMMIT,
+    source_migration,
+)
 
 
 @pytest.fixture
@@ -429,3 +433,42 @@ def test_predecessor_iteration16_catches_up_diagnostic_once(production, tmp_path
         sum(row.get("proxy", {}).get("kind") == "diagnostic-update-16" for row in result["metrics"])
         == 1
     )
+
+
+def test_train01_11_iteration0_migration_skips_preparation_and_rebinds_proxy_cache(
+    production, tmp_path, monkeypatch
+):
+    control, prep_calls = production
+    predecessor = train.TrainControl("sandbox-a-train01", TRAIN01_11_SOURCE_COMMIT, 0)
+    for field in (
+        "worlds",
+        "outer_iterations",
+        "rollout_horizon",
+        "proxy_worlds_per_mix",
+        "proxy_horizon",
+        "compile_mode",
+    ):
+        object.__setattr__(predecessor, field, getattr(control, field))
+    execute(predecessor, tmp_path / "attempt11")
+    assert prep_calls == ["screen", "prepare"]
+    saved = tmp_path / "attempt11/iteration-0000.pt"
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(
+        json.dumps({"source_migration": source_migration(asdict(predecessor), asdict(control))})
+    )
+    monkeypatch.setattr(
+        train,
+        "load_ledger",
+        lambda *args, **kwargs: {0: {"iteration": 0, "exports": [{"path": str(saved)}]}},
+    )
+    eval_calls = []
+    monkeypatch.setattr(train, "evaluate", lambda *args: eval_calls.append(args) or {})
+    result = execute(control, tmp_path / "attempt12", ledger=ledger)
+    # Screen, preparation, and B8 baseline proxy are not repeated on attempt12.
+    assert prep_calls == ["screen", "prepare"]
+    assert eval_calls == []
+    migration = next(
+        row["proxy_cache_migration"] for row in result["metrics"] if "proxy_cache_migration" in row
+    )
+    assert migration["from_source_commit"] == TRAIN01_11_SOURCE_COMMIT
+    assert migration["to_source_commit"] == control.source_commit

@@ -78,6 +78,41 @@ def categorical(logits: torch.Tensor, legal_mask: torch.Tensor) -> torch.distrib
     )
 
 
+def masked_categorical_kl(
+    reference: torch.distributions.Categorical,
+    distribution: torch.distributions.Categorical,
+    legal_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Return forward KL D_KL(reference || distribution) over canonical legal support.
+
+    PyTorch's ``_kl_categorical_categorical`` unconditionally overwrites terms
+    where ``q.probs == 0`` with ``+inf``.  Under the calibrated policy
+    temperature (T ~ 0.00844), a finite legal logit <= -103.972084 underflows
+    float32 ``exp()`` to ``0.0`` even though the action remains in support and
+    ``distribution.logits`` is finite.  Evaluate the KL directly from the
+    normalized log-probabilities over legal actions with positive reference
+    mass so float32 probability underflow never synthesizes ``+inf``.
+    """
+    legal = canonical_legal_mask(legal_mask)
+    active = legal & (reference.probs > 0)
+    ref_logp = reference.logits.masked_fill(~active, 0.0)
+    act_logp = distribution.logits.masked_fill(~active, 0.0)
+    terms = (reference.probs * (ref_logp - act_logp)).masked_fill(~active, 0.0)
+    return terms.sum(dim=-1)
+
+
+def masked_categorical_entropy(
+    distribution: torch.distributions.Categorical,
+    legal_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Return Shannon entropy over canonical legal support without -FLT_MAX products."""
+    legal = canonical_legal_mask(legal_mask)
+    active = legal & (distribution.probs > 0)
+    logp = distribution.logits.masked_fill(~active, 0.0)
+    p_log_p = (logp * distribution.probs).masked_fill(~active, 0.0)
+    return -p_log_p.sum(dim=-1)
+
+
 class B8Actor(nn.Module):
     """A fully trainable B8 trunk and six-logit head, initialized at B8 / temperature."""
 

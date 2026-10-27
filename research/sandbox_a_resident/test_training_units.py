@@ -7,6 +7,7 @@ import pytest
 
 from research.sandbox_a_resident.training_units import (
     TRAIN01_07_SOURCE_COMMIT,
+    TRAIN01_11_SOURCE_COMMIT,
     allocation,
     empty_ledger,
     load_ledger,
@@ -94,3 +95,32 @@ def test_source_migration_accepts_only_bound_train01_07_snapshot_and_new_pin(
     ledger.write_text(json.dumps(bad))
     with pytest.raises(ValueError, match="does not exactly"):
         load_ledger(ledger, successor)
+
+
+def test_source_migration_accepts_bound_train01_11_iteration0_snapshot(
+    tmp_path: Path,
+) -> None:
+    predecessor = {**control(), "source_commit": TRAIN01_11_SOURCE_COMMIT}
+    successor = {**predecessor, "source_commit": "d" * 40}
+    unit = publish_snapshot(
+        tmp_path,
+        0,
+        lambda path: path.write_bytes(b"post-prep-state"),
+        metadata={
+            "allocation": allocation(predecessor),
+            "source_commit": predecessor["source_commit"],
+            "phase": "pre-actor",
+            "prepare_phase": "ready",
+        },
+    )
+    ledger = tmp_path / "migration-11.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                **empty_ledger(successor),
+                "units": [unit],
+                "source_migration": source_migration(predecessor, successor),
+            }
+        )
+    )
+    assert list(load_ledger(ledger, successor)) == [0]

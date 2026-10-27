@@ -12,7 +12,12 @@ from research.sandbox_a_resident.training_resume import (
     build_ledger,
     completion_packet,
 )
-from research.sandbox_a_resident.training_units import TRAIN01_07_SOURCE_COMMIT, allocation, unit_id
+from research.sandbox_a_resident.training_units import (
+    TRAIN01_07_SOURCE_COMMIT,
+    TRAIN01_11_SOURCE_COMMIT,
+    allocation,
+    unit_id,
+)
 from research.sandbox_a_resident.units import publish
 
 
@@ -346,3 +351,19 @@ def test_completion_packet_rebinds_only_verified_train01_07_snapshot_to_template
     assert packet.manifest["inputs"][0] == target_input
     assert packet.ledger["source_migration"]["from_source_commit"] == TRAIN01_07_SOURCE_COMMIT
     assert packet.ledger["source_migration"]["to_source_commit"] == successor["source_commit"]
+
+
+def test_build_ledger_binds_train01_11_post_preparation_snapshot_to_successor(
+    tmp_path: Path,
+) -> None:
+    predecessor = {**control(), "source_commit": TRAIN01_11_SOURCE_COMMIT}
+    successor = {**predecessor, "source_commit": "e" * 40}
+    snapshot(tmp_path, 0, phase="pre-actor", prepare_phase="ready", header_control=predecessor)
+    ledger, records, latest = build_ledger(tmp_path, successor, source_control=predecessor)
+    assert latest == 0
+    assert [row["iteration"] for row in ledger["units"]] == [0]
+    assert len(records) == 9
+    migration = ledger["source_migration"]
+    assert migration["from_source_commit"] == TRAIN01_11_SOURCE_COMMIT
+    assert migration["to_source_commit"] == successor["source_commit"]
+    assert ledger["allocation"] == allocation(successor)

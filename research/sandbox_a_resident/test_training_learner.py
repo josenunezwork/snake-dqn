@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 
 import pytest
 import torch
@@ -16,7 +17,13 @@ from research.sandbox_a_resident.training_learner import (
     compute_gae,
     critic_quality,
 )
-from research.sandbox_a_resident.training_model import B8Actor, ClockedPopArtCritic, categorical
+from research.sandbox_a_resident.training_model import (
+    B8Actor,
+    ClockedPopArtCritic,
+    categorical,
+    masked_categorical_entropy,
+    masked_categorical_kl,
+)
 from src.model.ego2s_network import Ego2sNet
 
 
@@ -308,3 +315,130 @@ def test_complete_life_critic_rejects_tiny_tail_batch() -> None:
             torch.ones(3),
             minibatch=2,
         )
+
+
+def test_calibrated_temperature_subnormal_kl_underflow_regression_and_finite_telemetry(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Reproduce train01-11's float32 exp() underflow at T=0.00843973 on real snapshot shapes."""
+    torch.set_num_threads(1)
+    torch.manual_seed(11)
+    temperature = 0.008439731318504158
+    b8 = Ego2sNet(local_channels=7, n_scalars=60)
+    with torch.no_grad():
+        # Match train01-11's logit separation: action 1 is greedy (+0.3406) and
+        # legal action 2 is suboptimal (-0.5100), so reference log-prob for
+        # action 2 is ~ -100.78 (subnormal prob > 0) and a tiny head update
+        # pushes actor log-prob past -103.972084 where float32 exp() underflows.
+        b8.adv.weight.zero_()
+        b8.adv.bias.copy_(
+            torch.tensor([0.1345, 0.3406, -0.5098, 0.1553, 0.2392, -0.2513], dtype=torch.float32)
+        )
+    actor = B8Actor(b8_model=b8, temperature=temperature)
+    critic = ClockedPopArtCritic(b8)
+    with torch.no_grad():
+        critic.mean.fill_(1050.4837646484375)
+        critic.scale.fill_(757.6934814453125)
+        critic.second_moment.fill_(1677615.625)
+        critic.debias.fill_(0.6244643330574036)
+
+    # Direct check of the exact train01-11 row-71 logits where reference prob is
+    # subnormal (1.6815582e-44) and actor prob underflows to 0.0 in float32.
+    ref_logits = torch.tensor(
+        [[15.936467, 40.362400, -60.401756, 18.406952, 28.346058, -29.774279]],
+        dtype=torch.float32,
+    )
+    act_logits = torch.tensor(
+        [[15.399835, 41.591217, -62.578457, 18.901131, 29.581945, -30.243114]],
+        dtype=torch.float32,
+        requires_grad=True,
+    )
+    legal_mask = torch.tensor([[True, True, True, True, True, False]])
+    ref_dist = categorical(ref_logits, legal_mask)
+    act_dist = categorical(act_logits, legal_mask)
+    assert ref_dist.probs[0, 2].item() > 0.0
+    assert act_dist.probs[0, 2].item() == 0.0
+    assert torch.isinf(torch.distributions.kl_divergence(ref_dist, act_dist)).all()
+
+    safe_kl = masked_categorical_kl(ref_dist, act_dist, legal_mask)
+    safe_entropy = masked_categorical_entropy(act_dist, legal_mask)
+    assert torch.isfinite(safe_kl).all()
+    assert torch.isfinite(safe_entropy).all()
+    (safe_kl.sum() - 2000.0 * safe_entropy.sum()).backward()
+    assert act_logits.grad is not None and torch.isfinite(act_logits.grad).all()
+
+    # Full PPOTrainer.update on real snapshot shapes (2 ticks x 3 worlds) where
+    # action 2 sits below -103.972084 while sampled greedy action 1 keeps
+    # old_kl == 0 <= kl_stop, so the minibatch evaluates that underflowed action.
+    rollout = make_rollout(actor, critic, time=2, worlds=3)
+    rollout.actions.fill_(1)
+    with torch.no_grad():
+        flat_logits = actor(
+            rollout.local.flatten(0, 1),
+            rollout.glob.flatten(0, 1),
+            rollout.scalars.flatten(0, 1),
+        )
+        rollout.logp.copy_(
+            categorical(flat_logits, rollout.legal_masks.flatten(0, 1))
+            .log_prob(rollout.actions.flatten())
+            .reshape_as(rollout.logp)
+        )
+        rollout.rewards.copy_(torch.tensor([[10.0, -5.0, 2.0], [-8.0, 6.0, -1.0]]))
+        actor.adv.bias[2] -= 3.5
+
+    trainer = PPOTrainer(actor, critic, PPOConfig(minibatch=3))
+    capsys.readouterr()
+    result = trainer.update(rollout)
+    captured = capsys.readouterr().out
+    assert all(torch.isfinite(torch.tensor(val)) for val in result.values())
+    progress_lines = [
+        json.loads(line.removeprefix("TRAIN01_PROGRESS ").strip())
+        for line in captured.splitlines()
+        if line.startswith("TRAIN01_PROGRESS ")
+    ]
+    assert progress_lines == [
+        {
+            "finite": True,
+            "first_nonfinite_term": None,
+            "stage": "learner-finite-check",
+            "update": 1,
+        }
+    ]
+
+
+def test_pre_update_finite_check_telemetry_names_first_nonfinite_term(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When any learner term becomes non-finite, telemetry names the exact first term."""
+    torch.set_num_threads(1)
+    b8 = Ego2sNet(local_channels=7, n_scalars=60)
+    actor, critic = B8Actor(b8_model=b8), ClockedPopArtCritic(b8)
+    trainer = PPOTrainer(actor, critic, PPOConfig(minibatch=3))
+    rollout = make_rollout(actor, critic, time=2, worlds=3)
+    actor_before = copy.deepcopy(actor.state_dict())
+
+    monkeypatch.setattr(
+        "research.sandbox_a_resident.training_learner.masked_categorical_kl",
+        lambda ref, dist, mask: torch.full(mask.shape[:-1], float("inf"), device=mask.device),
+    )
+    capsys.readouterr()
+    with pytest.raises(FloatingPointError, match="first_nonfinite_term=reference_kl"):
+        trainer.update(rollout)
+    captured = capsys.readouterr().out
+    progress_lines = [
+        json.loads(line.removeprefix("TRAIN01_PROGRESS ").strip())
+        for line in captured.splitlines()
+        if line.startswith("TRAIN01_PROGRESS ")
+    ]
+    assert progress_lines == [
+        {
+            "epoch": 1,
+            "finite": False,
+            "first_nonfinite_term": "reference_kl",
+            "minibatch": 1,
+            "stage": "learner-finite-check",
+            "update": 1,
+        }
+    ]
+    for key, before in actor_before.items():
+        torch.testing.assert_close(actor.state_dict()[key], before, rtol=0, atol=0)
