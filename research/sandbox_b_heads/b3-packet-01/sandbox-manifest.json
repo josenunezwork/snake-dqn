@@ -1,0 +1,10 @@
+{
+"schema": "standing-a100-development-sandbox/v1", "study": "sandbox-b-heads-v3",
+"inputs": [{"dose": "D1024", "kind": "closed-f0", "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/inputs/d1024-allowed.npz", "sha256": "91647489f1f6d1f35e03dac6cec17da496d4c08de08f1bd8f27d0bf60b880e99"}, {"kind": "frozen-checkpoint", "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth", "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"}, {"kind": "verified-ledger", "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b3-packet-01/verified-ledger.json", "sha256": "f30c25fcf580fdb9924891545e673907fda8628c9b4bcb15d116fe5676d4afc4"}, {"kind": "registry", "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/sandbox/SANDBOX_INPUT_REGISTRY.json", "sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c"}],
+"salt": "a100-dev/sandbox-b/split-v1",
+"endpoint": {"kind": "updates", "value": 6000, "broker_manifest": "research/sandbox_b_heads/b3-packet-01/dispatch-manifest.json"},
+"timeout": {"base_seconds": 3600.0, "purpose": "runaway-guard", "seconds": 7200.0},
+"excluded_studies": ["F5", "F4-fold-0", "R30", "strict", "probe", "serving"],
+"owner_rule": "docs/research/governance_a100_sandbox_20261026/ADOPTED.md#2-governance-adopt-this-rule-text", "outputs": {"broker_manifest": {"path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b3-packet-01/dispatch-manifest.json", "sha256": "41f74df87557beedd22c739890078216a80d210518a3c815142ba40f2c956376"}, "label": "simulator-D", "paths": ["checkpoints", "units", "results.json", "results.csv", "pareto.json", "verified-ledger.json", "timing.json", "checkpoints.tar"]},
+"crossing": {"max_frozen_checkpoint_shas": 1}
+}

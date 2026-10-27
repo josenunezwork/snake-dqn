@@ -1,0 +1,111 @@
+{
+  "allocation": "split-v1",
+  "fingerprint": "29a4605c35fcb8599f5a7dbab740508b269fa8bce2905c112bb0a608880fded9",
+  "namespace": "a100-dev/sandbox-b/heads-v3",
+  "recipe": {
+    "algorithm": "direct-survival-b3/v1",
+    "b8_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "batch_size": 512,
+    "configs": [
+      {
+        "inputs": "phi",
+        "k": 5,
+        "updates": 0
+      },
+      {
+        "inputs": "phi",
+        "k": 15,
+        "updates": 0
+      },
+      {
+        "inputs": "phi",
+        "k": 50,
+        "updates": 0
+      },
+      {
+        "inputs": "phi_q",
+        "k": 5,
+        "updates": 0
+      },
+      {
+        "inputs": "phi_q",
+        "k": 15,
+        "updates": 0
+      },
+      {
+        "inputs": "phi_q",
+        "k": 50,
+        "updates": 0
+      },
+      {
+        "inputs": "phi",
+        "k": 0,
+        "updates": 500
+      },
+      {
+        "inputs": "phi",
+        "k": 0,
+        "updates": 1500
+      },
+      {
+        "inputs": "phi_q",
+        "k": 0,
+        "updates": 500
+      },
+      {
+        "inputs": "phi_q",
+        "k": 0,
+        "updates": 1500
+      },
+      {
+        "inputs": "phi_q_geometry",
+        "k": 0,
+        "updates": 500
+      },
+      {
+        "inputs": "phi_q_geometry",
+        "k": 0,
+        "updates": 1500
+      }
+    ],
+    "data_sha256": "91647489f1f6d1f35e03dac6cec17da496d4c08de08f1bd8f27d0bf60b880e99",
+    "implementation_sha256": {
+      "core_b2.py": "3ca8bc923f020f7f8e2aa231d6d6987a0b535fc150ef77993d94138f04765aea",
+      "core_b3.py": "755068cd09be0494b1ee466121566fe67dfcbaaa39dbdeef7ed838cfa849623e",
+      "geometry_b3.py": "5dcd4b770ddc8059c8b4b18edb0959e3e0a765ae2a287f4b3d187caa46c7cf0b",
+      "job.py": "b5cd1096e5efbe04f6c79d46938c29a0fbe64fc9091932dcbf0e3075ef767c48",
+      "job_b2.py": "7f17ea0602a12997f762ec6cf56e5fec1c9283c1bd48e62e8dfbfbcfc80b7b51",
+      "job_b3.py": "601f4a8521581d50eaafb2c201498b0270d393a7af44835ab1b9eeaec55836db",
+      "model.py": "50cc1d6e248637f1fee146345e9483be5714bec7c4c577f77f88f976348cb9d8",
+      "model_b2.py": "11cf492e3957004d631b5fbfa01323783e345fd0acf0daac928b74bc38ac71f9",
+      "resume.py": "6bcd27e1655634256f0342e1350813a8db54438e4b30c9ba472a1d93826c8093",
+      "resume_b2.py": "4ae55892bb49226775762ad2d4f0bfd1b31b36e472703b748ef737b4dcb695f5",
+      "resume_b3.py": "188821f44187bc46dbc61857702a24d3d00cd3abab7a9ff8dcf8262a2c26acdf",
+      "retrieval_b3.py": "10debe36815058544630aab8de4837085b4017ab0335ccf892a75b8c3185a018"
+    },
+    "learning_rate": 0.003,
+    "salt": "a100-dev/sandbox-b/split-v1",
+    "seed": 3403,
+    "shared_implementation_sha256": {
+      "research/a100_a2/model.py": "ea257e88b9021d2075e7c9437c7f2d9fe8eb26f061fd17744eee4766e5ca65aa",
+      "research/bl_residual/data.py": "7273c09302bce5c2e09bb8abe92424e70df2b142d83c0a33ec42c36b8026a980",
+      "research/sandbox_b_heads/requirements_b3.txt": "ec9fa3e60722ab0ad996d10167ef8423c549e194d18faaca2ffe49bd9c49d322",
+      "research/sandbox_b_heads/run_b3.sh": "e3a290d57db853e954302566fdced552fbc906b79e1d3b8a49de03a8a295a106",
+      "src/core/config_loader.py": "daa73b3bc69e3f172d6ebaab9dea5e3785ee7781721417958afedd3f7e234574",
+      "src/core/device_manager.py": "2957fac215fb43f6f7793daa4dcbf1277bca543791a58eeac096d31085c1d427",
+      "src/core/game_config.py": "e763c0f44f8d0263b10bbca188ab0ff60e5179be37fa8b05f244a1468f2122bb",
+      "src/core/runtime_contract.py": "2deb892c1d2166290b2a55c611a5ee09d6b218f84f5efecedb8444d76d40095f",
+      "src/model/apex_network.py": "a40368a8d7b38764a4f8c1a88a59d13d97ee3c2daaaac1da63affe2638cf16d1",
+      "src/model/base_network.py": "c9dc1667261eb99f4805f28dbb90727b071bec29d329e86eb094ca1c8b7ec5ca",
+      "src/model/checkpoint_io.py": "27910d442d7e18124bf242561bbfab16c5f01bfec29d9d3eedd7cdf6d01a3d85",
+      "src/model/checkpoint_manager.py": "d2cc7cd0eefa4286743b3b36d734e6a9f7d576af2abb4d7cd3298335335bbd73",
+      "src/model/ego2s_network.py": "06b262b7ad4bc89ff4d46caff37090635fe32b81008fa91d5956b34d940345a9",
+      "src/model/obs_spec.py": "863bad5420e696697dbf53ba77e537941efc3cbc2f85c5c01c6eb9e0bd01c451",
+      "tools/sandbox/registry.py": "f1cf507e17d2b9dee596ae404d81da773c5d4672c51692244a7faa5f8379ab96"
+    },
+    "smoke_rows": 0,
+    "updates": 0
+  },
+  "schema": "sandbox-b-verified-ledger/v5",
+  "units": []
+}
