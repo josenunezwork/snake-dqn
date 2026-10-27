@@ -1,0 +1,21 @@
+TRAIN-01-07: simulator-D development; Argon terminal-support, immutable-diagnostics and telemetry fixes.
+Runtime pin: 152af938acc32da6aeea9fcb5a300f470d96c53c
+Clean detached runtime: /Users/josenunez/Projects/ml/snake-dqn-train01-07-runtime.noindex
+Clean detached broker: /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex
+Broker HEAD seals this packet; runtime closure matches published pin.
+Fresh E32 startup engineering screen: all three mixes, both engines, 256-frame early-life prefix of H5000 tasks.
+Death-rate/cause comparisons require >=16 terminal events in BOTH arms per mix; otherwise insufficient_support.
+Other metrics retain the 25% gate; supported death metrics retain the same threshold.
+Watchdog refuses existing diagnostic .sha256/.complete sidecars before opening payloads.
+Screen progress uses stable task class names; test-only reports list actual mixes.
+Complete H5000 diagnostic remains callable. Verified full-trajectory resume skips the startup screen.
+No attempt-05 calibration-only state migrated; fresh source-bound empty ledger.
+Preparation retained rows own storage; <=60s timed progress; 900s no-progress native watchdog.
+Parent launcher seals stack/last-progress diagnostics after child exit, preserving nonzero code.
+Frozen recipe, endpoint, seed allocations and 2x time envelope unchanged.
+CPU checks do not qualify A100 kernels/timing/Inductor; no runtime dispatched.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-07 /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex/research/sandbox_a_resident/packet-train01-07/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-07-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-07/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex/research/sandbox_a_resident/packet-train01-07/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve both detached checkouts and historical evidence.
