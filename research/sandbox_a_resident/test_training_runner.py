@@ -71,3 +71,24 @@ def test_collector_stores_normal_action_support_for_boxed_in_rows():
     assert rollout.legal_masks[:, 0].tolist() == [[True, True, True, False, False, False]] * 2
     assert (rollout.actions[:, 0] < 3).all()
     assert rollout.legal_masks.gather(-1, rollout.actions[..., None]).all()
+
+
+def test_collection_progress_preserves_actions_and_exact_rollout(monkeypatch):
+    from research.sandbox_a_resident import train
+
+    expected = collect(Task(), Actor(), Critic(), 2, torch.Generator().manual_seed(3))
+    clock = iter(range(0, 10000, 61))
+    monkeypatch.setattr(train.time, "monotonic", lambda: next(clock))
+    messages = []
+    actual = collect(
+        Task(),
+        Actor(),
+        Critic(),
+        2,
+        torch.Generator().manual_seed(3),
+        on_progress=lambda stage, values: messages.append((stage, values)),
+    )
+    for name, value in vars(expected).items():
+        if isinstance(value, torch.Tensor):
+            assert torch.equal(getattr(actual, name), value), name
+    assert [value["ticks"] for _, value in messages] == [1, 2]

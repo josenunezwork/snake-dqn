@@ -1,5 +1,9 @@
 """CPU-only bounded fixtures for TRAIN-01 preparation."""
 
+import copy
+import subprocess
+import sys
+import types
 from collections import Counter
 from dataclasses import replace
 from types import SimpleNamespace
@@ -72,6 +76,76 @@ def _models():
     return B8Actor(b8_model=b8), ClockedPopArtCritic(b8)
 
 
+def _assert_exact_tree(actual, expected) -> None:
+    if isinstance(actual, torch.Tensor):
+        assert isinstance(expected, torch.Tensor)
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    elif isinstance(actual, dict):
+        assert isinstance(expected, dict) and actual.keys() == expected.keys()
+        for key in actual:
+            _assert_exact_tree(actual[key], expected[key])
+    elif isinstance(actual, (list, tuple)):
+        assert isinstance(expected, type(actual)) and len(actual) == len(expected)
+        for actual_item, expected_item in zip(actual, expected):
+            _assert_exact_tree(actual_item, expected_item)
+    else:
+        assert actual == expected
+
+
+def _frozen_training_prep_module() -> types.ModuleType:
+    source = subprocess.check_output(
+        [
+            "git",
+            "show",
+            "b4225e2540c6b0cdb2e00e2ce84debc8296f5deb:research/sandbox_a_resident/training_prep.py",
+        ],
+        text=True,
+    )
+    name = "_train01_training_prep_frozen_oracle"
+    module = types.ModuleType(name)
+    module.__file__ = "git:b4225e2540c6b0cdb2e00e2ce84debc8296f5deb:training_prep.py"
+    sys.modules[name] = module
+    exec(compile(source, module.__file__, "exec"), module.__dict__)
+    return module
+
+
+def _record_fit_batches(module, monkeypatch: pytest.MonkeyPatch):
+    batches = []
+    original = module._fit_batch
+
+    def record(rows, critic, optimizer, config):
+        targets = [row.reward for row in rows]
+        losses = []
+
+        def capture_loss(critic_module, _inputs, prediction):
+            value = torch.tensor(targets, device=prediction.device)
+            loss = (
+                0.5
+                * (critic_module.normalise(prediction) - critic_module.normalise(value))
+                .square()
+                .mean()
+            )
+            losses.append(float(loss.detach().cpu()))
+
+        hook = critic.register_forward_hook(capture_loss)
+        try:
+            original(rows, critic, optimizer, config)
+        finally:
+            hook.remove()
+        assert len(losses) == 1
+        batches.append(
+            {
+                "targets": targets,
+                "loss": losses[0],
+                "critic": copy.deepcopy(critic.state_dict()),
+                "optimizer": copy.deepcopy(optimizer.state_dict()),
+            }
+        )
+
+    monkeypatch.setattr(module, "_fit_batch", record)
+    return batches
+
+
 def test_temperature_preserves_ties_as_the_greedy_set():
     logits = torch.tensor([[2.0, 2.0, 0.0, -1.0, -1.0, -1.0]])
     legal = torch.ones_like(logits, dtype=torch.bool)
@@ -99,6 +173,106 @@ def test_calibration_is_bounded_and_reinstalls_exact_b8_head_scale():
     assert rows == 10 and temperature > 0
     # prepare does installation; calibration itself never trains or changes B8.
     torch.testing.assert_close(actor.reference.adv.weight, original)
+
+
+def test_calibration_emits_collection_and_solver_stage_boundaries() -> None:
+    actor, _ = _models()
+    events = []
+    calibrate(
+        factory,
+        actor,
+        PreparationConfig.tiny(),
+        torch.Generator().manual_seed(4),
+        on_progress=lambda stage, payload: events.append((stage, dict(payload))),
+    )
+    assert [stage for stage, _ in events if stage.endswith(("-start", "-end"))] == [
+        "calibration-start",
+        "calibration-end",
+        "calibration-solve-start",
+        "calibration-solve-end",
+    ]
+    assert all("elapsed_seconds" in payload for _, payload in events)
+
+
+def test_time_based_progress_pulses_before_the_row_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = [0.0]
+    monkeypatch.setattr(training_prep.time, "monotonic", lambda: now[0])
+    events = []
+    reporter = training_prep._ProgressReporter(
+        replace(PreparationConfig.tiny(), progress_rows=1_000, progress_seconds=60.0),
+        lambda stage, payload: events.append((stage, dict(payload))),
+    )
+    reporter.start("critic-fit", 0, 10_000, fit_rows=0)
+    now[0] = 59.0
+    reporter.advance("critic-fit", 1, 10_000, fit_rows=0)
+    now[0] = 60.0
+    reporter.advance("critic-fit", 1, 10_000, fit_rows=0)
+    reporter.end("critic-fit", 1, 10_000, fit_rows=0)
+    assert [stage for stage, _ in events] == ["critic-fit-start", "critic-fit", "critic-fit-end"]
+    assert events[1][1] == {"rows": 1, "limit": 10_000, "elapsed_seconds": 60, "fit_rows": 0}
+
+
+def test_retained_observation_owns_only_one_selected_world_and_preserves_values() -> None:
+    values = (
+        torch.arange(6 * 7 * 2 * 2, dtype=torch.uint8).reshape(6, 7, 2, 2),
+        torch.arange(6 * 4 * 3 * 3, dtype=torch.uint8).reshape(6, 4, 3, 3),
+        torch.arange(6 * 60, dtype=torch.float32).reshape(6, 60),
+    )
+    selected = training_prep._selected_cpu_observation(values, torch.tensor([1, 3, 5]))
+    retained = training_prep._retained_observation(selected, 1)
+    for source, stored in zip(values, retained):
+        torch.testing.assert_close(stored, source[3:4])
+        assert stored.untyped_storage().nbytes() == stored.numel() * stored.element_size()
+
+
+def test_prepare_matches_frozen_pre_copying_oracle_exactly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The storage-copy optimization cannot alter the frozen preparation path."""
+    oracle = _frozen_training_prep_module()
+    try:
+        torch.manual_seed(173)
+        actual_actor, actual_critic = _models()
+        oracle_actor, oracle_critic = _models()
+        oracle_actor.load_state_dict(copy.deepcopy(actual_actor.state_dict()))
+        oracle_critic.load_state_dict(copy.deepcopy(actual_critic.state_dict()))
+        actual_generator = torch.Generator().manual_seed(71)
+        oracle_generator = torch.Generator().set_state(actual_generator.get_state())
+        actual_batches = _record_fit_batches(training_prep, monkeypatch)
+        oracle_batches = _record_fit_batches(oracle, monkeypatch)
+
+        with pytest.raises(PreparationFailure) as actual_failure:
+            prepare(
+                factory,
+                actual_actor,
+                actual_critic,
+                PreparationConfig.tiny(),
+                actual_generator,
+            )
+        with pytest.raises(oracle.PreparationFailure) as oracle_failure:
+            oracle.prepare(
+                factory,
+                oracle_actor,
+                oracle_critic,
+                oracle.PreparationConfig.tiny(),
+                oracle_generator,
+            )
+
+        assert actual_failure.value.state is not None
+        assert oracle_failure.value.state is not None
+        _assert_exact_tree(
+            actual_failure.value.state.state_dict(), oracle_failure.value.state.state_dict()
+        )
+        _assert_exact_tree(actual_actor.state_dict(), oracle_actor.state_dict())
+        _assert_exact_tree(actual_critic.state_dict(), oracle_critic.state_dict())
+        torch.testing.assert_close(
+            actual_generator.get_state(), oracle_generator.get_state(), rtol=0, atol=0
+        )
+        _assert_exact_tree(actual_batches, oracle_batches)
+    finally:
+        sys.modules.pop(oracle.__name__, None)
 
 
 def test_calibration_requires_all_five_frozen_length_bins_before_fixed_cap():
@@ -227,6 +401,11 @@ def test_fit_row_accounting_only_counts_full_optimizer_batches(
     def record(*args: object, **kwargs: object) -> None:
         rows = args[0]
         consumed.append(len(rows))  # type: ignore[arg-type]
+        for row in rows:  # type: ignore[union-attr]
+            for observation in row.observation:
+                assert observation.untyped_storage().nbytes() == (
+                    observation.numel() * observation.element_size()
+                )
         original(*args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(training_prep, "_fit_batch", record)

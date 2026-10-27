@@ -207,3 +207,79 @@ def test_distribution_screen_stops_when_every_first_life_is_terminal(monkeypatch
         horizon=7,
     )
     assert [task.steps for task in Task.instances] == [1] * 6
+
+
+def test_prefix_screen_finishes_all_arms_without_shortening_natural_tasks():
+    """The cheap startup check is labelled a prefix; factories retain H5000."""
+    from types import SimpleNamespace
+
+    import torch
+
+    from research.sandbox_a_resident.training_acceptance import run_distribution_screen
+
+    tasks = []
+    progress = []
+
+    class Task:
+        def __init__(self, mix, worlds, horizon):
+            assert horizon == 5000
+            self.steps = 0
+            self.worlds = worlds
+            tasks.append(self)
+            self.sim = SimpleNamespace(
+                bodies=torch.tensor([[[[1, 1]], [[4, 1]]]] * worlds),
+                head_ptr=torch.zeros((worlds, 2), dtype=torch.long),
+                S=2,
+                food_cells=torch.tensor([[[2, 2], [3, 3]]] * worlds),
+                food_present=torch.ones((worlds, 2), dtype=torch.bool),
+                direction=torch.ones((worlds, 2), dtype=torch.long),
+                alive=torch.ones((worlds, 2), dtype=torch.bool),
+                _last_food_ate=torch.zeros((worlds, 2), dtype=torch.bool),
+                _last_death_cause=torch.zeros((worlds, 2), dtype=torch.long),
+            )
+
+        def observe(self):
+            return (torch.zeros(self.worlds, 1),) * 3 + (
+                torch.ones(self.worlds, 6, dtype=torch.bool),
+            )
+
+        def step(self, actions):
+            self.steps += 1
+            return SimpleNamespace(
+                mass=torch.full((self.worlds,), 10.0),
+                terminal=torch.zeros(self.worlds, dtype=torch.bool),
+                reset=torch.zeros(self.worlds, dtype=torch.bool),
+            )
+
+    report = run_distribution_screen(
+        cpu_factory=Task,
+        device_factory=Task,
+        cpu_actor=lambda local, *_: torch.zeros(len(local), 6),
+        device_actor=lambda local, *_: torch.zeros(len(local), 6),
+        on_progress=lambda stage, values: progress.append((stage, values)),
+    )
+    assert [task.steps for task in tasks] == [256] * 6
+    assert report["coverage"] == "early-life prefix only"
+    assert report["task_horizon"] == 5000
+    assert report["horizon"] == 256
+    assert report["test_only"] is False
+    assert report["material_gaps"] == []
+    assert report["results"]["mixed"]["device"]["mean_mass_integral"] == 10.0
+    assert len([stage for stage, _ in progress if stage == "distribution-screen-complete"]) == 6
+    assert progress[-1][0] == "distribution-screen-compared"
+
+
+def test_small_or_partial_screen_requires_explicit_test_only():
+    from research.sandbox_a_resident.training_acceptance import run_distribution_screen
+
+    with pytest.raises(ValueError, match="E32"):
+        distribution_screen_descriptor(worlds_per_mix=3)
+    assert distribution_screen_descriptor(horizon=5000)["coverage"] == "complete first lives"
+    with pytest.raises(ValueError, match="all three mixes"):
+        run_distribution_screen(
+            cpu_factory=None,
+            device_factory=None,
+            cpu_actor=None,
+            device_actor=None,
+            mixes=("mixed",),
+        )

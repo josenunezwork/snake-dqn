@@ -7,8 +7,9 @@ seed descriptor and uses no stochastic policy sampling.
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 import torch
 
@@ -72,6 +73,7 @@ def evaluate(
     actor: Any,
     make_task: Callable[[str, int, int, int], ProxyTask],
     config: ProxyConfig,
+    on_progress: Callable[[str, Mapping[str, Any]], None] | None = None,
 ) -> dict[str, MixMetrics]:
     """Evaluate an actor with deterministic argmax on three paired fresh mixes.
 
@@ -100,7 +102,10 @@ def evaluate(
             alive_frames = torch.zeros_like(mass)
             low_length_ticks = torch.zeros_like(mass)
             low_boosts = torch.zeros_like(mass)
-            for _ in range(config.horizon):
+            last_progress = time.monotonic()
+            if on_progress is not None:
+                on_progress("proxy-mix-start", {"mix": mix})
+            for tick in range(config.horizon):
                 local, glob, scalars, legal = task.observe()
                 actions = masked_argmax(_actor_logits(actor, (local, glob, scalars)), legal)
                 if not hasattr(task, "hero_length"):
@@ -125,6 +130,11 @@ def evaluate(
                 if terminal is not None:
                     survived &= ~terminal.bool()
                 alive_frames += survived
+                if on_progress is not None and time.monotonic() - last_progress >= 60:
+                    on_progress("proxy", {"mix": mix, "frame": tick + 1, "horizon": config.horizon})
+                    last_progress = time.monotonic()
+            if on_progress is not None:
+                on_progress("proxy-mix-complete", {"mix": mix, "frame": config.horizon})
             rate = (low_boosts.sum() / low_length_ticks.sum().clamp_min(1)).item()
             result[mix] = MixMetrics(
                 mix=mix,

@@ -11,7 +11,7 @@ import random
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Mapping
 
 import numpy as np
 import torch
@@ -176,6 +176,7 @@ def collect(
     ticks: int,
     generator: torch.Generator,
     compiled: TrainingCompile | None = None,
+    on_progress: Callable[[str, Mapping[str, Any]], None] | None = None,
 ) -> PPORollout:
     """Collect exactly ``ticks * E`` fresh hero rows and retain natural cut facts."""
     observations: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
@@ -187,7 +188,8 @@ def collect(
     terminals: list[torch.Tensor] = []
     horizons: list[torch.Tensor] = []
     clocks: list[torch.Tensor] = []
-    for _ in range(ticks):
+    last_progress = time.monotonic()
+    for tick in range(ticks):
         local, glob, scalars, legal = compiled.observe() if compiled is not None else task.observe()
         remaining = (task.config.horizon - task.age).clamp_min(0).float() / task.config.horizon
         logits = (
@@ -208,6 +210,9 @@ def collect(
         rewards.append(step.reward)
         terminals.append(step.terminal)
         horizons.append(step.cut)
+        if on_progress is not None and time.monotonic() - last_progress >= 60:
+            on_progress("collect", {"ticks": tick + 1, "total": ticks})
+            last_progress = time.monotonic()
     local, glob, scalars, _ = compiled.observe() if compiled is not None else task.observe()
     remaining = (task.config.horizon - task.age).clamp_min(0).float() / task.config.horizon
     return PPORollout(
@@ -324,6 +329,7 @@ def run(
     device: str,
     ledger: Path | None = None,
     input_root: Path | None = None,
+    on_progress: Callable[[str, Mapping[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run/resume the bounded trajectory; it never retries failed collection."""
     if digest(checkpoint) != "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8":
@@ -331,6 +337,15 @@ def run(
     if digest(frp3) != FRP3_S12_SHA256 or digest(champion) != CHAMPION_SHA256:
         raise ValueError("frozen roster checkpoint hash differs from gate identity")
     output.mkdir(parents=True, exist_ok=True)
+
+    def emit(stage: str, values: Mapping[str, Any] | None = None) -> None:
+        value = {"stage": stage, **dict(values or {})}
+        _progress(output, value)
+        print(f"TRAIN01_PROGRESS {json.dumps(value, sort_keys=True)}", flush=True)
+        if on_progress is not None:
+            on_progress(stage, value)
+
+    emit("initializing")
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
     dev = torch.device(device)
@@ -380,7 +395,9 @@ def run(
         raise TypeError("resident task must expose attach_opponents for roster runtime")
     task.attach_opponents(opponents)
     compiled = TrainingCompile(actor, task, mode=control.compile_mode)
+    emit("compile-self-check")
     compile_check = compiled.runtime_self_check(control.worlds)
+    emit("compile-self-check-complete")
     # The screen is a mandatory simulator-D gross-error diagnostic before the
     # real trajectory, deliberately separate from any efficacy/gate evidence.
     proxy_factory = task.proxy_factory(opponents, list(audited_allocations.values()))
@@ -416,6 +433,7 @@ def run(
     if not control.test_only and start == 0 and not resumed:
         os.environ.setdefault("SNAKE_CKPT_DIR", str(frp3.parent))
         cpu_actor = copy.deepcopy(actor.reference).to(dev).eval()
+        emit("distribution-screen-start")
         screen = run_distribution_screen(
             cpu_factory=cpu_distribution_factory(
                 {FRP3_S12_SHA256: frp3, CHAMPION_SHA256: champion}, inference_device=dev
@@ -425,8 +443,14 @@ def run(
             ),
             cpu_actor=cpu_actor,
             device_actor=actor.reference,
+            on_progress=emit,
         )
         metrics.append({"iteration": 0, "distribution_screen": screen})
+        publish(
+            output / "distribution-screen.json",
+            lambda path: path.write_text(json.dumps(screen, sort_keys=True) + "\n"),
+        )
+        emit("distribution-screen-complete", {"material_gap_count": len(screen["material_gaps"])})
         if screen["material_gaps"]:
             _progress(
                 output, {"stage": "distribution-screen-failed", "distribution_screen": screen}
@@ -467,6 +491,7 @@ def run(
         def calibrated_boundary(
             state: Any, _actor: B8Actor, _critic: ClockedPopArtCritic, optimizer: Any
         ) -> None:
+            emit("calibrated-boundary-write")
             trainer.critic_optimizer = optimizer
             payload = _snapshot_state(
                 0,
@@ -501,6 +526,7 @@ def run(
                 ),
             )
 
+        emit("preparation-start", {"prepare_phase": prep_stage})
         try:
             prepared = prepare(
                 prep_task_factory,
@@ -510,6 +536,7 @@ def run(
                 generator,
                 state=prep_state,
                 on_calibrated=calibrated_boundary,
+                on_progress=emit,
             )
         except PreparationFailure as error:
             # The preparation helper carries its exact independent task state.
@@ -528,6 +555,7 @@ def run(
                 },
             )
             raise
+        emit("preparation-complete")
         prep_state = prepared.state.state_dict()
         trainer.critic_optimizer = prepared.critic_optimizer
         metrics.append({"iteration": 0, "preparation": _preparation_metrics(prep_state)})
@@ -595,7 +623,9 @@ def run(
                 }
             )
     if baseline_cache is None:
-        baseline = evaluate(actor.reference, factory, proxy)
+        emit("proxy-baseline-start")
+        baseline = evaluate(actor.reference, factory, proxy, emit)
+        emit("proxy-baseline-complete")
         baseline_cache = serializable(baseline)
         metrics.append(
             {
@@ -629,7 +659,9 @@ def run(
         )
     for iteration in range(start, control.outer_iterations):
         collect_started = time.monotonic()
-        rollout = collect(task, actor, critic, control.rollout_horizon, generator, compiled)
+        emit("collect-start", {"iteration": iteration + 1})
+        rollout = collect(task, actor, critic, control.rollout_horizon, generator, compiled, emit)
+        emit("learner-start", {"iteration": iteration + 1})
         if not rollout.legal_masks.gather(-1, rollout.actions[..., None]).all():
             raise RuntimeError("collector selected an illegal action")
         action_window = torch.cat((action_window, rollout.actions.detach().cpu().reshape(-1)))
@@ -648,11 +680,14 @@ def run(
             "compile": {"self_check": compile_check, "report": compiled.report},
         }
         metrics.append(row)
+        emit("learner-complete", {"iteration": iteration + 1})
         boundary = iteration + 1
         if boundary % control.proxy_interval == 0:
             # The task factory is supplied by the adapter so each candidate and
             # baseline starts an independent, identical proxy RNG stream.
-            candidate = evaluate(actor, factory, proxy)
+            emit("proxy-candidate-start", {"iteration": boundary})
+            candidate = evaluate(actor, factory, proxy, emit)
+            emit("proxy-candidate-complete", {"iteration": boundary})
             baseline = {mix: MixMetrics(**value) for mix, value in baseline_cache.items()}
             row["proxy"] = {
                 "config": asdict(proxy),
@@ -690,6 +725,7 @@ def run(
                 actor,
                 {"iteration": boundary, "source_commit": control.source_commit, **provenance},
             )
+        emit("iteration-complete", {"iteration": boundary})
         now = time.monotonic()
         if now - last_heartbeat >= 120 or boundary == control.outer_iterations:
             _progress(
@@ -727,18 +763,26 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--input-root", type=Path)
+    parser.add_argument("--stall-timeout-seconds", type=float, default=900)
+    parser.add_argument("--stall-diagnostics", type=Path)
     args = parser.parse_args()
     control = TrainControl.from_json(json.loads(args.control.read_text()))
-    summary = run(
-        control,
-        checkpoint=args.checkpoint,
-        frp3=args.frp3,
-        champion=args.champion,
-        output=args.output,
-        device=args.device,
-        ledger=args.ledger,
-        input_root=args.input_root,
-    )
+    from research.sandbox_a_resident.stall_watchdog import StallWatchdog
+
+    with StallWatchdog(
+        args.stall_diagnostics or args.output / "stall-watchdog", args.stall_timeout_seconds
+    ) as watchdog:
+        summary = run(
+            control,
+            checkpoint=args.checkpoint,
+            frp3=args.frp3,
+            champion=args.champion,
+            output=args.output,
+            device=args.device,
+            ledger=args.ledger,
+            input_root=args.input_root,
+            on_progress=lambda stage, values: watchdog.progress(stage, values),
+        )
     print(
         f"PASS_SANDBOX_A_TRAIN iterations={summary['iterations']} "
         f"actor_rows={summary['actor_rows']}"

@@ -50,7 +50,7 @@ def source_paths(commit: str) -> list[str]:
         or (
             Path(name).parent.as_posix() == "research/sandbox_a_resident"
             and (
-                Path(name).name in {"train.py", "train_job.sh"}
+                Path(name).name in {"train.py", "train_job.sh", "stall_watchdog.py"}
                 or (
                     Path(name).name.startswith("training_")
                     and Path(name).name not in {"training_prepare.py", "training_preflight.py"}

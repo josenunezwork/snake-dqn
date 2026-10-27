@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import math
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Mapping, Protocol
 
@@ -85,6 +86,9 @@ class PreparationConfig:
     # a GPU replay cache.
     max_open_rows: int = 160_000
     progress_rows: int = 1_500_000
+    # A charged-row heartbeat alone can stay silent for hours when completed
+    # lives are sparse.  This is operational telemetry, not a science limit.
+    progress_seconds: float = 60.0
 
     def __post_init__(self) -> None:
         if not 0 < self.calibration_departure < 1:
@@ -106,6 +110,8 @@ class PreparationConfig:
             < 1
         ):
             raise ValueError("preparation capacities must be positive")
+        if not 0 < self.progress_seconds <= 60:
+            raise ValueError("preparation progress heartbeat must be at most 60 seconds")
 
     @classmethod
     def tiny(cls) -> "PreparationConfig":
@@ -125,6 +131,7 @@ class PreparationConfig:
             metric_cache_rows=64,
             max_open_rows=30_000,
             progress_rows=10,
+            progress_seconds=0.001,
             holdout_modulus=2,
         )
 
@@ -258,12 +265,59 @@ def _calibration_bin(length: int) -> int:
 
 
 def _progress(
-    stage: str, rows: int, limit: int, callback: Callable[[str, Mapping[str, int]], None] | None
+    stage: str,
+    rows: int,
+    limit: int,
+    callback: Callable[[str, Mapping[str, int]], None] | None,
+    **details: int,
 ) -> None:
+    payload = {"rows": rows, "limit": limit, **details}
     if callback is not None:
-        callback(stage, {"rows": rows, "limit": limit})
+        callback(stage, payload)
     else:
-        print(f"TRAIN01 {stage}: {rows}/{limit} rows", flush=True)
+        suffix = " ".join(f"{key}={value}" for key, value in details.items())
+        print(f"TRAIN01 {stage}: {rows}/{limit} rows {suffix}".rstrip(), flush=True)
+
+
+class _ProgressReporter:
+    """Emit operational preparation pulses without influencing collection state."""
+
+    def __init__(
+        self,
+        config: PreparationConfig,
+        callback: Callable[[str, Mapping[str, int]], None] | None,
+    ) -> None:
+        self.config = config
+        self.callback = callback
+        self.started = time.monotonic()
+        self.next_rows: dict[str, int] = {}
+        self.next_seconds: dict[str, float] = {}
+
+    def emit(self, stage: str, rows: int, limit: int, **details: int) -> None:
+        _progress(
+            stage,
+            rows,
+            limit,
+            self.callback,
+            elapsed_seconds=int(time.monotonic() - self.started),
+            **details,
+        )
+
+    def start(self, stage: str, rows: int, limit: int, **details: int) -> None:
+        self.emit(f"{stage}-start", rows, limit, **details)
+        self.next_rows[stage] = rows + self.config.progress_rows
+        self.next_seconds[stage] = time.monotonic() + self.config.progress_seconds
+
+    def advance(self, stage: str, rows: int, limit: int, **details: int) -> None:
+        now = time.monotonic()
+        if rows < self.next_rows[stage] and now < self.next_seconds[stage]:
+            return
+        self.emit(stage, rows, limit, **details)
+        self.next_rows[stage] = rows + self.config.progress_rows
+        self.next_seconds[stage] = now + self.config.progress_seconds
+
+    def end(self, stage: str, rows: int, limit: int, **details: int) -> None:
+        self.emit(f"{stage}-end", rows, limit, **details)
 
 
 @torch.no_grad()
@@ -273,6 +327,7 @@ def calibrate(
     config: PreparationConfig,
     generator: torch.Generator,
     on_progress: Callable[[str, Mapping[str, int]], None] | None = None,
+    _reporter: _ProgressReporter | None = None,
 ) -> tuple[float, int]:
     """Collect fresh length-stratified greedy B8 states then freeze temperature."""
     del generator  # Greedy collection has no stochastic policy draw.
@@ -283,7 +338,8 @@ def calibrate(
         )
     bins: dict[int, list[tuple[torch.Tensor, torch.Tensor]]] = {index: [] for index in range(5)}
     rows = 0
-    next_progress = config.progress_rows
+    reporter = _reporter or _ProgressReporter(config, on_progress)
+    reporter.start("calibration", rows, config.calibration_max_rows)
     while min(len(values) for values in bins.values()) < config.calibration_quota_per_bin:
         if rows >= config.calibration_max_rows:
             raise PreparationFailure(
@@ -304,15 +360,17 @@ def calibrate(
             if rows >= config.calibration_max_rows:
                 break
         task.step(actions)
-        if rows >= next_progress:
-            _progress("calibration", rows, config.calibration_max_rows, on_progress)
-            next_progress += config.progress_rows
+        reporter.advance("calibration", rows, config.calibration_max_rows)
     chosen = [row for bucket in range(5) for row in bins[bucket]]
     if len(chosen) != config.calibration_rows:
         raise PreparationFailure("calibration quota accounting differs from frozen 10k state bank")
     logits = torch.stack([row[0] for row in chosen])
     legal = torch.stack([row[1] for row in chosen])
-    return solve_temperature(logits, legal, config.calibration_departure), len(chosen)
+    reporter.end("calibration", rows, config.calibration_max_rows)
+    reporter.start("calibration-solve", rows, config.calibration_rows)
+    temperature = solve_temperature(logits, legal, config.calibration_departure)
+    reporter.end("calibration-solve", rows, config.calibration_rows)
+    return temperature, len(chosen)
 
 
 def _batch_rows(rows: list[_Row], device: torch.device) -> tuple[torch.Tensor, ...]:
@@ -322,6 +380,29 @@ def _batch_rows(rows: list[_Row], device: torch.device) -> tuple[torch.Tensor, .
     clock = torch.tensor([row.clock for row in rows], device=device)
     targets = torch.tensor([row.reward for row in rows], device=device)
     return local, glob, scalars, clock, targets
+
+
+def _selected_cpu_observation(
+    values: tuple[torch.Tensor, torch.Tensor, torch.Tensor], indices: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Transfer only retained worlds; callers clone each row before storage.
+
+    A row view must never retain an E24 tick allocation: its backing storage
+    would also keep observation bytes for discarded worlds alive until a life
+    completes.  Selecting the kept worlds before the device-to-host transfer
+    avoids that transfer, and the per-row clone makes each retained row own
+    precisely its bytes.
+    """
+    local, glob, scalars = (value.detach().index_select(0, indices).cpu() for value in values)
+    return local, glob, scalars
+
+
+def _retained_observation(
+    values: tuple[torch.Tensor, torch.Tensor, torch.Tensor], position: int
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return a one-world owning CPU observation, never a view of a tick batch."""
+    local, glob, scalars = (value[position : position + 1].clone() for value in values)
+    return local, glob, scalars
 
 
 def _permutation(count: int, generator: torch.Generator) -> list[int]:
@@ -418,6 +499,7 @@ def prepare(
     PPO actor update is possible.
     """
     generator = generator or torch.Generator(device=next(actor.parameters()).device).manual_seed(0)
+    reporter = _ProgressReporter(config, on_progress)
     result = (
         PreparationState.from_state_dict(state)
         if isinstance(state, Mapping)
@@ -433,7 +515,7 @@ def prepare(
         )
     newly_calibrated = result.temperature is None
     if newly_calibrated:
-        temperature, rows = calibrate(task_factory, actor, config, generator, on_progress)
+        temperature, rows = calibrate(task_factory, actor, config, generator, _reporter=reporter)
         _install_temperature(actor, temperature)
         result.temperature, result.calibration_rows, result.stage = temperature, rows, "calibrated"
     else:
@@ -454,7 +536,11 @@ def prepare(
     lives = [_Life() for _ in range(worlds)]
     staged_lives: list[list[_Row]] = []
     fit_scalar_chunks: list[torch.Tensor] = []
-    next_progress = config.progress_rows
+    fit_worlds = [index for index in range(worlds) if _world_split(index, config) == "fit"]
+    fit_indices = torch.tensor(fit_worlds, device=next(actor.parameters()).device, dtype=torch.long)
+    reporter.start(
+        "critic-fit", result.critic_rows, config.critic_max_rows, fit_rows=result.fit_rows
+    )
     while result.fit_rows < config.critic_min_fit_rows:
         # The finite cap charges every simulated world, including the holdout
         # slots discarded during fit.  E24 cannot consume the final eight rows
@@ -477,20 +563,21 @@ def prepare(
         completed = getattr(step, "reset", None)
         if completed is None:
             completed = step.terminal | step.cut
-        # One CPU transfer per tensor per tick.  Never synchronize/copy once
-        # per world; completed rows are staged only until their natural life ends.
-        cpu_observation = tuple(value.detach().cpu() for value in (local, glob, scalars))
-        cpu_length, cpu_clock, cpu_reward = length.cpu(), clock.cpu(), rewards.cpu()
-        cpu_completed, cpu_mix = completed.cpu(), task.roster_id.cpu()
-        for index in range(worlds):
-            if _world_split(index, config) != "fit":
-                continue
+        # Transfer only fit slots and then make each retained row own its
+        # storage.  This avoids staging tensors for discarded holdout worlds.
+        cpu_observation = _selected_cpu_observation((local, glob, scalars), fit_indices)
+        cpu_length = length.index_select(0, fit_indices).cpu()
+        cpu_clock = clock.index_select(0, fit_indices).cpu()
+        cpu_reward = rewards.index_select(0, fit_indices).cpu()
+        cpu_completed = completed.index_select(0, fit_indices).cpu()
+        cpu_mix = task.roster_id.index_select(0, fit_indices).cpu()
+        for position, index in enumerate(fit_worlds):
             row = _Row(
-                tuple(value[index : index + 1] for value in cpu_observation),
-                float(cpu_length[index]),
-                float(cpu_clock[index]),
-                float(cpu_reward[index]),
-                int(cpu_mix[index]),
+                _retained_observation(cpu_observation, position),
+                float(cpu_length[position]),
+                float(cpu_clock[position]),
+                float(cpu_reward[position]),
+                int(cpu_mix[position]),
             )
             lives[index].rows.append(row)
             lives[index].total += row.reward
@@ -502,13 +589,16 @@ def prepare(
                 raise PreparationFailure(
                     "open plus staged complete-life trajectory storage cap exceeded", result
                 )
-            if bool(cpu_completed[index]):
+            if bool(cpu_completed[position]):
                 completed_rows = _suffix_rows(lives[index])
                 staged_lives.append(completed_rows)
                 lives[index] = _Life()
         # Stage the entire tick before drawing; imbalanced pools wait across
         # ticks until the per-life contribution bound permits a full batch.
         while (batch := _take_cross_life_batch(staged_lives, config, generator)) is not None:
+            reporter.advance(
+                "critic-fit", result.critic_rows, config.critic_max_rows, fit_rows=result.fit_rows
+            )
             _fit_batch(batch, critic, optimizer, config)
             fit_scalar_chunks.append(
                 torch.tensor(
@@ -516,9 +606,12 @@ def prepare(
                 )
             )
             result.fit_rows += len(batch)
-        if result.critic_rows >= next_progress:
-            _progress("critic-fit", result.critic_rows, config.critic_max_rows, on_progress)
-            next_progress += config.progress_rows
+            reporter.advance(
+                "critic-fit", result.critic_rows, config.critic_max_rows, fit_rows=result.fit_rows
+            )
+        reporter.advance(
+            "critic-fit", result.critic_rows, config.critic_max_rows, fit_rows=result.fit_rows
+        )
 
     if result.fit_rows < config.critic_min_fit_rows:
         result.stage, result.task_state = "failed", task.state_dict()
@@ -526,11 +619,14 @@ def prepare(
             "critic fit row cap reached before fixed 2M completed-life rows", result
         )
 
+    reporter.end("critic-fit", result.critic_rows, config.critic_max_rows, fit_rows=result.fit_rows)
+    reporter.start("critic-baseline", result.fit_rows, config.critic_min_fit_rows)
     fit_scalars = torch.cat(fit_scalar_chunks)
     staged_lives.clear()
     baseline_coef = fit_time_length_baseline(
         fit_scalars[:, 0], fit_scalars[:, 1], fit_scalars[:, 2]
     )
+    reporter.end("critic-baseline", result.fit_rows, config.critic_min_fit_rows)
     # Freeze the learned critic before fresh holdout worlds.  The stored
     # validation records below contain only scalar targets and predictions.
     critic_was_training = critic.training
@@ -542,6 +638,18 @@ def prepare(
         lives = [_Life() for _ in range(worlds)]
         holdout_metrics: list[_MetricRow] = []
         holdout_started = task.age.eq(0).detach().cpu().tolist()
+        holdout_worlds = [
+            index for index in range(worlds) if _world_split(index, config) == "holdout"
+        ]
+        holdout_indices = torch.tensor(
+            holdout_worlds, device=next(actor.parameters()).device, dtype=torch.long
+        )
+        reporter.start(
+            "critic-holdout",
+            result.critic_rows,
+            config.critic_max_rows,
+            holdout_rows=result.holdout_rows,
+        )
 
         def support_complete() -> bool:
             return (
@@ -571,29 +679,30 @@ def prepare(
             result.critic_rows += worlds
             completed = getattr(step, "reset", step.terminal | step.cut)
             rewards = step.reward.detach().float()
-            cpu_observation = tuple(value.detach().cpu() for value in (local, glob, scalars))
-            cpu_length, cpu_clock, cpu_reward = length.cpu(), clock.cpu(), rewards.cpu()
-            cpu_completed, cpu_mix = completed.cpu(), task.roster_id.cpu()
-            for index in range(worlds):
-                if _world_split(index, config) != "holdout":
-                    continue
+            cpu_observation = _selected_cpu_observation((local, glob, scalars), holdout_indices)
+            cpu_length = length.index_select(0, holdout_indices).cpu()
+            cpu_clock = clock.index_select(0, holdout_indices).cpu()
+            cpu_reward = rewards.index_select(0, holdout_indices).cpu()
+            cpu_completed = completed.index_select(0, holdout_indices).cpu()
+            cpu_mix = task.roster_id.index_select(0, holdout_indices).cpu()
+            for position, index in enumerate(holdout_worlds):
                 if not holdout_started[index]:
-                    if bool(cpu_completed[index]):
+                    if bool(cpu_completed[position]):
                         holdout_started[index] = True
                     continue
                 lives[index].rows.append(
                     _Row(
-                        tuple(value[index : index + 1] for value in cpu_observation),
-                        float(cpu_length[index]),
-                        float(cpu_clock[index]),
-                        float(cpu_reward[index]),
-                        int(cpu_mix[index]),
+                        _retained_observation(cpu_observation, position),
+                        float(cpu_length[position]),
+                        float(cpu_clock[position]),
+                        float(cpu_reward[position]),
+                        int(cpu_mix[position]),
                     )
                 )
                 if sum(len(life.rows) for life in lives) > config.max_open_rows:
                     result.stage, result.task_state = "failed", task.state_dict()
                     raise PreparationFailure("open held-out life storage cap exceeded", result)
-                if bool(cpu_completed[index]):
+                if bool(cpu_completed[position]):
                     completed_rows = _suffix_rows(lives[index])
                     try:
                         with torch.no_grad():
@@ -622,10 +731,20 @@ def prepare(
                         row.length >= config.late_length for row in completed_rows
                     )
                     lives[index] = _Life()
-            if result.critic_rows >= next_progress:
-                _progress("critic-holdout", result.critic_rows, config.critic_max_rows, on_progress)
-                next_progress += config.progress_rows
+            reporter.advance(
+                "critic-holdout",
+                result.critic_rows,
+                config.critic_max_rows,
+                holdout_rows=result.holdout_rows,
+            )
 
+        reporter.end(
+            "critic-holdout",
+            result.critic_rows,
+            config.critic_max_rows,
+            holdout_rows=result.holdout_rows,
+        )
+        reporter.start("critic-quality", result.holdout_rows, config.metric_cache_rows)
         try:
             metrics = critic_quality(
                 torch.tensor([float(row.prediction) for row in holdout_metrics]),
@@ -652,6 +771,7 @@ def prepare(
                 "heldout_lives": float(result.completed_holdout_lives),
                 "passed": 0.0,
             }
+        reporter.end("critic-quality", result.holdout_rows, config.metric_cache_rows)
         result.quality = metrics
         support = support_complete()
         quality = bool(metrics["passed"])

@@ -71,3 +71,24 @@ def test_masked_argmax_and_paired_proxy_are_deterministic() -> None:
     summary = paired(candidate, baseline)
     assert summary["pooled"]["mass_delta"] == 0.0
     assert all(row.boost_rate_under_700 == 0.0 for row in baseline.values())
+
+
+def test_progress_reports_completed_proxy_ticks_without_changing_results(monkeypatch):
+    from research.sandbox_a_resident import training_proxy
+
+    config = ProxyConfig(horizon=3, worlds_per_mix=2, seed_base=9)
+
+    def factory(mix, worlds, horizon, seed):
+        return Task(worlds, horizon, seed)
+
+    expected = evaluate(Actor(), factory, config)
+    clock = iter(range(0, 10000, 61))
+    monkeypatch.setattr(training_proxy.time, "monotonic", lambda: next(clock))
+    messages = []
+    actual = evaluate(
+        Actor(), factory, config, lambda stage, values: messages.append((stage, values))
+    )
+    assert actual == expected
+    completed = [values for stage, values in messages if stage == "proxy"]
+    assert len(completed) == 9
+    assert [row["frame"] for row in completed] == [1, 2, 3] * 3

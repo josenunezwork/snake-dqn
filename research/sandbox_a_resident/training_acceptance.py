@@ -7,6 +7,7 @@ neither result is a Mac gate, release result, or CPU closed-loop identity claim.
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from typing import Any, Callable, Sequence
 
@@ -109,7 +110,7 @@ def vector_carry_common_state(sim: GridBatchSim) -> dict[str, Any]:
 
 
 def distribution_screen_descriptor(
-    *, worlds_per_mix: int = 32, horizon: int = 5000
+    *, worlds_per_mix: int = 32, horizon: int = 256, test_only: bool = False
 ) -> dict[str, Any]:
     """Describe the required pre-training simulator-D gross-error screen.
 
@@ -117,10 +118,13 @@ def distribution_screen_descriptor(
     reset/food/collision rates and mass.  This deliberately contains no test
     outcomes and cannot be interpreted as a promotion comparison.
     """
-    if worlds_per_mix < 32 or horizon != 5000:
-        raise ValueError("screen requires at least 32 complete H5000 worlds per mix")
+    if (worlds_per_mix < 32 and not test_only) or worlds_per_mix < 1 or horizon not in (256, 5000):
+        raise ValueError("screen requires E32 and a 256-frame prefix or complete H5000 lives")
     return {
-        "schema": "sandbox-a-distribution-screen/v1",
+        "schema": "sandbox-a-distribution-screen/v2",
+        "task_horizon": 5000,
+        "coverage": "complete first lives" if horizon == 5000 else "early-life prefix only",
+        "test_only": test_only,
         "worlds_per_mix": worlds_per_mix,
         "horizon": horizon,
         "mixes": ["scripted", "frozen", "mixed"],
@@ -137,17 +141,39 @@ def run_distribution_screen(
     cpu_actor: Any,
     device_actor: Any,
     worlds_per_mix: int = 32,
-    horizon: int = 5000,
+    horizon: int = 256,
+    mixes: Sequence[str] = ("scripted", "frozen", "mixed"),
+    test_only: bool = False,
+    on_progress: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run the required pre-training CPU/device gross-error screen.
 
     Factories own fresh domain-separated roots. The result reports separate
     distributions and is explicitly simulator-D engineering evidence only.
     """
-    descriptor = distribution_screen_descriptor(worlds_per_mix=worlds_per_mix, horizon=horizon)
+    descriptor = distribution_screen_descriptor(
+        worlds_per_mix=worlds_per_mix, horizon=horizon, test_only=test_only
+    )
+    if (
+        not mixes
+        or len(set(mixes)) != len(mixes)
+        or any(mix not in ("scripted", "frozen", "mixed") for mix in mixes)
+    ):
+        raise ValueError("known unique screen mixes required")
+    if not test_only and tuple(mixes) != ("scripted", "frozen", "mixed"):
+        raise ValueError("production screen requires all three mixes")
+
+    def progress(stage: str, **values: Any) -> None:
+        print(f"DISTRIBUTION_SCREEN stage={stage} {values}", flush=True)
+        if on_progress is not None:
+            on_progress(f"distribution-screen-{stage}", values)
 
     def one(factory: Callable[[str, int, int], Any], actor: Any, mix: str) -> dict[str, Any]:
-        task = factory(mix, worlds_per_mix, horizon)
+        progress("start", mix=mix, engine=str(factory), frames=horizon)
+        # A short diagnostic is a prefix of the natural H5000 task, never a
+        # shortened episode/reset or a claim about late-life distributions.
+        task = factory(mix, worlds_per_mix, 5000)
+        last_progress = time.monotonic()
         # The screen reads terminal-frame causes and opponent state after
         # step().  Its single-life contract therefore forbids resident
         # automatic replacement worlds.
@@ -240,20 +266,22 @@ def run_distribution_screen(
             previous_alive = alive
             if not torch.isfinite(mass).all():
                 raise RuntimeError("nonfinite distribution-screen mass")
-            if tick % 256 == 0:
-                print(
-                    f"DISTRIBUTION_SCREEN mix={mix} engine={type(task).__name__} "
-                    f"frame={tick}/{horizon}",
-                    flush=True,
+            now = time.monotonic()
+            if (tick + 1) % 256 == 0 or now - last_progress >= 60:
+                progress(
+                    "advance", mix=mix, engine=type(task).__name__, frame=tick + 1, horizon=horizon
                 )
+                last_progress = now
             # H5000 is the registered maximum horizon, not work that has to be
             # done after every first-life hero has terminated.  All remaining
             # contributions are identically zero and neither simulator is
             # advanced further.
             if not bool(first_life.any()):
                 break
+        progress("complete", mix=mix, engine=type(task).__name__, frame=tick + 1, horizon=horizon)
         return {
             **initial,
+            "simulated_frames": tick + 1,
             "mean_mass_integral": float(mass.mean() / horizon),
             "alive_fraction": float(alive_ticks.mean() / horizon),
             "no_death_fraction": float(first_life.float().mean()),
@@ -270,7 +298,7 @@ def run_distribution_screen(
             "cpu": one(cpu_factory, cpu_actor, mix),
             "device": one(device_factory, device_actor, mix),
         }
-        for mix in ("scripted", "frozen", "mixed")
+        for mix in mixes
     }
     gaps = []
     for mix, pair in results.items():
@@ -283,6 +311,7 @@ def run_distribution_screen(
             cpu, gpu = pair["cpu"][name], pair["device"][name]
             if abs(gpu - cpu) > max(abs(cpu), 1e-8) * 0.25:
                 gaps.append({"mix": mix, "metric": name, "cpu": cpu, "device": gpu})
+    progress("compared", mixes=list(mixes), material_gap_count=len(gaps))
     return {
         **descriptor,
         "status": "COMPLETE_SIMULATOR_D_SCREEN",
