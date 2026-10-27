@@ -63,14 +63,12 @@ def test_unmocked_desktop_collector_raw_export_and_reducers():
     )
 
     previous = host_load.capture_cpu()
-    host_load.freeze_cpu_snapshot(previous, owner_pid, registry)
     samples = []
     guard = host_load.LoadGuard(desktop_policy=True)
     guard_rejections: list[str] = []
     for _ in range(3):
         time.sleep(host_load.SAMPLE_SECONDS + 0.05)
         current = host_load.capture_cpu()
-        host_load.freeze_cpu_snapshot(current, owner_pid, registry)
         sample = host_load.cpu_interval(previous, current, owner_pid, desktop_classifier=registry)
         samples.append(sample)
         try:
@@ -108,6 +106,8 @@ def test_unmocked_desktop_collector_raw_export_and_reducers():
     assert (artifact_dir / "host.json.sha256").is_file()
     assert (artifact_dir / "host.json.complete").read_bytes() == b"complete\n"
 
+    from research.bl_k1.m1_background import SYSTEM_EXECUTABLE_ROOTS
+
     admitted_apps = {
         process["classification"]["application"]
         for sample in samples
@@ -120,6 +120,45 @@ def test_unmocked_desktop_collector_raw_export_and_reducers():
     assert all(
         sample["processes"] for sample in samples
     ), "real interval capture produced no process rows"
+
+    exempt_pids = set(screen.get("probe_exempt_pids", []))
+    point_protected_services: set[str] = set()
+    for proc in screen["classified_processes"]:
+        if proc["pid"] in exempt_pids:
+            continue
+        cmd = proc["command"]
+        cls = proc.get("classification", {})
+        if (
+            cmd.startswith(SYSTEM_EXECUTABLE_ROOTS)
+            and ".." not in Path(cmd).parts
+            and proc["kind"] != "agent_workload"
+            and not cls.get("identity_binding_changed")
+        ):
+            assert proc["kind"] == "macos_service", f"system service misclassified: {proc}"
+            if proc.get("identity_observation_error"):
+                assert proc.get("argv") == []
+                point_protected_services.add(Path(cmd).name)
+    assert {
+        "syspolicyd",
+        "trustd",
+        "fileproviderd",
+    } <= point_protected_services, (
+        f"expected protected services in point inventory, got {sorted(point_protected_services)}"
+    )
+
+    for sample in samples:
+        for proc in sample["processes"]:
+            cmd = proc["command"]
+            cls = proc.get("classification", {})
+            if (
+                cmd.startswith(SYSTEM_EXECUTABLE_ROOTS)
+                and ".." not in Path(cmd).parts
+                and proc["kind"] != "agent_workload"
+                and not cls.get("identity_binding_changed")
+            ):
+                assert (
+                    proc["kind"] == "macos_service"
+                ), f"interval system service misclassified: {proc}"
 
     trace = [
         _trace_row(index, sample["start_ns"], sample["end_ns"])

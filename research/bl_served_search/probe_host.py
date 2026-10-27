@@ -51,13 +51,25 @@ def _point_identities() -> dict[int, dict[str, Any]]:
     return identities
 
 
+_LAST_POINT_CAPTURE_BRACKET: tuple[int, int, int] | None = None
+
+
 def _desktop_point_inventory() -> list[dict[str, Any]]:
-    """Capture desktop point CPU and identity in one process-table observation."""
+    """Capture desktop point CPU, displayed args, argv, and identity in one observation."""
+    global _LAST_POINT_CAPTURE_BRACKET
     from research.bl_served_search.host_load import capture_process_table
 
-    rows = capture_process_table("pcpu")
-    observed = time.perf_counter_ns()
-    return [{**row, "observation_ns": observed} for row in rows]
+    try:
+        started, ended, raw_rows = capture_process_table("pcpu")
+    except ValueError as exc:
+        raise RuntimeError("unparseable classified point inventory") from exc
+    _LAST_POINT_CAPTURE_BRACKET = (started, ended, (started + ended) // 2)
+    rows: list[dict[str, Any]] = []
+    for raw in raw_rows:
+        metric = raw.pop("metric")
+        raw["cpu_percent"] = float(metric)
+        rows.append(raw)
+    return rows
 
 
 def environment() -> dict[str, Any]:
@@ -105,15 +117,29 @@ def foreign_load(
     from research.bl_served_search.host_load import (
         BACKGROUND_KINDS,
         DESKTOP_BACKGROUND_KINDS,
+        classification_evidence,
         owned_pids,
         process_kind,
     )
 
+    global _LAST_POINT_CAPTURE_BRACKET
     if desktop_classifier is not None:
         # The legacy raw screen remains in ``screen["processes"]`` but is not
         # joined to this desktop policy inventory: PID reuse between captures
         # must never borrow CPU from one UID and identity from another.
+        _LAST_POINT_CAPTURE_BRACKET = None
         parsed = _desktop_point_inventory()
+        if _LAST_POINT_CAPTURE_BRACKET is not None:
+            c_start, c_end, c_mid = _LAST_POINT_CAPTURE_BRACKET
+            screen["capture_start_ns"] = c_start
+            screen["capture_end_ns"] = c_end
+            screen["observation_ns"] = c_mid
+        elif "observation_ns" not in screen:
+            row_times = [
+                r["observation_ns"] for r in parsed if type(r.get("observation_ns")) is int
+            ]
+            if row_times:
+                screen["observation_ns"] = max(row_times)
         screen["desktop_point_inventory"] = parsed
         screen["processes_identity_stale_unjoined"] = True
     else:
@@ -127,26 +153,51 @@ def foreign_load(
     if classified:
         allowed.update(owned_pids(parsed, owner_pid))
         screen["probe_exempt_pids"] = sorted(allowed)
+    use_step_row = desktop_classifier is not None and hasattr(desktop_classifier, "step_row")
+    if desktop_classifier is not None and admit_desktop and not use_step_row:
+        for row in parsed:
+            if row["pid"] not in allowed:
+                row["admission"] = desktop_classifier.admit_process(row)
     rows = []
     background = []
+    screen_obs_ns = (
+        screen.get("observation_ns") if type(screen.get("observation_ns")) is int else None
+    )
     for row in parsed:
         pid, ppid, cpu, command = (row[key] for key in ("pid", "ppid", "cpu_percent", "command"))
         if classified:
             if pid in allowed:
                 kind = "probe_owned"
+            elif use_step_row:
+                row_obs_ns = (
+                    row.get("observation_ns")
+                    if type(row.get("observation_ns")) is int
+                    else screen_obs_ns
+                )
+                kind, decision, history_before, history_after, _ = desktop_classifier.step_row(
+                    row,
+                    admit=admit_desktop,
+                    observation_ns=row_obs_ns,
+                )
+                if admit_desktop:
+                    row["admission"] = decision
+                row["classification"] = decision
+                row["history_before"] = history_before
+                row["history_after"] = history_after
+                row["sequence"] = history_after["sequence"]
+                row["executable_status"] = history_after["executable_status"]
+                row["admit"] = bool(admit_desktop)
+                if "observation_ns" not in row:
+                    if row_obs_ns is not None:
+                        row["observation_ns"] = row_obs_ns
+                    elif getattr(desktop_classifier, "_last_observation_ns", None) is not None:
+                        row["observation_ns"] = desktop_classifier._last_observation_ns
             else:
+                kind = process_kind(command, desktop_classifier, row)
                 if desktop_classifier is not None:
-                    decision = (
-                        desktop_classifier.admit_process(row)
-                        if admit_desktop
-                        else desktop_classifier.classify(row)
+                    row["classification"] = classification_evidence(
+                        kind, desktop_classifier.classify(row)
                     )
-                    row["classification"] = decision
-                    if admit_desktop:
-                        row["admission"] = decision
-                    kind = decision["kind"]
-                else:
-                    kind = process_kind(command)
             row["kind"] = kind
             background_kinds = (
                 DESKTOP_BACKGROUND_KINDS if desktop_classifier is not None else BACKGROUND_KINDS
@@ -174,6 +225,14 @@ def foreign_load(
         screen["load_policy"] = (
             "classified-desktop-v1" if desktop_classifier is not None else "classified-v1"
         )
+        if use_step_row:
+            if isinstance(getattr(desktop_classifier, "_history_log", None), list):
+                screen["history_sequence"] = len(desktop_classifier._history_log)
+            if (
+                "observation_ns" not in screen
+                and type(getattr(desktop_classifier, "_last_observation_ns", None)) is int
+            ):
+                screen["observation_ns"] = desktop_classifier._last_observation_ns
     screen["probe_threshold_percent_one_core"] = HEAVY_PERCENT
     return rows
 
@@ -348,14 +407,14 @@ def _monitor_classified(
                     raise RuntimeError("foreign heavy load; retain entire attempt as contaminated")
                 next_host = time.monotonic() + INTERVAL_SECONDS
             current = host_load.capture_cpu()
-            if classifier is not None:
-                host_load.freeze_cpu_snapshot(current, owner_pid, classifier)
             if previous is not None:
                 sample = host_load.cpu_interval(
                     previous, current, owner_pid, desktop_classifier=classifier
                 )
                 samples.append(sample)
                 guard.check(sample)
+            elif classifier is not None:
+                current["_process_history"] = classifier.history_snapshot()
             previous = current
             heartbeat.value = time.monotonic()
             ready.set()

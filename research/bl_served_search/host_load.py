@@ -21,6 +21,36 @@ BACKGROUND_CEILING_PERCENT = 150.0
 BACKGROUND_CEILING_SECONDS = 60.0
 BACKGROUND_KINDS = {"macos_service", "desktop_renderer"}
 DESKTOP_BACKGROUND_KINDS = BACKGROUND_KINDS | {"desktop_app"}
+_COMMAND_WIDTH = 2048
+
+
+def _argv_changed(old: dict[str, Any], row: dict[str, Any]) -> bool:
+    """Return True when argument identity or its capture status changed across an interval."""
+    from research.bl_served_search.desktop_apps import (
+        _extract_argv_evidence,
+        _extract_display_argv,
+    )
+
+    old_argv, old_status, _ = _extract_argv_evidence(old)
+    row_argv, row_status, _ = _extract_argv_evidence(row)
+    old_display = _extract_display_argv(old, old_argv, old_status)
+    row_display = _extract_display_argv(row, row_argv, row_status)
+    if old_display != row_display:
+        return True
+    if (old_argv, old_status) == (row_argv, row_status):
+        return False
+    cmd = row.get("command")
+    if (
+        isinstance(cmd, str)
+        and cmd == old.get("command")
+        and row.get("uid") == old.get("uid")
+        and cmd.startswith(SYSTEM_EXECUTABLE_ROOTS)
+        and ".." not in Path(cmd).parts
+        and _workload_kind(cmd) is None
+        and (old_status != "ok" or row_status != "ok")
+    ):
+        return False
+    return True
 
 
 def _workload_kind(command: str, desktop_classifier: Any | None = None) -> str | None:
@@ -64,8 +94,6 @@ def process_kind(
 
 def _kind_from_evidence(command: str, desktop_classifier: Any | None, evidence: dict) -> str:
     """Apply precedence without reclassifying or mutating registry state."""
-    if desktop_classifier is not None:
-        return str(evidence.get("kind", "unknown"))
     path = Path(command)
     name = path.name.lower()
     workload = _workload_kind(command, desktop_classifier)
@@ -134,11 +162,6 @@ def _cpu_seconds(value: str) -> float:
     return total
 
 
-# macOS ps uses header length as column width. MAXPATHLEN is 1024; a wider
-# fixed executable column preserves spaces without splitting/guessing argv.
-_COMMAND_WIDTH = 2048
-
-
 def capture_argv(row: dict[str, Any]) -> dict[str, Any]:
     """Read exact argv, checking birth/executable on both sides of the read."""
     import psutil
@@ -152,7 +175,7 @@ def capture_argv(row: dict[str, Any]) -> dict[str, Any]:
         after = psutil.Process(row["pid"])
         if (
             birth != after.create_time()
-            or uid != row.get("uid")
+            or (row.get("uid") is not None and uid != row.get("uid"))
             or after.uids().effective != uid
             or " ".join(time.ctime(birth).split()) != row["birth"]
             or command != row["command"]
@@ -161,15 +184,16 @@ def capture_argv(row: dict[str, Any]) -> dict[str, Any]:
             or not argv
         ):
             return {"argv": [], "identity_observation_error": "argv_identity_verification_failed"}
-        return {"argv": argv}
-    except (psutil.Error, OSError, ValueError):
+        return {"argv": [str(x) for x in argv]}
+    except (psutil.Error, OSError, ValueError, KeyError):
         return {"argv": [], "identity_observation_error": "argv_identity_unavailable"}
 
 
-def capture_process_table(metric: str) -> list[dict[str, Any]]:
+def capture_process_table(metric: str) -> tuple[int, int, list[dict[str, Any]]]:
     """Capture executable and displayed argv together, with PID/birth and CPU."""
     if metric not in {"time", "pcpu"}:
         raise ValueError("unsupported process CPU metric")
+    started = time.perf_counter_ns()
     result = subprocess.run(
         [
             "ps",
@@ -187,65 +211,58 @@ def capture_process_table(metric: str) -> list[dict[str, Any]]:
         timeout=10,
         env={**os.environ, "LC_ALL": "C"},
     )
-    rows = []
+    ended = time.perf_counter_ns()
+    midpoint = (started + ended) // 2
+    rows: list[dict[str, Any]] = []
     for line in result.stdout.splitlines()[1:]:
         parts = line.split(None, 9)
-        if len(parts) != 10 or len(parts[9]) <= _COMMAND_WIDTH:
-            raise ValueError("unparseable process executable/argv inventory")
-        command = parts[9][:_COMMAND_WIDTH].rstrip()
-        argv = parts[9][_COMMAND_WIDTH:].strip()
-        if not command or not argv:
-            raise ValueError("missing process executable/argv evidence")
-        row = {
+        if len(parts) not in (9, 10):
+            raise ValueError(f"unparseable process inventory ({metric})")
+        has_uid = len(parts) == 10
+        offset = 1 if has_uid else 0
+        tail = parts[8 + offset]
+        if len(tail) <= _COMMAND_WIDTH:
+            raise ValueError(f"unparseable process command column ({metric})")
+        command = tail[:_COMMAND_WIDTH].rstrip()
+        argv_display = tail[_COMMAND_WIDTH:].strip()
+        if not command or not argv_display:
+            raise ValueError(f"empty process command ({metric})")
+        row: dict[str, Any] = {
             "pid": int(parts[0]),
             "ppid": int(parts[1]),
-            "uid": int(parts[2]),
-            "birth": " ".join(parts[3:8]),
+            "uid": int(parts[2]) if has_uid else None,
+            "birth": " ".join(parts[2 + offset : 7 + offset]),
+            "metric": parts[7 + offset],
             "command": command,
-            "argv_display": argv,
-            ("cpu_seconds" if metric == "time" else "cpu_percent"): (
-                _cpu_seconds(parts[8]) if metric == "time" else float(parts[8])
-            ),
+            "argv_display": argv_display,
+            "observation_ns": midpoint,
         }
         row.update(capture_argv(row))
         rows.append(row)
     if not rows:
-        raise ValueError("empty process inventory")
-    return rows
+        raise ValueError(f"empty process inventory ({metric})")
+    return started, ended, rows
 
 
 def capture_cpu() -> dict[str, Any]:
-    """Read cumulative macOS CPU and argv in one bracketed process inventory."""
-    started = time.perf_counter_ns()
-    rows = capture_process_table("time")
-    ended = time.perf_counter_ns()
+    """Read cumulative process CPU, including protected macOS services.
+
+    psutil CPU times are inaccessible for many system PIDs on macOS. ps TIME
+    supplies user+system cumulative CPU at 10ms resolution without that blind spot.
+    The capture bracket discloses that the inventory is not an atomic snapshot.
+    """
+    started, ended, raw_rows = capture_process_table("time")
+    rows = []
+    for raw in raw_rows:
+        metric = raw.pop("metric")
+        raw["cpu_seconds"] = _cpu_seconds(metric)
+        rows.append(raw)
     return {
         "time_ns": (started + ended) // 2,
         "capture_start_ns": started,
         "capture_end_ns": ended,
         "processes": rows,
     }
-
-
-def freeze_cpu_snapshot(snapshot: dict, owner_pid: int, desktop_classifier: Any) -> None:
-    """Attach decisions at observation time; previous rows are never reclassified."""
-    own = owned_pids(snapshot["processes"], owner_pid)
-    for row in snapshot["processes"]:
-        if row["pid"] not in own and "classification" not in row:
-            row["observation_ns"] = snapshot["time_ns"]
-            observe = getattr(desktop_classifier, "admit_process", desktop_classifier.classify)
-            row["classification"] = observe(row)
-
-
-def interval_classification(previous: dict, current: dict) -> dict:
-    """Conservatively attribute CPU across a transition from two frozen decisions."""
-    kinds = {previous["kind"], current["kind"]}
-    kind = (
-        "agent_workload"
-        if "agent_workload" in kinds
-        else "unknown" if "unknown" in kinds else current["kind"]
-    )
-    return classification_evidence(kind, current)
 
 
 def cpu_interval(
@@ -256,20 +273,18 @@ def cpu_interval(
     if end <= start:
         raise ValueError("CPU sample clock did not advance")
     seconds = (end - start) / 1e9
-    if desktop_classifier is not None:
-        for snapshot in (previous, current):
-            own = owned_pids(snapshot["processes"], owner_pid)
-            if any(
-                row["pid"] not in own and "classification" not in row
-                for row in snapshot["processes"]
-            ):
-                raise ValueError("desktop CPU snapshot was not classified at capture time")
     before = {(row["pid"], row["birth"]): row for row in previous["processes"]}
     after = {(row["pid"], row["birth"]): row for row in current["processes"]}
     own_before = owned_pids(previous["processes"], owner_pid)
     own_after = owned_pids(current["processes"], owner_pid)
     coverage = seconds <= MAX_SAMPLE_SECONDS
     rows, churn = [], []
+    use_step_row = desktop_classifier is not None and hasattr(desktop_classifier, "step_row")
+    prior_snapshot = (
+        previous.get("_process_history")
+        if use_step_row and isinstance(previous.get("_process_history"), dict)
+        else None
+    )
     totals = {
         "background": 0.0,
         "workload": 0.0,
@@ -285,10 +300,11 @@ def cpu_interval(
         uid_changed = (
             desktop_classifier is not None and old is not None and old.get("uid") != row.get("uid")
         )
+        argv_changed = (
+            desktop_classifier is not None and old is not None and _argv_changed(old, row)
+        )
         transition = old is not None and (
-            old["command"] != row["command"]
-            or uid_changed
-            or (desktop_classifier is not None and old.get("argv") != row.get("argv"))
+            old["command"] != row["command"] or uid_changed or argv_changed
         )
         if old is None or transition:
             coverage = False
@@ -296,7 +312,13 @@ def cpu_interval(
                 {
                     **row,
                     "reason": (
-                        "uid_changed_no_delta" if uid_changed else "new_or_exec_process_no_delta"
+                        "uid_changed_no_delta"
+                        if uid_changed
+                        else (
+                            "argv_changed_no_delta"
+                            if argv_changed and old is not None and old["command"] == row["command"]
+                            else "new_or_exec_process_no_delta"
+                        )
                     ),
                 }
             )
@@ -304,22 +326,149 @@ def cpu_interval(
         if delta < 0:
             raise ValueError("process CPU counter decreased")
         prior_evidence = None
-        if desktop_classifier is not None:
-            evidence = row["classification"]
+        prior_history_before = None
+        prior_history_after = None
+        row_history_before = None
+        row_history_after = None
+        row_admit = False
+        if use_step_row:
+            from research.bl_served_search.desktop_apps import (
+                _extract_argv_evidence,
+                _extract_display_argv,
+            )
+
             if transition:
-                prior_evidence = old["classification"]
-                final_evidence = interval_classification(prior_evidence, evidence)
+                prior_history_before = desktop_classifier.history_for_row(
+                    old, snapshot=prior_snapshot
+                )
+                old_argv, old_argv_status, _ = _extract_argv_evidence(old)
+                old_display = _extract_display_argv(old, old_argv, old_argv_status)
+                old_input = {**old}
+                if (
+                    isinstance(prior_history_before, dict)
+                    and (
+                        prior_history_before.get("uid"),
+                        prior_history_before.get("command"),
+                        prior_history_before.get("argv"),
+                        prior_history_before.get("argv_status"),
+                        prior_history_before.get("argv_display"),
+                    )
+                    == (
+                        old.get("uid"),
+                        old.get("command"),
+                        old_argv,
+                        old_argv_status,
+                        old_display,
+                    )
+                    and isinstance(prior_history_before.get("executable_status"), str)
+                    and prior_history_before.get("executable_status")
+                ):
+                    old_input["executable_status"] = prior_history_before["executable_status"]
+                prior_kind, prior_evidence, _, prior_history_after, _ = desktop_classifier.step_row(
+                    old_input,
+                    admit=False,
+                    history_override=prior_history_before,
+                    commit=True,
+                    observation_ns=start,
+                )
+                current_hist = (
+                    desktop_classifier._history.get(key)
+                    if isinstance(getattr(desktop_classifier, "_history", None), dict)
+                    else None
+                )
+                after_prior = (
+                    dict(current_hist)
+                    if (
+                        isinstance(current_hist, dict)
+                        and isinstance(prior_history_after, dict)
+                        and current_hist.get("status") == "non_desktop"
+                        and type(current_hist.get("sequence")) is int
+                        and type(prior_history_after.get("sequence")) is int
+                        and current_hist["sequence"] > prior_history_after["sequence"]
+                    )
+                    else prior_history_after
+                )
+                cur_kind, cur_evidence, _, row_history_after, _ = desktop_classifier.step_row(
+                    row,
+                    admit=False,
+                    history_override=after_prior,
+                    commit=True,
+                    observation_ns=end,
+                )
+                kinds = {cur_kind, prior_kind}
+                if "agent_workload" in kinds:
+                    kind = "agent_workload"
+                elif "unknown" in kinds:
+                    kind = "unknown"
+                else:
+                    kind = cur_kind
+                evidence = classification_evidence(kind, cur_evidence)
+                row_history_before = after_prior
+                row_admit = False
             else:
-                final_evidence = evidence
-            kind = final_evidence["kind"]
+                if old is not None:
+                    old_argv, old_argv_status, _ = _extract_argv_evidence(old)
+                    row_argv, row_argv_status, _ = _extract_argv_evidence(row)
+                    old_display = _extract_display_argv(old, old_argv, old_argv_status)
+                    row_display = _extract_display_argv(row, row_argv, row_argv_status)
+                    if (old_argv, old_argv_status, old_display) != (
+                        row_argv,
+                        row_argv_status,
+                        row_display,
+                    ):
+                        proc_obs_map = getattr(
+                            desktop_classifier, "_proc_last_observation_ns", None
+                        )
+                        last_proc_obs_ns = (
+                            proc_obs_map.get(key) if isinstance(proc_obs_map, dict) else None
+                        )
+                        if last_proc_obs_ns is None:
+                            last_proc_obs_ns = next(
+                                (
+                                    entry.get("observation_ns")
+                                    for entry in reversed(
+                                        getattr(desktop_classifier, "_history_log", ())
+                                    )
+                                    if (entry.get("pid"), entry.get("birth")) == key
+                                ),
+                                None,
+                            )
+                        if last_proc_obs_ns is None or (
+                            type(last_proc_obs_ns) is int and last_proc_obs_ns <= start
+                        ):
+                            desktop_classifier.step_row(
+                                old,
+                                admit=True,
+                                commit=True,
+                                observation_ns=start,
+                            )
+                kind, evidence, row_history_before, row_history_after, _ = (
+                    desktop_classifier.step_row(row, admit=True, observation_ns=end)
+                )
+                row_admit = True
         else:
-            evidence = {}
-            kind = _kind_from_evidence(row["command"], None, evidence)
             if transition:
-                prior_kind = _kind_from_evidence(old["command"], None, {})
-                prior_evidence = classification_evidence(prior_kind, {})
-                final_evidence = interval_classification(prior_evidence, {"kind": kind})
-                kind = final_evidence["kind"]
+                # Snapshot the previous identity exactly once, before any current
+                # admission, classification, or revocation can mutate its binding.
+                prior_raw = desktop_classifier.classify(old) if desktop_classifier else {}
+                prior_kind = _kind_from_evidence(old["command"], desktop_classifier, prior_raw)
+                prior_evidence = classification_evidence(prior_kind, prior_raw)
+                if desktop_classifier is not None:
+                    desktop_classifier.invalidate_transition(row)
+            elif desktop_classifier is not None:
+                # Dedicated off-tick collector: admit only new/unchanged rows.
+                admit = getattr(desktop_classifier, "admit_process", None)
+                if callable(admit):
+                    admit(row)
+            evidence = desktop_classifier.classify(row) if desktop_classifier else {}
+            kind = _kind_from_evidence(row["command"], desktop_classifier, evidence)
+            if transition:
+                kinds = {kind, prior_kind}
+                if "agent_workload" in kinds:
+                    kind = "agent_workload"
+                elif "unknown" in kinds:
+                    kind = "unknown"
+            evidence = classification_evidence(kind, evidence)
         cpu = 100 * delta / seconds
         background_kinds = (
             DESKTOP_BACKGROUND_KINDS if desktop_classifier is not None else BACKGROUND_KINDS
@@ -332,12 +481,6 @@ def cpu_interval(
         totals[group] += cpu
         if kind in {"macos_service", "desktop_renderer", "desktop_app"}:
             totals[kind] += cpu
-        current_evidence = evidence
-        evidence = (
-            final_evidence
-            if desktop_classifier is not None
-            else classification_evidence(kind, evidence)
-        )
         # Preserve every measured CPU contribution and every admitted UI/violation
         # binding. Idle unrelated processes remain in raw point inventories and
         # churn, rather than repeating thousands of zero rows for up to 7200s.
@@ -347,27 +490,57 @@ def cpu_interval(
                 kind in {"desktop_app", "desktop_renderer"}
                 or evidence.get("identity_binding_changed")
                 or evidence.get("reason") == "known_workload"
+                or (
+                    row_history_before is not None
+                    and row_history_after is not None
+                    and row_history_before != row_history_after
+                )
             )
         ):
             exported = {**row, "kind": kind, "cpu_percent": cpu, "classification": evidence}
+            if use_step_row and row_history_after is not None:
+                exported["history_before"] = row_history_before
+                exported["history_after"] = row_history_after
+                exported["sequence"] = row_history_after["sequence"]
+                exported["executable_status"] = row_history_after["executable_status"]
+                exported["admit"] = row_admit
+                exported["observation_ns"] = end
             if transition:
                 # Replay needs both identities: this interval's conservative
                 # classification is a precedence over the before/after rows,
                 # not a claim that the after identity supplied all its CPU.
-                exported["interval_transition"] = {
-                    "reason": "uid_changed_no_delta" if uid_changed else "exec_changed_no_delta",
-                    "previous": {
-                        key: value for key, value in old.items() if key != "classification"
-                    },
-                    "current_classification": current_evidence,
-                    "previous_classification": (prior_evidence),
+                transition_export = {
+                    "reason": (
+                        "uid_changed_no_delta"
+                        if uid_changed
+                        else (
+                            "argv_changed_no_delta"
+                            if argv_changed and old["command"] == row["command"]
+                            else "exec_changed_no_delta"
+                        )
+                    ),
+                    "previous": dict(old),
+                    "previous_classification": (
+                        prior_evidence if prior_evidence is not None else {"kind": prior_kind}
+                    ),
                     "conservative_kind": kind,
                 }
+                if use_step_row and prior_history_after is not None:
+                    transition_export["previous_history_before"] = prior_history_before
+                    transition_export["previous_history_after"] = prior_history_after
+                    transition_export["previous_sequence"] = prior_history_after["sequence"]
+                    transition_export["previous_executable_status"] = prior_history_after[
+                        "executable_status"
+                    ]
+                    transition_export["previous_observation_ns"] = start
+                exported["interval_transition"] = transition_export
             rows.append(exported)
     for key, row in before.items():
         if key not in after and row["pid"] not in own_before:
             coverage = False
             churn.append({**row, "reason": "exited_process_no_final_counter"})
+    if use_step_row:
+        current["_process_history"] = desktop_classifier.history_snapshot()
     return {
         "start_ns": start,
         "end_ns": end,

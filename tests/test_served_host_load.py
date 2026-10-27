@@ -196,27 +196,28 @@ def test_sustained_guard_does_not_bridge_missing_or_long_intervals():
 def test_parse_cumulative_inventory_retains_shared_clock_and_birth(monkeypatch):
     from unittest.mock import Mock
 
+    padded_comm = f"{'/usr/libexec/cloudd':<{load._COMMAND_WIDTH}}"
     capture = Mock(
         return_value=SimpleNamespace(
             stdout=(
                 "PID PPID UID STARTED TIME COMM ARGS\n"
-                "20 1 501 Tue Oct 27 08:00:00 2026 123:45.67 "
-                + "/usr/libexec/cloudd".ljust(load._COMMAND_WIDTH)
-                + " /usr/libexec/cloudd --test\n"
+                f"20 1 0 Tue Oct 27 08:00:00 2026 123:45.67 {padded_comm} "
+                "/usr/libexec/cloudd --daemon\n"
             )
         )
     )
     monkeypatch.setattr(load.subprocess, "run", capture)
-    monkeypatch.setattr(
-        load, "capture_argv", lambda row: {"argv": ["/usr/libexec/cloudd", "--test"]}
-    )
+    monkeypatch.setattr(load, "capture_argv", lambda row: {"argv": [row["command"], "--daemon"]})
     ticks = iter([100, 200])
     monkeypatch.setattr(load.time, "perf_counter_ns", lambda: next(ticks))
     result = load.capture_cpu()
     assert result["time_ns"] == 150
     assert result["processes"][0]["birth"] == "Tue Oct 27 08:00:00 2026"
     assert result["processes"][0]["cpu_seconds"] == 7425.67
-    assert result["processes"][0]["argv"] == ["/usr/libexec/cloudd", "--test"]
+    assert result["processes"][0]["command"] == "/usr/libexec/cloudd"
+    assert result["processes"][0]["argv_display"] == "/usr/libexec/cloudd --daemon"
+    assert result["processes"][0]["argv"] == ["/usr/libexec/cloudd", "--daemon"]
+    assert result["processes"][0]["observation_ns"] == 150
 
 
 def test_negative_counter_and_malformed_time_refuse_evidence():
@@ -240,10 +241,6 @@ class _DesktopClassifier:
         self.revoked.add((row["pid"], row["birth"]))
 
     def classify(self, row):
-        # Stand-in supplies final policy decisions; the collector does not
-        # apply another workload classifier to desktop policy evidence.
-        if load._workload_kind(row["command"], self) == "agent_workload":
-            return {"kind": "agent_workload", "reason": "workload_exclusion"}
         if (row.get("pid"), row.get("birth")) in self.revoked:
             return {"kind": "unknown", "identity_binding_changed": True}
         if (
@@ -298,10 +295,7 @@ def test_desktop_app_uses_shared_background_pool_but_workload_precedence_remains
         row["uid"] = 501
     for row in after["processes"]:
         row["cpu_seconds"] += 0.25
-    classifier = _DesktopClassifier()
-    load.freeze_cpu_snapshot(before, 10, classifier)
-    load.freeze_cpu_snapshot(after, 10, classifier)
-    sample = load.cpu_interval(before, after, 10, desktop_classifier=classifier)
+    sample = load.cpu_interval(before, after, 10, desktop_classifier=_DesktopClassifier())
     assert sample["desktop_app_cpu_percent"] == pytest.approx(25)
     assert sample["background_cpu_percent"] == pytest.approx(25)
     assert sample["workload_cpu_percent"] == pytest.approx(25)
@@ -324,8 +318,6 @@ def test_desktop_app_avoids_per_process_abort_but_shared_ceiling_still_applies()
         )
         for row in before["processes"] + after["processes"]:
             row["uid"] = 501
-        load.freeze_cpu_snapshot(before, 10, classifier)
-        load.freeze_cpu_snapshot(after, 10, classifier)
         sample = load.cpu_interval(before, after, 10, desktop_classifier=classifier)
         assert sample["desktop_app_cpu_percent"] == pytest.approx(160)
         guard.check(sample)
@@ -338,8 +330,6 @@ def test_desktop_app_avoids_per_process_abort_but_shared_ceiling_still_applies()
     for row in before["processes"] + after["processes"]:
         row["uid"] = 501
     with pytest.raises(RuntimeError, match=">150% for >60s"):
-        load.freeze_cpu_snapshot(before, 10, classifier)
-        load.freeze_cpu_snapshot(after, 10, classifier)
         guard.check(load.cpu_interval(before, after, 10, desktop_classifier=classifier))
 
 
@@ -365,10 +355,7 @@ def test_identity_drift_aborts_below_twenty_but_initial_unknown_does_not():
 def test_unknown_cpu_is_not_double_counted_in_desktop_totals():
     before = inventory(0, [(20, 1, "unknown", "/tmp/unknown", 1)])
     after = inventory(1, [(20, 1, "unknown", "/tmp/unknown", 1.1)])
-    classifier = _DesktopClassifier()
-    load.freeze_cpu_snapshot(before, 10, classifier)
-    load.freeze_cpu_snapshot(after, 10, classifier)
-    sample = load.cpu_interval(before, after, 10, desktop_classifier=classifier)
+    sample = load.cpu_interval(before, after, 10, desktop_classifier=_DesktopClassifier())
     assert sample["unknown_cpu_percent"] == pytest.approx(10)
     assert sample["background_cpu_percent"] == 0
 
@@ -378,10 +365,7 @@ def test_desktop_interval_uid_change_is_churn_and_never_inherits_background():
     after = inventory(1, [(20, 1, "same", "/Applications/Outlook.app/Contents/MacOS/Outlook", 1.5)])
     before["processes"][0]["uid"] = 0
     after["processes"][0]["uid"] = 501
-    classifier = _DesktopClassifier()
-    load.freeze_cpu_snapshot(before, 10, classifier)
-    load.freeze_cpu_snapshot(after, 10, classifier)
-    sample = load.cpu_interval(before, after, 10, desktop_classifier=classifier)
+    sample = load.cpu_interval(before, after, 10, desktop_classifier=_DesktopClassifier())
     assert not sample["coverage_complete"]
     assert sample["process_churn"][0]["reason"] == "uid_changed_no_delta"
     assert sample["processes"][0]["kind"] == "unknown"
@@ -421,54 +405,6 @@ def test_interval_admits_new_desktop_process_before_its_first_classification():
         ],
     )
     after["processes"][0]["uid"] = 501
-    classifier = AdmissionOnlyClassifier()
-    load.freeze_cpu_snapshot(before, 10, classifier)
-    load.freeze_cpu_snapshot(after, 10, classifier)
-    sample = load.cpu_interval(before, after, 10, desktop_classifier=classifier)
+    sample = load.cpu_interval(before, after, 10, desktop_classifier=AdmissionOnlyClassifier())
     assert sample["processes"][0]["kind"] == "desktop_renderer"
     assert sample["background_cpu_percent"] == pytest.approx(30)
-
-
-@pytest.mark.parametrize("argv", [["app", "a b", "c"], ["app", "a", "b c"]])
-def test_exact_argv_preserves_argument_boundaries(monkeypatch, argv):
-    from unittest.mock import Mock
-
-    process = Mock()
-    process.create_time.return_value = 100
-    process.uids.return_value = SimpleNamespace(effective=501)
-    process.exe.return_value = "/Applications/App.app/Contents/MacOS/App"
-    process.cmdline.return_value = argv
-    monkeypatch.setattr("psutil.Process", lambda pid: process)
-    monkeypatch.setattr(load.time, "ctime", lambda value: "Tue Oct 27 08:00:00 2026")
-    row = {"pid": 42, "uid": 501, "birth": "Tue Oct 27 08:00:00 2026", "command": process.exe()}
-    assert load.capture_argv(row) == {"argv": argv}
-
-
-@pytest.mark.parametrize("failure", ["denied", "exec", "birth", "argv"])
-def test_exact_argv_capture_fails_closed_on_race_or_inaccessible_identity(monkeypatch, failure):
-    from unittest.mock import Mock
-
-    import psutil
-
-    before, after = Mock(), Mock()
-    for process in (before, after):
-        process.create_time.return_value = 100
-        process.uids.return_value = SimpleNamespace(effective=501)
-        process.exe.return_value = "/Applications/App.app/Contents/MacOS/App"
-        process.cmdline.return_value = ["app", "a b", "c"]
-    if failure == "denied":
-        before.cmdline.side_effect = psutil.AccessDenied(pid=42)
-    elif failure == "exec":
-        after.exe.return_value = "/usr/bin/true"
-    elif failure == "birth":
-        after.create_time.return_value = 101
-    else:
-        after.cmdline.return_value = ["app", "a", "b c"]
-    processes = iter((before, after))
-    monkeypatch.setattr("psutil.Process", lambda pid: next(processes))
-    monkeypatch.setattr(load.time, "ctime", lambda value: "Tue Oct 27 08:00:00 2026")
-    result = load.capture_argv(
-        {"pid": 42, "uid": 501, "birth": "Tue Oct 27 08:00:00 2026", "command": before.exe()}
-    )
-    assert result["argv"] == []
-    assert result["identity_observation_error"]

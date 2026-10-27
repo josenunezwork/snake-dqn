@@ -24,8 +24,14 @@ Each UI executable needs its own entry. A display name, argv, signature alone,
 parent, `.app` suffix, or renderer/GPU suffix cannot grant admission. No recursive
 bundle/descendant trust exists. Missing or ambiguous evidence gives no exception.
 Symlinks/traversal, installation copies, wrong UID, identity changes and updates
-cannot inherit enrollment. New birth/exec identities require verification outside
-scored ticks. Admitted executable replacement invalidates exposure.
+cannot inherit enrollment. New birth identities require verification outside
+scored ticks. Fail-closed per-process revocation (stricter than Astra's ruling,
+and therefore within it): any identity change or verification failure of a
+`(pid, birth)` — including an exec/argv change, executable replacement on disk
+whether bound or unbound, UID change, or canonical-path/UID/signature
+verification failure — permanently revokes that `(pid, birth)` for the entire
+attempt and it is never re-admitted, even if the on-disk binary is later
+restored; only a new `(pid, birth)` may be admitted fresh.
 
 The permitted-use declaration is ordinary owner mail, browsing and remote-chat
 presentation/synchronization only. The operator must verify that this declaration
@@ -58,9 +64,16 @@ is no new aggregate ordinary-work abort. Unadmitted remote supervision remains
 ordinary workload regardless of useful remote work.
 
 Nominal 1-second cumulative CPU sampling, birth/exec/counter checks, original
-capture brackets, point %CPU and interval rows are retained. Raw identity/role,
-admission/rejection reason, classification changes, registry mismatches, coverage,
-aborts and sustained-duration/maxima evidence remain available. Reports separate
+capture brackets, point %CPU and interval rows are retained. Live collection and
+reducer replay share one pure function
+`classify_row(history, row, registry) -> (kind, new_history, reason)` with no
+hidden mutable state; the complete per-`(pid, birth)` history is exported in
+`host.json`, interval transitions classify the previous row against the history
+as of its own capture time before stepping the current row, and the reducer must
+reproduce every exported classification and history state exactly or reject.
+Raw identity/role, admission/rejection reason, classification changes, registry
+mismatches, coverage, aborts and sustained-duration/maxima evidence remain
+available. Reports separate
 service, renderer and desktop-app CPU and also reconcile their combined pool,
 ordinary/unknown CPU, per-process/application totals and affected tick counts,
 per cell and overall. No mail/chat content or credentials establish roles.

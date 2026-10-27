@@ -489,7 +489,6 @@ def source_binding(require_clean: bool = True) -> dict[str, Any]:
         Path(__file__).with_name("background_report.py"),
         Path(__file__).with_name("HOST_LOAD_AMENDMENT_20261027.md"),
         Path(__file__).with_name("DESKTOP_APPS_AMENDMENT_20261027.md"),
-        Path(__file__).with_name("DESKTOP_HISTORY_AMENDMENT_20261027_12.md"),
         Path(__file__).with_name("ASTRA_DESKTOP_RULING_20261027.md"),
         Path(__file__).with_name("desktop_apps.py"),
         Path(__file__).with_name("desktop_policy.py"),
