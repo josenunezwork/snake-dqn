@@ -1,0 +1,12 @@
+A-3 reseal03: prepared only; allocations=0. Simulator-D timing/parity only.
+Source pin: d12bf047c6c954c657d15e104e28a2a6ab7d5c32
+Caller-TF32 compile/reference; all four R2 buckets prewarmed; static pure anchor.
+24 cells E128/E1024/E2048/E4096 x ep64/512 x cached/collection/integrated.
+H128 warmup1 measuredcycles3 minibatch2048 compile=default Inductor.
+Base14400/effective28800 seconds; empty allocation-bound verified ledger.
+CPU real aot_eager admission does not establish A100 performance.
+
+Exact operator dispatch:
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a3-20261026-03 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3-03/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-03/state
+
+Dry run: append --dry-run. Never retry automatically.
