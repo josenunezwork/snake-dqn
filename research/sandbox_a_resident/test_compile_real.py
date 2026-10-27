@@ -76,7 +76,11 @@ def test_tensor_v8_feature_boundary_matches_source_before_and_after_reset() -> N
 
 
 def test_shared_compile_cache_handles_four_world_shapes_under_tf32_timing_mode() -> None:
-    """Bound the known shape matrix without mutable-cache recompilation/fallback."""
+    """Exercise real Dynamo guards; the all-block test above covers AOTAutograd.
+
+    Use the eager backend for this additional shape matrix so admission does
+    not repeatedly pay AOT lowering for every otherwise identical shape.
+    """
     torch.set_num_threads(1)
     cache = run.CellCompileCache()
     reused = []
@@ -89,7 +93,7 @@ def test_shared_compile_cache_handles_four_world_shapes_under_tf32_timing_mode()
                 Recipe(worlds=worlds, horizon=1, minibatch=worlds, episode_limit=2, tiny=True),
                 Ego2sNet(local_channels=7, n_scalars=60),
             )
-            reused.append(cache.attach(runner, "default", backend="aot_eager"))
+            reused.append(cache.attach(runner, "default", backend="eager"))
             runner.update(runner.collect())
             for entry in runner.compile_report.values():
                 assert entry["status"] == "compiled", entry.get("fallback_reason")
