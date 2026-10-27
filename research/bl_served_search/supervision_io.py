@@ -92,6 +92,13 @@ def _registry_from_identity(
         *sorted((cwd / "tools/sandbox").glob("*.py")),
         hook,
     ]
+    if argv[2] == "tools.sandbox.supervisor_v2":
+        # Globs bind the wider closure, but required files must also be named
+        # explicitly so a missing collector source fails during capture.
+        paths.extend(
+            cwd / "tools/sandbox" / name
+            for name in ("collector_v2.py", "supervision_accounting.py", "supervisor.py")
+        )
     sources = {str(path.resolve(strict=True)): file_digest(path) for path in paths}
     colab = Path(argv[6]).resolve(strict=True)
     with colab.open("rb") as handle:

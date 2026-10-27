@@ -114,7 +114,11 @@ class Collector:
         ordinary = dict(result)
         frames = inspect.stack(context=0)
         try:
-            calls = {frame.function for frame in frames}
+            calls = {
+                f.function
+                for f in frames
+                if f.frame.f_globals.get("__name__") == "research.colab_cli.supervisor"
+            }
             call = next(
                 (
                     f.frame
@@ -158,17 +162,22 @@ class Collector:
                 template = "heartbeat_upload"
                 result["payload_path"] = argv[-2]
                 request = Path(argv[-2]).read_text()
-            elif command == "exec" and "renew_runtime_lease" in calls:
-                result["payload_path"] = argv[9]
+            elif command == "exec":
                 request = Path(argv[9]).read_text()
                 nonce = re.search(r"SNAKE_RPC_[0-9a-f]{32}", request)
                 if nonce is None:
-                    return result, b""
+                    return ordinary, b""
+                template = "read_state" if "result=mod.read_state(" in request else "renew_lease"
+                # Use the pinned CLI's actual callsite contract: force=True on
+                # renew_runtime_lease emits read_state in this qualified version.
+                expected_fn = identity.CALLSITES[template].removeprefix("CLI.")
+                if expected_fn not in calls:
+                    return ordinary, b""
+                result["payload_path"] = argv[9]
                 result["nonce"] = nonce.group()
                 result["rpc_timeout_seconds"] = (
                     int(argv[-1]) if re.fullmatch(r"[0-9]+", argv[-1]) else float(argv[-1])
                 )
-                template = "read_state" if "result=mod.read_state(" in request else "renew_lease"
             else:
                 return result, b""
             result.update(
@@ -243,8 +252,9 @@ class Collector:
         input_bytes = (
             input.encode(encoding, errors or "strict") if text_mode and input is not None else input
         )
+        arg_strings = [os.fspath(x) if isinstance(x, os.PathLike) else str(x) for x in args]
         oid = uuid.uuid4().hex
-        metadata, request = self.metadata(args, timeout)
+        metadata, request = self.metadata(arg_strings, timeout)
         self.emit("operation_start", {**metadata, "operation_id": oid})
         with self._lock:
             self._active.add(oid)
@@ -253,7 +263,7 @@ class Collector:
         output = error = None
         try:
             try:
-                process = accounting.Wait4Popen(args, **kwargs)
+                process = accounting.Wait4Popen(arg_strings, **kwargs)
             except BaseException as exc:
                 self.errors.append("spawn/exec failed; final unavailable: " + type(exc).__name__)
                 raise
@@ -267,7 +277,7 @@ class Collector:
                     # error pipe, even if the child is already a zombie. Resolve
                     # the exact shebang contract rather than losing fast children
                     # to a post-exit proc.exe()/cmdline() race.
-                    executable = kwargs.get("executable") or args[0]
+                    executable = kwargs.get("executable") or arg_strings[0]
                     resolved = str(
                         Path(
                             shutil.which(
@@ -276,7 +286,7 @@ class Collector:
                             or executable
                         ).resolve()
                     )
-                    actual_argv = [resolved, *args[1:]]
+                    actual_argv = [resolved, *arg_strings[1:]]
                     with Path(resolved).open("rb") as handle:
                         first = handle.readline(4096)
                     if first.startswith(b"#!"):
@@ -284,7 +294,7 @@ class Collector:
                         if len(shebang) != 1 or not Path(shebang[0]).is_absolute():
                             raise accounting.AccountingError("ambiguous shebang interpreter")
                         executable = str(Path(shebang[0]).resolve())
-                        actual_argv = [executable, resolved, *args[1:]]
+                        actual_argv = [executable, resolved, *arg_strings[1:]]
                     else:
                         executable = resolved
                     actual = {
@@ -301,7 +311,7 @@ class Collector:
                         oid,
                         child.pid,
                         actual["uid"],
-                        tuple(args),
+                        tuple(arg_strings),
                         launch_start,
                         os.getpid(),
                         actual["birth_ns"],

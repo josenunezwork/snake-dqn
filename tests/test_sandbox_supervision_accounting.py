@@ -114,13 +114,73 @@ def test_reserved_fields_time_regression_and_nonfinite_payload_refused(tmp_path)
     journal.append("one", {}, monotonic_ns=10)
     with pytest.raises(subject.AccountingError, match="strictly increase"):
         journal.append("two", {}, monotonic_ns=10)
-    with pytest.raises(subject.AccountingError, match="after journal failure"):
-        journal.append("three", {})
+    journal.append("three", {}, monotonic_ns=11)
+    journal.seal()
+    assert [row["seq"] for row in subject.read_journal(journal.directory)] == [1, 2]
     for key in ("seq", "kind", "mono_ns", "previous_sha256"):
         with pytest.raises(subject.AccountingError, match="reserved"):
             _journal(tmp_path / key).append("one", {key: 3})
     with pytest.raises(ValueError):
         subject._canonical_json({"x": float("nan")})
+
+
+@pytest.mark.parametrize("payload", [{"seq": 3}, {"path": Path("payload")}, {"x": float("nan")}])
+def test_journal_prewrite_rejection_does_not_poison_or_advance_chain(tmp_path, payload):
+    journal = _journal(tmp_path)
+    journal.append("before", {}, monotonic_ns=10)
+    with pytest.raises(subject.AccountingError):
+        journal.append("invalid", payload, monotonic_ns=11)
+    assert len(list(journal.events_dir.glob("*.json"))) == 1
+    journal.append("after", {}, monotonic_ns=11)
+    journal.seal()
+    rows = subject.read_journal(journal.directory)
+    assert [row["seq"] for row in rows] == [1, 2]
+    assert rows[1]["previous_sha256"] == rows[0]["sha256"]
+
+
+def test_journal_partial_write_failure_still_prevents_append_and_seal(tmp_path, monkeypatch):
+    journal = _journal(tmp_path)
+    original = subject.export_json
+
+    def partial_write(path, record):
+        path.write_text("partial")
+        raise OSError("simulated interrupted triplet")
+
+    monkeypatch.setattr(subject, "export_json", partial_write)
+    with pytest.raises(subject.AccountingError, match="immutable journal write failed"):
+        journal.append("one", {})
+    monkeypatch.setattr(subject, "export_json", original)
+    with pytest.raises(subject.AccountingError, match="after journal failure"):
+        journal.append("two", {})
+    with pytest.raises(subject.AccountingError, match="seal failed journal"):
+        journal.seal()
+
+
+@pytest.mark.parametrize("shebang", [False, True])
+def test_collector_pathlike_arguments_preserve_complete_journal(tmp_path, shebang):
+    script = tmp_path / "echo-path.py"
+    script.write_text(
+        "#!" + str(Path(sys.executable).resolve()) + "\nimport sys\nprint(sys.argv[1])\n"
+    )
+    script.chmod(0o700)
+    argument = tmp_path / "payload"
+    args = [script, argument] if shebang else [Path(sys.executable), script, argument]
+    collector = Collector(tmp_path / "collector")
+    result = collector.run(args, capture_output=True, text=True, timeout=5)
+    assert result.stdout == str(argument) + "\n"
+    assert collector.run([sys.executable, "-c", "pass"], timeout=5).returncode == 0
+    assert not collector.seal()["errors"]
+    rows = subject.read_journal(collector.journal.directory)
+    assert [row["kind"] for row in rows] == [
+        "operation_start",
+        "launch",
+        "exec",
+        "exit",
+        "operation_end",
+    ] * 2
+    for row in rows:
+        if row["kind"] in {"launch", "exec"}:
+            assert all(isinstance(arg, str) for arg in row["identity"]["argv"])
 
 
 def test_native_counter_rejects_float_or_missing_final(tmp_path) -> None:
@@ -245,7 +305,11 @@ def test_qualified_callsite_template_recognition_without_provider(tmp_path, monk
     import json
     from types import SimpleNamespace
 
-    from research.bl_served_search.supervision_identity import heartbeat_request, rpc_request
+    from research.bl_served_search.supervision_identity import (
+        CALLSITES,
+        heartbeat_request,
+        rpc_request,
+    )
     from research.colab_cli import supervisor
     from tools.sandbox import collector_v2
 
@@ -279,7 +343,7 @@ def test_qualified_callsite_template_recognition_without_provider(tmp_path, monk
     else:
         request_path.write_text(rpc_request(template, "generation", "SNAKE_RPC_" + "a" * 32))
         args += ["exec", "-s", "session", "-f", str(request_path), "--timeout", "5"]
-        callsite = "renew_runtime_lease"
+        callsite = CALLSITES[template].removeprefix("CLI.")
     frames = [
         SimpleNamespace(
             function="_call_once",
@@ -291,7 +355,10 @@ def test_qualified_callsite_template_recognition_without_provider(tmp_path, monk
                 f_locals={"self": cli},
             ),
         ),
-        SimpleNamespace(function=callsite),
+        SimpleNamespace(
+            function=callsite,
+            frame=SimpleNamespace(f_globals={"__name__": "research.colab_cli.supervisor"}),
+        ),
     ]
     monkeypatch.setattr(collector_v2.inspect, "stack", lambda **kwargs: frames)
     collector = Collector(tmp_path / "collector")
@@ -299,11 +366,84 @@ def test_qualified_callsite_template_recognition_without_provider(tmp_path, monk
     assert metadata["template"] == template
     assert metadata["request_digest"] == subject.sha256_bytes(request)
     assert metadata["helper_sources"][str(hook)] == metadata["helper_hook"]
+    # Matching names from an unrelated module are not qualified callsites.
+    frames[1].frame.f_globals["__name__"] = "unqualified_module"
+    assert collector.metadata(args, 5)[0]["template"] == "ordinary"
+    frames[1].frame.f_globals["__name__"] = "research.colab_cli.supervisor"
+    if template in {"read_state", "renew_lease"}:
+        frames[1].function = "read_state"  # Not a method in the pinned CLI.
+        assert collector.metadata(args, 5)[0]["template"] == "ordinary"
+        frames[1].function = callsite
+        request_path.write_text("result=mod.read_state()")
+        rejected, request = collector.metadata(args, 5)
+        assert rejected["template"] == "ordinary" and request == b""
+        assert "payload_path" not in rejected and "nonce" not in rejected
     # A generic CLI caller or changed assignment never inherits a template.
     frames[1].function = "local_training"
     assert collector.metadata(args, 5)[0]["template"] == "ordinary"
     cli.assignment_record.write_text(json.dumps({"endpoint": "foreign"}))
     assert collector.metadata(args, 5)[0]["template"] == "ordinary"
+    collector.seal()
+
+
+@pytest.mark.parametrize("force,template", [(True, "read_state"), (False, "renew_lease")])
+def test_real_qualified_cli_rpc_shapes_without_provider(tmp_path, monkeypatch, force, template):
+    """Exercise renew_runtime_lease -> poll_rpc -> rpc -> call -> _call_once.
+
+    The pinned CLI emits read_state via force=True; it has no CLI.read_state.
+    Only the subprocess boundary is replaced, so stack, argv, and temporary RPC
+    bytes all come from the unchanged qualified source.
+    """
+    import json
+    import re
+    from types import SimpleNamespace
+
+    from research.bl_served_search import supervision_identity as identity
+    from research.colab_cli import supervisor
+
+    binary = tmp_path / "colab"
+    binary.write_text("#!" + str(Path(sys.executable).resolve()) + "\n")
+    config = tmp_path / "lane/sessions.json"
+    config.parent.mkdir()
+    cli = supervisor.CLI(str(binary), config, "session")
+    (config.parent / "assignment.json").write_text(
+        json.dumps({"session": "session", "endpoint": "endpoint", "generation": "generation"})
+    )
+    cli.assignment_record.write_text(json.dumps({"endpoint": "endpoint"}))
+    collector = Collector(tmp_path / "collector")
+    observed = []
+
+    def intercept(args, **kwargs):
+        assert args[:9] == [
+            str(binary),
+            "--auth",
+            "oauth2",
+            "--config",
+            str(config),
+            "exec",
+            "-s",
+            "session",
+            "-f",
+        ]
+        assert args[10] == "--timeout" and len(args) == 12
+        request = Path(args[9]).read_text()
+        nonce = re.search(r"SNAKE_RPC_[0-9a-f]{32}", request).group()
+        assert request == identity.rpc_request(template, "generation", nonce)
+        metadata, raw = collector.metadata(args, kwargs["timeout"])
+        assert metadata["template"] == template
+        assert metadata["provenance"]["callsite"] == "CLI.renew_runtime_lease"
+        assert metadata["rpc_timeout_seconds"] == float(args[-1])
+        assert 0 < kwargs["timeout"] <= float(args[-1])
+        assert raw == request.encode()
+        assert metadata["request_digest"] == subject.sha256_bytes(raw)
+        observed.append(metadata)
+        return subprocess.CompletedProcess(
+            args, 0, nonce + json.dumps({"ok": True, "value": {}}), ""
+        )
+
+    monkeypatch.setattr(supervisor, "subprocess", SimpleNamespace(run=intercept))
+    assert cli.renew_runtime_lease("/content/snake-cli/generation", "generation", force=force) == {}
+    assert len(observed) == 1
     collector.seal()
 
 

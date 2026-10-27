@@ -181,15 +181,21 @@ class ImmutableJournal:
                 digest = sha256_bytes(_canonical_json(body))
                 record = {**body, "sha256": digest}
                 path = self.events_dir / f"{sequence:08d}-{kind}.json"
+            except (TypeError, ValueError) as exc:
+                raise AccountingError("invalid journal payload") from exc
+            # Validation cannot leave partial evidence. Once writing starts,
+            # any failure must poison the journal because a triplet may exist.
+            self._failed = True
+            try:
                 export_json(path, record)
             except BaseException as exc:
-                self._failed = True
                 if isinstance(exc, AccountingError):
                     raise
                 raise AccountingError("immutable journal write failed") from exc
             self._sequence = sequence
             self._last_monotonic_ns = observed_ns
             self._previous_sha256 = digest
+            self._failed = False
             return {"sequence": sequence, "sha256": digest, "path": str(path)}
 
     def seal(self, *, status_sha256: str | None = None) -> dict[str, Any]:

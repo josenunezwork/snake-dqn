@@ -180,7 +180,10 @@ def test_declaration_roundtrip_and_schema_checked_before_live_identity(tmp_path,
     assert not called
 
 
-def test_captured_declaration_contains_full_v2_metadata_and_roundtrips(tmp_path, monkeypatch):
+@pytest.mark.parametrize("module", ["tools.sandbox.supervisor", "tools.sandbox.supervisor_v2"])
+def test_captured_declaration_contains_full_v2_metadata_and_roundtrips(
+    tmp_path, monkeypatch, module
+):
     import json
     import shutil
     import sys
@@ -194,6 +197,8 @@ def test_captured_declaration_contains_full_v2_metadata_and_roundtrips(tmp_path,
     sandbox = repo / "tools/sandbox"
     sandbox.mkdir(parents=True)
     (sandbox / "supervisor.py").write_text("# declared adapter\n")
+    for name in ("supervisor_v2.py", "collector_v2.py", "supervision_accounting.py"):
+        (sandbox / name).write_text("# declared collector\n")
     state = tmp_path / "state"
     lane = state / "job"
     hook_dir = lane / "cli-hook"
@@ -215,7 +220,7 @@ def test_captured_declaration_contains_full_v2_metadata_and_roundtrips(tmp_path,
     argv = [
         interpreter,
         "-m",
-        "tools.sandbox.supervisor",
+        module,
         "--state-dir",
         str(state),
         "--colab",
@@ -228,9 +233,23 @@ def test_captured_declaration_contains_full_v2_metadata_and_roundtrips(tmp_path,
     path = tmp_path / "declaration.json"
     export_json(path, registry)
     assert io.read_registry(path) == registry
+    if module == "tools.sandbox.supervisor_v2":
+        for name in ("collector_v2.py", "supervision_accounting.py", "supervisor.py"):
+            source = sandbox / name
+            assert registry["roots"][0]["source_hashes"][str(source)] == io.file_digest(source)
+            changed = deepcopy(registry)
+            del changed["roots"][0]["source_hashes"][str(source)]
+            missing = tmp_path / (name + ".json")
+            export_json(missing, changed)
+            with pytest.raises(ValueError, match="invalid supervisor registry"):
+                io.read_registry(missing)
     assert registry["declaration_only"] is True
     with pytest.raises(RuntimeError, match="admission unavailable"):
         io.read_registry(path, live=True)
+    if module == "tools.sandbox.supervisor_v2":
+        (sandbox / "collector_v2.py").unlink()
+        with pytest.raises(FileNotFoundError):
+            io._registry_from_identity(123, 501, 456, interpreter, argv, repo)
 
 
 @pytest.mark.parametrize("bad", [None, [], 3])
