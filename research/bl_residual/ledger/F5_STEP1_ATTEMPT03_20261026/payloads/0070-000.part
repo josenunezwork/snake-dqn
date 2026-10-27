@@ -1,0 +1,59 @@
+# ACCEPT F5 HOLD engineering V5 — qualification attempt 03 only
+
+2026-10-26 · Astra, independent F5 judge · clean reviewed worktree `sol-f5-rawenvelope-20261026`, HEAD `6d153afe`; executable pin `a2574377194b1688722eab4003ec9b697bde812d`.
+
+**ACCEPT V5 engineering and authorize exactly preliminary L4/CUDA qualification attempt 03 using the command below. No blocking defect was found. No further mechanical retry is authorized without independent re-review: even an otherwise identical named-field successor requires a fresh failure-specific disposition. This ruling grants no attempt 04.**
+
+This is an independent engineering/package acceptance for the preliminary qualification only. The prior attempt-01 disposition authorized attempt 02 only; its authority is not stretched to cover changed source. HOLD remains for timing collection, numerical looks, fitting, steps 4–8, serving and release. No job was dispatched during this review.
+
+## Frozen package identities
+
+Package root: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/sol-20261026/f5-hold-corrections-v5/step3-package`.
+
+| Artifact | Independently verified SHA256 |
+| --- | --- |
+| V5 engineering seal | `cf4cb17ea7c02d62a5d30cb3740f39ecf7e51276ee32af98ceb4cc56f0be7093` |
+| V5 package seal | `6c04949bea0306a009123baccb234a08c5b2d95646d5a41969551d514c8874d8` |
+| qualification-manifest-attempt03.json | `8feb0c1380230c13fc0698a487cac78f560bd93202b1852ad564650e18a07d17` |
+| MACHINE_DIFF_VS_V4.json | `4b0cbcba570c5170dd86aecfdc9ffeeeb93856a094851835a3d73636ef02a59b` |
+| source-inventory.json | `531892ad1d002cecfbd15283442f531e255eaf945c2dd6cdc291a10e6ca5e073` |
+| envelope.json | `952e2326c71bb21ce620f33dfa7a33cb1f3fd2c9ff029a558d64d440c25c698c` |
+
+The engineering seal is `research/bl_residual/ledger/F5_ENGINEERING_SEAL_20261026_V5/ENGINEERING_SEAL.json` in the reviewed worktree. Its V4 predecessor, attempt-02 publication and V5 correction-contract references match their current metadata bytes. Package metadata references and sidecars checked; workload inputs were checked for declared identity consistency and file size/existence, without opening checkpoint, control or scientific payload contents.
+
+## Disposition and engineering evidence
+
+Attempt 02 remains **INCOMPLETE / CHILD_NONZERO_EXIT**, a mechanical failure before qualification execution or export completion. Saved receipt SHA256 `b4861b1a203538b929b96dc5c10fbaa61d70b3e92cf2917064e9baff0a5fa144` records child refusal `attempt output must be fresh`, `stop_verified=true`, `cleanup_error=null`, exports empty. Saved transfer metadata records transfer 93.9016244992381 seconds and whole staging 183.79829629103187 seconds. Preserve both failed attempts and charge their actual elapsed time/debit in append-only operational accounting. Neither establishes CUDA qualification or a scientific look. These are saved records, not a fresh provider query.
+
+`f5_step3_driver.py:436–440` now permits an absent path or an empty real directory. It rejects files, live/dangling symlinks, hidden entries and child directories. This matches `research/colab_cli/runtime.py:553–554`, which creates `root/output` before launching the child, and the unchanged step-3 shell passing that directory. Immutable export publication remains intact. The new regression exercises the actual non-dry-run `qualify` path, stubbing only CUDA qualification, and checks successful synthetic exports plus refusal on rerun without changing their bytes. Source review found no related defect in the affected package/seal seams. An independent read-only reviewer reported no actionable finding.
+
+Independently rehashed all 233 executable inventory entries against both disk and pinned Git commit: 230 byte-identical to V4, exactly driver, package builder and engineering-seal builder changed. Independently recomputed the qualification-manifest semantic diff: exactly 18 leaves, matching the sealed machine diff. Changes are commit, job ID, output/state paths, input paths and hashes for control/empty-ledger/ledger-sidecar identities. Other manifest fields, destinations, sizes and workload identity declarations remain unchanged. The sealed report's six control-diff fields and two ledger identity fields were inspected as metadata; control payload contents were not opened or independently re-diffed.
+
+Envelope bytes are identical. CLI transport tree is unchanged at V4, executable pin and reviewed HEAD: `5833e54e9c5396121cbbf99a5cd4e52006e564fd`. No new transfer exception or transport requalification is inferred. The source-bound recorded test receipt (`TEST_VERIFICATION.json`, SHA256 `4858e49eb17c3ed133381e4577e455f62b4feab89896ad0918d4f71060a05dbb`) reports 1,016 passed and three real-CUDA skips, exit zero. Those tests were not rerun by this judge. Genuine current-driver CUDA/native-v6 qualification remains pending.
+
+## Exact authorized operator command — not executed
+
+```bash
+nice -n 15 env \
+  PATH="/Users/josenunez/Projects/ml/snake-dqn/venv/bin:$PATH" \
+  PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 \
+  MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+  /Users/josenunez/Projects/ml/snake-dqn-f5rawenv/tools/ops/dispatch.sh \
+  f5-step3-qualification-v5-attempt03 \
+  /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/sol-20261026/f5-hold-corrections-v5/step3-package/qualification-manifest-attempt03.json \
+  --broker /Users/josenunez/Projects/ml/snake-dqn-f5rawenv \
+  --cwd /Users/josenunez/Projects/ml/snake-dqn-f5rawenv \
+  --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/sol-20261026/f5-hold-corrections-v5/step3-package/qualification-state-attempt03
+```
+
+This manifest fixes `F5_STEP3_MODE=qualify`, device `cuda:0`, L4 only, minimum six vCPUs, estimate 15 minutes / effective timeout 30 minutes, legacy 8-unit guard, 64-MiB export bound, required exports `qualification.json` and `environment.json`, and acceptance resume exemption. Transfer remains **≤150 seconds**, independently whole staging **≤300 seconds**. It executes no timing fixture.
+
+Output and state paths were absent at review. The operator must recheck freshness and normal wrapper admission: current source/manifest identity, qualified transport record, account/rate/assignment limits and locks. This offline acceptance supplies no live account or cleanup proof. Completion requires genuine qualification PASS, hash-verified required exports, terminal receipt and verified runtime release.
+
+## Subsequent admission and retry ruling
+
+Retain the V4 subsequent order: verified preliminary qualification and release → complete measured forecast → prepare-target → independent target acceptance → seal-final → independent exact-final-package/order review → matching final-inventory family canary → bind verified receipt into a fresh measurement manifest → separately authorized measurement. Preserve original HOLD, thirteen retained completions, historical maxima/strata, scientific rules, fixed fixtures/allocation, environment contract, cumulative envelopes, archive/shard limits and at most two scientific mechanical completion rounds. Preliminary qualification does not admit measurement.
+
+**Further failure: NO retry on a named-field machine diff alone.** A proposed successor may identify `/job_id`, `/output_dir` and `/supervisor_state_dir` as its only manifest changes, but this document does not authorize dispatch of it. Preserve receipt, source, manifests and all failed evidence; verify stop and obtain a new independent disposition. Source, inputs, transport, caps, modes or required-export changes also require re-review. No automatic retry, scientific failure retry, replacement draw or additional look is authorized.
+
+Review used source, manifests, seals, saved operational receipt/transfer metadata and recorded verification only. No label/outcome payload, checkpoint/control contents, D4096 output or `t34-round0-study-01/` was opened. No Colab/provider call, dispatch, tmux, repository edit or commit occurred. Only this create-only ruling and its SHA256 sidecar were written beneath the authorized Astra root. Historical memory supplied evidence-boundary context; decisive identities and failure metadata were checked from current saved evidence.

@@ -1,0 +1,31 @@
+# ACCEPT F5 HOLD engineering V4 — step 1 only
+
+2026-10-26 · Astra, independent F5 judge · reviewed clean HEAD `8f9444483aa198f033e15d7cfa49850c9e8e2fe1`; executable pin `00af09a16913eb8ef3eab60003891657858dff69`.
+
+**ACCEPT the V4 engineering corrections and authorize the operator to dispatch only the exact preliminary current-driver L4/CUDA qualification below.** No blocker remains in the five reviewed corrections. Original HOLD, thirteen completions, historical maxima/strata and scientific rules remain binding. This ruling does not accept an F5 fit or authorize timing collection, a numerical look, replacement draw, coverage retry, serving change or release. No dispatch was performed in this review.
+
+The authorized package is `/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/sol-20261026/f5-hold-corrections-v4/step3-package`.
+
+| Identity | Independently verified SHA256 |
+| --- | --- |
+| V4 engineering seal | `e73b2d24144cd3e375aeffca1706dd5c677c3b23da95dce49db30d15ba3f9038` |
+| Package seal | `72e739989e13a1adbee19cbf40e13f280092fe1d11bca43464a0cf0a4417ffa4` |
+| Preliminary qualification manifest | `dd390beace928c4a15c39e4ba314bf61155a0c3575a87b561b7fde60406741b4` |
+| Held measurement template | `930ed1c458527ada658a6c467c1ec3703b105ff530451767f15a06348c50759f` |
+| Envelope | `952e2326c71bb21ce620f33dfa7a33cb1f3fd2c9ff029a558d64d440c25c698c` |
+
+Operator command, authorized but **not executed**:
+
+```bash
+nice -n 15 env   PATH="/Users/josenunez/Projects/ml/snake-dqn/venv/bin:$PATH"   PYTHONDONTWRITEBYTECODE=1 OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1   MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1   /Users/josenunez/Projects/ml/snake-dqn-f5rawenv/tools/ops/dispatch.sh   f5-step3-qualification-v4-attempt01   /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/sol-20261026/f5-hold-corrections-v4/step3-package/qualification-manifest.json   --broker /Users/josenunez/Projects/ml/snake-dqn-f5rawenv   --cwd /Users/josenunez/Projects/ml/snake-dqn-f5rawenv   --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/sol-20261026/f5-hold-corrections-v4/step3-package/qualification-state-attempt01
+```
+
+This is `F5_STEP3_MODE=qualify`, CUDA device 0, L4 only, minimum six vCPUs, 15/30-minute base/effective envelope, 8-unit legacy runaway guard, and 64-MiB export bound. Expected exports are `qualification.json` and `environment.json`; no timing fixtures execute. Output/state/name were unused at review. Live account, assignment, lock, qualified-transport and cleanup checks remain the operator wrapper's responsibility; this offline review supplies no live-state proof.
+
+Required subsequent order: verify preliminary exports, terminal receipt and assignment disappearance → complete measured forecast → `prepare-target` → independent target acceptance → `seal-final` → independent exact-final-package/order review → matching final-inventory family canary → bind verified receipt into a fresh measurement manifest → separately authorized measurement. Preliminary qualification cannot admit measurement. Each changed resume ledger requires its own exact-inventory canary. Preserve the 480-minute effective prospective envelope and append-only accounting, plus existing archive/shard limits and at most two mechanical completion rounds. Steps 4–8 retain separate admission.
+
+Evidence: **133 passed in 71.33 seconds**, nice 15, serial pytest, numeric threads one, bytecode/cache disabled. This focused rerun includes the 24,050-second uneven-shard regression, changed-input/unproduced-export refusals, shell-shaped attempt-2 resume with unchanged acceptance, 2,400+1,800=4,200 elapsed accumulation, and missing/consumed/changed-predecessor lineage refusals. Final canary observations are synthetic test evidence; actual CUDA remains step 1. The reported broader 345/61 runs were not reproduced in full.
+
+Verified all 233 executable entries against current bytes and pinned commit, 23 engineering references, 21 package references, source bridge, supervisor preliminary admission, ops policy gates, and transport registry tree `5833e54e9c5396121cbbf99a5cd4e52006e564fd`. Measurement template correctly refuses for missing SHA-bound family-canary receipt. Historical preservation was checked through 563 designated Git object identities and a clean worktree; historical payload SHA256 values were not recomputed. An independent read-only source reviewer found no blocking defect.
+
+Evidence and exact commands: `v4-review-20261026-01/verification.json`, `pytest-receipt.json`, `pytest.log`, `verify_controls_v2.py`, and `independent-review.txt`, each with SHA256 sidecar. The retained first verification helper used an incorrect local JSON serialization assertion; its create-only successor uses the repository's canonical serialization and passes. No label/outcome payload, D4096 output or protected study directory was opened. No Colab/provider call, tmux operation, source edit or commit occurred; only review artifacts and synthetic test scratch were created beneath the authorized Astra directory.

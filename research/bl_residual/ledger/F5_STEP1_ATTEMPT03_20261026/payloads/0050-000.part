@@ -1,0 +1,53 @@
+{
+  "canary_observations": [
+    {
+      "caller": "research/bl_residual/f5_qualification.py:136:_select_cuda",
+      "cuda_decisions": 1,
+      "device": "cuda:0",
+      "operation": "Tensor.argmax",
+      "package": "research/bl_residual",
+      "pid": 9455,
+      "root": "/content/snake-cli/21777b0d96424d79b44b3551014a9d21",
+      "shape": [
+        1,
+        6
+      ],
+      "version": 1
+    }
+  ],
+  "export_scanner": {
+    "inventory": [
+      {
+        "path": "environment.json",
+        "sha256": "eed2ed89c41d99ccbadc769752376125036d06d3e79e1435502c0a7e4893b55e",
+        "size": 13420032
+      },
+      {
+        "path": "qualification.json",
+        "sha256": "a8c18a3047844648eb0d13ffcfaade56de9b8bdcbd671b92afa52bd1e250fd0d",
+        "size": 421
+      }
+    ],
+    "name": "runtime._exports"
+  },
+  "exports": [
+    {
+      "path": "environment.json",
+      "sha256": "eed2ed89c41d99ccbadc769752376125036d06d3e79e1435502c0a7e4893b55e",
+      "size": 13420032
+    },
+    {
+      "path": "qualification.json",
+      "sha256": "a8c18a3047844648eb0d13ffcfaade56de9b8bdcbd671b92afa52bd1e250fd0d",
+      "size": 421
+    }
+  ],
+  "finished_at": 1793060647.0341697,
+  "generation": "21777b0d96424d79b44b3551014a9d21",
+  "job_id": "f5-step3-qualification-v5-attempt03",
+  "last_traceback_line": "{\"qualification\": \"qualification.json\", \"status\": \"QUALIFIED\"}",
+  "reason": null,
+  "returncode": 0,
+  "started_at": 1793059976.5434043,
+  "status": "succeeded"
+}

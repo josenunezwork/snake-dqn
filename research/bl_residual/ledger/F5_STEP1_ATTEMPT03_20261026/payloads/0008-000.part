@@ -1,0 +1,17 @@
+{
+  "bootstrap.sh": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+  "inputs/b8.pth": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "inputs/best_apex_fs.pth": "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+  "inputs/best_apex_pre_fs.pth": "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+  "inputs/best_apex_stage1_fs.pth": "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+  "inputs/champion_a5_freespace_20260621.pth": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+  "inputs/control.json": "0c6ca747f6102995c102c0698627bd94b43dc896e1f20c7dfd35f98ed09823d6",
+  "inputs/frp3_m3_s12_u60000_20261005.pth": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+  "inputs/timing-fixtures.json": "737b2c61eabeb570456c8d7c287a5e615ac642a71d320db44925c58c252201aa",
+  "inputs/verified-ledger.json": "445f850768d989b24a6294cbd69e4ee97b93d14068e9a1ef1f146fbc869475d7",
+  "inputs/verified-ledger.json.complete": "37a40f08d8548dba289b9b0bb35bcf63b359f6d37ee86044ebc6b6da080b9ec1",
+  "inputs/verified-ledger.json.sha256": "cb06dbec8d8c37b13d61d698ad4c4b6f838b4835312252553cac549cccc1e2fc",
+  "release.py": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+  "runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+  "source.py": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f"
+}
