@@ -1,0 +1,19 @@
+A-3 reseal 02: prepared only; no allocation. Simulator-D timing/parity only.
+Source pin: 546678017c0c12447eea62306b25d97b3c59aa5a
+Argon fixes: TF32-off validation both paths; pure tensor v8/observation graphs;
+shared shape cache; separate collect/train fallback; compiler timing separate.
+24 cells: E128/E1024/E2048/E4096 x ep64/512 x cached/collection/integrated.
+H128, warmup1, measured cycles3, minibatch2048, compile=default (Inductor).
+CPU real fullgraph admission uses aot_eager; CUDA success remains dispatch evidence.
+Base14400/effective28800 seconds. Empty allocation-bound verified ledger.
+
+Preflight:
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 SNAKE_DQN_DEVICE=cpu nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-sbxA/venv/bin/python -m research.sandbox_a_resident.preflight /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3-02
+
+Dry run:
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a3-20261026-02 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-02/state --dry-run
+
+Exact operator dispatch:
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a3-20261026-02 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-02/state
+
+Actual admission checks live account/coexistence. Never retry automatically.

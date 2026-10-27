@@ -1,0 +1,18 @@
+{
+  "kind": "A-3 Argon compile repairs reseal 02",
+  "source_commit": "546678017c0c12447eea62306b25d97b3c59aa5a",
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "certified_gpu_sim_tree": "46e5b17fe0f1b2fee2cd229749c3625c2a2d854f",
+  "runtime_source_count": 101,
+  "files_sha256": {
+    "DISPATCH.txt": "f2eaf862de10060c48d84e640f6a6ecb805b7cab6df87739f33ad6493c65296a",
+    "control.json": "24e3f9a3569175fb197041aed6fdc2d7ca50a5afbf1d600efda315ae68268feb",
+    "dispatch-manifest.json": "d81fe2bb90a0ea88341ea83aead7a8730c68d74afb7bb8cb5efa7799a9b8605e",
+    "registry-check.json": "2eb2a57ecbefec4a39e29e90bb2e3dd23b1fc5ff7cf0450d08399c22deb3e564",
+    "sandbox.json": "47889ef9b7c58db5a0a35ab44fcd18bfe9e775e25120af4c51eb77a930e821d9",
+    "verified-ledger.json": "b2ef72067852db11ee4b1948cbd3a59864cd026aa88ab147f825ff3018931630"
+  },
+  "runaway_base_seconds": 14400,
+  "runaway_effective_seconds": 28800,
+  "allocation_performed": false
+}

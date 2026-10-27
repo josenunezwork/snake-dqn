@@ -1,0 +1,396 @@
+{
+  "job_id": "sandbox-a-resident-a3-20261026-02",
+  "commit": "546678017c0c12447eea62306b25d97b3c59aa5a",
+  "script": "research/sandbox_a_resident/job.sh",
+  "device": "cuda",
+  "source_paths": [
+    "research/gpu_sim_spike/__init__.py",
+    "research/gpu_sim_spike/anchors_device.py",
+    "research/gpu_sim_spike/device_policy.py",
+    "research/gpu_sim_spike/device_sim.py",
+    "research/gpu_sim_spike/ego_device.py",
+    "research/gpu_sim_spike/event_cuda.cpp",
+    "research/gpu_sim_spike/event_cuda.cu",
+    "research/gpu_sim_spike/event_cuda.py",
+    "research/gpu_sim_spike/flood_cuda.cpp",
+    "research/gpu_sim_spike/flood_cuda.cu",
+    "research/gpu_sim_spike/flood_cuda.py",
+    "research/gpu_sim_spike/masks_device.py",
+    "research/gpu_sim_spike/move_cuda.cpp",
+    "research/gpu_sim_spike/move_cuda.cu",
+    "research/gpu_sim_spike/move_cuda.py",
+    "research/gpu_sim_spike/r2_cache.py",
+    "research/gpu_sim_spike/stage_timing.py",
+    "research/gpu_sim_spike/v8_device.py",
+    "research/gpu_sim_spike/v8_indexed.cpp",
+    "research/gpu_sim_spike/v8_indexed.cu",
+    "research/gpu_sim_spike/v8_indexed.py",
+    "research/gpu_sim_spike/vector_device.py",
+    "research/gpu_sim_spike/vector_geometry.cpp",
+    "research/gpu_sim_spike/vector_geometry.cu",
+    "research/gpu_sim_spike/vector_geometry.py",
+    "research/sandbox_a_resident/__init__.py",
+    "research/sandbox_a_resident/core.py",
+    "research/sandbox_a_resident/device_sim.py",
+    "research/sandbox_a_resident/job.sh",
+    "research/sandbox_a_resident/observation_tensor.py",
+    "research/sandbox_a_resident/proof.py",
+    "research/sandbox_a_resident/requirements.txt",
+    "research/sandbox_a_resident/run.py",
+    "research/sandbox_a_resident/runtime_tools.py",
+    "research/sandbox_a_resident/tensor_blocks.py",
+    "research/sandbox_a_resident/units.py",
+    "src/__init__.py",
+    "src/core/__init__.py",
+    "src/core/config_loader.py",
+    "src/core/device_manager.py",
+    "src/core/game_config.py",
+    "src/core/mechanics_constants.py",
+    "src/core/reward_contract.py",
+    "src/core/reward_events.py",
+    "src/core/runtime_contract.py",
+    "src/core/seeding.py",
+    "src/core/world_runtime.py",
+    "src/evaluation/__init__.py",
+    "src/evaluation/anchors.py",
+    "src/evaluation/artifacts.py",
+    "src/evaluation/metrics.py",
+    "src/evaluation/observation_probe.py",
+    "src/evaluation/observation_probe_stats.py",
+    "src/evaluation/protocol.py",
+    "src/evaluation/safety_veto.py",
+    "src/evaluation/safety_veto_v3.py",
+    "src/evaluation/safety_veto_v4.py",
+    "src/evaluation/safety_veto_v5.py",
+    "src/evaluation/safety_veto_v6.py",
+    "src/evaluation/safety_veto_v7.py",
+    "src/evaluation/safety_veto_v8.py",
+    "src/evaluation/screen_stats.py",
+    "src/evaluation/sequential_gate.py",
+    "src/evaluation/sequential_phase_r.py",
+    "src/evaluation/serving_episode.py",
+    "src/evaluation/strict_promotion.py",
+    "src/model/__init__.py",
+    "src/model/apex_network.py",
+    "src/model/base_network.py",
+    "src/model/checkpoint_io.py",
+    "src/model/checkpoint_manager.py",
+    "src/model/ego2s_network.py",
+    "src/model/inference_agent.py",
+    "src/model/obs_spec.py",
+    "src/model/raster_network.py",
+    "src/simd_env/__init__.py",
+    "src/simd_env/batch_sim.py",
+    "src/simd_env/ego2s_policy.py",
+    "src/simd_env/ego_live_adapter.py",
+    "src/simd_env/ego_live_bv8.py",
+    "src/simd_env/ego_raster.py",
+    "src/simd_env/ego_raster_b.py",
+    "src/simd_env/ego_raster_bv8.py",
+    "src/simd_env/ego_raster_nb.py",
+    "src/simd_env/eval_engine.py",
+    "src/simd_env/fast_anchors.py",
+    "src/simd_env/featurizer.py",
+    "src/simd_env/gpu_featurizer.py",
+    "src/simd_env/grid_scenarios.py",
+    "src/simd_env/grid_sim.py",
+    "src/simd_env/grid_sim_nb.py",
+    "src/simd_env/live_adapter.py",
+    "src/simd_env/parity.py",
+    "src/simd_env/rng.py",
+    "src/simd_env/t5_features.py",
+    "src/simd_env/t8_features.py",
+    "src/simd_env/v8_nb.py",
+    "src/simd_env/vector61_featurizer.py",
+    "src/simd_env/vector61_merged.py",
+    "src/simd_env/vector61_nb.py",
+    "src/simd_env/vector61_policy.py"
+  ],
+  "requirements": {
+    "gpu": "A100",
+    "allowed_gpus": [
+      "A100"
+    ],
+    "min_vcpu": 2,
+    "est_minutes": 240.0
+  },
+  "timeout_minutes": 480.0,
+  "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-02/output",
+  "max_export_bytes": 2147483648,
+  "inputs": [
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+      "dest": "b8-s3.pth",
+      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
+      "dest": "registry.json",
+      "sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3-02/verified-ledger.json",
+      "dest": "verified-ledger.json",
+      "sha256": "b2ef72067852db11ee4b1948cbd3a59864cd026aa88ab147f825ff3018931630"
+    }
+  ],
+  "env": {
+    "SANDBOX_A_CONTROL_JSON": "{\"allocation_stride\": 3000000, \"checkpoint_sha256\": \"3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8\", \"compile_mode\": \"default\", \"cycles\": 3, \"episode_limits\": [64, 512], \"epochs\": 1, \"horizon\": 128, \"minibatch\": 2048, \"parity_seed_count\": 54, \"parity_seed_offset\": 200000000, \"recipe_parameters\": {\"clip\": 0.2, \"gae_lambda\": 0.95, \"gamma\": 0.99, \"learning_rate\": 0.0003, \"stagger_initial_age\": true}, \"recipe_version\": \"A-3\", \"seed_offset_base\": 120000000, \"source_commit\": \"546678017c0c12447eea62306b25d97b3c59aa5a\", \"timeout_seconds\": 28800.0, \"tiny\": false, \"warmups\": 1, \"worlds\": [128, 1024, 2048, 4096]}",
+    "COLAB_CLI_REQUIREMENTS": "research/sandbox_a_resident/requirements.txt",
+    "SANDBOX_A_SOURCE_COMMIT": "546678017c0c12447eea62306b25d97b3c59aa5a",
+    "SNAKE_DQN_DEVICE": "cuda",
+    "MAX_JOBS": "1"
+  },
+  "required_exports": [
+    "assay/summary.json",
+    "assay/parity.json",
+    "assay/ep64-e128-cached.tar",
+    "assay/ep64-e128-cached.json",
+    "assay/ep64-e128-collection.tar",
+    "assay/ep64-e128-collection.json",
+    "assay/ep64-e128-integrated.tar",
+    "assay/ep64-e128-integrated.json",
+    "assay/ep64-e1024-cached.tar",
+    "assay/ep64-e1024-cached.json",
+    "assay/ep64-e1024-collection.tar",
+    "assay/ep64-e1024-collection.json",
+    "assay/ep64-e1024-integrated.tar",
+    "assay/ep64-e1024-integrated.json",
+    "assay/ep64-e2048-cached.tar",
+    "assay/ep64-e2048-cached.json",
+    "assay/ep64-e2048-collection.tar",
+    "assay/ep64-e2048-collection.json",
+    "assay/ep64-e2048-integrated.tar",
+    "assay/ep64-e2048-integrated.json",
+    "assay/ep64-e4096-cached.tar",
+    "assay/ep64-e4096-cached.json",
+    "assay/ep64-e4096-collection.tar",
+    "assay/ep64-e4096-collection.json",
+    "assay/ep64-e4096-integrated.tar",
+    "assay/ep64-e4096-integrated.json",
+    "assay/ep512-e128-cached.tar",
+    "assay/ep512-e128-cached.json",
+    "assay/ep512-e128-collection.tar",
+    "assay/ep512-e128-collection.json",
+    "assay/ep512-e128-integrated.tar",
+    "assay/ep512-e128-integrated.json",
+    "assay/ep512-e1024-cached.tar",
+    "assay/ep512-e1024-cached.json",
+    "assay/ep512-e1024-collection.tar",
+    "assay/ep512-e1024-collection.json",
+    "assay/ep512-e1024-integrated.tar",
+    "assay/ep512-e1024-integrated.json",
+    "assay/ep512-e2048-cached.tar",
+    "assay/ep512-e2048-cached.json",
+    "assay/ep512-e2048-collection.tar",
+    "assay/ep512-e2048-collection.json",
+    "assay/ep512-e2048-integrated.tar",
+    "assay/ep512-e2048-integrated.json",
+    "assay/ep512-e4096-cached.tar",
+    "assay/ep512-e4096-cached.json",
+    "assay/ep512-e4096-collection.tar",
+    "assay/ep512-e4096-collection.json",
+    "assay/ep512-e4096-integrated.tar",
+    "assay/ep512-e4096-integrated.json"
+  ],
+  "budget": {
+    "rate_units_per_hour": 8.0,
+    "unit_cap": 64.0,
+    "reserve_units": 0,
+    "other_assignments": {}
+  },
+  "resume": {
+    "unit_kind": "resident-phase-full-state",
+    "ledger_path": "verified-ledger.json",
+    "skip_verified": true,
+    "max_outcome_blind_retries": 2
+  },
+  "sandbox_admission": {
+    "schema": "standing-a100-development-sandbox-admission/v1",
+    "manifest_path": "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3-02/sandbox.json"
+  },
+  "sandbox_execution": "finite resident timing/parity assay; adopted sandbox admission",
+  "requirements_file": "research/sandbox_a_resident/requirements.txt",
+  "sandbox_a": {
+    "seed_allocations": [
+      {
+        "offset": 120000000,
+        "count": 65664,
+        "worlds": 128,
+        "phase": "cached",
+        "episode_limit": 64
+      },
+      {
+        "offset": 123000000,
+        "count": 65664,
+        "worlds": 128,
+        "phase": "collection",
+        "episode_limit": 64
+      },
+      {
+        "offset": 126000000,
+        "count": 65664,
+        "worlds": 128,
+        "phase": "integrated",
+        "episode_limit": 64
+      },
+      {
+        "offset": 129000000,
+        "count": 525312,
+        "worlds": 1024,
+        "phase": "cached",
+        "episode_limit": 64
+      },
+      {
+        "offset": 132000000,
+        "count": 525312,
+        "worlds": 1024,
+        "phase": "collection",
+        "episode_limit": 64
+      },
+      {
+        "offset": 135000000,
+        "count": 525312,
+        "worlds": 1024,
+        "phase": "integrated",
+        "episode_limit": 64
+      },
+      {
+        "offset": 138000000,
+        "count": 1050624,
+        "worlds": 2048,
+        "phase": "cached",
+        "episode_limit": 64
+      },
+      {
+        "offset": 141000000,
+        "count": 1050624,
+        "worlds": 2048,
+        "phase": "collection",
+        "episode_limit": 64
+      },
+      {
+        "offset": 144000000,
+        "count": 1050624,
+        "worlds": 2048,
+        "phase": "integrated",
+        "episode_limit": 64
+      },
+      {
+        "offset": 147000000,
+        "count": 2101248,
+        "worlds": 4096,
+        "phase": "cached",
+        "episode_limit": 64
+      },
+      {
+        "offset": 150000000,
+        "count": 2101248,
+        "worlds": 4096,
+        "phase": "collection",
+        "episode_limit": 64
+      },
+      {
+        "offset": 153000000,
+        "count": 2101248,
+        "worlds": 4096,
+        "phase": "integrated",
+        "episode_limit": 64
+      },
+      {
+        "offset": 156000000,
+        "count": 65664,
+        "worlds": 128,
+        "phase": "cached",
+        "episode_limit": 512
+      },
+      {
+        "offset": 159000000,
+        "count": 65664,
+        "worlds": 128,
+        "phase": "collection",
+        "episode_limit": 512
+      },
+      {
+        "offset": 162000000,
+        "count": 65664,
+        "worlds": 128,
+        "phase": "integrated",
+        "episode_limit": 512
+      },
+      {
+        "offset": 165000000,
+        "count": 525312,
+        "worlds": 1024,
+        "phase": "cached",
+        "episode_limit": 512
+      },
+      {
+        "offset": 168000000,
+        "count": 525312,
+        "worlds": 1024,
+        "phase": "collection",
+        "episode_limit": 512
+      },
+      {
+        "offset": 171000000,
+        "count": 525312,
+        "worlds": 1024,
+        "phase": "integrated",
+        "episode_limit": 512
+      },
+      {
+        "offset": 174000000,
+        "count": 1050624,
+        "worlds": 2048,
+        "phase": "cached",
+        "episode_limit": 512
+      },
+      {
+        "offset": 177000000,
+        "count": 1050624,
+        "worlds": 2048,
+        "phase": "collection",
+        "episode_limit": 512
+      },
+      {
+        "offset": 180000000,
+        "count": 1050624,
+        "worlds": 2048,
+        "phase": "integrated",
+        "episode_limit": 512
+      },
+      {
+        "offset": 183000000,
+        "count": 2101248,
+        "worlds": 4096,
+        "phase": "cached",
+        "episode_limit": 512
+      },
+      {
+        "offset": 186000000,
+        "count": 2101248,
+        "worlds": 4096,
+        "phase": "collection",
+        "episode_limit": 512
+      },
+      {
+        "offset": 189000000,
+        "count": 2101248,
+        "worlds": 4096,
+        "phase": "integrated",
+        "episode_limit": 512
+      }
+    ],
+    "parity_seed_allocation": {
+      "offset": 200000000,
+      "count": 54
+    },
+    "numerical_outputs": "timing/parity only"
+  },
+  "technical_envelope": {
+    "base_seconds": 14400.0,
+    "effective_seconds": 28800.0,
+    "endpoint": "3 cycles per phase, shape and episode limit; one excluded warmup"
+  }
+}
