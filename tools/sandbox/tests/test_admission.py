@@ -503,3 +503,37 @@ def test_non_sandbox_refresh_keeps_existing_active_assignment_behavior(
     assert json.loads(refreshed.read_text())["budget"]["other_assignments"] == {
         "owned-endpoint": 8.0
     }
+
+
+def test_train01_admits_only_bounded_package_stall_timeout(monkeypatch):
+    packet_path = ROOT / "research/sandbox_a_resident/packet-train01-06/dispatch-manifest.json"
+    packet = json.loads(packet_path.read_text())
+    monkeypatch.setattr(
+        preflight,
+        "preflight",
+        lambda *a, **kw: {
+            "study": "sandbox-a-train01",
+            "outputs": {"broker_manifest": {"path": str(packet_path)}},
+        },
+    )
+    calls = []
+    monkeypatch.setattr(dispatch, "command", lambda *a, **kw: calls.append(a[0]))
+    dispatch.require_sandbox_admission(packet, ROOT)
+    assert packet["env"]["SANDBOX_A_STALL_TIMEOUT_SECONDS"] == "900"
+    assert calls[0][2] == "research.sandbox_a_resident.training_preflight"
+
+
+@pytest.mark.parametrize("timeout", ("0", "-1", "901", "inf", "nan", "disabled", 900))
+def test_train01_refuses_disabled_or_excessive_stall_timeout(timeout):
+    packet_path = ROOT / "research/sandbox_a_resident/packet-train01-06/dispatch-manifest.json"
+    packet = json.loads(packet_path.read_text())
+    packet["env"]["SANDBOX_A_STALL_TIMEOUT_SECONDS"] = timeout
+    with pytest.raises(dispatch.Refused, match="stall timeout"):
+        dispatch.require_sandbox_admission(packet, ROOT)
+
+
+def test_stall_timeout_does_not_widen_other_sandbox_package_controls(tmp_path, monkeypatch):
+    packet = _packet(tmp_path, monkeypatch)
+    packet["env"]["SANDBOX_A_STALL_TIMEOUT_SECONDS"] = "900"
+    with pytest.raises(dispatch.Refused, match="non-package controls"):
+        dispatch.require_sandbox_admission(packet, ROOT)

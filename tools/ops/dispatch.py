@@ -605,6 +605,15 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
             "research/sandbox_a_resident/",
             "research/gpu_sim_spike/",
         )
+    if study == "sandbox-a-train01":
+        allowed_env.add("SANDBOX_A_STALL_TIMEOUT_SECONDS")
+        stall = env.get("SANDBOX_A_STALL_TIMEOUT_SECONDS", "900")
+        try:
+            seconds = float(stall) if isinstance(stall, str) else math.nan
+        except ValueError:
+            seconds = math.nan
+        if not math.isfinite(seconds) or not 0 < seconds <= 900:
+            raise Refused("TRAIN-01 stall timeout must be finite, positive and at most 900 seconds")
     if set(env) - allowed_env:
         raise Refused("sandbox environment contains non-package controls")
     shared = {"research/a100_a2/model.py", "research/bl_residual/data.py"}
