@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from research.bl_served_search import production_probe as probe
@@ -22,6 +24,13 @@ def test_frame_id_preserves_product_payload_shape() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(
+    not all(
+        Path("saved_snakes", name).is_file()
+        for name in ("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth")
+    ),
+    reason="actual Hub smoke requires the local released checkpoint artifacts",
+)
 def test_smoke_runs_actual_hub_and_loopback_websocket() -> None:
     result = probe.run_production_arm(
         {"arm": "production", "seed": 2026102601, "warmup_ticks": 0, "measured_ticks": 2},

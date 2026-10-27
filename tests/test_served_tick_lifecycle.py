@@ -1,6 +1,9 @@
 """Actual Watch oracle checks across lifecycle and long-body transitions."""
 
 from contextlib import nullcontext
+from pathlib import Path
+
+import pytest
 
 from research.bl_served_search.served_tick_probe import (
     dto_digest,
@@ -65,6 +68,13 @@ def _history(instrumented: bool) -> tuple[list, list]:
         session.close(wait=True)
 
 
+@pytest.mark.skipif(
+    not all(
+        Path("saved_snakes", name).is_file()
+        for name in ("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth")
+    ),
+    reason="actual lifecycle oracle requires the local released checkpoint artifacts",
+)
 def test_instrumentation_preserves_forced_respawn_reset_and_long_body_state() -> None:
     reference, reference_context = _history(False)
     candidate, candidate_context = _history(True)
