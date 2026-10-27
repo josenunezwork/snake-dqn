@@ -9,12 +9,14 @@ import torch
 from research.sandbox_a_resident.training_cpu_reference import (
     CpuRosterTask,
     _checkpoint_path,
+    _CpuRosterRuntime,
     _seed,
 )
 from research.sandbox_a_resident.training_rosters import (
     CHAMPION_SHA256,
     FRP3_S12_SHA256,
     DeviceRosterRuntime,
+    proxy_rosters,
 )
 from research.sandbox_a_resident.training_sim import TrainingDeviceSim
 from src.model.ego2s_network import load_ego2s_checkpoint
@@ -72,6 +74,67 @@ def test_cpu_task_does_not_reset_or_respawn_a_terminal_hero() -> None:
     assert event.terminal.item() is True
     assert event.reset.item() is False
     assert task._shard.active.item() is False
+
+
+def test_cpu_observe_rasterizes_only_active_first_life_worlds(monkeypatch) -> None:
+    """Retired worlds get inert fallback rows instead of repeated raster work."""
+    import src.simd_env.ego_raster as raster
+
+    task = CpuRosterTask("scripted", 2, 5000, checkpoint_paths=_paths())
+    task._shard.active[:] = (True, False)
+    real = raster.build_ego_raster
+    seen = {}
+
+    def observed_rows(*args, **kwargs):
+        seen["rows"] = kwargs["rows"].copy()
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(raster, "build_ego_raster", observed_rows)
+    local, glob, scalars, legal = task.observe()
+    assert seen["rows"].tolist() == [[0, 0]]
+    assert local.shape[0] == glob.shape[0] == scalars.shape[0] == legal.shape[0] == 2
+    assert legal[1].tolist() == [True, True, True, False, False, False]
+
+
+def test_cpu_reference_can_route_frozen_inference_to_cuda_semantics(monkeypatch) -> None:
+    """The CPU simulator may select batched accelerator-only frozen forwards."""
+    import src.simd_env.vector61_policy as vector_policy
+    from src.simd_env.batch_sim import BatchSimConfig
+    from src.simd_env.grid_sim import GridBatchSim
+
+    created = []
+
+    class FakeNetwork:
+        def to(self, device):
+            self.last_device = torch.device(device)
+            return self
+
+    class FakeVectorPolicy:
+        def __init__(self, *_args, forward, **_kwargs):
+            self.forward = forward
+            self.network = FakeNetwork()
+            self.device = torch.device("cpu")
+            created.append(self)
+
+    monkeypatch.setattr(vector_policy, "Vector61SimdPolicy", FakeVectorPolicy)
+    sim = GridBatchSim(BatchSimConfig(num_envs=1, num_snakes=6), seeds=[1], train_mode=False)
+    cpu_runtime = _CpuRosterRuntime(
+        sim,
+        proxy_rosters("frozen", 1),
+        [1],
+        _paths(),
+        inference_device="cpu",
+    )
+    assert cpu_runtime.inference_device.type == "cpu"
+    assert created and all(policy.forward == "rowwise" for policy in created)
+
+    created.clear()
+    cuda_runtime = _CpuRosterRuntime(
+        sim, proxy_rosters("frozen", 1), [1], _paths(), inference_device="cuda"
+    )
+    assert cuda_runtime.inference_device.type == "cuda"
+    assert created and all(policy.forward == "batched" for policy in created)
+    assert all(policy.network.last_device.type == "cuda" for policy in created)
 
 
 def test_cpu_and_device_rosters_match_actions_on_three_copied_states_per_mix() -> None:

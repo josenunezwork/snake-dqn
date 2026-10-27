@@ -49,11 +49,23 @@ def masked_logits(logits: torch.Tensor, legal_mask: torch.Tensor) -> torch.Tenso
     """
     if logits.shape != legal_mask.shape or logits.shape[-1] != 6:
         raise ValueError("logits and legal_mask must share shape [..., 6]")
+    legal = canonical_legal_mask(legal_mask)
+    return logits.masked_fill(~legal, torch.finfo(logits.dtype).min)
+
+
+def canonical_legal_mask(legal_mask: torch.Tensor) -> torch.Tensor:
+    """Return the action support used throughout PPO for an advisory mask.
+
+    A boxed-in row is advisory rather than terminal: it keeps the historic
+    normal-speed action fallback.  Collection must persist this canonical form
+    so PPO never evaluates an action against the raw all-false mask.
+    """
+    if legal_mask.ndim < 1 or legal_mask.shape[-1] != 6:
+        raise ValueError("legal_mask must have shape [..., 6]")
     legal = legal_mask.bool()
     fallback = torch.zeros_like(legal)
     fallback[..., :3] = True
-    legal = torch.where(legal.any(dim=-1, keepdim=True), legal, fallback)
-    return logits.masked_fill(~legal, torch.finfo(logits.dtype).min)
+    return torch.where(legal.any(dim=-1, keepdim=True), legal, fallback)
 
 
 def categorical(logits: torch.Tensor, legal_mask: torch.Tensor) -> torch.distributions.Categorical:
@@ -177,6 +189,9 @@ class ClockedPopArtCritic(nn.Module):
         self.register_buffer("mean", torch.zeros(()))
         self.register_buffer("second_moment", torch.ones(()))
         self.register_buffer("scale", torch.ones(()))
+        # ``debias`` is persisted with the critic so resumed normalization has
+        # the same effective EMA age as the uninterrupted run.
+        self.register_buffer("debias", torch.zeros(()))
 
     def features(
         self,
@@ -222,8 +237,10 @@ class ClockedPopArtCritic(nn.Module):
         if not flat.numel() or not torch.isfinite(flat).all():
             raise ValueError("PopArt targets must be nonempty and finite")
         old_mean, old_scale = self.mean.clone(), self.scale.clone()
-        new_mean = self.beta * self.mean + (1.0 - self.beta) * flat.mean()
-        new_second = self.beta * self.second_moment + (1.0 - self.beta) * flat.square().mean()
+        self.debias.mul_(self.beta).add_(1.0 - self.beta)
+        weight = (1.0 - self.beta) / self.debias
+        new_mean = (1.0 - weight) * self.mean + weight * flat.mean()
+        new_second = (1.0 - weight) * self.second_moment + weight * flat.square().mean()
         new_scale = (new_second - new_mean.square()).clamp_min(1e-8).sqrt()
         coordinate_scale = old_scale / new_scale
         self.output.weight.mul_(coordinate_scale)

@@ -12,6 +12,7 @@ from research.sandbox_a_resident.training_model import (
     B8Actor,
     ClockedPopArtCritic,
     actor_parameter_groups,
+    canonical_legal_mask,
     categorical,
 )
 
@@ -85,8 +86,10 @@ class PPORollout:
             raise ValueError("legal_masks must have shape [T, E, 6]")
         if self.last_value.shape != (shape[1],) or self.last_bootstrap.shape != (shape[1],):
             raise ValueError("last value/bootstrap must have shape [E]")
-        if not self.legal_masks.bool().any(dim=-1).all():
-            raise ValueError("all rollout rows require a legal action")
+        # Keep manually constructed rollouts consistent with collector action
+        # support too.  The simulator's all-false advisory mask is a normal
+        # action fallback, not a malformed PPO transition.
+        self.legal_masks = canonical_legal_mask(self.legal_masks)
         if not torch.isfinite(self.remaining_horizon).all() or not (
             (self.remaining_horizon >= 0).all() and (self.remaining_horizon <= 1).all()
         ):
@@ -141,6 +144,21 @@ def fit_time_length_baseline(
     ).solution.squeeze(1)
 
 
+def _baseline_predictions(
+    lengths: torch.Tensor, remaining_horizon: torch.Tensor, baseline_coefficients: torch.Tensor
+) -> torch.Tensor:
+    """Evaluate the fitted baseline on the same device as its input rows."""
+    design = torch.stack(
+        (
+            torch.ones_like(lengths, dtype=torch.float64),
+            remaining_horizon.double(),
+            lengths.double(),
+        ),
+        dim=1,
+    )
+    return design @ baseline_coefficients.to(device=design.device, dtype=design.dtype)
+
+
 def critic_quality(
     predictions: torch.Tensor,
     returns: torch.Tensor,
@@ -162,15 +180,9 @@ def critic_quality(
     if late.sum() < 160 or heldout_lives_per_mix.sum() < 40 or (heldout_lives_per_mix < 8).any():
         raise ValueError("insufficient held-out late-body rows or completed lives")
     prediction, target = predictions[late].float(), returns[late].float()
-    design = torch.stack(
-        (
-            torch.ones_like(target, dtype=torch.float64),
-            remaining_horizon[late].double(),
-            lengths[late].double(),
-        ),
-        dim=1,
-    )
-    baseline = (design @ baseline_coefficients.cpu().double()).float()
+    baseline = _baseline_predictions(
+        lengths[late], remaining_horizon[late], baseline_coefficients
+    ).float()
     mse = (prediction - target).square().mean()
     baseline_mse = (baseline - target).square().mean()
     variance = (target - target.mean()).square().mean().clamp_min(1e-8)
@@ -324,27 +336,44 @@ class PPOTrainer:
         metrics: dict[str, list[torch.Tensor]] = {
             name: [] for name in ("policy", "value", "entropy", "reference_kl", "old_kl", "loss")
         }
+        actor_stopped = False
         stopped_epochs = 0
+        used_kl_beta = self.kl_beta()
         for _epoch in range(self.config.epochs):
             permutation = torch.randperm(n, device=actions.device)
-            stopped = False
             for start in range(0, n, self.config.minibatch):
                 index = permutation[start : start + self.config.minibatch]
-                logits = self.actor(local[index], glob[index], scalars[index])
-                distribution = categorical(logits, masks[index])
-                new_logp = distribution.log_prob(actions[index])
-                log_ratio = new_logp - old_logp[index]
-                ratio = log_ratio.exp()
-                policy_terms = -torch.minimum(
-                    ratio * advantage[index],
-                    ratio.clamp(1 - self.config.clip_ratio, 1 + self.config.clip_ratio)
-                    * advantage[index],
-                )
                 values = self.critic(local[index], glob[index], scalars[index], clocks[index])
                 value_terms = (
                     self.critic.normalise(values)
                     .sub(self.critic.normalise(returns[index]))
                     .square()
+                )
+                value_loss = _equal_mix_mean(value_terms, mix_ids[index], full_mix_counts)
+                critic_loss = self.config.value_coef * value_loss
+                self.critic_optimizer.zero_grad(set_to_none=True)
+                critic_loss.backward()
+                nn.utils.clip_grad_norm_(
+                    self.critic.parameters(), self.config.grad_clip, error_if_nonfinite=True
+                )
+                self.critic_optimizer.step()
+                metrics["value"].append(value_loss.detach())
+                if actor_stopped:
+                    continue
+                logits = self.actor(local[index], glob[index], scalars[index])
+                distribution = categorical(logits, masks[index])
+                new_logp = distribution.log_prob(actions[index])
+                log_ratio = new_logp - old_logp[index]
+                ratio = log_ratio.exp()
+                old_kl = _equal_mix_mean((ratio - 1.0) - log_ratio, mix_ids[index], full_mix_counts)
+                if old_kl > self.config.kl_stop:
+                    actor_stopped = True
+                    metrics["old_kl"].append(old_kl.detach())
+                    continue
+                policy_terms = -torch.minimum(
+                    ratio * advantage[index],
+                    ratio.clamp(1 - self.config.clip_ratio, 1 + self.config.clip_ratio)
+                    * advantage[index],
                 )
                 with torch.no_grad():
                     reference_logits = self.actor.reference_logits(
@@ -354,47 +383,30 @@ class PPOTrainer:
                 reference_kl = torch.distributions.kl_divergence(reference, distribution)
                 entropy = distribution.entropy()
                 policy_loss = _equal_mix_mean(policy_terms, mix_ids[index], full_mix_counts)
-                value_loss = _equal_mix_mean(value_terms, mix_ids[index], full_mix_counts)
                 entropy_loss = _equal_mix_mean(entropy, mix_ids[index], full_mix_counts)
                 reference_kl_loss = _equal_mix_mean(reference_kl, mix_ids[index], full_mix_counts)
-                loss = (
+                actor_loss = (
                     policy_loss
-                    + self.config.value_coef * value_loss
                     - self.config.entropy_coef * entropy_loss
-                    + self.kl_beta() * reference_kl_loss
+                    + used_kl_beta * reference_kl_loss
                 )
-                if not torch.isfinite(loss):
-                    raise FloatingPointError("non-finite PPO loss")
-                # Stable sampled approximation to KL(old || new), checked
-                # before this optimizer step.  The old sampled log-prob delta
-                # alone can be negative and is not a valid stop statistic.
-                old_kl = _equal_mix_mean((ratio - 1.0) - log_ratio, mix_ids[index], full_mix_counts)
-                if old_kl > self.config.kl_stop:
-                    stopped = True
-                    break
+                if not torch.isfinite(actor_loss):
+                    raise FloatingPointError("non-finite PPO actor loss")
                 self.actor_optimizer.zero_grad(set_to_none=True)
-                self.critic_optimizer.zero_grad(set_to_none=True)
-                loss.backward()
+                actor_loss.backward()
                 nn.utils.clip_grad_norm_(
-                    list(self.actor.parameters()) + list(self.critic.parameters()),
-                    self.config.grad_clip,
-                    error_if_nonfinite=True,
+                    self.actor.parameters(), self.config.grad_clip, error_if_nonfinite=True
                 )
                 self.actor_optimizer.step()
-                self.critic_optimizer.step()
                 for name, value in (
                     ("policy", policy_loss),
-                    ("value", value_loss),
                     ("entropy", entropy_loss),
                     ("reference_kl", reference_kl_loss),
                     ("old_kl", old_kl),
-                    ("loss", loss),
+                    ("loss", actor_loss + critic_loss),
                 ):
                     metrics[name].append(value.detach())
-                if old_kl > self.config.kl_stop:
-                    stopped = True
-                    break
-            if stopped:
+            if actor_stopped:
                 stopped_epochs += 1
         self.update_count += 1
         self.actor_rows += n
@@ -405,7 +417,8 @@ class PPOTrainer:
             {
                 "actor_rows": float(self.actor_rows),
                 "stopped_epochs": float(stopped_epochs),
-                "kl_beta": self.kl_beta(),
+                "kl_beta": used_kl_beta,
+                "actor_stopped": float(actor_stopped),
             }
         )
         return result

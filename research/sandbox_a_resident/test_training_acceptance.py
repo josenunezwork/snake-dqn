@@ -102,3 +102,108 @@ def test_distribution_screen_records_first_lives_and_gross_support(monkeypatch) 
         assert row["no_death_fraction"] == pytest.approx(2 / 3)
         assert row["mean_mass_integral"] == pytest.approx(20 / 3)
         assert row["nearest_spawn_mean_cells"] == 3
+
+
+def test_distribution_screen_does_not_count_reset_frame_opponent_respawns(monkeypatch) -> None:
+    """A terminal hero reset cannot contribute old-world opponent events."""
+    from types import SimpleNamespace
+
+    import torch
+
+    from research.sandbox_a_resident import training_acceptance as acceptance
+
+    monkeypatch.setattr(acceptance, "distribution_screen_descriptor", lambda **kw: kw)
+
+    class ResetTask:
+        def __init__(self, _mix, worlds, _horizon):
+            self.calls = 0
+            self.sim = SimpleNamespace(
+                bodies=torch.tensor([[[[1, 1]], [[4, 1]]]] * worlds),
+                head_ptr=torch.zeros((worlds, 2), dtype=torch.long),
+                S=2,
+                food_cells=torch.tensor([[[2, 2], [3, 3]]] * worlds),
+                food_present=torch.ones((worlds, 2), dtype=torch.bool),
+                direction=torch.ones((worlds, 2), dtype=torch.long),
+                alive=torch.tensor([[True, False]] * worlds),
+                _last_food_ate=torch.zeros((worlds, 2), dtype=torch.bool),
+                _last_death_cause=torch.zeros((worlds, 2), dtype=torch.long),
+            )
+
+        def observe(self):
+            return (torch.zeros(1, 1),) * 3 + (torch.ones(1, 6, dtype=torch.bool),)
+
+        def step(self, _actions):
+            self.calls += 1
+            # Simulate a device task that resets its world in the terminal frame.
+            self.sim.alive[:] = True
+            self.sim._last_food_ate[:] = True
+            return SimpleNamespace(
+                mass=torch.zeros(1),
+                terminal=torch.ones(1, dtype=torch.bool),
+                reset=torch.ones(1, dtype=torch.bool),
+            )
+
+    report = acceptance.run_distribution_screen(
+        cpu_factory=ResetTask,
+        device_factory=ResetTask,
+        cpu_actor=lambda *args: torch.zeros(1, 6),
+        device_actor=lambda *args: torch.zeros(1, 6),
+        worlds_per_mix=1,
+        horizon=4,
+    )
+    for mix in ("scripted", "frozen", "mixed"):
+        for arm in ("cpu", "device"):
+            row = report["results"][mix][arm]
+            assert row["opponent_respawns"] == 0
+            assert row["food_consumption_events"] == 0
+
+
+def test_distribution_screen_stops_when_every_first_life_is_terminal(monkeypatch) -> None:
+    """No dead screen world is advanced through the unused horizon tail."""
+    from types import SimpleNamespace
+
+    import torch
+
+    from research.sandbox_a_resident import training_acceptance as acceptance
+
+    monkeypatch.setattr(acceptance, "distribution_screen_descriptor", lambda **kw: kw)
+
+    class Task:
+        instances = []
+
+        def __init__(self, _mix, worlds, _horizon):
+            self.steps = 0
+            Task.instances.append(self)
+            self.sim = SimpleNamespace(
+                bodies=torch.tensor([[[[1, 1]], [[4, 1]]]] * worlds),
+                head_ptr=torch.zeros((worlds, 2), dtype=torch.long),
+                S=2,
+                food_cells=torch.tensor([[[2, 2], [3, 3]]] * worlds),
+                food_present=torch.ones((worlds, 2), dtype=torch.bool),
+                direction=torch.ones((worlds, 2), dtype=torch.long),
+                alive=torch.ones((worlds, 2), dtype=torch.bool),
+                _last_food_ate=torch.zeros((worlds, 2), dtype=torch.bool),
+                _last_death_cause=torch.zeros((worlds, 2), dtype=torch.long),
+            )
+
+        def observe(self):
+            return (torch.zeros(1, 1),) * 3 + (torch.ones(1, 6, dtype=torch.bool),)
+
+        def step(self, _actions):
+            self.steps += 1
+            self.sim.alive[:, 0] = False
+            return SimpleNamespace(
+                mass=torch.zeros(1),
+                terminal=torch.ones(1, dtype=torch.bool),
+                reset=torch.zeros(1, dtype=torch.bool),
+            )
+
+    acceptance.run_distribution_screen(
+        cpu_factory=Task,
+        device_factory=Task,
+        cpu_actor=lambda *args: torch.zeros(1, 6),
+        device_actor=lambda *args: torch.zeros(1, 6),
+        worlds_per_mix=1,
+        horizon=7,
+    )
+    assert [task.steps for task in Task.instances] == [1] * 6

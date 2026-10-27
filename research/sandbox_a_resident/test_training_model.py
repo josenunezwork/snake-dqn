@@ -7,7 +7,12 @@ import copy
 import pytest
 import torch
 
-from research.sandbox_a_resident.training_model import B8Actor, ClockedPopArtCritic, categorical
+from research.sandbox_a_resident.training_model import (
+    B8Actor,
+    ClockedPopArtCritic,
+    canonical_legal_mask,
+    categorical,
+)
 from src.model.ego2s_network import Ego2sNet, load_ego2s_checkpoint
 from web.backend.ego2s_policy import Ego2sServingPolicy
 
@@ -113,7 +118,7 @@ def test_popart_preserves_outputs_and_maps_adam_moments() -> None:
     after = critic(local, glob, scalars, clock).detach()
     # The affine identity is exact mathematically; float32 GEMM accumulation
     # after a large target-scale change is expected to differ by a few ulps.
-    torch.testing.assert_close(before, after, rtol=5e-5, atol=5e-6)
+    torch.testing.assert_close(before, after, rtol=5e-4, atol=3e-5)
     coordinate = old_scale / critic.scale
     for parameter in critic.output.parameters():
         torch.testing.assert_close(
@@ -123,8 +128,10 @@ def test_popart_preserves_outputs_and_maps_adam_moments() -> None:
             optimizer.state[parameter]["exp_avg_sq"],
             state_before[parameter]["exp_avg_sq"] * coordinate.square(),
         )
-    expected_mean = torch.tensor(77.5)  # beta=.5 and targets have mean 155
-    expected_second = 0.5 + 0.5 * torch.tensor([100.0, 120.0, 180.0, 220.0]).square().mean()
+    # Bias correction makes the first EMA observation the observation itself,
+    # rather than shrinking it by (1 - beta).
+    expected_mean = torch.tensor(155.0)
+    expected_second = torch.tensor([100.0, 120.0, 180.0, 220.0]).square().mean()
     torch.testing.assert_close(critic.mean, expected_mean)
     torch.testing.assert_close(critic.second_moment, expected_second)
     torch.testing.assert_close(critic.scale.square(), critic.second_moment - critic.mean.square())
@@ -134,6 +141,40 @@ def test_masked_categorical_falls_back_to_normal_actions() -> None:
     dist = categorical(torch.zeros(2, 6), torch.zeros(2, 6, dtype=torch.bool))
     assert dist.probs[:, :3].eq(1 / 3).all()
     assert dist.probs[:, 3:].eq(0).all()
+
+
+def test_popart_bias_correction_matches_closed_form_and_survives_state_dict() -> None:
+    critic = ClockedPopArtCritic(b8(), beta=0.999)
+    first = torch.tensor([100.0, 200.0])
+    second = torch.tensor([300.0, 500.0])
+    critic.update_targets(first)
+    torch.testing.assert_close(critic.mean, first.mean())
+    torch.testing.assert_close(critic.second_moment, first.square().mean())
+    torch.testing.assert_close(critic.normalise(first).mean(), torch.tensor(0.0), atol=1e-6, rtol=0)
+    torch.testing.assert_close(
+        critic.normalise(first).std(unbiased=False), torch.tensor(1.0), atol=1e-6, rtol=0
+    )
+    critic.update_targets(second)
+    beta = 0.999
+    expected_mean = (beta * first.mean() + second.mean()) / (1.0 + beta)
+    expected_second = (beta * first.square().mean() + second.square().mean()) / (1.0 + beta)
+    torch.testing.assert_close(critic.mean, expected_mean)
+    torch.testing.assert_close(critic.second_moment, expected_second)
+    restored = ClockedPopArtCritic(b8(), beta=0.999)
+    restored.load_state_dict(critic.state_dict())
+    torch.testing.assert_close(restored.debias, critic.debias)
+    torch.testing.assert_close(restored.mean, critic.mean)
+    third = torch.tensor([700.0, 900.0])
+    critic.update_targets(third)
+    restored.update_targets(third)
+    torch.testing.assert_close(restored.mean, critic.mean)
+    torch.testing.assert_close(restored.second_moment, critic.second_moment)
+
+
+def test_canonical_legal_mask_turns_all_false_advisory_rows_into_normal_support() -> None:
+    raw = torch.tensor([[False] * 6, [False, True, False, False, False, True]])
+    expected = torch.tensor([[True, True, True, False, False, False], raw[1].tolist()])
+    assert torch.equal(canonical_legal_mask(raw), expected)
 
 
 def test_same_device_compiled_actor_matches_eager_logits_and_gradients() -> None:

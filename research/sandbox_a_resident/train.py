@@ -20,7 +20,12 @@ from research.sandbox_a_resident.training_acceptance import run_distribution_scr
 from research.sandbox_a_resident.training_compile import TrainingCompile
 from research.sandbox_a_resident.training_cpu_reference import cpu_distribution_factory
 from research.sandbox_a_resident.training_learner import PPOConfig, PPORollout, PPOTrainer
-from research.sandbox_a_resident.training_model import B8Actor, ClockedPopArtCritic, categorical
+from research.sandbox_a_resident.training_model import (
+    B8Actor,
+    ClockedPopArtCritic,
+    canonical_legal_mask,
+    categorical,
+)
 from research.sandbox_a_resident.training_prep import PreparationConfig, PreparationFailure, prepare
 from research.sandbox_a_resident.training_proxy import (
     MixMetrics,
@@ -114,18 +119,25 @@ def _rng_state(generator: torch.Generator) -> dict[str, Any]:
 
 
 def _restore_rng(state: dict[str, Any], generator: torch.Generator) -> None:
-    torch.set_rng_state(state["torch"])
+    torch.set_rng_state(state["torch"].to(device="cpu", dtype=torch.uint8))
     if torch.cuda.is_available() and state["cuda"]:
-        torch.cuda.set_rng_state_all(state["cuda"])
+        torch.cuda.set_rng_state_all(
+            [value.to(device="cpu", dtype=torch.uint8) for value in state["cuda"]]
+        )
     np.random.set_state(state["numpy"])
     random.setstate(state["python"])
-    generator.set_state(state["collection"])
+    generator.set_state(state["collection"].to(device="cpu", dtype=torch.uint8))
 
 
 def _task_state(task: Any) -> dict[str, Any]:
     if not hasattr(task, "state_dict"):
         raise TypeError("resident task must expose exact state_dict for durable resume")
     return task.state_dict()
+
+
+def _preparation_metrics(state: dict[str, Any]) -> dict[str, Any]:
+    """Expose preparation diagnostics without duplicating exact task tensor state."""
+    return {key: value for key, value in state.items() if key != "task_state"}
 
 
 def _durable_metrics(metrics: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -179,6 +191,7 @@ def collect(
             if compiled is not None
             else actor(local, glob, scalars)
         )
+        legal = canonical_legal_mask(legal)
         distribution = categorical(logits, legal)
         action = torch.multinomial(distribution.probs, 1, generator=generator).squeeze(-1)
         observations.append((local.clone(), glob.clone(), scalars.clone()))
@@ -359,7 +372,7 @@ def run(
         raise TypeError("resident task must expose attach_opponents for roster runtime")
     task.attach_opponents(opponents)
     compiled = TrainingCompile(actor, task, mode=control.compile_mode)
-    compile_check = compiled.runtime_self_check(32)
+    compile_check = compiled.runtime_self_check(control.worlds)
     # The screen is a mandatory simulator-D gross-error diagnostic before the
     # real trajectory, deliberately separate from any efficacy/gate evidence.
     proxy_factory = task.proxy_factory(opponents)
@@ -379,7 +392,9 @@ def run(
             if not set(verified).issubset(permitted):
                 raise ValueError("ledger contains a snapshot outside the frozen cadence/endpoint")
             latest = verified[max(verified)]
-            state = torch.load(latest["exports"][0]["path"], map_location=dev, weights_only=False)
+            # Decode durable metadata/RNG on CPU. Module, optimizer and task
+            # loaders explicitly place their numerical state on the target device.
+            state = torch.load(latest["exports"][0]["path"], map_location="cpu", weights_only=False)
             if int(state.get("iteration", -1)) != int(latest["iteration"]):
                 raise ValueError("ledger descriptor and snapshot iteration differ")
             start = _restore(state, control, actor, critic, trainer, task, generator)
@@ -390,12 +405,12 @@ def run(
             if prep_state is not None and prep_state.get("temperature") is not None:
                 with torch.no_grad():
                     actor.temperature.fill_(float(prep_state["temperature"]))
-    if not control.test_only and start == 0:
+    if not control.test_only and start == 0 and not resumed:
         os.environ.setdefault("SNAKE_CKPT_DIR", str(frp3.parent))
-        cpu_actor = copy.deepcopy(actor.reference).cpu().eval()
+        cpu_actor = copy.deepcopy(actor.reference).to(dev).eval()
         screen = run_distribution_screen(
             cpu_factory=cpu_distribution_factory(
-                {FRP3_S12_SHA256: frp3, CHAMPION_SHA256: champion}
+                {FRP3_S12_SHA256: frp3, CHAMPION_SHA256: champion}, inference_device=dev
             ),
             device_factory=lambda mix, worlds, horizon: proxy_factory(
                 mix, worlds, horizon, 600_000_000 + ("scripted", "frozen", "mixed").index(mix) * 32
@@ -404,6 +419,13 @@ def run(
             device_actor=actor.reference,
         )
         metrics.append({"iteration": 0, "distribution_screen": screen})
+        if screen["material_gaps"]:
+            _progress(
+                output, {"stage": "distribution-screen-failed", "distribution_screen": screen}
+            )
+            raise RuntimeError(
+                "material distribution gap: diagnose sandbox adapter before training"
+            )
 
     def prep_task_factory(phase: str) -> ResidentTrainingTask:
         if phase not in {"calibration", "refit"}:
@@ -498,12 +520,12 @@ def run(
             raise
         prep_state = prepared.state.state_dict()
         trainer.critic_optimizer = prepared.critic_optimizer
-        metrics.append({"iteration": 0, "preparation": prep_state})
+        metrics.append({"iteration": 0, "preparation": _preparation_metrics(prep_state)})
     elif prep_state is None:
         # Deliberately conspicuous CPU fixture path.  It is unavailable unless
         # the immutable control says test_only and cannot qualify a real run.
         prep_state = {"schema": "sandbox-a-train01-prep/test-only", "stage": "skipped"}
-        metrics.append({"iteration": 0, "preparation": prep_state})
+        metrics.append({"iteration": 0, "preparation": _preparation_metrics(prep_state)})
     # Proxy adapters may allocate helper tensors while constructing a factory.
     # Keep that setup outside the resumed trajectory's RNG stream.
     factory = proxy_factory
@@ -666,7 +688,7 @@ def run(
                     "stage": "ppo",
                     "iteration": boundary,
                     "actor_rows": trainer.actor_rows,
-                    "preparation": prep_state,
+                    "preparation": _preparation_metrics(prep_state),
                     "elapsed_seconds": now - last_heartbeat,
                 },
             )

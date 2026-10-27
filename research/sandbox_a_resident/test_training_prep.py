@@ -75,6 +75,14 @@ def test_temperature_preserves_ties_as_the_greedy_set():
     assert torch.isclose(1 - p[:, :2].sum(), torch.tensor(0.01), atol=2e-4)
 
 
+def test_temperature_canonicalizes_all_false_advisory_masks() -> None:
+    logits = torch.tensor([[2.0, 0.0, -1.0, 4.0, 3.0, 2.0]])
+    # Collection uses normal actions for this transient malformed advisory row.
+    # Calibration must use the identical support instead of refusing it.
+    temperature = solve_temperature(logits, torch.zeros_like(logits, dtype=torch.bool), 0.01)
+    assert temperature > 0.0
+
+
 def test_calibration_is_bounded_and_reinstalls_exact_b8_head_scale():
     actor, _ = _models()
     original = actor.reference.adv.weight.detach().clone()

@@ -122,6 +122,31 @@ def test_verified_units_bind_b2_index_to_the_frozen_config_inventory(tmp_path):
         validate_input(record("00-foreign-config.tar"))
 
 
+def test_training_export_sidecars_require_a_complete_canonical_payload(tmp_path):
+    payload = tmp_path / "iteration-0001.pt"
+    payload.write_bytes(b"full state")
+    payload_sha = hashlib.sha256(payload.read_bytes()).hexdigest()
+    (tmp_path / "iteration-0001.pt.sha256").write_text(payload_sha + "\n")
+    (tmp_path / "iteration-0001.pt.complete").write_text("complete\n")
+    sidecar = tmp_path / "iteration-0001.pt.complete"
+    validate_input(
+        {
+            "kind": "training-export-sidecar",
+            "path": str(sidecar),
+            "sha256": hashlib.sha256(sidecar.read_bytes()).hexdigest(),
+        }
+    )
+    (tmp_path / "iteration-0001.pt.sha256").unlink()
+    with pytest.raises(ValueError, match="complete canonical payload"):
+        validate_input(
+            {
+                "kind": "training-export-sidecar",
+                "path": str(sidecar),
+                "sha256": hashlib.sha256(sidecar.read_bytes()).hexdigest(),
+            }
+        )
+
+
 def test_mutated_registry_with_protected_life_refused(tmp_path):
     reg = load_registry()
     reg["lives"][0]["ultimate_parent_id"] = reg["excluded_parents"][0]

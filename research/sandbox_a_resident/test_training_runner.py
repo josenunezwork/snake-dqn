@@ -58,3 +58,16 @@ def test_control_freezes_100m_shape_and_rejects_wrong_task() -> None:
         pass
     else:
         raise AssertionError("foreign control accepted")
+
+
+def test_collector_stores_normal_action_support_for_boxed_in_rows():
+    class BoxedTask(Task):
+        def observe(self):
+            local, glob, scalars, legal = super().observe()
+            legal[0] = False
+            return local, glob, scalars, legal
+
+    rollout = collect(BoxedTask(), Actor(), Critic(), 2, torch.Generator().manual_seed(4))
+    assert rollout.legal_masks[:, 0].tolist() == [[True, True, True, False, False, False]] * 2
+    assert (rollout.actions[:, 0] < 3).all()
+    assert rollout.legal_masks.gather(-1, rollout.actions[..., None]).all()

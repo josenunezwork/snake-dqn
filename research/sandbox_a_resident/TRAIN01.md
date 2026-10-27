@@ -133,7 +133,12 @@ roster/reference fixtures use short horizons to confirm the CPU construction
 against the local descriptor.  Before a substantial run, conduct the separate
 fresh-root B8 distribution screen described by `training_acceptance.py`: at
 least 32 complete H5000 worlds per mix on each engine, with spawn spacing,
-food/refill, collisions, respawns, mass, and occupancy reported.
+food/refill, collisions, respawns, mass, and occupancy reported. The reference
+keeps CPU world mechanics and feature construction; in production its B8 and
+frozen-opponent neural forwards use CUDA (batched opponents). Inactive reference
+worlds stop rasterization, and the screen stops once all first lives terminate,
+with every metric still divided by H5000. Terminal-frame resets contribute no
+opponent-respawn or food events.
 
 Neither test proves CPU/GPU full closed-loop bit identity.  Counter RNG and
 neural tie behavior are known boundaries.  A failed common-state fixture or a
@@ -214,7 +219,7 @@ does not perform any of those actions.
    both checks have passed.  This guide intentionally does not invent a runtime
    pin, provider command, packet path, or a completed dry-run receipt.
 5. On a mechanical stop, verify the terminal receipt and create a successor
-   through `training_resume.py`; do not hand-edit the ledger or recompute an
+   through `training_completion.py`; do not hand-edit the ledger or recompute an
    already verified unit.  At final completion, archive the summary, snapshot
    exports, ledger, preflight evidence, and dispatch receipts together.
 
@@ -225,8 +230,13 @@ The package's narrow test families are `test_training_rosters.py`,
 `test_training_proxy.py`, `test_training_resume.py`, `test_training_prepare.py`,
 `test_training_acceptance.py`, `test_training_compile.py`,
 `test_training_cpu_reference.py`, `test_training_runner.py`, and
-`test_training_units.py`.  The preflight runs the scoped package suite serially
+`test_training_units.py`, `test_training_completion.py`,
+`test_training_cuda_semantics.py`, and `test_training_production.py`.  The preflight runs the scoped package suite serially
 with CPU thread limits and `nice -n 15`; it does not claim CUDA qualification.
+For explicit CPU-hosted CUDA API-contract coverage, run the same command with
+`--cuda-semantics`. It exercises relocated RNG and roster-state doubles, meta-device
+critic baseline placement, and CUDA inference routing; it does not execute CUDA
+kernels. These checks also run in the ordinary full package preflight.
 The full suite and the actual preflight/dispatch evidence belong in the packet's
 verification record once executed.
 

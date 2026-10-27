@@ -348,7 +348,12 @@ class DeviceRosterRuntime:
         if not isinstance(groups, list) or len(groups) != len(self._groups):
             raise ValueError("roster runtime group mismatch")
         for saved, (rows, policy, random_slots) in zip(groups, self._groups):
-            if not torch.equal(torch.as_tensor(saved["rows"]), rows.cpu()):
+            # Keep this identity check on CPU just like its serialized
+            # descriptor.  It also accepts a relocated tensor from a legacy or
+            # externally restored snapshot before mutable runtime carry is
+            # restored.
+            saved_rows = saved["rows"].to(device="cpu", dtype=rows.dtype)
+            if not torch.equal(saved_rows, rows.cpu()):
                 raise ValueError("roster runtime row identity mismatch")
             for name, value in saved["runtime"].items():
                 current = getattr(policy.vector_runtime, name)

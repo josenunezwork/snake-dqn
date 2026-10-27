@@ -167,7 +167,7 @@ def _validate_registry_inputs(payload: dict[str, Any], registry_path: Path) -> N
         ):
             raise PreflightError("TRAIN-01 requires exactly the two canonical fixed opponents")
         kinds = {r["kind"] for r in payload["inputs"]}
-        if kinds - {"training-export"} != {
+        if kinds - {"training-export", "training-export-sidecar"} != {
             "worlds",
             "frozen-checkpoint",
             "frozen-opponent",

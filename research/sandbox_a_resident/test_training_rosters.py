@@ -106,6 +106,21 @@ def test_runtime_snapshot_restores_random_safe_table_and_vector_carry() -> None:
     assert policy.vector_prepared
 
 
+def test_runtime_resume_normalizes_relocated_row_identity_to_cpu() -> None:
+    """Model a CUDA map_location tensor without requiring a CUDA runner."""
+    runtime, _ = _stub_roster_runtime()
+    state = runtime.state_dict()
+
+    class RelocatedRows:
+        def to(self, *, device, dtype):
+            assert device == "cpu"
+            assert dtype == torch.long
+            return torch.tensor([0, 1], dtype=dtype)
+
+    state["groups"][0]["rows"] = RelocatedRows()
+    runtime.load_state_dict(state)
+
+
 def test_runtime_reset_rekeys_only_completed_world_random_safe_tape() -> None:
     """A reset rekeys its table from the canonical world root without touching peers."""
     from research.gpu_sim_spike.anchors_device import random_table

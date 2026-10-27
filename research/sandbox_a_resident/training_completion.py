@@ -91,12 +91,17 @@ def prepare_completion(
     sandbox["inputs"] = worlds + [
         {
             "kind": (
-                "training-export"
+                "training-export-sidecar"
                 if row["dest"].startswith("resume/")
+                and row["dest"].endswith((".sha256", ".complete"))
                 else (
-                    "verified-ledger"
-                    if row["dest"] == "verified-ledger.json"
-                    else old_kinds[row["sha256"]]
+                    "training-export"
+                    if row["dest"].startswith("resume/")
+                    else (
+                        "verified-ledger"
+                        if row["dest"] == "verified-ledger.json"
+                        else old_kinds[row["sha256"]]
+                    )
                 )
             ),
             "path": row["path"],

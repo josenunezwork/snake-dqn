@@ -68,6 +68,7 @@ class _CpuRosterRuntime:
         rosters: Sequence[TrainingRoster],
         seeds: Sequence[int],
         checkpoint_paths: Mapping[str, str],
+        inference_device: torch.device | str = "cpu",
     ) -> None:
         from src.simd_env.fast_anchors import FastProfileAnchorSimdPolicy
         from src.simd_env.vector61_policy import Vector61Runtime, Vector61SimdPolicy
@@ -85,6 +86,7 @@ class _CpuRosterRuntime:
                 else:
                     scripted.setdefault(ref, []).append((env, slot))
         params = vector61_params(sim.cfg)
+        self.inference_device = torch.device(inference_device)
         self.runtime = Vector61Runtime(params=params, backend="numba") if controlled.any() else None
         if self.runtime is not None:
             self.runtime.bind(sim, controlled)
@@ -102,15 +104,19 @@ class _CpuRosterRuntime:
                 veto_slots=(key[1],),
                 veto_variant="v8",
                 veto_lambda=8.0,
-                forward="rowwise",
+                # This diagnostic compares distributions, not byte-exact
+                # trajectories.  GPU batches remove up to 160 tiny CPU
+                # checkpoint forwards per tick while CPU remains the parity
+                # reference's default call shape.
+                forward="batched" if self.inference_device.type == "cuda" else "rowwise",
             )
             for key in vectors
         }
-        # The GPU job's ambient DeviceManager selects CUDA. The reference arm
-        # explicitly runs its rowwise networks on CPU after ordinary loading.
+        # CPU world dynamics/features stay untouched.  Only frozen-network
+        # inference may move to the allocated accelerator.
         for policy in self.vector.values():
-            policy.network.to(torch.device("cpu"))
-            policy.device = torch.device("cpu")
+            policy.network.to(self.inference_device)
+            policy.device = self.inference_device
 
     def actions(self, sim: Any, grid: np.ndarray, active: np.ndarray) -> None:
         masks, alive = sim.get_resolved_action_mask(), sim.get_alive()
@@ -159,6 +165,7 @@ class _CpuShard:
     rosters: tuple[TrainingRoster, ...]
     horizon: int
     checkpoint_paths: Mapping[str, str]
+    inference_device: torch.device | str = "cpu"
 
     def __post_init__(self) -> None:
         from src.simd_env.batch_sim import BatchSimConfig
@@ -178,7 +185,13 @@ class _CpuShard:
             train_mode=False,
             allow_respawn=True,
         )
-        self.runtime = _CpuRosterRuntime(self.sim, self.rosters, self.seeds, self.checkpoint_paths)
+        self.runtime = _CpuRosterRuntime(
+            self.sim,
+            self.rosters,
+            self.seeds,
+            self.checkpoint_paths,
+            self.inference_device,
+        )
         self.age = np.zeros(worlds, dtype=np.int64)
         self.active = np.ones(worlds, dtype=bool)
 
@@ -186,15 +199,26 @@ class _CpuShard:
         from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
 
         _prepare_watch_phase(self.sim, self.active)
-        rows = np.column_stack((np.arange(self.sim.E), np.zeros(self.sim.E, dtype=np.int64)))
+        # Retired first-life worlds never receive another action.  Rasterising
+        # them (and running their hero forward) dominated the CPU reference
+        # screen after natural deaths, while the active-world subset preserves
+        # every live world and its fixed H5000 semantics.
+        active_worlds = np.flatnonzero(self.active)
+        rows = np.column_stack((active_worlds, np.zeros(len(active_worlds), dtype=np.int64)))
         obs = build_ego_raster(self.sim, EgoRasterConfig(version="bv8"), backend="numba", rows=rows)
-        output = tuple(
-            torch.from_numpy(np.ascontiguousarray(obs[key]))
-            for key in ("local", "global", "scalars")
-        )
-        return output + (
-            torch.from_numpy(np.ascontiguousarray(self.sim.get_advisory_action_mask()[:, 0])),
-        )
+        output: list[torch.Tensor] = []
+        for key in ("local", "global", "scalars"):
+            source = torch.from_numpy(np.ascontiguousarray(obs[key]))
+            full = torch.zeros((self.sim.E,) + tuple(source.shape[1:]), dtype=source.dtype)
+            full[torch.from_numpy(active_worlds)] = source
+            output.append(full)
+        legal = torch.zeros((self.sim.E, 6), dtype=torch.bool)
+        legal[:, :3] = True
+        if len(active_worlds):
+            legal[torch.from_numpy(active_worlds)] = torch.from_numpy(
+                np.ascontiguousarray(self.sim.get_advisory_action_mask()[active_worlds, 0])
+            )
+        return tuple(output) + (legal,)
 
     def step(self, actions: torch.Tensor) -> Any:
         hero = actions.detach().cpu().numpy().astype(np.int64, copy=False).reshape(self.sim.E)
@@ -232,12 +256,14 @@ class CpuRosterTask:
         horizon: int,
         *,
         checkpoint_paths: Mapping[str, str] | None = None,
+        inference_device: torch.device | str = "cpu",
         seed: int = 0,
     ) -> None:
         del seed  # Kept for legacy direct smoke callers; factory roots are fixed.
         if horizon != 5000 or not 1 <= worlds <= 32:
             raise ValueError("CPU distribution reference requires 1..32 worlds at H5000")
         self.device, self.mix = torch.device("cpu"), mix
+        self.inference_device = torch.device(inference_device)
         if checkpoint_paths is None:
             # Direct local test helper only. The dispatched factory below requires
             # transferred paths, so a Colab runtime never discovers a Mac sibling.
@@ -250,7 +276,9 @@ class CpuRosterTask:
                     if _kind == "checkpoint"
                 }
             }
-        self._shard = _CpuShard(mix, proxy_rosters(mix, worlds), horizon, checkpoint_paths)
+        self._shard = _CpuShard(
+            mix, proxy_rosters(mix, worlds), horizon, checkpoint_paths, self.inference_device
+        )
 
     def observe(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return self._shard.observe()
@@ -259,8 +287,10 @@ class CpuRosterTask:
         return self._shard.step(actions)
 
 
-def cpu_distribution_factory(checkpoint_paths: Mapping[str, str]):
+def cpu_distribution_factory(
+    checkpoint_paths: Mapping[str, str], *, inference_device: torch.device | str = "cpu"
+):
     """Return the CPU callback accepted by the distribution screen."""
     return lambda mix, worlds, horizon: CpuRosterTask(
-        mix, worlds, horizon, checkpoint_paths=checkpoint_paths
+        mix, worlds, horizon, checkpoint_paths=checkpoint_paths, inference_device=inference_device
     )

@@ -162,8 +162,9 @@ class TrainingCompile:
         ] = "eager/compiled logits and trainable gradients match"
         return {"status": self.report["actor"]["status"], "rows": int(local.shape[0])}
 
+    @torch.no_grad()
     def runtime_self_check(self, rows: int = 32) -> dict[str, Any]:
-        """Run the fixed small actor validation used before training allocation."""
+        """Validate the collection forward at its actual batch size without backward graphs."""
         if rows < 1:
             raise ValueError("rows must be positive")
         device = next(self.actor.parameters()).device
@@ -175,7 +176,8 @@ class TrainingCompile:
             0, 256, (rows, 4, 37, 37), device=device, dtype=torch.uint8, generator=generator
         )
         scalars = torch.rand((rows, 60), device=device, generator=generator)
-        return self.gradient_probe(local, glob, scalars)
+        self.actor_forward(local, glob, scalars)
+        return {"status": self.report["actor"]["status"], "rows": rows, "grad_enabled": False}
 
 
 class _null_phase:

@@ -16,7 +16,12 @@ from typing import Any, Callable, Mapping, Protocol
 
 import torch
 
-from research.sandbox_a_resident.training_model import B8Actor, ClockedPopArtCritic, categorical
+from research.sandbox_a_resident.training_model import (
+    B8Actor,
+    ClockedPopArtCritic,
+    canonical_legal_mask,
+    categorical,
+)
 
 
 class TrainingTask(Protocol):
@@ -144,7 +149,7 @@ class _MetricRow:
 
 @dataclass
 class PreparationState:
-    """Boundary-resumable, JSON/torch-save-safe preparation progress."""
+    """Boundary-resumable torch-save state; task_state can contain tensors."""
 
     schema: str = "sandbox-a-train01-prep/v1"
     stage: str = "new"
@@ -210,8 +215,12 @@ def solve_temperature(logits: torch.Tensor, legal: torch.Tensor, target: float =
     """Solve the frozen B8 softmax temperature for greedy-set departure mass."""
     if logits.ndim != 2 or legal.shape != logits.shape or logits.shape[-1] != 6:
         raise ValueError("calibration logits and masks must be [N, 6]")
-    if not torch.isfinite(logits).all() or not legal.bool().any(dim=-1).all():
-        raise ValueError("calibration requires finite logits and a legal action per row")
+    if not torch.isfinite(logits).all():
+        raise ValueError("calibration requires finite logits")
+    # Calibration samples the same advisory masks as collection.  Preserve the
+    # normal-action fallback in the saved bank so a boxed-in row cannot make a
+    # production preparation fail after collection would have proceeded.
+    legal = canonical_legal_mask(legal)
     lo, hi = 1e-3, 1.0
     while _departure_probability(logits, legal, hi) < target and hi < 1e4:
         hi *= 2.0
@@ -275,6 +284,7 @@ def calibrate(
             )
         local, glob, scalars, legal = task.observe()
         logits = actor.reference_logits(local, glob, scalars)
+        legal = canonical_legal_mask(legal)
         length = _lengths(task, logits.shape[0], logits.device).long().clamp_min(1)
         cpu_length = length.cpu()
         # Greedy action contains no artificial terminal/cut; task reset remains natural.

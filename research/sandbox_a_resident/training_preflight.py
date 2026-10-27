@@ -97,6 +97,11 @@ def validate_packet(packet: Path) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("packet", type=Path)
+    parser.add_argument(
+        "--cuda-semantics",
+        action="store_true",
+        help="run strict CUDA API-contract mocks without a GPU",
+    )
     args = parser.parse_args()
     check = validate_packet(args.packet.resolve())
     env = dict(os.environ)
@@ -110,6 +115,15 @@ def main() -> int:
     ):
         env[key] = "1"
     env["SNAKE_DQN_DEVICE"] = "cpu"
+    cuda_contract_tests = [
+        "research/sandbox_a_resident/test_training_cuda_semantics.py",
+        "research/sandbox_a_resident/test_training_learner.py"
+        "::test_critic_quality_baseline_has_cuda_like_same_device_semantics",
+        "research/sandbox_a_resident/test_training_cpu_reference.py"
+        "::test_cpu_reference_can_route_frozen_inference_to_cuda_semantics",
+        "research/sandbox_a_resident/test_training_rosters.py"
+        "::test_runtime_resume_normalizes_relocated_row_identity_to_cpu",
+    ]
     subprocess.run(
         [
             "nice",
@@ -123,16 +137,14 @@ def main() -> int:
             "addopts=",
             "-p",
             "no:xdist",
-            "research/sandbox_a_resident",
+            *(cuda_contract_tests if args.cuda_semantics else ["research/sandbox_a_resident"]),
         ],
         cwd=ROOT,
         env=env,
         check=True,
     )
-    print(
-        f"PASS_TRAIN01_PREFLIGHT seeds={check['count']} schema=PASS registry=PASS tests=PASS "
-        "allocations=0"
-    )
+    label = "PASS_TRAIN01_CUDA_SEMANTICS" if args.cuda_semantics else "PASS_TRAIN01_PREFLIGHT"
+    print(f"{label} seeds={check['count']} schema=PASS registry=PASS tests=PASS allocations=0")
     return 0
 
 

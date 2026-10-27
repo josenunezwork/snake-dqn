@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 
+import pytest
 import torch
 
 from research.sandbox_a_resident.training_compile import TrainingCompile
@@ -76,3 +77,24 @@ def test_none_mode_never_calls_torch_compile_and_reports_disabled(monkeypatch) -
     )
     assert adapter.runtime_self_check(32)["status"] == "disabled_eager"
     assert adapter.report["actor"]["fallback_reason"] == "requested mode=none"
+
+
+def test_runtime_check_validates_real_collection_shape_without_gradients(monkeypatch):
+    actor = B8Actor(b8_model=Ego2sNet(local_channels=7, n_scalars=60))
+    adapter = TrainingCompile(actor, mode="default", backend="eager")
+    observed = []
+    original = adapter.actor_forward
+
+    def forward(local, glob, scalars):
+        observed.append((local.shape[0], torch.is_grad_enabled()))
+        return original(local, glob, scalars)
+
+    monkeypatch.setattr(adapter, "actor_forward", forward)
+    monkeypatch.setattr(
+        adapter, "gradient_probe", lambda *args: pytest.fail("unused backward graph")
+    )
+    before = torch.get_rng_state().clone()
+    assert adapter.runtime_self_check(5)["rows"] == 5
+    assert observed == [(5, False)]
+    assert torch.equal(before, torch.get_rng_state())
+    assert all(p.grad is None for p in actor.parameters())

@@ -148,6 +148,12 @@ def run_distribution_screen(
 
     def one(factory: Callable[[str, int, int], Any], actor: Any, mix: str) -> dict[str, Any]:
         task = factory(mix, worlds_per_mix, horizon)
+        parameters = getattr(actor, "parameters", None)
+        actor_device = (
+            next(iter(parameters()), torch.empty(0)).device
+            if callable(parameters)
+            else torch.device("cpu")
+        )
         sim = getattr(task, "sim", None)
         if sim is None:
             sim = task._shard.sim
@@ -192,6 +198,15 @@ def run_distribution_screen(
         previous_alive = tensor(sim.alive).bool()
         for tick in range(horizon):
             local, glob, scalars, legal = task.observe()
+            # The CPU reference deliberately keeps its simulator and features
+            # on CPU, but may use the allocated GPU for B8 inference.  The
+            # transfer is per tensor and does not alter CPU world mechanics.
+            local, glob, scalars, legal = (
+                local.to(actor_device),
+                glob.to(actor_device),
+                scalars.to(actor_device),
+                legal.to(actor_device),
+            )
             logits = actor(local, glob, scalars)
             if isinstance(logits, tuple):
                 logits = logits[0]
@@ -207,11 +222,16 @@ def run_distribution_screen(
             length_bins += torch.bincount(bins[first_life & ~terminal], minlength=5)
             deaths += int(terminal.sum())
             resets += int(tensor(event.reset).bool().sum())
-            respawns += int(((~previous_alive[:, 1:]) & alive[:, 1:] & first_life[:, None]).sum())
-            food_eaten += int((tensor(sim._last_food_ate).bool() & first_life[:, None]).sum())
             for cause in tensor(sim._last_death_cause)[:, 0][terminal].tolist():
                 causes[str(cause)] = causes.get(str(cause), 0) + 1
+            # A task is permitted to reset immediately after reporting a hero
+            # terminal.  Retire that world's first life before observing any
+            # post-step opponent state, otherwise a reset frame can turn old
+            # dead opponents into spurious respawns (and food into a new-life
+            # observation) for the completed world.
             first_life &= ~terminal
+            respawns += int(((~previous_alive[:, 1:]) & alive[:, 1:] & first_life[:, None]).sum())
+            food_eaten += int((tensor(sim._last_food_ate).bool() & first_life[:, None]).sum())
             previous_alive = alive
             if not torch.isfinite(mass).all():
                 raise RuntimeError("nonfinite distribution-screen mass")
@@ -221,6 +241,12 @@ def run_distribution_screen(
                     f"frame={tick}/{horizon}",
                     flush=True,
                 )
+            # H5000 is the registered maximum horizon, not work that has to be
+            # done after every first-life hero has terminated.  All remaining
+            # contributions are identically zero and neither simulator is
+            # advanced further.
+            if not bool(first_life.any()):
+                break
         return {
             **initial,
             "mean_mass_integral": float(mass.mean() / horizon),
