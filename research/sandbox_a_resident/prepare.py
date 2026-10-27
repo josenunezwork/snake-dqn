@@ -135,16 +135,18 @@ def registry_check(control: dict[str, Any], registry_path: Path, checkpoint: Pat
     cursor = 0
     for row in allocations:
         for index in range(row["offset"], row["offset"] + row["count"]):
-            value = seed64("a100-dev/sandbox-a", index)
+            canonical = prefix.copy()
+            canonical.update(str(index).encode())
+            values[cursor] = int.from_bytes(canonical.digest()[:8], "big") & 0x7FFF_FFFF_FFFF_FFFF
+            cursor += 1
+        for index in (row["offset"], row["offset"] + row["count"] - 1):
             canonical = prefix.copy()
             canonical.update(str(index).encode())
             expected = int.from_bytes(canonical.digest()[:8], "big")
-            if value != expected:
-                raise ValueError("canonical seed derivation drift")
-            values[cursor] = value & 0x7FFF_FFFF_FFFF_FFFF
-            cursor += 1
-        for index in (row["offset"], row["offset"] + row["count"] - 1):
-            if seed64("a100-dev/sandbox-a", index) != world_seed("sandbox-a", index):
+            if (
+                seed64("a100-dev/sandbox-a", index) != expected
+                or world_seed("sandbox-a", index) != expected
+            ):
                 raise ValueError("registry canonical seed derivation drift")
     unique = np.unique(values)
     excluded_values = np.fromiter(excluded, dtype=np.uint64, count=len(excluded))

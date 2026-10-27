@@ -142,3 +142,22 @@ def test_registry_refuses_overlapping_large_intervals(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(prepare, "seed_allocations", lambda c: allocations)
     with pytest.raises(ValueError, match="overlap"):
         prepare.registry_check(control, registry_path, checkpoint)
+
+
+def test_registry_refuses_runtime_hash_helper_drift(monkeypatch, tmp_path: Path) -> None:
+    from tools.sandbox import registry
+
+    monkeypatch.setattr(registry, "load_registry", lambda path: {"excluded_seeds": []})
+    monkeypatch.setattr(registry, "verify_sources", lambda value: None)
+    monkeypatch.setattr(registry, "validate_input", lambda *args: None)
+    original = prepare.seed64
+    monkeypatch.setattr(prepare, "seed64", lambda namespace, index: original(namespace, index) ^ 1)
+    checkpoint, registry_path = tmp_path / "weights", tmp_path / "registry"
+    checkpoint.write_bytes(b"weights")
+    registry_path.write_text("{}")
+    with pytest.raises(ValueError, match="canonical seed derivation drift"):
+        prepare.registry_check(
+            {"worlds": [2], "horizon": 2, "cycles": 1, "warmups": 0},
+            registry_path,
+            checkpoint,
+        )
