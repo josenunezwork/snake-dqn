@@ -1,0 +1,18 @@
+{
+  "kind": "A-3 sandbox resident optimizations and 24-cell scale assay",
+  "source_commit": "50e4b2b16fdbf9830a009b858641c586d41df245",
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "certified_gpu_sim_tree": "46e5b17fe0f1b2fee2cd229749c3625c2a2d854f",
+  "runtime_source_count": 99,
+  "files_sha256": {
+    "DISPATCH.txt": "e4fabb0718ca8e6a1774fc2f8b698b349431ecaaff8791d084026fa80ce97706",
+    "control.json": "9d9386886d8069f6c9db48462d844839194862f59e09b061a45e2ca910e4e43c",
+    "dispatch-manifest.json": "d1935daa713233214eadbb8e73dcaa8ae876c0dc673f503102249a15d56e2cf3",
+    "registry-check.json": "2eb2a57ecbefec4a39e29e90bb2e3dd23b1fc5ff7cf0450d08399c22deb3e564",
+    "sandbox.json": "76d182ddd2fafdc9eb8e9f4669bd5a48607569b3fc775c2708567e41e680192c",
+    "verified-ledger.json": "3f5694e75efc1388aaf792bfb6b8883aa2a828e77b1d4199cd8a681f2778395c"
+  },
+  "runaway_base_seconds": 14400,
+  "runaway_effective_seconds": 28800,
+  "allocation_performed": false
+}

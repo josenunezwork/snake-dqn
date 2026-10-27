@@ -1,0 +1,18 @@
+A-3 prepared only; no allocation. Simulator-D development timing/parity only.
+Runtime source: 50e4b2b16fdbf9830a009b858641c586d41df245
+24 cells: E128/E1024/E2048/E4096 x ep64/512 x cached/collection/integrated.
+H128, excluded warmup1, measured cycles3, minibatch2048, compile=default with recorded eager fallback.
+Six CUDA-event phases; CPU phase timings are only local correctness evidence.
+Base4h / effective8h technical runaway guard; no economic Colab budget.
+22,457,142 canonical reset/proof roots checked, empty allocation-bound ledger.
+
+Preflight:
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.preflight /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3
+
+Dry run:
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a3-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-01/state --dry-run
+
+Exact operator dispatch:
+/Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a3-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-01/state
+
+Actual admission checks live account/coexistence. Never retry automatically.

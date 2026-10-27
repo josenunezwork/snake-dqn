@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "allocated_uint64_seeds": 22457142,
+  "effective_seed_bits": 63,
+  "excluded_intersection": 0,
+  "aliases": 0,
+  "registry_sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c"
+}
