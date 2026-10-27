@@ -26,6 +26,61 @@ INTERVAL_SECONDS = 10.0
 HEAVY_PERCENT = 20.0
 
 
+def _point_identities() -> dict[int, dict[str, Any]]:
+    """Capture OS PID/UID/birth/executable bindings outside timing callbacks."""
+    import subprocess
+
+    result = subprocess.run(
+        ["ps", "-ww", "-Ao", "pid,uid,lstart,comm"],
+        capture_output=True,
+        check=True,
+        text=True,
+        timeout=10,
+        env={**os.environ, "LC_ALL": "C"},
+    )
+    identities: dict[int, dict[str, Any]] = {}
+    for line in result.stdout.splitlines()[1:]:
+        fields = line.split(None, 7)
+        if len(fields) != 8:
+            raise RuntimeError("unparseable classified point identity inventory")
+        identities[int(fields[0])] = {
+            "uid": int(fields[1]),
+            "birth": " ".join(fields[2:7]),
+            "command": fields[7],
+        }
+    return identities
+
+
+def _desktop_point_inventory() -> list[dict[str, Any]]:
+    """Capture desktop point CPU and identity in one process-table observation."""
+    import subprocess
+
+    result = subprocess.run(
+        ["ps", "-ww", "-Ao", "pid,ppid,uid,lstart,pcpu,comm"],
+        capture_output=True,
+        check=True,
+        text=True,
+        timeout=10,
+        env={**os.environ, "LC_ALL": "C"},
+    )
+    rows: list[dict[str, Any]] = []
+    for line in result.stdout.splitlines()[1:]:
+        fields = line.split(None, 9)
+        if len(fields) != 10:
+            raise RuntimeError("unparseable classified point inventory")
+        rows.append(
+            {
+                "pid": int(fields[0]),
+                "ppid": int(fields[1]),
+                "uid": int(fields[2]),
+                "birth": " ".join(fields[3:8]),
+                "cpu_percent": float(fields[8]),
+                "command": fields[9],
+            }
+        )
+    return rows
+
+
 def environment() -> dict[str, Any]:
     """Require one-thread CPU execution and the requested low test priority."""
     value = {
@@ -42,7 +97,14 @@ def environment() -> dict[str, Any]:
     return value
 
 
-def foreign_load(screen: dict, owner_pid: int, *, classified: bool = False) -> list[dict]:
+def foreign_load(
+    screen: dict,
+    owner_pid: int,
+    *,
+    classified: bool = False,
+    desktop_classifier: Any | None = None,
+    admit_desktop: bool = False,
+) -> list[dict]:
     """Keep ordinary daemons, but refuse foreign processes using >=20% of one CPU.
 
     This coordinator, its descendants and ordinary system daemons are exempt.
@@ -61,28 +123,63 @@ def foreign_load(screen: dict, owner_pid: int, *, classified: bool = False) -> l
         # into a monitor-process failure.
         screen["probe_exempt_child_enumeration"] = f"{type(exc).__name__}: {exc}"
     screen["probe_exempt_pids"] = sorted(allowed)
-    from research.bl_served_search.host_load import BACKGROUND_KINDS, owned_pids, process_kind
+    from research.bl_served_search.host_load import (
+        BACKGROUND_KINDS,
+        DESKTOP_BACKGROUND_KINDS,
+        classification_evidence,
+        owned_pids,
+        process_kind,
+    )
 
-    parsed = []
-    for line in screen["processes"].splitlines()[1:]:
-        fields = line.strip().split(None, 3)
-        if len(fields) != 4:
-            raise RuntimeError("unparseable process screen")
-        pid, ppid, cpu = int(fields[0]), int(fields[1]), float(fields[2])
-        parsed.append({"pid": pid, "ppid": ppid, "cpu_percent": cpu, "command": fields[3]})
+    if desktop_classifier is not None:
+        # The legacy raw screen remains in ``screen["processes"]`` but is not
+        # joined to this desktop policy inventory: PID reuse between captures
+        # must never borrow CPU from one UID and identity from another.
+        parsed = _desktop_point_inventory()
+        screen["desktop_point_inventory"] = parsed
+        screen["processes_identity_stale_unjoined"] = True
+    else:
+        parsed = []
+        for line in screen["processes"].splitlines()[1:]:
+            fields = line.strip().split(None, 3)
+            if len(fields) != 4:
+                raise RuntimeError("unparseable process screen")
+            pid, ppid, cpu = int(fields[0]), int(fields[1]), float(fields[2])
+            parsed.append({"pid": pid, "ppid": ppid, "cpu_percent": cpu, "command": fields[3]})
     if classified:
         allowed.update(owned_pids(parsed, owner_pid))
         screen["probe_exempt_pids"] = sorted(allowed)
+    if desktop_classifier is not None and admit_desktop:
+        for row in parsed:
+            if row["pid"] not in allowed:
+                row["admission"] = desktop_classifier.admit_process(row)
     rows = []
     background = []
     for row in parsed:
         pid, ppid, cpu, command = (row[key] for key in ("pid", "ppid", "cpu_percent", "command"))
         if classified:
-            kind = "probe_owned" if pid in allowed else process_kind(command)
+            if pid in allowed:
+                kind = "probe_owned"
+            else:
+                kind = process_kind(command, desktop_classifier, row)
+                if desktop_classifier is not None:
+                    row["classification"] = classification_evidence(
+                        kind, desktop_classifier.classify(row)
+                    )
             row["kind"] = kind
-            if kind in BACKGROUND_KINDS:
+            background_kinds = (
+                DESKTOP_BACKGROUND_KINDS if desktop_classifier is not None else BACKGROUND_KINDS
+            )
+            if kind in background_kinds:
                 background.append(row)
-            elif kind != "probe_owned" and cpu >= HEAVY_PERCENT:
+            violation = (
+                row.get("classification", {}).get("known_workload")
+                or row.get("classification", {}).get("reason") == "known_workload"
+                or row.get("classification", {}).get("identity_binding_changed")
+            )
+            if kind != "probe_owned" and (
+                violation or (kind not in background_kinds and cpu >= HEAVY_PERCENT)
+            ):
                 rows.append(row)
         elif command.startswith(SYSTEM_EXECUTABLE_ROOTS) and ".." not in Path(command).parts:
             background.append(row)
@@ -93,18 +190,46 @@ def foreign_load(screen: dict, owner_pid: int, *, classified: bool = False) -> l
     screen["ordinary_system_background"] = background
     if classified:
         screen["classified_processes"] = parsed
-        screen["load_policy"] = "classified-v1"
+        screen["load_policy"] = (
+            "classified-desktop-v1" if desktop_classifier is not None else "classified-v1"
+        )
     screen["probe_threshold_percent_one_core"] = HEAVY_PERCENT
     return rows
 
 
-def preflight(*, classified: bool = False) -> dict[str, Any]:
+def preflight(*, classified: bool = False, desktop_registry: Path | None = None) -> dict[str, Any]:
     """Read-only check: no lease, game imports, output creation or process changes."""
     env = environment()
+    classifier = None
+    registry_export = None
+    if desktop_registry is not None:
+        from research.bl_served_search.desktop_apps import DesktopRegistry
+
+        classifier = DesktopRegistry(desktop_registry)
+        classifier.verify_all()
+        classified = True
     observation = host.snapshot(
-        process_policy=lambda screen: foreign_load(screen, os.getpid(), classified=classified)
+        process_policy=lambda screen: foreign_load(
+            screen,
+            os.getpid(),
+            classified=classified,
+            desktop_classifier=classifier,
+            admit_desktop=classifier is not None,
+        )
     )
-    return {"environment": env, "host": observation, "admitted": bool(observation["quiet"])}
+    if classifier is not None:
+        registry_export = classifier.read_export()
+    result = {"environment": env, "host": observation, "admitted": bool(observation["quiet"])}
+    if registry_export is not None:
+        result.update(
+            {
+                "load_policy": "classified-desktop-v1",
+                "desktop_registry": registry_export.get("registry"),
+                "desktop_registry_sha256": registry_export.get("registry_sha256"),
+                "desktop_registry_evidence": registry_export,
+            }
+        )
+    return result
 
 
 def _owned_inventory(owner_pid: int) -> list[dict[str, Any]]:
@@ -144,10 +269,13 @@ def _monitor(
     failed: Any,
     heartbeat: Any,
     classified: bool = False,
+    desktop_registry: str | None = None,
 ) -> None:
     """Sample in an independent interpreter; shell/RSS work never holds tick GIL."""
     if classified:
-        _monitor_classified(owner_pid, output, seconds, ready, stop, failed, heartbeat)
+        _monitor_classified(
+            owner_pid, output, seconds, ready, stop, failed, heartbeat, desktop_registry
+        )
         return
     observations = []
     reason = None
@@ -194,7 +322,14 @@ def _monitor(
 
 
 def _monitor_classified(
-    owner_pid: int, output: str, seconds: float, ready: Any, stop: Any, failed: Any, heartbeat: Any
+    owner_pid: int,
+    output: str,
+    seconds: float,
+    ready: Any,
+    stop: Any,
+    failed: Any,
+    heartbeat: Any,
+    desktop_registry: str | None = None,
 ) -> None:
     """Keep one-second CPU deltas separate from ten-second full host snapshots."""
     from research.bl_served_search import host_load
@@ -202,8 +337,15 @@ def _monitor_classified(
     observations, samples = [], []
     reason = None
     started = time.monotonic()
-    guard = host_load.LoadGuard()
+    guard = host_load.LoadGuard(desktop_policy=desktop_registry is not None)
+    classifier = None
+    registry_export = None
     try:
+        if desktop_registry is not None:
+            from research.bl_served_search.desktop_apps import DesktopRegistry
+
+            classifier = DesktopRegistry(Path(desktop_registry))
+            classifier.verify_all()
         previous = None
         next_host = started
         # One original attempt only. Count and lifetime both bound memory/export.
@@ -211,7 +353,13 @@ def _monitor_classified(
             stop_before_capture = stop.is_set()
             if time.monotonic() >= next_host:
                 observation = host.snapshot(
-                    process_policy=lambda screen: foreign_load(screen, owner_pid, classified=True)
+                    process_policy=lambda screen: foreign_load(
+                        screen,
+                        owner_pid,
+                        classified=True,
+                        desktop_classifier=classifier,
+                        admit_desktop=classifier is not None,
+                    )
                 )
                 observation["probe_processes"] = _owned_inventory(owner_pid)
                 observations.append(observation)
@@ -220,7 +368,9 @@ def _monitor_classified(
                 next_host = time.monotonic() + INTERVAL_SECONDS
             current = host_load.capture_cpu()
             if previous is not None:
-                sample = host_load.cpu_interval(previous, current, owner_pid)
+                sample = host_load.cpu_interval(
+                    previous, current, owner_pid, desktop_classifier=classifier
+                )
                 samples.append(sample)
                 guard.check(sample)
             previous = current
@@ -242,11 +392,17 @@ def _monitor_classified(
             observations.append(exc.observation)
         ready.set()
     finally:
+        if classifier is not None:
+            registry_export = classifier.read_export()
         export_json(
             Path(output) / "host.json",
             {
-                "schema": "served-tick-host/v2",
-                "load_policy": host_load.POLICY,
+                "schema": (
+                    "served-tick-host/v4" if classifier is not None else "served-tick-host/v2"
+                ),
+                "load_policy": (
+                    host_load.DESKTOP_POLICY if classifier is not None else host_load.POLICY
+                ),
                 "status": "INVALID" if reason else "COMPLETE",
                 "reason": reason,
                 "interval_seconds": INTERVAL_SECONDS,
@@ -258,6 +414,13 @@ def _monitor_classified(
                 "elapsed_seconds": time.monotonic() - started,
                 "observations": observations,
                 "cpu_samples": samples,
+                "desktop_registry": (
+                    None if registry_export is None else registry_export.get("registry")
+                ),
+                "desktop_registry_sha256": (
+                    None if registry_export is None else registry_export.get("registry_sha256")
+                ),
+                "desktop_registry_evidence": registry_export,
                 "cpu_method": (
                     "ps cumulative user+system TIME deltas (10ms resolution), PID+lstart; "
                     "perf_counter_ns capture midpoints; non-atomic capture brackets retained; "
@@ -271,8 +434,18 @@ def _monitor_classified(
 class HostMonitor:
     """Shared-event guard interface; check() performs no shell calls or disk I/O."""
 
-    def __init__(self, output: Path, seconds: float = 7200, *, classified: bool = False) -> None:
+    def __init__(
+        self,
+        output: Path,
+        seconds: float = 7200,
+        *,
+        classified: bool = False,
+        desktop_registry: Path | None = None,
+    ) -> None:
         self.output, self.seconds = Path(output), seconds
+        self.desktop_registry = None if desktop_registry is None else Path(desktop_registry)
+        if self.desktop_registry is not None:
+            classified = True
         context = mp.get_context("spawn")
         self.ready, self.stop, self.failed = context.Event(), context.Event(), context.Event()
         self.heartbeat = context.Value("d", 0.0, lock=False)
@@ -287,6 +460,7 @@ class HostMonitor:
                 self.failed,
                 self.heartbeat,
                 classified,
+                None if self.desktop_registry is None else str(self.desktop_registry),
             ),
             name="served-tick-host-monitor",
         )
@@ -355,7 +529,11 @@ class HostMonitor:
 
 
 def guarded_run(
-    output: Path, callback: Callable[[HostMonitor], Any], *, classified: bool = False
+    output: Path,
+    callback: Callable[[HostMonitor], Any],
+    *,
+    classified: bool = False,
+    desktop_registry: Path | None = None,
 ) -> Any:
     """Acquire the shared lease; record all samples without retries or cherry-picking."""
     environment()
@@ -363,7 +541,7 @@ def guarded_run(
         lease = stack.enter_context(
             held("sol-served-search-20261026", "Build 0 Watch6 timing diagnostic", seconds=7200)
         )
-        monitor = HostMonitor(output, classified=classified)
+        monitor = HostMonitor(output, classified=classified, desktop_registry=desktop_registry)
         monitor.receipt["lease"] = lease.receipt
         stack.enter_context(monitor)
         return callback(monitor)

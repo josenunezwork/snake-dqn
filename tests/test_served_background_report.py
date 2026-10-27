@@ -2,7 +2,30 @@
 
 import pytest
 
-from research.bl_served_search.background_report import summarize_background
+from research.bl_served_search.background_report import (
+    DESKTOP_POLICY,
+    desktop_overall,
+    summarize_background,
+    validate_desktop_host,
+)
+
+
+@pytest.fixture(autouse=True)
+def _fixture_desktop_registry_replay(monkeypatch):
+    """Keep synthetic covariate tests independent of a real signed app fixture."""
+    from research.bl_served_search import desktop_apps
+
+    original = desktop_apps.classify_exported
+
+    def classify(row, registry):
+        if registry.get("registry_sha256") == "a" * 64 and row.get("kind") in {
+            "desktop_app",
+            "desktop_renderer",
+        }:
+            return row["classification"]
+        return original(row, registry)
+
+    monkeypatch.setattr(desktop_apps, "classify_exported", classify)
 
 
 def _sample(start, end, background=10, workload=0, unknown=0, complete=True):
@@ -46,6 +69,112 @@ def _result(rows, warmup=0):
 
 def _host(samples):
     return {"load_policy": "classified-v1", "cpu_samples": samples}
+
+
+def _desktop_host(samples):
+    registry = {"policy": DESKTOP_POLICY, "workload_exclusions": []}
+    bindings = []
+    for sample in samples:
+        for process in sample["processes"]:
+            if process["kind"] == "desktop_app":
+                bindings.append(
+                    {
+                        **process["classification"],
+                        "pid": process["pid"],
+                        "birth": process["birth"],
+                        "uid": process["uid"],
+                        "command": process["command"],
+                    }
+                )
+    return {
+        "load_policy": DESKTOP_POLICY,
+        "desktop_registry": registry,
+        "desktop_registry_sha256": "a" * 64,
+        "desktop_registry_evidence": {
+            "policy": DESKTOP_POLICY,
+            "registry": registry,
+            "registry_sha256": "a" * 64,
+            "bindings": bindings,
+        },
+        "cpu_samples": samples,
+    }
+
+
+def _desktop_sample(start, end, *, app=0, renderer=0, service=0, workload=0, unknown=0):
+    processes = []
+    if service:
+        processes.append(
+            {
+                "pid": 1,
+                "ppid": 0,
+                "command": "/System/mds",
+                "kind": "macos_service",
+                "cpu_percent": service,
+            }
+        )
+    if renderer:
+        processes.append(
+            {
+                "pid": 2,
+                "ppid": 1,
+                "command": "/Applications/X.app/Renderer",
+                "kind": "desktop_renderer",
+                "cpu_percent": renderer,
+            }
+        )
+    if app:
+        processes.append(
+            {
+                "pid": 3,
+                "ppid": 1,
+                "birth": "fixture-birth",
+                "uid": 501,
+                "command": "/Applications/Microsoft Outlook.app/Contents/MacOS/Microsoft Outlook",
+                "kind": "desktop_app",
+                "cpu_percent": app,
+                "entry": "outlook-main",
+                "application": "Microsoft Outlook",
+                "role": "mail-ui",
+                "reason": "enrolled_verified_ui_role",
+                "identity": {"signed": True},
+            }
+        )
+    if workload:
+        processes.append(
+            {
+                "pid": 4,
+                "ppid": 1,
+                "command": "python",
+                "kind": "agent_workload",
+                "cpu_percent": workload,
+            }
+        )
+    if unknown:
+        processes.append(
+            {"pid": 5, "ppid": 1, "command": "/tmp/x", "kind": "unknown", "cpu_percent": unknown}
+        )
+    for process in processes:
+        process["classification"] = {"kind": process["kind"]}
+        if process["kind"] == "desktop_app":
+            process["classification"].update(
+                {
+                    key: process[key]
+                    for key in ("reason", "entry", "application", "role", "identity")
+                }
+            )
+    return {
+        "start_ns": start,
+        "end_ns": end,
+        "background_cpu_percent": service + renderer + app,
+        "macos_service_cpu_percent": service,
+        "desktop_renderer_cpu_percent": renderer,
+        "desktop_app_cpu_percent": app,
+        "workload_cpu_percent": workload,
+        "unknown_cpu_percent": unknown,
+        "coverage_complete": True,
+        "process_churn": [],
+        "processes": processes,
+    }
 
 
 def test_weighted_boundary_overlap_and_low_window():
@@ -309,3 +438,215 @@ def test_incomplete_churn_sample_retains_measured_cpu_but_cannot_be_low():
     report = summarize_background(_result([_row(0, 0, 10)]), _host([sample]))
     assert not report["ticks"][0]["low_background"]
     assert report["ticks"][0]["background_cpu_percent_time_weighted_mean"] == 10
+
+
+def test_desktop_policy_reconciles_one_shared_pool_and_role_evidence():
+    host = _desktop_host([_desktop_sample(0, 100, service=10, renderer=15, app=25)])
+    report = summarize_background(_result([_row(0, 0, 100)]), host)
+    tick = report["ticks"][0]
+    assert report["load_policy"] == DESKTOP_POLICY
+    assert tick["service_cpu_percent_max"] == 10
+    assert tick["desktop_renderer_cpu_percent_max"] == 15
+    assert tick["desktop_app_cpu_percent_max"] == 25
+    assert tick["background_cpu_percent_max"] == 50
+    assert not tick["low_background"]
+    observed = report["process_observations"]
+    assert observed[-1]["desktop_identity"]["role"] == "mail-ui"
+    host["cpu_samples"][0]["desktop_app_cpu_percent"] = 24
+    with pytest.raises(ValueError, match="desktop CPU totals"):
+        summarize_background(_result([_row(0, 0, 100)]), host)
+
+
+def test_desktop_policy_rejects_missing_registry_or_app_identity_evidence():
+    host = _desktop_host([_desktop_sample(0, 100, app=10)])
+    del host["desktop_registry_sha256"]
+    with pytest.raises(ValueError, match="registry"):
+        summarize_background(_result([_row(0, 0, 100)]), host)
+    host = _desktop_host([_desktop_sample(0, 100, app=10)])
+    del host["cpu_samples"][0]["processes"][0]["identity"]
+    with pytest.raises(ValueError, match="identity"):
+        summarize_background(_result([_row(0, 0, 100)]), host)
+
+
+def test_desktop_overall_strict_shared_pool_boundaries_and_all_samples():
+    # Exactly 150% never starts the strict >150% clock.  Sixty 1s high
+    # intervals also remain below the strict >60s duration boundary.
+    samples = [
+        _desktop_sample(tick * 1_000_000_000, (tick + 1) * 1_000_000_000, app=151)
+        for tick in range(60)
+    ]
+    samples.append(_desktop_sample(60_000_000_000, 61_000_000_000, app=151, workload=19))
+    with pytest.raises(ValueError, match="shared background"):
+        desktop_overall(_desktop_host(samples))
+    boundary = desktop_overall(
+        _desktop_host(
+            [
+                _desktop_sample(tick * 1_000_000_000, (tick + 1) * 1_000_000_000, app=150)
+                for tick in range(60)
+            ]
+        )
+    )
+    assert not boundary["background_pool"]["shared_background_pool"]["exceeded"]
+
+
+def test_desktop_guard_keeps_per_process_rule_without_aggregate_workload_abort():
+    host = _desktop_host([_desktop_sample(0, 100, workload=19, unknown=19)])
+    second = dict(host["cpu_samples"][0]["processes"][-2])
+    second["pid"] = 40
+    host["cpu_samples"][0]["processes"].append(second)
+    host["cpu_samples"][0]["workload_cpu_percent"] = 38
+    # No new aggregate ordinary-work guard exists: two workloads at 19% each
+    # remain admissible, while the low subset is excluded by their total.
+    report = summarize_background(_result([_row(0, 0, 100)]), host)
+    assert not report["ticks"][0]["low_background"]
+    assert desktop_overall(host)["sample_count"] == 1
+
+
+def test_desktop_point_replay_rejects_false_complete_unknown_and_relabelled_service():
+    host = _desktop_host([_desktop_sample(0, 100, service=1)])
+    unknown = {
+        "pid": 90,
+        "ppid": 1,
+        "uid": 501,
+        "birth": "point",
+        "command": "/tmp/unknown",
+        "kind": "unknown",
+        "cpu_percent": 20,
+        "classification": {"kind": "unknown"},
+    }
+    host["observations"] = [
+        {"process_screen": {"probe_exempt_pids": [], "classified_processes": [unknown]}}
+    ]
+    with pytest.raises(ValueError, match=">=20%.*point"):
+        validate_desktop_host(host)
+    unknown["cpu_percent"] = 1
+    unknown.update(
+        {
+            "command": "/System/Library/Frameworks/X.framework/service",
+            "kind": "unknown",
+            "classification": {"kind": "unknown"},
+        }
+    )
+    with pytest.raises(ValueError, match="classification replay"):
+        validate_desktop_host(host)
+    unknown.update(
+        {
+            "command": "/Applications/Fake.app/Contents/Frameworks/Fake Helper (Renderer)",
+            "kind": "desktop_renderer",
+            "classification": {"kind": "desktop_renderer"},
+        }
+    )
+    host["desktop_registry_sha256"] = "b" * 64
+    host["desktop_registry_evidence"]["registry_sha256"] = "b" * 64
+    with pytest.raises(ValueError, match="classification replay"):
+        validate_desktop_host(host)
+
+
+def test_scoped_application_reporting_counts_only_cell_overlaps():
+    host = _desktop_host(
+        [
+            _desktop_sample(0, 100, app=10),
+            _desktop_sample(100, 200, app=11),
+            _desktop_sample(200, 300, app=12),
+        ]
+    )
+    report = summarize_background(_result([_row(0, 100, 200)]), host)
+    assert [row["sample_index"] for row in report["process_observations"]] == [1]
+    assert report["background_pool"]["cpu_percent_max"]["desktop_app"] == 11
+    assert report["applications"][0]["affected_tick_count"] == 1
+
+
+def test_enrolled_gui_named_claude_is_not_relabelled_as_cli_workload():
+    from research.bl_served_search.background_report import _replay_kind
+
+    row = {
+        "pid": 3,
+        "birth": "fixture-birth",
+        "uid": 501,
+        "command": "/Applications/Claude.app/Contents/MacOS/Claude",
+        "kind": "desktop_app",
+        "classification": {"kind": "desktop_app"},
+    }
+    assert _replay_kind(row, {"registry_sha256": "a" * 64})["kind"] == "desktop_app"
+    row["known_workload"] = True
+    assert _replay_kind(row, {"registry_sha256": "a" * 64})["kind"] == "agent_workload"
+
+
+@pytest.mark.parametrize(
+    "classification",
+    [
+        {"kind": "agent_workload", "reason": "known_workload"},
+        {"kind": "unknown", "classifier_decision": {"identity_binding_changed": True}},
+    ],
+)
+def test_interval_guard_rejects_low_cpu_prohibited_identity_evidence(classification):
+    host = _desktop_host(
+        [
+            _desktop_sample(
+                0,
+                100,
+                workload=1 if classification["kind"] == "agent_workload" else 0,
+                unknown=1 if classification["kind"] == "unknown" else 0,
+            )
+        ]
+    )
+    process = next(
+        row for row in host["cpu_samples"][0]["processes"] if row["kind"] == classification["kind"]
+    )
+    process["classification"] = classification
+    host["observations"] = []
+    with pytest.raises(ValueError, match="prohibited|identity binding"):
+        validate_desktop_host(host)
+
+
+def test_replay_exact_system_path_workload_exclusion_precedes_service_class():
+    from research.bl_served_search.background_report import _replay_kind
+
+    command = "/usr/libexec/computeworker"
+    decision = _replay_kind(
+        {"command": command},
+        {"registry": {"workload_exclusions": [{"exact_executable": command}]}},
+    )
+    assert decision == {"kind": "agent_workload", "reason": "workload_exclusion"}
+
+
+def test_exact_workload_exclusion_precedes_system_root_in_replay():
+    from research.bl_served_search.background_report import _replay_kind
+
+    row = {"command": "/usr/libexec/computeworker"}
+    evidence = {"registry": {"workload_exclusions": [{"exact_executable": row["command"]}]}}
+    assert _replay_kind(row, evidence)["kind"] == "agent_workload"
+
+
+def test_desktop_host_cannot_omit_all_historical_point_evidence():
+    host = _desktop_host([_desktop_sample(0, 100, service=1)])
+    host["observations"] = []
+    with pytest.raises(ValueError, match="point observations missing"):
+        validate_desktop_host(host)
+
+
+@pytest.mark.parametrize(
+    "classification",
+    [
+        {"reason": "known_workload"},
+        {"identity_binding_changed": True},
+    ],
+)
+def test_interval_replay_rejects_prohibited_activity_or_admitted_identity_drift_below_20(
+    classification,
+):
+    from research.bl_served_search.background_report import _validate_desktop_guard
+
+    with pytest.raises(ValueError, match="prohibited workload|identity binding changed"):
+        _validate_desktop_guard(
+            [
+                {
+                    "processes": [
+                        {"kind": "unknown", "cpu_percent": 1, "classification": classification}
+                    ],
+                    "start_ns": 0,
+                    "end_ns": 1,
+                    "background_cpu_percent": 0,
+                }
+            ]
+        )

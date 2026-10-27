@@ -222,3 +222,136 @@ def test_negative_counter_and_malformed_time_refuse_evidence():
         load.cpu_interval(before, after, 10)
     with pytest.raises(ValueError):
         load._cpu_seconds("invalid")
+
+
+class _DesktopClassifier:
+    """Pure frozen-registry stand-in: only this exact UID/birth is enrolled."""
+
+    def classify(self, row):
+        if (
+            row.get("command") == "/Applications/Claude.app/Contents/MacOS/Claude"
+            and row.get("uid") == 501
+            and row.get("birth") == "claude"
+        ):
+            return {
+                "kind": "desktop_app",
+                "reason": "enrolled_verified_ui_role",
+                "application": "Claude",
+                "role": "main_ui",
+            }
+        if (
+            row.get("command") == "/Applications/Outlook.app/Contents/MacOS/Outlook"
+            and row.get("uid") == 501
+            and row.get("birth") == "outlook"
+        ):
+            return {
+                "kind": "desktop_app",
+                "reason": "enrolled_verified_ui_role",
+                "application": "Outlook",
+                "role": "main_ui",
+            }
+        return {"kind": "unknown", "reason": "process_identity_not_revalidated"}
+
+
+def test_verified_claude_gui_is_not_the_claude_cli_workload():
+    classifier = _DesktopClassifier()
+    assert (
+        load.process_kind(
+            "/Applications/Claude.app/Contents/MacOS/Claude",
+            classifier,
+            {"pid": 20, "uid": 501, "birth": "claude"},
+        )
+        == "desktop_app"
+    )
+    assert load.process_kind("/usr/local/bin/claude", classifier, {"pid": 21}) == "agent_workload"
+
+
+def test_desktop_app_uses_shared_background_pool_but_workload_precedence_remains():
+    before = inventory(
+        1,
+        [
+            (20, 1, "outlook", "/Applications/Outlook.app/Contents/MacOS/Outlook", 1),
+            (21, 1, "python", "/Applications/Outlook.app/Contents/MacOS/python", 1),
+        ],
+    )
+    after = deepcopy(before)
+    after["time_ns"] = 2_000_000_000
+    for row in before["processes"] + after["processes"]:
+        row["uid"] = 501
+    for row in after["processes"]:
+        row["cpu_seconds"] += 0.25
+    sample = load.cpu_interval(before, after, 10, desktop_classifier=_DesktopClassifier())
+    assert sample["desktop_app_cpu_percent"] == pytest.approx(25)
+    assert sample["background_cpu_percent"] == pytest.approx(25)
+    assert sample["workload_cpu_percent"] == pytest.approx(25)
+    assert sample["processes"][0]["classification"]["role"] == "main_ui"
+    with pytest.raises(RuntimeError, match="foreign workload"):
+        load.LoadGuard(desktop_policy=True).check(sample)
+
+
+def test_desktop_app_avoids_per_process_abort_but_shared_ceiling_still_applies():
+    classifier = _DesktopClassifier()
+    guard = load.LoadGuard(desktop_policy=True)
+    for tick in range(60):
+        before = inventory(
+            tick,
+            [(20, 1, "outlook", "/Applications/Outlook.app/Contents/MacOS/Outlook", 1)],
+        )
+        after = inventory(
+            tick + 1,
+            [(20, 1, "outlook", "/Applications/Outlook.app/Contents/MacOS/Outlook", 2.6)],
+        )
+        for row in before["processes"] + after["processes"]:
+            row["uid"] = 501
+        sample = load.cpu_interval(before, after, 10, desktop_classifier=classifier)
+        assert sample["desktop_app_cpu_percent"] == pytest.approx(160)
+        guard.check(sample)
+    before = inventory(
+        60, [(20, 1, "outlook", "/Applications/Outlook.app/Contents/MacOS/Outlook", 1)]
+    )
+    after = inventory(
+        61, [(20, 1, "outlook", "/Applications/Outlook.app/Contents/MacOS/Outlook", 2.6)]
+    )
+    for row in before["processes"] + after["processes"]:
+        row["uid"] = 501
+    with pytest.raises(RuntimeError, match=">150% for >60s"):
+        guard.check(load.cpu_interval(before, after, 10, desktop_classifier=classifier))
+
+
+def test_identity_drift_aborts_below_twenty_but_initial_unknown_does_not():
+    guard = load.LoadGuard(desktop_policy=True)
+    ordinary_unknown = sample(0, 1, 0)
+    ordinary_unknown["processes"] = [
+        {"kind": "unknown", "cpu_percent": 1, "classification": {"reason": "uid_mismatch"}}
+    ]
+    guard.check(ordinary_unknown)
+    changed = sample(1, 2, 0)
+    changed["processes"] = [
+        {
+            "kind": "unknown",
+            "cpu_percent": 1,
+            "classification": {"reason": "uid_mismatch", "identity_binding_changed": True},
+        }
+    ]
+    with pytest.raises(RuntimeError, match="identity changed"):
+        guard.check(changed)
+
+
+def test_unknown_cpu_is_not_double_counted_in_desktop_totals():
+    before = inventory(0, [(20, 1, "unknown", "/tmp/unknown", 1)])
+    after = inventory(1, [(20, 1, "unknown", "/tmp/unknown", 1.1)])
+    sample = load.cpu_interval(before, after, 10, desktop_classifier=_DesktopClassifier())
+    assert sample["unknown_cpu_percent"] == pytest.approx(10)
+    assert sample["background_cpu_percent"] == 0
+
+
+def test_desktop_interval_uid_change_is_churn_and_never_inherits_background():
+    before = inventory(0, [(20, 1, "same", "/Applications/Outlook.app/Contents/MacOS/Outlook", 1)])
+    after = inventory(1, [(20, 1, "same", "/Applications/Outlook.app/Contents/MacOS/Outlook", 1.5)])
+    before["processes"][0]["uid"] = 0
+    after["processes"][0]["uid"] = 501
+    sample = load.cpu_interval(before, after, 10, desktop_classifier=_DesktopClassifier())
+    assert not sample["coverage_complete"]
+    assert sample["process_churn"][0]["reason"] == "uid_changed_no_delta"
+    assert sample["processes"][0]["kind"] == "unknown"
+    assert sample["background_cpu_percent"] == 0

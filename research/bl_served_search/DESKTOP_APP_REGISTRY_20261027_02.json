@@ -1,0 +1,16 @@
+{
+  "schema": "served-tick-desktop-registry-extension/v1",
+  "policy": "classified-desktop-v1",
+  "extends": "DESKTOP_APP_REGISTRY_20261027.json",
+  "base_registry_sha256": "e0182427f94b8b2fafafb21cb3294a3f1a4047a8be5908eb9a81b80b96a6d286",
+  "signed_identities": {
+    "838e968c6593328c46b18bfa94ff20c0083da014d383b0475618b8281420a18f": {"cdhash": "8153e3d25737c8bb4143707acd60be9056a83e10", "signing_authorities": ["Developer ID Application: OpenAI OpCo, LLC (2DC432GLL2)", "Developer ID Certification Authority", "Apple Root CA"], "designated_requirement": "designated => identifier \"com.openai.chat\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"2DC432GLL2\""},
+    "be34a2a3b34964d9c9b48dc982b36d7f7532e0941b469e540a7a371dc27c7b97": {"cdhash": "caf6b8d7f99fc100248bcf8ab6d4fc56c7d37d2e", "signing_authorities": ["Developer ID Application: Google LLC (EQHXZ8M8AV)", "Developer ID Certification Authority", "Apple Root CA"], "designated_requirement": "designated => identifier \"com.google.GeminiMacOS\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = EQHXZ8M8AV"},
+    "5bd8ab79a93915aa488faca67a5e095edbc398541c4276fff344cf525b50a853": {"cdhash": "af773d88d3569c360f1c42ba344b28ac25c8a433", "signing_authorities": ["Developer ID Application: Zoom Video Communications, Inc. (BJ4HAAB9B3)", "Developer ID Certification Authority", "Apple Root CA"], "designated_requirement": "designated => identifier \"us.zoom.xos\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = BJ4HAAB9B3"}
+  },
+  "additional_applications": [
+    {"id": "chatgpt-classic-20261027", "display_name": "ChatGPT Classic", "bundle_path": "/Applications/ChatGPT Classic.app", "bundle_id": "com.openai.chat", "version": "1.2026.160", "build": "1781312926", "team_identifier": "2DC432GLL2", "executables": [{"role": "remote_chat_ui", "relative_executable_path": "Contents/MacOS/ChatGPT", "sha256": "838e968c6593328c46b18bfa94ff20c0083da014d383b0475618b8281420a18f"}]},
+    {"id": "gemini-20261027", "display_name": "Gemini", "bundle_path": "/Applications/Gemini.app", "bundle_id": "com.google.GeminiMacOS", "version": "1.131.4.1198", "build": "1.131.4.1198", "team_identifier": "EQHXZ8M8AV", "executables": [{"role": "remote_chat_ui", "relative_executable_path": "Contents/MacOS/Gemini", "sha256": "be34a2a3b34964d9c9b48dc982b36d7f7532e0941b469e540a7a371dc27c7b97"}]},
+    {"id": "zoom-20261027", "display_name": "Zoom", "bundle_path": "/Applications/zoom.us.app", "bundle_id": "us.zoom.xos", "version": "5.16.2 (23409)", "build": "5.16.2.23409", "team_identifier": "BJ4HAAB9B3", "executables": [{"role": "remote_chat_ui", "relative_executable_path": "Contents/MacOS/zoom.us", "sha256": "5bd8ab79a93915aa488faca67a5e095edbc398541c4276fff344cf525b50a853"}]}
+  ]
+}

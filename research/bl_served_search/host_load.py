@@ -13,15 +13,42 @@ from typing import Any
 from research.bl_k1.m1_background import SYSTEM_EXECUTABLE_ROOTS
 
 POLICY = "classified-v1"
+DESKTOP_POLICY = "classified-desktop-v1"
 SAMPLE_SECONDS = 1.0
 MAX_SAMPLE_SECONDS = 5.0
 FOREIGN_PERCENT = 20.0
 BACKGROUND_CEILING_PERCENT = 150.0
 BACKGROUND_CEILING_SECONDS = 60.0
 BACKGROUND_KINDS = {"macos_service", "desktop_renderer"}
+DESKTOP_BACKGROUND_KINDS = BACKGROUND_KINDS | {"desktop_app"}
 
 
-def process_kind(command: str) -> str:
+def _workload_kind(command: str, desktop_classifier: Any | None = None) -> str | None:
+    """Return workload classification before any desktop admission lookup."""
+    path = Path(command)
+    name = path.name.lower()
+    if ".." in path.parts:
+        return "unknown"
+    verified_gui_candidate = (
+        desktop_classifier is not None
+        and name in {"claude", "codex"}
+        and command.startswith(("/Applications/", "/Users/"))
+        and ".app/Contents/MacOS/" in command
+    )
+    if (
+        re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", name)
+        or (name in {"codex", "claude"} and not verified_gui_candidate)
+        or name in {"codex-exec", "agy", "node", "pytest", "uv"}
+        or "/Projects/" in command
+        or "/research/" in command
+    ):
+        return "agent_workload"
+    return None
+
+
+def process_kind(
+    command: str, desktop_classifier: Any | None = None, row: dict | None = None
+) -> str:
     """Classify executable identity, never permissive substrings in argv.
 
     Workload names precede system paths: Apple's Python remains a workload.
@@ -29,17 +56,19 @@ def process_kind(command: str) -> str:
     """
     path = Path(command)
     name = path.name.lower()
-    if ".." in path.parts:
-        return "unknown"
-    if (
-        re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", name)
-        or name in {"codex", "codex-exec", "agy", "claude", "node", "pytest", "uv"}
-        or "/Projects/" in command
-        or "/research/" in command
-    ):
-        return "agent_workload"
+    workload = _workload_kind(command, desktop_classifier)
+    if workload is not None:
+        return workload
+    if desktop_classifier is not None:
+        evidence = desktop_classifier.classify({**(row or {}), "command": command})
+        # Registry workload exclusions and observed prohibited activity take
+        # precedence even for an executable below a system-looking root.
+        if evidence.get("kind") == "agent_workload":
+            return "agent_workload"
     if command.startswith(SYSTEM_EXECUTABLE_ROOTS):
         return "macos_service"
+    if desktop_classifier is not None:
+        return str(evidence.get("kind", "unknown"))
     # Electron/Chromium renderer executables inside installed application bundles.
     # CLI executables, shells, generic node and arbitrary /tmp helpers do not qualify.
     application = command.startswith("/Applications/") or bool(
@@ -52,6 +81,23 @@ def process_kind(command: str) -> str:
     ):
         return "desktop_renderer"
     return "unknown"
+
+
+def classification_evidence(kind: str, evidence: dict[str, Any]) -> dict[str, Any]:
+    """Keep final precedence classification while retaining violation flags."""
+    if evidence.get("kind") == kind:
+        return evidence
+    normalized = {
+        "kind": kind,
+        "reason": "workload_or_system_precedence",
+        "classifier_decision": evidence,
+    }
+    for key in ("identity_binding_changed", "known_workload"):
+        if evidence.get(key):
+            normalized[key] = evidence[key]
+    if evidence.get("reason") == "known_workload":
+        normalized["known_workload"] = True
+    return normalized
 
 
 def owned_pids(rows: list[dict], owner_pid: int) -> set[int]:
@@ -91,7 +137,7 @@ def capture_cpu() -> dict[str, Any]:
     """
     started = time.perf_counter_ns()
     result = subprocess.run(
-        ["ps", "-ww", "-Ao", "pid,ppid,lstart,time,comm"],
+        ["ps", "-ww", "-Ao", "pid,ppid,uid,lstart,time,comm"],
         capture_output=True,
         text=True,
         check=True,
@@ -101,16 +147,19 @@ def capture_cpu() -> dict[str, Any]:
     ended = time.perf_counter_ns()
     rows = []
     for line in result.stdout.splitlines()[1:]:
-        parts = line.split(None, 8)
-        if len(parts) != 9:
+        parts = line.split(None, 9)
+        if len(parts) not in (9, 10):
             raise ValueError("unparseable cumulative CPU inventory")
+        has_uid = len(parts) == 10
+        offset = 1 if has_uid else 0
         rows.append(
             {
                 "pid": int(parts[0]),
                 "ppid": int(parts[1]),
-                "birth": " ".join(parts[2:7]),
-                "cpu_seconds": _cpu_seconds(parts[7]),
-                "command": parts[8],
+                "uid": int(parts[2]) if has_uid else None,
+                "birth": " ".join(parts[2 + offset : 7 + offset]),
+                "cpu_seconds": _cpu_seconds(parts[7 + offset]),
+                "command": parts[8 + offset],
             }
         )
     if not rows:
@@ -123,7 +172,9 @@ def capture_cpu() -> dict[str, Any]:
     }
 
 
-def cpu_interval(previous: dict, current: dict, owner_pid: int) -> dict[str, Any]:
+def cpu_interval(
+    previous: dict, current: dict, owner_pid: int, *, desktop_classifier: Any | None = None
+) -> dict[str, Any]:
     """CPU-time deltas keyed by PID and birth; churn is never a quiet observation."""
     start, end = previous["time_ns"], current["time_ns"]
     if end <= start:
@@ -135,33 +186,73 @@ def cpu_interval(previous: dict, current: dict, owner_pid: int) -> dict[str, Any
     own_after = owned_pids(current["processes"], owner_pid)
     coverage = seconds <= MAX_SAMPLE_SECONDS
     rows, churn = [], []
-    totals = {"background": 0.0, "workload": 0.0, "unknown": 0.0}
+    totals = {
+        "background": 0.0,
+        "workload": 0.0,
+        "unknown": 0.0,
+        "macos_service": 0.0,
+        "desktop_renderer": 0.0,
+        "desktop_app": 0.0,
+    }
     for key, row in after.items():
         if row["pid"] in own_after:
             continue
         old = before.get(key)
-        if old is None or old["command"] != row["command"]:
+        uid_changed = (
+            desktop_classifier is not None and old is not None and old.get("uid") != row.get("uid")
+        )
+        if old is None or old["command"] != row["command"] or uid_changed:
             coverage = False
-            churn.append({**row, "reason": "new_or_exec_process_no_delta"})
+            churn.append(
+                {
+                    **row,
+                    "reason": (
+                        "uid_changed_no_delta" if uid_changed else "new_or_exec_process_no_delta"
+                    ),
+                }
+            )
         delta = row["cpu_seconds"] if old is None else row["cpu_seconds"] - old["cpu_seconds"]
         if delta < 0:
             raise ValueError("process CPU counter decreased")
-        kind = process_kind(row["command"])
-        if old is not None and old["command"] != row["command"]:
-            kinds = {kind, process_kind(old["command"])}
+        kind = process_kind(row["command"], desktop_classifier, row)
+        if old is not None and (old["command"] != row["command"] or uid_changed):
+            kinds = {kind, process_kind(old["command"], desktop_classifier, old)}
             if "agent_workload" in kinds:
                 kind = "agent_workload"
             elif "unknown" in kinds:
                 kind = "unknown"
         cpu = 100 * delta / seconds
+        background_kinds = (
+            DESKTOP_BACKGROUND_KINDS if desktop_classifier is not None else BACKGROUND_KINDS
+        )
         group = (
             "background"
-            if kind in BACKGROUND_KINDS
+            if kind in background_kinds
             else ("workload" if kind == "agent_workload" else "unknown")
         )
         totals[group] += cpu
-        if cpu > 0:
-            rows.append({**row, "kind": kind, "cpu_percent": cpu})
+        if kind in {"macos_service", "desktop_renderer", "desktop_app"}:
+            totals[kind] += cpu
+        evidence = (
+            desktop_classifier.classify(row) if desktop_classifier is not None else {"kind": kind}
+        )
+        if old is not None and uid_changed and desktop_classifier is not None:
+            prior = desktop_classifier.classify(old)
+            if prior.get("identity_binding_changed"):
+                evidence = {**evidence, "identity_binding_changed": True}
+        evidence = classification_evidence(kind, evidence)
+        # Preserve every measured CPU contribution and every admitted UI/violation
+        # binding. Idle unrelated processes remain in raw point inventories and
+        # churn, rather than repeating thousands of zero rows for up to 7200s.
+        if cpu > 0 or (
+            desktop_classifier is not None
+            and (
+                kind in {"desktop_app", "desktop_renderer"}
+                or evidence.get("identity_binding_changed")
+                or evidence.get("reason") == "known_workload"
+            )
+        ):
+            rows.append({**row, "kind": kind, "cpu_percent": cpu, "classification": evidence})
     for key, row in before.items():
         if key not in after and row["pid"] not in own_before:
             coverage = False
@@ -176,6 +267,9 @@ def cpu_interval(previous: dict, current: dict, owner_pid: int) -> dict[str, Any
         "background_cpu_percent": totals["background"],
         "workload_cpu_percent": totals["workload"],
         "unknown_cpu_percent": totals["unknown"],
+        "macos_service_cpu_percent": totals["macos_service"],
+        "desktop_renderer_cpu_percent": totals["desktop_renderer"],
+        "desktop_app_cpu_percent": totals["desktop_app"],
         "processes": rows,
     }
 
@@ -183,13 +277,21 @@ def cpu_interval(previous: dict, current: dict, owner_pid: int) -> dict[str, Any
 class LoadGuard:
     """Immediate foreign-work abort; aggregate background >150% for >60 seconds."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, desktop_policy: bool = False) -> None:
+        self.background_kinds = DESKTOP_BACKGROUND_KINDS if desktop_policy else BACKGROUND_KINDS
         self.high_since_ns: int | None = None
         self.last_end_ns: int | None = None
 
     def check(self, sample: dict) -> None:
         for row in sample["processes"]:
-            if row["kind"] not in BACKGROUND_KINDS and row["cpu_percent"] >= FOREIGN_PERCENT:
+            if (
+                row.get("classification", {}).get("known_workload")
+                or row.get("classification", {}).get("reason") == "known_workload"
+            ):
+                raise RuntimeError("prohibited workload under desktop role; attempt contaminated")
+            if row.get("classification", {}).get("identity_binding_changed"):
+                raise RuntimeError("desktop identity changed; attempt contaminated")
+            if row["kind"] not in self.background_kinds and row["cpu_percent"] >= FOREIGN_PERCENT:
                 raise RuntimeError("foreign workload/unknown heavy load; attempt contaminated")
         contiguous = self.last_end_ns == sample["start_ns"]
         # No long-gap inference. Process churn limits low-window eligibility but

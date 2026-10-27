@@ -401,6 +401,11 @@ def source_binding(require_clean: bool = True) -> dict[str, Any]:
         Path(__file__).with_name("host_load.py"),
         Path(__file__).with_name("background_report.py"),
         Path(__file__).with_name("HOST_LOAD_AMENDMENT_20261027.md"),
+        Path(__file__).with_name("DESKTOP_APPS_AMENDMENT_20261027.md"),
+        Path(__file__).with_name("ASTRA_DESKTOP_RULING_20261027.md"),
+        Path(__file__).with_name("desktop_apps.py"),
+        Path(__file__).with_name("desktop_policy.py"),
+        *Path(__file__).parent.glob("DESKTOP_APP_REGISTRY_*.json*"),
         Path(__file__).with_name("REMOTE_SUPERVISION_AMENDMENT_20261027.md"),
         Path(__file__).with_name("remote_supervision.py"),
         Path(__file__).with_name("supervision_io.py"),
@@ -415,6 +420,7 @@ def source_binding(require_clean: bool = True) -> dict[str, Any]:
     return {
         "commit": git("rev-parse", "HEAD"),
         "tree": git("rev-parse", "HEAD^{tree}"),
+        "worktree": str(root),
         "tracked_dirty": dirty,
         "source_sha256": {
             str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -545,14 +551,33 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
     ):
         return {"verdict": "INVALID", "reason": "missing or contaminated host evidence"}
     supervised = raw.get("load_policy") == "classified-supervised-v2"
-    classified = raw.get("load_policy") == "classified-v1" or supervised
+    desktop = raw.get("load_policy") == "classified-desktop-v1"
+    classified = raw.get("load_policy") == "classified-v1" or supervised or desktop
     if raw.get("load_policy") != raw.get("host", {}).get("load_policy"):
         return {"verdict": "INVALID", "reason": "host load policy binding differs"}
-    if raw.get("load_policy") not in (None, "classified-v1", "classified-supervised-v2"):
+    if raw.get("load_policy") not in (
+        None,
+        "classified-v1",
+        "classified-supervised-v2",
+        "classified-desktop-v1",
+    ):
         return {"verdict": "INVALID", "reason": "unsupported host load policy"}
-    expected_schema = "served-tick-host/v3" if supervised else "served-tick-host/v2"
+    expected_schema = (
+        "served-tick-host/v4"
+        if desktop
+        else ("served-tick-host/v3" if supervised else "served-tick-host/v2")
+    )
     if classified and raw["host"].get("schema") != expected_schema:
         return {"verdict": "INVALID", "reason": "classified host schema differs"}
+    if desktop:
+        from research.bl_served_search.background_report import validate_desktop_host
+        from research.bl_served_search.desktop_policy import validate_intent
+
+        try:
+            validate_intent(raw)
+            validate_desktop_host(raw["host"])
+        except (KeyError, TypeError, ValueError, OSError, RuntimeError) as exc:
+            return {"verdict": "INVALID", "reason": f"desktop evidence: {exc}"}
     supervision = None
     if supervised:
         from research.bl_served_search.supervision_io import replay_host
@@ -688,6 +713,24 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
         )
     )
     supervision_summary: dict[str, Any] = {}
+    if desktop:
+        from research.bl_served_search.background_report import desktop_overall
+
+        overall = desktop_overall(raw["host"])
+        affected: dict[tuple[str, str], int] = {}
+        for arm in arms:
+            for application in arm["background_load"].get("applications", []):
+                key = (application["entry"], application["role"])
+                affected[key] = affected.get(key, 0) + application["affected_tick_count"]
+        for application in overall.get("applications", []):
+            application["affected_tick_count"] = affected.get(
+                (application["entry"], application["role"]), 0
+            )
+        overall["counts"] = {
+            key: sum(arm["background_load"].get("counts", {}).get(key, 0) for arm in arms)
+            for key in {key for arm in arms for key in arm["background_load"].get("counts", {})}
+        }
+        supervision_summary["desktop_overall"] = overall
     if supervised and supervision is not None:
         from research.bl_served_search.supervision_report import summarize_scope
 
@@ -955,7 +998,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--reduce", type=Path)
     parser.add_argument("--remote-supervision-registry", type=Path)
-    parser.add_argument("--host-only-seconds", type=int, choices=[600])
+    parser.add_argument("--desktop-app-registry", type=Path)
+    parser.add_argument("--desktop-observation-receipt", type=Path)
+    parser.add_argument("--host-only-seconds", type=int)
     parser.add_argument("--qualification-receipt", type=Path)
     parser.add_argument(
         "--classified-host-load",
@@ -963,14 +1008,35 @@ def main(argv: list[str] | None = None) -> int:
         help="record macOS/desktop background CPU covariates; abort sustained >150%% for >60s",
     )
     args = parser.parse_args(argv)
-    if args.host_only_seconds and args.remote_supervision_registry is None:
-        parser.error("--host-only-seconds requires --remote-supervision-registry")
+    if args.desktop_observation_receipt is not None and (
+        args.desktop_app_registry is None
+        or args.check
+        or args.smoke
+        or args.host_only_seconds is not None
+    ):
+        parser.error("desktop observation receipt is only an input to the full desktop panel")
+    if args.desktop_app_registry is not None and (
+        args.remote_supervision_registry is not None or args.classified_host_load
+    ):
+        parser.error("desktop policy is distinct; do not combine classification policies")
+    if args.host_only_seconds is not None:
+        if not 1 <= args.host_only_seconds <= 600:
+            parser.error("host-only observation requires 1..600 seconds")
+        if args.remote_supervision_registry is None and args.desktop_app_registry is None:
+            parser.error("--host-only-seconds requires a desktop or supervision registry")
+        if args.smoke or args.check:
+            parser.error("host-only observation is separate from --smoke/--check")
+        if args.remote_supervision_registry is not None and args.host_only_seconds != 600:
+            parser.error("supervision qualification requires exactly 600 seconds")
     if args.qualification_receipt is not None and args.remote_supervision_registry is None:
         parser.error("--qualification-receipt requires --remote-supervision-registry")
     if args.host_only_seconds and args.qualification_receipt is not None:
         parser.error("host-only observation cannot consume a panel qualification receipt")
     if args.reduce is not None and (
-        args.remote_supervision_registry is not None or args.host_only_seconds
+        args.remote_supervision_registry is not None
+        or args.host_only_seconds
+        or args.desktop_app_registry is not None
+        or args.desktop_observation_receipt is not None
     ):
         parser.error("reduction uses only the sealed raw evidence; do not supply live options")
     if args.remote_supervision_registry is not None and args.reduce is None:
@@ -992,32 +1058,103 @@ def main(argv: list[str] | None = None) -> int:
         host_path = args.reduce.parent / "host.json"
         if read_export(host_path) != raw.get("host"):
             raise ValueError("raw host evidence differs from verified host export")
+        if raw.get("load_policy") == "classified-desktop-v1":
+            if read_export(args.reduce.parent / "intent.json") != raw.get("desktop_intent"):
+                raise ValueError("raw desktop intent differs from verified original export")
         report = reduce_trace(raw)
         export_json(args.output / "report.json", report)
         print(json.dumps(report, sort_keys=True))
         return 0
+    desktop_options = (
+        {"desktop_registry": args.desktop_app_registry}
+        if args.desktop_app_registry is not None
+        else {}
+    )
     if args.check:
         from research.bl_served_search.probe_host import preflight as host_preflight
 
         result = {
             "probe": preflight(manifest),
-            "host": host_preflight(classified=args.classified_host_load),
+            "host": host_preflight(classified=args.classified_host_load, **desktop_options),
             "source": source_binding(require_clean=False),
         }
+        if args.desktop_app_registry is not None:
+            from research.bl_served_search.desktop_policy import freeze_intent
+
+            result["desktop_intent"] = freeze_intent(
+                args.desktop_app_registry, result["source"], manifest
+            )
         print(json.dumps(result, sort_keys=True))
         if not result["host"]["admitted"]:
             return 2
         return 0
     if args.output is None:
         parser.error("--output is required unless --check")
+    if (
+        args.desktop_app_registry is not None
+        and not args.smoke
+        and args.host_only_seconds is None
+        and args.desktop_observation_receipt is None
+    ):
+        parser.error("full desktop panel requires --desktop-observation-receipt from host-only run")
     # Refuse a changed or unadmitted manifest before creating a directory,
     # leasing the Mac, importing the product, or starting a fresh process.
     preflight(manifest)
     binding = source_binding(require_clean=not args.smoke)
+    desktop_intent = None
+    if args.desktop_app_registry is not None:
+        from research.bl_served_search.desktop_policy import freeze_intent
+        from research.bl_served_search.probe_host import preflight as host_preflight
+
+        desktop_intent = freeze_intent(args.desktop_app_registry, binding, manifest)
+        if args.desktop_observation_receipt is not None:
+            from research.bl_served_search.desktop_policy import observation_binding
+
+            desktop_intent["host_observation"] = observation_binding(
+                args.desktop_observation_receipt, desktop_intent
+            )
+        # Verify installed identities and the current host before creating attempt outputs.
+        # Smoke remains functional evidence and reports admission without requiring quiet.
+        admission = host_preflight(**desktop_options)
+        if not args.smoke and not admission["admitted"]:
+            raise RuntimeError("desktop preflight refused foreign host workload")
     args.output.mkdir(parents=True, exist_ok=False)
     from research.bl_served_search.probe_host import guarded_run
 
     try:
+        if desktop_intent is not None:
+            export_json(args.output / "intent.json", desktop_intent)
+        if args.host_only_seconds is not None and desktop_intent is not None:
+            from research.bl_served_search.probe_host import HostMonitor
+
+            # Read-only host observation: no lease, gameplay, provider calls or process changes.
+            # Leave a bounded final-interval/shutdown margin inside the ten-minute envelope.
+            duration = min(args.host_only_seconds, 450)
+            with HostMonitor(args.output, seconds=duration + 60, **desktop_options) as monitor:
+                deadline = time.monotonic() + duration
+                while time.monotonic() < deadline:
+                    monitor.check()
+                    time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+            host = read_export(args.output / "host.json")
+            from research.bl_served_search.background_report import desktop_overall
+
+            after = source_binding()
+            status = host["status"] if after == binding else "INVALID"
+            observation = {
+                "schema": "served-desktop-host-observation/v1",
+                "status": status,
+                "load_policy": "classified-desktop-v1",
+                "desktop_intent": desktop_intent,
+                "host": host,
+                "source_before": binding,
+                "source_after": after,
+                "requested_seconds": args.host_only_seconds,
+                "observation_seconds": duration,
+                "summary": desktop_overall(host),
+                "scope": "host integration only; no measured panel or causal timing claim",
+            }
+            export_json(args.output / "observation.json", observation)
+            return 0 if status == "COMPLETE" else 2
         if args.smoke:
             # Functional only: no lease/quiet requirement and no paced timing
             # conclusion.  It still requires the launcher's CPU/nice environment.
@@ -1035,7 +1172,9 @@ def main(argv: list[str] | None = None) -> int:
             result = {
                 "schema": f"{SCHEMA}-smoke/v1",
                 "status": "SMOKE_OK_NOT_TIMING",
-                "host_readonly": host_preflight(classified=args.classified_host_load),
+                "host_readonly": host_preflight(
+                    classified=args.classified_host_load, **desktop_options
+                ),
                 "inline": inline,
                 "isolated": isolated,
                 "parity": _verify_pair(inline, isolated),
@@ -1045,6 +1184,7 @@ def main(argv: list[str] | None = None) -> int:
             export_json(args.output / "smoke.json", result)
             return 0 if result["parity"]["pass"] else 2
         guard_options = {"classified": True} if args.classified_host_load else {}
+        guard_options.update(desktop_options)
         raw = guarded_run(
             args.output, lambda monitor: run_panel(manifest, args.output, monitor), **guard_options
         )
@@ -1054,6 +1194,9 @@ def main(argv: list[str] | None = None) -> int:
         raw["host"] = host
         if args.classified_host_load:
             raw["load_policy"] = "classified-v1"
+        if desktop_intent is not None:
+            raw["load_policy"] = "classified-desktop-v1"
+            raw["desktop_intent"] = desktop_intent
         raw["source_before"] = binding
         raw["source_after"] = source_binding()
         raw["argv"] = list(sys.argv)
@@ -1079,7 +1222,12 @@ def main(argv: list[str] | None = None) -> int:
             "status": "INVALID",
             "reason": f"{type(exc).__name__}: {exc}",
             "manifest": manifest,
-            "load_policy": "classified-v1" if args.classified_host_load else "legacy",
+            "load_policy": (
+                "classified-desktop-v1"
+                if desktop_intent is not None
+                else ("classified-v1" if args.classified_host_load else "legacy")
+            ),
+            "desktop_intent": desktop_intent,
             "source_before": binding,
             "completed_cell_files": sorted(path.name for path in args.output.glob("cell-*.json")),
         }

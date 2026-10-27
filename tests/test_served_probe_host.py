@@ -147,6 +147,170 @@ def test_classified_screen_retains_renderer_but_rejects_python_and_unknown(monke
     assert [row["pid"] for row in screen["ordinary_system_background"]] == [20, 21, 22]
 
 
+def test_desktop_point_screen_enforces_workload_precedence_and_retains_admission(monkeypatch):
+    import psutil
+
+    class Classifier:
+        def admit_process(self, row):
+            return self.classify(row)
+
+        def classify(self, row):
+            if row["command"].endswith("Microsoft Outlook") and row.get("uid") == 501:
+                return {"kind": "desktop_app", "reason": "enrolled", "role": "main_ui"}
+            return {"kind": "unknown", "reason": "unenrolled"}
+
+    monkeypatch.setattr(psutil, "Process", lambda _: Mock(children=lambda **kw: []))
+    monkeypatch.setattr(
+        probe_host,
+        "_desktop_point_inventory",
+        lambda: [
+            {
+                "pid": 20,
+                "ppid": 1,
+                "uid": 501,
+                "birth": "outlook",
+                "cpu_percent": 80,
+                "command": "/Applications/Microsoft Outlook.app/Contents/MacOS/Microsoft Outlook",
+            },
+            {
+                "pid": 21,
+                "ppid": 1,
+                "uid": 501,
+                "birth": "python",
+                "cpu_percent": 20,
+                "command": "/Applications/Microsoft Outlook.app/Contents/MacOS/python",
+            },
+        ],
+    )
+    screen = {
+        "processes": (
+            "PID PPID %CPU COMM\n20 1 80 /Applications/Microsoft Outlook.app/Contents/MacOS/"
+            "Microsoft Outlook\n21 1 20 /Applications/Microsoft Outlook.app/Contents/MacOS/python\n"
+        )
+    }
+    heavy = probe_host.foreign_load(
+        screen, 10, classified=True, desktop_classifier=Classifier(), admit_desktop=True
+    )
+    assert [row["pid"] for row in screen["ordinary_system_background"]] == [20]
+    assert [row["pid"] for row in heavy] == [21]
+    assert screen["classified_processes"][0]["admission"]["role"] == "main_ui"
+    assert screen["load_policy"] == "classified-desktop-v1"
+
+
+def test_desktop_point_does_not_join_raw_cpu_to_later_pid_identity(monkeypatch):
+    import psutil
+
+    class Classifier:
+        def admit_process(self, row):
+            return self.classify(row)
+
+        def classify(self, row):
+            return {"kind": "desktop_app", "reason": "enrolled"}
+
+    monkeypatch.setattr(psutil, "Process", lambda _: Mock(children=lambda **kw: []))
+    monkeypatch.setattr(
+        probe_host,
+        "_desktop_point_inventory",
+        lambda: [
+            {
+                "pid": 20,
+                "ppid": 1,
+                "uid": 501,
+                "birth": "new",
+                "cpu_percent": 0,
+                "command": "/Applications/Mail.app/Contents/MacOS/Mail",
+            }
+        ],
+    )
+    screen = {
+        "processes": "PID PPID %CPU COMM\n20 1 80 /Applications/Mail.app/Contents/MacOS/Mail\n"
+    }
+    assert (
+        probe_host.foreign_load(screen, 10, classified=True, desktop_classifier=Classifier()) == []
+    )
+    assert screen["classified_processes"][0]["cpu_percent"] == 0
+    assert screen["processes_identity_stale_unjoined"] is True
+
+
+def test_desktop_point_identity_change_aborts_even_when_final_kind_is_service(monkeypatch):
+    import psutil
+
+    class Classifier:
+        def admit_process(self, row):
+            return {
+                "kind": "unknown",
+                "reason": "executable_replaced",
+                "identity_binding_changed": True,
+            }
+
+        def classify(self, row):
+            return {
+                "kind": "unknown",
+                "reason": "executable_replaced",
+                "identity_binding_changed": True,
+            }
+
+    monkeypatch.setattr(psutil, "Process", lambda _: Mock(children=lambda **kw: []))
+    monkeypatch.setattr(
+        probe_host,
+        "_desktop_point_inventory",
+        lambda: [
+            {
+                "pid": 20,
+                "ppid": 1,
+                "uid": 501,
+                "birth": "new",
+                "cpu_percent": 0,
+                "command": "/usr/libexec/cloudd",
+            }
+        ],
+    )
+    screen = {"processes": "PID PPID %CPU COMM\n20 1 0 /usr/libexec/cloudd\n"}
+    rows = probe_host.foreign_load(screen, 10, classified=True, desktop_classifier=Classifier())
+    assert rows[0]["kind"] == "macos_service"
+    assert rows[0]["classification"]["identity_binding_changed"] is True
+
+
+def test_point_identity_parser_keeps_executables_with_and_without_spaces(monkeypatch):
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(
+            stdout=(
+                "  PID   UID STARTED COMMAND\n"
+                "   20   501 Tue Oct 27 08:00:00 2026 /Applications/Microsoft Outlook.app/"
+                "Contents/MacOS/Microsoft Outlook\n"
+                "   21   501 Tue Oct 27 08:01:00 2026 /Applications/Claude.app/Contents/"
+                "MacOS/Claude\n"
+            )
+        ),
+    )
+    identities = probe_host._point_identities()
+    assert identities[20]["command"].endswith("Microsoft Outlook")
+    assert identities[21]["command"].endswith("/Claude")
+
+
+def test_desktop_point_inventory_binds_cpu_uid_and_birth_in_one_capture(monkeypatch):
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(
+            stdout=(
+                "PID PPID UID STARTED %CPU COMMAND\n"
+                "20 1 501 Tue Oct 27 08:00:00 2026 80.0 /Applications/Microsoft Outlook.app/"
+                "Contents/MacOS/Microsoft Outlook\n"
+            )
+        ),
+    )
+    row = probe_host._desktop_point_inventory()[0]
+    assert row == {
+        "pid": 20,
+        "ppid": 1,
+        "uid": 501,
+        "birth": "Tue Oct 27 08:00:00 2026",
+        "cpu_percent": 80.0,
+        "command": "/Applications/Microsoft Outlook.app/Contents/MacOS/Microsoft Outlook",
+    }
+
+
 def test_classified_monitor_exports_final_interval_and_policy(monkeypatch, tmp_path):
     from research.bl_served_search import host_load
 
