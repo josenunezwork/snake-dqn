@@ -1549,6 +1549,173 @@ def test_macos_service_argv_availability_transitions_replay_both_directions(monk
     with pytest.raises(ValueError, match="desktop non_desktop process admitted in history log"):
         background_report._validate_registry_history(forged_bound)
 
+    # 4. Astra third review Finding 1: Two intervals [0s, 1s] and [1s, 2s] with an intervening
+    # point screen at 1.5s in both availability directions, plus the full 27-case matrices.
+    def _trustd_row(mode: str, obs_ns: int) -> dict:
+        base = {
+            "pid": 42,
+            "birth": "b1",
+            "uid": 0,
+            "command": "/usr/libexec/trustd",
+            "argv_display": "/usr/libexec/trustd",
+            "observation_ns": obs_ns,
+        }
+        if mode == "avail":
+            return {**base, "argv": ["/usr/libexec/trustd"]}
+        if mode == "unavail":
+            return {
+                **base,
+                "argv": [],
+                "identity_observation_error": "argv_identity_unavailable",
+            }
+        if mode == "failed":
+            return {
+                **base,
+                "argv": [],
+                "identity_observation_error": "argv_identity_verification_failed",
+            }
+        raise ValueError(f"unknown mode {mode}")
+
+    def _run_two_intervals_with_middle_point(
+        int1_modes: tuple[str, str],
+        point_mode: str,
+        int2_modes: tuple[str, str],
+    ) -> tuple[DesktopRegistry, list[dict], dict, dict]:
+        reg = DesktopRegistry()
+        guard = host_load.LoadGuard(desktop_policy=True)
+        # Interval 1: [0s, 1s] (~10% CPU: 1.0s -> 1.1s)
+        sample1 = host_load.cpu_interval(
+            _cpu_inventory(0, _trustd_row(int1_modes[0], 0), 1.0),
+            _cpu_inventory(1, _trustd_row(int1_modes[1], 1_000_000_000), 1.1),
+            owner_pid=999_999,
+            desktop_classifier=reg,
+        )
+        guard.check(sample1)
+
+        # Intervening point screen at 1.5s (2% CPU)
+        monkeypatch.setattr(
+            probe_host,
+            "_desktop_point_inventory",
+            lambda: (
+                setattr(
+                    probe_host,
+                    "_LAST_POINT_CAPTURE_BRACKET",
+                    (1_450_000_000, 1_550_000_000, 1_500_000_000),
+                )
+                or [
+                    {
+                        **_trustd_row(point_mode, 1_500_000_000),
+                        "ppid": 1,
+                        "cpu_percent": 2.0,
+                        "rss_kb": 1024,
+                        "state": "S",
+                        "name": "trustd",
+                    }
+                ]
+            ),
+        )
+        mid_screen: dict = {"foreign_processes": [], "probe_exempt_pids": []}
+        violations = probe_host.foreign_load(
+            mid_screen,
+            owner_pid=999_999,
+            classified=True,
+            desktop_classifier=reg,
+        )
+        assert violations == []
+
+        # Interval 2: [1s, 2s] (~10% CPU: 1.1s -> 1.2s)
+        sample2 = host_load.cpu_interval(
+            _cpu_inventory(1, _trustd_row(int2_modes[0], 1_000_000_000), 1.1),
+            _cpu_inventory(2, _trustd_row(int2_modes[1], 2_000_000_000), 1.2),
+            owner_pid=999_999,
+            desktop_classifier=reg,
+        )
+        guard.check(sample2)
+
+        host_doc = _desktop_host(
+            reg,
+            [sample1, sample2],
+            [{"monotonic_ns": 1_400_000_000, "process_screen": mid_screen}],
+        )
+        return reg, [sample1, sample2], mid_screen, host_doc
+
+    # Exact Astra table: unavail [0s, 1s] -> avail point at 1.5s -> unavail [1s, 2s]
+    reg_uau, samples_uau, screen_uau, host_uau = _run_two_intervals_with_middle_point(
+        ("unavail", "unavail"), "avail", ("unavail", "unavail")
+    )
+    assert samples_uau[0]["processes"][0]["sequence"] == 0
+    assert screen_uau["classified_processes"][0]["sequence"] == 1
+    assert samples_uau[1]["processes"][0]["history_before"]["sequence"] == 1
+    assert samples_uau[1]["processes"][0]["sequence"] == 2
+    assert all(
+        not p["classification"]["identity_binding_changed"]
+        for p in (
+            samples_uau[0]["processes"][0],
+            screen_uau["classified_processes"][0],
+            samples_uau[1]["processes"][0],
+        )
+    )
+    background_report._validate_registry_history(reg_uau.read_export())
+    reduced_uau = background_report._samples(host_uau)
+    assert reduced_uau[0]["service_cpu_percent"] == pytest.approx(10.0)
+    assert reduced_uau[1]["service_cpu_percent"] == pytest.approx(10.0)
+    background_report.validate_desktop_host(host_uau)
+    assert background_report.desktop_overall(host_uau)["background_pool"]["cpu_percent_max"][
+        "service"
+    ] == pytest.approx(10.0)
+
+    # Reverse Astra table: avail [0s, 1s] -> unavail point at 1.5s -> avail [1s, 2s]
+    reg_aua, samples_aua, screen_aua, host_aua = _run_two_intervals_with_middle_point(
+        ("avail", "avail"), "unavail", ("avail", "avail")
+    )
+    assert samples_aua[0]["processes"][0]["sequence"] == 0
+    assert screen_aua["classified_processes"][0]["sequence"] == 1
+    assert samples_aua[1]["processes"][0]["history_before"]["sequence"] == 1
+    assert samples_aua[1]["processes"][0]["sequence"] == 2
+    background_report._validate_registry_history(reg_aua.read_export())
+    reduced_aua = background_report._samples(host_aua)
+    assert reduced_aua[0]["service_cpu_percent"] == pytest.approx(10.0)
+    assert reduced_aua[1]["service_cpu_percent"] == pytest.approx(10.0)
+    background_report.validate_desktop_host(host_aua)
+    assert background_report.desktop_overall(host_aua)["background_pool"]["cpu_percent_max"][
+        "service"
+    ] == pytest.approx(10.0)
+
+    # Full 27-case matrix across (avail, unavail, failed) for (Interval 1, Point 1.5s, Interval 2)
+    modes = ("avail", "unavail", "failed")
+    for m1 in modes:
+        for mp in modes:
+            for m2 in modes:
+                reg_m, _, _, host_m = _run_two_intervals_with_middle_point((m1, m1), mp, (m2, m2))
+                background_report._validate_registry_history(reg_m.read_export())
+                background_report._samples(host_m)
+                background_report.validate_desktop_host(host_m)
+                assert background_report.desktop_overall(host_m)["background_pool"][
+                    "cpu_percent_max"
+                ]["service"] == pytest.approx(10.0)
+
+    # Full 27-case matrix with interval endpoint transitions ((U,U), (A,A), (U,A)/(A,U))
+    int1_patterns = (("unavail", "unavail"), ("avail", "avail"), ("unavail", "avail"))
+    int2_patterns = (("unavail", "unavail"), ("avail", "avail"), ("avail", "unavail"))
+    for p1 in int1_patterns:
+        for mp in modes:
+            for p2 in int2_patterns:
+                reg_p, _, _, host_p = _run_two_intervals_with_middle_point(p1, mp, p2)
+                background_report._validate_registry_history(reg_p.read_export())
+                background_report._samples(host_p)
+                background_report.validate_desktop_host(host_p)
+                assert background_report.desktop_overall(host_p)["background_pool"][
+                    "cpu_percent_max"
+                ]["service"] == pytest.approx(10.0)
+
+    # Forged rewind of Interval 2 history_before to sequence 0 after sequence 1 is still rejected.
+    rewound_host = copy.deepcopy(host_uau)
+    rewound_host["cpu_samples"][1]["processes"][0]["history_before"] = copy.deepcopy(
+        samples_uau[0]["processes"][0]["history_after"]
+    )
+    with pytest.raises(ValueError, match="desktop process history continuity differs"):
+        background_report._samples(rewound_host)
+
 
 def test_reducer_replay_rejects_unenrolled_bundle_helper_and_wrong_digest(enrolled):
     """Astra second review Finding 2: Reducer replay verifies every admitted desktop row and
@@ -1954,6 +2121,140 @@ def test_point_supersession_keyed_on_sequence_and_capture_bracket_binding(enroll
     ):
         background_report.validate_desktop_host(regressing_host)
 
+    # 3. Astra third review Finding 2: Point sequence checks enforce event-time validity and
+    # reject future admissions for an earlier unvalidated point.
+    reg_future = DesktopRegistry(
+        registry.path,
+        uid=registry.uid,
+        runner=registry._runner,
+        trusted_roots=registry._trusted_roots,
+        require_seal=False,
+    )
+    reg_future.verify_all()
+    enrolled_exe = next(iter(reg_future._verified))
+
+    # Step 1: At 0s, classify the enrolled process without admission -> sequence 0 is
+    # unknown/process_identity_not_revalidated.
+    unvalidated_0s = {
+        "pid": 515,
+        "ppid": 1,
+        "birth": "b-future-admit",
+        "uid": reg_future.uid,
+        "command": enrolled_exe,
+        "argv": [enrolled_exe],
+        "observation_ns": 0,
+    }
+    d_unval = reg_future.classify(unvalidated_0s, allow_unbound=False)
+    assert d_unval["kind"] == "unknown"
+    assert d_unval["reason"] == "process_identity_not_revalidated"
+    assert reg_future._history[(515, "b-future-admit")]["sequence"] == 0
+
+    # Step 2: Admit that same process at 2s -> sequence 1 becomes desktop_app.
+    admitted_2s = {**unvalidated_0s, "observation_ns": 2_000_000_000}
+    d_admit = reg_future.admit_process(admitted_2s)
+    assert d_admit["kind"] == "desktop_app"
+    assert reg_future._history[(515, "b-future-admit")]["sequence"] == 1
+
+    # Step 3: Collect a valid admitted interval [2s, 3s].
+    admitted_3s = {**unvalidated_0s, "observation_ns": 3_000_000_000}
+    sample_2_3 = host_load.cpu_interval(
+        _cpu_inventory(2, admitted_2s, 1.0),
+        _cpu_inventory(3, admitted_3s, 1.05),
+        owner_pid=999_999,
+        desktop_classifier=reg_future,
+    )
+    admitted_interval_row = copy.deepcopy(sample_2_3["processes"][0])
+    assert admitted_interval_row["kind"] == "desktop_app"
+    assert admitted_interval_row["sequence"] == 1
+
+    # Copy its process row into a point screen at 1s, setting point CPU to 90%,
+    # row and screen observation_ns=1_000_000_000, capture bracket [0.9s, 1.1s],
+    # enclosing monotonic_ns=800_000_000, and history_sequence=2.
+    forged_future_point_row = {
+        **admitted_interval_row,
+        "cpu_percent": 90.0,
+        "observation_ns": 1_000_000_000,
+    }
+    host_future_admit = _desktop_host(
+        reg_future,
+        [sample_2_3],
+        [
+            {
+                "monotonic_ns": 800_000_000,
+                "schema": "bl-mac-host/v1",
+                "process_screen": {
+                    "capture_start_ns": 900_000_000,
+                    "capture_end_ns": 1_100_000_000,
+                    "observation_ns": 1_000_000_000,
+                    "history_sequence": 2,
+                    "classified_processes": [forged_future_point_row],
+                    "probe_exempt_pids": [],
+                },
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="desktop process state superseded before observation"):
+        background_report.validate_desktop_host(host_future_admit)
+
+    # Also rejected when history_sequence is 1 or omitted, or via _verify_step_in_log directly.
+    host_future_seq1 = copy.deepcopy(host_future_admit)
+    host_future_seq1["observations"][0]["process_screen"]["history_sequence"] = 1
+    with pytest.raises(ValueError, match="desktop process state superseded before observation"):
+        background_report.validate_desktop_host(host_future_seq1)
+
+    host_future_no_hseq = copy.deepcopy(host_future_admit)
+    del host_future_no_hseq["observations"][0]["process_screen"]["history_sequence"]
+    with pytest.raises(ValueError, match="desktop process state superseded before observation"):
+        background_report.validate_desktop_host(host_future_no_hseq)
+
+    log_by_proc = background_report._validate_registry_history(reg_future.read_export())
+    with pytest.raises(ValueError, match="desktop process state superseded before observation"):
+        background_report._verify_step_in_log(
+            (515, "b-future-admit"),
+            forged_future_point_row["history_before"],
+            forged_future_point_row["history_after"],
+            log_by_proc,
+            observation_ns=1_000_000_000,
+            is_point=True,
+            expected_point_sequence=1,
+        )
+
+    # Under the missing-evidence rule, the true 1-second unvalidated state (sequence 0) at 90% CPU
+    # receives ordinary-work/unknown treatment and rejects the host.
+    true_1s_entry = copy.deepcopy(reg_future.read_export()["history_log"][0])
+    true_1s_point_row = {
+        **unvalidated_0s,
+        "kind": "unknown",
+        "cpu_percent": 90.0,
+        "observation_ns": 1_000_000_000,
+        "classification": copy.deepcopy(true_1s_entry["classification"]),
+        "history_before": copy.deepcopy(true_1s_entry["after"]),
+        "history_after": copy.deepcopy(true_1s_entry["after"]),
+        "sequence": 0,
+        "executable_status": true_1s_entry["after"]["executable_status"],
+        "admit": False,
+    }
+    host_unvalidated_90 = _desktop_host(
+        reg_future,
+        [sample_2_3],
+        [
+            {
+                "monotonic_ns": 800_000_000,
+                "schema": "bl-mac-host/v1",
+                "process_screen": {
+                    "capture_start_ns": 900_000_000,
+                    "capture_end_ns": 1_100_000_000,
+                    "observation_ns": 1_000_000_000,
+                    "history_sequence": 1,
+                    "classified_processes": [true_1s_point_row],
+                    "probe_exempt_pids": [],
+                },
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="ordinary workload/unknown >=20% in desktop point"):
+        background_report.validate_desktop_host(host_unvalidated_90)
+
 
 def test_protected_service_argv_display_change_revokes_and_exports_transition(monkeypatch):
     """Astra second review Finding 4: When exact argv is unavailable on a protected service,
@@ -2087,3 +2388,194 @@ def test_protected_service_argv_display_change_revokes_and_exports_transition(mo
         ]
         is True
     )
+
+
+def test_intervening_point_service_argv_availability_transitions_preserve_interval_evidence(
+    monkeypatch,
+):
+    """Astra third review Finding 1: Intervening point observations with permitted macOS-service
+    argv-availability changes reconcile in observation order across interval samples without
+    invalidating valid interval evidence, while preserving terminal revocation and continuity."""
+    reg = DesktopRegistry()
+    guard = host_load.LoadGuard(desktop_policy=True)
+
+    unavail_0s = {
+        "pid": 42,
+        "birth": "b1",
+        "uid": 0,
+        "command": "/usr/libexec/trustd",
+        "argv": [],
+        "argv_display": "/usr/libexec/trustd",
+        "identity_observation_error": "argv_identity_unavailable",
+        "observation_ns": 0,
+    }
+    unavail_1s = {**unavail_0s, "observation_ns": 1_000_000_000}
+    avail_1_5s = {
+        "pid": 42,
+        "ppid": 1,
+        "birth": "b1",
+        "uid": 0,
+        "command": "/usr/libexec/trustd",
+        "argv": ["/usr/libexec/trustd"],
+        "argv_display": "/usr/libexec/trustd",
+        "observation_ns": 1_500_000_000,
+        "cpu_percent": 2.0,
+        "rss_kb": 1024,
+        "state": "S",
+        "name": "trustd",
+    }
+    unavail_2s = {**unavail_0s, "observation_ns": 2_000_000_000}
+
+    sample_0_1 = host_load.cpu_interval(
+        _cpu_inventory(0, unavail_0s, 1.0),
+        _cpu_inventory(1, unavail_1s, 1.1),
+        owner_pid=999_999,
+        desktop_classifier=reg,
+    )
+    guard.check(sample_0_1)
+
+    monkeypatch.setattr(
+        probe_host,
+        "_desktop_point_inventory",
+        lambda: (
+            setattr(
+                probe_host,
+                "_LAST_POINT_CAPTURE_BRACKET",
+                (1_450_000_000, 1_550_000_000, 1_500_000_000),
+            )
+            or [dict(avail_1_5s)]
+        ),
+    )
+    point_screen: dict = {"foreign_processes": [], "probe_exempt_pids": []}
+    assert (
+        probe_host.foreign_load(
+            point_screen,
+            owner_pid=999_999,
+            classified=True,
+            desktop_classifier=reg,
+        )
+        == []
+    )
+
+    sample_1_2 = host_load.cpu_interval(
+        _cpu_inventory(1, unavail_1s, 1.1),
+        _cpu_inventory(2, unavail_2s, 1.2),
+        owner_pid=999_999,
+        desktop_classifier=reg,
+    )
+    guard.check(sample_1_2)
+
+    host = _desktop_host(
+        reg,
+        [sample_0_1, sample_1_2],
+        [{"monotonic_ns": 1_400_000_000, "process_screen": point_screen}],
+    )
+    background_report._validate_registry_history(reg.read_export())
+    samples = background_report._samples(host)
+    assert [s["service_cpu_percent"] for s in samples] == [
+        pytest.approx(10.0),
+        pytest.approx(10.0),
+    ]
+    background_report.validate_desktop_host(host)
+    assert background_report.desktop_overall(host)["background_pool"]["cpu_percent_max"][
+        "service"
+    ] == pytest.approx(10.0)
+
+
+def test_point_sequence_checks_enforce_event_time_validity_and_reject_future_admission(enrolled):
+    """Astra third review Finding 2: Point sequence checks enforce event-time validity and bind
+    the claimed history_sequence prefix to the point capture time, rejecting future admissions
+    for an earlier unvalidated point."""
+    registry, row, *_ = enrolled
+
+    # 1. At 0s, classify enrolled process without admission -> sequence 0, unknown/unvalidated.
+    row_0s = {
+        **row,
+        "ppid": 1,
+        "argv": [row["command"]],
+        "observation_ns": 0,
+    }
+    d0 = registry.classify(row_0s, allow_unbound=False)
+    assert d0["kind"] == "unknown"
+    assert d0["reason"] == "process_identity_not_revalidated"
+    assert registry._history[(row["pid"], row["birth"])]["sequence"] == 0
+
+    # 2. Admit that same process at 2s -> sequence 1, desktop_app.
+    row_2s = {**row_0s, "observation_ns": 2_000_000_000}
+    d1 = registry.admit_process(row_2s)
+    assert d1["kind"] == "desktop_app"
+    assert registry._history[(row["pid"], row["birth"])]["sequence"] == 1
+
+    # 3. Collect a valid admitted interval [2s, 3s].
+    row_3s = {**row_0s, "observation_ns": 3_000_000_000}
+    sample_2_3 = host_load.cpu_interval(
+        _cpu_inventory(2, row_2s, 1.0),
+        _cpu_inventory(3, row_3s, 1.05),
+        owner_pid=999_999,
+        desktop_classifier=registry,
+    )
+    admitted_row = copy.deepcopy(sample_2_3["processes"][0])
+    assert admitted_row["sequence"] == 1
+
+    # 4. Copy the admitted process row into a point screen at 1s with 90% CPU
+    # and history_sequence=2.
+    point_1s_row = {
+        **admitted_row,
+        "cpu_percent": 90.0,
+        "observation_ns": 1_000_000_000,
+    }
+    host_future = _desktop_host(
+        registry,
+        [sample_2_3],
+        [
+            {
+                "monotonic_ns": 800_000_000,
+                "schema": "bl-mac-host/v1",
+                "process_screen": {
+                    "capture_start_ns": 900_000_000,
+                    "capture_end_ns": 1_100_000_000,
+                    "observation_ns": 1_000_000_000,
+                    "history_sequence": 2,
+                    "classified_processes": [point_1s_row],
+                    "probe_exempt_pids": [],
+                },
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="desktop process state superseded before observation"):
+        background_report.validate_desktop_host(host_future)
+
+    # Also test when the true 1s unvalidated state (sequence 0) has low CPU (5% < 20%):
+    # valid 1s unvalidated point followed by 2s admission succeeds.
+    entry_0 = copy.deepcopy(registry.read_export()["history_log"][0])
+    valid_unval_1s_row = {
+        **row_0s,
+        "kind": "unknown",
+        "cpu_percent": 5.0,
+        "observation_ns": 1_000_000_000,
+        "classification": copy.deepcopy(entry_0["classification"]),
+        "history_before": copy.deepcopy(entry_0["after"]),
+        "history_after": copy.deepcopy(entry_0["after"]),
+        "sequence": 0,
+        "executable_status": entry_0["after"]["executable_status"],
+        "admit": False,
+    }
+    host_valid_unval_5 = _desktop_host(
+        registry,
+        [sample_2_3],
+        [
+            {
+                "monotonic_ns": 800_000_000,
+                "schema": "bl-mac-host/v1",
+                "process_screen": {
+                    "capture_start_ns": 900_000_000,
+                    "capture_end_ns": 1_100_000_000,
+                    "observation_ns": 1_000_000_000,
+                    "history_sequence": 1,
+                    "classified_processes": [valid_unval_1s_row],
+                    "probe_exempt_pids": [],
+                },
+            }
+        ],
+    )
+    background_report.validate_desktop_host(host_valid_unval_5)

@@ -1176,6 +1176,7 @@ class DesktopRegistry:
         self._history: dict[tuple[int, str], dict[str, Any]] = {}
         self._history_log: list[dict[str, Any]] = []
         self._last_observation_ns: int | None = None
+        self._proc_last_observation_ns: dict[tuple[int, str], int] = {}
         self._bindings: dict[tuple[int, str, int, str], dict[str, Any]] = {}
         # Bindings are evidence for samples already captured.  Revoking an
         # active binding therefore must not erase the snapshot that proves an
@@ -1587,6 +1588,13 @@ class DesktopRegistry:
         elif history_before == last_for_proc.get("after") and new_history != history_before:
             should_append = True
 
+        if type(observation_ns) is int and observation_ns >= 0:
+            prev_proc_obs = self._proc_last_observation_ns.get(proc_key)
+            self._proc_last_observation_ns[proc_key] = (
+                max(prev_proc_obs, observation_ns) if type(prev_proc_obs) is int else observation_ns
+            )
+            self._last_observation_ns = max(self._last_observation_ns or 0, observation_ns)
+
         if should_append:
             if type(observation_ns) is int and observation_ns >= 0:
                 event_obs_ns = observation_ns
@@ -1600,6 +1608,10 @@ class DesktopRegistry:
                 and event_obs_ns < last_for_proc["observation_ns"]
             ):
                 event_obs_ns = last_for_proc["observation_ns"]
+            prev_proc_obs = self._proc_last_observation_ns.get(proc_key)
+            if type(prev_proc_obs) is int and event_obs_ns < prev_proc_obs:
+                event_obs_ns = prev_proc_obs
+            self._proc_last_observation_ns[proc_key] = event_obs_ns
             self._last_observation_ns = max(self._last_observation_ns or 0, event_obs_ns)
             log_entry: dict[str, Any] = {
                 "pid": pid,

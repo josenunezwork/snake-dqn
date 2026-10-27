@@ -197,6 +197,108 @@ def _validate_registry_history(
     return log_by_proc
 
 
+def _reconcile_history_continuity(
+    proc_key: tuple[int, str] | None,
+    prior_state: Mapping[str, Any] | None,
+    claimed_before: Mapping[str, Any] | None,
+    log_by_proc: Mapping[tuple[int, str], list[dict[str, Any]]] | None,
+    *,
+    min_obs_ns: int | None = None,
+    max_obs_ns: int | None = None,
+    error_message: str = "desktop process history continuity differs",
+) -> None:
+    """Reconcile intervening validated history log transitions in observation order."""
+    if prior_state is None:
+        if (
+            claimed_before is None
+            or log_by_proc is None
+            or proc_key is None
+            or proc_key not in log_by_proc
+        ):
+            return
+        if not isinstance(claimed_before, Mapping):
+            raise ValueError(error_message)
+        entries = log_by_proc[proc_key]
+        to_seq = claimed_before.get("sequence")
+        if (
+            type(to_seq) is not int
+            or to_seq < 0
+            or to_seq >= len(entries)
+            or entries[to_seq].get("after") != dict(claimed_before)
+        ):
+            raise ValueError(error_message)
+        for idx in range(to_seq + 1):
+            entry_obs = entries[idx].get("observation_ns")
+            if type(entry_obs) is int and type(max_obs_ns) is int and entry_obs > max_obs_ns:
+                raise ValueError(error_message)
+        if to_seq + 1 < len(entries):
+            next_obs = entries[to_seq + 1].get("observation_ns")
+            if type(next_obs) is int and type(max_obs_ns) is int and next_obs < max_obs_ns:
+                raise ValueError(error_message)
+        return
+    if claimed_before == prior_state:
+        if (
+            log_by_proc is not None
+            and proc_key is not None
+            and proc_key in log_by_proc
+            and type(max_obs_ns) is int
+        ):
+            entries = log_by_proc[proc_key]
+            from_seq = prior_state.get("sequence")
+            if type(from_seq) is int and 0 <= from_seq and from_seq + 1 < len(entries):
+                next_obs = entries[from_seq + 1].get("observation_ns")
+                if type(next_obs) is int and next_obs < max_obs_ns:
+                    raise ValueError(error_message)
+        return
+    if (
+        not isinstance(claimed_before, Mapping)
+        or log_by_proc is None
+        or proc_key is None
+        or proc_key not in log_by_proc
+    ):
+        raise ValueError(error_message)
+    entries = log_by_proc[proc_key]
+    from_seq = prior_state.get("sequence")
+    to_seq = claimed_before.get("sequence")
+    if (
+        type(from_seq) is not int
+        or type(to_seq) is not int
+        or from_seq < 0
+        or to_seq <= from_seq
+        or to_seq >= len(entries)
+        or entries[from_seq].get("after") != dict(prior_state)
+        or entries[to_seq].get("after") != dict(claimed_before)
+    ):
+        raise ValueError(error_message)
+    for idx in range(from_seq + 1, to_seq + 1):
+        entry = entries[idx]
+        prev_after = entries[idx - 1]["after"]
+        after = entry["after"]
+        if entry.get("before") != prev_after or after.get("sequence") != idx:
+            raise ValueError(error_message)
+        if (prev_after.get("status") == "revoked" or prev_after.get("revoked")) and (
+            after.get("status") != "revoked" or not after.get("revoked")
+        ):
+            raise ValueError(error_message)
+        if prev_after.get("status") == "non_desktop" and after.get("status") not in {
+            "non_desktop",
+            "revoked",
+        }:
+            raise ValueError(error_message)
+        if prev_after.get("identity_binding_changed") and not after.get("identity_binding_changed"):
+            raise ValueError(error_message)
+        entry_obs = entry.get("observation_ns")
+        if type(entry_obs) is int:
+            if type(min_obs_ns) is int and entry_obs < min_obs_ns:
+                raise ValueError(error_message)
+            if type(max_obs_ns) is int and entry_obs > max_obs_ns:
+                raise ValueError(error_message)
+    if to_seq + 1 < len(entries):
+        next_obs = entries[to_seq + 1].get("observation_ns")
+        if type(next_obs) is int and type(max_obs_ns) is int and next_obs < max_obs_ns:
+            raise ValueError(error_message)
+
+
 def _verify_step_in_log(
     proc_key: tuple[int, str] | None,
     history_before: Mapping[str, Any] | None,
@@ -233,20 +335,21 @@ def _verify_step_in_log(
         if type(row_seq) is not int or type(final_seq) is not int:
             if final_after != history_after:
                 raise ValueError("desktop process state superseded before observation")
-            return
-        if row_seq < final_seq:
-            for later_entry in entries[row_seq + 1 :]:
-                later_after = later_entry.get("after", {})
-                if (
-                    later_after.get("status") != "non_desktop"
-                    or later_after.get("revoked")
-                    or later_after.get("identity_binding_changed")
-                ):
+        else:
+            if row_seq < final_seq:
+                for later_entry in entries[row_seq + 1 :]:
+                    later_after = later_entry.get("after", {})
+                    if (
+                        later_after.get("status") not in {"non_desktop", "bound"}
+                        or later_after.get("revoked")
+                        or later_after.get("identity_binding_changed")
+                    ):
+                        raise ValueError("desktop process state superseded before observation")
+            if type(expected_point_sequence) is int:
+                if row_seq != expected_point_sequence:
                     raise ValueError("desktop process state superseded before observation")
-        target_seq = expected_point_sequence if type(expected_point_sequence) is int else final_seq
-        if row_seq != target_seq:
-            raise ValueError("desktop process state superseded before observation")
-        return
+            elif observation_ns is None and row_seq != final_seq:
+                raise ValueError("desktop process state superseded before observation")
     if type(observation_ns) is int:
         valid_at_obs = False
         for idx in matching_indices:
@@ -261,7 +364,7 @@ def _verify_step_in_log(
             break
         if not valid_at_obs:
             raise ValueError("desktop process state superseded before observation")
-    elif entries[-1]["after"] != history_after:
+    elif not is_point and entries[-1]["after"] != history_after:
         raise ValueError("desktop process state superseded before observation")
 
 
@@ -331,13 +434,28 @@ def _replay_row_strict(
             prev_history_before = _reconstruct_exported_history(
                 {**previous, "classification": prior_classification}, registry_evidence
             )
-        if (
-            replayed_proc_history is not None
-            and proc_key is not None
-            and proc_key in replayed_proc_history
-            and prev_history_before != replayed_proc_history[proc_key]
-        ):
-            raise ValueError("desktop process history continuity differs")
+        prev_obs = (
+            sample_start_ns
+            if sample_start_ns is not None
+            else (
+                transition.get("previous_observation_ns")
+                if type(transition.get("previous_observation_ns")) is int
+                else None
+            )
+        )
+        cur_obs = (
+            sample_end_ns
+            if sample_end_ns is not None
+            else (row.get("observation_ns") if type(row.get("observation_ns")) is int else None)
+        )
+        if not is_point and replayed_proc_history is not None and proc_key is not None:
+            _reconcile_history_continuity(
+                proc_key,
+                replayed_proc_history.get(proc_key),
+                prev_history_before,
+                log_by_proc,
+                max_obs_ns=prev_obs,
+            )
         prev_input: dict[str, Any] = {
             **previous,
             "admit": False,
@@ -363,17 +481,19 @@ def _replay_row_strict(
             and prior_history_after.get("sequence") != transition["previous_sequence"]
         ):
             raise ValueError("desktop interval previous sequence replay differs")
-        if "history_before" in row and row["history_before"] != prior_history_after:
-            raise ValueError("desktop interval transition history continuity differs")
-        prev_obs = (
-            sample_start_ns
-            if sample_start_ns is not None
-            else (
-                transition.get("previous_observation_ns")
-                if type(transition.get("previous_observation_ns")) is int
-                else None
+        row_history_before = row.get("history_before", prior_history_after)
+        if row_history_before is not None and not isinstance(row_history_before, Mapping):
+            raise ValueError("malformed desktop process history")
+        if row_history_before != prior_history_after:
+            _reconcile_history_continuity(
+                proc_key,
+                prior_history_after,
+                row_history_before,
+                log_by_proc,
+                min_obs_ns=prev_obs,
+                max_obs_ns=cur_obs,
+                error_message="desktop interval transition history continuity differs",
             )
-        )
         if log_by_proc is not None and (
             "previous_history_before" in transition
             or (proc_key is not None and proc_key in log_by_proc)
@@ -386,7 +506,7 @@ def _replay_row_strict(
                 observation_ns=prev_obs,
             )
         cur_kind, cur_history_after, cur_reason = classify_row(
-            prior_history_after, {**row, "admit": False}, registry_evidence
+            row_history_before, {**row, "admit": False}, registry_evidence
         )
         cur_decision = decision_from_history(cur_kind, cur_history_after, cur_reason)
         kinds = {cur_kind, prior_kind}
@@ -405,17 +525,12 @@ def _replay_row_strict(
             raise ValueError("desktop process sequence replay differs")
         if transition.get("conservative_kind") != conservative_kind:
             raise ValueError("desktop interval conservative classification differs")
-        cur_obs = (
-            sample_end_ns
-            if sample_end_ns is not None
-            else (row.get("observation_ns") if type(row.get("observation_ns")) is int else None)
-        )
         if log_by_proc is not None and (
             "history_after" in row or (proc_key is not None and proc_key in log_by_proc)
         ):
             _verify_step_in_log(
                 proc_key,
-                prior_history_after,
+                row_history_before,
                 cur_history_after,
                 log_by_proc,
                 observation_ns=cur_obs,
@@ -443,13 +558,14 @@ def _replay_row_strict(
         history_before = replayed_proc_history[proc_key]
     else:
         history_before = _reconstruct_exported_history(row, registry_evidence)
-    if (
-        replayed_proc_history is not None
-        and proc_key is not None
-        and proc_key in replayed_proc_history
-        and history_before != replayed_proc_history[proc_key]
-    ):
-        raise ValueError("desktop process history continuity differs")
+    if not is_point and replayed_proc_history is not None and proc_key is not None:
+        _reconcile_history_continuity(
+            proc_key,
+            replayed_proc_history.get(proc_key),
+            history_before,
+            log_by_proc,
+            max_obs_ns=sample_end_ns,
+        )
     if "admit" in row:
         admit = bool(row["admit"])
     elif "history_before" in row:
@@ -1039,6 +1155,11 @@ def validate_desktop_host(host_evidence: Mapping[str, Any]) -> None:
             if prev_screen_obs_ns is not None and screen_obs_ns < prev_screen_obs_ns:
                 raise ValueError("desktop point screen observation_ns regressed")
             prev_screen_obs_ns = screen_obs_ns
+        obs_level_ns = (
+            screen_obs_ns
+            if screen_obs_ns is not None
+            else (cap_end if cap_end is not None else enclosing_ns)
+        )
         expected_seq_by_proc: dict[tuple[int, str], int] | None = None
         if log_by_proc is not None and "history_sequence" in screen:
             full_log = registry_evidence["history_log"]
@@ -1050,6 +1171,9 @@ def validate_desktop_host(host_evidence: Mapping[str, Any]) -> None:
             prev_h_seq = h_seq
             expected_seq_by_proc = {}
             for entry in full_log[:h_seq]:
+                entry_obs = entry.get("observation_ns")
+                if type(entry_obs) is int and obs_level_ns is not None and entry_obs > obs_level_ns:
+                    raise ValueError("desktop process state superseded before observation")
                 expected_seq_by_proc[(entry["pid"], entry["birth"])] = int(
                     entry["after"]["sequence"]
                 )
@@ -1062,7 +1186,6 @@ def validate_desktop_host(host_evidence: Mapping[str, Any]) -> None:
         ):
             raise ValueError("desktop point screen evidence missing")
         exempt_pids = set(exempt)
-        obs_level_ns = screen_obs_ns if screen_obs_ns is not None else enclosing_ns
         for process in processes:
             if not isinstance(process, Mapping) or type(process.get("pid")) is not int:
                 raise ValueError("malformed desktop point process")
@@ -1081,6 +1204,11 @@ def validate_desktop_host(host_evidence: Mapping[str, Any]) -> None:
                     raise ValueError(
                         "desktop point process observation_ns differs from point screen"
                     )
+            if proc_obs_ns is not None and enclosing_ns is not None and proc_obs_ns < enclosing_ns:
+                raise ValueError(
+                    "desktop process state superseded before observation: "
+                    "point process precedes enclosing snapshot"
+                )
             proc_key = (
                 (process["pid"], process["birth"])
                 if isinstance(process.get("birth"), str) and process["birth"]
@@ -1100,11 +1228,6 @@ def validate_desktop_host(host_evidence: Mapping[str, Any]) -> None:
                 point_obs_ns=obs_level_ns,
                 expected_point_sequence=expected_point_seq,
             )
-            if proc_obs_ns is not None and enclosing_ns is not None and proc_obs_ns < enclosing_ns:
-                raise ValueError(
-                    "desktop process state superseded before observation: "
-                    "point process precedes enclosing snapshot"
-                )
             if (
                 not isinstance(classification, Mapping)
                 or classification.get("kind") != process.get("kind")

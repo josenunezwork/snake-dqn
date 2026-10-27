@@ -371,10 +371,27 @@ def cpu_interval(
                     commit=True,
                     observation_ns=start,
                 )
+                current_hist = (
+                    desktop_classifier._history.get(key)
+                    if isinstance(getattr(desktop_classifier, "_history", None), dict)
+                    else None
+                )
+                after_prior = (
+                    dict(current_hist)
+                    if (
+                        isinstance(current_hist, dict)
+                        and isinstance(prior_history_after, dict)
+                        and current_hist.get("status") == "non_desktop"
+                        and type(current_hist.get("sequence")) is int
+                        and type(prior_history_after.get("sequence")) is int
+                        and current_hist["sequence"] > prior_history_after["sequence"]
+                    )
+                    else prior_history_after
+                )
                 cur_kind, cur_evidence, _, row_history_after, _ = desktop_classifier.step_row(
                     row,
                     admit=False,
-                    history_override=prior_history_after,
+                    history_override=after_prior,
                     commit=True,
                     observation_ns=end,
                 )
@@ -386,7 +403,7 @@ def cpu_interval(
                 else:
                     kind = cur_kind
                 evidence = classification_evidence(kind, cur_evidence)
-                row_history_before = prior_history_after
+                row_history_before = after_prior
                 row_admit = False
             else:
                 if old is not None:
@@ -399,36 +416,36 @@ def cpu_interval(
                         row_argv_status,
                         row_display,
                     ):
-                        old_hist_before = desktop_classifier.history_for_row(
-                            old, snapshot=prior_snapshot
+                        proc_obs_map = getattr(
+                            desktop_classifier, "_proc_last_observation_ns", None
                         )
-                        _, _, _, old_hist_after, _ = desktop_classifier.step_row(
-                            old,
-                            admit=True,
-                            history_override=old_hist_before,
-                            commit=True,
-                            observation_ns=start,
+                        last_proc_obs_ns = (
+                            proc_obs_map.get(key) if isinstance(proc_obs_map, dict) else None
                         )
-                        kind, evidence, row_history_before, row_history_after, _ = (
-                            desktop_classifier.step_row(
-                                row,
-                                admit=True,
-                                history_override=old_hist_after,
-                                commit=True,
-                                observation_ns=end,
+                        if last_proc_obs_ns is None:
+                            last_proc_obs_ns = next(
+                                (
+                                    entry.get("observation_ns")
+                                    for entry in reversed(
+                                        getattr(desktop_classifier, "_history_log", ())
+                                    )
+                                    if (entry.get("pid"), entry.get("birth")) == key
+                                ),
+                                None,
                             )
-                        )
-                        row_admit = True
-                    else:
-                        kind, evidence, row_history_before, row_history_after, _ = (
-                            desktop_classifier.step_row(row, admit=True, observation_ns=end)
-                        )
-                        row_admit = True
-                else:
-                    kind, evidence, row_history_before, row_history_after, _ = (
-                        desktop_classifier.step_row(row, admit=True, observation_ns=end)
-                    )
-                    row_admit = True
+                        if last_proc_obs_ns is None or (
+                            type(last_proc_obs_ns) is int and last_proc_obs_ns <= start
+                        ):
+                            desktop_classifier.step_row(
+                                old,
+                                admit=True,
+                                commit=True,
+                                observation_ns=start,
+                            )
+                kind, evidence, row_history_before, row_history_after, _ = (
+                    desktop_classifier.step_row(row, admit=True, observation_ns=end)
+                )
+                row_admit = True
         else:
             if transition:
                 # Snapshot the previous identity exactly once, before any current
