@@ -163,8 +163,12 @@ def test_actor_backward_compiler_failure_recomputes_minibatch_eagerly(monkeypatc
         return forward
 
     monkeypatch.setattr(torch, "compile", compile_block)
-    runner._forward = CompiledBlock(runner.actor, "default", runner.compile_report, "ActorCritic")
+    runner._forward_train = CompiledBlock(
+        runner.actor, "default", runner.compile_report, "ActorCritic_train"
+    )
     result = runner.update(rollout)
     assert torch.isfinite(result["loss"])
-    assert runner.compile_report["ActorCritic"]["status"] == "eager_fallback"
-    assert "compiler backward failed" in runner.compile_report["ActorCritic"]["fallback_reason"]
+    assert runner.compile_report["ActorCritic_train"]["status"] == "eager_fallback"
+    assert (
+        "compiler backward failed" in runner.compile_report["ActorCritic_train"]["fallback_reason"]
+    )

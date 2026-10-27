@@ -53,18 +53,51 @@ class PhaseProfiler:
 
 
 class CompiledBlock:
-    """Compile a static block; record setup/lazy failures and persist eager fallback."""
+    """Compile a static block; validate specializations and persist eager fallback.
 
-    def __init__(self, eager: Callable, mode: str, report: dict[str, Any], name: str) -> None:
+    The first invocation for each tensor specialization is a setup path.  Its
+    compiler and eager validation work is deliberately excluded from the
+    benchmark's steady-state phase timers and reported separately.
+    """
+
+    def __init__(
+        self,
+        eager: Callable,
+        mode: str,
+        report: dict[str, Any],
+        name: str,
+        *,
+        backend: str | Callable | None = None,
+    ) -> None:
         self.eager, self.report = eager, report
         self.validated = False
-        self.report[name] = {"status": "pending", "mode": mode, "fallback_reason": None}
+        self._validated_specializations: set[tuple[Any, ...]] = set()
+        self._compiled_specializations: set[tuple[Any, ...]] = set()
+        self.report[name] = {
+            "status": "pending",
+            "mode": mode,
+            "backend": backend or "inductor",
+            "fallback_reason": None,
+            "validation_policy": "TF32 disabled for compiled and eager first-call comparison; "
+            "floats rtol=atol=2e-5",
+            "compile_factory_seconds": 0.0,
+            "compile_specialization_seconds": 0.0,
+            "compile_specialization_calls": 0,
+            "validation_seconds": 0.0,
+            "validation_calls": 0,
+        }
         self.entry = self.report[name]
+        started = time.perf_counter()
         try:
             # No whole-step graph capture: simulator loops remain outside this boundary.
-            self.compiled = torch.compile(eager, mode=mode, dynamic=False, fullgraph=True)
+            kwargs: dict[str, Any] = {"mode": mode, "dynamic": False, "fullgraph": True}
+            if backend is not None:
+                kwargs["backend"] = backend
+            self.compiled = torch.compile(eager, **kwargs)
         except Exception as exc:
             self._fallback(exc)
+        finally:
+            self.entry["compile_factory_seconds"] = time.perf_counter() - started
 
     def _fallback(self, exc: Exception) -> None:
         self.compiled = None
@@ -88,15 +121,82 @@ class CompiledBlock:
         elif actual != expected:
             raise ValueError("compiled output differs from eager")
 
+    @staticmethod
+    def _argument_signature(value: Any) -> Any:
+        """Return a stable, non-data-dependent compilation specialization key."""
+        if isinstance(value, torch.Tensor):
+            return (
+                "tensor",
+                tuple(value.shape),
+                str(value.dtype),
+                str(value.device),
+                value.requires_grad,
+            )
+        if isinstance(value, (tuple, list)):
+            return (
+                type(value).__name__,
+                tuple(CompiledBlock._argument_signature(item) for item in value),
+            )
+        if isinstance(value, dict):
+            return (
+                "dict",
+                tuple(
+                    (key, CompiledBlock._argument_signature(item))
+                    for key, item in sorted(value.items())
+                ),
+            )
+        return (type(value).__name__, repr(value))
+
+    @classmethod
+    def _specialization_key(cls, args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            "grad_enabled",
+            torch.is_grad_enabled(),
+            "args",
+            tuple(cls._argument_signature(arg) for arg in args),
+            "kwargs",
+            tuple((key, cls._argument_signature(value)) for key, value in sorted(kwargs.items())),
+        )
+
+    @contextmanager
+    def _without_tf32_for_validation(self) -> Iterator[None]:
+        """Make eager and compiled validation use the same FP32 CUDA math mode."""
+        matmul = torch.backends.cuda.matmul
+        cudnn = torch.backends.cudnn
+        previous_matmul, previous_cudnn = matmul.allow_tf32, cudnn.allow_tf32
+        matmul.allow_tf32 = False
+        cudnn.allow_tf32 = False
+        try:
+            yield
+        finally:
+            matmul.allow_tf32 = previous_matmul
+            cudnn.allow_tf32 = previous_cudnn
+
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         if self.compiled is not None:
             try:
-                result = self.compiled(*args, **kwargs)
-                if not self.validated:
-                    self._compare(result, self.eager(*args, **kwargs))
+                specialization = self._specialization_key(args, kwargs)
+                first_specialization = specialization not in self._compiled_specializations
+                if first_specialization:
+                    compile_started = time.perf_counter()
+                    self._compiled_specializations.add(specialization)
+                if specialization not in self._validated_specializations:
+                    validation_started = time.perf_counter()
+                    with self._without_tf32_for_validation():
+                        result = self.compiled(*args, **kwargs)
+                        expected = self.eager(*args, **kwargs)
+                    self._compare(result, expected)
+                    self._validated_specializations.add(specialization)
                     self.validated = True
-                    self.entry["output_check"] = (
-                        "eager match: exact integers; floats rtol=atol=2e-5"
+                    self.entry["validation_calls"] += 1
+                    self.entry["validation_seconds"] += time.perf_counter() - validation_started
+                    self.entry["output_check"] = "eager match under TF32-disabled validation"
+                else:
+                    result = self.compiled(*args, **kwargs)
+                if first_specialization:
+                    self.entry["compile_specialization_calls"] += 1
+                    self.entry["compile_specialization_seconds"] += (
+                        time.perf_counter() - compile_started
                     )
             except Exception as exc:
                 self._fallback(exc)

@@ -1,0 +1,46 @@
+{
+  "status": "PASS_CPU_PREPARATION",
+  "tests": {
+    "passed": 73,
+    "seconds": 19.32,
+    "nice": 15,
+    "numerical_threads": 1,
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q -o addopts= research/sandbox_a_resident"
+  },
+  "lint": "black --check --line-length 100, isort --check-only --profile black, flake8: PASS for research/sandbox_a_resident",
+  "real_compile": {
+    "backend": "aot_eager",
+    "fullgraph": true,
+    "blocks": [
+      "ActorCritic_collect",
+      "ActorCritic_train",
+      "v8_decide",
+      "build_observation",
+      "anchors"
+    ],
+    "fallbacks": 0,
+    "mutation_coverage": "steps, resets, four world shapes and shared graph cache under TF32 timing switches"
+  },
+  "default_inductor_cpu_probe": {
+    "status": "LOCAL_TOOLCHAIN_FAILURE",
+    "seconds": 13.8,
+    "reasons": [
+      "generated shared objects cannot load @rpath/libc++.1.dylib",
+      "observation Inductor C++ VecMask operand-type compilation failure"
+    ],
+    "a100_inference": "none; CUDA qualification remains dispatch-time evidence"
+  },
+  "smoke": {
+    "status": "PASS",
+    "units": 12,
+    "seconds": 2.032392999972217,
+    "allocations": 0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-02/local-assay/summary.json"
+  },
+  "independent_review": "No blocking findings; 20 dynamic tiny ticks/partial resets match pinned v8/observation exactly. Backend included in cache key after minor review.",
+  "evidence_sha256": {
+    "tests.log": "86107b87309de2a35e58dcc4a081234a3eddd7860912a3ca35fe5ad978f6d7f9",
+    "local-smoke.log": "17b72cbce4cabf104cb6ecce53a4093d8951e0b9673f87b65f74b66d8f65ef99",
+    "summary.json": "66efece40829912b450eb5c70f70e32d64c45e167a75380879462f1fec83b7ab"
+  }
+}

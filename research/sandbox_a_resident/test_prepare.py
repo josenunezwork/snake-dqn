@@ -39,8 +39,8 @@ def test_a3_packet_admission_and_generous_runaway_guard(monkeypatch, tmp_path: P
         packet / "dispatch-manifest.json"
     )
     assert len((packet / "sandbox.json").read_text().splitlines()) == 10
-    assert manifest["job_id"] == "sandbox-a-resident-a3-20261026-01"
-    assert manifest["output_dir"].endswith("/a3-attempt-01/output")
+    assert manifest["job_id"] == "sandbox-a-resident-a3-20261026-02"
+    assert manifest["output_dir"].endswith("/a3-attempt-02/output")
     assert "pyproject.toml" not in manifest["source_paths"]
     assert "research/gpu_sim_spike/masks_device.py" in manifest["source_paths"]
     assert "research/gpu_sim_spike/event_cuda.cu" in manifest["source_paths"]

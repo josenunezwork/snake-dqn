@@ -23,6 +23,7 @@ from research.gpu_sim_spike.ego_device import build_observation
 from research.gpu_sim_spike.v8_device import v8_decide
 from research.sandbox_a_resident.device_sim import ResidentDeviceSim
 from research.sandbox_a_resident.runtime_tools import CompiledBlock, PhaseProfiler
+from research.sandbox_a_resident.tensor_blocks import TensorBlocks
 from src.model.ego2s_network import Ego2sNet
 from src.simd_env.batch_sim import BatchSimConfig
 
@@ -309,7 +310,10 @@ class ResidentAssay:
         )
         self._rollout: dict[str, Any] | None = None
         self._bootstrap_bank: dict[str, torch.Tensor] | None = None
-        self._forward: Any = self.actor
+        # Collection inference and learner autograd have different Dynamo/AOT
+        # specializations.  Keep their validation and fallback lifetime apart.
+        self._forward_collect: Any = self.actor
+        self._forward_train: Any = self.actor
         self._gae: Any = gae
         self.compile_mode: str | None = None
         self.compile_report: dict[str, Any] = {}
@@ -317,6 +321,7 @@ class ResidentAssay:
         self._v8: Any = v8_decide
         self._observation: Any = build_observation
         self._anchors: Any = self._anchor_tensor
+        self.tensor_blocks = TensorBlocks(self.sim)
         if self.sim.cfg.arena_type != "rectangular" or self.sim.grid_w < self.sim.S:
             raise ValueError("sandbox in-place reset requires six distinct rectangular spawn cells")
         self._reset(torch.ones_like(self.episode, dtype=torch.bool), initial=True)
@@ -361,7 +366,7 @@ class ResidentAssay:
         self._bootstrap_bank = bank
         return bank
 
-    def enable_compile(self, mode: str) -> None:
+    def enable_compile(self, mode: str, *, backend: str | None = None) -> None:
         """Compile static full-world blocks; record eager fallback for each block.
 
         Dynamic bootstrap subsets stay eager. ActorCritic retains parameter and
@@ -370,12 +375,17 @@ class ResidentAssay:
         if mode not in ("default", "reduce-overhead"):
             raise ValueError("unsupported compile mode")
         for name, attribute, eager in (
-            ("ActorCritic", "_forward", self.actor),
-            ("v8_decide", "_v8", v8_decide),
-            ("build_observation", "_observation", build_observation),
+            ("ActorCritic_collect", "_forward_collect", self.actor),
+            ("ActorCritic_train", "_forward_train", self.actor),
+            ("v8_decide", "_v8", self.tensor_blocks.v8_features),
+            ("build_observation", "_observation", self.tensor_blocks.observation),
             ("anchors", "_anchors", self._anchor_tensor),
         ):
-            setattr(self, attribute, CompiledBlock(eager, mode, self.compile_report, name))
+            setattr(
+                self,
+                attribute,
+                CompiledBlock(eager, mode, self.compile_report, name, backend=backend),
+            )
         self.compile_mode = mode
 
     @torch.no_grad()
@@ -485,8 +495,32 @@ class ResidentAssay:
         )
         full_mask = sim.advisory_mask() if advisory_mask is None else advisory_mask
         legal = full_mask[:, 0]
+        if sim is self.sim and isinstance(self._v8, CompiledBlock):
+            all_occ, other_occ, own_cells, own_valid = self.tensor_blocks.v8_inputs(sim, rows)
+            features = self._v8(
+                *self.tensor_blocks.state(sim),
+                rows=rows,
+                mask=legal,
+                all_occ=all_occ,
+                other_occ=other_occ,
+                own_cells=own_cells,
+                own_valid=own_valid,
+            )
+            ttl, region, food_grid, heads = self.tensor_blocks.observation_inputs(sim, rows)
+            return (
+                self._observation(
+                    *self.tensor_blocks.state(sim),
+                    ttl=ttl,
+                    region=region,
+                    food_grid=food_grid,
+                    heads=heads,
+                    rows=rows,
+                    features=features,
+                ),
+                legal,
+            )
         features = (
-            (self._v8 if sim is self.sim else v8_decide)(
+            v8_decide(
                 sim,
                 rows,
                 self._v8_q if sim is self.sim else torch.zeros((sim.E, 6), device=self.device),
@@ -497,8 +531,7 @@ class ResidentAssay:
             .feature_planes()
             .reshape(sim.E, 30)
         )
-        observation = self._observation if sim is self.sim else build_observation
-        return observation(sim, rows, features), legal
+        return build_observation(sim, rows, features), legal
 
     @torch.no_grad()
     def _anchor_actions(self, full_mask: torch.Tensor, hero_action: torch.Tensor) -> torch.Tensor:
@@ -569,7 +602,7 @@ class ResidentAssay:
                 full_mask = self.sim.advisory_mask()
                 obs, legal = self.observe(advisory_mask=full_mask)
             with profiler.phase("t_actor"):
-                logits, value = self._forward(*obs)
+                logits, value = self._forward_collect(*obs)
                 log_probs = torch.log_softmax(
                     logits.masked_fill(~allowed_mask(legal), -torch.inf), dim=-1
                 )
@@ -658,7 +691,7 @@ class ResidentAssay:
                 ix = order[start : start + self.recipe.minibatch]
 
                 def compute_loss() -> torch.Tensor:
-                    logits, value = self._forward(*(x[ix] for x in obs))
+                    logits, value = self._forward_train(*(x[ix] for x in obs))
                     _, entropy, logp = categorical_terms(
                         logits, flat["mask"][ix], flat["action"][ix]
                     )
@@ -679,11 +712,11 @@ class ResidentAssay:
                     # No optimizer step has occurred; clear partial gradients and
                     # recompute this same minibatch eagerly before proceeding.
                     if (
-                        not isinstance(self._forward, CompiledBlock)
-                        or self._forward.compiled is None
+                        not isinstance(self._forward_train, CompiledBlock)
+                        or self._forward_train.compiled is None
                     ):
                         raise
-                    self._forward._fallback(exc)
+                    self._forward_train._fallback(exc)
                     self.optimizer.zero_grad(set_to_none=True)
                     loss = compute_loss()
                     loss.backward()

@@ -56,6 +56,8 @@ def runtime_source_paths(commit: str) -> list[str]:
         "core.py",
         "proof.py",
         "runtime_tools.py",
+        "tensor_blocks.py",
+        "observation_tensor.py",
         "units.py",
         "job.sh",
         "requirements.txt",
@@ -225,10 +227,10 @@ def prepare(
             stem = unit_stem(worlds, phase, limit)
             required += [f"assay/{stem}.{suffix}" for suffix in ("tar", "json")]
     output = Path(
-        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-01/output"
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-02/output"
     )
     manifest = {
-        "job_id": "sandbox-a-resident-a3-20261026-01",
+        "job_id": "sandbox-a-resident-a3-20261026-02",
         "commit": commit,
         "script": "research/sandbox_a_resident/job.sh",
         "device": "cuda",

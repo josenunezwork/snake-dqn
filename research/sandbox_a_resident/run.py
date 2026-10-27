@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import gc
 import io
 import json
@@ -122,15 +123,85 @@ def aggregate_phase_profiles(
     }
 
 
-def compile_snapshot(runner: ResidentAssay, compile_mode: str) -> dict[str, Any]:
+def compile_snapshot(
+    runner: ResidentAssay, compile_mode: str, phase: str | None = None
+) -> dict[str, Any]:
     """Record requested compilation and every subgraph's eager fallback outcome."""
     report = getattr(runner, "compile_report", None)
-    if isinstance(report, dict):
-        return dict(report)
+    if isinstance(report, dict) and report:
+        snapshot = copy.deepcopy(report)
+        unused = (
+            ("ActorCritic_collect", "v8_decide", "build_observation", "anchors")
+            if phase == "cached"
+            else ("ActorCritic_train",) if phase == "collection" else ()
+        )
+        for name in unused:
+            if name in snapshot:
+                snapshot[name]["status"] = "not_applicable"
+        return snapshot
     return {
         "requested_mode": compile_mode,
         "status": "eager" if compile_mode == "none" else "unreported",
         "subgraphs": {},
+    }
+
+
+class CellCompileCache:
+    """Reuse tensor graphs and their parameter owner across independent timing cells.
+
+    Only compiled code/model storage is reused. Each cell keeps its fresh simulator,
+    RNG, rollout, model initialization and optimizer state. No assay is retained.
+    """
+
+    attributes = ("_forward_collect", "_forward_train", "_v8", "_observation", "_anchors")
+
+    def __init__(self) -> None:
+        self.entries: dict[tuple, tuple[Any, dict, tuple]] = {}
+
+    def attach(self, runner: ResidentAssay, mode: str, *, backend: str | None = None) -> bool:
+        sim = runner.sim
+        key = (mode, backend or "inductor", str(runner.device), sim.cap, sim.grid_h, sim.grid_w)
+        cached = self.entries.get(key)
+        if cached is None:
+            if backend is None:
+                runner.enable_compile(mode)
+            else:
+                runner.enable_compile(mode, backend=backend)
+            self.entries[key] = (
+                runner.actor,
+                runner.compile_report,
+                tuple(getattr(runner, name) for name in self.attributes),
+            )
+            return False
+        actor, report, blocks = cached
+        actor.load_state_dict(runner.actor.state_dict())
+        runner.actor = actor
+        runner.optimizer = torch.optim.Adam(actor.parameters(), lr=runner.recipe.learning_rate)
+        runner.compile_report, runner.compile_mode = report, mode
+        for name, block in zip(self.attributes, blocks, strict=True):
+            setattr(runner, name, block)
+        return True
+
+
+def compiler_metrics() -> dict[str, tuple[float, int]]:
+    """Torch's compiler timers include lazy backward and TF32 specializations.
+
+    Timer names are emitted verbatim; nested timers must never be added together.
+    They are diagnostics alongside wall time, not a subtraction from throughput.
+    """
+    from torch._dynamo.utils import compilation_time_metrics
+
+    return {name: (sum(values), len(values)) for name, values in compilation_time_metrics.items()}
+
+
+def compiler_delta(before: dict, after: dict) -> dict[str, dict[str, float | int]]:
+    return {
+        name: {
+            "seconds": seconds - before.get(name, (0, 0))[0],
+            "calls": calls - before.get(name, (0, 0))[1],
+        }
+        for name, (seconds, calls) in after.items()
+        if calls > before.get(name, (0, 0))[1]
     }
 
 
@@ -234,8 +305,10 @@ def run_cell(
     device: str,
     deadline: float,
     episode_limit: int | None = None,
+    compile_cache: CellCompileCache | None = None,
 ) -> dict:
     begin = sync(device)
+    compiler_before = compiler_metrics()
     if device.startswith("cuda"):
         torch.cuda.reset_peak_memory_stats()
     recipe = Recipe(
@@ -253,10 +326,11 @@ def run_cell(
     compile_mode = control.get("compile_mode", "none")
     if compile_mode not in ("none", "default"):
         raise ValueError("compile_mode must be none or default")
+    compile_cache_reused = False
     if compile_mode != "none":
         if runner.device.type != "cuda":
             raise ValueError("compiled timing cell requires CUDA")
-        runner.enable_compile(compile_mode)
+        compile_cache_reused = (compile_cache or CellCompileCache()).attach(runner, compile_mode)
     cached = synthetic(runner) if phase == "cached" else None
     setup_seconds = sync(device) - begin
     # Excluded warmup cycles are charged to total cell time, not steady-state rate.
@@ -267,12 +341,14 @@ def run_cell(
         if phase != "collection":
             runner.update(data)
     warmup_end = sync(device)
+    compiler_warm = compiler_metrics()
     cycles = []
     boundary_counts = torch.zeros((control["cycles"], 2), dtype=torch.long, device=runner.device)
     for index in range(control["cycles"]):
         if time.monotonic() >= deadline:
             raise TimeoutError("runaway deadline during fixed cycles")
         started = sync(device)
+        compiler_cycle = compiler_metrics()
         data = cached if phase == "cached" else runner.collect()
         phase_profile = {} if phase == "cached" else profile_snapshot(runner)
         if phase != "cached":
@@ -292,6 +368,7 @@ def run_cell(
                 "seconds": ended - started,
                 "hero_rows_per_second": worlds * recipe.horizon / (ended - started),
                 "phase_profile": phase_profile,
+                "compiler_activity": compiler_delta(compiler_cycle, compiler_metrics()),
             }
         )
         print(
@@ -323,6 +400,11 @@ def run_cell(
     invalid_reasons = [
         f"measured cycle {index} did not exercise time-limit bootstrap" for index in invalid_cycles
     ]
+    invalid_reasons.extend(
+        f"measured cycle {row['cycle']} included compiler work; steady-state timing invalid"
+        for row in cycles
+        if row["compiler_activity"]
+    )
     report = {
         "schema": "sandbox-a-timing/v3",
         "status": "INVALID" if invalid_reasons else "PASS",
@@ -348,7 +430,13 @@ def run_cell(
         "cycle_stability": cycle_stability(cycles, rows_per_cycle),
         "numerical_settings": numerical_settings(),
         "compile_mode": compile_mode,
-        "compile_report": compile_snapshot(runner, compile_mode),
+        "compile_report": compile_snapshot(runner, compile_mode, phase),
+        "compile_cache_reused": compile_cache_reused,
+        "compiler_setup_warmup": compiler_delta(compiler_before, compiler_warm),
+        "compiler_timing_note": (
+            "Torch named timers overlap; setup/warmup excluded from steady-state; "
+            "measured compilation invalidates timing"
+        ),
         "phase_profile": aggregate_phase_profiles(cycles, worlds, recipe.horizon),
         "efficacy_selection": False,
         "peak_device_allocated_bytes": (
@@ -425,7 +513,14 @@ def main() -> int:
     )
     proof_settings = proof["numerical_settings"]
     publish(args.output / "parity.json", lambda target: target.write_text(json.dumps(proof) + "\n"))
-    with numerical_mode(deterministic=False, tf32=True) as timing_settings:
+    # Four world shapes, TF32 validation/runtime variants, and R2 live-window
+    # shapes are intentional static specializations, not mutable-state guards.
+    # Share their code/parameter owner and allow this finite matrix explicitly.
+    with (
+        torch._dynamo.config.patch(recompile_limit=64, accumulated_recompile_limit=256),
+        numerical_mode(deterministic=False, tf32=True) as timing_settings,
+    ):
+        compile_cache = CellCompileCache()
         for worlds, phase, episode_limit, offset in cell_specs(control):
             identity = unit_id(worlds, phase, episode_limit)
             if identity in verified:
@@ -442,6 +537,7 @@ def main() -> int:
                     args.device,
                     deadline,
                     episode_limit,
+                    compile_cache,
                 )
             )
     summary = {
@@ -463,6 +559,7 @@ def main() -> int:
         "proof_numerical_settings": proof_settings,
         "timing_numerical_settings": timing_settings,
         "compile_mode": control.get("compile_mode", "none"),
+        "compiler_recompile_limit": 64,
         "numerical_outputs": "timing/parity only; no efficacy or candidate selection",
     }
     publish(

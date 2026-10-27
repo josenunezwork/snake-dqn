@@ -393,3 +393,96 @@ def test_resume_proof_hashes_rows_before_borrowed_rollout_can_be_overwritten(mon
     monkeypatch.setattr(resume_proof, "ResidentAssay", CorruptSecondCollection)
     with pytest.raises(RuntimeError, match="resume behavior/masks/GAE rows differ"):
         resume_proof.prove(None, "cpu")
+
+
+def test_compile_cache_reuses_graphs_but_resets_model_and_optimizer(monkeypatch) -> None:
+    from research.sandbox_a_resident.runtime_tools import CompiledBlock
+
+    factories = []
+
+    def compile_block(eager, **kwargs):
+        factories.append(eager)
+        return eager
+
+    monkeypatch.setattr(torch, "compile", compile_block)
+
+    def fresh(worlds, weight):
+        actor = nn.Linear(1, 1)
+        with torch.no_grad():
+            actor.weight.fill_(weight)
+        runner = SimpleNamespace(
+            actor=actor,
+            optimizer=torch.optim.Adam(actor.parameters()),
+            device=torch.device("cpu"),
+            recipe=SimpleNamespace(worlds=worlds, learning_rate=0.0003),
+            sim=SimpleNamespace(cap=32, grid_h=6, grid_w=6),
+            compile_report={},
+        )
+
+        def enable(mode):
+            for attribute, name in zip(
+                run.CellCompileCache.attributes,
+                (
+                    "ActorCritic_collect",
+                    "ActorCritic_train",
+                    "v8_decide",
+                    "build_observation",
+                    "anchors",
+                ),
+                strict=True,
+            ):
+                eager = actor if attribute.startswith("_forward") else lambda x: x + 1
+                setattr(runner, attribute, CompiledBlock(eager, mode, runner.compile_report, name))
+            runner.compile_mode = mode
+
+        runner.enable_compile = enable
+        return runner
+
+    cache = run.CellCompileCache()
+    first = fresh(2, 1)
+    assert cache.attach(first, "default") is False
+    first._forward_train(torch.ones(2, 1)).sum().backward()
+    first.optimizer.step()
+    assert first.optimizer.state
+    before = run.compile_snapshot(first, "default", "cached")
+    assert before["v8_decide"]["status"] == "not_applicable"
+    assert first.compile_report["v8_decide"]["status"] == "pending"
+    second = fresh(2, 7)
+    assert cache.attach(second, "default") is True
+    assert second.actor is first.actor
+    assert second._forward_train is first._forward_train
+    assert not second.optimizer.state
+    assert torch.equal(second.actor.weight, torch.full_like(second.actor.weight, 7))
+    assert len(factories) == 5
+    second.compile_report["ActorCritic_train"]["status"] = "changed after snapshot"
+    assert before["ActorCritic_train"]["status"] == "compiled"
+    assert cache.attach(fresh(3, 2), "default") is True
+    assert len(factories) == 5
+    other_geometry = fresh(3, 2)
+    other_geometry.sim.grid_h = 8
+    assert cache.attach(other_geometry, "default") is False
+    assert len(factories) == 10
+
+
+def test_compile_snapshot_eager_schema_and_inactive_learner() -> None:
+    assert run.compile_snapshot(SimpleNamespace(compile_report={}), "none") == {
+        "requested_mode": "none",
+        "status": "eager",
+        "subgraphs": {},
+    }
+    runner = SimpleNamespace(compile_report={"ActorCritic_train": {"status": "pending"}})
+    assert (
+        run.compile_snapshot(runner, "default", "collection")["ActorCritic_train"]["status"]
+        == "not_applicable"
+    )
+    assert runner.compile_report["ActorCritic_train"]["status"] == "pending"
+
+
+def test_compiler_metrics_are_separate_nested_timer_deltas() -> None:
+    assert run.compiler_delta(
+        {"compile_inner": (2.0, 1), "backward": (1.0, 1)},
+        {"compile_inner": (2.0, 1), "backward": (4.0, 2), "backend": (2.5, 1)},
+    ) == {
+        "backward": {"seconds": 3.0, "calls": 1},
+        "backend": {"seconds": 2.5, "calls": 1},
+    }
