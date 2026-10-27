@@ -78,10 +78,12 @@ class PreparationConfig:
     min_late_ev: float = 0.10
     critic_batch: int = 2048
     metric_cache_rows: int = 16_384
-    # Open plus staged completed lives share this bound. uint8 B8
+    # Open plus staged completed lives share this bound: 24 * 5000 open
+    # rows + 7 * 5000 staged rows + 255 sub-batch residual rows = 155255.
+    # Round up with margin for the frozen eight-life batching floor. uint8 B8
     # observations are roughly 12 KiB/row; this is bounded CPU staging, never
     # a GPU replay cache.
-    max_open_rows: int = 120_000
+    max_open_rows: int = 160_000
     progress_rows: int = 1_500_000
 
     def __post_init__(self) -> None:

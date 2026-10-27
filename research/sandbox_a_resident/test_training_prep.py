@@ -281,6 +281,86 @@ def test_storage_cap_counts_staged_completed_lives(monkeypatch: pytest.MonkeyPat
     assert failed.value.state.critic_rows == 12
 
 
+def _h5000_storage_fixture(monkeypatch: pytest.MonkeyPatch, staged_rows: int) -> list[int]:
+    """Seed the real collector just before all 24 open lives reach H5000."""
+    config = PreparationConfig()
+    row = _tagged_life(0, 1)[0]
+    life_type = training_prep._Life
+    open_lives = []
+
+    # Share a lightweight observation: only row counts matter to this guard.
+    def open_life():
+        life = life_type(rows=[row] * 4998)
+        open_lives.append(life)
+        return life
+
+    monkeypatch.setattr(training_prep, "_Life", open_life)
+    # Include all E24 slots to test the conservative envelope, even though
+    # production discards whole-world holdout slots during fitting.
+    monkeypatch.setattr(training_prep, "_world_split", lambda *_: "fit")
+    observed = []
+
+    class StorageTask(Task):
+        def __init__(self, stage: str) -> None:
+            super().__init__(stage)
+            self.age = torch.full((24,), 4998, dtype=torch.long)
+            self.roster_id = torch.arange(24) % 3
+            self.sim.length = torch.ones((24, 1), dtype=torch.long)
+
+        def observe(self):
+            return tuple(value[:1].expand(24, *value.shape[1:]) for value in super().observe())
+
+        def step(self, action):
+            self.age += 1
+            return SimpleNamespace(reward=torch.ones(24), reset=torch.zeros(24, dtype=torch.bool))
+
+    class ReachedStorageBoundary(Exception):
+        pass
+
+    def stage_then_check(staged, *_):
+        if not staged:
+            # The valid case has seven H5000 lives and a short residual;
+            # the overflow case deliberately injects excess staged storage.
+            staged.extend([[row] * 5000 for _ in range(7)])
+            staged.append([row] * (staged_rows - 7 * 5000))
+            if staged_rows == 7 * 5000 + 255:
+                assert _take_cross_life_batch(staged, config, torch.Generator()) is None
+            return None
+        assert len(open_lives) == 24 and all(len(life.rows) == 5000 for life in open_lives)
+        observed.append(sum(len(life.rows) for life in open_lives) + sum(map(len, staged)))
+        raise ReachedStorageBoundary
+
+    monkeypatch.setattr(training_prep, "_take_cross_life_batch", stage_then_check)
+    actor, critic = _models()
+    monkeypatch.setattr(actor, "reference_logits", lambda *_: torch.zeros((24, 6)))
+    try:
+        prepare(
+            StorageTask,
+            actor,
+            critic,
+            config,
+            torch.Generator().manual_seed(71),
+            state=PreparationState(temperature=1.0, stage="calibrated"),
+        )
+    except ReachedStorageBoundary:
+        pass
+    return observed
+
+
+def test_h5000_worst_case_open_plus_undrainable_staging_fits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _h5000_storage_fixture(monkeypatch, 7 * 5000 + 255) == [155_255]
+    assert PreparationConfig().max_open_rows > 155_255
+
+
+def test_h5000_storage_cap_still_refuses_genuine_overflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(PreparationFailure, match="open plus staged") as failed:
+        _h5000_storage_fixture(monkeypatch, PreparationConfig().max_open_rows - 24 * 5000 + 1)
+    assert failed.value.state.stage == "failed"
+    assert failed.value.state.critic_rows == 48
+
+
 def test_zero_life_mix_requires_support_until_cap_and_fails_without_keyerror(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
