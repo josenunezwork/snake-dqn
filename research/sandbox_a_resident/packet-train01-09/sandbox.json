@@ -1,86 +1,10 @@
-{
-  "crossing": {
-    "max_frozen_checkpoint_shas": 1
-  },
-  "endpoint": {
-    "kind": "steps",
-    "value": 100663296
-  },
-  "excluded_studies": [
-    "F5",
-    "F4-fold-0",
-    "29-census-parents",
-    "R30",
-    "strict",
-    "probe",
-    "serving",
-    "D4096",
-    "t34-round0-study-01"
-  ],
-  "inputs": [
-    {
-      "indices": [
-        0,
-        200000000,
-        300000000,
-        400000000,
-        500000000,
-        600000000
-      ],
-      "kind": "worlds",
-      "seeds": [
-        7865389310044696751,
-        13051015713728878125,
-        167838488431741,
-        7187043061118897472,
-        13488094982890868612,
-        13887265253262600099
-      ],
-      "study": "sandbox-a-train01"
-    },
-    {
-      "kind": "frozen-checkpoint",
-      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
-      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
-    },
-    {
-      "kind": "frozen-opponent",
-      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth",
-      "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
-    },
-    {
-      "kind": "frozen-opponent",
-      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
-      "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
-    },
-    {
-      "kind": "registry",
-      "path": "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
-      "sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c"
-    },
-    {
-      "kind": "verified-ledger",
-      "path": "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/research/sandbox_a_resident/packet-train01-09/verified-ledger.json",
-      "sha256": "0dd3ab22b8e365bc107378fcc500e4d2239b8beb81796f10b7bc06d2a98c6dee"
-    }
-  ],
-  "outputs": {
-    "broker_manifest": {
-      "path": "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/research/sandbox_a_resident/packet-train01-09/dispatch-manifest.json",
-      "sha256": "79013260fc8f439caf69d992d7eff44b3926da29ecfafc67310c98f957310887"
-    },
-    "label": "simulator-D",
-    "paths": [
-      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-09/output"
-    ]
-  },
-  "owner_rule": "docs/research/governance_a100_sandbox_20261026/ADOPTED.md",
-  "salt": "a100-dev/sandbox-a-train01/",
-  "schema": "standing-a100-development-sandbox/v1",
-  "study": "sandbox-a-train01",
-  "timeout": {
-    "base_seconds": 28800,
-    "purpose": "runaway-guard",
-    "seconds": 57600
-  }
-}
+{"schema": "standing-a100-development-sandbox/v1",
+ "study": "sandbox-a-train01",
+ "inputs": [{"kind": "worlds", "study": "sandbox-a-train01", "indices": [0, 200000000, 300000000, 400000000, 500000000, 600000000], "seeds": [7865389310044696751, 13051015713728878125, 167838488431741, 7187043061118897472, 13488094982890868612, 13887265253262600099]}, {"kind": "frozen-checkpoint", "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth", "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"}, {"kind": "frozen-opponent", "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth", "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"}, {"kind": "frozen-opponent", "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth", "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"}, {"kind": "registry", "path": "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/tools/sandbox/SANDBOX_INPUT_REGISTRY.json", "sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c"}, {"kind": "verified-ledger", "path": "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/research/sandbox_a_resident/packet-train01-09/verified-ledger.json", "sha256": "0dd3ab22b8e365bc107378fcc500e4d2239b8beb81796f10b7bc06d2a98c6dee"}],
+ "salt": "a100-dev/sandbox-a-train01/",
+ "endpoint": {"kind": "steps", "value": 100663296},
+ "timeout": {"base_seconds": 28800, "seconds": 57600, "purpose": "runaway-guard"},
+ "excluded_studies": ["F5", "F4-fold-0", "29-census-parents", "R30", "strict", "probe", "serving", "D4096", "t34-round0-study-01"],
+ "owner_rule": "docs/research/governance_a100_sandbox_20261026/ADOPTED.md",
+ "outputs": {"label": "simulator-D", "paths": ["/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-09/output"], "broker_manifest": {"path": "/Users/josenunez/Projects/ml/snake-dqn-train01-09-broker.noindex/research/sandbox_a_resident/packet-train01-09/dispatch-manifest.json", "sha256": "79013260fc8f439caf69d992d7eff44b3926da29ecfafc67310c98f957310887"}},
+ "crossing": {"max_frozen_checkpoint_shas": 1}}
