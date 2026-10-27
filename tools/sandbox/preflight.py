@@ -38,6 +38,13 @@ _B_HEADS_RUNTIME = {
         "namespace": "a100-dev/sandbox-b/heads-v2",
         "allocation": "split-v1",
     },
+    "sandbox-b-heads-v3": {
+        "resume_module": "research.sandbox_b_heads.resume_b3",
+        "core_module": "research.sandbox_b_heads.core_b3",
+        "schema": "sandbox-b-verified-ledger/v5",
+        "namespace": "a100-dev/sandbox-b/heads-v3",
+        "allocation": "split-v1",
+    },
 }
 
 

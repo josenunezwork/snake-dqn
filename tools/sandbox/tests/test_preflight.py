@@ -234,3 +234,41 @@ def test_b_heads_recipe_rejects_runtime_salt_or_endpoint_drift(tmp_path: Path) -
         )
 
     assert _runtime_updates(resume, None, recipe) == 15000
+
+
+def test_b3_recipe_binds_its_new_ledger_identity_and_configured_updates(tmp_path: Path) -> None:
+    """B-3 cannot inherit B-2's ledger identity or endpoint by accident."""
+    from research.sandbox_b_heads import resume_b3
+
+    data, b8 = tmp_path / "data.npz", tmp_path / "b8.pth"
+    data.write_bytes(b"closed-f0")
+    b8.write_bytes(b"frozen-b8")
+    payload = _payload()
+    payload["study"] = "sandbox-b-heads-v3"
+    payload["inputs"] = [
+        {"kind": "closed-f0", "path": str(data), "sha256": resume_b3.sha256(data)},
+        {"kind": "frozen-checkpoint", "path": str(b8), "sha256": resume_b3.sha256(b8)},
+    ]
+    recipe = resume_b3.recipe(data, b8, salt=payload["salt"])
+    payload["endpoint"] = {
+        "kind": "updates",
+        "value": _runtime_updates(resume_b3, "research.sandbox_b_heads.core_b3", recipe),
+    }
+    ledger = {
+        "schema": resume_b3.SCHEMA,
+        "namespace": resume_b3.NAMESPACE,
+        "allocation": resume_b3.ALLOCATION,
+        "recipe": recipe,
+        "fingerprint": resume_b3.fingerprint(recipe),
+    }
+    packet = {"env": {"SANDBOX_B_SALT": payload["salt"]}}
+    _validate_b_heads_runtime_recipe(
+        payload, packet, ledger, payload["inputs"][:1], payload["inputs"][1:]
+    )
+    assert payload["endpoint"]["value"] == 6000
+
+    ledger["schema"] = "sandbox-b-verified-ledger/v4"
+    with pytest.raises(PreflightError, match="foreign resume ledger identity"):
+        _validate_b_heads_runtime_recipe(
+            payload, packet, ledger, payload["inputs"][:1], payload["inputs"][1:]
+        )

@@ -55,6 +55,17 @@ def _b2_packet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
     return value
 
 
+def _b3_packet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
+    """Build a route-only B-3 packet without reading development results."""
+    value = _packet(tmp_path, monkeypatch)
+    b3_root = tmp_path / "sandbox-b3-artifacts"
+    monkeypatch.setitem(dispatch.SANDBOX_OUTPUT_ROOTS, "sandbox-b-heads-v3", b3_root)
+    value["job_id"] = "sandbox-b-heads-v3"
+    value["script"] = "research/sandbox_b_heads/run_b3.sh"
+    value["output_dir"] = str(b3_root / "a100-attempt-01")
+    return value
+
+
 def _bind_preflight(
     monkeypatch: pytest.MonkeyPatch,
     packet: dict,
@@ -117,6 +128,34 @@ def test_b2_cannot_use_the_original_b1_artifact_root(
     packet = _b2_packet(tmp_path, monkeypatch)
     packet["output_dir"] = str(tmp_path / "sandbox-artifacts" / "a100-attempt-02")
 
+    with pytest.raises(dispatch.Refused, match="isolated development artifact root"):
+        dispatch.require_sandbox_admission(packet, ROOT)
+
+
+def test_b3_is_limited_to_its_distinct_route_and_artifact_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    packet = _b3_packet(tmp_path, monkeypatch)
+
+    def b3_preflight(path: Path, *, run_tests: bool = True, **_kwargs):
+        assert path == TEN_LINE_MANIFEST
+        assert run_tests is True
+        return {
+            "study": "sandbox-b-heads-v3",
+            "outputs": {"broker_manifest": {"path": str(tmp_path / "broker-manifest.json")}},
+        }
+
+    broker_manifest = tmp_path / "broker-manifest.json"
+    broker_manifest.write_text(json.dumps(packet), encoding="utf-8")
+    monkeypatch.setattr(preflight, "preflight", b3_preflight)
+    from research.colab_cli import canary
+
+    device_checks: list[dict] = []
+    monkeypatch.setattr(canary, "job_device", lambda value, _repo: device_checks.append(value))
+    dispatch.require_sandbox_admission(packet, ROOT)
+
+    assert device_checks == [packet]
+    packet["output_dir"] = str(tmp_path / "sandbox-b2-artifacts" / "a100-attempt-01")
     with pytest.raises(dispatch.Refused, match="isolated development artifact root"):
         dispatch.require_sandbox_admission(packet, ROOT)
 
