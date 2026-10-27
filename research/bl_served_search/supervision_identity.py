@@ -18,7 +18,11 @@ from typing import Any
 POLICY = "classified-supervised-v2"
 MAX_PAYLOAD_BYTES = 65536
 TEMPLATES = {"usage", "sessions", "read_state", "renew_lease", "heartbeat_upload"}
-MODULES = {"tools.sandbox.supervisor", "research.colab_cli.supervisor"}
+MODULES = {
+    "tools.sandbox.supervisor",
+    "tools.sandbox.supervisor_v2",
+    "research.colab_cli.supervisor",
+}
 QUALIFIED_SOURCES = {
     "research/colab_cli/supervisor.py": (
         "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0"
@@ -220,6 +224,11 @@ def _registry_errors(registry: dict[str, Any]) -> list[str]:
             posixpath.join(root["repo"], "research/colab_cli/policy.py"),
             posixpath.join(root["repo"], "research/colab_cli/cli_guard.py"),
         }
+        if root["module"] == "tools.sandbox.supervisor_v2":
+            required_sources.update(
+                posixpath.join(root["repo"], "tools/sandbox", name)
+                for name in ("collector_v2.py", "supervision_accounting.py", "supervisor.py")
+            )
         for relative, expected_sha in QUALIFIED_SOURCES.items():
             if sources.get(posixpath.join(root["repo"], relative)) != expected_sha:
                 errors.append(label + ": qualified source version mismatch")
@@ -419,8 +428,10 @@ def _verify_identity(
         if seq != index or not _integer(time_ns) or time_ns < previous_time:
             errors.append("dropped/out-of-order lifecycle journal")
         previous_time = time_ns if _integer(time_ns) else previous_time
+    if any(row.get("kind") == "observation" for _, _, row in event_order):
+        errors.append("independent observation supplied inside lifecycle journal")
     combined = [
-        (time_ns, seq * 2, row)
+        (time_ns, seq * 2, False, row)
         for time_ns, seq, row in event_order
         if _integer(time_ns) and _integer(seq)
     ]
@@ -428,9 +439,9 @@ def _verify_identity(
         if not isinstance(row, dict) or not _integer(row.get("mono_ns")):
             errors.append("malformed identity observation")
             continue
-        combined.append((row["mono_ns"], 10**12 + index, {**row, "kind": "observation"}))
+        combined.append((row["mono_ns"], -(10**12) + index, True, {**row, "kind": "observation"}))
 
-    def check_root(row: dict[str, Any], time_ns: int) -> None:
+    def check_root(row: dict[str, Any], time_ns: int, independent: bool) -> None:
         root_id = row.get("root_id")
         root = roots.get(root_id)
         actual = row.get("identity")
@@ -443,9 +454,10 @@ def _verify_identity(
         if row.get("policy_source_hash") != registry["policy_source_hash"]:
             errors.append("root policy source mismatch")
             return
-        observed_roots.add(root_id)
-        root_last_seen[root_id] = time_ns
-        root_observations[root_id].append(time_ns)
+        if independent:
+            observed_roots.add(root_id)
+            root_last_seen[root_id] = time_ns
+            root_observations[root_id].append(time_ns)
         key = process_id(root)
         processes.setdefault(
             key,
@@ -462,10 +474,11 @@ def _verify_identity(
             },
         )
 
-    for time_ns, _, row in sorted(combined, key=lambda item: (item[0], item[1])):
+    pending_phases = []
+    for time_ns, _, independent, row in sorted(combined, key=lambda item: (item[0], item[1])):
         kind = row.get("kind")
         if kind == "root_identity" or (kind == "observation" and row.get("root_id") is not None):
-            check_root(row, time_ns)
+            check_root(row, time_ns, independent)
         elif kind == "operation_start":
             op_id = row.get("operation_id")
             root = roots.get(row.get("root_id"))
@@ -654,26 +667,36 @@ def _verify_identity(
             ):
                 errors.append("invalid phase coverage brackets")
                 continue
-            if phase != "bookkeeping":
-                operation = operations.get(row.get("operation_id"))
-                if (
-                    operation is None
-                    or operation["root_id"] != root["id"]
-                    or phase != operation["template"]
-                    or operation["start_ns"] > start_ns
-                    or operation["end_ns"] is None
-                    or operation["end_ns"] < end_ns
-                ):
-                    errors.append("in-process phase not covered by authenticated operation")
-                    continue
-            phases[root["id"]].append(row)
+            pending_phases.append(row)
         else:
             errors.append("unrecognized lifecycle journal event")
     if observed_roots != set(roots):
         errors.append("root identity never independently observed")
     capture_start, capture_end = registry["capture_start_ns"], registry["capture_end_ns"]
     if not final:
-        capture_end = max((time_ns for time_ns, _, _ in combined), default=capture_start)
+        capture_end = max((time_ns for time_ns, _, _, _ in combined), default=capture_start)
+    # Resolve spans only after all completion rows are indexed. Online prefixes
+    # may cover a live operation up to the earlier capture/deadline boundary.
+    for row in pending_phases:
+        if row["phase"] != "bookkeeping":
+            operation = operations.get(row.get("operation_id"))
+            stop = None if operation is None else operation["end_ns"]
+            if operation is not None and stop is None and not final:
+                stop = min(
+                    capture_end,
+                    operation["start_ns"] + int(operation["timeout_seconds"] * 1_000_000_000),
+                )
+            if (
+                operation is None
+                or operation["root_id"] != row["root_id"]
+                or row["phase"] != operation["template"]
+                or operation["start_ns"] > row["start_ns"]
+                or stop is None
+                or stop < row["end_ns"]
+            ):
+                errors.append("in-process phase not covered by authenticated operation")
+                continue
+        phases[row["root_id"]].append(row)
     for operation in operations.values():
         if (
             operation["end_ns"] is None

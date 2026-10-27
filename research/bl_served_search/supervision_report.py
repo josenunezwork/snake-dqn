@@ -329,39 +329,32 @@ def _rolling_cpu_max(
     conservative: bool,
 ) -> float | None:
     """Recompute a cell maximum, carrying pre-cell debt without prorating bounds."""
-    candidates = {start, end}
+    if end < start:
+        raise ValueError("invalid rolling scope")
+    # Sweep open active intervals on the real time axis. Integer midpoints
+    # cannot represent a peak inside an open interval only one nanosecond wide.
+    edges = {}
+    total = 0.0
     for charge in charges:
-        for point in (
-            charge["start_ns"],
-            charge["end_ns"],
-            charge["start_ns"] + window_ns,
-            charge["end_ns"] + window_ns,
-        ):
-            if start <= point <= end:
-                candidates.add(point)
-    # Strict half-open overlap can peak immediately inside adjacent boundary
-    # points: e.g. [0,1] and [10,11] both belong to a 10s window ending at
-    # 10.5, while neither boundary endpoint includes both.  Evaluate every
-    # open interval's integer midpoint as well as the endpoints.
-    ordered = sorted(candidates)
-    evaluation_points = set(ordered)
-    for left_point, right_point in zip(ordered, ordered[1:]):
-        if right_point - left_point > 1:
-            evaluation_points.add(left_point + (right_point - left_point) // 2)
-    values = []
-    for right in evaluation_points:
-        left, total = right - window_ns, 0.0
-        for charge in charges:
-            overlap = _overlap(left, right, charge["start_ns"], charge["end_ns"])
-            if overlap:
-                # Observed totals are endpoint-assigned sampled deltas; bounds
-                # charge the full unresolved amount to every intersecting window.
-                if conservative:
-                    total += charge[field]
-                elif left < charge["end_ns"] <= right:
-                    total += charge[field]
-        values.append(total)
-    return max(values) if values else None
+        left = charge["start_ns"] if conservative else charge["end_ns"]
+        right = charge["end_ns"] + window_ns
+        amount = charge[field]
+        if left < start < right:
+            total += amount
+        if start <= left <= end:
+            edges.setdefault(left, [0.0, 0.0])[0] += amount
+        if start < right <= end:
+            edges.setdefault(right, [0.0, 0.0])[1] += amount
+    maximum = total
+    for point in sorted(edges):
+        added, removed = edges[point]
+        total -= removed
+        maximum = max(maximum, total)
+        # Conservative starts are open; there must be scope to their right.
+        if point < end or not conservative:
+            total += added
+            maximum = max(maximum, total)
+    return maximum
 
 
 def summarize_scope(start_ns: int, end_ns: int, replay_result: Mapping[str, Any]) -> dict[str, Any]:

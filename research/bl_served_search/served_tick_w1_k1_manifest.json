@@ -1,0 +1,37 @@
+{
+  "manifest_id": "served-tick-w1-k1-contention-v1",
+  "schema": "served-tick-diagnostic/v1",
+  "study": "served-tick-20261026",
+  "fps": 24,
+  "warmup_ticks": 200,
+  "measured_ticks": 2400,
+  "observer_ticks": 120,
+  "workers": 1,
+  "max_pending": 1,
+  "worker_mode": "active",
+  "operator_mode": "exact_stop",
+  "fixtures_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-l2/ruler-fixtures-08-final/ruler-fixtures.json",
+  "fixtures_sha256": "bbe6975642512091ba279d9ff7c870000d68faa18e30063807f47af1352e8574",
+  "reference_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-l2/y1-native-mac/ruler-receipt.json",
+  "reference_sha256": "b97f73d2384a95455beb3c0d243caba513f5f307edc85d0a8da4b81f5e1ac791",
+  "base_timeout_seconds": 3600,
+  "timeout_seconds": 7200,
+  "registry_path": "tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
+  "registry_sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+  "seeds": [
+    526572561647416456,
+    13180491676239199641,
+    6225946669805084767
+  ],
+  "observer_seed": 3333956771624233417,
+  "arms": ["isolated", "w1_k1"],
+  "order": [
+    {"arm": "isolated", "seed_index": 0},
+    {"arm": "w1_k1", "seed_index": 0},
+    {"arm": "w1_k1", "seed_index": 1},
+    {"arm": "isolated", "seed_index": 1},
+    {"arm": "isolated", "seed_index": 2},
+    {"arm": "w1_k1", "seed_index": 2}
+  ],
+  "instrumented_observer_order": ["uninstrumented", "instrumented"]
+}

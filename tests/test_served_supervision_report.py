@@ -336,3 +336,23 @@ def test_production_gap_does_not_bridge_a_permitted_operation() -> None:
     )
     assert report["timing"]["overall"]["metrics"]["client_frame_gap_ns"]["count"] == 1
     assert report["timing"]["low_background"]["metrics"]["client_frame_gap_ns"]["count"] == 0
+
+
+def test_conservative_rolling_peak_in_one_nanosecond_open_interval() -> None:
+    from research.bl_served_search.supervision_report import _rolling_cpu_max
+
+    charges = [
+        {"start_ns": 1_000_000_000, "end_ns": 2_000_000_000, "cpu_s": 1.0},
+        {"start_ns": 11_999_999_999, "end_ns": 13_000_000_000, "cpu_s": 1.0},
+    ]
+    assert (
+        _rolling_cpu_max(charges, 0, 25_000_000_000, 10_000_000_000, "cpu_s", conservative=True)
+        == 2.0
+    )
+    # Clipping excludes peaks outside the cell while retaining incoming debt.
+    assert (
+        _rolling_cpu_max(
+            charges, 12_000_000_000, 13_000_000_000, 10_000_000_000, "cpu_s", conservative=True
+        )
+        == 1.0
+    )

@@ -13,32 +13,27 @@ claim that an arbitrary existing supervisor has been observed or admitted.
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import hashlib
-import json
 import math
 import os
 import subprocess
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from research.bl_paced_identity.record import export_json
+from research.bl_paced_identity.events import canonical_bytes
+from research.bl_paced_identity.record import export_json, read_export
 
 POLICY_VERSION = "classified-supervised-v2"
 CAPABILITY = "NOT_ADMISSIBLE"
 MAX_APPLICATION_PAYLOAD_BYTES = 64 * 1024
+COLLECTOR_VERSION = "sandbox-child-collector/v2"
 ALLOWED_TEMPLATES = frozenset(
-    {
-        "status",
-        "terminal_state",
-        "usage",
-        "sessions",
-        "read_state",
-        "renew_lease",
-        "heartbeat_upload",
-    }
+    {"usage", "sessions", "read_state", "renew_lease", "heartbeat_upload"}
 )
 
 
@@ -56,7 +51,7 @@ class LaunchAccountingError(AccountingError):
 
 
 def _canonical_json(value: Mapping[str, Any]) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return canonical_bytes(value)
 
 
 def _finite_nonnegative(value: Any, name: str) -> float:
@@ -115,11 +110,18 @@ class ImmutableJournal:
     subprocess timeout/cleanup safety paths.
     """
 
-    def __init__(self, directory: Path, *, policy_version: str = POLICY_VERSION) -> None:
+    def __init__(
+        self,
+        directory: Path,
+        *,
+        policy_version: str = POLICY_VERSION,
+        context_sha256: str | None = None,
+    ) -> None:
         if not policy_version:
             raise AccountingError("policy version is required")
         self.directory = Path(directory)
         self.policy_version = policy_version
+        self.context_sha256 = context_sha256
         self.events_dir = self.directory / "events"
         self.events_dir.mkdir(parents=True, exist_ok=False)
         self._sequence = 0
@@ -156,27 +158,47 @@ class ImmutableJournal:
                 body: dict[str, Any] = {
                     "policy_version": self.policy_version,
                     "capability": CAPABILITY,
-                    "sequence": sequence,
+                    "collector_version": COLLECTOR_VERSION,
+                    "context_sha256": self.context_sha256,
+                    "seq": sequence,
                     "kind": kind,
-                    "monotonic_ns": observed_ns,
+                    "mono_ns": observed_ns,
                     "previous_sha256": self._previous_sha256,
-                    "payload": dict(payload),
+                    **dict(payload),
                 }
+                if set(payload) & {
+                    "seq",
+                    "mono_ns",
+                    "kind",
+                    "sha256",
+                    "previous_sha256",
+                    "policy_version",
+                    "capability",
+                    "collector_version",
+                    "context_sha256",
+                }:
+                    raise AccountingError("reserved journal field")
                 digest = sha256_bytes(_canonical_json(body))
                 record = {**body, "sha256": digest}
                 path = self.events_dir / f"{sequence:08d}-{kind}.json"
+            except (TypeError, ValueError) as exc:
+                raise AccountingError("invalid journal payload") from exc
+            # Validation cannot leave partial evidence. Once writing starts,
+            # any failure must poison the journal because a triplet may exist.
+            self._failed = True
+            try:
                 export_json(path, record)
             except BaseException as exc:
-                self._failed = True
                 if isinstance(exc, AccountingError):
                     raise
                 raise AccountingError("immutable journal write failed") from exc
             self._sequence = sequence
             self._last_monotonic_ns = observed_ns
             self._previous_sha256 = digest
+            self._failed = False
             return {"sequence": sequence, "sha256": digest, "path": str(path)}
 
-    def seal(self) -> dict[str, Any]:
+    def seal(self, *, status_sha256: str | None = None) -> dict[str, Any]:
         """Create a completion record binding the complete event chain."""
         with self._lock:
             if self._sealed:
@@ -187,6 +209,9 @@ class ImmutableJournal:
                 "policy_version": self.policy_version,
                 "capability": CAPABILITY,
                 "event_count": self._sequence,
+                "collector_version": COLLECTOR_VERSION,
+                "context_sha256": self.context_sha256,
+                "status_sha256": status_sha256,
                 "terminal_event_sha256": self._previous_sha256,
             }
             path = self.directory / "COMPLETE.json"
@@ -199,48 +224,77 @@ class ImmutableJournal:
             return {**result, "sha256": digest, "path": str(path)}
 
 
-class Wait4Popen(subprocess.Popen[bytes]):
-    """``Popen`` that retains the rusage from every internal reaping path.
+class _Timeval(ctypes.Structure):
+    _fields_ = [("seconds", ctypes.c_long), ("microseconds", ctypes.c_long)]
 
-    CPython can reap through either ``_try_wait`` (the normal wait path) or
-    ``_internal_poll`` (including destructor/poll paths).  Both must use
-    ``wait4`` or a fast child can disappear before the adapter asks for final
-    accounting.  This class is only for a future sandbox adapter's compact
-    children; it does not monkeypatch the qualified supervisor globally.
-    """
+
+class _Rusage(ctypes.Structure):
+    # Darwin and Linux rusage: two timevals followed by fourteen native longs.
+    _fields_ = [("user", _Timeval), ("system", _Timeval), ("rest", ctypes.c_long * 14)]
+
+
+def _native_wait4(pid: int, flags: int) -> tuple[int, int, dict[str, int] | None]:
+    """Retain kernel timeval integers instead of rounding Python float seconds."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    wait4 = libc.wait4
+    wait4.argtypes = [
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.c_int,
+        ctypes.POINTER(_Rusage),
+    ]
+    wait4.restype = ctypes.c_int
+    status, usage = ctypes.c_int(), _Rusage()
+    while True:
+        child = wait4(pid, ctypes.byref(status), flags, ctypes.byref(usage))
+        if child >= 0:
+            break
+        error = ctypes.get_errno()
+        if error != errno.EINTR:
+            raise OSError(error, os.strerror(error))
+    counters = None
+    if child:
+
+        def ns(value: _Timeval) -> int:
+            if value.seconds < 0 or not 0 <= value.microseconds < 1_000_000:
+                raise AccountingError("invalid native final counter")
+            return value.seconds * 1_000_000_000 + value.microseconds * 1000
+
+        counters = {"user_cpu_ns": ns(usage.user), "system_cpu_ns": ns(usage.system)}
+    return child, status.value, counters
+
+
+class Wait4Popen(subprocess.Popen[bytes]):
+    """Retain exact per-child kernel counters on wait, poll and communicate."""
 
     final_rusage: Any | None = None
     final_wait_status: int | None = None
 
     def _wait4(self, wait_flags: int) -> tuple[int, int]:
         try:
-            pid, status, usage = os.wait4(self.pid, wait_flags)
-        except ChildProcessError:
-            # Match CPython's _try_wait fallback, but retain the fact that a
-            # final resource counter is unavailable for the evidence layer.
-            return self.pid, 0
+            pid, status, usage = _native_wait4(self.pid, wait_flags)
+        except ChildProcessError as exc:
+            # A different reaper has destroyed both status and final counters.
+            # Never feed a synthetic success status to Popen._handle_exitstatus.
+            self.returncode = 255
+            raise AccountingError("child was already reaped; final CPU is unavailable") from exc
         if pid == self.pid:
             self.final_rusage = usage
             self.final_wait_status = status
         return pid, status
 
     def _try_wait(self, wait_flags: int) -> tuple[int, int]:
-        """CPython wait hook that preserves per-child final rusage."""
         return self._wait4(wait_flags)
 
     def _internal_poll(self, _deadstate: int | None = None) -> int | None:
-        """CPython poll hook that preserves per-child final rusage."""
         if self.returncode is None:
             if not self._waitpid_lock.acquire(False):
                 return None
             try:
-                if self.returncode is not None:
-                    return self.returncode
-                pid, status = self._wait4(os.WNOHANG)
-                if pid == self.pid and self.final_rusage is not None:
-                    self._handle_exitstatus(status)
-                elif pid == self.pid and _deadstate is not None:
-                    self.returncode = _deadstate
+                if self.returncode is None:
+                    pid, status = self._wait4(os.WNOHANG)
+                    if pid == self.pid:
+                        self._handle_exitstatus(status)
             finally:
                 self._waitpid_lock.release()
         return self.returncode
@@ -262,6 +316,8 @@ class TrackedChild:
     launch_monotonic_ns: int
     parent_pid: int
     birth_ns: int
+    identity: dict[str, Any] = field(default_factory=dict)
+    parent_identity: str = ""
 
 
 def launch_operation(
@@ -273,6 +329,7 @@ def launch_operation(
     parent_identity: str,
     cwd: Path | None = None,
     env: Mapping[str, str] | None = None,
+    identity_metadata: Mapping[str, Any] | None = None,
 ) -> tuple[Wait4Popen, TrackedChild]:
     """Launch and immediately record a direct child for future-only accounting.
 
@@ -288,32 +345,53 @@ def launch_operation(
     normalized = tuple(str(part) for part in argv)
     if not normalized or not normalized[0]:
         raise AccountingError("argv must contain an executable")
+    _canonical_json(payload)
     launch_ns = time.monotonic_ns()
+    record_operation_start(journal, operation_id, payload, monotonic_ns=launch_ns)
     child = Wait4Popen(normalized, cwd=cwd, env=None if env is None else dict(env))
+    import psutil
+
     tracked = TrackedChild(
-        operation_id=operation_id,
-        pid=child.pid,
-        uid=os.getuid(),
-        argv=normalized,
-        launch_monotonic_ns=launch_ns,
-        parent_pid=os.getpid(),
-        birth_ns=launch_ns,
+        operation_id,
+        child.pid,
+        os.getuid(),
+        normalized,
+        launch_ns,
+        os.getpid(),
+        0,
+        {},
+        parent_identity,
     )
     try:
+        birth_ns = round(psutil.Process(child.pid).create_time() * 1_000_000) * 1000
+        identity = {
+            **dict(identity_metadata or {}),
+            "pid": child.pid,
+            "birth_ns": birth_ns,
+            "uid": os.getuid(),
+            "argv": list(normalized),
+            "cwd": str(Path(cwd or Path.cwd()).resolve()),
+        }
+        tracked = TrackedChild(
+            operation_id=operation_id,
+            pid=child.pid,
+            uid=os.getuid(),
+            argv=normalized,
+            launch_monotonic_ns=launch_ns,
+            parent_pid=os.getpid(),
+            birth_ns=birth_ns,
+            identity=identity,
+            parent_identity=parent_identity,
+        )
         journal.append(
             "launch",
             {
                 "operation_id": operation_id,
-                "pid": tracked.pid,
-                "birth_ns": tracked.birth_ns,
-                "birth_identity_kind": "launch_monotonic_bracket_not_os_creation",
-                "uid": tracked.uid,
+                "identity": identity,
                 "parent": parent_identity,
-                "argv": list(tracked.argv),
-                "cwd": str(Path(cwd).resolve()) if cwd is not None else None,
-                "payload": dict(payload),
+                "launch_start_ns": launch_ns,
+                "launch_end_ns": time.monotonic_ns(),
             },
-            monotonic_ns=launch_ns,
         )
     except BaseException as exc:
         # Do not terminate or otherwise alter the operation here: a qualified
@@ -329,67 +407,89 @@ def record_root_identity(
     root_id: str,
     identity: Mapping[str, Any],
     *,
+    policy_source_hash: str,
     monotonic_ns: int | None = None,
 ) -> dict[str, Any]:
     """Record a registry-verified root identity before any child operation."""
     if not root_id:
         raise AccountingError("root_id is required")
     return journal.append(
-        "root_identity", {"root_id": root_id, "identity": dict(identity)}, monotonic_ns=monotonic_ns
+        "root_identity",
+        {"root_id": root_id, "identity": dict(identity), "policy_source_hash": policy_source_hash},
+        monotonic_ns=monotonic_ns,
     )
 
 
 def record_exec(
     journal: ImmutableJournal,
     tracked: TrackedChild,
-    identity: str = "permitted_helper",
+    identity: Mapping[str, Any] | None = None,
     *,
     monotonic_ns: int | None = None,
 ) -> dict[str, Any]:
-    """Record the observed permitted executable identity for a direct child."""
-    if identity != "permitted_helper":
-        raise AccountingError("unpermitted child exec identity")
+    """Record an exact exec identity; the verifier rejects changed executables."""
     return journal.append(
         "exec",
-        {"pid": tracked.pid, "birth_ns": tracked.birth_ns, "identity": identity},
+        {
+            "identity": dict(tracked.identity if identity is None else identity),
+            "parent": tracked.parent_identity,
+            "operation_id": tracked.operation_id,
+        },
         monotonic_ns=monotonic_ns,
     )
 
 
 def record_operation_start(
     journal: ImmutableJournal,
-    tracked: TrackedChild,
+    operation_id: str,
     payload: Mapping[str, Any],
     *,
     monotonic_ns: int | None = None,
 ) -> dict[str, Any]:
-    """Start a permitted compact operation after launch and exec verification."""
-    template = payload.get("template_id")
+    """Start before spawn with the verifier's flat fixed-template metadata."""
+    template = payload.get("template", payload.get("template_id"))
     if template not in ALLOWED_TEMPLATES:
         raise AccountingError("operation template is not permitted")
     return journal.append(
         "operation_start",
         {
-            "operation_id": tracked.operation_id,
-            "pid": tracked.pid,
-            "birth_ns": tracked.birth_ns,
+            **dict(payload),
+            "operation_id": operation_id,
             "template": template,
-            "request_bytes": payload.get("request_bytes"),
-            "response_bytes": payload.get("response_bytes"),
-            "payload": dict(payload),
         },
         monotonic_ns=monotonic_ns,
     )
 
 
 def record_operation_end(
-    journal: ImmutableJournal, operation_id: str, *, monotonic_ns: int | None = None
+    journal: ImmutableJournal,
+    operation_id: str,
+    *,
+    request: bytes = b"",
+    response: bytes = b"",
+    monotonic_ns: int | None = None,
 ) -> dict[str, Any]:
-    """End a permitted operation; its final CPU still arrives through wait4."""
-    if not operation_id:
-        raise AccountingError("operation_id is required")
+    """Complete after every exit with independently captured byte counts/digests."""
+    if not isinstance(request, bytes) or not isinstance(response, bytes):
+        raise AccountingError("operation captures must be bytes")
     return journal.append(
-        "operation_end", {"operation_id": operation_id}, monotonic_ns=monotonic_ns
+        "operation_end",
+        {
+            "operation_id": operation_id,
+            "response_bytes": len(response),
+            "response_digest": sha256_bytes(response),
+            "request_capture": {
+                "bytes": len(request),
+                "digest": sha256_bytes(request),
+                "independent": True,
+            },
+            "response_capture": {
+                "bytes": len(response),
+                "digest": sha256_bytes(response),
+                "independent": True,
+            },
+        },
+        monotonic_ns=monotonic_ns,
     )
 
 
@@ -407,11 +507,12 @@ def wait4_exit(
     usage = child.final_rusage
     if usage is None:
         raise AccountingError("child was already reaped; final CPU is unavailable")
-    user_seconds = _finite_nonnegative(usage.ru_utime, "final user CPU counter")
-    system_seconds = _finite_nonnegative(usage.ru_stime, "final system CPU counter")
-    final_cpu_seconds = user_seconds + system_seconds
-    if not math.isfinite(final_cpu_seconds):
-        raise AccountingError("final child CPU counter is nonfinite")
+    if not isinstance(usage, dict) or any(
+        type(usage.get(key)) is not int or usage[key] < 0
+        for key in ("user_cpu_ns", "system_cpu_ns")
+    ):
+        raise AccountingError("final CPU requires exact finite native integer counters")
+    user_ns, system_ns = usage["user_cpu_ns"], usage["system_cpu_ns"]
     exit_ns = time.monotonic_ns()
     result = {
         "operation_id": tracked.operation_id,
@@ -423,13 +524,16 @@ def wait4_exit(
         "exit_monotonic_ns": exit_ns,
         "wait_status": child.final_wait_status,
         "returncode": child.returncode,
-        "user_cpu_seconds": user_seconds,
-        "system_cpu_seconds": system_seconds,
-        "final_cpu": final_cpu_seconds,
+        "user_cpu_ns": user_ns,
+        "system_cpu_ns": system_ns,
+        "final_cpu_ns": user_ns + system_ns,
+        "native_resolution_ns": 1000,
         # A direct wait4 counter may include work of descendants already reaped
         # by this helper.  A reducer must refuse this until launch/exit records
         # establish a non-overlapping exclusive allocation or reconcile it.
-        "final_cpu_scope": "descendant_inclusive",
+        "final_scope": "subtree",
+        "descendants_complete": False,
+        "final_inclusions": [],
         "accounting_kind": "wait4-direct-child-self",
     }
     journal.append("exit", result, monotonic_ns=exit_ns)
@@ -462,3 +566,36 @@ def record_counter_sample(
     }
     journal.append("counter_sample", result, monotonic_ns=monotonic_ns)
     return result
+
+
+def read_journal(directory: Path) -> list[dict[str, Any]]:
+    """Verify immutable sidecars, sequence, timestamps, hash chain and final seal."""
+    directory = Path(directory)
+    seal = read_export(directory / "COMPLETE.json")
+    records, previous, last = [], None, -1
+    paths = sorted((directory / "events").glob("*.json"))
+    if len(paths) != seal["event_count"] or seal["policy_version"] != POLICY_VERSION:
+        raise AccountingError("journal count/policy mismatch")
+    for index, path in enumerate(paths, 1):
+        row = read_export(path)
+        body = {key: value for key, value in row.items() if key != "sha256"}
+        if (
+            row["seq"] != index
+            or row["mono_ns"] <= last
+            or row["previous_sha256"] != previous
+            or row["sha256"] != sha256_bytes(_canonical_json(body))
+            or row["policy_version"] != POLICY_VERSION
+            or row["collector_version"] != COLLECTOR_VERSION
+            or row["context_sha256"] != seal["context_sha256"]
+        ):
+            raise AccountingError("journal chain/sequence/time mismatch")
+        records.append(row)
+        previous, last = row["sha256"], row["mono_ns"]
+    expected_parts = {
+        path.name + suffix for path in paths for suffix in ("", ".sha256", ".complete")
+    }
+    if {path.name for path in (directory / "events").iterdir()} != expected_parts:
+        raise AccountingError("journal contains unexpected or orphan components")
+    if previous != seal["terminal_event_sha256"]:
+        raise AccountingError("journal terminal hash mismatch")
+    return records

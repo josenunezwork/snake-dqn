@@ -187,6 +187,7 @@ def fixture(template: str = "read_state") -> tuple[dict, list, list]:
             "policy_source_hash": registry["policy_source_hash"],
         }
     ]
+    observations.append(dict(copy.deepcopy(observations[0]), mono_ns=0))
     return registry, events, observations
 
 
@@ -403,7 +404,7 @@ def qualified_fixture(seconds: int = 65, template: str = "read_state") -> tuple[
     final = observations[0]
     observations = [
         dict(copy.deepcopy(final), mono_ns=time_ns)
-        for time_ns in range(5_000_000_000, end_ns + 1, 5_000_000_000)
+        for time_ns in range(0, end_ns + 1, 5_000_000_000)
     ]
     if not observations or observations[-1]["mono_ns"] != end_ns:
         observations.append(dict(copy.deepcopy(final), mono_ns=end_ns))
@@ -414,7 +415,7 @@ def test_full_admission_fixture_retains_every_root_phase_and_observation() -> No
     registry, events, observations = qualified_fixture()
     result = verify_identity(registry, events, observations)
     assert result["valid"], result["errors"]
-    assert len(observations) == 13
+    assert len(observations) == 14
     assert result["verified_phases"]["train"][0]["end_ns"] == 65_000_000_000
 
 
@@ -562,3 +563,39 @@ def test_every_transport_attempt_spends_payload_allowance(complete_capture: bool
             result["verified_operations"]["poll-1"]["accounted_request_bytes"]
             == events[1]["request_bytes"] * 2
         )
+
+
+def test_journal_roots_cannot_replace_independent_observations() -> None:
+    registry, events, _ = fixture()
+    for row in (events[0],):
+        assert row["kind"] == "root_identity"
+    result = verify_identity(registry, events, [])
+    assert not result["valid"]
+    assert "root identity never independently observed" in result["errors"]
+
+
+def test_journal_cannot_supply_observation_kind() -> None:
+    registry, events, observations = fixture()
+    events[0]["kind"] = "observation"
+    assert not verify_identity(registry, events, observations)["valid"]
+
+
+@pytest.mark.parametrize("ongoing", [False, True])
+def test_operation_phase_replays_before_end_and_during_online_prefix(ongoing) -> None:
+    registry, events, observations = fixture("usage")
+    phase = copy.deepcopy(events[-1])
+    phase.update(
+        phase="usage",
+        operation_id="poll-1",
+        start_ns=1_000_000_000,
+        end_ns=3_000_000_000,
+        mono_ns=3_000_000_000,
+    )
+    phase["provenance"]["callsite"] = "CLI.usage"
+    events.insert(4, phase)
+    if ongoing:
+        events = [row for row in events if row["kind"] not in {"operation_end", "exit"}]
+    for index, event in enumerate(events, 1):
+        event["seq"] = index
+    result = verify_identity(registry, events, observations, final=not ongoing)
+    assert result["valid"], result["errors"]

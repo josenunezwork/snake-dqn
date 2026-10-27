@@ -568,3 +568,23 @@ def test_per_root_self_and_helper_totals_and_maxima_remain_separate() -> None:
     assert r["roots"]["root"]["maxima"]["conservative_burst_pct"] == 30
     assert r["roots"]["lane2"]["maxima"]["conservative_10s_cpu_s"] == 0.1
     assert r["maxima"]["conservative_10s_cpu_s"] == 0.4
+
+
+@pytest.mark.parametrize("case", ["born_during_sweep", "exit_during_sweep", "exit_at_start"])
+def test_capture_bracket_birth_exit_races_keep_all_final_cpu(case) -> None:
+    e = evidence()
+    if case == "born_during_sweep":
+        helper(e, launch=SECOND - 25_000_000, exit=SECOND + SECOND // 2, cpu=SECOND // 10)
+        e["samples"][1]["capture_start_ns"] = SECOND - 50_000_000
+        e["samples"][1]["cpu_ns"].pop("helper")
+    elif case == "exit_during_sweep":
+        helper(e, launch=SECOND // 2, exit=SECOND - 25_000_000, cpu=SECOND // 10)
+        e["samples"][1]["capture_start_ns"] = SECOND - 50_000_000
+        e["samples"][1]["cpu_ns"]["helper"] = SECOND // 20
+    else:
+        helper(e, launch=SECOND // 2, exit=SECOND, cpu=SECOND // 10)
+        e["samples"][1]["cpu_ns"]["helper"] = SECOND // 20
+    result = replay_cpu(e)
+    assert result["valid"], result["errors"]
+    assert result["observed_cpu_s"] == 0.1
+    assert sum(c["cpu_ns"] for c in result["charges"]) == SECOND // 10

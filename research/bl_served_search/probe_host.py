@@ -279,7 +279,7 @@ def _owned_inventory(owner_pid: int) -> list[dict[str, Any]]:
     rows = []
     try:
         owner = psutil.Process(owner_pid)
-        processes = [owner, *owner.children()]
+        processes = [owner, *owner.children(recursive=True)]
     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as exc:
         return [{"pid": owner_pid, "status": f"unavailable_during_sample:{type(exc).__name__}"}]
     for process in processes:
