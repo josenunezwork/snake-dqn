@@ -1,0 +1,12 @@
+TRAIN-01-11: prepared only; operator dispatch required.
+Runtime pin: e86e4b0bc8ea37550103b14652878d1b63f5b0e1
+Critic E360 resident observation arena; calibration E24; PPO recipe and telemetry retained.
+Source delivery: background-sparse-v1; qualified transport unchanged.
+Same seed allocation domain and reused exhaustive audit; fresh source-bound empty ledger.
+Same shared 8,388,608-row preparation cap, support/quality gates and 8h base/16h effective guard.
+No CUDA timing or capacity qualification claimed by CPU preflight.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-11-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-11 /Users/josenunez/Projects/ml/snake-dqn-train01-11-broker.noindex/research/sandbox_a_resident/packet-train01-11/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-11-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-11-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-11/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-11-broker.noindex/research/sandbox_a_resident/packet-train01-11/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve detached checkouts and prior evidence.
