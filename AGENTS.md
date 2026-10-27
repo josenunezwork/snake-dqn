@@ -71,10 +71,18 @@ existing jobs under the old protocol; do not create a non-Q1 job, migrate an exi
 legacy worker. Its old Drive-mount, shared-directory, heartbeat, and blocking-cell instructions remain relevant
 solely when operating that existing work.
 
+## Implementers (owner 2026-10-27, standing)
+
+Project code is implemented and reviewed only by **Argon** (Gemini 4 Argon via the
+Antigravity CLI, own git worktree, local commits) and **Astra** (Codex). The reviewer is
+always the other one; an author never reviews its own build. Do not use the Sol
+implementer persona for this project.
+
+
 ## Operations — Resume-by-default
 
 [Ruling (2)](docs/research/advice/2026-10-21_big_lever/JUDGMENT_RESUME_POLICY.md#2-standing-requirement--idempotent-completed-units--verified-ledger-resume-skip)
-is binding for every future Sol Colab package, development and registered. Before
+is binding for every future Colab package (any implementer), development and registered. Before
 Mac preflight, provide and offline-test deterministic idempotent exported units
 (namespace + frozen allocation index), atomic immutable payloads with SHA sidecars
 and completion markers published last, and a Mac-verified ledger that skips exactly
@@ -113,7 +121,7 @@ or sequential pause points. For trajectories, resume only the latest verified
 eligible full-state snapshot. The declaration does not launch automatic completion
 retries or prove package behavior; the existing single exact accounting allocation
 retry remains unchanged. Canary proof must match current code and manifest pin
-before main dispatch. Claude/operator dispatches; Sol prepares and tests.
+before main dispatch. Claude/operator dispatches; the implementer (Argon or Astra) prepares and tests.
 
 **Owner's 2× rule:** all new Colab unit caps, reserves, and timeouts are twice the
 ruling/forecast values, frozen before data. Record base and effective envelopes;
