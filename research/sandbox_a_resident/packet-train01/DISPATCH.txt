@@ -1,0 +1,25 @@
+TRAIN-01: finite simulator-D development, operator dispatch only.
+Runtime packet pin: 6ee2abbcc92f3ca7070c301a4ffe2d12145afcc4
+Clean detached runtime checkout at that exact pin:
+/Users/josenunez/Projects/ml/snake-dqn-train01-runtime.noindex
+Clean detached host broker containing this committed packet:
+/Users/josenunez/Projects/ml/snake-dqn-train01-broker.noindex
+The broker HEAD is the packet seal; its shipped runtime bytes match the pin.
+Two checkouts avoid a self-referential source SHA while committing admission files.
+Endpoint: 100663296 actor rows, E1024/T256; balanced thirds per Astra.
+Preparation: bounded temperature calibration and E24 complete-life critic qualification.
+H5000 rectangular mechanics-v1, full 10400 body storage, bare B8 actor.
+Base 8-hour / effective 16-hour runaway guard; per-file export bound 2 GiB.
+Outputs are development evidence only; no checkpoint crosses into Mac efficacy here.
+Runtime begins with current-pin CUDA checks and the 32-world/mix distribution screen.
+No GPU job has been launched by preparation, preflight or dry-run.
+A failed preparation endpoint ends this attempt before any actor update.
+At most two manual RPC-poll mechanical completions, only after verified release,
+using training_completion; no automatic workload retry or checkpoint replacement.
+The qualified transport, F5, certified R2/T4A bytes and serving remain untouched.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-01 /Users/josenunez/Projects/ml/snake-dqn-train01-broker.noindex/research/sandbox_a_resident/packet-train01/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-01/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-broker.noindex/research/sandbox_a_resident/packet-train01/DISPATCH.txt
+
+Dry-run: append --dry-run to the exact command above. It does not allocate or
+reserve the dispatch identity. Preserve both detached checkouts and this packet.
