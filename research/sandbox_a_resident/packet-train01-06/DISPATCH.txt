@@ -1,0 +1,17 @@
+TRAIN-01-06: simulator-D development; preparation storage, liveness and cheap-screen repair.
+Runtime pin: af3a445d0def4457fe4d6f853e529e20beae913e
+Clean detached runtime: /Users/josenunez/Projects/ml/snake-dqn-train01-06-runtime.noindex
+Clean detached broker: /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex
+Broker HEAD seals this packet; runtime closure matches published pin.
+Fresh E32 startup engineering screen: all three mixes, both engines, 256-frame early-life prefix of H5000 tasks.
+Complete H5000 diagnostic remains callable. Verified full-trajectory resume skips the startup screen.
+No attempt-05 calibration-only state migrated; fresh source-bound empty ledger.
+Preparation retained rows own storage; <=60s timed progress; 900s no-progress native watchdog.
+Parent launcher seals stack/last-progress diagnostics after child exit, preserving nonzero code.
+Frozen recipe, endpoint, seed allocations and 2x time envelope unchanged.
+CPU checks do not qualify A100 kernels/timing/Inductor; no runtime dispatched.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-06 /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex/research/sandbox_a_resident/packet-train01-06/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-06-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-06/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex/research/sandbox_a_resident/packet-train01-06/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve both detached checkouts and historical evidence.
