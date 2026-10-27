@@ -1,0 +1,19 @@
+TRAIN-01-04: simulator-D development; repaired Argon critic batching, support and integrity findings.
+Runtime pin: c7da28fc3bb11d9a2fbdd2ca20268789e2267371
+Clean detached runtime: /Users/josenunez/Projects/ml/snake-dqn-train01-04-runtime.noindex
+Clean detached broker: /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex
+Broker HEAD seals this packet; runtime source bytes match the published pin.
+Endpoint: 100663296 actor rows E1024/T256, H5000, bounded E24 preparation.
+Exact existing 114299008-seed registry audit; single-life screen/proxy; empty ledger.
+Critic minibatches cap each life at one eighth; fitted-row baseline; all-mix support.
+Open and staged rows share the storage cap; fresh age-zero seam lives retained.
+Nonresumable snapshot payload integrity and step-without-observe preparation repaired.
+Timeout: 8-hour base / 16-hour effective guard; no efficacy or release claim.
+Manual outcome-blind completion only through training_completion.py.
+CPU tests and API mocks do not qualify A100 kernels, timing or Inductor behavior.
+Preflight and dry-run allocate no runtime; this packet has not been dispatched.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-04 /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex/research/sandbox_a_resident/packet-train01-04/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-04-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-04/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex/research/sandbox_a_resident/packet-train01-04/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve both clean detached checkouts and prior evidence.
