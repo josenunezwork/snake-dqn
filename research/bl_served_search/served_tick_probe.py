@@ -26,6 +26,12 @@ from typing import Any, Iterator, Mapping
 from research.bl_paced_identity.record import export_json, read_export
 
 SCHEMA = "served-tick-diagnostic/v1"
+W0_MANIFEST_ID = "served-tick-w0-baseline-v1"
+W1_K1_MANIFEST_ID = "served-tick-w1-k1-contention-v1"
+MANIFEST_PATHS = {
+    W0_MANIFEST_ID: Path(__file__).with_name("served_tick_manifest.json"),
+    W1_K1_MANIFEST_ID: Path(__file__).with_name("served_tick_w1_k1_manifest.json"),
+}
 FPS = 24
 WARMUP_TICKS = 200
 MEASURED_TICKS = 2400
@@ -203,6 +209,7 @@ def _identity(session: Any, roster: Mapping[str, Any]) -> dict[str, Any]:
         root / "research/bl_served_search/dto_split.py",
         root / "research/bl_served_search/dto_split_report.py",
         root / "research/bl_served_search/tick_trace.py",
+        root / "research/bl_served_search/contention_worker.py",
         root / "web/backend/session.py",
         root / "web/backend/serialize.py",
         root / "web/backend/ego2s_policy.py",
@@ -275,7 +282,7 @@ def new_probe_watch(seed: int) -> tuple[Any, dict[str, Any]]:
 
 
 def run_inline_arm(spec: Mapping[str, Any], fresh_process: bool = False) -> dict[str, Any]:
-    """Run timer-only or real Watch6 step/snapshot workload in this process."""
+    """Run timer-only, bare Watch6, DTO-split, or W1/K1 contention-only workload in this process."""
     if spec["arm"] == "dto_split_w0_k0":
         from research.bl_served_search.dto_split import run_game
 
@@ -283,6 +290,7 @@ def run_inline_arm(spec: Mapping[str, Any], fresh_process: bool = False) -> dict
     from research.bl_served_search.tick_trace import TraceRecorder
 
     arm = str(spec["arm"])
+    is_w1_k1 = arm in ("w1_k1", "isolated_w1_k1")
     measured = int(spec.get("measured_ticks", MEASURED_TICKS))
     warmup = int(spec.get("warmup_ticks", WARMUP_TICKS))
     seed = int(spec["seed"])
@@ -290,6 +298,7 @@ def run_inline_arm(spec: Mapping[str, Any], fresh_process: bool = False) -> dict
     trace_enabled = bool(spec.get("trace_enabled", True))
     recorder = TraceRecorder(capacity=warmup + measured + 8) if trace_enabled else None
     session = None
+    worker = None
     roster: dict[str, Any] = {}
     if arm != "timer":
         from research.t1_commitment_20261015.replay import configure_cpu
@@ -301,6 +310,48 @@ def run_inline_arm(spec: Mapping[str, Any], fresh_process: bool = False) -> dict
             for _ in range(warmup):
                 session.step()
                 session.snapshot()
+        game_rss_before = 0
+        if is_w1_k1:
+            from research.bl_served_search.contention_worker import (
+                DEFAULT_FIXTURES_PATH,
+                DEFAULT_REFERENCE_PATH,
+                DEFAULT_REQUEST_TIMEOUT_NS,
+                Y1_FIXTURES_SHA256,
+                Y1_REFERENCE_SHA256,
+                PersistentExactStopWorker,
+                current_rss_bytes,
+                load_ruler_stress_inputs,
+            )
+
+            game_rss_before = current_rss_bytes()
+            if "fixtures" in spec and "reference_actions" in spec:
+                fixtures = list(spec["fixtures"])
+                reference_actions = dict(spec["reference_actions"])
+                fixtures_sha = str(spec.get("fixtures_sha256", Y1_FIXTURES_SHA256))
+                reference_sha = str(spec.get("reference_sha256", Y1_REFERENCE_SHA256))
+            else:
+                loaded = load_ruler_stress_inputs(
+                    spec.get("fixtures_path", DEFAULT_FIXTURES_PATH),
+                    spec.get("reference_path", DEFAULT_REFERENCE_PATH),
+                )
+                fixtures = loaded["fixtures"]
+                reference_actions = loaded["actions"]
+                fixtures_sha = loaded["fixtures_sha256"]
+                reference_sha = loaded["reference_sha256"]
+            worker = PersistentExactStopWorker(
+                fixtures=fixtures,
+                reference_actions=reference_actions,
+                measured_ticks=measured,
+                fixtures_sha256=fixtures_sha,
+                reference_sha256=reference_sha,
+                max_pending=int(spec.get("max_pending", 1)),
+                worker_mode=str(spec.get("worker_mode", "active")),
+                request_timeout_ns=int(spec.get("request_timeout_ns", DEFAULT_REQUEST_TIMEOUT_NS)),
+                operator_mode=str(spec.get("operator_mode", "exact_stop")),
+                operator_kwargs=spec.get("operator_kwargs"),
+                validate_batches=bool(spec.get("validate_batches", True)),
+            )
+            worker.start_and_prewarm(prewarm_count=spec.get("prewarm_count"))
         # Full semantic digests are deliberately outside the critical measurement
         # loop.  Per-tick action capture is small, preallocated evidence only.
         initial_state = session_state_digest(session) if session is not None else None
@@ -330,6 +381,8 @@ def run_inline_arm(spec: Mapping[str, Any], fresh_process: bool = False) -> dict
                         ]
                         if recorder is not None:
                             recorder.capture_session_context(session)
+                    if worker is not None:
+                        worker.step_tick(session, index)
                 finally:
                     if recorder is not None:
                         recorder.end_tick(time.perf_counter_ns())
@@ -337,7 +390,23 @@ def run_inline_arm(spec: Mapping[str, Any], fresh_process: bool = False) -> dict
                     processing_thread_cpu_ns[index] = time.thread_time_ns() - processing_cpu
         final_state = session_state_digest(session) if session is not None else None
         final_dto = dto_digest(dto) if dto is not None else None
-        return {
+        worker_payload = None
+        if worker is not None:
+            from research.bl_served_search.contention_worker import (
+                current_rss_bytes,
+                peak_rss_bytes,
+            )
+
+            game_rss_after = current_rss_bytes()
+            game_maxrss = peak_rss_bytes()
+            worker.close()
+            worker_payload = worker.export_payload(
+                game_rss_before=game_rss_before,
+                game_rss_after=game_rss_after,
+                game_maxrss=game_maxrss,
+            )
+            worker = None
+        payload: dict[str, Any] = {
             "schema": SCHEMA,
             "arm": arm,
             "seed": seed,
@@ -359,7 +428,16 @@ def run_inline_arm(spec: Mapping[str, Any], fresh_process: bool = False) -> dict
             "export_copy": "NOT_MEASURED_W0_NO_PROCESS_DTO_SPLIT",
             "ipc": "NOT_MEASURED_W0_NO_PROCESS_DTO_SPLIT",
         }
+        if worker_payload is not None:
+            payload["worker_contention"] = worker_payload
+            payload["rss"] = worker_payload["rss"]
+        return payload
     finally:
+        if worker is not None:
+            try:
+                worker.close()
+            except BaseException:
+                pass
         if session is not None:
             session.close(wait=True)
 
@@ -400,9 +478,12 @@ def source_binding(require_clean: bool = True) -> dict[str, Any]:
             "--error-unmatch",
             "research/bl_served_search/served_tick_probe.py",
             "research/bl_served_search/served_tick_manifest.json",
+            "research/bl_served_search/served_tick_w1_k1_manifest.json",
+            "research/bl_served_search/contention_worker.py",
         )
     paths = [
         *Path(__file__).parent.glob("*tick*"),
+        Path(__file__).with_name("contention_worker.py"),
         Path(__file__).with_name("probe_host.py"),
         Path(__file__).with_name("host_load.py"),
         Path(__file__).with_name("background_report.py"),
@@ -669,15 +750,54 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
                 covariates["dto_transport"] = validate_transport(result)
             except (KeyError, TypeError, ValueError) as exc:
                 return {"verdict": "INVALID", "reason": f"DTO split evidence: {exc}"}
+        tick_summary = reduce_one(
+            rows,
+            int(raw["manifest"]["measured_ticks"]),
+            int(raw["manifest"]["fps"]),
+            require_update=arm != "timer",
+        )
+        if arm in ("w1_k1", "isolated_w1_k1"):
+            from research.bl_served_search.contention_worker import reduce_worker_contention
+
+            worker_summary = reduce_worker_contention(
+                result.get("worker_contention", {}),
+                expected_ticks=int(raw["manifest"]["measured_ticks"]),
+            )
+            sub_verdicts = (tick_summary.get("verdict"), worker_summary.get("verdict"))
+            combined_verdict = (
+                "INVALID"
+                if "INVALID" in sub_verdicts
+                else (
+                    "INCOMPLETE"
+                    if "INCOMPLETE" in sub_verdicts
+                    else ("FAIL" if "FAIL" in sub_verdicts else "PASS")
+                )
+            )
+            spans = tick_summary.get("span_summary", {})
+            arms.append(
+                {
+                    "cell": cell["cell"],
+                    **tick_summary,
+                    "verdict": combined_verdict,
+                    "update_thread_cpu_ns": spans.get("game_update", {}).get("thread_cpu_ns"),
+                    "step_ns": spans.get("session_step", {}).get("wall_ns"),
+                    "step_thread_cpu_ns": spans.get("session_step", {}).get("thread_cpu_ns"),
+                    "snapshot_ns": spans.get("snapshot", {}).get("wall_ns"),
+                    "snapshot_thread_cpu_ns": spans.get("snapshot", {}).get("thread_cpu_ns"),
+                    "worker_contention": worker_summary,
+                    "service_latency": worker_summary.get("service_latency"),
+                    "tick_ipc_costs": worker_summary.get("tick_ipc_costs"),
+                    "rss": worker_summary.get("rss"),
+                    "overflow_fallback_counts": worker_summary.get("counts"),
+                    "native_v8_totals": worker_summary.get("native_v8_totals"),
+                    **covariates,
+                }
+            )
+            continue
         arms.append(
             {
                 "cell": cell["cell"],
-                **reduce_one(
-                    rows,
-                    int(raw["manifest"]["measured_ticks"]),
-                    int(raw["manifest"]["fps"]),
-                    require_update=arm != "timer",
-                ),
+                **tick_summary,
                 **covariates,
             }
         )
@@ -688,7 +808,16 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
             for cell in cells
             if cell["cell"]["seed_index"] == seed_index
         }
-        pair = _verify_pair(results["inline"], results["isolated"])
+        if "inline" in results and "isolated" in results:
+            pair = _verify_pair(results["inline"], results["isolated"])
+        elif "isolated" in results and "w1_k1" in results:
+            pair = _verify_pair(results["isolated"], results["w1_k1"])
+        else:
+            pair = {
+                "fields": ["state_digest", "dto_digest", "actions"],
+                "pass": False,
+                "mismatches": ["missing_pair_arm"],
+            }
         pairs.append({"seed_index": seed_index, **pair})
         if manifest.get("study") == "served-dto-split-20261027":
             pairs.append(
@@ -863,10 +992,14 @@ def _run_panel(
             "warmup_ticks": manifest["warmup_ticks"],
             "measured_ticks": manifest["measured_ticks"],
         }
+        if cell["arm"] in ("w1_k1", "isolated_w1_k1"):
+            for key in ("fixtures_path", "reference_path", "max_pending", "worker_mode"):
+                if key in manifest and key not in spec:
+                    spec[key] = manifest[key]
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("whole diagnostic cap exhausted before next cell")
-        if cell["arm"] in ("isolated", "dto_split_w0_k0"):
+        if cell["arm"] in ("isolated", "dto_split_w0_k0", "w1_k1", "isolated_w1_k1"):
             # A monitor object contains multiprocessing primitives and is not a
             # child input; parent/child transport checks are bounded separately.
             result = run_isolated_arm(spec, remaining)
@@ -891,16 +1024,22 @@ def _run_panel(
         )
         if host_monitor is not None:
             host_monitor.check()
+    is_w1_k1_manifest = manifest.get("manifest_id") == W1_K1_MANIFEST_ID
     raw = {
         "schema": SCHEMA,
         "manifest": dict(manifest),
         "cells": cells,
-        "scope": "W0 bare Watch6 and production Hub baseline; no search or renderer split",
+        "scope": (
+            "W1/K1 contention-only Watch6 diagnostic: isolated game + persistent prewarmed "
+            "1-thread CPU native/exact-stop H300 worker; no action application"
+            if is_w1_k1_manifest
+            else "W0 bare Watch6 and production Hub baseline; no search or renderer split"
+        ),
         "lease": dict(host_monitor.receipt) if host_monitor is not None else None,
     }
     if manifest.get("study") == "served-dto-split-20261027":
         raw["scope"] = "W0/K0 authoritative game/DTO split with matched W0 controls; no search"
-    # Pair only same seed/current-vs-fresh process.  A mismatch is evidence, never discarded.
+    # Pair only same seed/current-vs-fresh process (or isolated W0 vs w1_k1).
     pairs = []
     for seed in manifest["seeds"]:
         inline = next(
@@ -919,8 +1058,19 @@ def _run_panel(
             ),
             None,
         )
+        w1_k1 = next(
+            (
+                x["result"]
+                for x in cells
+                if x["result"].get("seed") == seed
+                and x["cell"]["arm"] in ("w1_k1", "isolated_w1_k1")
+            ),
+            None,
+        )
         if inline is not None and isolated is not None:
             pairs.append({"seed": seed, "parity": _verify_pair(inline, isolated)})
+        elif isolated is not None and w1_k1 is not None:
+            pairs.append({"seed": seed, "parity": _verify_pair(isolated, w1_k1)})
     raw["parity"] = pairs
     # The recorder-control is fixed, short, and separate from timing bars. It
     # bounds instrumentation semantic influence without treating its tail as a
@@ -972,7 +1122,16 @@ def preflight(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "max_pending",
     }
     missing = sorted(required - set(manifest))
-    if (
+    is_w1_k1 = manifest.get("manifest_id") == W1_K1_MANIFEST_ID
+    if is_w1_k1:
+        if (
+            missing
+            or manifest.get("schema") != SCHEMA
+            or manifest.get("workers") != 1
+            or manifest.get("max_pending") != 1
+        ):
+            raise ValueError(f"invalid W1/K1 served-tick manifest missing={missing}")
+    elif (
         missing
         or manifest.get("schema") != SCHEMA
         or manifest.get("workers") != 0
@@ -986,23 +1145,56 @@ def preflight(manifest: Mapping[str, Any]) -> dict[str, Any]:
     ):
         raise ValueError("first package requires frozen 24fps/200-warmup/2400-measured exposure")
     split = manifest.get("study") == "served-dto-split-20261027"
-    committed = json.loads(
-        Path(__file__)
-        .with_name("served_dto_split_manifest.json" if split else "served_tick_manifest.json")
-        .read_text()
+    manifest_file = (
+        "served_dto_split_manifest.json"
+        if split
+        else ("served_tick_w1_k1_manifest.json" if is_w1_k1 else "served_tick_manifest.json")
     )
+    committed = json.loads(Path(__file__).with_name(manifest_file).read_text())
     if split and manifest != committed:
         raise ValueError("DTO split manifest differs from the committed fixed panel")
     frozen = (
-        "arms",
-        "order",
-        "base_timeout_seconds",
-        "timeout_seconds",
-        "observer_ticks",
-        "instrumented_observer_order",
+        (
+            "manifest_id",
+            "arms",
+            "order",
+            "base_timeout_seconds",
+            "timeout_seconds",
+            "observer_ticks",
+            "instrumented_observer_order",
+            "fixtures_path",
+            "fixtures_sha256",
+            "reference_path",
+            "reference_sha256",
+        )
+        if is_w1_k1
+        else (
+            "arms",
+            "order",
+            "base_timeout_seconds",
+            "timeout_seconds",
+            "observer_ticks",
+            "instrumented_observer_order",
+        )
     )
     if any(manifest.get(field) != committed.get(field) for field in frozen):
         raise ValueError("served-tick manifest differs from the committed fixed panel")
+    if is_w1_k1:
+        from research.bl_mac_latency import l1
+        from research.bl_served_search.contention_worker import (
+            Y1_FIXTURES_SHA256,
+            Y1_REFERENCE_SHA256,
+        )
+
+        _, fixtures_sha = l1._read_completed_json(Path(str(manifest["fixtures_path"])))
+        _, reference_sha = l1._read_completed_json(Path(str(manifest["reference_path"])))
+        if (
+            fixtures_sha != Y1_FIXTURES_SHA256
+            or manifest.get("fixtures_sha256") != Y1_FIXTURES_SHA256
+            or reference_sha != Y1_REFERENCE_SHA256
+            or manifest.get("reference_sha256") != Y1_REFERENCE_SHA256
+        ):
+            raise ValueError("W1/K1 manifest ruler fixture/reference SHA256 binding mismatch")
     seeds = [int(seed) for seed in manifest["seeds"]]
     observer_seed = int(manifest.get("observer_seed", -1))
     if len(seeds) != 3 or len(set([*seeds, observer_seed])) != 4:
@@ -1035,19 +1227,35 @@ def preflight(manifest: Mapping[str, Any]) -> dict[str, Any]:
         or manifest.get("registry_sha256") != registry_sha
     ):
         raise ValueError("manifest registry binding differs from current protected-input registry")
-    return {
+    result = {
         "schema": SCHEMA,
         "status": "PREFLIGHT_OK_NOT_TIMING",
         "cells": len(manifest["order"]),
         "seed_registry_sha256": registry_sha,
         "effective_numpy_seeds": [seed & 0xFFFFFFFF for seed in [*seeds, observer_seed]],
     }
+    if is_w1_k1:
+        result.update(
+            {
+                "manifest_id": W1_K1_MANIFEST_ID,
+                "workers": 1,
+                "max_pending": 1,
+                "fixtures_sha256": manifest["fixtures_sha256"],
+                "reference_sha256": manifest["reference_sha256"],
+            }
+        )
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--manifest", type=Path, default=Path(__file__).with_name("served_tick_manifest.json")
+    )
+    parser.add_argument(
+        "--manifest-id",
+        choices=sorted(MANIFEST_PATHS),
+        help="opt-in manifest id (e.g. served-tick-w1-k1-contention-v1)",
     )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--check", action="store_true")
@@ -1106,7 +1314,10 @@ def main(argv: list[str] | None = None) -> int:
         # gameplay. The current root cannot supply the required exit evidence.
         # Neither a registry flag nor a qualification filename bypasses this.
         read_registry(args.remote_supervision_registry, live=True)
-    manifest = json.loads(args.manifest.read_text())
+    manifest_path = (
+        MANIFEST_PATHS[args.manifest_id] if args.manifest_id is not None else args.manifest
+    )
+    manifest = json.loads(manifest_path.read_text())
     if args.reduce is not None:
         if args.output is None:
             parser.error("--reduce requires a fresh --output report directory")
@@ -1234,6 +1445,44 @@ def main(argv: list[str] | None = None) -> int:
             # conclusion.  It still requires the launcher's CPU/nice environment.
             from research.bl_served_search.isolated_game import run_isolated_arm
             from research.bl_served_search.probe_host import preflight as host_preflight
+
+            if manifest.get("manifest_id") == W1_K1_MANIFEST_ID:
+                base_cell = {
+                    "arm": "isolated",
+                    "seed": manifest["seeds"][0],
+                    "warmup_ticks": 1,
+                    "measured_ticks": 2,
+                }
+                w1_cell = {
+                    "arm": "w1_k1",
+                    "seed": manifest["seeds"][0],
+                    "warmup_ticks": 1,
+                    "measured_ticks": 2,
+                    "prewarm_count": 1,
+                    "fixtures_path": manifest["fixtures_path"],
+                    "reference_path": manifest["reference_path"],
+                }
+                isolated = run_isolated_arm(base_cell, timeout_seconds=120)
+                w1_k1 = run_isolated_arm(w1_cell, timeout_seconds=120)
+                parity = _verify_pair(isolated, w1_k1)
+                worker_ok = (
+                    w1_k1.get("worker_contention", {}).get("summary", {}).get("verdict") == "PASS"
+                )
+                result = {
+                    "schema": f"{SCHEMA}-smoke/v1",
+                    "manifest_id": W1_K1_MANIFEST_ID,
+                    "status": "SMOKE_OK_NOT_TIMING",
+                    "host_readonly": host_preflight(
+                        classified=args.classified_host_load, **desktop_options
+                    ),
+                    "isolated": isolated,
+                    "w1_k1": w1_k1,
+                    "parity": parity,
+                }
+                if not parity["pass"] or not worker_ok:
+                    result["status"] = "INVALID_SEMANTIC_PARITY"
+                export_json(args.output / "smoke.json", result)
+                return 0 if (parity["pass"] and worker_ok) else 2
 
             cell = {
                 "arm": "inline",

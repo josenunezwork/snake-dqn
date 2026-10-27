@@ -139,3 +139,27 @@ delivered-value screen and serving qualification remain later work. This package
 does not inherit the offline L2-prime gain, revise historical M1 FAIL/KEEP_B8,
 enable assistance or authorize changing the served default. Release remains
 the owner's decision.
+
+## Step 2: Opt-in W1/K1 Contention-Only Arm (`served-tick-w1-k1-contention-v1`)
+
+Per Section B of the 2026-10-27 ruling, `served_tick_w1_k1_manifest.json`
+(`--manifest-id served-tick-w1-k1-contention-v1` or
+`--manifest research/bl_served_search/served_tick_w1_k1_manifest.json`) adds an
+opt-in paired contention panel comparing the unchanged `isolated` W0 workload
+against `w1_k1` across the same 3 seeds × 2,400 measured ticks:
+
+- Spawns one persistent, prewarmed 1-thread CPU native/exact-stop H300 worker
+  (`W=1, K<=1` outstanding request) inside the isolated workload.
+- Prewarms the worker on the pinned 9-root Y1 fixture bank before measured ticks
+  and reports cold (prewarm) vs. warm (measured-window) worker service latency
+  and end-to-end `S` latency (overall and per-fixture).
+- Feeds the worker the interleaved Y1 ruler fixture stream as outcome-independent
+  stress inputs, consumes and validates replies on the tick, and applies **no
+  actions** (`actions_applied_count == 0`).
+- Includes and separately reports bounded tick-side `state_copy`, `publish`, and
+  `poll` wall and thread CPU costs, update/step/snapshot/full-tick wall and CPU
+  tails, wake lateness, game and worker RSS, `K <= 1` overflow/fallback counts,
+  and `native_v8` kernel/stock/fallback row totals.
+- Keeps stock live v8 on the 4 mixed-roster opponents, current inspector
+  (`include_inspector=True`), default GC (`gc.isenabled() == True`), and ordinary
+  inherited QoS.
