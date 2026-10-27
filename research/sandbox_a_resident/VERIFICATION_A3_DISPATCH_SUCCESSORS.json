@@ -1,0 +1,72 @@
+{
+  "status": "PASS_OFFLINE_DISPATCH_ADMISSION",
+  "date": "2026-10-26",
+  "allocations": 0,
+  "live_accounting": "NOT_CHECKED",
+  "sandbox_validate_timeout_seconds": 180,
+  "ordinary_command_timeout_seconds": 60,
+  "allocation_deadline_retained": true,
+  "packets": [
+    {
+      "packet": "packet-a3-eager-02",
+      "predecessor": "packet-a3-eager-01",
+      "broker": "/Users/josenunez/Projects/ml/snake-dqn-a3eager02.noindex",
+      "host_seal_commit": "f3c5fa719ab0a1a5822d6388518ec7dd9ae9051b",
+      "actual_host_seal_parent": "7fd831fe41972a68a2231d62268eae957758aac5",
+      "runtime_commit": "225e0227db7e35eaa34d7c2f06ebc93561388e27",
+      "clean_detached": true,
+      "runtime_source_files_verified": 101,
+      "control_ledger_registry_check": "byte-identical to predecessor",
+      "allocated_seeds": 22457142,
+      "manifest_sha256": "4c30834bd9f92c60bdbc8fb71cab6de50bf893b54777309cf2cbd9862a42aa6a",
+      "sandbox_sha256": "81f8a96c80f397ecadd5e323e1f8ef9e9a468db553678a3e29f9250598c30c87",
+      "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+      "dispatch_command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-a3eager02.noindex/tools/ops/dispatch.sh sandbox-a-resident-a3-eager-20261026-02 /Users/josenunez/Projects/ml/snake-dqn-a3eager02.noindex/research/sandbox_a_resident/packet-a3-eager-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-a3eager02.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-a3eager02.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-eager-attempt-02/state",
+      "dry_run_command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-a3eager02.noindex/tools/ops/dispatch.sh sandbox-a-resident-a3-eager-20261026-02 /Users/josenunez/Projects/ml/snake-dqn-a3eager02.noindex/research/sandbox_a_resident/packet-a3-eager-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-a3eager02.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-a3eager02.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-eager-attempt-02/state --dry-run",
+      "dry_run_exit_code": 0,
+      "dry_run_stdout": "PASS_DRY_RUN sandbox-a-resident-a3-eager-20261026-02 allocations=0 live_accounting=NOT_CHECKED\n",
+      "fresh_paths_absent": [
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/dispatch/sandbox-a-resident-a3-eager-20261026-02",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/sandbox-a-resident-a3-eager-20261026-02.log",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/manifests/sandbox-a-resident-a3-eager-20261026-02.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-eager-attempt-02/state",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-eager-attempt-02/output"
+      ]
+    },
+    {
+      "packet": "packet-a3-04",
+      "predecessor": "packet-a3-03",
+      "broker": "/Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex",
+      "host_seal_commit": "8223e67868b9271b24cb6c218f422ad98e045b8e",
+      "actual_host_seal_parent": "db334038038484434dc23e54cde9c16178c6ae59",
+      "runtime_commit": "d12bf047c6c954c657d15e104e28a2a6ab7d5c32",
+      "clean_detached": true,
+      "runtime_source_files_verified": 101,
+      "control_ledger_registry_check": "byte-identical to predecessor",
+      "allocated_seeds": 22457142,
+      "manifest_sha256": "1e82e3eed1f2ca03b8b2649dbae3a229a752ce7c63b2b173c63c7ee236a4fbcf",
+      "sandbox_sha256": "a58f716fe974008fd03f912df5b8b86d481a1d4b4e659a6d12c7ede7c6797c09",
+      "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+      "dispatch_command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex/tools/ops/dispatch.sh sandbox-a-resident-a3-20261026-04 /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex/research/sandbox_a_resident/packet-a3-04/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-04/state",
+      "dry_run_command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex/tools/ops/dispatch.sh sandbox-a-resident-a3-20261026-04 /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex/research/sandbox_a_resident/packet-a3-04/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-a3compile04.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-04/state --dry-run",
+      "dry_run_exit_code": 0,
+      "dry_run_stdout": "PASS_DRY_RUN sandbox-a-resident-a3-20261026-04 allocations=0 live_accounting=NOT_CHECKED\n",
+      "fresh_paths_absent": [
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/dispatch/sandbox-a-resident-a3-20261026-04",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/sandbox-a-resident-a3-20261026-04.log",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/manifests/sandbox-a-resident-a3-20261026-04.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-04/state",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-04/output"
+      ]
+    }
+  ],
+  "review": "Independent read-only source/packet/hash review: no blocking findings; SEAL baseline-field meaning and main-only handoff location clarified in A3_DISPATCH_SUCCESSORS.md",
+  "scope": "No science or shipped runtime code changes; no A100/CUDA execution; predecessor immutable files preserved",
+  "regression_tests": {
+    "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q tools/sandbox/tests/test_admission.py tests/test_ops_dispatch.py",
+    "passed": 119,
+    "seconds": 51.76,
+    "exit_code": 0
+  },
+  "invariant_check_stdout": "PASS_SUCCESSOR_INVARIANTS packets=2 runtime_files=202 clean_detached=2 fresh_identities=2 predecessor_immutable=PASS"
+}
