@@ -48,6 +48,11 @@ class StallWatchdog:
         if self._armed:
             raise RuntimeError("stall watchdog is already armed")
         self._diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        for name in ("stall-watchdog.json", "faulthandler-stacks.log"):
+            for suffix in (".sha256", ".complete"):
+                sidecar = self._diagnostics_dir / f"{name}{suffix}"
+                if sidecar.exists() or sidecar.is_symlink():
+                    raise RuntimeError(f"refusing to mutate sealed stall diagnostics: {sidecar}")
         self._stack_file = (self._diagnostics_dir / "faulthandler-stacks.log").open("a")
         self._armed = True
         self.progress(stage)

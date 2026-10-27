@@ -107,10 +107,22 @@ alone uses the critic bootstrap.
 
 The adapter uses a mixed counter stream for food and independent spawn slots;
 CPU MT reset rejection and device sampling are different distributions. Before
-substantial training, the runtime records 32 complete B8 worlds per mix on each
-engine, including spawn spacing, food correlation, mass, death causes, food
-consumption, respawns and length occupancy. Relative differences above 25% are
-descriptive material-gap flags. They are explained as simulator-D pretraining
+substantial training, the runtime records an E32 B8 256-frame early-life prefix
+per mix on each engine, including spawn spacing, food correlation, mass, death
+causes, food consumption, respawns and length occupancy. Natural tasks remain
+H5000; a complete first-life screen is separately available with horizon=5000.
+As a dev-sandbox engineering-screen change requested on 2026-10-27 after Argon's
+review, terminal_rate_per_1k_alive_frames, starvation_share and collision_share
+are compared only when **both arms have at least 16 terminal events for that
+mix**. Otherwise each comparison records `insufficient_support` and cannot fail
+the screen. This support requirement applies to either supported screen horizon.
+The 25% relative-gap threshold remains unchanged for all supported comparisons
+and for spawn spacing, initial food, mass integral and alive fraction regardless
+of death counts. Death rate uses recorded nonterminal alive frames as exposure;
+collision share includes wall/self/head/body codes 1-4. These v1 engines have no
+starvation terminal mechanism (starvation affects rewards only), so the recorded
+starvation share is zero. Relative differences above 25% are descriptive
+material-gap flags. They are explained as simulator-D pretraining
 with reduced transfer confidence, never as a Mac gate or equivalence result.
 Natural resets retain timed host work for canonical SHA roots and CPython-
 compatible `random_safe` tape regeneration; policy actions and learning remain
@@ -132,12 +144,12 @@ compare discrete mechanics, vector carry, advisory masks, and v8 actions.  The
 roster/reference fixtures use short horizons to confirm the CPU construction
 against the local descriptor.  Before a substantial run, conduct the separate
 fresh-root B8 distribution screen described by `training_acceptance.py`: at
-least 32 complete H5000 worlds per mix on each engine, with spawn spacing,
+least 32 worlds per mix on each engine over a 256-frame prefix of H5000, with spawn spacing,
 food/refill, collisions, respawns, mass, and occupancy reported. The reference
 keeps CPU world mechanics and feature construction; in production its B8 and
 frozen-opponent neural forwards use CUDA (batched opponents). Inactive reference
 worlds stop rasterization, and the screen stops once all first lives terminate,
-with every metric still divided by H5000. Terminal-frame resets contribute no
+with mass and alive fraction divided by the requested screen horizon. Terminal-frame resets contribute no
 opponent-respawn or food events.
 
 Neither test proves CPU/GPU full closed-loop bit identity.  Counter RNG and

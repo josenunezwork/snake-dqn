@@ -83,6 +83,43 @@ def test_close_cancels_without_leaving_live_timer(
     assert calls == ["cancel", "arm", "cancel"]
 
 
+@pytest.mark.parametrize(
+    ("name", "suffix"),
+    (
+        ("stall-watchdog.json", ".sha256"),
+        ("stall-watchdog.json", ".complete"),
+        ("faulthandler-stacks.log", ".sha256"),
+        ("faulthandler-stacks.log", ".complete"),
+    ),
+)
+def test_start_refuses_sealed_diagnostics_without_mutating_any_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, suffix: str
+) -> None:
+    """A restart must leave the sealed export and timer state completely untouched."""
+    diagnostics = tmp_path / "diagnostics"
+    diagnostics.mkdir()
+    payload = diagnostics / name
+    payload.write_bytes(b"original immutable diagnostic\n")
+    sidecar = Path(f"{payload}{suffix}")
+    sidecar.write_bytes(b"original immutable sidecar\n")
+    before = {path.name: path.read_bytes() for path in diagnostics.iterdir()}
+    timer_calls: list[str] = []
+    monkeypatch.setattr(
+        "research.sandbox_a_resident.stall_watchdog.faulthandler.cancel_dump_traceback_later",
+        lambda: timer_calls.append("cancel"),
+    )
+    monkeypatch.setattr(
+        "research.sandbox_a_resident.stall_watchdog.faulthandler.dump_traceback_later",
+        lambda *args, **kwargs: timer_calls.append("arm"),
+    )
+
+    with pytest.raises(RuntimeError, match="sealed stall diagnostics"):
+        StallWatchdog(diagnostics, 45).start()
+
+    assert {path.name: path.read_bytes() for path in diagnostics.iterdir()} == before
+    assert timer_calls == []
+
+
 def test_timeout_dumps_stacks_and_exits_nonzero(tmp_path: Path) -> None:
     """The native watchdog must still terminate a CPU/native-style busy wait."""
     diagnostics = tmp_path / "diagnostics"

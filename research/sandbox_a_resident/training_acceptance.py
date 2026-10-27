@@ -17,7 +17,7 @@ import torch
 from research.gpu_sim_spike.device_sim import DeviceSim
 from research.gpu_sim_spike.v8_device import v8_decide as device_v8
 from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
-from src.simd_env.batch_sim import BatchSimConfig
+from src.simd_env.batch_sim import DEATH_BODY, DEATH_HEAD, DEATH_SELF, DEATH_WALL, BatchSimConfig
 from src.simd_env.grid_sim import GridBatchSim
 from src.simd_env.v8_nb import v8_decide as cpu_v8
 from src.simd_env.vector61_featurizer import Vector61Featurizer, Vector61Memory, Vector61Params
@@ -154,6 +154,7 @@ def run_distribution_screen(
     descriptor = distribution_screen_descriptor(
         worlds_per_mix=worlds_per_mix, horizon=horizon, test_only=test_only
     )
+    descriptor["mixes"] = list(mixes)
     if (
         not mixes
         or len(set(mixes)) != len(mixes)
@@ -169,10 +170,10 @@ def run_distribution_screen(
             on_progress(f"distribution-screen-{stage}", values)
 
     def one(factory: Callable[[str, int, int], Any], actor: Any, mix: str) -> dict[str, Any]:
-        progress("start", mix=mix, engine=str(factory), frames=horizon)
         # A short diagnostic is a prefix of the natural H5000 task, never a
         # shortened episode/reset or a claim about late-life distributions.
         task = factory(mix, worlds_per_mix, 5000)
+        progress("start", mix=mix, engine=type(task).__name__, frames=horizon)
         last_progress = time.monotonic()
         # The screen reads terminal-frame causes and opponent state after
         # step().  Its single-life contract therefore forbids resident
@@ -286,6 +287,15 @@ def run_distribution_screen(
             "alive_fraction": float(alive_ticks.mean() / horizon),
             "no_death_fraction": float(first_life.float().mean()),
             "death_events": deaths,
+            "terminal_rate_per_1k_alive_frames": deaths * 1000 / max(float(alive_ticks.sum()), 1),
+            # These v1 engines have no starvation terminal (only a reward
+            # penalty). Code 4 is a body collision, not starvation.
+            "starvation_share": 0.0,
+            "collision_share": sum(
+                causes.get(str(code), 0)
+                for code in (DEATH_WALL, DEATH_SELF, DEATH_HEAD, DEATH_BODY)
+            )
+            / max(deaths, 1),
             "reset_events": resets,
             "opponent_respawns": respawns,
             "food_consumption_events": food_eaten,
@@ -301,23 +311,42 @@ def run_distribution_screen(
         for mix in mixes
     }
     gaps = []
+    comparisons = []
+    terminal_metrics = {"terminal_rate_per_1k_alive_frames", "starvation_share", "collision_share"}
     for mix, pair in results.items():
         for name in (
             "nearest_spawn_mean_cells",
             "initial_food_mean",
             "mean_mass_integral",
             "alive_fraction",
+            "terminal_rate_per_1k_alive_frames",
+            "starvation_share",
+            "collision_share",
         ):
             cpu, gpu = pair["cpu"][name], pair["device"][name]
-            if abs(gpu - cpu) > max(abs(cpu), 1e-8) * 0.25:
-                gaps.append({"mix": mix, "metric": name, "cpu": cpu, "device": gpu})
+            row = {"mix": mix, "metric": name, "cpu": cpu, "device": gpu}
+            if (
+                name in terminal_metrics
+                and min(pair["cpu"]["death_events"], pair["device"]["death_events"]) < 16
+            ):
+                comparisons.append({**row, "status": "insufficient_support"})
+                continue
+            material = abs(gpu - cpu) > max(abs(cpu), 1e-8) * 0.25
+            comparisons.append(
+                {**row, "status": "material_gap" if material else "within_threshold"}
+            )
+            if material:
+                gaps.append(row)
     progress("compared", mixes=list(mixes), material_gap_count=len(gaps))
     return {
         **descriptor,
         "status": "COMPLETE_SIMULATOR_D_SCREEN",
         "results": results,
         "material_gap_rule": "descriptive relative difference above 25 percent; "
-        "not an efficacy gate",
+        "terminal rate/cause shares require >=16 terminal events in both arms per mix; "
+        "otherwise insufficient_support; not an efficacy gate",
+        "minimum_terminal_events_per_arm": 16,
+        "comparisons": comparisons,
         "material_gaps": gaps,
         "interpretation": "simulator-D pretraining; CPU reset rejection and counter-based device "
         "sampling use different random streams. Material gaps lower transfer confidence. "
