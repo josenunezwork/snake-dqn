@@ -639,3 +639,424 @@ def test_pid_reuse_is_not_identity_change_but_same_birth_exec_is(enrolled):
         registry.classify(dict(row, command="/usr/local/bin/claude"))["identity_binding_changed"]
         is True
     )
+
+
+@pytest.mark.parametrize(
+    ("before_label", "after_label"),
+    [
+        (before, after)
+        for before in (
+            "invalid",
+            "workload",
+            "uid_mismatch",
+            "system_service",
+            "unvalidated_enrolled",
+        )
+        for after in _TRANSITION_STATES
+    ],
+)
+def test_multi_interval_unadmitted_transition_and_steady_replay(
+    enrolled, tmp_path, before_label, after_label
+):
+    """Unadmitted processes that transition remain revoked in follow-up intervals and replay."""
+    from research.bl_served_search.desktop_apps import classify_row
+
+    registry, row, other = _paired_enrolled_registry(enrolled, tmp_path)
+    before_row = (
+        dict(row)
+        if before_label == "unvalidated_enrolled"
+        else _transition_state(before_label, row, other)
+    )
+    after_row = _transition_state(after_label, row, other)
+    transition = (before_row["uid"], before_row["command"]) != (
+        after_row["uid"],
+        after_row["command"],
+    )
+    if not transition:
+        return
+    inv0 = _cpu_inventory(0, before_row, 1.0)
+    inv1 = _cpu_inventory(1, before_row, 1.1)
+    if before_label == "unvalidated_enrolled":
+        assert registry.classify(before_row)["reason"] == "process_identity_not_revalidated"
+        inv1["_process_history"] = registry.history_snapshot()
+        samples = []
+    else:
+        s1 = host_load.cpu_interval(inv0, inv1, owner_pid=999_999, desktop_classifier=registry)
+        samples = [s1]
+    inv2 = _cpu_inventory(2, after_row, 1.2)
+    s2 = host_load.cpu_interval(inv1, inv2, owner_pid=999_999, desktop_classifier=registry)
+    inv3 = _cpu_inventory(3, after_row, 1.3)
+    s3 = host_load.cpu_interval(inv2, inv3, owner_pid=999_999, desktop_classifier=registry)
+    samples.extend([s2, s3])
+
+    p2 = s2["processes"][0]
+    p3 = s3["processes"][0]
+    expected_p2_kind = "agent_workload" if "workload" in {before_label, after_label} else "unknown"
+    expected_p3_kind = "agent_workload" if after_label == "workload" else "unknown"
+    assert p2["kind"] == expected_p2_kind
+    assert p2["classification"]["identity_binding_changed"] is True
+    assert p3["kind"] == expected_p3_kind
+    assert p3["classification"]["identity_binding_changed"] is True
+
+    export = registry.read_export()
+    assert classify_exported(p3, export) == p3["classification"]
+    bare_after = {k: after_row[k] for k in ("pid", "birth", "uid", "command")}
+    replayed_bare = classify_exported(bare_after, export)
+    assert replayed_bare["kind"] == expected_p3_kind
+    assert replayed_bare["identity_binding_changed"] is True
+    r_kind, r_hist, _ = classify_row(p3["history_before"], p3, export)
+    assert r_kind == expected_p3_kind
+    assert r_hist == p3["history_after"]
+
+    host = _desktop_host(
+        registry,
+        samples,
+        [{"classified_processes": [], "probe_exempt_pids": []}],
+    )
+    reduced = background_report._samples(host)
+    assert len(reduced) == len(samples)
+    assert reduced[-1]["processes"][0]["kind"] == expected_p3_kind
+    with pytest.raises(ValueError, match="desktop identity binding changed in interval evidence"):
+        background_report.validate_desktop_host(host)
+
+
+@pytest.mark.parametrize("initial_call", ["classify", "admit", "interval"])
+def test_unbound_replaced_executable_revokes_and_file_restore_never_readmits(
+    enrolled, initial_call
+):
+    """Replacing an enrolled binary before admission permanently revokes (pid, birth)."""
+    registry, row, executable, _ = enrolled
+    sealed_bytes = executable.read_bytes()
+    executable.write_bytes(b"replaced before admission")
+
+    if initial_call == "classify":
+        first = registry.classify(row)
+        assert first["kind"] == "unknown"
+        assert first["reason"] == "executable_replaced"
+        assert first["identity_binding_changed"] is True
+    elif initial_call == "admit":
+        first = registry.admit_process(row)
+        assert first["kind"] == "unknown"
+        assert first["reason"] == "executable_replaced"
+        assert first["identity_binding_changed"] is True
+    else:
+        inv0 = _cpu_inventory(0, row, 1.0)
+        inv1 = _cpu_inventory(1, row, 1.1)
+        s1 = host_load.cpu_interval(inv0, inv1, owner_pid=999_999, desktop_classifier=registry)
+        first = s1["processes"][0]["classification"]
+        assert first["kind"] == "unknown"
+        assert first["reason"] == "executable_replaced"
+        assert first["identity_binding_changed"] is True
+
+    # Restoring the sealed binary on disk must NEVER allow the revoked (pid, birth)
+    # to be admitted later in the attempt, while a fresh (pid, birth) is admitted.
+    executable.write_bytes(sealed_bytes)
+    for attempt in (registry.admit_process(row), registry.classify(row)):
+        assert attempt["kind"] == "unknown"
+        assert attempt["reason"] == "executable_replaced"
+        assert attempt["identity_binding_changed"] is True
+    assert registry.read_export()["bindings"] == []
+
+    inv2 = _cpu_inventory(2, row, 1.2)
+    inv3 = _cpu_inventory(3, row, 1.3)
+    s_restored = host_load.cpu_interval(inv2, inv3, owner_pid=999_999, desktop_classifier=registry)
+    proc_restored = s_restored["processes"][0]
+    assert proc_restored["kind"] == "unknown"
+    assert proc_restored["classification"]["reason"] == "executable_replaced"
+    assert proc_restored["classification"]["identity_binding_changed"] is True
+
+    fresh_row = {**row, "pid": 99, "birth": "fresh-birth-after-restore"}
+    fresh_decision = registry.admit_process(fresh_row)
+    assert fresh_decision["kind"] == "desktop_app"
+    assert fresh_decision["reason"] == "enrolled_verified_ui_role"
+
+    host = _desktop_host(
+        registry,
+        [s_restored],
+        [{"classified_processes": [], "probe_exempt_pids": []}],
+    )
+    reduced = background_report._samples(host)
+    assert reduced[0]["processes"][0]["kind"] == "unknown"
+    with pytest.raises(ValueError, match="desktop identity binding changed in interval evidence"):
+        background_report.validate_desktop_host(host)
+
+
+def test_bound_revoked_then_file_restored_multi_interval_never_readmits(enrolled):
+    """Bound -> replaced -> restored across three intervals keeps old (pid,birth) revoked."""
+    registry, row, executable, _ = enrolled
+    sealed_bytes = executable.read_bytes()
+    inv0 = _cpu_inventory(0, row, 1.0)
+    inv1 = _cpu_inventory(1, row, 1.1)
+    s1 = host_load.cpu_interval(inv0, inv1, owner_pid=999_999, desktop_classifier=registry)
+    assert s1["processes"][0]["kind"] == "desktop_app"
+
+    executable.write_bytes(b"tampered binary")
+    inv2 = _cpu_inventory(2, row, 1.2)
+    s2 = host_load.cpu_interval(inv1, inv2, owner_pid=999_999, desktop_classifier=registry)
+    assert s2["processes"][0]["kind"] == "unknown"
+    assert s2["processes"][0]["classification"]["reason"] == "executable_replaced"
+    assert s2["processes"][0]["classification"]["identity_binding_changed"] is True
+
+    executable.write_bytes(sealed_bytes)
+    fresh = {**row, "pid": 77, "birth": "fresh-birth"}
+    inv2_with_fresh = {
+        **inv2,
+        "processes": [*inv2["processes"], {**fresh, "ppid": 1, "cpu_seconds": 0.5}],
+    }
+    inv3_with_fresh = {
+        "time_ns": 3_000_000_000,
+        "capture_start_ns": 3_000_000_000 - 100,
+        "capture_end_ns": 3_000_000_000 + 100,
+        "processes": [
+            {**row, "ppid": 1, "cpu_seconds": 1.3},
+            {**fresh, "ppid": 1, "cpu_seconds": 0.6},
+        ],
+    }
+    s3 = host_load.cpu_interval(
+        inv2_with_fresh, inv3_with_fresh, owner_pid=999_999, desktop_classifier=registry
+    )
+    by_pid = {p["pid"]: p for p in s3["processes"]}
+    assert by_pid[row["pid"]]["kind"] == "unknown"
+    assert by_pid[row["pid"]]["classification"]["reason"] == "executable_replaced"
+    assert by_pid[row["pid"]]["classification"]["identity_binding_changed"] is True
+    assert by_pid[fresh["pid"]]["kind"] == "desktop_app"
+
+    host = _desktop_host(
+        registry,
+        [s1, s2, s3],
+        [{"classified_processes": [], "probe_exempt_pids": []}],
+    )
+    reduced = background_report._samples(host)
+    assert len(reduced) == 3
+    with pytest.raises(ValueError, match="desktop identity binding changed in interval evidence"):
+        background_report.validate_desktop_host(host)
+
+
+def test_previous_row_classified_against_history_as_of_its_own_time(
+    enrolled, tmp_path, monkeypatch
+):
+    """Point check at t1 or disk deletion at t1 cannot corrupt t0 previous_classification."""
+    from unittest.mock import Mock
+
+    import psutil
+
+    from research.bl_served_search import probe_host
+
+    monkeypatch.setattr(psutil, "Process", lambda _: Mock(children=lambda **kw: []))
+    registry, row, other = _paired_enrolled_registry(enrolled, tmp_path)
+    assert registry.admit_process(row)["kind"] == "desktop_app"
+    sysctl_row = {**row, "command": "/usr/sbin/sysctl"}
+
+    # Point check runs at t1 on the transitioned process BEFORE cpu_interval(t0, t1).
+    monkeypatch.setattr(
+        probe_host,
+        "_desktop_point_inventory",
+        lambda: [{**sysctl_row, "ppid": 1, "cpu_percent": 1.0}],
+    )
+    screen = {"processes": "PID PPID %CPU COMM\n42 1 1.0 /usr/sbin/sysctl\n"}
+    violations = probe_host.foreign_load(
+        screen, 999_999, classified=True, desktop_classifier=registry, admit_desktop=True
+    )
+    assert len(violations) == 1
+    assert violations[0]["classification"]["identity_binding_changed"] is True
+
+    # Even if the t0 executable is deleted on disk at t1, old at t0 was a valid bound
+    # desktop_app as of t0.
+    Path(row["command"]).unlink()
+    s1 = host_load.cpu_interval(
+        _cpu_inventory(0, row, 1.0),
+        _cpu_inventory(1, sysctl_row, 1.1),
+        owner_pid=999_999,
+        desktop_classifier=registry,
+    )
+    p1 = s1["processes"][0]
+    prev_cls_1 = p1["interval_transition"]["previous_classification"]
+    assert prev_cls_1["kind"] == "desktop_app"
+    assert prev_cls_1["reason"] == "enrolled_verified_ui_role"
+    assert not prev_cls_1.get("identity_binding_changed")
+    assert p1["classification"]["identity_binding_changed"] is True
+
+    # Second transition t1 -> t2 (sysctl -> Browser): at t1 sysctl WAS already revoked,
+    # so previous_classification in [t1, t2] must record identity_binding_changed=True.
+    inv1 = _cpu_inventory(1, sysctl_row, 1.1)
+    inv1["_process_history"] = registry.history_snapshot()
+    s2 = host_load.cpu_interval(
+        inv1,
+        _cpu_inventory(2, other, 1.2),
+        owner_pid=999_999,
+        desktop_classifier=registry,
+    )
+    p2 = s2["processes"][0]
+    prev_cls_2 = p2["interval_transition"]["previous_classification"]
+    assert prev_cls_2["kind"] == "unknown"
+    assert prev_cls_2["identity_binding_changed"] is True
+    assert p2["classification"]["identity_binding_changed"] is True
+
+    host = _desktop_host(registry, [s1, s2], [{"process_screen": screen}])
+    reduced = background_report._samples(host)
+    assert len(reduced) == 2
+    with pytest.raises(ValueError, match="desktop identity binding changed in interval evidence"):
+        background_report.validate_desktop_host(host)
+
+
+def test_seeded_randomized_collector_vs_reducer_equivalence_and_tamper_rejection(
+    enrolled, tmp_path
+):
+    """Randomized multi-interval lifecycles never diverge between collector and reducer."""
+    import copy
+    import random
+
+    from research.bl_served_search.desktop_apps import classify_row, decision_from_history
+
+    base_registry, row, other = _paired_enrolled_registry(enrolled, tmp_path)
+    mail_path = Path(row["command"])
+    sealed_bytes = mail_path.read_bytes()
+
+    for seed in range(25):
+        rng = random.Random(20261027 + seed)
+        mail_path.write_bytes(sealed_bytes)
+        registry = DesktopRegistry(
+            base_registry.path,
+            uid=501,
+            runner=base_registry._runner,
+            trusted_roots=base_registry._trusted_roots,
+            require_seal=False,
+        )
+        registry.verify_all()
+        guard = host_load.LoadGuard(desktop_policy=True)
+        guard_failed = False
+
+        active: dict[tuple[int, str], dict] = {}
+        next_pid = 100
+        previous_inv = None
+        samples = []
+        pure_history: dict[tuple[int, str], dict] = {}
+
+        for step in range(6):
+            if rng.random() < 0.25:
+                mail_path.write_bytes(b"mutated-bytes" if rng.random() < 0.5 else sealed_bytes)
+            for proc_key in list(active):
+                if rng.random() < 0.2 and len(active) > 1:
+                    active.pop(proc_key)
+                    continue
+                cur = active[proc_key]
+                cpu_s = cur["cpu_seconds"] + rng.choice([0.0, 0.02, 0.05, 0.25])
+                if rng.random() < 0.45:
+                    label = rng.choice(_TRANSITION_STATES)
+                    cand = _transition_state(label, row, other)
+                    cur = {
+                        "pid": proc_key[0],
+                        "birth": proc_key[1],
+                        "uid": cand["uid"],
+                        "command": cand["command"],
+                        "ppid": 1,
+                        "cpu_seconds": cpu_s,
+                    }
+                    if rng.random() < 0.15:
+                        cur["known_workload"] = True
+                else:
+                    cur = {**cur, "cpu_seconds": cpu_s}
+                active[proc_key] = cur
+
+            for _ in range(rng.randint(1, 2)):
+                label = rng.choice(_TRANSITION_STATES)
+                cand = _transition_state(label, row, other)
+                pid = next_pid
+                next_pid += 1
+                birth = f"b-{seed}-{pid}-{step}"
+                proc_row = {
+                    "pid": pid,
+                    "birth": birth,
+                    "uid": cand["uid"],
+                    "command": cand["command"],
+                    "ppid": 1,
+                    "cpu_seconds": rng.choice([0.01, 0.05, 0.25]),
+                }
+                if rng.random() < 0.1:
+                    proc_row["known_workload"] = True
+                active[(pid, birth)] = proc_row
+
+            at_ns = (step + 1) * 1_000_000_000
+            current_inv = {
+                "time_ns": at_ns,
+                "capture_start_ns": at_ns - 100,
+                "capture_end_ns": at_ns + 100,
+                "processes": [dict(v) for v in active.values()],
+            }
+            if previous_inv is not None:
+                sample = host_load.cpu_interval(
+                    previous_inv, current_inv, owner_pid=999_999, desktop_classifier=registry
+                )
+                samples.append(sample)
+                try:
+                    guard.check(sample)
+                except RuntimeError:
+                    guard_failed = True
+                for proc in sample["processes"]:
+                    pkey = (proc["pid"], proc["birth"])
+                    if "interval_transition" in proc:
+                        tr = proc["interval_transition"]
+                        prev_in = {
+                            **tr["previous"],
+                            "admit": False,
+                            "executable_status": tr["previous_executable_status"],
+                        }
+                        pk, ph, pr = classify_row(tr["previous_history_before"], prev_in, registry)
+                        assert ph == tr["previous_history_after"]
+                        assert decision_from_history(pk, ph, pr) == tr["previous_classification"]
+                        ck, ch, cr = classify_row(ph, {**proc, "admit": False}, registry)
+                        assert ch == proc["history_after"]
+                    else:
+                        ck, ch, cr = classify_row(
+                            proc["history_before"],
+                            {**proc, "admit": proc["admit"]},
+                            registry,
+                        )
+                        assert ch == proc["history_after"]
+                        assert decision_from_history(ck, ch, cr) == proc["classification"]
+                    if pkey in pure_history:
+                        expected_start = (
+                            proc["interval_transition"]["previous_history_before"]
+                            if "interval_transition" in proc
+                            else proc["history_before"]
+                        )
+                        assert expected_start == pure_history[pkey]
+                    pure_history[pkey] = proc["history_after"]
+            else:
+                for proc_row in current_inv["processes"]:
+                    if rng.random() < 0.5:
+                        registry.admit_process(proc_row)
+                    else:
+                        registry.classify(proc_row)
+                current_inv["_process_history"] = registry.history_snapshot()
+                pure_history = registry.history_snapshot()
+            previous_inv = current_inv
+
+        host = _desktop_host(
+            registry,
+            samples,
+            [{"classified_processes": [], "probe_exempt_pids": []}],
+        )
+        reduced = background_report._samples(host)
+        assert len(reduced) == len(samples)
+        for s_orig, s_red in zip(samples, reduced):
+            assert [p["kind"] for p in s_orig["processes"]] == [
+                p["kind"] for p in s_red["processes"]
+            ]
+            assert [p["classification"] for p in s_orig["processes"]] == [
+                p["classification"] for p in s_red["processes"]
+            ]
+        if guard_failed:
+            with pytest.raises(ValueError):
+                background_report.validate_desktop_host(host)
+        else:
+            background_report.validate_desktop_host(host)
+            assert background_report.desktop_overall(host)["sample_count"] == len(samples)
+
+        # Tampering with any exported classification or history must be rejected by reducer.
+        tampered = copy.deepcopy(host)
+        target_proc = tampered["cpu_samples"][-1]["processes"][0]
+        target_proc["classification"]["reason"] = "forged_reason"
+        with pytest.raises(ValueError):
+            background_report._samples(tampered)
+        mail_path.write_bytes(sealed_bytes)

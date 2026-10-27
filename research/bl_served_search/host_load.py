@@ -190,6 +190,12 @@ def cpu_interval(
     own_after = owned_pids(current["processes"], owner_pid)
     coverage = seconds <= MAX_SAMPLE_SECONDS
     rows, churn = [], []
+    use_step_row = desktop_classifier is not None and hasattr(desktop_classifier, "step_row")
+    prior_snapshot = (
+        previous.get("_process_history")
+        if use_step_row and isinstance(previous.get("_process_history"), dict)
+        else None
+    )
     totals = {
         "background": 0.0,
         "workload": 0.0,
@@ -220,27 +226,80 @@ def cpu_interval(
         if delta < 0:
             raise ValueError("process CPU counter decreased")
         prior_evidence = None
-        if transition:
-            # Snapshot the previous identity exactly once, before any current
-            # admission, classification, or revocation can mutate its binding.
-            prior_raw = desktop_classifier.classify(old) if desktop_classifier else {}
-            prior_kind = _kind_from_evidence(old["command"], desktop_classifier, prior_raw)
-            prior_evidence = classification_evidence(prior_kind, prior_raw)
-            if desktop_classifier is not None:
-                desktop_classifier.invalidate_transition(row)
-        elif desktop_classifier is not None:
-            # Dedicated off-tick collector: admit only new/unchanged rows.
-            admit = getattr(desktop_classifier, "admit_process", None)
-            if callable(admit):
-                admit(row)
-        evidence = desktop_classifier.classify(row) if desktop_classifier else {}
-        kind = _kind_from_evidence(row["command"], desktop_classifier, evidence)
-        if transition:
-            kinds = {kind, prior_kind}
-            if "agent_workload" in kinds:
-                kind = "agent_workload"
-            elif "unknown" in kinds:
-                kind = "unknown"
+        prior_history_before = None
+        prior_history_after = None
+        row_history_before = None
+        row_history_after = None
+        row_admit = False
+        if use_step_row:
+            from research.bl_served_search.desktop_apps import (
+                classify_row,
+                decision_from_history,
+            )
+
+            if transition:
+                prior_history_before = desktop_classifier.history_for_row(
+                    old, snapshot=prior_snapshot
+                )
+                old_input = {**old, "admit": False}
+                if (
+                    isinstance(prior_history_before, dict)
+                    and (prior_history_before.get("uid"), prior_history_before.get("command"))
+                    == (old.get("uid"), old.get("command"))
+                    and isinstance(prior_history_before.get("executable_status"), str)
+                    and prior_history_before.get("executable_status")
+                ):
+                    old_input["executable_status"] = prior_history_before["executable_status"]
+                prior_kind, prior_history_after, prior_reason = classify_row(
+                    prior_history_before, old_input, desktop_classifier
+                )
+                prior_evidence = decision_from_history(
+                    prior_kind, prior_history_after, prior_reason
+                )
+                desktop_classifier._apply_history(prior_history_before, prior_history_after)
+                cur_kind, row_history_after, reason = classify_row(
+                    prior_history_after, {**row, "admit": False}, desktop_classifier
+                )
+                cur_evidence = decision_from_history(cur_kind, row_history_after, reason)
+                desktop_classifier._apply_history(prior_history_after, row_history_after)
+                kinds = {cur_kind, prior_kind}
+                if "agent_workload" in kinds:
+                    kind = "agent_workload"
+                elif "unknown" in kinds:
+                    kind = "unknown"
+                else:
+                    kind = cur_kind
+                evidence = classification_evidence(kind, cur_evidence)
+                row_history_before = prior_history_after
+                row_admit = False
+            else:
+                kind, evidence, row_history_before, row_history_after, _ = (
+                    desktop_classifier.step_row(row, admit=True)
+                )
+                row_admit = True
+        else:
+            if transition:
+                # Snapshot the previous identity exactly once, before any current
+                # admission, classification, or revocation can mutate its binding.
+                prior_raw = desktop_classifier.classify(old) if desktop_classifier else {}
+                prior_kind = _kind_from_evidence(old["command"], desktop_classifier, prior_raw)
+                prior_evidence = classification_evidence(prior_kind, prior_raw)
+                if desktop_classifier is not None:
+                    desktop_classifier.invalidate_transition(row)
+            elif desktop_classifier is not None:
+                # Dedicated off-tick collector: admit only new/unchanged rows.
+                admit = getattr(desktop_classifier, "admit_process", None)
+                if callable(admit):
+                    admit(row)
+            evidence = desktop_classifier.classify(row) if desktop_classifier else {}
+            kind = _kind_from_evidence(row["command"], desktop_classifier, evidence)
+            if transition:
+                kinds = {kind, prior_kind}
+                if "agent_workload" in kinds:
+                    kind = "agent_workload"
+                elif "unknown" in kinds:
+                    kind = "unknown"
+            evidence = classification_evidence(kind, evidence)
         cpu = 100 * delta / seconds
         background_kinds = (
             DESKTOP_BACKGROUND_KINDS if desktop_classifier is not None else BACKGROUND_KINDS
@@ -253,7 +312,6 @@ def cpu_interval(
         totals[group] += cpu
         if kind in {"macos_service", "desktop_renderer", "desktop_app"}:
             totals[kind] += cpu
-        evidence = classification_evidence(kind, evidence)
         # Preserve every measured CPU contribution and every admitted UI/violation
         # binding. Idle unrelated processes remain in raw point inventories and
         # churn, rather than repeating thousands of zero rows for up to 7200s.
@@ -266,11 +324,16 @@ def cpu_interval(
             )
         ):
             exported = {**row, "kind": kind, "cpu_percent": cpu, "classification": evidence}
+            if use_step_row and row_history_after is not None:
+                exported["history_before"] = row_history_before
+                exported["history_after"] = row_history_after
+                exported["executable_status"] = row_history_after["executable_status"]
+                exported["admit"] = row_admit
             if transition:
                 # Replay needs both identities: this interval's conservative
                 # classification is a precedence over the before/after rows,
                 # not a claim that the after identity supplied all its CPU.
-                exported["interval_transition"] = {
+                transition_export = {
                     "reason": "uid_changed_no_delta" if uid_changed else "exec_changed_no_delta",
                     "previous": dict(old),
                     "previous_classification": (
@@ -278,11 +341,20 @@ def cpu_interval(
                     ),
                     "conservative_kind": kind,
                 }
+                if use_step_row and prior_history_after is not None:
+                    transition_export["previous_history_before"] = prior_history_before
+                    transition_export["previous_history_after"] = prior_history_after
+                    transition_export["previous_executable_status"] = prior_history_after[
+                        "executable_status"
+                    ]
+                exported["interval_transition"] = transition_export
             rows.append(exported)
     for key, row in before.items():
         if key not in after and row["pid"] not in own_before:
             coverage = False
             churn.append({**row, "reason": "exited_process_no_final_counter"})
+    if use_step_row:
+        current["_process_history"] = desktop_classifier.history_snapshot()
     return {
         "start_ns": start,
         "end_ns": end,

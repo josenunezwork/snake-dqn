@@ -149,7 +149,8 @@ def foreign_load(
     if classified:
         allowed.update(owned_pids(parsed, owner_pid))
         screen["probe_exempt_pids"] = sorted(allowed)
-    if desktop_classifier is not None and admit_desktop:
+    use_step_row = desktop_classifier is not None and hasattr(desktop_classifier, "step_row")
+    if desktop_classifier is not None and admit_desktop and not use_step_row:
         for row in parsed:
             if row["pid"] not in allowed:
                 row["admission"] = desktop_classifier.admit_process(row)
@@ -160,6 +161,17 @@ def foreign_load(
         if classified:
             if pid in allowed:
                 kind = "probe_owned"
+            elif use_step_row:
+                kind, decision, history_before, history_after, _ = desktop_classifier.step_row(
+                    row, admit=admit_desktop
+                )
+                if admit_desktop:
+                    row["admission"] = decision
+                row["classification"] = decision
+                row["history_before"] = history_before
+                row["history_after"] = history_after
+                row["executable_status"] = history_after["executable_status"]
+                row["admit"] = bool(admit_desktop)
             else:
                 kind = process_kind(command, desktop_classifier, row)
                 if desktop_classifier is not None:
@@ -373,6 +385,8 @@ def _monitor_classified(
                 )
                 samples.append(sample)
                 guard.check(sample)
+            elif classifier is not None:
+                current["_process_history"] = classifier.history_snapshot()
             previous = current
             heartbeat.value = time.monotonic()
             ready.set()
