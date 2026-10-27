@@ -172,3 +172,60 @@ def test_classified_monitor_exports_final_interval_and_policy(monkeypatch, tmp_p
     assert evidence["load_policy"] == "classified-v1"
     assert evidence["cpu_samples"][0]["end_ns"] == 1_000_000_000
     assert not failed.is_set()
+
+
+@pytest.mark.parametrize("stop_at", ["ready", "capture-0", "capture-1", "guard"])
+def test_classified_monitor_captures_after_stop_and_always_exports_samples(
+    monkeypatch, tmp_path, stop_at
+):
+    from research.bl_served_search import host_load
+
+    monkeypatch.setattr(probe_host.host, "snapshot", lambda **kw: {"quiet": True})
+    monkeypatch.setattr(probe_host, "_owned_inventory", lambda _: [])
+    ready, stop, failed = threading.Event(), threading.Event(), threading.Event()
+    clock, captures, stop_times = [0.0], [], []
+
+    def finish():
+        if not stop.is_set():
+            stop_times.append(int(clock[0] * 1e9))
+            stop.set()
+
+    def capture():
+        start = int(clock[0] * 1e9)
+        clock[0] += 0.1
+        midpoint = int(clock[0] * 1e9)
+        clock[0] += 0.1
+        if stop_at == f"capture-{len(captures)}":
+            finish()  # Stop after this capture's midpoint, before returning it.
+        result = {
+            "time_ns": midpoint,
+            "capture_start_ns": start,
+            "capture_end_ns": int(clock[0] * 1e9),
+            "processes": [],
+        }
+        captures.append(result)
+        return result
+
+    def sleep(seconds):
+        clock[0] += seconds
+
+    original_check = host_load.LoadGuard.check
+
+    def check(guard, sample):
+        original_check(guard, sample)
+        if stop_at == "guard":
+            finish()
+
+    if stop_at == "ready":
+        monkeypatch.setattr(ready, "set", finish)
+    monkeypatch.setattr(probe_host.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(probe_host.time, "sleep", sleep)
+    monkeypatch.setattr(host_load, "capture_cpu", capture)
+    monkeypatch.setattr(host_load.LoadGuard, "check", check)
+    probe_host._monitor(10, str(tmp_path), 120, ready, stop, failed, SimpleNamespace(value=0), True)
+    evidence = read_export(tmp_path / "host.json")
+    assert evidence["status"] == "COMPLETE"
+    assert not failed.is_set()
+    assert evidence["cpu_samples"]
+    assert captures[-1]["capture_start_ns"] >= stop_times[0]
+    assert evidence["cpu_samples"][-1]["end_ns"] > stop_times[0]

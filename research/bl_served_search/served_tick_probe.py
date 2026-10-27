@@ -562,7 +562,10 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
 
             try:
                 covariates["background_load"] = summarize_background(
-                    result, raw["host"], production=cell["cell"].get("arm") == "production"
+                    result,
+                    raw["host"],
+                    production=cell["cell"].get("arm") == "production",
+                    fps=int(raw["manifest"]["fps"]),
                 )
             except (KeyError, TypeError, ValueError) as exc:
                 return {"verdict": "INVALID", "reason": f"background evidence: {exc}"}

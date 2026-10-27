@@ -88,6 +88,74 @@ def test_churn_reuse_exec_and_gaps_cannot_establish_low_coverage(change):
     assert not load.cpu_interval(before, after, 10)["coverage_complete"]
 
 
+@pytest.mark.parametrize("command", ["python", "pytest", "codex-exec", "node", "/tmp/worker"])
+def test_new_foreign_process_cpu_is_measured_and_aborts_before_exit(command):
+    before = inventory(1, [])
+    after = inventory(2, [(20, 1, "new", command, 0.8)])
+    measured = load.cpu_interval(before, after, 10)
+    assert not measured["coverage_complete"]
+    assert measured["process_churn"][0]["pid"] == 20
+    assert measured["processes"][0]["cpu_percent"] == pytest.approx(80)
+    group = "unknown" if command == "/tmp/worker" else "workload"
+    assert measured[f"{group}_cpu_percent"] == pytest.approx(80)
+    with pytest.raises(RuntimeError, match="foreign workload"):
+        load.LoadGuard().check(measured)
+
+
+@pytest.mark.parametrize(
+    "old_command,new_command,kind",
+    [
+        ("python", "/usr/libexec/cloudd", "agent_workload"),
+        ("/usr/libexec/cloudd", "python", "agent_workload"),
+        ("/tmp/worker", "/usr/libexec/cloudd", "unknown"),
+        ("/usr/libexec/cloudd", "/tmp/worker", "unknown"),
+        ("/tmp/worker", "python", "agent_workload"),
+        ("python", "/tmp/worker", "agent_workload"),
+    ],
+)
+def test_exec_cpu_delta_keeps_conservative_foreign_classification(old_command, new_command, kind):
+    before = inventory(1, [(20, 1, "a", old_command, 10)])
+    after = inventory(2, [(20, 1, "a", new_command, 10.8)])
+    measured = load.cpu_interval(before, after, 10)
+    assert not measured["coverage_complete"]
+    assert len(measured["process_churn"]) == 1
+    assert measured["processes"][0]["kind"] == kind
+    assert measured["processes"][0]["cpu_percent"] == pytest.approx(80)
+    group = "workload" if kind == "agent_workload" else "unknown"
+    assert measured[f"{group}_cpu_percent"] == pytest.approx(80)
+    assert measured["background_cpu_percent"] == 0
+    with pytest.raises(RuntimeError, match="foreign workload"):
+        load.LoadGuard().check(measured)
+
+
+@pytest.mark.parametrize("churn", ["new", "exec"])
+def test_background_churn_preserves_measured_cpu_and_sustained_ceiling(churn):
+    guard = load.LoadGuard()
+    for tick in range(61):
+        before = inventory(tick, [(20, 1, "a", "/usr/libexec/cloudd", 10)])
+        after = inventory(tick + 1, [(20, 1, "a", "/usr/libexec/cloudd", 11)])
+        if churn == "new":
+            after["processes"].append(
+                inventory(0, [(30 + tick, 1, str(tick), "/usr/libexec/mdworker_shared", 0.6)])[
+                    "processes"
+                ][0]
+            )
+        else:
+            before["processes"][0]["command"] = "/usr/libexec/fileproviderd"
+            after["processes"][0]["cpu_seconds"] = 11.6
+        measured = load.cpu_interval(before, after, 10)
+        assert not measured["coverage_complete"]
+        assert measured["process_churn"]
+        assert measured["background_cpu_percent"] == pytest.approx(160)
+        assert sum(row["cpu_percent"] for row in measured["processes"]) == pytest.approx(160)
+        if tick == 60:
+            with pytest.raises(RuntimeError, match=">150% for >60s"):
+                guard.check(measured)
+        else:
+            guard.check(measured)
+            assert guard.high_since_ns == 0
+
+
 def sample(start, end, cpu=151):
     return {
         "start_ns": int(start * 1e9),

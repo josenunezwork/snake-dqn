@@ -50,6 +50,10 @@ def _samples(host_evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
         previous_end = end
         if type(sample.get("coverage_complete")) is not bool:
             raise ValueError("malformed sample coverage")
+        if not isinstance(sample.get("process_churn"), list):
+            raise ValueError("malformed sample process churn")
+        if sample["coverage_complete"] and (sample["process_churn"] or end - start > MAX_SAMPLE_NS):
+            raise ValueError("sample coverage conflicts with churn or interval length")
         processes = sample.get("processes")
         if not isinstance(processes, list):
             raise ValueError("malformed sample processes")
@@ -236,7 +240,10 @@ def _metric_rows(
     production: bool,
     receipts: list[Mapping[str, Any]],
     sends: list[Mapping[str, Any]],
+    fps: int = 24,
 ) -> list[dict[str, int]]:
+    if fps <= 0:
+        raise ValueError("fps must be positive")
     values: list[dict[str, int]] = []
     for index, row in enumerate(rows):
         item: dict[str, int] = {}
@@ -263,7 +270,7 @@ def _metric_rows(
             item["update_ns"] = _integer(update.get("wall_ns"), "game update wall")
         if not production:
             epoch = _integer(rows[0].get("target_ns"), "epoch target")
-            deadline = epoch + (_integer(row.get("tick"), "trace tick") + 1) * 1_000_000_000 // 24
+            deadline = epoch + (_integer(row.get("tick"), "trace tick") + 1) * 1_000_000_000 // fps
             item["absolute_overrun_severity_ns"] = max(
                 0, _integer(row["end_ns"], "end_ns") - deadline
             )
@@ -310,6 +317,7 @@ def _timing(
         if current == previous + 1
         and (
             not require_low_gap
+            or receipts[current]["receive_ns"] == receipts[previous]["receive_ns"]
             or (
                 receipts[current]["receive_ns"] > receipts[previous]["receive_ns"]
                 and _covariate(
@@ -332,7 +340,11 @@ def _timing(
 
 
 def summarize_background(
-    result: Mapping[str, Any], host_evidence: Mapping[str, Any], *, production: bool = False
+    result: Mapping[str, Any],
+    host_evidence: Mapping[str, Any],
+    *,
+    production: bool = False,
+    fps: int = 24,
 ) -> dict[str, Any]:
     """Align host CPU samples and publish overall plus low-background timings.
 
@@ -340,6 +352,8 @@ def summarize_background(
     changes its verdict. Missing coverage remains explicit and cannot become a
     low-background observation by interpolation.
     """
+    if fps <= 0:
+        raise ValueError("fps must be positive")
     if not isinstance(result, Mapping) or not isinstance(host_evidence, Mapping):
         raise ValueError("result and host evidence must be mappings")
     samples = _samples(host_evidence)
@@ -358,7 +372,7 @@ def summarize_background(
         }
         tick.update(_covariate(samples, start, end))
         ticks.append(tick)
-    metrics = _metric_rows(rows, production, receipts, sends)
+    metrics = _metric_rows(rows, production, receipts, sends, fps=fps)
     metric_keys = sorted({key for item in metrics for key in item})
     all_indexes = list(range(len(rows)))
     low_indexes = [tick["index"] for tick in ticks if tick["low_background"]]

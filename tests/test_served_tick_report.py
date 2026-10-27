@@ -4,6 +4,8 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+import pytest
+
 from research.bl_served_search import served_tick_probe as probe
 
 
@@ -79,25 +81,33 @@ def test_empty_parity_fields_never_equal_valid_evidence() -> None:
     assert not probe._verify_pair({}, {})["pass"]
 
 
-def test_classified_report_attaches_all_cells_without_overriding_overall_fail(monkeypatch):
+@pytest.mark.parametrize("fps", [24, 30])
+def test_classified_report_attaches_all_cells_without_overriding_overall_fail(monkeypatch, fps):
     from research.bl_served_search import background_report, tick_trace
 
     monkeypatch.setattr(tick_trace, "reduce_trace", lambda *a, **kw: {"verdict": "FAIL"})
     monkeypatch.setattr(probe, "_production_summary", lambda *a: {"verdict": "FAIL"})
+    if fps != 24:
+        # Exercise forwarding for a hypothetical manifest without changing the frozen panel.
+        monkeypatch.setattr(probe, "preflight", lambda manifest: {})
     calls = []
 
-    def summarize(result, host, *, production=False):
-        calls.append(production)
+    def summarize(result, host, *, production=False, fps=24):
+        calls.append((production, fps))
         return {"timing": {"low_background": {"count": 0}}}
 
     monkeypatch.setattr(background_report, "summarize_background", summarize)
     raw = fixture_raw()
     raw["load_policy"] = raw["host"]["load_policy"] = "classified-v1"
     raw["host"]["schema"] = "served-tick-host/v2"
+    raw["manifest"]["fps"] = fps
+    for cell in raw["cells"]:
+        cell["result"]["fps"] = fps
     report = probe.reduce_trace(raw)
     assert report["verdict"] == "FAIL"
     assert len(calls) == len(raw["manifest"]["order"])
-    assert sum(calls) == 3
+    assert sum(production for production, actual_fps in calls) == 3
+    assert all(actual_fps == fps for production, actual_fps in calls)
     assert all(
         arm["background_load"]["timing"]["low_background"]["count"] == 0 for arm in report["arms"]
     )

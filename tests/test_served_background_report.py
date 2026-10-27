@@ -13,6 +13,7 @@ def _sample(start, end, background=10, workload=0, unknown=0, complete=True):
         "workload_cpu_percent": workload,
         "unknown_cpu_percent": unknown,
         "coverage_complete": complete,
+        "process_churn": [],
         "processes": [
             {
                 "pid": 1,
@@ -67,7 +68,9 @@ def test_missing_or_long_coverage_cannot_be_low_background():
     assert report["ticks"][0]["low_background"]
     assert not report["ticks"][1]["coverage_complete"]
     assert report["timing"]["low_background"]["count"] == 1
-    report = summarize_background(_result([_row(0, 0, 100)]), _host([_sample(0, 6_000_000_000, 1)]))
+    report = summarize_background(
+        _result([_row(0, 0, 100)]), _host([_sample(0, 6_000_000_000, 1, complete=False)])
+    )
     assert not report["ticks"][0]["coverage_complete"]
 
 
@@ -216,7 +219,7 @@ def test_invalid_trace_times_fail_closed():
         summarize_background(_result([_row(0, 20, 10)]), _host([_sample(0, 30)]))
 
 
-def test_zero_client_gap_remains_overall_but_has_no_low_duration_window():
+def test_zero_client_gap_is_retained_in_overall_and_low_background():
     result = {
         "warmup_ticks": 0,
         "trace": [
@@ -239,4 +242,70 @@ def test_zero_client_gap_remains_overall_but_has_no_low_duration_window():
     }
     report = summarize_background(result, _host([_sample(0, 200)]), production=True)
     assert report["timing"]["overall"]["metrics"]["client_frame_gap_ns"]["max"] == 0
-    assert report["timing"]["low_background"]["metrics"]["client_frame_gap_ns"]["count"] == 0
+    overall = report["timing"]["overall"]["metrics"]["client_frame_gap_ns"]
+    low = report["timing"]["low_background"]["metrics"]["client_frame_gap_ns"]
+    assert low == overall
+    assert low["count"] == 1
+    assert low["max"] == 0
+
+
+@pytest.mark.parametrize("fps", [12, 30, 60])
+def test_nonproduction_overruns_use_configured_rational_fps(fps):
+    from research.bl_served_search.tick_trace import reduce_trace
+
+    epoch = 100
+    first_deadline = epoch + 1_000_000_000 // fps
+    second_deadline = epoch + 2_000_000_000 // fps
+    rows = [
+        _row(0, epoch, first_deadline - 1, spans={}),
+        _row(1, first_deadline, second_deadline + 7, spans={}),
+    ]
+    report = summarize_background(
+        _result(rows), _host([_sample(0, second_deadline + 100)]), fps=fps
+    )
+    summary = reduce_trace(rows, expected_ticks=2, fps=fps, require_update=False)
+    assert summary["verdict"] == "FAIL"
+    timing = report["timing"]["overall"]
+    assert timing["absolute_overrun_count"] == summary["absolute_overruns"] == 1
+    assert timing["metrics"]["absolute_overrun_severity_ns"]["max"] == 7
+    assert summary["overrun_severity_ns"]["max"] == 7
+
+
+@pytest.mark.parametrize("fps", [0, -1])
+def test_background_report_refuses_nonpositive_fps(fps):
+    from research.bl_served_search.background_report import _metric_rows
+
+    rows = [_row(0, 0, 100)]
+    with pytest.raises(ValueError, match="fps"):
+        summarize_background(_result(rows), _host([_sample(0, 200)]), fps=fps)
+    with pytest.raises(ValueError, match="fps"):
+        _metric_rows(rows, False, [], [], fps=fps)
+
+
+@pytest.mark.parametrize("churn", [None, {}, "churn", 1])
+def test_background_report_refuses_nonlist_process_churn(churn):
+    sample = _sample(0, 100)
+    sample["process_churn"] = churn
+    with pytest.raises(ValueError, match="churn"):
+        summarize_background(_result([_row(0, 0, 10)]), _host([sample]))
+
+
+@pytest.mark.parametrize("change", ["missing_churn", "churn", "long"])
+def test_background_report_refuses_inconsistent_complete_coverage(change):
+    sample = _sample(0, 100)
+    if change == "missing_churn":
+        del sample["process_churn"]
+    elif change == "churn":
+        sample["process_churn"] = [{"pid": 20, "reason": "new_or_exec_process_no_delta"}]
+    else:
+        sample["end_ns"] = 5_000_000_001
+    with pytest.raises(ValueError):
+        summarize_background(_result([_row(0, 0, 10)]), _host([sample]))
+
+
+def test_incomplete_churn_sample_retains_measured_cpu_but_cannot_be_low():
+    sample = _sample(0, 100, complete=False)
+    sample["process_churn"] = [{"pid": 20, "reason": "new_or_exec_process_no_delta"}]
+    report = summarize_background(_result([_row(0, 0, 10)]), _host([sample]))
+    assert not report["ticks"][0]["low_background"]
+    assert report["ticks"][0]["background_cpu_percent_time_weighted_mean"] == 10

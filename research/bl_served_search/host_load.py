@@ -143,11 +143,16 @@ def cpu_interval(previous: dict, current: dict, owner_pid: int) -> dict[str, Any
         if old is None or old["command"] != row["command"]:
             coverage = False
             churn.append({**row, "reason": "new_or_exec_process_no_delta"})
-            continue
-        delta = row["cpu_seconds"] - old["cpu_seconds"]
+        delta = row["cpu_seconds"] if old is None else row["cpu_seconds"] - old["cpu_seconds"]
         if delta < 0:
             raise ValueError("process CPU counter decreased")
         kind = process_kind(row["command"])
+        if old is not None and old["command"] != row["command"]:
+            kinds = {kind, process_kind(old["command"])}
+            if "agent_workload" in kinds:
+                kind = "agent_workload"
+            elif "unknown" in kinds:
+                kind = "unknown"
         cpu = 100 * delta / seconds
         group = (
             "background"

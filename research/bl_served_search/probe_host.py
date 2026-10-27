@@ -208,6 +208,7 @@ def _monitor_classified(
         next_host = started
         # One original attempt only. Count and lifetime both bound memory/export.
         for _ in range(int(seconds / host_load.SAMPLE_SECONDS) + 3):
+            stop_before_capture = stop.is_set()
             if time.monotonic() >= next_host:
                 observation = host.snapshot(
                     process_policy=lambda screen: foreign_load(screen, owner_pid, classified=True)
@@ -229,7 +230,7 @@ def _monitor_classified(
                 raise TimeoutError("diagnostic lifetime cap reached")
             # Always finish a final full interval after the callback stops;
             # avoid a millisecond tail whose rounded TIME delta inflates CPU.
-            if stop.is_set():
+            if stop_before_capture and samples:
                 break
             time.sleep(host_load.SAMPLE_SECONDS)
         else:
