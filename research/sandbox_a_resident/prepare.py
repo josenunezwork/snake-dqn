@@ -202,10 +202,10 @@ def prepare(
         "warmups": 1,
         "episode_limits": [64, 512],
         "recipe_version": "A-3",
-        "compile_mode": "default",
-        "seed_offset_base": 120_000_000,
+        "compile_mode": "none",
+        "seed_offset_base": 240_000_000,
         "allocation_stride": 3_000_000,
-        "parity_seed_offset": 200_000_000,
+        "parity_seed_offset": 320_000_000,
         "parity_seed_count": 54,
         "tiny": False,
         "timeout_seconds": estimate_seconds * 2,
@@ -227,10 +227,11 @@ def prepare(
             stem = unit_stem(worlds, phase, limit)
             required += [f"assay/{stem}.{suffix}" for suffix in ("tar", "json")]
     output = Path(
-        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-02/output"
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/"
+        "a3-eager-attempt-01/output"
     )
     manifest = {
-        "job_id": "sandbox-a-resident-a3-20261026-02",
+        "job_id": "sandbox-a-resident-a3-eager-20261026-01",
         "commit": commit,
         "script": "research/sandbox_a_resident/job.sh",
         "device": "cuda",

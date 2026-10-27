@@ -39,8 +39,8 @@ def test_a3_packet_admission_and_generous_runaway_guard(monkeypatch, tmp_path: P
         packet / "dispatch-manifest.json"
     )
     assert len((packet / "sandbox.json").read_text().splitlines()) == 10
-    assert manifest["job_id"] == "sandbox-a-resident-a3-20261026-02"
-    assert manifest["output_dir"].endswith("/a3-attempt-02/output")
+    assert manifest["job_id"] == "sandbox-a-resident-a3-eager-20261026-01"
+    assert manifest["output_dir"].endswith("/a3-eager-attempt-01/output")
     assert "pyproject.toml" not in manifest["source_paths"]
     assert "research/gpu_sim_spike/masks_device.py" in manifest["source_paths"]
     assert "research/gpu_sim_spike/event_cuda.cu" in manifest["source_paths"]
@@ -53,11 +53,11 @@ def test_a3_packet_admission_and_generous_runaway_guard(monkeypatch, tmp_path: P
     assert control["episode_limits"] == [64, 512]
     assert control["worlds"] == [128, 1024, 2048, 4096]
     assert control["recipe_version"] == "A-3"
-    assert control["compile_mode"] == "default"
+    assert control["compile_mode"] == "none"
     assert control["parity_seed_count"] == 54
-    assert control["seed_offset_base"] == 120_000_000
+    assert control["seed_offset_base"] == 240_000_000
     assert control["allocation_stride"] == 3_000_000
-    assert control["parity_seed_offset"] == 200_000_000
+    assert control["parity_seed_offset"] == 320_000_000
     allocations = prepare.seed_allocations(control)
     assert min(row["offset"] for row in allocations) > 100_000_000
     assert all(
