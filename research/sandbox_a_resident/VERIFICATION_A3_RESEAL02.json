@@ -1,0 +1,80 @@
+{
+  "status": "PASS_PREPARED_NOT_RUN",
+  "source_commit": "546678017c0c12447eea62306b25d97b3c59aa5a",
+  "packet_commit": "12c4007f7724e6c38262c3a872a7278f43fe53cd",
+  "admission_test_commit": "304f1c244b5e328b392b4726e70d83d924a04ab7",
+  "packet": "research/sandbox_a_resident/packet-a3-02",
+  "sandbox_manifest_lines": 10,
+  "runtime_source_count": 101,
+  "cells": 24,
+  "runaway_base_seconds": 14400,
+  "runaway_effective_seconds": 28800,
+  "tf32_validation": "Both compiled and eager validation calls run with CUDA matmul/cuDNN TF32 disabled, then caller flags restored; floats rtol=atol=2e-5",
+  "compilation": "pure tensor v8 feature/observation entrypoints; mutable R2 resolution outside; native flood custom op has fake registration; separate collector/learner blocks; per-geometry shared actor and graph cache across cell/world shapes; compile timer deltas separate from steady state",
+  "tests": {
+    "passed": 73,
+    "seconds": 7.99,
+    "nice": 15,
+    "numerical_threads": 1,
+    "real_compile_backend": "aot_eager",
+    "fullgraph": true,
+    "compiled_blocks_with_no_fallback": [
+      "ActorCritic_collect",
+      "ActorCritic_train",
+      "v8_decide",
+      "build_observation",
+      "anchors"
+    ],
+    "four_shape_cache_test": "Real AOTAutograd Linear fixture isolates global grad/TF32 shape guards; resident fullgraph reset test remains separate",
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q -o addopts= research/sandbox_a_resident"
+  },
+  "lint": {
+    "black": "PASS",
+    "isort": "PASS",
+    "flake8": "PASS",
+    "diff_check": "PASS"
+  },
+  "preflight": {
+    "status": "PASS",
+    "seconds": 20.75,
+    "allocated_seeds": 22457142,
+    "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-02/preflight-pass.log"
+  },
+  "dispatch_dry_run": {
+    "status": "PASS",
+    "allocations": 0,
+    "live_accounting": "NOT_CHECKED",
+    "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-02/dispatch-dry-run-pass.log",
+    "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a3-20261026-02 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-02/state --dry-run"
+  },
+  "prior_validation_attempts": {
+    "uncommitted_manifest": "Correctly refused until packet committed; preserved preflight.log",
+    "timeouts": [
+      "dispatch-dry-run.log",
+      "dispatch-dry-run-final.log"
+    ],
+    "test_isolation_failure": "Preserved tests-admission-fast.log: global Dynamo cache pollution corrected with compiler reset between independent tests",
+    "resolution": "Separate four-shape code-owner guard proof from redundant full raster lowering; full five-block resident AOT and source parity checks retained; final 73 tests PASS"
+  },
+  "operator_dispatch_command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a3-20261026-02 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-02/state",
+  "source_closure_check": "All 101 current shipped files exactly match pinned published source commit; six packet file hashes match immutable seal; prior packets untouched",
+  "trees_unchanged": {
+    "research/colab_cli": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+    "research/gpu_sim_spike": "46e5b17fe0f1b2fee2cd229749c3625c2a2d854f"
+  },
+  "scope": "Prepared only. No A100/CUDA execution, no live provider accounting, no efficacy or serving change. CPU default Inductor probe has local macOS libc++/VecMask failures documented in LOCAL_VERIFICATION_A3_RESEAL02.json.",
+  "evidence_sha256": {
+    "tests-final.log": "48e34e979505c48b5dfb29623a6c78a6e57cc7a244ec1b8d1cfd9f4c13480708",
+    "preflight-pass.log": "0e1cd17b3a65673d97b19a5b4e9fb5cc9bf0acc0dda36cd29fcc5e08297aa44b",
+    "dispatch-dry-run-pass.log": "0358726b994bf993490b1b7fcf388a632c78fd44ab13ac2c2018747dc3216dcf",
+    "dispatch-dry-run.log": "eba06c814d7bddc20cdf3e99c5b9029fdcba5f21f12e1bd00349b00692515eb6",
+    "dispatch-dry-run-final.log": "2e8a3b573e2db327082000c08fd3fb0505d4f317d02cc9e8cd6349ee217d246a",
+    "local-smoke.log": "17b72cbce4cabf104cb6ecce53a4093d8951e0b9673f87b65f74b66d8f65ef99"
+  },
+  "untouched": [
+    "tmux sessions",
+    "released checkpoints",
+    "serving pins",
+    "older packets and hash-bound evidence"
+  ]
+}
