@@ -206,6 +206,15 @@ def test_build_ledger_ignores_earlier_nonresumable_phase_but_keeps_integrity_ref
         build_ledger(tmp_path, control())
 
 
+def test_nonresumable_snapshot_still_verifies_state_payload_before_skip(tmp_path: Path) -> None:
+    snapshot(tmp_path, 1, phase="calibrated-boundary")
+    # A nonresumable phase may be skipped only after all three immutable
+    # payloads have passed their sidecar checks.
+    (tmp_path / "iteration-0001.pt.sha256").write_text("0" * 64)
+    with pytest.raises(ResumeRefused, match=r"corrupt export: iteration-0001\.pt"):
+        build_ledger(tmp_path, control())
+
+
 def test_build_ledger_refuses_nonresumable_foreign_or_later_snapshot(tmp_path: Path) -> None:
     snapshot(tmp_path, 2)
     snapshot(

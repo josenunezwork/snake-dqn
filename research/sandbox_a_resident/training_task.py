@@ -352,6 +352,11 @@ class ResidentTrainingTask:
         hero_actions = torch.as_tensor(hero_actions, device=self.device, dtype=torch.long)
         if hero_actions.shape != (self.sim.E,):
             raise ValueError("hero actions must have shape (E,)")
+        # A caller may intentionally skip observe() between natural-world
+        # resets.  Opponent selectors still require the simulator's food and
+        # respawn preparation before they form vector features or legal masks.
+        if not self.sim._prepared:
+            self.sim.prepare()
         if self.opponents is None:
             actions = torch.ones((self.sim.E, self.sim.S), dtype=torch.long, device=self.device)
             actions[:, 0] = hero_actions

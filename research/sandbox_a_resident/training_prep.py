@@ -78,7 +78,7 @@ class PreparationConfig:
     min_late_ev: float = 0.10
     critic_batch: int = 2048
     metric_cache_rows: int = 16_384
-    # Exactly one full H5000 life for every preparation world. uint8 B8
+    # Open plus staged completed lives share this bound. uint8 B8
     # observations are roughly 12 KiB/row; this is bounded CPU staging, never
     # a GPU replay cache.
     max_open_rows: int = 120_000
@@ -330,24 +330,34 @@ def _permutation(count: int, generator: torch.Generator) -> list[int]:
 def _take_cross_life_batch(
     staged_lives: list[list[_Row]], config: PreparationConfig, generator: torch.Generator
 ) -> list[_Row] | None:
-    """Draw one full shuffled batch only after at least two lives are available.
+    """Draw a balanced full batch with a bounded contribution from each life.
 
-    Reserving one row from every staged completed life prevents a long first
-    life from recreating the chronological single-life updates this staging
-    boundary exists to remove.  Remaining rows are sampled without replacement
-    and the completed batch itself is shuffled once more.
+    Production batches need at least eight completed lives; the E6 fixture
+    needs three. A short residual life cannot unlock a nearly single-life
+    update: collection continues until the capped pool can fill a batch.
     """
     nonempty = [life for life in staged_lives if life]
-    available = sum(len(life) for life in nonempty)
-    if len(nonempty) < 2 or available < config.critic_batch:
+    min_lives = min(8, config.prep_worlds // 2, config.critic_batch)
+    per_life_cap = max(1, config.critic_batch // min_lives)
+    capacities = [min(len(life), per_life_cap) for life in nonempty]
+    if len(nonempty) < 2 or sum(capacities) < config.critic_batch:
         return None
-    chosen = [life.pop(0) for life in nonempty]
-    pool = [(life, index) for life in nonempty for index in range(len(life))]
-    for pool_index in sorted(
-        _permutation(len(pool), generator)[: config.critic_batch - len(chosen)], reverse=True
-    ):
-        life, index = pool[pool_index]
-        chosen.append(life.pop(index))
+    order = _permutation(len(nonempty), generator)
+    counts = [0] * len(nonempty)
+    needed = config.critic_batch
+    while needed:
+        for index in order:
+            if counts[index] < capacities[index]:
+                counts[index] += 1
+                needed -= 1
+                if not needed:
+                    break
+    chosen = []
+    for index, count in enumerate(counts):
+        if count:
+            life = nonempty[index]
+            for row_index in sorted(_permutation(len(life), generator)[:count], reverse=True):
+                chosen.append(life.pop(row_index))
     staged_lives[:] = [life for life in staged_lives if life]
     return [chosen[index] for index in _permutation(len(chosen), generator)]
 
@@ -411,6 +421,10 @@ def prepare(
         if isinstance(state, Mapping)
         else (state or PreparationState())
     )
+    # Older calibrated states can contain a sparse mapping. Zero-life mixes
+    # remain mandatory support, including when no holdout life ever completes.
+    for mix in range(3):
+        result.holdout_lives_by_mix.setdefault(_mix_name(mix), 0)
     if result.stage == "ready":
         return PreparationResult(
             result, actor, critic, torch.optim.Adam(critic.parameters(), lr=1e-4)
@@ -478,29 +492,28 @@ def prepare(
             )
             lives[index].rows.append(row)
             lives[index].total += row.reward
-            if sum(len(life.rows) for life in lives) > config.max_open_rows:
+            if (
+                sum(len(life.rows) for life in lives) + sum(map(len, staged_lives))
+                > config.max_open_rows
+            ):
                 result.stage, result.task_state = "failed", task.state_dict()
                 raise PreparationFailure(
-                    "open complete-life trajectory storage cap exceeded", result
+                    "open plus staged complete-life trajectory storage cap exceeded", result
                 )
             if bool(cpu_completed[index]):
                 completed_rows = _suffix_rows(lives[index])
-                # Retain all three fit scalar columns for the required global
-                # float64 baseline, while staging observations only until a
-                # full cross-life minibatch can be shuffled and fitted.
-                fit_scalar_chunks.append(
-                    torch.tensor(
-                        [(row.length, row.clock, row.reward) for row in completed_rows],
-                        dtype=torch.float32,
-                    )
-                )
                 staged_lives.append(completed_rows)
-                while (
-                    batch := _take_cross_life_batch(staged_lives, config, generator)
-                ) is not None:
-                    _fit_batch(batch, critic, optimizer, config)
-                    result.fit_rows += len(batch)
                 lives[index] = _Life()
+        # Stage the entire tick before drawing; imbalanced pools wait across
+        # ticks until the per-life contribution bound permits a full batch.
+        while (batch := _take_cross_life_batch(staged_lives, config, generator)) is not None:
+            _fit_batch(batch, critic, optimizer, config)
+            fit_scalar_chunks.append(
+                torch.tensor(
+                    [(row.length, row.clock, row.reward) for row in batch], dtype=torch.float32
+                )
+            )
+            result.fit_rows += len(batch)
         if result.critic_rows >= next_progress:
             _progress("critic-fit", result.critic_rows, config.critic_max_rows, on_progress)
             next_progress += config.progress_rows
@@ -512,6 +525,7 @@ def prepare(
         )
 
     fit_scalars = torch.cat(fit_scalar_chunks)
+    staged_lives.clear()
     baseline_coef = fit_time_length_baseline(
         fit_scalars[:, 0], fit_scalars[:, 1], fit_scalars[:, 2]
     )
@@ -521,17 +535,17 @@ def prepare(
     critic.eval()
     try:
         # Continue the already-running fresh task instead of restarting the same
-        # refit seed allocation.  The first terminating life per holdout world is
-        # discarded below because it straddles the fit/holdout seam.
+        # refit seed allocation. Discard only lives straddling the seam; worlds
+        # already reset to age zero start with a fresh eligible life.
         lives = [_Life() for _ in range(worlds)]
         holdout_metrics: list[_MetricRow] = []
-        holdout_started = [False] * worlds
+        holdout_started = task.age.eq(0).detach().cpu().tolist()
 
         def support_complete() -> bool:
             return (
                 result.completed_holdout_lives >= config.min_holdout_lives
                 and result.late_holdout_rows >= config.min_holdout_late_rows
-                and min(result.holdout_lives_by_mix.values(), default=0)
+                and min(result.holdout_lives_by_mix.get(_mix_name(mix), 0) for mix in range(3))
                 >= config.min_holdout_lives_per_mix
             )
 
@@ -618,7 +632,7 @@ def prepare(
                 torch.tensor([row.clock for row in holdout_metrics]),
                 baseline_coef,
                 torch.tensor(
-                    [result.holdout_lives_by_mix[_mix_name(mix)] for mix in range(3)],
+                    [result.holdout_lives_by_mix.get(_mix_name(mix), 0) for mix in range(3)],
                     dtype=torch.long,
                 ),
                 late_length=config.late_length,
@@ -632,8 +646,8 @@ def prepare(
                 "mse": math.inf,
                 "baseline_mse": math.inf,
                 "explained_variance": -math.inf,
-                "late_body_rows": 0.0,
-                "heldout_lives": 0.0,
+                "late_body_rows": float(result.late_holdout_rows),
+                "heldout_lives": float(result.completed_holdout_lives),
                 "passed": 0.0,
             }
         result.quality = metrics

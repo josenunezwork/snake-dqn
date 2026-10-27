@@ -117,6 +117,31 @@ def test_step_reset_never_eagerly_observes_or_erases_terminal_cause(monkeypatch)
 
 
 @torch.inference_mode()
+def test_step_prepares_simulator_before_opponent_actions_without_observe() -> None:
+    task = _task()
+    calls: list[bool] = []
+
+    class PreparedOpponentRuntime:
+        device = task.device
+
+        def actions(self, sim: object, hero_actions: torch.Tensor) -> torch.Tensor:
+            assert sim._prepared
+            assert bool((sim.food_count > 0).all())
+            calls.append(True)
+            actions = torch.ones((sim.E, sim.S), dtype=torch.long, device=task.device)
+            actions[:, 0] = hero_actions
+            return actions
+
+        def after_step(self, _sim: object) -> None:
+            pass
+
+    task.opponents = PreparedOpponentRuntime()
+    assert not task.sim._prepared
+    task.step(torch.ones(3, dtype=torch.long))
+    assert calls == [True]
+
+
+@torch.inference_mode()
 def test_reset_refuses_episode_after_audited_cap_before_hashing(monkeypatch) -> None:
     task = ResidentTrainingTask(
         TrainingTaskConfig(worlds=3, tiny=True, allocation_count=3, max_episodes=1), device="cpu"

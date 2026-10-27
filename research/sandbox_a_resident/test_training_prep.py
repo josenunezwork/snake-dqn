@@ -1,5 +1,6 @@
 """CPU-only bounded fixtures for TRAIN-01 preparation."""
 
+from collections import Counter
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -11,6 +12,7 @@ from research.sandbox_a_resident.training_model import B8Actor, ClockedPopArtCri
 from research.sandbox_a_resident.training_prep import (
     PreparationConfig,
     PreparationFailure,
+    PreparationState,
     _Row,
     _take_cross_life_batch,
     _world_split,
@@ -134,7 +136,7 @@ def test_failed_tiny_critic_endpoint_never_returns_actor_ready():
 
 
 def test_critic_batches_wait_for_and_mix_completed_lives() -> None:
-    config = replace(PreparationConfig.tiny(), critic_batch=4)
+    config = replace(PreparationConfig.tiny(), critic_batch=6)
 
     def row(mix: int) -> _Row:
         return _Row(
@@ -152,9 +154,55 @@ def test_critic_batches_wait_for_and_mix_completed_lives() -> None:
     staged = [[row(0) for _ in range(4)]]
     assert _take_cross_life_batch(staged, config, torch.Generator().manual_seed(7)) is None
     staged.append([row(1) for _ in range(4)])
+    assert _take_cross_life_batch(staged, config, torch.Generator().manual_seed(7)) is None
+    staged.append([row(2) for _ in range(4)])
     batch = _take_cross_life_batch(staged, config, torch.Generator().manual_seed(7))
     assert batch is not None and len(batch) == config.critic_batch
-    assert {value.mix for value in batch} == {0, 1}
+    assert Counter(value.mix for value in batch) == {0: 2, 1: 2, 2: 2}
+
+
+def _tagged_life(identity: int, count: int) -> list[_Row]:
+    observation = (torch.empty(0), torch.empty(0), torch.empty(0))
+    return [_Row(observation, float(identity), 1.0, float(index), 0) for index in range(count)]
+
+
+def test_many_lives_are_balanced_across_every_production_sized_batch() -> None:
+    config = replace(PreparationConfig(), critic_batch=256)
+    staged = [_tagged_life(identity, 500) for identity in range(12)]
+    generator = torch.Generator().manual_seed(37)
+    seen = set()
+    for _ in range(10):
+        batch = _take_cross_life_batch(staged, config, generator)
+        assert batch is not None and len(batch) == 256
+        counts = Counter(row.length for row in batch)
+        assert len(counts) == 12
+        assert max(counts.values()) - min(counts.values()) <= 1
+        assert max(counts.values()) <= config.critic_batch // 8
+        identities = {(row.length, row.reward) for row in batch}
+        assert len(identities) == 256 and not seen.intersection(identities)
+        seen.update(identities)
+    assert sum(map(len, staged)) == 6000 - 2560
+
+
+def test_short_residual_plus_long_life_waits_for_a_multilife_pool() -> None:
+    config = replace(PreparationConfig(), critic_batch=256)
+    staged = [_tagged_life(0, 1), _tagged_life(1, 5000)]
+    generator = torch.Generator().manual_seed(41)
+    assert _take_cross_life_batch(staged, config, generator) is None
+    assert list(map(len, staged)) == [1, 5000]
+    staged.extend(_tagged_life(identity, 5000) for identity in range(2, 9))
+    batch = _take_cross_life_batch(staged, config, generator)
+    assert batch is not None and len(batch) == 256
+    assert max(Counter(row.length for row in batch).values()) <= 32
+
+
+def test_more_staged_lives_than_batch_rows_never_oversizes_or_negative_slices() -> None:
+    config = replace(PreparationConfig.tiny(), critic_batch=4)
+    staged = [_tagged_life(identity, 3) for identity in range(20)]
+    batch = _take_cross_life_batch(staged, config, torch.Generator().manual_seed(43))
+    assert batch is not None and len(batch) == 4
+    assert len({row.length for row in batch}) == 4
+    assert sum(map(len, staged)) == 56
 
 
 def test_holdout_split_is_mix_balanced_for_production_and_tiny_fixture() -> None:
@@ -187,6 +235,127 @@ def test_fit_row_accounting_only_counts_full_optimizer_batches(
     assert failed.value.state is not None
     assert consumed and set(consumed) == {PreparationConfig.tiny().critic_batch}
     assert failed.value.state.fit_rows == sum(consumed)
+
+
+def test_baseline_scalars_are_exactly_optimizer_rows_with_staged_tails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actor, critic = _models()
+    consumed = []
+    baseline_rows = []
+    original_fit = training_prep._fit_batch
+    original_baseline = training_prep.fit_time_length_baseline
+
+    def record_fit(rows, *args):
+        consumed.extend((row.length, row.clock, row.reward) for row in rows)
+        original_fit(rows, *args)
+
+    def record_baseline(lengths, clocks, targets):
+        baseline_rows.extend(zip(lengths.tolist(), clocks.tolist(), targets.tolist()))
+        return original_baseline(lengths, clocks, targets)
+
+    monkeypatch.setattr(training_prep, "_fit_batch", record_fit)
+    monkeypatch.setattr(training_prep, "fit_time_length_baseline", record_baseline)
+    with pytest.raises(PreparationFailure) as failed:
+        prepare(
+            factory,
+            actor,
+            critic,
+            replace(PreparationConfig.tiny(), critic_min_fit_rows=8),
+            torch.Generator().manual_seed(47),
+        )
+    assert failed.value.state.fit_rows == len(consumed) == len(baseline_rows) == 8
+    torch.testing.assert_close(torch.tensor(baseline_rows), torch.tensor(consumed))
+
+
+def test_storage_cap_counts_staged_completed_lives(monkeypatch: pytest.MonkeyPatch) -> None:
+    actor, critic = _models()
+    # Use a deliberately small storage cap only at this synthetic task seam.
+    config = SimpleNamespace(**{**vars(PreparationConfig.tiny()), "max_open_rows": 5})
+    monkeypatch.setattr(training_prep, "_fit_batch", lambda *_: pytest.fail("must not fit"))
+    with pytest.raises(PreparationFailure, match="open plus staged") as failed:
+        prepare(factory, actor, critic, config, torch.Generator().manual_seed(53))
+    assert failed.value.state.stage == "failed"
+    # On tick two, world 1's two rows have moved to staging before world 5
+    # pushes total storage to six. Open-only accounting would incorrectly pass.
+    assert failed.value.state.critic_rows == 12
+
+
+def test_zero_life_mix_requires_support_until_cap_and_fails_without_keyerror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actor, critic = _models()
+    captured_counts = []
+    original_quality = training_prep.critic_quality
+
+    class MissingMixedLife(Task):
+        def step(self, action):
+            step = super().step(action)
+            # Holdout mixed slot 2 never completes, while slots 0 and 4 do.
+            self.age[2] = self.tick
+            step.reset[2] = False
+            return step
+
+    def quality(*args, **kwargs):
+        captured_counts.append(args[5].tolist())
+        return original_quality(*args, **kwargs)
+
+    monkeypatch.setattr(training_prep, "critic_quality", quality)
+    config = replace(
+        PreparationConfig.tiny(),
+        critic_min_fit_rows=8,
+        critic_max_rows=72,
+        min_holdout_lives_per_mix=1,
+    )
+    # Reproduce sparse mappings from older saved preparation state too.
+    state = PreparationState(temperature=1.0, stage="calibrated", holdout_lives_by_mix={})
+    with pytest.raises(PreparationFailure, match="critic preparation endpoint failed") as failed:
+        prepare(
+            lambda stage: MissingMixedLife(stage),
+            actor,
+            critic,
+            config,
+            torch.Generator().manual_seed(59),
+            state=state,
+        )
+    result = failed.value.state
+    assert result.stage == "failed" and result.critic_rows == config.critic_max_rows
+    assert result.completed_holdout_lives >= config.min_holdout_lives
+    assert result.late_holdout_rows >= config.min_holdout_late_rows
+    assert result.holdout_lives_by_mix == {"scripted": 4, "frozen": 4, "mixed": 0}
+    assert captured_counts == [[4, 4, 0]] and critic.training
+
+
+def test_holdout_quality_fallback_preserves_actual_support_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actor, critic = _models()
+
+    def reject_quality(*_args, **_kwargs):
+        raise ValueError("invalid quality fixture")
+
+    monkeypatch.setattr(training_prep, "critic_quality", reject_quality)
+    with pytest.raises(PreparationFailure) as failed:
+        prepare(factory, actor, critic, PreparationConfig.tiny(), torch.Generator().manual_seed(61))
+    result = failed.value.state
+    assert result.quality["heldout_lives"] == result.completed_holdout_lives > 0
+    assert result.quality["late_body_rows"] == result.late_holdout_rows > 0
+
+
+def test_age_zero_holdout_lives_are_kept_at_fit_seam() -> None:
+    actor, critic = _models()
+    with pytest.raises(PreparationFailure) as failed:
+        prepare(
+            factory,
+            actor,
+            critic,
+            replace(PreparationConfig.tiny(), critic_min_fit_rows=8, critic_max_rows=36),
+            torch.Generator().manual_seed(67),
+        )
+    # Fit ends on tick four with all ages zero. The next life completes at
+    # tick six (36 charged rows) and must be retained rather than discarded.
+    result = failed.value.state
+    assert result.completed_holdout_lives == 3 and result.holdout_rows == 6
 
 
 def test_critic_mode_is_restored_when_heldout_forward_raises() -> None:

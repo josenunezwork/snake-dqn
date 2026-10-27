@@ -112,8 +112,6 @@ def _snapshot_row(
     stem = f"iteration-{iteration:04d}"
     if info_path.name != f"{stem}.json":
         raise ResumeRefused(f"noncanonical snapshot filename: {info_path.name}")
-    if not _phase_is_resumable(info["metadata"]):
-        raise _NonResumableSnapshot(f"snapshot phase is not a safe continuation: {info_path.name}")
     paths = [root / f"{stem}.pt", info_path, root / f"{stem}-actor.pth"]
     # A completed envelope may be visible while its other completion-last
     # exports are still arriving.  It is not a ledger unit until the whole trio
@@ -124,6 +122,11 @@ def _snapshot_row(
     descriptors = [
         _descriptor(path, runtime_path=destination) for path, destination in zip(paths, runtime)
     ]
+    # A preparation-only snapshot may be skipped for resumption, but it is
+    # still immutable evidence.  Verify the complete payload trio before
+    # reporting its semantic phase so corruption cannot be silently ignored.
+    if not _phase_is_resumable(info["metadata"]):
+        raise _NonResumableSnapshot(f"snapshot phase is not a safe continuation: {info_path.name}")
     snapshot = info.get("snapshot")
     if not isinstance(snapshot, dict) or snapshot.get("id") != identity:
         raise ResumeRefused(f"metadata does not bind full state: {info_path.name}")
