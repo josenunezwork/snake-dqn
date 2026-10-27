@@ -1,0 +1,17 @@
+TRAIN-01-03: simulator-D development; repaired unseen-training review findings.
+Runtime pin: 99cb513675d43ff122935be23efb31cd453b626c
+Clean detached runtime: /Users/josenunez/Projects/ml/snake-dqn-train01-03-runtime.noindex
+Clean detached broker: /Users/josenunez/Projects/ml/snake-dqn-train01-03-broker.noindex
+Broker HEAD seals this packet; runtime source bytes match the published pin.
+Endpoint: 100663296 actor rows E1024/T256, H5000, bounded E24 preparation.
+Exact existing 114299008-seed registry audit; single-life screen/proxy; empty ledger.
+Full critic minibatches across completed lives; shared baseline and quality gate.
+Timeout: 8-hour base / 16-hour effective guard; no efficacy or release claim.
+Manual outcome-blind completion only through training_completion.py.
+CPU tests and API mocks do not qualify A100 kernels, timing or Inductor behavior.
+Preflight and dry-run allocate no runtime; this packet has not been dispatched.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-03-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-03 /Users/josenunez/Projects/ml/snake-dqn-train01-03-broker.noindex/research/sandbox_a_resident/packet-train01-03/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-03-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-03-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-03/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-03-broker.noindex/research/sandbox_a_resident/packet-train01-03/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve both clean detached checkouts and prior evidence.
