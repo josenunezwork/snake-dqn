@@ -1,0 +1,8 @@
+TRAIN-01-10: prepared only; do not dispatch without operator action.
+Runtime pin: c8ab2e6feefc63ce866e1493bfd2f7f1bf3f64dd
+Source delivery: background-sparse-v1; qualified transport unchanged.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-10 /Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex/research/sandbox_a_resident/packet-train01-10/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-10-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-10/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex/research/sandbox_a_resident/packet-train01-10/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve detached checkouts and prior evidence.

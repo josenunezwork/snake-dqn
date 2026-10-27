@@ -137,7 +137,11 @@ def main() -> int:
             "addopts=",
             "-p",
             "no:xdist",
-            *(cuda_contract_tests if args.cuda_semantics else ["research/sandbox_a_resident"]),
+            *(
+                cuda_contract_tests
+                if args.cuda_semantics
+                else ["research/sandbox_a_resident", "tools/sandbox/tests/test_source_delivery.py"]
+            ),
         ],
         cwd=ROOT,
         env=env,

@@ -563,6 +563,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         "technical_envelope",
         "sandbox",
         "sandbox_a",
+        "sandbox_source_delivery",
         "completion_attempt",
     }
     if set(manifest) - allowed_keys:
@@ -614,6 +615,11 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
             seconds = math.nan
         if not math.isfinite(seconds) or not 0 < seconds <= 900:
             raise Refused("TRAIN-01 stall timeout must be finite, positive and at most 900 seconds")
+    elif "sandbox_source_delivery" in manifest:
+        raise Refused("background source delivery is exclusive to TRAIN-01")
+    delivery = manifest.get("sandbox_source_delivery")
+    if "sandbox_source_delivery" in manifest and delivery != "background-sparse-v1":
+        raise Refused("sandbox source delivery must select background-sparse-v1")
     if set(env) - allowed_env:
         raise Refused("sandbox environment contains non-package controls")
     shared = {"research/a100_a2/model.py", "research/bl_residual/data.py"}
