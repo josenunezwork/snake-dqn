@@ -1,0 +1,598 @@
+{
+  "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-10-engineering-20261027",
+  "artifact_sha256": {
+    "actual-bundle-launch-timing.json": "edc9eb782641d55ab4e084ad93a9f3b1b1d58d7d667ed0d0c258117976566fa3",
+    "actual-bundle-launch.command.json": "49d3347bf010d1ad6871473598148765fd88116e58c19e0f4c361a8256d79767",
+    "actual-bundle-launch.log": "edc9eb782641d55ab4e084ad93a9f3b1b1d58d7d667ed0d0c258117976566fa3",
+    "adapter-admission-suite.command.json": "bd3c51ea0be37f1e92c857e115e0483941c7a9388900821f69cef2b55974d306",
+    "adapter-admission-suite.log": "56223e92c581bf146d0911dd2669c63647a4f0f45b095449a70854fe2a0157d4",
+    "black-check.command.json": "df1620153a93a6ae7d296d277ced84f5852e95b3d46361301228c96c8a06a40e",
+    "black-check.log": "77d633fde121da11ffc626b86183e528b0a042c423d50f0747da3d769000ced4",
+    "black-final.command.json": "74cd62e32ca31a74907f6d6398c0abd9788ecb2f893f2bb02d900a6301361bee",
+    "black-final.log": "25369eabb8c122f861d58ddb255f81f4b9ee797f42f3882975bef953218258ed",
+    "dispatch-dry-run.command.json": "2692db534f2dd0137751b765aebae9b7edff44f24308f503262f5ee51be4e0e3",
+    "dispatch-dry-run.log": "3595686e9a56515dc873d9c745b5b8a03229d0e464e94eae32a5a500f185bddc",
+    "fetch-07-corrected.json": "6a1be2359417a0f3e1efdbc0ac485020409380f9cc1c055b43e45e2e6226adbe",
+    "fetch-09-corrected.json": "7dc60a64d2d220d7ea09c611d6878a0877b450d509f446993f13ef38e91dc004",
+    "final-adapter-admission.command.json": "2c4945f8fd81f05792a70363f49384bf9ef467cee9f0ea8692de1f0011afb857",
+    "final-adapter-admission.log": "73777860db3380e976596ccc62fa8aef7ab99a88d9e8f6c44e01c77dcd5a2f90",
+    "finalize_verification.py": "b0340364c2761d47d0428762a164bc1d3c113eb61f5d09a91f3c95dbf21b7e10",
+    "flake8-final.command.json": "8fd6135c9c689d82c13963814244e64171ec2fd1af489d816482275ffc2630cb",
+    "flake8-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "flake8.command.json": "08ba1499c65ff6925ad5f6f702e7e2fa93bd441765cf0750c7cb8836f07569b9",
+    "flake8.log": "558dea041990b6275c7e5c7da51acba95a967325f45b1db6eb4f756cf60a4cc5",
+    "frozen-admission.command.json": "692aef7f9ea4e02ed1d2a61fe79325f63284951427e2a14121e4632519a9852b",
+    "frozen-admission.log": "68c0d36de0ffbfb3d6ce96e1dba2c6057bfb3400e3433e6be383cd761fa75e03",
+    "frozen-cuda-semantics.command.json": "245ba291318c40bc23baaa60d72a11609f4ea6545e19ab1b85e2b749e7d85bc9",
+    "frozen-cuda-semantics.log": "25a8b98fc0b46672639bed45eee39ea6e808f920d00823a148f733f0af6a9ace",
+    "frozen-preflight.command.json": "d13558e3be3edb22e33ebabec4a73cead5be29fa532f1410c32eb1b22a9428d1",
+    "frozen-preflight.log": "26e3c30fc6f3ffc36456ab7386abd3eaccbad90889daddff42657f5b45eb0be5",
+    "independent-identity.json": "82b3a9bc1e6a35ec0525a057df597fd551b21104904ed6eb940130d36ab59349",
+    "independent-review.json": "1f6023536589e37d939cf88c1b0ce87cc06d2b06a0b6ac869f6441d755f3ecdd",
+    "isort-check.command.json": "4ad776e4f022da18b750561aaa64b5c24c9d336daa720cee7dc4a936b52cf3c0",
+    "isort-check.log": "05e08a74b5d615306ead42fadf57425598953b02fb720dbae6cfd1be916c44b3",
+    "isort-final.command.json": "8b49f00154fbe215c6c2ec7042203632b6ff553f5b697148d77db8339b11b4ea",
+    "isort-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "local-sparse-install.json": "ef2bc3ffa25cda36a143068c6b26ac0210ef5a4f95afa40e5a599c88e3eaa701",
+    "measure_fetch.py": "20dfae12df73348b0d908d3107d4d428efb5ab913a7de2c63d5734535698f40b",
+    "measure_launch.py": "f1ff05432922d0532aa4bb06fd84e6aa3b6f9898aabc28d3306891cf1461aa98",
+    "protected-before.json": "2bd6dfeb7466f04463c02c963d769d2be814f4b2ab4fccc5b2cd903e246b4437",
+    "qualified-transport-suite.command.json": "352059c03f39e2deb388e992c612a03383c43c124953caa8757a6eda732062ce",
+    "qualified-transport-suite.log": "cbdf554082739e9304b756145b0e9eb1b12eca4e71d197cc04ce25bd48c06870",
+    "receipt-comparison.json": "848e047ca01241df0a00d5174ea16bba5ba603e5fe2c190666e4763c39c89ef1",
+    "root-cause/fetch-07.meta": "671212ab61d8ea3379087cbd27299bb0107b7deefe122499fed2ee2ab0c4638f",
+    "root-cause/fetch-07.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "root-cause/fetch-07.stdout": "01d0b6bf9a5cf8ef3232e85cc1c6823e26cb9694066a2637495db809413bfb8a",
+    "root-cause/fetch-09.meta": "8fcd1179ee3adb58ae78b1ccbfa8bddf2c61710133ffac9d527ff6b36b66b765",
+    "root-cause/fetch-09.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "root-cause/fetch-09.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "run_check.py": "ee26dbcfe541598513c831140935bc069b98a5db5fedac52abbe87413160ee77"
+  },
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex",
+  "broker_seal": "2278da7aec059369d8d34da360f94612bfc4ea8a",
+  "commands": {
+    "actual-bundle-launch": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-10-engineering-20261027/measure_launch.py",
+        "/Users/josenunez/Projects/ml/snake-dqn-sbxA"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 0.3316086669219658
+    },
+    "adapter-admission-suite": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-o",
+        "addopts=",
+        "-p",
+        "no:xdist",
+        "tools/sandbox/tests",
+        "tests/test_ops_dispatch.py",
+        "tests/test_sandbox_supervision_accounting.py"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 59.035858000046574
+    },
+    "black-final": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "black",
+        "--check",
+        "--line-length",
+        "100",
+        "tools/sandbox/source_delivery.py",
+        "tools/sandbox/supervisor.py",
+        "tools/sandbox/tests/test_source_delivery.py",
+        "tools/ops/dispatch.py",
+        "research/sandbox_a_resident/training_preflight.py"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 0.12845016701612622
+    },
+    "dispatch-dry-run": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex/tools/ops/dispatch.sh",
+        "sandbox-a-train01-20261027-10",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex/research/sandbox_a_resident/packet-train01-10/dispatch-manifest.json",
+        "--broker",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex",
+        "--cwd",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-10-runtime.noindex",
+        "--state-dir",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-10/state",
+        "--dispatch-txt",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex/research/sandbox_a_resident/packet-train01-10/DISPATCH.txt",
+        "--dry-run"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 87.04358262498863
+    },
+    "final-adapter-admission": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-o",
+        "addopts=",
+        "-p",
+        "no:xdist",
+        "tools/sandbox/tests/test_source_delivery.py",
+        "tools/sandbox/tests/test_admission.py"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 4.557549749966711
+    },
+    "flake8-final": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "flake8",
+        "tools/sandbox/source_delivery.py",
+        "tools/sandbox/supervisor.py",
+        "tools/sandbox/tests/test_source_delivery.py",
+        "tools/ops/dispatch.py",
+        "research/sandbox_a_resident/training_preflight.py"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 0.2870186669752002
+    },
+    "frozen-admission": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-o",
+        "addopts=",
+        "-p",
+        "no:xdist",
+        "tools/sandbox/tests/test_admission.py"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 0.6145936669781804
+    },
+    "frozen-cuda-semantics": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "research.sandbox_a_resident.training_preflight",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex/research/sandbox_a_resident/packet-train01-10",
+        "--cuda-semantics"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 6.893915874999948
+    },
+    "frozen-preflight": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "research.sandbox_a_resident.training_preflight",
+        "/Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex/research/sandbox_a_resident/packet-train01-10"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 41.03750958305318
+    },
+    "isort-final": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "isort",
+        "--profile",
+        "black",
+        "--check-only",
+        "tools/sandbox/source_delivery.py",
+        "tools/sandbox/supervisor.py",
+        "tools/sandbox/tests/test_source_delivery.py",
+        "tools/ops/dispatch.py",
+        "research/sandbox_a_resident/training_preflight.py"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 0.08997024991549551
+    },
+    "qualified-transport-suite": {
+      "command": [
+        "nice",
+        "-n",
+        "15",
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-o",
+        "addopts=",
+        "-p",
+        "no:xdist",
+        "tests/test_colab_cli_supervisor.py",
+        "tests/test_colab_cli_source.py",
+        "tests/test_colab_cli_rpc_recovery.py",
+        "tests/test_colab_cli_staging_repair.py",
+        "tests/test_colab_cli_staging_renewal.py",
+        "tests/test_colab_cli_latency_policy.py",
+        "tests/test_colab_cli_runtime.py"
+      ],
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+      "env": {
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "OMP_THREAD_LIMIT": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "SNAKE_DQN_DEVICE": "cpu",
+        "TORCHINDUCTOR_COMPILE_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1"
+      },
+      "returncode": 0,
+      "wall_seconds": 709.9536769579863
+    }
+  },
+  "dispatch_identity": "sandbox-a-train01-20261027-10",
+  "draft_verification_corrections": [
+    "Initial lint caught formatting and missing test json import; all fixed before seal commit, final lint/tests pass",
+    "Identity verifier corrected its expected detached symbolic-ref status handling; final identity check passes"
+  ],
+  "fix": "Explicit TRAIN01 background-sparse-v1 adapter; qualified sparse upload verification; launch RPC writes/spawns worker; qualified installer in child; host Contents polling and exact verified result before ready.json.",
+  "launch_timing": [
+    {
+      "completion_seconds": 0.09007754095364362,
+      "files_verified": 191,
+      "index": 0,
+      "launch_seconds": 0.024680165923200548,
+      "log": "SNAKE_SOURCE_DELIVERY child-start\nSNAKE_SOURCE_DELIVERY child-completed\n",
+      "stdout": "{'pid': 89179}\n",
+      "terminal": {
+        "delivery": {
+          "commit": "c8ab2e6feefc63ce866e1493bfd2f7f1bf3f64dd",
+          "inventory_verified": true,
+          "transport": "fallback",
+          "tree": "f335f08018a92879e49dda08f7bfe6f20208932a"
+        },
+        "status": "completed"
+      }
+    },
+    {
+      "completion_seconds": 0.09047662501689047,
+      "files_verified": 191,
+      "index": 1,
+      "launch_seconds": 0.024307957966811955,
+      "log": "SNAKE_SOURCE_DELIVERY child-start\nSNAKE_SOURCE_DELIVERY child-completed\n",
+      "stdout": "{'pid': 89188}\n",
+      "terminal": {
+        "delivery": {
+          "commit": "c8ab2e6feefc63ce866e1493bfd2f7f1bf3f64dd",
+          "inventory_verified": true,
+          "transport": "fallback",
+          "tree": "f335f08018a92879e49dda08f7bfe6f20208932a"
+        },
+        "status": "completed"
+      }
+    },
+    {
+      "completion_seconds": 0.09009191591758281,
+      "files_verified": 191,
+      "index": 2,
+      "launch_seconds": 0.024225416011177003,
+      "log": "SNAKE_SOURCE_DELIVERY child-start\nSNAKE_SOURCE_DELIVERY child-completed\n",
+      "stdout": "{'pid': 89197}\n",
+      "terminal": {
+        "delivery": {
+          "commit": "c8ab2e6feefc63ce866e1493bfd2f7f1bf3f64dd",
+          "inventory_verified": true,
+          "transport": "fallback",
+          "tree": "f335f08018a92879e49dda08f7bfe6f20208932a"
+        },
+        "status": "completed"
+      }
+    }
+  ],
+  "manifest_sha256": "aaa5c1ecda416a0d757dff64da68ce4846ffed15ea179e473c8223aecd5b268f",
+  "not_done_or_limits": [
+    "No dispatch or live provider calls",
+    "No live CUDA or training claim",
+    "Provider acknowledgement latency remains unverified",
+    "Dry-run does not check live account inventory"
+  ],
+  "nothing_touched": [
+    "266 protected prior files hash-identical",
+    "Prior detached checkouts",
+    "research/colab_cli",
+    "Learning recipe and workload telemetry",
+    "tmux sessions",
+    "Released checkpoints and serving pins"
+  ],
+  "operator_dispatch": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-10 /Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex/research/sandbox_a_resident/packet-train01-10/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-10-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-10/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex/research/sandbox_a_resident/packet-train01-10/DISPATCH.txt",
+  "packet": "research/sandbox_a_resident/packet-train01-10",
+  "packet_seal_sha256": "8d6dda9bf4c6095f840d3870b2b3cb889ae47d6d3c009dd729419690cdec876d",
+  "publication_receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-10-engineering-20261027/publication.json",
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "root_cause": {
+    "command": "git fetch --depth=1 https://github.com/josenunezwork/snake-dqn.git <runtime commit>; then commit/tree verification and detached checkout",
+    "full_tree_delta": {
+      "files": 9,
+      "unpacked_bytes": 92307
+    },
+    "local_full_fetch_seconds": {
+      "07": 32.37878341600299,
+      "09": ">35 (terminated at independent bound)"
+    },
+    "matching_post_upload_control_seconds": {
+      "07": 24.262926709023304,
+      "08": 30.01426625007298,
+      "09": 30.00912458403036
+    },
+    "operation": "Broker.execute.deliver_source(fetch): synchronous pinned source.fetch inside kernel before ready.json",
+    "qualified_internal_fetch_allowance_seconds": 120,
+    "qualified_staging_control_cap_seconds": 30,
+    "remote_limit": "Receipts do not include Git output; exact remote GitHub pack/cache/network cause unproven. Training/import/compile/proxy/update16 work had not started.",
+    "superseded_scout_timing": "Initial scout root-cause/fetch-*.stdout inner timer was misplaced; use fetch-*-corrected.json only."
+  },
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-10-runtime.noindex",
+  "runtime_pin": "c8ab2e6feefc63ce866e1493bfd2f7f1bf3f64dd",
+  "runtime_recipe_telemetry_allocations_and_inputs_unchanged": true,
+  "schema": "sandbox-a-train01-background-source-verification/v1",
+  "status": "PASS_PREPARED_NOT_DISPATCHED",
+  "verification": {
+    "dry_run": "PASS_DRY_RUN sandbox-a-train01-20261027-10 allocations=0 live_accounting=NOT_CHECKED",
+    "final_adapter_admission": "56 passed",
+    "frozen_broker_admission": "40 passed",
+    "frozen_cuda_semantics": "4 passed; CPU API-contract fixtures only",
+    "frozen_preflight": "261 passed; 114299008 seeds; PASS_TRAIN01_PREFLIGHT; allocations=0",
+    "independent_identity": {
+      "commands": [
+        {
+          "command": "nice -n 15 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python <read-only runtime source hash verifier>",
+          "result": "PASS; expected_count=186 actual_count=186 missing=[] mismatch={}"
+        },
+        {
+          "command": "nice -n 15 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python <read-only protected-before verifier>",
+          "result": "PASS; protected_count=266 present=266 missing=[] mismatch=[]"
+        },
+        {
+          "command": "git -C /Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex rev-parse HEAD:research/colab_cli",
+          "result": "5833e54e9c5396121cbbf99a5cd4e52006e564fd; matches SEAL qualified_transport_tree"
+        },
+        {
+          "command": "git -C /Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex status --porcelain=v2 --branch; git -C /Users/josenunez/Projects/ml/snake-dqn-train01-10-runtime.noindex status --porcelain=v2 --branch",
+          "result": "PASS; both detached and clean"
+        },
+        {
+          "command": "test ! -e /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-10/state && test ! -e /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-10/output",
+          "result": "PASS; both paths absent"
+        },
+        {
+          "command": "cmp packet-train01-09/control.json packet-train01-10/control.json; cmp packet-train01-09/verified-ledger.json packet-train01-10/verified-ledger.json; cmp recipe-audit.log against SEAL hash",
+          "result": "PASS; control, ledger, registry audit, recipe audit and ruling unchanged"
+        }
+      ],
+      "created_at_utc": "2026-10-27T17:28:46Z",
+      "invariants": {
+        "control_same_as_packet09": true,
+        "control_sha256": "8949ecb036de469935382930e8b8594745dc1f202aa385d65a5a51b2b7fde1fe",
+        "ledger_same_as_packet09": true,
+        "ledger_sha256": "0dd3ab22b8e365bc107378fcc500e4d2239b8beb81796f10b7bc06d2a98c6dee",
+        "protected_before_all_match": true,
+        "protected_before_count": 266,
+        "protected_before_mismatches": [],
+        "protected_before_missing": [],
+        "protected_before_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-10-engineering-20261027/protected-before.json",
+        "protected_before_present": 266,
+        "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+        "qualified_transport_tree_current": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+        "recipe_audit_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-08-diagnostics-20261027/recipe-audit.log",
+        "recipe_audit_same_as_packet09": true,
+        "recipe_audit_sha256": "6068108cbc362be5dfc75125306d0c2d88a9e4da332d3db291fd772bc4b1b261",
+        "registry_audit_same_as_packet09": true,
+        "registry_audit_sha256": "c08fc1775ac2805786d2e4b151cbde58bebc554b38d652db12078fde4880b759",
+        "ruling_sha256": "8d95e8e6cceb8b801b83cac60465aa8212638c343bb10166d2e3db3ef0ef7684"
+      },
+      "origin_main_contains_head": true,
+      "packet": {
+        "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-10-broker.noindex",
+        "broker_head": "2278da7aec059369d8d34da360f94612bfc4ea8a",
+        "detached_clean_checkouts": true,
+        "dispatch_not_called": true,
+        "identity": "sandbox-a-train01-20261027-10",
+        "live_provider_not_called": true,
+        "output_absent": true,
+        "output_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-10/output",
+        "packet_path": "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-train01-10",
+        "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-10-runtime.noindex",
+        "runtime_pin": "c8ab2e6feefc63ce866e1493bfd2f7f1bf3f64dd",
+        "state_absent": true,
+        "state_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-10/state"
+      },
+      "packet_hashes": {
+        "DISPATCH.txt": "31eaf46a7e9182fd7653b27b220db44f110c29512ecc06f1b6cf4134568f7a3c",
+        "SEAL.json": "8d6dda9bf4c6095f840d3870b2b3cb889ae47d6d3c009dd729419690cdec876d",
+        "control.json": "8949ecb036de469935382930e8b8594745dc1f202aa385d65a5a51b2b7fde1fe",
+        "dispatch-manifest.json": "aaa5c1ecda416a0d757dff64da68ce4846ffed15ea179e473c8223aecd5b268f",
+        "registry-check.json": "c08fc1775ac2805786d2e4b151cbde58bebc554b38d652db12078fde4880b759",
+        "sandbox.json": "8f7b93eb479bffdf87c3ca5564696b2cab75773955e92b666e7ec0b40f8d5afe",
+        "verified-ledger.json": "0dd3ab22b8e365bc107378fcc500e4d2239b8beb81796f10b7bc06d2a98c6dee"
+      },
+      "prior_refusals_preserved": {
+        "08_failure": "RPC_EXEC_POLL_TIMEOUT",
+        "08_receipt_sha256": "f56f9b9ec99204932fd9d34f7f698c6425ecc09a137336c2f662c3660479c899",
+        "08_status": "INCOMPLETE",
+        "08_stop_verified": true,
+        "09_failure": "RPC_EXEC_POLL_TIMEOUT",
+        "09_receipt_sha256": "88b6c03f06d0baa119acb954df9d2bca89e383c8884d09fa85bd1f348441a0ab",
+        "09_status": "INCOMPLETE",
+        "09_stop_verified": true
+      },
+      "repo": "/Users/josenunez/Projects/ml/snake-dqn-sbxA",
+      "repo_head": "2278da7aec059369d8d34da360f94612bfc4ea8a",
+      "reviewer": "frozen_identity read-only lane",
+      "schema": "sandbox-a-train01-independent-identity/v1",
+      "source_hashes": {
+        "all_match": true,
+        "mismatches": [],
+        "missing": [],
+        "runtime_files_expected": 186,
+        "runtime_files_hashed": 186,
+        "sample": {
+          "research/gpu_sim_spike/__init__.py": "fcb40cee284a61293cb72968cdfe17e4908f4d660e74ee65e8b0021e152bb0c1",
+          "research/gpu_sim_spike/anchors_device.py": "260070cd9614aca8a0f6b9606ce80ae829b54bdc8b61b1aaaeec4d43f10f4925",
+          "research/gpu_sim_spike/device_policy.py": "fa265af4b53374a727b2dd341956dec97aa1834fcc6868bb9e4060b4b3d780a0"
+        },
+        "sorted_path_hash_sha256_actual": "ed01b93457e21e7617585390184e3c26392c4f5f30401f536458f49515fea30f",
+        "sorted_path_hash_sha256_expected": "ed01b93457e21e7617585390184e3c26392c4f5f30401f536458f49515fea30f",
+        "source_hash_manifest": "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-train01-10/SEAL.json"
+      },
+      "status": "PASS_IDENTITY",
+      "unknowns": [
+        "No live provider call or packet dispatch was made by this lane; RPC behavior remains covered by preserved 07/08/09 receipts and local adapter checks.",
+        "Root-owned frozen preflight and dispatch.sh --dry-run results are not asserted here; root is rechecking them after this receipt."
+      ]
+    },
+    "independent_review": "PASS; no remaining findings",
+    "lint": "Black, isort and flake8 PASS on all five changed Python files",
+    "qualified_transport": "macOS pytest: restarting with a single OpenMP runtime\n........................................................................ [ 51%]\n.....................................................................    [100%]\n141 passed in 709.43s (0:11:49)\nExit: macOS OpenMP-isolated pytest finished\n!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!\n",
+    "scoped_admission_dispatch": "175 passed; final adapter suite separately rerun after last changes"
+  }
+}
