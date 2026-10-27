@@ -173,6 +173,7 @@ def prepare(
             "gae_lambda": 0.95,
             "clip": 0.2,
             "learning_rate": 0.0003,
+            "stagger_initial_age": True,
         },
         "worlds": [128, 1024],
         "horizon": 128,

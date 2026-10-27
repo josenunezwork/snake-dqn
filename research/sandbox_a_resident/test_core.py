@@ -155,6 +155,18 @@ def test_seed_namespace_and_restore_drift_refused() -> None:
         replace(runner.recipe, seed_namespace="foreign")
 
 
+def test_initial_age_stagger_is_setup_only_and_survives_resume() -> None:
+    runner = assay(episode_limit=512, stagger_initial_age=True)
+    assert runner.age.tolist() == [0, 256]
+    state = runner.snapshot()
+    runner._reset(torch.tensor([False, True]))
+    assert runner.age.tolist() == [0, 0]  # Normal resets must not reapply artificial ages.
+    runner.restore(state)
+    assert runner.age.tolist() == [0, 256]
+    with pytest.raises(ValueError, match="boolean"):
+        replace(runner.recipe, stagger_initial_age=1)
+
+
 def test_cached_full_state_reconstruction_and_next_update(tmp_path: object) -> None:
     from research.sandbox_a_resident.run import package_unit, restore_unit_checkpoint, synthetic
 

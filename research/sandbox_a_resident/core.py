@@ -42,12 +42,15 @@ class Recipe:
     seed_offset: int = 0
     max_episodes: int = 1024
     tiny: bool = False
+    stagger_initial_age: bool = False
 
     def __post_init__(self) -> None:
         if min(self.worlds, self.horizon, self.minibatch, self.epochs, self.episode_limit) < 1:
             raise ValueError("positive finite workload required")
         if self.seed_namespace != "a100-dev/sandbox-a":
             raise ValueError("foreign namespace")
+        if type(self.stagger_initial_age) is not bool:
+            raise ValueError("stagger_initial_age must be boolean")
 
 
 def seed64(namespace: str, index: int) -> int:
@@ -304,6 +307,11 @@ class ResidentAssay:
         if self.sim.cfg.arena_type != "rectangular" or self.sim.grid_w < self.sim.S:
             raise ValueError("sandbox in-place reset requires six distinct rectangular spawn cells")
         self._reset(torch.ones_like(self.episode, dtype=torch.bool), initial=True)
+        if recipe.stagger_initial_age:
+            # Spread the first time-limit boundaries over the entire period before
+            # warmup/timing. Subsequent deaths/truncations still reset age to zero;
+            # never rephase worlds or inject resets between measured cycles.
+            self.age.copy_(self._world_indices * recipe.episode_limit // recipe.worlds)
 
     def _allocate_rollout(self) -> dict[str, Any]:
         """Allocate the fixed-shape PPO ownership buffers once per resident assay."""

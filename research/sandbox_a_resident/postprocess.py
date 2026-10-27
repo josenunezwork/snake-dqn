@@ -216,6 +216,10 @@ def aggregate(control: dict, receipts: list[Path]) -> dict:
             or summary.get("source_commit") != manifest["commit"]
         ):
             raise ValueError("foreign allocation/source or missing resume proof")
+        if summary.get("status", "PASS") != "PASS" or any(
+            result.get("status", "PASS") != "PASS" for result in summary["results"]
+        ):
+            raise ValueError("INVALID cell/sweep cannot qualify a timing comparison")
         for result in summary["results"]:
             identity = result["id"]
             if identity not in expected or identity in found:

@@ -2,6 +2,11 @@
 
 ## Current runtime: A-2
 
+The current successor is `packet-a2/reseal-03`. See
+[`A2_RESEAL03.md`](A2_RESEAL03.md) for the initial-age schedule correction,
+per-cycle validity rule, and verification that supersedes the rejected
+`packet-a2/reseal-02` schedule. Earlier packets and verification files are preserved.
+
 [`A2.md`](A2.md) is the authoritative A-2 runtime protocol. It supersedes the
 A-1 runtime description below while preserving it and every A-1 packet,
 verification file, receipt, and export as historical evidence.

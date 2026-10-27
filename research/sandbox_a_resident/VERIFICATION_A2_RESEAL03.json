@@ -1,0 +1,154 @@
+{
+  "scope": "A-2 reseal-03 CPU correctness; no CUDA run or performance qualification",
+  "review": "Argon review-sbx-a2/answer.md read fully; blocker and major addressed",
+  "source_sha256": {
+    "core.py": "5d890dbececaf7fd0dbe6be7d437ea33876209149b449f20c929f3c1f00edbdd",
+    "run.py": "8a9cc368cffac72328dd2d2231aa9df4650645fbb716b8cc1301d4cd23d17be3",
+    "postprocess.py": "8c6ea33694cc8ab0b84310fcdb57b3cb277a0efddd3b196c2fd64dffc7b72b03",
+    "prepare.py": "113a3814862e65338428f4ea5bea94a04537cf9184ed63ea27906e8bfdd94555",
+    "test_run.py": "7b84296b9f5a2b7f6836fdb818f06b5af3a18998f95406d3bcd11c5be0bd3513",
+    "test_core.py": "8b65a47506972cf26a2f3440acaa4c08ce140593bb0f62b796e1e1795496dbe0",
+    "test_prepare.py": "b813819ee108ce2e15f6a739bf2481c757f8bdb405b3059ddfe3c20a7ea448c7",
+    "test_units.py": "909fbdaef1980baa8281efdb35b38d12198fd9a38b30708d7170bca7dc15bbd5"
+  },
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "test_command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts='' research/sandbox_a_resident --durations=5",
+  "tests": {
+    "passed": 44,
+    "seconds": 29.96,
+    "xdist": false,
+    "nice": 15,
+    "math_threads": 1
+  },
+  "schedule_regression": {
+    "worlds": 4,
+    "horizon": 128,
+    "warmups": 1,
+    "cycles": 3,
+    "limits": [
+      64,
+      512
+    ],
+    "tiny": false,
+    "phase": "integrated",
+    "real_components": [
+      "DeviceSim arena/masks/dynamics/resets",
+      "collect/deferred bank/GAE",
+      "PPO optimizer",
+      "run_cell invariant",
+      "immutable exports"
+    ],
+    "test_substitutions": [
+      "constant trainable actor and nonzero critic",
+      "shape-correct cheap observation features"
+    ]
+  },
+  "real_b8_schedule_smoke": {
+    "method": "ResidentAssay.collect, four sequential horizons per limit; assert every measured truncation count > 0",
+    "recipe_overrides": {
+      "minibatch": 2048,
+      "max_episodes": 513,
+      "stagger_initial_age": true
+    },
+    "torch_seed": 3403,
+    "nice": 15,
+    "math_threads": 1,
+    "observations": "unmodified full production observation path",
+    "results": [
+      {
+        "limit": 64,
+        "offset": 21000000,
+        "worlds": 8,
+        "horizon": 128,
+        "warmups": 1,
+        "cycles": 3,
+        "tiny": false,
+        "cycles_observed": [
+          {
+            "cycle": -1,
+            "warmup": true,
+            "truncated": 16,
+            "terminal": 1,
+            "seconds": 13.120462749968283
+          },
+          {
+            "cycle": 0,
+            "warmup": false,
+            "truncated": 16,
+            "terminal": 0,
+            "seconds": 13.260631916928105
+          },
+          {
+            "cycle": 1,
+            "warmup": false,
+            "truncated": 16,
+            "terminal": 1,
+            "seconds": 12.581380457966588
+          },
+          {
+            "cycle": 2,
+            "warmup": false,
+            "truncated": 16,
+            "terminal": 1,
+            "seconds": 12.145026749931276
+          }
+        ]
+      },
+      {
+        "limit": 512,
+        "offset": 27000000,
+        "worlds": 8,
+        "horizon": 128,
+        "warmups": 1,
+        "cycles": 3,
+        "tiny": false,
+        "cycles_observed": [
+          {
+            "cycle": -1,
+            "warmup": true,
+            "truncated": 2,
+            "terminal": 0,
+            "seconds": 12.193394750007428
+          },
+          {
+            "cycle": 0,
+            "warmup": false,
+            "truncated": 2,
+            "terminal": 1,
+            "seconds": 12.038098167045973
+          },
+          {
+            "cycle": 1,
+            "warmup": false,
+            "truncated": 1,
+            "terminal": 0,
+            "seconds": 12.439944833051413
+          },
+          {
+            "cycle": 2,
+            "warmup": false,
+            "truncated": 2,
+            "terminal": 1,
+            "seconds": 14.112897458020598
+          }
+        ]
+      }
+    ]
+  },
+  "entrypoint_smoke": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-reseal-03-local-20261026/output",
+    "summary_sha256": "f3c89151101a6471dcbb63560b544eb105f54e5659acca4d8a4f908c29a46507",
+    "status": "PASS",
+    "cells": 6,
+    "resume_proof": "PASS",
+    "shape": "E2 H3 limits2/8 warmup1 cycles3 full arena; tiny control permits local execution"
+  },
+  "lint": "black --check --line-length 100, isort --check-only --profile black, flake8 package; bash -n job.sh; git diff --check: PASS",
+  "independent_review": {
+    "findings": 0,
+    "focused_tests_passed": 12,
+    "seconds": 22.41
+  },
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "allocation_performed": false
+}

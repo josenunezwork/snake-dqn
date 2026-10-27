@@ -217,14 +217,16 @@ def run_cell(
             runner.update(data)
     warmup_end = sync(device)
     cycles = []
-    boundary_counts = torch.zeros(2, dtype=torch.long, device=runner.device)
+    boundary_counts = torch.zeros((control["cycles"], 2), dtype=torch.long, device=runner.device)
     for index in range(control["cycles"]):
         if time.monotonic() >= deadline:
             raise TimeoutError("runaway deadline during fixed cycles")
         started = sync(device)
         data = cached if phase == "cached" else runner.collect()
         if phase != "cached":
-            boundary_counts += torch.stack((data["terminal"].sum(), data["truncated"].sum()))
+            boundary_counts[index].copy_(
+                torch.stack((data["terminal"].sum(), data["truncated"].sum()))
+            )
         collected = sync(device)
         if phase != "collection":
             runner.update(data)
@@ -253,11 +255,25 @@ def run_cell(
     rows_per_cycle = worlds * recipe.horizon
     rows = rows_per_cycle * control["cycles"]
     elapsed = sum(row["seconds"] for row in cycles)
-    terminal_rows, truncated_rows = boundary_counts.cpu().tolist()
-    if not control["tiny"] and phase != "cached" and not truncated_rows:
-        raise RuntimeError("INVALID: measured phase did not exercise time-limit bootstrap")
+    # Transfer counts only after every timed cycle. No extra per-cycle host sync.
+    counts = boundary_counts.cpu().tolist()
+    for row, (terminal, truncated) in zip(cycles, counts):
+        row["terminal_rows"] = terminal
+        row["truncated_rows"] = truncated
+    terminal_rows = sum(row[0] for row in counts)
+    truncated_rows = sum(row[1] for row in counts)
+    invalid_cycles = (
+        [row["cycle"] for row in cycles if not row["truncated_rows"]]
+        if not control["tiny"] and phase != "cached"
+        else []
+    )
+    invalid_reasons = [
+        f"measured cycle {index} did not exercise time-limit bootstrap" for index in invalid_cycles
+    ]
     report = {
         "schema": "sandbox-a-timing/v2",
+        "status": "INVALID" if invalid_reasons else "PASS",
+        "invalid_reasons": invalid_reasons,
         "label": "simulator-D",
         "id": unit_id(worlds, phase, episode_limit),
         "allocation": allocation(control),
@@ -372,7 +388,7 @@ def main() -> int:
             )
     summary = {
         "schema": "sandbox-a-run/v2",
-        "status": "PASS",
+        "status": "INVALID" if any(r["status"] == "INVALID" for r in results) else "PASS",
         "label": "simulator-D",
         "allocation": allocation(control),
         "results": results,
@@ -396,7 +412,8 @@ def main() -> int:
         lambda target: target.write_text(json.dumps(summary, indent=2) + "\n"),
     )
     print(
-        f"PASS_SANDBOX_A units={len(results)} skipped={len(skipped)} allocations=0_by_entrypoint",
+        f"{summary['status']}_SANDBOX_A units={len(results)} skipped={len(skipped)} "
+        "allocations=0_by_entrypoint",
         flush=True,
     )
     return 0

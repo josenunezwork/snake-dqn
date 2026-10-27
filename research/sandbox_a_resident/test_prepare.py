@@ -50,6 +50,12 @@ def test_packet02_admission_and_generous_runaway_guard(monkeypatch, tmp_path: Pa
         "test_" not in path and "/fixtures/" not in path for path in manifest["source_paths"]
     )
     assert json.loads(manifest["env"]["SANDBOX_A_CONTROL_JSON"])["episode_limits"] == [64, 512]
+    assert (
+        json.loads(manifest["env"]["SANDBOX_A_CONTROL_JSON"])["recipe_parameters"][
+            "stagger_initial_age"
+        ]
+        is True
+    )
     for base in (0, float("nan"), float("inf"), 1e308):
         with pytest.raises(ValueError, match="positive finite"):
             prepare.prepare(

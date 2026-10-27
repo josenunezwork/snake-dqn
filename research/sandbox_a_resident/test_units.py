@@ -92,6 +92,34 @@ def completed_cached_receipt(root: Path) -> tuple[dict, Path, Path]:
     return control, directory, receipt
 
 
+@pytest.mark.parametrize("summary_invalid", [False, True])
+def test_invalid_cell_or_summary_cannot_become_qualified_throughput(
+    tmp_path: Path, summary_invalid: bool
+) -> None:
+    from research.sandbox_a_resident.postprocess import aggregate
+    from research.sandbox_a_resident.units import digest
+
+    control, directory, receipt_path = completed_cached_receipt(tmp_path)
+    summary = {
+        "allocation": allocation(control),
+        "source_commit": control["source_commit"],
+        "parity": {"status": "PASS"},
+        "status": "INVALID" if summary_invalid else "PASS",
+        "results": [{"status": "PASS" if summary_invalid else "INVALID"}],
+    }
+    exported = [
+        publish(directory / name, lambda path, value=value: path.write_text(json.dumps(value)))
+        for name, value in (("summary.json", summary), ("parity.json", {"status": "PASS"}))
+    ]
+    receipt = json.loads(receipt_path.read_text())
+    receipt.update(status="PASS", endpoint="session-1", elapsed_seconds=60)
+    receipt["exports"] += [{**row, "path": "assay/" + Path(row["path"]).name} for row in exported]
+    receipt["manifest_sha256"] = digest(receipt_path.with_name("manifest.json"))
+    receipt_path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="INVALID cell/sweep"):
+        aggregate(control, [receipt_path])
+
+
 def test_partial_export_pair_and_old_source_cannot_become_verified(tmp_path: Path) -> None:
     from research.sandbox_a_resident.postprocess import ledger
 
