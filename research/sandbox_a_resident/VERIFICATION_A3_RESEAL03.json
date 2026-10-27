@@ -1,0 +1,86 @@
+{
+  "status": "PASS_CPU_ADMISSION",
+  "runtime_source_commit": "d12bf047c6c954c657d15e104e28a2a6ab7d5c32",
+  "packet_seal_commit": "f36b5db4",
+  "host_admission_commit": "37188c766cb1426aa2f6fab3493135643666be59",
+  "compile_mode": "default",
+  "tests": {
+    "passed": 78,
+    "seconds": 10.73,
+    "nice": 15,
+    "threads": 1,
+    "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts='' research/sandbox_a_resident",
+    "consolidation": "Duplicate first-assay compilation/lifetime tests combined; all assertion categories preserved; historical79-test result retained."
+  },
+  "lint": "black23files, isort, flake8, bash -n job.sh, git diff --check: PASS",
+  "preflight": {
+    "status": "PASS",
+    "tests_passed": 78,
+    "test_seconds": 10.52,
+    "allocated_seeds": 22457142,
+    "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-03/preflight-final.log"
+  },
+  "dispatch_dry_run": {
+    "status": "PASS",
+    "allocations": 0,
+    "live_accounting": "NOT_CHECKED",
+    "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-03/dispatch-dry-run-final.log"
+  },
+  "prior_validation_attempt": {
+    "dry_run": "TIMEOUT at fixed60-second subprocess; allocations0",
+    "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-03/dispatch-dry-run.log",
+    "unbounded_diagnostic": "Exact broker validator PASS63.79s; log broker-validate.log",
+    "resolution": "Consolidate repeated real-compile graph lowering and search sorted uint64 seeds; no checks skipped, timeout/transport unchanged. See A3_ADMISSION03.md."
+  },
+  "operator_dispatch_command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a3-20261026-03 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3-03/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-03/state",
+  "real_compile_evidence": {
+    "backend": "aot_eager",
+    "actual_resident_assays": true,
+    "compiled_blocks": 5,
+    "tf32_false_true_second_calls_compiler_delta": {},
+    "three_measured_collect_update_cycles_compiler_delta": {},
+    "production_cap1024_buckets": [
+      256,
+      512,
+      768,
+      1024
+    ],
+    "measured_bucket_order": [
+      1024,
+      256,
+      768,
+      512,
+      256
+    ],
+    "post_warm_bucket_compiler_delta": {},
+    "first_assay_sim_optimizer_weakrefs_collected": true
+  },
+  "smoke": {
+    "status": "PASS",
+    "units": 12,
+    "seconds": 4.225773999933153,
+    "production_arena": true,
+    "compile_mode": "none",
+    "reason": "timing CLI requires CUDA; actual CPU compile covered by unmocked real-assay tests",
+    "summary": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-03/local-assay/summary.json"
+  },
+  "independent_reviews": "No actionable compiler correctness findings; no integrity regression in final admission optimization. Read-only, no overlapping tests.",
+  "closure_audit": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-03/closure-audit.json",
+  "evidence_sha256": {
+    "tests-final.log": "f3677205c3be6ee0abe5c8cbee1a974e92b9c66ed0792cfca1c34d54cb87438b",
+    "tests-admission-final.log": "30d7e015bd521958082f9c6943c8d80d4a6429fdddea61a3bd55c1a11687c20f",
+    "preflight.log": "b7ee504f2b0f409553a7955f9992442231aa0d2b26aa24698f3caeb84feadb7e",
+    "preflight-final.log": "2582ae28d4af8fb3941a72d3e346046cf4ee56863f07ee427e522bdb20a539a8",
+    "dispatch-dry-run.log": "e31bb6f85c032f99ffc33bd7bd9952d169460f925397726fde0041fdff609a42",
+    "dispatch-dry-run-final.log": "b856de1059b681660e14d9c87be7ca3e040668c14fea0e7a7c69e963642e5c88",
+    "broker-validate.log": "78d4fc1647c4ba26bbf037f7f3095c454a5d43bad51356c44f471a1c2cbf5e48",
+    "closure-audit.json": "20fa729c418c1ec62c5dbc0d621eed795b59a8c92494ad27d943e62c6eaf0611",
+    "local-smoke.log": "5c23b038ff656dbee5f610c0e9d00c1633c1c785946effd55f49df368f2ee589"
+  },
+  "final_host_python_sha256": {
+    "research/sandbox_a_resident/prepare.py": "3bb7ca7bdc7e66332008be817e901edb83105949477d6fe9050602fd2097ad0e",
+    "research/sandbox_a_resident/test_compile_real.py": "f8bc2c3cb650a8272b680a88b9db19cbca9181953996a792c7634e6d59e375e5",
+    "research/sandbox_a_resident/test_prepare.py": "12c5f674f3bcd0af38b2ec4b7752a81d3d9fb9533a02ad2c85da201ec2a40c30"
+  },
+  "scope": "Prepared only. No CUDA/A100 execution, live provider accounting, efficacy, serving, F5 or transport changes. No tmux sessions, released checkpoints, pins or earlier seals modified."
+}
