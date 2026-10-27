@@ -83,6 +83,57 @@ def cycle_stability(cycles: list[dict[str, float]], rows_per_cycle: int) -> dict
     }
 
 
+def profile_snapshot(runner: ResidentAssay) -> dict[str, Any]:
+    """Copy the runtime's device-side phase profile without changing its timing path."""
+    profile = getattr(runner, "phase_profile", {})
+    if callable(profile):
+        profile = profile()
+    if not isinstance(profile, dict):
+        return {}
+    return dict(profile)
+
+
+def aggregate_phase_profiles(
+    cycles: list[dict[str, Any]], worlds: int, horizon: int
+) -> dict[str, Any]:
+    """Summarize measured collection phase timing with an equivalent hero-row rate."""
+    profiles = [cycle["phase_profile"] for cycle in cycles if cycle.get("phase_profile")]
+    if not profiles:
+        return {}
+    grouped: dict[str, list[float]] = {}
+    tick_profiles: dict[str, list[float]] = {}
+    for profile in profiles:
+        for name, milliseconds in profile.get("milliseconds", {}).items():
+            grouped.setdefault(name, []).append(float(milliseconds))
+        for name, milliseconds in profile.get("ms_per_tick", {}).items():
+            tick_profiles.setdefault(name, []).append(float(milliseconds))
+    milliseconds = {name: sum(values) / len(values) for name, values in grouped.items()}
+    return {
+        "mode": profiles[-1].get("mode", "unknown"),
+        "cycles": len(profiles),
+        "ticks_per_cycle": horizon,
+        "milliseconds": milliseconds,
+        "ms_per_tick": {name: sum(values) / len(values) for name, values in tick_profiles.items()},
+        "hero_rows_per_second": {
+            name: worlds * horizon * 1000 / value
+            for name, value in milliseconds.items()
+            if value > 0
+        },
+    }
+
+
+def compile_snapshot(runner: ResidentAssay, compile_mode: str) -> dict[str, Any]:
+    """Record requested compilation and every subgraph's eager fallback outcome."""
+    report = getattr(runner, "compile_report", None)
+    if isinstance(report, dict):
+        return dict(report)
+    return {
+        "requested_mode": compile_mode,
+        "status": "eager" if compile_mode == "none" else "unreported",
+        "subgraphs": {},
+    }
+
+
 def synthetic_observations(recipe: Recipe, device: torch.device) -> tuple:
     """Reconstruct frozen cached observations without saving gigabytes of random bytes."""
     n = recipe.worlds * recipe.horizon
@@ -223,6 +274,7 @@ def run_cell(
             raise TimeoutError("runaway deadline during fixed cycles")
         started = sync(device)
         data = cached if phase == "cached" else runner.collect()
+        phase_profile = {} if phase == "cached" else profile_snapshot(runner)
         if phase != "cached":
             boundary_counts[index].copy_(
                 torch.stack((data["terminal"].sum(), data["truncated"].sum()))
@@ -239,6 +291,7 @@ def run_cell(
                 "learner_seconds": ended - collected,
                 "seconds": ended - started,
                 "hero_rows_per_second": worlds * recipe.horizon / (ended - started),
+                "phase_profile": phase_profile,
             }
         )
         print(
@@ -271,7 +324,7 @@ def run_cell(
         f"measured cycle {index} did not exercise time-limit bootstrap" for index in invalid_cycles
     ]
     report = {
-        "schema": "sandbox-a-timing/v2",
+        "schema": "sandbox-a-timing/v3",
         "status": "INVALID" if invalid_reasons else "PASS",
         "invalid_reasons": invalid_reasons,
         "label": "simulator-D",
@@ -295,7 +348,8 @@ def run_cell(
         "cycle_stability": cycle_stability(cycles, rows_per_cycle),
         "numerical_settings": numerical_settings(),
         "compile_mode": compile_mode,
-        "compile_scope": "actor_critic_and_gae" if compile_mode != "none" else "disabled",
+        "compile_report": compile_snapshot(runner, compile_mode),
+        "phase_profile": aggregate_phase_profiles(cycles, worlds, recipe.horizon),
         "efficacy_selection": False,
         "peak_device_allocated_bytes": (
             torch.cuda.max_memory_allocated() if device.startswith("cuda") else None
@@ -364,7 +418,11 @@ def main() -> int:
     results, skipped = [], []
     start = time.perf_counter()
     # prove owns its strict deterministic/TF32-off mode and restores this process afterwards.
-    proof = prove(load_ego2s_checkpoint(str(args.checkpoint), args.device), args.device)
+    proof = prove(
+        load_ego2s_checkpoint(str(args.checkpoint), args.device),
+        args.device,
+        control.get("parity_seed_offset", 90_000_000),
+    )
     proof_settings = proof["numerical_settings"]
     publish(args.output / "parity.json", lambda target: target.write_text(json.dumps(proof) + "\n"))
     with numerical_mode(deterministic=False, tf32=True) as timing_settings:
@@ -387,7 +445,7 @@ def main() -> int:
                 )
             )
     summary = {
-        "schema": "sandbox-a-run/v2",
+        "schema": "sandbox-a-run/v3",
         "status": "INVALID" if any(r["status"] == "INVALID" for r in results) else "PASS",
         "label": "simulator-D",
         "allocation": allocation(control),

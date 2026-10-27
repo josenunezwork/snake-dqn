@@ -119,7 +119,10 @@ def test_exact_production_schedule_truncates_every_measured_cycle(
         assert runner.sim.cap == 1024
         assert runner.sim.cfg.max_capacity == 10400
         if not collected:
-            assert runner.age.tolist() == [i * episode_limit // worlds for i in range(worlds)]
+            cohorts = max(1, episode_limit // min(128, episode_limit))
+            assert runner.age.tolist() == [
+                (i % cohorts) * (episode_limit // cohorts) for i in range(worlds)
+            ]
         data = original_collect(runner)
         # Nonzero critic checks the actual deferred bootstrap/GAE path, not just flags.
         assert data["next_value"][data["truncated"]].ne(0).all()
@@ -295,6 +298,77 @@ def test_compile_mode_is_explicit_and_opt_in(monkeypatch, tmp_path: Path) -> Non
             "cpu",
             time.monotonic() + 60,
         )
+
+
+def test_phase_profile_and_compile_report_are_exported_per_cycle_and_aggregate(
+    monkeypatch, tmp_path: Path
+) -> None:
+    reports = iter(
+        [
+            {
+                "mode": "cuda_event",
+                "ticks": 2,
+                "milliseconds": {"observe": 10.0},
+                "ms_per_tick": {"observe": 5.0},
+                "nested_phases": [],
+            },
+            {
+                "mode": "cuda_event",
+                "ticks": 2,
+                "milliseconds": {"observe": 14.0},
+                "ms_per_tick": {"observe": 7.0},
+                "nested_phases": [],
+            },
+        ]
+    )
+
+    class ProfiledRunner:
+        device = torch.device("cpu")
+        reset_count = torch.tensor(0)
+        compile_report = {"requested_mode": "none", "status": "eager", "subgraphs": {}}
+
+        @property
+        def phase_profile(self):
+            return next(reports)
+
+        def collect(self):
+            return {
+                "terminal": torch.tensor([[False]]),
+                "truncated": torch.tensor([[True]]),
+            }
+
+    runner = ProfiledRunner()
+    monkeypatch.setattr(run, "ResidentAssay", lambda *args: runner)
+    monkeypatch.setattr(run, "load_ego2s_checkpoint", lambda *args: None)
+    monkeypatch.setattr(run, "package_unit", lambda path, *args: path.write_bytes(b"state"))
+    result = run.run_cell(
+        {
+            "horizon": 2,
+            "minibatch": 2,
+            "epochs": 1,
+            "episode_limit": 2,
+            "cycles": 2,
+            "warmups": 0,
+            "tiny": False,
+        },
+        1,
+        "collection",
+        0,
+        tmp_path / "b8",
+        tmp_path,
+        "cpu",
+        time.monotonic() + 60,
+    )
+    assert result["cycles"][0]["phase_profile"]["ms_per_tick"]["observe"] == 5.0
+    assert result["phase_profile"] == {
+        "mode": "cuda_event",
+        "cycles": 2,
+        "ticks_per_cycle": 2,
+        "milliseconds": {"observe": 12.0},
+        "ms_per_tick": {"observe": 6.0},
+        "hero_rows_per_second": {"observe": pytest.approx(2 * 1000 / 12)},
+    }
+    assert result["compile_report"]["status"] == "eager"
 
 
 def test_resume_proof_hashes_rows_before_borrowed_rollout_can_be_overwritten(monkeypatch) -> None:

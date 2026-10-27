@@ -1,4 +1,4 @@
-"""Packet-02 uses the adopted admission route and a doubled technical guard."""
+"""A-3 packet uses the adopted admission route and a doubled technical guard."""
 
 import json
 import subprocess
@@ -11,7 +11,7 @@ from research.sandbox_a_resident import prepare
 from research.sandbox_a_resident.units import digest
 
 
-def test_packet02_admission_and_generous_runaway_guard(monkeypatch, tmp_path: Path) -> None:
+def test_a3_packet_admission_and_generous_runaway_guard(monkeypatch, tmp_path: Path) -> None:
     torch.set_num_threads(1)
     checkpoint = tmp_path / "b8.pth"
     checkpoint.write_bytes(b"fake published weights for offline schema test")
@@ -19,7 +19,7 @@ def test_packet02_admission_and_generous_runaway_guard(monkeypatch, tmp_path: Pa
     monkeypatch.setattr(prepare, "B8_SHA", digest(checkpoint))
     monkeypatch.setattr(prepare, "registry_check", lambda *args: {"allocated_uint64_seeds": 0})
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    packet = tmp_path / "packet-02"
+    packet = tmp_path / "packet-a3"
     prepare.prepare(packet, commit, checkpoint, tmp_path / "registry.json", 14400)
     manifest = json.loads((packet / "dispatch-manifest.json").read_text())
     sandbox = json.loads((packet / "sandbox.json").read_text())
@@ -39,8 +39,8 @@ def test_packet02_admission_and_generous_runaway_guard(monkeypatch, tmp_path: Pa
         packet / "dispatch-manifest.json"
     )
     assert len((packet / "sandbox.json").read_text().splitlines()) == 10
-    assert manifest["job_id"].endswith("-01")
-    assert manifest["output_dir"].endswith("/a2-attempt-01/output")
+    assert manifest["job_id"] == "sandbox-a-resident-a3-20261026-01"
+    assert manifest["output_dir"].endswith("/a3-attempt-01/output")
     assert "pyproject.toml" not in manifest["source_paths"]
     assert "research/gpu_sim_spike/masks_device.py" in manifest["source_paths"]
     assert "research/gpu_sim_spike/event_cuda.cu" in manifest["source_paths"]
@@ -49,13 +49,32 @@ def test_packet02_admission_and_generous_runaway_guard(monkeypatch, tmp_path: Pa
     assert all(
         "test_" not in path and "/fixtures/" not in path for path in manifest["source_paths"]
     )
-    assert json.loads(manifest["env"]["SANDBOX_A_CONTROL_JSON"])["episode_limits"] == [64, 512]
-    assert (
-        json.loads(manifest["env"]["SANDBOX_A_CONTROL_JSON"])["recipe_parameters"][
-            "stagger_initial_age"
-        ]
-        is True
+    control = json.loads(manifest["env"]["SANDBOX_A_CONTROL_JSON"])
+    assert control["episode_limits"] == [64, 512]
+    assert control["worlds"] == [128, 1024, 2048, 4096]
+    assert control["recipe_version"] == "A-3"
+    assert control["compile_mode"] == "default"
+    assert control["parity_seed_count"] == 54
+    assert control["seed_offset_base"] == 120_000_000
+    assert control["allocation_stride"] == 3_000_000
+    assert control["parity_seed_offset"] == 200_000_000
+    allocations = prepare.seed_allocations(control)
+    assert min(row["offset"] for row in allocations) > 100_000_000
+    assert all(
+        right["offset"] - left["offset"] >= 4096 * 513
+        for left, right in zip(allocations, allocations[1:])
     )
+    assert manifest["sandbox_a"]["parity_seed_allocation"]["offset"] > 100_000_000
+    assert manifest["sandbox_a"]["seed_allocations"] == allocations
+    assert manifest["technical_envelope"]["base_seconds"] == 14400
+    assert manifest["technical_envelope"]["effective_seconds"] == 28800
+    assert manifest["timeout_minutes"] == 480
+    assert (
+        manifest["sandbox_a"]["seed_allocations"][-1]["offset"]
+        + manifest["sandbox_a"]["seed_allocations"][-1]["count"]
+        < control["parity_seed_offset"]
+    )
+    assert control["recipe_parameters"]["stagger_initial_age"] is True
     for base in (0, float("nan"), float("inf"), 1e308):
         with pytest.raises(ValueError, match="positive finite"):
             prepare.prepare(
@@ -95,5 +114,31 @@ def test_all_root_registry_checks_keep_exact_uint64_and_refuse_overlap(
     registry_data["excluded_seeds"] = []
     allocations = prepare.seed_allocations(control)
     monkeypatch.setattr(prepare, "seed_allocations", lambda c: allocations + allocations[:1])
-    with pytest.raises(ValueError, match="excluded/aliased"):
+    with pytest.raises(ValueError, match="overlap"):
+        prepare.registry_check(control, registry_path, checkpoint)
+
+
+def test_registry_refuses_overlapping_large_intervals(monkeypatch, tmp_path: Path) -> None:
+    from tools.sandbox import registry
+
+    control = {
+        "worlds": [4096],
+        "horizon": 128,
+        "cycles": 3,
+        "warmups": 1,
+        "episode_limits": [64, 512],
+        "seed_offset_base": 120_000_000,
+        "allocation_stride": 3_000_000,
+        "parity_seed_offset": 200_000_000,
+    }
+    monkeypatch.setattr(registry, "load_registry", lambda p: {"excluded_seeds": []})
+    monkeypatch.setattr(registry, "verify_sources", lambda r: None)
+    monkeypatch.setattr(registry, "validate_input", lambda *a: None)
+    checkpoint, registry_path = tmp_path / "b8", tmp_path / "registry"
+    checkpoint.write_bytes(b"checkpoint")
+    registry_path.write_text("{}")
+    allocations = prepare.seed_allocations(control)
+    allocations[1] = {**allocations[1], "offset": allocations[0]["offset"] + 1}
+    monkeypatch.setattr(prepare, "seed_allocations", lambda c: allocations)
+    with pytest.raises(ValueError, match="overlap"):
         prepare.registry_check(control, registry_path, checkpoint)

@@ -1,0 +1,39 @@
+{
+  "status": "PASS",
+  "scope": "A-3 CPU preparation only; no A100 allocation",
+  "sandbox_tests": "62 passed; nice 15, all numerical thread limits 1",
+  "review": "independent reviewer: no remaining blocking findings",
+  "lint": "black/isort/flake8/diff-check PASS",
+  "local_smoke": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-01/local-summary.json",
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "certified_gpu_sim_tree": "46e5b17fe0f1b2fee2cd229749c3625c2a2d854f",
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "source_sha256": {
+    "research/sandbox_a_resident/A3.md": "b50b12ad5be14fd505621ed3d13e7287425ff592b2f976f36a0e1f9aaf635305",
+    "research/sandbox_a_resident/README.md": "3597bf6c231073cfd775a17ae12cb7da1f14e55fef0b2412b83a41985f785f58",
+    "research/sandbox_a_resident/__init__.py": "9a0705415e5dda3526074013d7f7a4e67977891009a7b36fc193e23dacd3c4e8",
+    "research/sandbox_a_resident/core.py": "713a11cb255adfea748e5ec59aabcfcc331edd09a2301f46b488b4458a6f7de5",
+    "research/sandbox_a_resident/device_sim.py": "fe403559f4cfd8692d750dc690735e160cc77bdd8ba4d5d7b11314749e21300d",
+    "research/sandbox_a_resident/postprocess.py": "8c6ea33694cc8ab0b84310fcdb57b3cb277a0efddd3b196c2fd64dffc7b72b03",
+    "research/sandbox_a_resident/preflight.py": "785216818ec79f950f934776aa1d1d8042de56ac637b8dd0640b6eb11cb2fbba",
+    "research/sandbox_a_resident/prepare.py": "b124785baf8c50940ed81f6ddde125cec6a72aea170bf3869aa2137b7d0cc5db",
+    "research/sandbox_a_resident/proof.py": "0cb85e8fe17aaa3d76ce95c611c51e03d08fbca2a35af61dfcfe9cf0908dfaab",
+    "research/sandbox_a_resident/run.py": "a793f532e98d34997db61520e3b44ab5462a7d4510fd7c13bed91b38cb9e730f",
+    "research/sandbox_a_resident/runtime_tools.py": "233e0fad2516f19394f06dbd52762c38b64dba3fa050cac61b258691bd0cc6e2",
+    "research/sandbox_a_resident/test_a2.py": "d941650661f3af47cfeb167b1c167fe5c12d6d47419c627b42ce84b96636ef88",
+    "research/sandbox_a_resident/test_a2_reference.py": "5b3f85211390e118b6defada57e2bb13a0bb74cd7b6445dc25bdea2f51c36836",
+    "research/sandbox_a_resident/test_core.py": "09ad2026ddd84c0925e9a4f0f860b33af82a8bc69e8dbc4a24a1b569a328ef3e",
+    "research/sandbox_a_resident/test_prepare.py": "b6206f3ea2204508bedb324e89db8e375aad60f83d242ab8b0c7d1ff6f787a03",
+    "research/sandbox_a_resident/test_reset_a3.py": "df6cf28d05116894384e0aacde6598ea9b87053f2161b2564a232a0480a10493",
+    "research/sandbox_a_resident/test_run.py": "936d8e70ef4d42f2536534f0976f6df9e20251d2ed125e3ec28bef915cb8e54c",
+    "research/sandbox_a_resident/test_runtime_a3.py": "b12f9b04cee965420810a5afe466dfdd9c31d986b616ada30c0b6d00b4d8eead",
+    "research/sandbox_a_resident/test_units.py": "90f1fb3a63cb397edd1e3b2dbc62331405ec1227b1d2c91c3988ee550571a8a5",
+    "research/sandbox_a_resident/units.py": "57de601ef7db341380832147b0fcf70b346fd58be0e2a4ce3fcb3eefa1f3b70d"
+  },
+  "unmeasured": [
+    "CUDA event timings",
+    "CUDA compile success",
+    "native CUDA food parity",
+    "E4096 memory capacity"
+  ]
+}

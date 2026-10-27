@@ -9,8 +9,10 @@ from typing import Any
 
 import torch
 
-from research.sandbox_a_resident.core import Recipe, ResidentAssay
+from research.sandbox_a_resident.core import Recipe, ResidentAssay, seed64
+from research.sandbox_a_resident.device_sim import food_mechanics_parity_probe
 from src.model.ego2s_network import Ego2sNet
+from src.simd_env.batch_sim import BatchSimConfig
 
 
 def _settings() -> dict[str, bool]:
@@ -69,9 +71,26 @@ def signature(value: Any) -> str:
     return digest.hexdigest()
 
 
-def prove(b8: Ego2sNet, device: str) -> dict:
+def prove(b8: Ego2sNet, device: str, seed_offset: int = 90_000_000) -> dict:
     """A complete real update, restore, then identical next reset rows and update."""
     with deterministic_proof_mode() as settings:
+        food_proof = food_mechanics_parity_probe(
+            BatchSimConfig(
+                num_envs=6, num_snakes=6, max_capacity=10400, body_storage_capacity=1024
+            ),
+            device=device,
+            ticks=3,
+            rng_keys=torch.tensor(
+                [
+                    (seed64("a100-dev/sandbox-a", seed_offset + 48 + i) + 2**63) % 2**64 - 2**63
+                    for i in range(6)
+                ],
+                dtype=torch.long,
+                device=device,
+            ),
+        )
+        food_proof["seed_offset"] = seed_offset + 48
+        food_proof["seed_namespace"] = "a100-dev/sandbox-a"
         recipe = Recipe(
             worlds=2,
             horizon=3,
@@ -79,7 +98,7 @@ def prove(b8: Ego2sNet, device: str) -> dict:
             episode_limit=2,
             max_episodes=24,
             tiny=True,
-            seed_offset=90_000_000,
+            seed_offset=seed_offset,
         )
         runner = ResidentAssay(recipe, b8, device)
         runner.update(runner.collect())
@@ -105,4 +124,5 @@ def prove(b8: Ego2sNet, device: str) -> dict:
             "next_rows_sha256": expected_rows_sha256,
             "cross_platform_claim": False,
             "numerical_settings": settings,
+            "food_mechanics_parity": food_proof,
         }

@@ -51,9 +51,11 @@ def runtime_source_paths(commit: str) -> list[str]:
     }
     resident_names = {
         "__init__.py",
+        "device_sim.py",
         "run.py",
         "core.py",
         "proof.py",
+        "runtime_tools.py",
         "units.py",
         "job.sh",
         "requirements.txt",
@@ -105,10 +107,23 @@ def registry_check(control: dict[str, Any], registry_path: Path, checkpoint: Pat
     excluded = {int(x) & 0x7FFF_FFFF_FFFF_FFFF for x in registry["excluded_seeds"]}
     allocations = [
         *seed_allocations(control),
-        {"offset": control.get("parity_seed_offset", 9_000_000), "count": 48},
+        {
+            "offset": control.get("parity_seed_offset", 9_000_000),
+            "count": control.get("parity_seed_count", 48),
+        },
     ]
     if any(
-        type(row["count"]) is not int or not 0 < row["count"] < 1_000_000 for row in allocations
+        type(row.get("offset")) is not int
+        or row["offset"] < 0
+        or type(row.get("count")) is not int
+        or row["count"] < 1
+        for row in allocations
+    ):
+        raise ValueError("frozen seed allocations overlap or are nonpositive")
+    ordered = sorted(allocations, key=lambda row: row["offset"])
+    if any(
+        left["offset"] + left["count"] > right["offset"]
+        for left, right in zip(ordered, ordered[1:])
     ):
         raise ValueError("frozen seed allocations overlap or are nonpositive")
     count = sum(row["count"] for row in allocations)
@@ -175,17 +190,19 @@ def prepare(
             "learning_rate": 0.0003,
             "stagger_initial_age": True,
         },
-        "worlds": [128, 1024],
+        "worlds": [128, 1024, 2048, 4096],
         "horizon": 128,
         "minibatch": 2048,
         "epochs": 1,
         "cycles": 3,
         "warmups": 1,
         "episode_limits": [64, 512],
-        "recipe_version": "A-2",
-        "compile_mode": "none",
-        "seed_offset_base": 20_000_000,
-        "parity_seed_offset": 90_000_000,
+        "recipe_version": "A-3",
+        "compile_mode": "default",
+        "seed_offset_base": 120_000_000,
+        "allocation_stride": 3_000_000,
+        "parity_seed_offset": 200_000_000,
+        "parity_seed_count": 54,
         "tiny": False,
         "timeout_seconds": estimate_seconds * 2,
     }
@@ -206,10 +223,10 @@ def prepare(
             stem = unit_stem(worlds, phase, limit)
             required += [f"assay/{stem}.{suffix}" for suffix in ("tar", "json")]
     output = Path(
-        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/output"
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-01/output"
     )
     manifest = {
-        "job_id": "sandbox-a-resident-a2-20261026-01",
+        "job_id": "sandbox-a-resident-a3-20261026-01",
         "commit": commit,
         "script": "research/sandbox_a_resident/job.sh",
         "device": "cuda",
@@ -265,7 +282,7 @@ def prepare(
             "seed_allocations": seed_allocations(control),
             "parity_seed_allocation": {
                 "offset": control.get("parity_seed_offset", 9_000_000),
-                "count": 48,
+                "count": control.get("parity_seed_count", 48),
             },
             "numerical_outputs": "timing/parity only",
         },
@@ -300,7 +317,14 @@ def prepare(
             {"kind": "registry", "path": str(registry.resolve()), "sha256": digest(registry)},
         ],
         "salt": "a100-dev/sandbox-a/",
-        "endpoint": {"kind": "steps", "value": 3 * 128 * (128 + 1024) * 3 * 2},
+        "endpoint": {
+            "kind": "steps",
+            "value": control["cycles"]
+            * control["horizon"]
+            * sum(control["worlds"])
+            * 3
+            * len(control["episode_limits"]),
+        },
         "timeout": {
             "base_seconds": estimate_seconds,
             "seconds": 2 * estimate_seconds,

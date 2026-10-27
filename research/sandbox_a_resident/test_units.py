@@ -276,3 +276,23 @@ def test_a2_sweep_has_distinct_resume_units_and_exports(tmp_path: Path) -> None:
     assert list(load_ledger(path, control)) == [unit_id(2, "cached", 512)]
     with pytest.raises(ValueError, match="foreign"):
         load_ledger(path, {**control, "episode_limits": [64]})
+
+
+def test_a3_stride_covers_every_possible_e4096_reset_root() -> None:
+    from research.sandbox_a_resident.units import cell_specs
+
+    control = {
+        "worlds": [128, 1024, 2048, 4096],
+        "episode_limits": [64, 512],
+        "horizon": 128,
+        "cycles": 3,
+        "warmups": 1,
+        "seed_offset_base": 120_000_000,
+        "allocation_stride": 3_000_000,
+    }
+    cells = cell_specs(control)
+    assert len(cells) == 24
+    assert [row[3] for row in cells[:3]] == [120_000_000, 123_000_000, 126_000_000]
+    assert min(row[3] for row in cells) > 100_000_000
+    episodes = 1 + (control["cycles"] + control["warmups"]) * control["horizon"]
+    assert control["allocation_stride"] >= 4096 * episodes

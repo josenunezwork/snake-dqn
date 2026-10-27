@@ -1,8 +1,32 @@
 # Job A: resident collector + learner feasibility
 
-## Current runtime: A-2
+## Current runtime: A-3
 
-The current successor is `packet-a2/reseal-03`. See
+[`A3.md`](A3.md) is the current prospective sandbox protocol. It keeps the
+resident collector/learner assay as simulator-D development evidence and adds
+the Argon-ranked collection repairs: CUDA-event phase profiling, vectorized
+initial food on reset, indexed deferred-bootstrap/reset work, batched anchors,
+static-subgraph compilation with an explicit eager fallback record, and an
+E2048/E4096 extension. It does not touch F5 or `research/colab_cli`.
+
+The fixed finite matrix is 24 cells: E128/E1024/E2048/E4096 × episode limit
+64/512 × cached/collection/integrated, each with H128, one excluded warmup, and
+three measured cycles. `compile_mode=default` is bound prospectively. Results
+must retain per-cycle and aggregate phase ms/tick, compile status/fallback
+records, and rows/s. The packet uses fresh allocation roots starting at
+120,000,000 with 3,000,000-index spacing and a proof allocation at 200,000,000;
+these intervals exceed the maximum 4,096-world root range and are checked for
+collisions before data.
+
+The intended output root is
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-01/output`.
+Its four-hour/eight-hour base/effective timeout is only a technical runaway
+guard. A-3 source pin, test, preflight, dry-run, and execution evidence are
+recorded separately; this README makes no A100 performance claim.
+
+## Historical runtime: A-2
+
+The A-2 successor was `packet-a2/reseal-03`. See
 [`A2_RESEAL03.md`](A2_RESEAL03.md) for the initial-age schedule correction,
 per-cycle validity rule, and verification that supersedes the rejected
 `packet-a2/reseal-02` schedule. Earlier packets and verification files are preserved.

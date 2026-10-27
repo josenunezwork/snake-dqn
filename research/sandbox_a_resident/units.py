@@ -53,10 +53,13 @@ def cell_specs(control: dict[str, Any]) -> list[tuple[int, str, int | None, int]
     ):
         raise ValueError("duplicate/empty cell sweep")
     base = control.get("seed_offset_base", 0)
+    stride = control.get("allocation_stride", 1_000_000)
     if type(base) is not int or base < 0:
         raise ValueError("nonnegative integer seed base required")
+    if type(stride) is not int or stride < 1:
+        raise ValueError("positive integer allocation stride required")
     return [
-        (worlds, phase, limit, base + index * 1_000_000)
+        (worlds, phase, limit, base + index * stride)
         for index, (limit, worlds, phase) in enumerate(
             (limit, worlds, phase)
             for limit in limits

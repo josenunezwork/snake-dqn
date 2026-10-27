@@ -21,6 +21,8 @@ from research.gpu_sim_spike.device_policy import DevicePolicy
 from research.gpu_sim_spike.device_sim import DeviceSim
 from research.gpu_sim_spike.ego_device import build_observation
 from research.gpu_sim_spike.v8_device import v8_decide
+from research.sandbox_a_resident.device_sim import ResidentDeviceSim
+from research.sandbox_a_resident.runtime_tools import CompiledBlock, PhaseProfiler
 from src.model.ego2s_network import Ego2sNet
 from src.simd_env.batch_sim import BatchSimConfig
 
@@ -124,7 +126,7 @@ ENV_FIELDS = (
 )
 
 # ``observe``/``prepare`` need only this state.  A bounded bank of these fields
-# holds pre-reset time-limit worlds without a per-tick variable-size compact.
+# holds only captured pre-reset time-limit worlds.
 BOOTSTRAP_FIELDS = (
     "bodies",
     "head_ptr",
@@ -169,7 +171,13 @@ def bootstrap_subset(
     out.E = rows.numel()
     out.cfg = replace(sim.cfg, num_envs=out.E)
     for name in BOOTSTRAP_FIELDS:
-        setattr(out, name, bank[name].flatten(0, 1).index_select(0, rows))
+        setattr(
+            out,
+            name,
+            bank[name]
+            .flatten(0, 1)
+            .index_select(0, bank["storage"].flatten().index_select(0, rows)),
+        )
     out._prepared = False
     r2_cache.inherit(out, sim)
     return out
@@ -256,7 +264,7 @@ class ResidentAssay:
                 else dict(max_capacity=10400, body_storage_capacity=1024)
             ),
         )
-        self.sim = DeviceSim(
+        self.sim = ResidentDeviceSim(
             cfg,
             device=self.device,
             train_mode=False,
@@ -304,14 +312,19 @@ class ResidentAssay:
         self._forward: Any = self.actor
         self._gae: Any = gae
         self.compile_mode: str | None = None
+        self.compile_report: dict[str, Any] = {}
+        self.phase_profile: dict[str, Any] = {}
+        self._v8: Any = v8_decide
+        self._observation: Any = build_observation
+        self._anchors: Any = self._anchor_tensor
         if self.sim.cfg.arena_type != "rectangular" or self.sim.grid_w < self.sim.S:
             raise ValueError("sandbox in-place reset requires six distinct rectangular spawn cells")
         self._reset(torch.ones_like(self.episode, dtype=torch.bool), initial=True)
         if recipe.stagger_initial_age:
-            # Spread the first time-limit boundaries over the entire period before
-            # warmup/timing. Subsequent deaths/truncations still reset age to zero;
-            # never rephase worlds or inject resets between measured cycles.
-            self.age.copy_(self._world_indices * recipe.episode_limit // recipe.worlds)
+            # Stagger cohorts, retaining scheduled truncations in every H128 cycle
+            # without forcing a scheduled reset on every single tick.
+            cohorts = max(1, recipe.episode_limit // min(recipe.horizon, recipe.episode_limit))
+            self.age.copy_((self._world_indices % cohorts) * (recipe.episode_limit // cohorts))
 
     def _allocate_rollout(self) -> dict[str, Any]:
         """Allocate the fixed-shape PPO ownership buffers once per resident assay."""
@@ -336,56 +349,52 @@ class ResidentAssay:
         }
 
     def _bootstrap_buffers(self) -> dict[str, torch.Tensor]:
-        """Bounded slots per world: a horizon has at most ceil(H/limit) truncations."""
-        if self._bootstrap_bank is None:
-            slots = (
-                self.recipe.horizon + self.recipe.episode_limit - 1
-            ) // self.recipe.episode_limit
-            bank: dict[str, torch.Tensor] = {
-                "valid": torch.zeros(
-                    (slots, self.recipe.worlds), dtype=torch.bool, device=self.device
-                ),
-                "tick": torch.zeros(
-                    (slots, self.recipe.worlds), dtype=torch.long, device=self.device
-                ),
-            }
-            for name in BOOTSTRAP_FIELDS:
-                value = getattr(self.sim, name)
-                bank[name] = torch.empty(
-                    (slots, *value.shape), dtype=value.dtype, device=self.device
-                )
-            self._bootstrap_bank = bank
-        return self._bootstrap_bank
+        """Keep bounded addressing metadata; payload contains only captured rows."""
+        slots = (self.recipe.horizon + self.recipe.episode_limit - 1) // self.recipe.episode_limit
+        bank = {
+            "valid": torch.zeros((slots, self.recipe.worlds), dtype=torch.bool, device=self.device),
+            "tick": torch.zeros((slots, self.recipe.worlds), dtype=torch.long, device=self.device),
+            "storage": torch.full(
+                (slots, self.recipe.worlds), -1, dtype=torch.long, device=self.device
+            ),
+        }
+        self._bootstrap_bank = bank
+        return bank
 
     def enable_compile(self, mode: str) -> None:
-        """Opt in to a timing-only compile cell without changing checkpoint ownership.
+        """Compile static full-world blocks; record eager fallback for each block.
 
-        Eager remains the default and all deterministic resume evidence uses eager.
-        The original actor remains the optimizer/state-dict owner; the compiled
-        callable merely dispatches those same parameters.
+        Dynamic bootstrap subsets stay eager. ActorCritic retains parameter and
+        optimizer ownership; compilation is timing evidence, not bit identity.
         """
         if mode not in ("default", "reduce-overhead"):
             raise ValueError("unsupported compile mode")
-        self._forward = torch.compile(self.actor, mode=mode)
-        self._gae = torch.compile(gae, mode=mode)
+        for name, attribute, eager in (
+            ("ActorCritic", "_forward", self.actor),
+            ("v8_decide", "_v8", v8_decide),
+            ("build_observation", "_observation", build_observation),
+            ("anchors", "_anchors", self._anchor_tensor),
+        ):
+            setattr(self, attribute, CompiledBlock(eager, mode, self.compile_report, name))
         self.compile_mode = mode
 
     @torch.no_grad()
     def _reset(self, mask: torch.Tensor, *, initial: bool = False) -> None:
         """Reset selected worlds in place; live rows and their RNG counters never move."""
+        indices = torch.where(mask)[0]
+        if not indices.numel():
+            return
         if not initial:
-            self.episode.add_(mask.long())
-            self.reset_count.add_(mask.sum())
+            self.episode.index_add_(0, indices, torch.ones_like(indices))
+            self.reset_count.add_(indices.numel())
         self.collection_faults[1] |= (self.episode >= self.recipe.max_episodes).any()
         # Fresh sandbox worlds are empty and rectangular.  The first of DeviceSim's
         # 32 deterministic respawn trials always places all six distinct slots; it
         # still advances the counter by all 32 trials to preserve the frozen RNG
         # contract.  This replaces 56 compact index-select/index-copy launches.
-        episode = self.episode.clamp_max(self.recipe.max_episodes - 1)
-        key = self.keys[episode, self._world_indices]
-        mixed = (
-            key * 6364136223846793005 + self._first_counter * 1442695040888963407
-        ) & 0x7FFF_FFFF_FFFF_FFFF
+        episode = self.episode.index_select(0, indices).clamp_max(self.recipe.max_episodes - 1)
+        key = self.keys[episode, indices]
+        mixed = (key * 6364136223846793005 + 1442695040888963407) & 0x7FFF_FFFF_FFFF_FFFF
         base_x = mixed.remainder(self.sim.grid_w)
         base_y = (mixed // self.sim.grid_w).remainder(self.sim.grid_h)
         cells = torch.stack(
@@ -400,13 +409,10 @@ class ResidentAssay:
 
         def fill(name: str, value: int | float | bool) -> None:
             target = getattr(self.sim, name)
-            view = mask.reshape((-1,) + (1,) * (target.ndim - 1))
-            target.masked_fill_(view, value)
+            target.index_fill_(0, indices, value)
 
         fill("bodies", 0)
-        torch.where(
-            mask[:, None, None], cells, self.sim.bodies[:, :, 0], out=self.sim.bodies[:, :, 0]
-        )
+        self.sim.bodies[indices, :, 0] = cells
         for name in (
             "head_ptr",
             "boost_frames",
@@ -435,13 +441,13 @@ class ResidentAssay:
             "capacity_overflow",
         ):
             fill(name, 0)
-        torch.where(mask, key, self.sim.rng_key, out=self.sim.rng_key)
+        self.sim.rng_key.index_copy_(0, indices, key)
         fill("rng_counter", 32)
         fill("terminal_slots", False)
-        self.sim.terminal_slots[:, 0].masked_fill_(mask, True)
+        self.sim.terminal_slots[indices, 0] = True
         self.collection_faults[2] |= (mask & ~self.sim.alive.all(dim=1)).any()
         self.sim._prepared = False
-        self.age.masked_fill_(mask, 0)
+        self.age.index_fill_(0, indices, 0)
         r2_cache.bump(self.sim)
         if initial:
             self._check_collection_faults()
@@ -480,7 +486,7 @@ class ResidentAssay:
         full_mask = sim.advisory_mask() if advisory_mask is None else advisory_mask
         legal = full_mask[:, 0]
         features = (
-            v8_decide(
+            (self._v8 if sim is self.sim else v8_decide)(
                 sim,
                 rows,
                 self._v8_q if sim is self.sim else torch.zeros((sim.E, 6), device=self.device),
@@ -491,7 +497,8 @@ class ResidentAssay:
             .feature_planes()
             .reshape(sim.E, 30)
         )
-        return build_observation(sim, rows, features), legal
+        observation = self._observation if sim is self.sim else build_observation
+        return observation(sim, rows, features), legal
 
     @torch.no_grad()
     def _anchor_actions(self, full_mask: torch.Tensor, hero_action: torch.Tensor) -> torch.Tensor:
@@ -501,23 +508,45 @@ class ResidentAssay:
         turns = r2_cache.const((-1, 0, 1), torch.long, self.device)
         cardinal = r2_cache.const(((0, -1), (1, 0), (0, 1), (-1, 0)), torch.long, self.device)
         priority = r2_cache.const((1, 0, 2), torch.long, self.device)
-        for slot in range(1, self.sim.S):
-            safe = full_mask[:, slot, :3]
-            safe = torch.where(safe.any(1, keepdim=True), safe, torch.ones_like(safe))
-            direction = (self.sim.direction[:, slot, None] + turns) % 4
-            candidate = self.sim.heads()[:, slot, None] + cardinal[direction]
-            distance = (candidate[:, :, None] - self.sim.food_cells[:, None]).square().sum(-1)
-            distance = distance.masked_fill(
-                ~self.sim.food_present[:, None], torch.iinfo(torch.long).max
-            )
-            nearest = distance.amin(2)
-            nearest = torch.where(
-                self.sim.food_present.any(1, keepdim=True), nearest, torch.zeros_like(nearest)
-            )
-            score = nearest.clamp_max(torch.iinfo(torch.long).max // 8) * 4 + priority
-            chosen = score.masked_fill(~safe, torch.iinfo(torch.long).max).argmin(1)
-            out[:, slot] = torch.where(self.sim.alive[:, slot], chosen, torch.ones_like(chosen))
+        out[:, 1:] = self._anchors(
+            full_mask[:, 1:, :3],
+            self.sim.direction[:, 1:],
+            self.sim.heads()[:, 1:],
+            self.sim.food_cells,
+            self.sim.food_present,
+            self.sim.alive[:, 1:],
+            turns,
+            cardinal,
+            priority,
+        )
         return out
+
+    @staticmethod
+    def _anchor_tensor(
+        safe: torch.Tensor,
+        heading: torch.Tensor,
+        heads: torch.Tensor,
+        food: torch.Tensor,
+        present: torch.Tensor,
+        alive: torch.Tensor,
+        turns: torch.Tensor,
+        cardinal: torch.Tensor,
+        priority: torch.Tensor,
+    ) -> torch.Tensor:
+        """Five greedy-food seats in one tensor pass with the frozen tie order."""
+        safe = torch.where(safe.any(2, keepdim=True), safe, torch.ones_like(safe))
+        direction = (heading[:, :, None] + turns) % 4
+        candidate = heads[:, :, None] + cardinal[direction]
+        # Separate coordinates avoid an E*5*3*F*2 int64 temporary in eager
+        # fallback at E4096; the compiled block can fuse these reductions.
+        distance = (candidate[..., 0, None] - food[:, None, None, :, 0]).square()
+        distance.add_((candidate[..., 1, None] - food[:, None, None, :, 1]).square())
+        distance = distance.masked_fill(~present[:, None, None], torch.iinfo(torch.long).max)
+        nearest = distance.amin(3)
+        nearest = torch.where(present.any(1)[:, None, None], nearest, torch.zeros_like(nearest))
+        score = nearest.clamp_max(torch.iinfo(torch.long).max // 8) * 4 + priority
+        chosen = score.masked_fill(~safe, torch.iinfo(torch.long).max).argmin(2)
+        return torch.where(alive, chosen, torch.ones_like(chosen))
 
     @torch.no_grad()
     def collect(self) -> dict[str, Any]:
@@ -530,73 +559,88 @@ class ResidentAssay:
             self._rollout = self._allocate_rollout()
         result = self._rollout
         bank = self._bootstrap_buffers()
-        bank["valid"].zero_()
+        profiler = PhaseProfiler(self.device, self.recipe.horizon)
+        captures: dict[str, list[torch.Tensor]] = {name: [] for name in BOOTSTRAP_FIELDS}
+        captured_rows = 0
         trunc_ordinal = torch.zeros_like(self.age)
         for tick in range(self.recipe.horizon):
-            self.sim.prepare()
-            full_mask = self.sim.advisory_mask()
-            obs, legal = self.observe(advisory_mask=full_mask)
-            logits, value = self._forward(*obs)
-            log_probs = torch.log_softmax(
-                logits.masked_fill(~allowed_mask(legal), -torch.inf), dim=-1
-            )
-            action = torch.multinomial(log_probs.exp(), 1, generator=self.generator).squeeze(1)
-            logp = log_probs.gather(-1, action[:, None]).squeeze(-1)
-            for target, value_at_tick in zip(result["obs"], obs):
-                target[tick].copy_(value_at_tick)
-            result["mask"][tick].copy_(legal)
-            result["action"][tick].copy_(action)
-            result["logp"][tick].copy_(logp)
-            result["value"][tick].copy_(value)
-            result["age"][tick].copy_(self.age)
+            with profiler.phase("t_obs"):
+                self.sim.prepare()
+                full_mask = self.sim.advisory_mask()
+                obs, legal = self.observe(advisory_mask=full_mask)
+            with profiler.phase("t_actor"):
+                logits, value = self._forward(*obs)
+                log_probs = torch.log_softmax(
+                    logits.masked_fill(~allowed_mask(legal), -torch.inf), dim=-1
+                )
+                action = torch.multinomial(log_probs.exp(), 1, generator=self.generator).squeeze(1)
+                logp = log_probs.gather(-1, action[:, None]).squeeze(-1)
+                for target, value_at_tick in zip(result["obs"], obs):
+                    target[tick].copy_(value_at_tick)
+                result["mask"][tick].copy_(legal)
+                result["action"][tick].copy_(action)
+                result["logp"][tick].copy_(logp)
+                result["value"][tick].copy_(value)
+                result["age"][tick].copy_(self.age)
             # DevicePolicy inference tensors are consumed by dynamics only, never by autograd.
-            self.sim.step(self._anchor_actions(full_mask, action))
-            self.policy.after_step(self.sim)
-            self.collection_faults[0] |= self.sim.capacity_overflow.any()
-            self.age += 1
-            terminal = result["terminal"][tick]
-            terminal.copy_(self.sim._last_done[:, 0])
-            truncated = (self.age >= self.recipe.episode_limit) & ~terminal
-            result["reward"][tick].copy_(self.sim._last_reward[:, 0])
-            result["terminal"][tick].copy_(terminal)
-            result["truncated"][tick].copy_(truncated)
-            # Only live time-limit rows enter the fixed, mask-addressed bank.  No
-            # variable-length compaction occurs inside the tick loop; the one compact
-            # post-horizon bootstrap batch cannot observe simultaneous terminal rows.
-            for slot in range(bank["valid"].shape[0]):
-                capture = truncated & trunc_ordinal.eq(slot)
-                for name in BOOTSTRAP_FIELDS:
-                    target, source = bank[name][slot], getattr(self.sim, name)
-                    view = capture.reshape((-1,) + (1,) * (source.ndim - 1))
-                    torch.where(view, source, target, out=target)
-                bank["valid"][slot] |= capture
-                bank["tick"][slot].masked_fill_(capture, tick)
-            trunc_ordinal.add_(truncated.long())
-            self._reset(terminal | truncated)
-        self._check_collection_faults()
-        final_obs, _ = self.observe()
-        final_value = self.actor.critic_only(*final_obs)
-        result["next_value"][:-1].copy_(result["value"][1:])
-        result["next_value"][-1].copy_(final_value)
-        # The sole variable-size operation is after the horizon: one combined
-        # observation/critic invocation across every recorded time-limit world.
-        rows = torch.where(bank["valid"].flatten())[0]
-        if rows.numel():
-            subset = bootstrap_subset(self.sim, bank, rows)
-            next_obs, _ = self.observe(subset)
-            values = self.actor.critic_only(*next_obs)
-            ticks = bank["tick"].flatten().index_select(0, rows)
-            destination = ticks * self.recipe.worlds + rows.remainder(self.recipe.worlds)
-            result["next_value"].flatten().index_copy_(0, destination, values)
-        result["advantage"], result["returns"] = self._gae(
-            result["reward"],
-            result["value"],
-            result["next_value"],
-            result["terminal"],
-            result["truncated"],
-            self.recipe.gamma,
-            self.recipe.gae_lambda,
-        )
+            with profiler.phase("t_anchor"):
+                actions = self._anchor_actions(full_mask, action)
+            with profiler.phase("t_step"):
+                self.sim.step(actions)
+                self.policy.after_step(self.sim)
+            with profiler.phase("t_bank_reset"):
+                self.collection_faults[0] |= self.sim.capacity_overflow.any()
+                self.age += 1
+                terminal = result["terminal"][tick]
+                terminal.copy_(self.sim._last_done[:, 0])
+                truncated = (self.age >= self.recipe.episode_limit) & ~terminal
+                result["reward"][tick].copy_(self.sim._last_reward[:, 0])
+                result["terminal"][tick].copy_(terminal)
+                result["truncated"][tick].copy_(truncated)
+                indices = torch.where(truncated)[0]
+                if indices.numel():
+                    ordinal = trunc_ordinal.index_select(0, indices)
+                    bank["valid"][ordinal, indices] = True
+                    bank["tick"][ordinal, indices] = tick
+                    bank["storage"][ordinal, indices] = torch.arange(
+                        captured_rows, captured_rows + indices.numel(), device=self.device
+                    )
+                    for name in BOOTSTRAP_FIELDS:
+                        captures[name].append(getattr(self.sim, name).index_select(0, indices))
+                    captured_rows += indices.numel()
+                trunc_ordinal.add_(truncated.long())
+                self._reset(terminal | truncated)
+        with profiler.phase("t_post"):
+            # Only actual truncation rows own heavy state; no E*slots payload allocation.
+            for name, chunks in captures.items():
+                source = getattr(self.sim, name)
+                bank[name] = (torch.cat(chunks, dim=0) if chunks else source[:0]).unsqueeze(0)
+                chunks.clear()
+            self._check_collection_faults()
+            final_obs, _ = self.observe()
+            final_value = self.actor.critic_only(*final_obs)
+            result["next_value"][:-1].copy_(result["value"][1:])
+            result["next_value"][-1].copy_(final_value)
+            # One combined observation/critic invocation across recorded time limits;
+            # ordinal metadata preserves the original slot/world evaluation order.
+            rows = torch.where(bank["valid"].flatten())[0]
+            if rows.numel():
+                subset = bootstrap_subset(self.sim, bank, rows)
+                next_obs, _ = self.observe(subset)
+                values = self.actor.critic_only(*next_obs)
+                ticks = bank["tick"].flatten().index_select(0, rows)
+                destination = ticks * self.recipe.worlds + rows.remainder(self.recipe.worlds)
+                result["next_value"].flatten().index_copy_(0, destination, values)
+            result["advantage"], result["returns"] = self._gae(
+                result["reward"],
+                result["value"],
+                result["next_value"],
+                result["terminal"],
+                result["truncated"],
+                self.recipe.gamma,
+                self.recipe.gae_lambda,
+            )
+        self.phase_profile = profiler.finish()
         return result
 
     def update(self, rollout: dict[str, Any]) -> dict[str, torch.Tensor]:
@@ -612,18 +656,38 @@ class ResidentAssay:
             order = torch.randperm(rows, device=self.device, generator=self.generator)
             for start in range(0, rows, self.recipe.minibatch):
                 ix = order[start : start + self.recipe.minibatch]
-                logits, value = self._forward(*(x[ix] for x in obs))
-                _, entropy, logp = categorical_terms(logits, flat["mask"][ix], flat["action"][ix])
-                ratio = (logp - flat["logp"][ix]).exp()
-                policy_loss = -torch.minimum(
-                    ratio * adv[ix],
-                    ratio.clamp(1 - self.recipe.clip, 1 + self.recipe.clip) * adv[ix],
-                ).mean()
-                value_loss = (value - flat["returns"][ix]).square().mean()
-                loss = policy_loss + 0.5 * value_loss - 0.01 * entropy.mean()
-                nonfinite |= ~torch.isfinite(loss)
+
+                def compute_loss() -> torch.Tensor:
+                    logits, value = self._forward(*(x[ix] for x in obs))
+                    _, entropy, logp = categorical_terms(
+                        logits, flat["mask"][ix], flat["action"][ix]
+                    )
+                    ratio = (logp - flat["logp"][ix]).exp()
+                    policy_loss = -torch.minimum(
+                        ratio * adv[ix],
+                        ratio.clamp(1 - self.recipe.clip, 1 + self.recipe.clip) * adv[ix],
+                    ).mean()
+                    value_loss = (value - flat["returns"][ix]).square().mean()
+                    return policy_loss + 0.5 * value_loss - 0.01 * entropy.mean()
+
+                loss = compute_loss()
                 self.optimizer.zero_grad(set_to_none=True)
-                loss.backward()
+                try:
+                    loss.backward()
+                except Exception as exc:
+                    # AOTAutograd can defer compiler failures until backward.
+                    # No optimizer step has occurred; clear partial gradients and
+                    # recompute this same minibatch eagerly before proceeding.
+                    if (
+                        not isinstance(self._forward, CompiledBlock)
+                        or self._forward.compiled is None
+                    ):
+                        raise
+                    self._forward._fallback(exc)
+                    self.optimizer.zero_grad(set_to_none=True)
+                    loss = compute_loss()
+                    loss.backward()
+                nonfinite |= ~torch.isfinite(loss)
                 norm = nn.utils.clip_grad_norm_(
                     self.actor.parameters(), 0.5, error_if_nonfinite=False
                 )
