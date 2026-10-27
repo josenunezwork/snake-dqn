@@ -1,0 +1,66 @@
+{
+  "status": "PASS_PREPARED_NOT_RUN",
+  "source_commit": "50e4b2b16fdbf9830a009b858641c586d41df245",
+  "admission_commit": "7e4a46a1368d1c033a9186264ab30b8fd70520de",
+  "packet": "research/sandbox_a_resident/packet-a3",
+  "sandbox_manifest_lines": 10,
+  "cells": 24,
+  "worlds": [
+    128,
+    1024,
+    2048,
+    4096
+  ],
+  "episode_limits": [
+    64,
+    512
+  ],
+  "phases": [
+    "cached",
+    "collection",
+    "integrated"
+  ],
+  "runaway_seconds": 28800,
+  "sandbox_tests": {
+    "passed": 63,
+    "seconds": 3.93,
+    "nice": 15,
+    "numerical_threads": 1
+  },
+  "preflight": {
+    "status": "PASS",
+    "allocated_seeds": 22457142,
+    "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-01/preflight-02.txt"
+  },
+  "dispatch_dry_run": {
+    "status": "PASS",
+    "allocations": 0,
+    "live_accounting": "NOT_CHECKED",
+    "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-01/dispatch-dry-run-02.txt"
+  },
+  "initial_dry_run": {
+    "status": "TIMEOUT",
+    "reason": "60s dispatcher validation limit; removed redundant per-root hashing in sandbox checker, retained all-root alias/exclusion checks",
+    "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-01/dispatch-dry-run.txt"
+  },
+  "proof_scope": "CPU only; actual CUDA proof and timing cells execute at operator dispatch",
+  "cuda_measurements": null,
+  "trees_unchanged": {
+    "research/colab_cli": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+    "research/gpu_sim_spike": "46e5b17fe0f1b2fee2cd229749c3625c2a2d854f"
+  },
+  "local_smoke": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-local-verification-01/local-summary.json",
+  "evidence_sha256": {
+    "preflight-02.txt": "f0b5c54993cb30e2a381515e1c694f9dad0a557adce83c7d587be8e3c79b8865",
+    "dispatch-dry-run-02.txt": "5a501a9f7424e6130a68e59c6c0824103a5abca7204027726687af4a60415338",
+    "local-summary.json": "e2898cb595e6746b1d14fefacb9756ab6e5fa8872e0900581dbb6fe9e4f389f5"
+  },
+  "admission_checker_sha256": "5abd1a272cf1d4c946eec73e5bd02f9bdbcb4e441953e5939505651b5af32202",
+  "independent_review": "No blocking runtime or admission-checker findings; native CUDA proof, successful compilation and E4096 capacity remain pending dispatch.",
+  "broader_regressions": {
+    "passed": 250,
+    "seconds": 728.77,
+    "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts= research/sandbox_a_resident tests/test_colab_cli_supervisor.py tests/test_colab_cli_runtime.py tests/test_ops_dispatch.py",
+    "note": "The separate final preflight ran all 63 current sandbox tests after the final admission-checker test was added."
+  }
+}
