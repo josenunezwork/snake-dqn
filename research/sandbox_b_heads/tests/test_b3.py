@@ -31,9 +31,27 @@ def test_hard_veto_is_independent_of_q_margin_and_preserves_base_at_boundary():
             [0.1, 0.05, 1, 1, 1, 1],
         ]
     )
-    assert veto_actions(p, table, 0.5).tolist() == [1, 0, 0, 1]
+    assert veto_actions(p, table, 0.5).tolist() == [1, 0, 0, 0]
     assert veto_actions(p, table, 0.5, 0.1).tolist() == [1, 0, 0, 0]
     assert veto_actions(p, table, 0.0).tolist() == [0, 0, 0, 0]
+
+
+@pytest.mark.parametrize("advantage", [None, 0.1, 0.25])
+def test_veto_never_selects_equal_worse_or_zero_survival(advantage):
+    table = {
+        "bare": torch.tensor([1] * 5),
+        "action_mask": torch.tensor([[True, True, True, False, False, False]] * 5),
+    }
+    p = torch.tensor(
+        [
+            [0, 0, 0, 1, 1, 1],
+            [0.1, 0.1, 0.1, 1, 1, 1],
+            [0.05, 0.2, 0.1, 1, 1, 1],
+            [0, 0.8, 0, 1, 1, 1],
+            [0.9, 0.1, 0, 1, 1, 1],
+        ]
+    )
+    assert veto_actions(p, table, 1.0, advantage).tolist() == [1, 1, 1, 1, 0]
 
 
 def test_bce_excludes_unknown_and_illegal_instead_of_inventing_deaths():

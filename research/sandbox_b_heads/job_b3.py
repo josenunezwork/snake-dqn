@@ -279,6 +279,7 @@ def run(args: argparse.Namespace) -> Path:
                 geometry = torch.as_tensor(
                     geometry_features(table, progress=lambda: emit_if_due("geometry")),
                     device=device,
+                    dtype=torch.float32,
                 )
             context = _context(features, tensors, length, margin, config.inputs)
             mean, std = context[train_index].mean(0), context[train_index].std(

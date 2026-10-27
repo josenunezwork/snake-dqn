@@ -3,6 +3,7 @@
 import pytest
 import torch
 
+from research.sandbox_b_heads.core_b3 import TAU_VETO, veto_actions
 from research.sandbox_b_heads.retrieval_b3 import retrieval
 
 
@@ -93,3 +94,37 @@ def test_rejects_bad_shapes_and_k_values():
         retrieval(torch.zeros(1, 2), torch.zeros(1, 2), table, table, (0,))
     with pytest.raises(ValueError, match="rank-2"):
         retrieval(torch.zeros(1, 2), torch.zeros(1, 3), table, table)
+
+
+@pytest.mark.parametrize("missing", ["unknown", "illegal", "unselectable", "absent-base"])
+def test_zero_known_base_votes_are_unknown_and_never_veto(missing):
+    train = _table(bare=[0], died=[[False] * 6])
+    if missing == "absent-base":
+        train["bare"][0] = 2
+    else:
+        key = {"unknown": "status", "illegal": "legal", "unselectable": "action_mask"}[missing]
+        train[key][0, 0] = False
+    val = _table(bare=[0], died=[[True, False, False, False, False, False]])
+    # Also exercise a query mask that omits base: it must not erase unknownness.
+    val["action_mask"][0, 0] = False
+    features = torch.tensor([[1.0, 0.0]])
+    result = retrieval(features, features, train, val, (1, 5))
+    for p in result["probabilities"].values():
+        assert p[0, 0].item() == 1.0
+        assert p[0, 1].item() == (0.0 if missing == "absent-base" else 1.0)
+        for tau in TAU_VETO:
+            assert veto_actions(p, val, tau).tolist() == [0]
+
+
+def test_known_base_deaths_and_unknown_alternatives_do_not_cause_arbitrary_flip():
+    train = _table(
+        bare=[0],
+        died=[[True] * 6],
+        status=[[True, True, False, False, False, False]],
+    )
+    val = _table(bare=[0], died=[[True, False, False, False, False, False]])
+    features = torch.tensor([[1.0, 0.0]])
+    p = retrieval(features, features, train, val, (1,))["probabilities"][1]
+    assert p.tolist() == [[0.0] * 6]
+    for tau in TAU_VETO:
+        assert veto_actions(p, val, tau).tolist() == [0]

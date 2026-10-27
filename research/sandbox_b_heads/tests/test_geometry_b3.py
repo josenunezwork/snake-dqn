@@ -59,6 +59,51 @@ def test_own_ttl_releases_for_future_arrival_but_enemy_never_does():
     assert actual[0, 3] == 1  # reached a tail-release cell
 
 
+def test_boosted_dead_end_does_not_flood_back_through_new_neck_or_tail():
+    local, scalars = _row(boost=1.0)
+    # A boosted straight action crosses (22, 15) and lands at (21, 15).
+    # Its landing pocket has three walls; the fourth neighbour is the just-made
+    # neck.  That neck begins as a visible TTL-one tail cell, so it must neither
+    # raise the landing degree nor manufacture tail reachability.
+    local[0, 0, 22, 15] = 1
+    local[0, 4, 20, 15] = 255
+    local[0, 4, 21, 14] = 255
+    local[0, 4, 21, 16] = 255
+
+    actual = action_geometry(local, scalars)[0, 4]
+
+    assert actual[0] == 1
+    assert actual[1] == pytest.approx(0.1)  # area 1 / stored length 10
+    assert actual[2] == pytest.approx(1.0 / (31 * 31))
+    assert actual[3] == 0
+    assert actual[4] == 0
+    assert actual[5] == 1
+
+
+def test_unboosted_dead_end_does_not_flood_back_through_old_head():
+    local, scalars = _row()
+    # Normal straight lands at (22, 15).  The only apparent exit is the old
+    # head at (23, 15), which becomes own body at t=1 and remains blocked.
+    local[0, 0, 23, 15] = 1
+    local[0, 4, 21, 15] = 255
+    local[0, 4, 22, 14] = 255
+    local[0, 4, 22, 16] = 255
+
+    actual = action_geometry(local, scalars)[0, 1]
+
+    assert actual[0] == 1
+    assert actual[1] == pytest.approx(0.1)
+    assert actual[2] == pytest.approx(1.0 / (31 * 31))
+    assert actual[3] == 0
+    assert actual[4] == 0
+
+
+def test_float64_scalars_are_normalized_to_float32_output():
+    local, scalars = _row()
+    actual = action_geometry(local, scalars.astype(np.float64))
+    assert actual.dtype == np.float32
+
+
 def test_preserves_existing_action_major_b8_v8_scalars_without_reconstruction():
     local, scalars = _row()
     scalars[0, 30:60] = np.arange(30, dtype=np.float32)

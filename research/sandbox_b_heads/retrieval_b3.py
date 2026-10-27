@@ -136,8 +136,9 @@ def retrieval(
 
     Queries retrieve only rows with the same B8 served/base action.  For every
     query action, only train examples whose candidate action is exact, legal and
-    selectable vote.  Unknown labels are omitted.  An action with no known
-    neighbors gets probability zero.  The cosine matrix is evaluated in chunks
+    selectable vote.  Unknown labels are omitted.  With no known votes, base
+    gets a no-veto sentinel of one and alternatives get zero (no evidence to
+    select them).  The cosine matrix is evaluated in chunks
     to keep the A100 diagnostic bounded.
     """
     if not k_values or any(type(k) is not int or k <= 0 for k in k_values):
@@ -172,6 +173,9 @@ def retrieval(
     estimates = {
         k: torch.zeros((len(validation), 6), dtype=torch.float32, device=device) for k in ordered_k
     }
+    query_rows = torch.arange(len(validation), device=device)
+    for values in estimates.values():
+        values[query_rows, val_base] = 1.0
     decisive_scores = {
         k: torch.zeros(len(validation), dtype=torch.float32, device=device) for k in ordered_k
     }
@@ -208,8 +212,8 @@ def retrieval(
                     action_num = neighbor_survives[:, :take, action].sum(1).to(torch.float32)
                     estimates[k][target, action] = torch.where(
                         action_count > 0,
-                        action_num / action_count.to(torch.float32),
-                        torch.zeros_like(action_num),
+                        action_num / action_count.clamp_min(1).to(torch.float32),
+                        torch.full_like(action_num, float(action == base_action)),
                     )
             if progress is not None:
                 progress()
@@ -242,6 +246,9 @@ def retrieval(
             **action_oracle_retention(probabilities, val_table),
         }
     masked = {k: values.masked_fill(~val_selectable, 0.0) for k, values in estimates.items()}
+    # Keep the base's no-veto sentinel even if its query mask is unavailable.
+    for k, values in estimates.items():
+        masked[k][query_rows, val_base] = values[query_rows, val_base]
     return {
         "feature_name": feature_name,
         "probabilities": masked,

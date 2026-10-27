@@ -76,7 +76,7 @@ def veto_actions(
     tau_veto: float,
     advantage: float | None = None,
 ) -> torch.Tensor:
-    """Keep base unless p_surv(base) < tau; select highest-probability legal alternative."""
+    """Veto below tau only for a strictly safer selectable alternative."""
     base = table["bare"].long()
     row = torch.arange(len(base), device=base.device)
     selectable = table["action_mask"].bool().clone()
@@ -85,9 +85,10 @@ def veto_actions(
     alternatives[row, base] = False
     scores = probabilities.masked_fill(~alternatives, -torch.inf)
     best_p, best = scores.max(1)
-    trigger = (probabilities[row, base] < tau_veto) & alternatives.any(1)
+    base_p = probabilities[row, base]
+    trigger = (base_p < tau_veto) & alternatives.any(1) & (best_p > base_p)
     if advantage is not None:
-        trigger &= best_p - probabilities[row, base] > advantage
+        trigger &= best_p - base_p > advantage
     return torch.where(trigger, best, base)
 
 

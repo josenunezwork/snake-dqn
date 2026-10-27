@@ -16,8 +16,6 @@ approximation, not a full-state lower bound or exact simulator transition.
 
 from __future__ import annotations
 
-from collections import deque
-
 import numpy as np
 from numba import njit
 
@@ -51,17 +49,17 @@ _CROP_FEATURES = 7
 _HEAD_ROW = 23
 _HEAD_COL = 15
 _DIRECTIONS = ((0, -1), (-1, 0), (0, 1))
-_NEIGHBOURS = ((-1, 0), (1, 0), (0, -1), (0, 1))
 
 
 @njit(cache=True, nogil=True)
-def _passable_nb(own_ttl, enemy_ttl, wall, row, col, time):
+def _passable_nb(own_ttl, newly_occupied_ttl, enemy_ttl, wall, row, col, time):
     return (
         0 <= row < 31
         and 0 <= col < 31
         and wall[row, col] == 0
         and enemy_ttl[row, col] == 0
         and (own_ttl[row, col] == 0 or own_ttl[row, col] <= time)
+        and (newly_occupied_ttl[row, col] == 0 or newly_occupied_ttl[row, col] <= time)
     )
 
 
@@ -84,19 +82,30 @@ def _action_geometry_nb(local, scalars):
             steps = 2 if boosted else 1
             row, col = _HEAD_ROW, _HEAD_COL
             legal = True
+            newly_occupied_ttl = np.zeros((31, 31), dtype=np.int64)
             for time in range(1, steps + 1):
                 row += dr
                 col += dc
-                if not _passable_nb(own_ttl, enemy_ttl, wall, row, col, time):
+                # Before the hypothetical move, only the stored B8 state is occupied.
+                if not _passable_nb(own_ttl, newly_occupied_ttl, enemy_ttl, wall, row, col, time):
                     legal = False
                     break
             if not legal:
                 continue
+            # The stored crop describes t=0.  Once this candidate path is taken,
+            # its old head (and boost intermediate) become new own-body cells.
+            # TTLs remain in the same absolute t=0 frame as the raster, so an
+            # arrival at ``time`` may use one only when its TTL has elapsed.
+            body_ttl = max(1, int(np.ceil(length)))
+            newly_occupied_ttl[_HEAD_ROW, _HEAD_COL] = body_ttl
+            if steps == 2:
+                newly_occupied_ttl[_HEAD_ROW + dr, _HEAD_COL + dc] = body_ttl + 1
             seen = np.zeros((31, 31), dtype=np.uint8)
             seen[row, col] = 1
             queue_r[0], queue_c[0], queue_t[0] = row, col, steps
             head, tail, area = 0, 1, 0
-            reaches_tail, degree = own_ttl[row, col] == 1, 0
+            reaches_tail = own_ttl[row, col] == 1 and newly_occupied_ttl[row, col] == 0
+            degree = 0
             while head < tail:
                 current_r, current_c, current_t = queue_r[head], queue_c[head], queue_t[head]
                 head += 1
@@ -104,12 +113,16 @@ def _action_geometry_nb(local, scalars):
                 for direction in range(4):
                     nr = current_r + (-1 if direction == 0 else (1 if direction == 1 else 0))
                     nc = current_c + (-1 if direction == 2 else (1 if direction == 3 else 0))
-                    if _passable_nb(own_ttl, enemy_ttl, wall, nr, nc, current_t + 1):
+                    if _passable_nb(
+                        own_ttl, newly_occupied_ttl, enemy_ttl, wall, nr, nc, current_t + 1
+                    ):
                         if current_r == row and current_c == col:
                             degree += 1
                         if seen[nr, nc] == 0:
                             seen[nr, nc] = 1
-                            reaches_tail = reaches_tail or own_ttl[nr, nc] == 1
+                            reaches_tail = reaches_tail or (
+                                own_ttl[nr, nc] == 1 and newly_occupied_ttl[nr, nc] == 0
+                            )
                             queue_r[tail], queue_c[tail], queue_t[tail] = nr, nc, current_t + 1
                             tail += 1
             out[index, action, 0] = 1.0
@@ -124,7 +137,7 @@ def _action_geometry_nb(local, scalars):
 
 def _validate(local: np.ndarray, scalars: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     local = np.asarray(local)
-    scalars = np.asarray(scalars)
+    scalars = np.asarray(scalars, dtype=np.float32)
     if local.ndim != 4 or local.shape[1:] != (7, 31, 31) or local.dtype != np.uint8:
         raise ValueError("local must be uint8 [N, 7, 31, 31] B8 observations")
     if scalars.ndim != 2 or scalars.shape[0] != len(local) or scalars.shape[1] < 60:
@@ -132,55 +145,6 @@ def _validate(local: np.ndarray, scalars: np.ndarray) -> tuple[np.ndarray, np.nd
     if not np.isfinite(scalars).all():
         raise ValueError("scalars must be finite")
     return local, scalars
-
-
-def _in_bounds(row: int, col: int) -> bool:
-    return 0 <= row < 31 and 0 <= col < 31
-
-
-def _passable(
-    own_ttl: np.ndarray, enemy_ttl: np.ndarray, wall: np.ndarray, row: int, col: int, time: int
-) -> bool:
-    """Whether a local cell is usable at a future integer frame.
-
-    Enemy occupancy is held fixed because the stored raster does not preserve
-    every opponent's future action.  Own cells use B8's TTL semantics: a cell
-    becomes passable when its remaining TTL is no greater than arrival time.
-    """
-    return (
-        _in_bounds(row, col)
-        and wall[row, col] == 0
-        and enemy_ttl[row, col] == 0
-        and (own_ttl[row, col] == 0 or own_ttl[row, col] <= time)
-    )
-
-
-def _flood(
-    own_ttl: np.ndarray,
-    enemy_ttl: np.ndarray,
-    wall: np.ndarray,
-    start: tuple[int, int],
-    start_time: int,
-) -> tuple[int, bool, int]:
-    """Time-aware local BFS returning (area, reaches_tail, open_degree)."""
-    if not _passable(own_ttl, enemy_ttl, wall, start[0], start[1], start_time):
-        return 0, False, 0
-    seen = {start}
-    queue: deque[tuple[int, int, int]] = deque([(start[0], start[1], start_time)])
-    tail = bool(own_ttl[start] == 1)
-    degree = 0
-    while queue:
-        row, col, time = queue.popleft()
-        for dr, dc in _NEIGHBOURS:
-            nr, nc = row + dr, col + dc
-            if _passable(own_ttl, enemy_ttl, wall, nr, nc, time + 1):
-                if (row, col) == start:
-                    degree += 1
-                if (nr, nc) not in seen:
-                    seen.add((nr, nc))
-                    tail |= bool(own_ttl[nr, nc] == 1)
-                    queue.append((nr, nc, time + 1))
-    return len(seen), tail, degree
 
 
 def action_geometry(local: np.ndarray, scalars: np.ndarray) -> np.ndarray:
