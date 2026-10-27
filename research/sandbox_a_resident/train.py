@@ -531,17 +531,22 @@ def run(
                 "material distribution gap: diagnose sandbox adapter before training"
             )
 
+    prep_config = PreparationConfig(diagnostics=monitoring)
+
     def prep_task_factory(phase: str) -> ResidentTrainingTask:
         if phase not in {"calibration", "refit"}:
             raise ValueError("unknown frozen preparation phase")
         allocation = audited_allocations["calibration" if phase == "calibration" else "critic"]
+        worlds = (
+            prep_config.calibration_worlds if phase == "calibration" else prep_config.prep_worlds
+        )
         prepared_task = ResidentTrainingTask(
             TrainingTaskConfig(
-                worlds=24,
+                worlds=worlds,
                 allocation_offset=allocation["offset"],
                 allocation_phase_offset=allocation["offset"],
                 allocation_count=allocation["count"],
-                max_episodes=allocation["count"] // 24,
+                max_episodes=allocation["count"] // worlds,
             ),
             device=str(dev),
         )
@@ -604,7 +609,7 @@ def run(
                 prep_task_factory,
                 actor,
                 critic,
-                PreparationConfig(diagnostics=monitoring),
+                prep_config,
                 generator,
                 state=prep_state,
                 on_calibrated=calibrated_boundary,

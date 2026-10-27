@@ -3,8 +3,8 @@
 This is deliberately a sandbox-local consumer of :class:`ResidentTrainingTask`.
 It does not alter the R2/T4A simulator or its policies.  The collector keeps a
 complete *open life* until its natural death/H5000 cut, calculates its exact
-gamma-one suffix targets, and stages it for shuffled fitting or validation.  Thus the
-production row targets do not imply a multi-million-row GPU observation cache.
+gamma-one suffix targets, and stages it for shuffled fitting or validation in
+one bounded resident observation arena.
 """
 
 from __future__ import annotations
@@ -64,10 +64,11 @@ class PreparationConfig:
     calibration_max_rows: int = 5_242_880
     calibration_departure: float = 0.01
     calibration_quota_per_bin: int = 2_000
-    # Preparation deliberately uses a 24-world task.  TRAIN-01 PPO remains
-    # E1024; the smaller complete-life cohort keeps every H5000 trajectory in
-    # bounded CPU staging instead of pretending a 1024x5000 cache fits.
-    prep_worlds: int = 24
+    # Calibration remains deliberately small.  The refit collector is a
+    # separate, resident E360 cohort so complete natural lives arrive quickly
+    # enough to fit before the finite job timeout.
+    calibration_worlds: int = 24
+    prep_worlds: int = 360
     critic_max_rows: int = 8_388_608
     critic_min_fit_rows: int = 2_000_000
     holdout_modulus: int = 4
@@ -79,12 +80,14 @@ class PreparationConfig:
     min_late_ev: float = 0.10
     critic_batch: int = 2048
     metric_cache_rows: int = 16_384
-    # Open plus staged completed lives share this bound: 24 * 5000 open
-    # rows + 7 * 5000 staged rows + 255 sub-batch residual rows = 155255.
-    # Round up with margin for the frozen eight-life batching floor. uint8 B8
-    # observations are roughly 12 KiB/row; this is bounded CPU staging, never
-    # a GPU replay cache.
-    max_open_rows: int = 160_000
+    # Open plus staged completed lives share this bound.  For E360 this admits
+    # 270 fit worlds at H5000, seven undrainable completed lives, a sub-batch
+    # tail and one observed tick: 270*5000 + 7*5000 + 255 + 360 = 1,385,615.
+    # The resident arena rounds this to 1,400,000 slots.  Each B8 observation
+    # is 12,443 bytes, so tensors occupy 17,420,200,000 decimal bytes
+    # (16.22 GiB) plus small row metadata; projected to fit the observed 40-GB A100.
+    max_open_rows: int = 1_400_000
+    resident_staging: bool = True
     progress_rows: int = 1_500_000
     # A charged-row heartbeat alone can stay silent for hours when completed
     # lives are sparse.  This is operational telemetry, not a science limit.
@@ -98,14 +101,23 @@ class PreparationConfig:
             raise ValueError("invalid bounded calibration row contract")
         if self.calibration_rows != self.calibration_quota_per_bin * 5:
             raise ValueError("TRAIN-01 calibration freezes five equal length-bin quotas")
-        if self.prep_worlds not in (6, 24) or self.max_open_rows < self.prep_worlds * 5000:
-            raise ValueError(
-                "preparation needs frozen E24 (or explicit E6 test fixture) full-life staging"
-            )
-        if not 0 < self.critic_min_fit_rows <= self.critic_max_rows:
-            raise ValueError("invalid bounded critic row contract")
+        if self.calibration_worlds not in (6, 24):
+            raise ValueError("calibration needs frozen E24 (or explicit E6 test fixture)")
         if self.holdout_modulus < 2 or not 0 <= self.holdout_remainder < self.holdout_modulus:
             raise ValueError("invalid whole-world holdout split")
+        holdout_count = sum(
+            index % self.holdout_modulus == self.holdout_remainder
+            for index in range(self.prep_worlds)
+        )
+        largest_partition = max(holdout_count, self.prep_worlds - holdout_count)
+        if self.prep_worlds not in (6, 24, 360) or self.max_open_rows < largest_partition * 5000:
+            raise ValueError(
+                "preparation needs E360 (or explicit E6/E24 fixture) full-life staging"
+            )
+        if self.resident_staging and self.max_open_rows < 1:
+            raise ValueError("resident staging requires positive arena capacity")
+        if not 0 < self.critic_min_fit_rows <= self.critic_max_rows:
+            raise ValueError("invalid bounded critic row contract")
         if (
             min(self.critic_batch, self.metric_cache_rows, self.max_open_rows, self.progress_rows)
             < 1
@@ -121,6 +133,7 @@ class PreparationConfig:
             calibration_rows=10,
             calibration_max_rows=24,
             calibration_quota_per_bin=2,
+            calibration_worlds=6,
             prep_worlds=6,
             critic_max_rows=240,
             critic_min_fit_rows=12,
@@ -131,6 +144,7 @@ class PreparationConfig:
             critic_batch=8,
             metric_cache_rows=64,
             max_open_rows=30_000,
+            resident_staging=False,
             progress_rows=10,
             progress_seconds=0.001,
             holdout_modulus=2,
@@ -139,17 +153,109 @@ class PreparationConfig:
 
 @dataclass
 class _Row:
-    observation: tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+    observation: tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None
     length: float
     clock: float
     reward: float
     mix: int
+    # Resident rows own no per-row tensor allocation.  They identify a bounded
+    # slot in the arena, which gathers a training or held-out batch directly on
+    # the critic device.  The legacy CPU fixture keeps both fields ``None``.
+    arena: "_ResidentArena | None" = None
+    slot: int | None = None
 
 
 @dataclass
 class _Life:
     rows: list[_Row] = field(default_factory=list)
     total: float = 0.0
+
+
+class _ResidentArena:
+    """Bounded device observation slots for complete-life preparation.
+
+    Rows retain only scalar provenance and an integer slot.  The tensors are
+    allocated once after the first task observation fixes shapes and dtypes;
+    fitting and held-out scoring use indexed device gathers, never a full
+    retained-observation D2H copy.  Released slots are reused deterministically
+    after the batch or completed holdout life has consumed them.
+    """
+
+    def __init__(self, capacity: int, device: torch.device) -> None:
+        if capacity < 1:
+            raise ValueError("resident arena capacity must be positive")
+        self.capacity, self.device = capacity, device
+        self.local: torch.Tensor | None = None
+        self.glob: torch.Tensor | None = None
+        self.scalars: torch.Tensor | None = None
+        self._next_slot = 0
+        self._free: list[int] = []
+        self.live_rows = 0
+
+    @staticmethod
+    def _storage(value: torch.Tensor, capacity: int) -> torch.Tensor:
+        return torch.empty((capacity, *value.shape[1:]), dtype=value.dtype, device=value.device)
+
+    def _ensure(self, values: tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> None:
+        if self.local is None:
+            self.local, self.glob, self.scalars = (
+                self._storage(value, self.capacity) for value in values
+            )
+            return
+        assert self.glob is not None and self.scalars is not None
+        for stored, value in zip((self.local, self.glob, self.scalars), values):
+            if stored.dtype != value.dtype or stored.shape[1:] != value.shape[1:]:
+                raise ValueError("resident observation contract changed during preparation")
+
+    def store_many(
+        self, values: tuple[torch.Tensor, torch.Tensor, torch.Tensor], indices: torch.Tensor
+    ) -> list[int]:
+        """Copy selected same-device worlds into slots and return them in order."""
+        if indices.device != self.device:
+            raise ValueError("resident arena indices must share the observation device")
+        self._ensure(values)
+        count = int(indices.numel())
+        if count > self.capacity - self.live_rows:
+            raise PreparationFailure("resident observation arena capacity exceeded")
+        slots: list[int] = []
+        for _ in range(count):
+            if self._free:
+                slots.append(self._free.pop())
+            else:
+                slots.append(self._next_slot)
+                self._next_slot += 1
+        target = torch.tensor(slots, dtype=torch.long, device=self.device)
+        assert self.local is not None and self.glob is not None and self.scalars is not None
+        for stored, value in zip((self.local, self.glob, self.scalars), values):
+            stored.index_copy_(0, target, value.index_select(0, indices))
+        self.live_rows += count
+        return slots
+
+    def gather(self, slots: list[int]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if not slots:
+            raise ValueError("resident gather needs at least one slot")
+        if self.local is None or self.glob is None or self.scalars is None:
+            raise ValueError("resident gather before first store")
+        indices = torch.tensor(slots, dtype=torch.long, device=self.device)
+        return tuple(
+            value.index_select(0, indices) for value in (self.local, self.glob, self.scalars)
+        )  # type: ignore[return-value]
+
+    def release(self, rows: list[_Row]) -> None:
+        slots = [row.slot for row in rows if row.arena is self and row.slot is not None]
+        if len(slots) != len(rows):
+            raise ValueError("resident release received foreign or legacy row")
+        self._free.extend(reversed(slots))
+        self.live_rows -= len(slots)
+        if self.live_rows < 0:
+            raise RuntimeError("resident arena released more rows than it owns")
+
+    def release_slots(self, slots: list[int]) -> None:
+        """Release observations that were selected before an ineligible seam check."""
+        self._free.extend(reversed(slots))
+        self.live_rows -= len(slots)
+        if self.live_rows < 0:
+            raise RuntimeError("resident arena released more slots than it owns")
 
 
 @dataclass
@@ -400,9 +506,9 @@ def calibrate(
     """Collect fresh length-stratified greedy B8 states then freeze temperature."""
     del generator  # Greedy collection has no stochastic policy draw.
     task = task_factory("calibration")
-    if int(task.age.numel()) != config.prep_worlds:
+    if int(task.age.numel()) != config.calibration_worlds:
         raise PreparationFailure(
-            "calibration task world count differs from frozen preparation cohort"
+            "calibration task world count differs from frozen calibration cohort"
         )
     bins: dict[int, list[tuple[torch.Tensor, torch.Tensor]]] = {index: [] for index in range(5)}
     rows = 0
@@ -446,9 +552,23 @@ def calibrate(
 
 
 def _batch_rows(rows: list[_Row], device: torch.device) -> tuple[torch.Tensor, ...]:
-    local = torch.cat([row.observation[0] for row in rows]).to(device, non_blocking=True)
-    glob = torch.cat([row.observation[1] for row in rows]).to(device, non_blocking=True)
-    scalars = torch.cat([row.observation[2] for row in rows]).to(device, non_blocking=True)
+    arena = rows[0].arena if rows else None
+    if arena is not None:
+        if any(row.arena is not arena or row.slot is None for row in rows):
+            raise ValueError("resident critic batch must use one complete arena")
+        local, glob, scalars = arena.gather([int(row.slot) for row in rows])
+    else:
+        if any(row.observation is None for row in rows):
+            raise ValueError("legacy critic batch requires observations")
+        local = torch.cat([row.observation[0] for row in rows if row.observation is not None]).to(
+            device, non_blocking=True
+        )
+        glob = torch.cat([row.observation[1] for row in rows if row.observation is not None]).to(
+            device, non_blocking=True
+        )
+        scalars = torch.cat([row.observation[2] for row in rows if row.observation is not None]).to(
+            device, non_blocking=True
+        )
     clock = torch.tensor([row.clock for row in rows], device=device)
     targets = torch.tensor([row.reward for row in rows], device=device)
     return local, glob, scalars, clock, targets
@@ -626,6 +746,11 @@ def prepare(
         )
     lives = [_Life() for _ in range(worlds)]
     staged_lives: list[list[_Row]] = []
+    resident_arena = (
+        _ResidentArena(config.max_open_rows, next(actor.parameters()).device)
+        if config.resident_staging
+        else None
+    )
     fit_scalar_chunks: list[torch.Tensor] = []
     fit_worlds = [index for index in range(worlds) if _world_split(index, config) == "fit"]
     fit_indices = torch.tensor(fit_worlds, device=next(actor.parameters()).device, dtype=torch.long)
@@ -634,8 +759,8 @@ def prepare(
     )
     while result.fit_rows < config.critic_min_fit_rows:
         # The finite cap charges every simulated world, including the holdout
-        # slots discarded during fit.  E24 cannot consume the final eight rows
-        # of 8,388,608, so its immutable effective endpoint is 8,388,600.
+        # slots discarded during fit.  E360 uses 23,301 full ticks, or
+        # 8,388,360 rows; the final 248 rows cannot fund a complete tick.
         if result.critic_rows + worlds > config.critic_max_rows:
             break
         local, glob, scalars, legal = task.observe()
@@ -654,9 +779,19 @@ def prepare(
         completed = getattr(step, "reset", None)
         if completed is None:
             completed = step.terminal | step.cut
-        # Transfer only fit slots and then make each retained row own its
-        # storage.  This avoids staging tensors for discarded holdout worlds.
-        cpu_observation = _selected_cpu_observation((local, glob, scalars), fit_indices)
+        # Production keeps selected observations on the critic device in the
+        # bounded arena.  The legacy fixture path retains the byte-for-byte CPU
+        # copies used by the frozen E6 oracle.
+        slots = (
+            resident_arena.store_many((local, glob, scalars), fit_indices)
+            if resident_arena is not None
+            else []
+        )
+        cpu_observation = (
+            None
+            if resident_arena is not None
+            else _selected_cpu_observation((local, glob, scalars), fit_indices)
+        )
         cpu_length = length.index_select(0, fit_indices).cpu()
         cpu_clock = clock.index_select(0, fit_indices).cpu()
         cpu_reward = rewards.index_select(0, fit_indices).cpu()
@@ -664,11 +799,17 @@ def prepare(
         cpu_mix = task.roster_id.index_select(0, fit_indices).cpu()
         for position, index in enumerate(fit_worlds):
             row = _Row(
-                _retained_observation(cpu_observation, position),
+                (
+                    None
+                    if cpu_observation is None
+                    else _retained_observation(cpu_observation, position)
+                ),
                 float(cpu_length[position]),
                 float(cpu_clock[position]),
                 float(cpu_reward[position]),
                 int(cpu_mix[position]),
+                resident_arena,
+                (slots[position] if resident_arena is not None else None),
             )
             lives[index].rows.append(row)
             lives[index].total += row.reward
@@ -704,6 +845,8 @@ def prepare(
                 )
             )
             result.fit_rows += len(batch)
+            if resident_arena is not None:
+                resident_arena.release(batch)
             reporter.advance(
                 "critic-fit", result.critic_rows, config.critic_max_rows, fit_rows=result.fit_rows
             )
@@ -727,6 +870,13 @@ def prepare(
     reporter.end("critic-fit", result.critic_rows, config.critic_max_rows, fit_rows=result.fit_rows)
     reporter.start("critic-baseline", result.fit_rows, config.critic_min_fit_rows)
     fit_scalars = torch.cat(fit_scalar_chunks)
+    if resident_arena is not None:
+        # Tails and censored open lives are not part of the fit baseline and
+        # must relinquish their slots before the fresh holdout phase.
+        for life in staged_lives:
+            resident_arena.release(life)
+        for life in lives:
+            resident_arena.release(life.rows)
     staged_lives.clear()
     baseline_coef = fit_time_length_baseline(
         fit_scalars[:, 0], fit_scalars[:, 1], fit_scalars[:, 2]
@@ -784,7 +934,16 @@ def prepare(
             result.critic_rows += worlds
             completed = getattr(step, "reset", step.terminal | step.cut)
             rewards = step.reward.detach().float()
-            cpu_observation = _selected_cpu_observation((local, glob, scalars), holdout_indices)
+            slots = (
+                resident_arena.store_many((local, glob, scalars), holdout_indices)
+                if resident_arena is not None
+                else []
+            )
+            cpu_observation = (
+                None
+                if resident_arena is not None
+                else _selected_cpu_observation((local, glob, scalars), holdout_indices)
+            )
             cpu_length = length.index_select(0, holdout_indices).cpu()
             cpu_clock = clock.index_select(0, holdout_indices).cpu()
             cpu_reward = rewards.index_select(0, holdout_indices).cpu()
@@ -794,13 +953,21 @@ def prepare(
                 if not holdout_started[index]:
                     if bool(cpu_completed[position]):
                         holdout_started[index] = True
+                    if resident_arena is not None:
+                        resident_arena.release_slots([slots[position]])
                     continue
                 row = _Row(
-                    _retained_observation(cpu_observation, position),
+                    (
+                        None
+                        if cpu_observation is None
+                        else _retained_observation(cpu_observation, position)
+                    ),
                     float(cpu_length[position]),
                     float(cpu_clock[position]),
                     float(cpu_reward[position]),
                     int(cpu_mix[position]),
+                    resident_arena,
+                    (slots[position] if resident_arena is not None else None),
                 )
                 lives[index].rows.append(row)
                 if support is not None:
@@ -830,6 +997,8 @@ def prepare(
                                         prediction,
                                     )
                                 )
+                        if resident_arena is not None:
+                            resident_arena.release(completed_rows)
                     except BaseException:
                         raise
                     result.holdout_rows += len(completed_rows)

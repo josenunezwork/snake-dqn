@@ -486,7 +486,7 @@ def test_more_staged_lives_than_batch_rows_never_oversizes_or_negative_slices() 
 
 
 def test_holdout_split_is_mix_balanced_for_production_and_tiny_fixture() -> None:
-    for worlds, config in ((24, PreparationConfig()), (6, PreparationConfig.tiny())):
+    for worlds, config in ((360, PreparationConfig()), (6, PreparationConfig.tiny())):
         counts = [
             sum(
                 _world_split(index, config) == "holdout" and index % 3 == mix
@@ -568,7 +568,7 @@ def test_storage_cap_counts_staged_completed_lives(monkeypatch: pytest.MonkeyPat
 
 def _h5000_storage_fixture(monkeypatch: pytest.MonkeyPatch, staged_rows: int) -> list[int]:
     """Seed the real collector just before all 24 open lives reach H5000."""
-    config = PreparationConfig()
+    config = replace(PreparationConfig(), prep_worlds=24, resident_staging=False)
     row = _tagged_life(0, 1)[0]
     life_type = training_prep._Life
     open_lives = []

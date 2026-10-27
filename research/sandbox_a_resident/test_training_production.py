@@ -258,6 +258,7 @@ def test_production_tasks_use_exact_audited_phase_bounds(production, tmp_path, m
     execute(control, tmp_path / "bounds")
     allocations = train.seed_allocations(vars(control))
     assert len(configs) == 3
+    assert [config.worlds for config in configs] == [control.worlds, 24, 360]
     for config, allocation in zip(configs, allocations[:3], strict=True):
         assert config.allocation_phase_offset == allocation["offset"]
         assert config.allocation_count == allocation["count"]
