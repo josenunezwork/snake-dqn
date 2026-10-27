@@ -203,7 +203,12 @@ def test_replacement_symlink_and_traversal_fail_closed(enrolled, tmp_path):
     outside.write_text("outside")
     executable.unlink()
     executable.symlink_to(outside)
-    assert registry.classify(row)["reason"] == "symlink_or_noncanonical_executable"
+    # The first replacement is retained as the terminal process reason.  A
+    # fresh PID/birth still reports the direct filesystem defect.
+    assert registry.classify(row)["reason"] == "executable_replaced"
+    assert registry.classify({**row, "pid": 43, "birth": "fresh"})["reason"] == (
+        "symlink_or_noncanonical_executable"
+    )
     bad = _write_registry(
         tmp_path, executable=bundle / "Contents" / "MacOS" / "Mail", bundle=bundle
     )
@@ -230,6 +235,16 @@ def test_replacement_revokes_active_binding_but_preserves_prior_replay_history(e
     assert export["revoked_bindings"][0]["reason"] == "executable_replaced"
     assert classify_exported(prior, export)["kind"] == "desktop_app"
     assert classify_exported({**row, "classification": changed}, export)["kind"] == "unknown"
+    # A replaced process remains revoked even if its original bytes return;
+    # subsequent off-tick admission cannot bless the same PID/birth attempt.
+    repeated = registry.admit_process(row)
+    assert repeated["reason"] == "executable_replaced"
+    assert repeated["identity_binding_changed"] is True
+    executable.write_bytes(b"sealed executable")
+    restored = registry.admit_process(row)
+    assert restored["reason"] == "executable_replaced"
+    assert restored["identity_binding_changed"] is True
+    assert registry.read_export()["bindings"] == []
 
 
 def _cpu_inventory(at: int, row: dict, cpu_seconds: float) -> dict:
@@ -255,24 +270,206 @@ def _desktop_host(
     }
 
 
-@pytest.mark.parametrize(
-    ("before_change", "expected_kind"),
-    [({"uid": 0}, "unknown"), ({"command": "/usr/local/bin/claude"}, "agent_workload")],
+def _paired_enrolled_registry(enrolled, tmp_path: Path) -> tuple[DesktopRegistry, dict, dict]:
+    """Build two separately enrolled UI executables for exec-transition coverage."""
+    registry, row, executable, bundle = enrolled
+    other_bundle = tmp_path / "Applications" / "Browser.app"
+    other = other_bundle / "Contents" / "MacOS" / "Browser"
+    other.parent.mkdir(parents=True)
+    other.write_bytes(executable.read_bytes())
+    with (other_bundle / "Contents" / "Info.plist").open("wb") as output:
+        plistlib.dump(
+            {
+                "CFBundleIdentifier": "example.browser",
+                "CFBundleShortVersionString": "1",
+                "CFBundleVersion": "2",
+            },
+            output,
+        )
+    path = _write_registry(
+        tmp_path,
+        executable=executable,
+        bundle=bundle,
+    )
+    payload = json.loads(path.read_text())
+    payload["applications"].append(
+        {
+            "id": "browser",
+            "display_name": "Browser",
+            "bundle_path": str(other_bundle),
+            "bundle_id": "example.browser",
+            "version": "1",
+            "build": "2",
+            "team_identifier": "TEAM",
+            "executables": [
+                {
+                    "role": "ordinary_browser_ui",
+                    "relative_executable_path": str(other.relative_to(other_bundle)),
+                    "sha256": hashlib.sha256(other.read_bytes()).hexdigest(),
+                    "designated_requirement": 'designated => identifier "example.browser"',
+                    "cdhash": "abc",
+                    "signing_authorities": ["Test Authority"],
+                }
+            ],
+        }
+    )
+    path.write_text(json.dumps(payload))
+
+    def paired_runner(argv, **kwargs):
+        if str(other) in argv and argv[0].endswith("codesign") and "-dr" in argv:
+            return subprocess.CompletedProcess(
+                argv, 0, 'designated => identifier "example.browser"', ""
+            )
+        return registry._runner(argv, **kwargs)
+
+    paired = DesktopRegistry(
+        path,
+        uid=501,
+        runner=paired_runner,
+        trusted_roots=[bundle.parent, other_bundle.parent],
+        require_seal=False,
+    )
+    paired.verify_all()
+    return paired, row, {**row, "command": str(other)}
+
+
+_TRANSITION_STATES = (
+    "invalid",
+    "desktop_app",
+    "workload",
+    "uid_mismatch",
+    "system_service",
+    "other_enrolled_app",
 )
-def test_real_collector_transition_replays_through_unmocked_reducer(
-    enrolled, before_change, expected_kind
+
+_STATE_KINDS = {
+    "invalid": "unknown",
+    "desktop_app": "desktop_app",
+    "workload": "agent_workload",
+    "uid_mismatch": "unknown",
+    "system_service": "macos_service",
+    "other_enrolled_app": "desktop_app",
+}
+
+
+def _transition_state(label: str, row: dict, other: dict) -> dict:
+    if label == "invalid":
+        return {**row, "command": str(Path(row["command"]).with_name("missing"))}
+    if label == "desktop_app":
+        return dict(row)
+    if label == "workload":
+        return {**row, "command": "/usr/local/bin/claude"}
+    if label == "uid_mismatch":
+        return {**row, "uid": 0}
+    if label == "system_service":
+        return {**row, "command": "/usr/sbin/sysctl"}
+    if label == "other_enrolled_app":
+        return dict(other)
+    raise AssertionError(f"unknown transition state {label}")
+
+
+@pytest.mark.parametrize(
+    ("before_label", "after_label"),
+    [(before, after) for before in _TRANSITION_STATES for after in _TRANSITION_STATES],
+)
+def test_real_collector_replays_all_desktop_transition_pairs(
+    enrolled, tmp_path, before_label, after_label
+):
+    """Exercise every state-machine edge through collection and reducer replay."""
+    registry, row, other = _paired_enrolled_registry(enrolled, tmp_path)
+    before_row = _transition_state(before_label, row, other)
+    after_row = _transition_state(after_label, row, other)
+    # Simulate the preceding ordinary point observation: eligible, unchanged
+    # identities may have been admitted, but transition collection must not
+    # create a new binding for the after identity.
+    if before_label in {"desktop_app", "other_enrolled_app"}:
+        assert registry.admit_process(before_row)["kind"] == "desktop_app"
+    sample = host_load.cpu_interval(
+        _cpu_inventory(0, before_row, 1.0),
+        _cpu_inventory(1, after_row, 1.1),
+        owner_pid=999_999,
+        desktop_classifier=registry,
+    )
+    process = sample["processes"][0]
+    transition = before_label != after_label
+    expected_kind = (
+        "agent_workload"
+        if transition and "workload" in {before_label, after_label}
+        else "unknown" if transition else _STATE_KINDS[after_label]
+    )
+    assert process["kind"] == expected_kind
+    if transition:
+        assert process["interval_transition"]["previous"] == {
+            **before_row,
+            "ppid": 1,
+            "cpu_seconds": 1.0,
+        }
+        assert (
+            process["interval_transition"]["previous_classification"]["kind"]
+            == _STATE_KINDS[before_label]
+        )
+        assert process["classification"]["identity_binding_changed"] is True
+        assert registry.read_export()["bindings"] == []
+        history = registry.read_export()["binding_history"]
+        assert len(history) == int(before_label in {"desktop_app", "other_enrolled_app"})
+        # Neither the transitioned current row nor a repeated off-tick call
+        # can re-admit this PID/birth for the current registry attempt.
+        for candidate in (after_row, before_row, row, other):
+            repeated = registry.admit_process(candidate)
+            assert repeated["identity_binding_changed"] is True
+            assert repeated["kind"] not in {"desktop_app", "desktop_renderer"}
+            assert registry.read_export()["bindings"] == []
+            assert registry.read_export()["binding_history"] == history
+    else:
+        assert "interval_transition" not in process
+    host = _desktop_host(
+        registry,
+        [sample],
+        [{"classified_processes": [], "probe_exempt_pids": []}],
+    )
+    reduced = background_report._samples(host)
+    assert reduced[0]["processes"][0]["kind"] == expected_kind
+    if transition:
+        with pytest.raises(
+            ValueError, match="desktop identity binding changed in interval evidence"
+        ):
+            background_report.validate_desktop_host(host)
+    else:
+        background_report.validate_desktop_host(host)
+
+
+@pytest.mark.parametrize(("field", "value"), [("pid", []), ("birth", [])])
+def test_malformed_process_identity_fails_closed_without_state_machine_crash(
+    enrolled, field, value
 ):
     registry, row, *_ = enrolled
-    registry.admit_process(row)
-    before_row = {**row, **before_change}
-    before = _cpu_inventory(0, before_row, 1.0)
-    after = _cpu_inventory(1, row, 1.1)
-    sample = host_load.cpu_interval(before, after, owner_pid=999_999, desktop_classifier=registry)
+    malformed = {**row, field: value}
+    assert registry.admit_process(malformed)["kind"] == "unknown"
+    assert registry.classify(malformed)["kind"] == "unknown"
+
+
+def test_desktop_exec_to_usr_bin_true_is_unknown_and_replays_to_identity_guard(enrolled):
+    """The review's literal system-looking exec example remains fail-closed."""
+    registry, row, *_ = enrolled
+    assert registry.admit_process(row)["kind"] == "desktop_app"
+    after = {**row, "command": "/usr/bin/true"}
+    sample = host_load.cpu_interval(
+        _cpu_inventory(0, row, 1.0),
+        _cpu_inventory(1, after, 1.1),
+        owner_pid=999_999,
+        desktop_classifier=registry,
+    )
     process = sample["processes"][0]
-    assert process["kind"] == expected_kind
-    assert process["interval_transition"]["previous"] == before["processes"][0]
-    reduced = background_report._samples(_desktop_host(registry, [sample]))
-    assert reduced[0]["processes"][0]["kind"] == expected_kind
+    assert process["kind"] == "unknown"
+    assert process["classification"]["identity_binding_changed"] is True
+    host = _desktop_host(
+        registry,
+        [sample],
+        [{"classified_processes": [], "probe_exempt_pids": []}],
+    )
+    assert background_report._samples(host)[0]["processes"][0]["kind"] == "unknown"
+    with pytest.raises(ValueError, match="desktop identity binding changed in interval evidence"):
+        background_report.validate_desktop_host(host)
 
 
 def test_real_collector_replacement_reducer_reports_identity_guard_not_replay_mismatch(enrolled):
@@ -339,13 +536,18 @@ def test_export_policy_mismatch_and_tampered_binding_fail_closed(enrolled):
 def test_existing_same_name_copy_and_unenrolled_helper_cannot_inherit(enrolled, tmp_path):
     registry, row, executable, bundle = enrolled
     registry.admit_process(row)
-    for copied in (
-        tmp_path / "Applications" / "Copied.app" / "Contents" / "MacOS" / executable.name,
-        bundle / "Contents" / "MacOS" / "Unenrolled Helper",
+    for index, copied in enumerate(
+        (
+            tmp_path / "Applications" / "Copied.app" / "Contents" / "MacOS" / executable.name,
+            bundle / "Contents" / "MacOS" / "Unenrolled Helper",
+        ),
+        start=1,
     ):
         copied.parent.mkdir(parents=True, exist_ok=True)
         copied.write_bytes(executable.read_bytes())
-        decision = registry.admit_process({**row, "command": str(copied)})
+        decision = registry.admit_process(
+            {**row, "pid": row["pid"] + index, "birth": f"copy-{index}", "command": str(copied)}
+        )
         assert decision["kind"] == "unknown"
         assert decision["reason"] == "unenrolled_or_unverified_executable"
 

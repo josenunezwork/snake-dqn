@@ -54,23 +54,27 @@ def process_kind(
     Workload names precede system paths: Apple's Python remains a workload.
     Unrecognized executables retain the strict foreign-load threshold.
     """
+    evidence = (
+        desktop_classifier.classify({**(row or {}), "command": command})
+        if desktop_classifier is not None
+        else {}
+    )
+    return _kind_from_evidence(command, desktop_classifier, evidence)
+
+
+def _kind_from_evidence(command: str, desktop_classifier: Any | None, evidence: dict) -> str:
+    """Apply precedence without reclassifying or mutating registry state."""
     path = Path(command)
     name = path.name.lower()
     workload = _workload_kind(command, desktop_classifier)
-    if workload is not None:
-        return workload
-    if desktop_classifier is not None:
-        evidence = desktop_classifier.classify({**(row or {}), "command": command})
-        # Registry workload exclusions and observed prohibited activity take
-        # precedence even for an executable below a system-looking root.
-        if evidence.get("kind") == "agent_workload":
-            return "agent_workload"
+    if evidence.get("kind") == "agent_workload" or workload == "agent_workload":
+        return "agent_workload"
+    if evidence.get("identity_binding_changed") or workload == "unknown":
+        return "unknown"
     if command.startswith(SYSTEM_EXECUTABLE_ROOTS):
         return "macos_service"
     if desktop_classifier is not None:
         return str(evidence.get("kind", "unknown"))
-    # Electron/Chromium renderer executables inside installed application bundles.
-    # CLI executables, shells, generic node and arbitrary /tmp helpers do not qualify.
     application = command.startswith("/Applications/") or bool(
         re.match(r"/Users/[^/]+/Applications/", command)
     )
@@ -182,15 +186,6 @@ def cpu_interval(
     seconds = (end - start) / 1e9
     before = {(row["pid"], row["birth"]): row for row in previous["processes"]}
     after = {(row["pid"], row["birth"]): row for row in current["processes"]}
-    # The interval collector runs in its dedicated monitor process, outside
-    # game ticks.  Bind newly observed approved UI processes before their
-    # first CPU delta is classified, so a renderer spawned between ten-second
-    # point snapshots is not temporarily treated as foreign work.
-    if desktop_classifier is not None:
-        admit = getattr(desktop_classifier, "admit_process", None)
-        if callable(admit):
-            for row in current["processes"]:
-                admit(row)
     own_before = owned_pids(previous["processes"], owner_pid)
     own_after = owned_pids(current["processes"], owner_pid)
     coverage = seconds <= MAX_SAMPLE_SECONDS
@@ -224,10 +219,23 @@ def cpu_interval(
         delta = row["cpu_seconds"] if old is None else row["cpu_seconds"] - old["cpu_seconds"]
         if delta < 0:
             raise ValueError("process CPU counter decreased")
-        kind = process_kind(row["command"], desktop_classifier, row)
         prior_evidence = None
         if transition:
-            prior_kind = process_kind(old["command"], desktop_classifier, old)
+            # Snapshot the previous identity exactly once, before any current
+            # admission, classification, or revocation can mutate its binding.
+            prior_raw = desktop_classifier.classify(old) if desktop_classifier else {}
+            prior_kind = _kind_from_evidence(old["command"], desktop_classifier, prior_raw)
+            prior_evidence = classification_evidence(prior_kind, prior_raw)
+            if desktop_classifier is not None:
+                desktop_classifier.invalidate_transition(row)
+        elif desktop_classifier is not None:
+            # Dedicated off-tick collector: admit only new/unchanged rows.
+            admit = getattr(desktop_classifier, "admit_process", None)
+            if callable(admit):
+                admit(row)
+        evidence = desktop_classifier.classify(row) if desktop_classifier else {}
+        kind = _kind_from_evidence(row["command"], desktop_classifier, evidence)
+        if transition:
             kinds = {kind, prior_kind}
             if "agent_workload" in kinds:
                 kind = "agent_workload"
@@ -245,15 +253,6 @@ def cpu_interval(
         totals[group] += cpu
         if kind in {"macos_service", "desktop_renderer", "desktop_app"}:
             totals[kind] += cpu
-        evidence = (
-            desktop_classifier.classify(row) if desktop_classifier is not None else {"kind": kind}
-        )
-        if transition and desktop_classifier is not None:
-            prior_evidence = classification_evidence(prior_kind, desktop_classifier.classify(old))
-        if old is not None and uid_changed and desktop_classifier is not None:
-            prior = desktop_classifier.classify(old)
-            if prior.get("identity_binding_changed"):
-                evidence = {**evidence, "identity_binding_changed": True}
         evidence = classification_evidence(kind, evidence)
         # Preserve every measured CPU contribution and every admitted UI/violation
         # binding. Idle unrelated processes remain in raw point inventories and

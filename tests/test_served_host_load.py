@@ -225,9 +225,17 @@ def test_negative_counter_and_malformed_time_refuse_evidence():
 
 
 class _DesktopClassifier:
-    """Pure frozen-registry stand-in: only this exact UID/birth is enrolled."""
+    """Frozen-registry stand-in with terminal transition revocation."""
+
+    def __init__(self):
+        self.revoked = set()
+
+    def invalidate_transition(self, row):
+        self.revoked.add((row["pid"], row["birth"]))
 
     def classify(self, row):
+        if (row.get("pid"), row.get("birth")) in self.revoked:
+            return {"kind": "unknown", "identity_binding_changed": True}
         if (
             row.get("command") == "/Applications/Claude.app/Contents/MacOS/Claude"
             and row.get("uid") == 501

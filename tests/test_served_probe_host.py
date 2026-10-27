@@ -232,7 +232,7 @@ def test_desktop_point_does_not_join_raw_cpu_to_later_pid_identity(monkeypatch):
     assert screen["processes_identity_stale_unjoined"] is True
 
 
-def test_desktop_point_identity_change_aborts_even_when_final_kind_is_service(monkeypatch):
+def test_desktop_point_identity_change_overrides_system_service(monkeypatch):
     import psutil
 
     class Classifier:
@@ -267,7 +267,7 @@ def test_desktop_point_identity_change_aborts_even_when_final_kind_is_service(mo
     )
     screen = {"processes": "PID PPID %CPU COMM\n20 1 0 /usr/libexec/cloudd\n"}
     rows = probe_host.foreign_load(screen, 10, classified=True, desktop_classifier=Classifier())
-    assert rows[0]["kind"] == "macos_service"
+    assert rows[0]["kind"] == "unknown"
     assert rows[0]["classification"]["identity_binding_changed"] is True
 
 

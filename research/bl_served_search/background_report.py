@@ -103,17 +103,15 @@ def _replay_identity(
     ):
         return {"kind": "agent_workload", "reason": "workload_exclusion"}
     workload = _workload_kind(command, registry_evidence)
-    if command.startswith(SYSTEM_EXECUTABLE_ROOTS) and ".." not in Path(command).parts:
-        if workload is not None:
-            return {"kind": workload, "reason": "workload_precedence"}
-        return {"kind": "macos_service", "reason": "system_executable"}
     from research.bl_served_search.desktop_apps import classify_exported
 
     enrolled = classify_exported(dict(row), dict(registry_evidence))
-    if enrolled.get("kind") in {"desktop_app", "desktop_renderer"}:
-        return enrolled
-    if workload is not None:
-        return {"kind": workload, "reason": "workload_precedence"}
+    if enrolled.get("kind") == "agent_workload" or workload == "agent_workload":
+        return {"kind": "agent_workload", "reason": "workload_precedence"}
+    if enrolled.get("identity_binding_changed") or workload == "unknown":
+        return {**enrolled, "kind": "unknown"}
+    if command.startswith(SYSTEM_EXECUTABLE_ROOTS) and ".." not in Path(command).parts:
+        return {"kind": "macos_service", "reason": "system_executable"}
     return enrolled
 
 

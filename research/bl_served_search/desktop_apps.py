@@ -3,8 +3,8 @@
 This module deliberately does not inspect processes or execute signature tools
 from ``classify``.  Expensive code-identity checks and PID/birth bindings are
 made by the operator before a scored observation and cached in this object.
-Consequently a new PID, an exec, or a changed executable fails closed until a
-new off-tick admission pass has happened.
+New PIDs require off-tick admission. An exec, UID transition, or revoked
+identity is permanently ineligible for the rest of this registry attempt.
 """
 
 from __future__ import annotations
@@ -95,6 +95,7 @@ class DesktopRegistry:
         # through that row's explicit identity-binding-change evidence.
         self._binding_history: dict[tuple[int, str, int, str], dict[str, Any]] = {}
         self._revoked_bindings: dict[tuple[int, str, int, str], str] = {}
+        self._revoked_processes: dict[tuple[int, str], str] = {}
 
     @staticmethod
     def _verify_seal(path: Path) -> None:
@@ -284,6 +285,7 @@ class DesktopRegistry:
         self._bindings.clear()
         self._binding_history.clear()
         self._revoked_bindings.clear()
+        self._revoked_processes.clear()
         return self.read_export()
 
     def _workload_reason(self, row: dict[str, Any]) -> str | None:
@@ -308,73 +310,82 @@ class DesktopRegistry:
             return "workload_exclusion"
         return None
 
-    def admit_process(self, row: dict[str, Any]) -> dict[str, Any]:
-        """Freshly bind a process identity after :meth:`verify_all`, off tick."""
-        # Existing unchanged PID/birth bindings were already signature/digest
-        # verified.  The normal classifier performs its cheap stat guard.
-        existing = self.classify(row)
-        if existing["kind"] in {"desktop_app", "desktop_renderer"}:
-            return existing
-        decision = self.classify(row, allow_unbound=True)
-        if decision["kind"] not in {"desktop_app", "desktop_renderer"}:
-            return decision
-        identity = decision["identity"]
-        command = Path(str(row["command"]))
-        if _sha256(command) != identity["sha256"]:
-            return {
-                "kind": "unknown",
-                "reason": "executable_replaced",
-                "identity_binding_changed": self._invalidate_bindings(row, "executable_replaced"),
-            }
-        stat = command.stat()
-        current_file = {
-            "device": stat.st_dev,
-            "inode": stat.st_ino,
-            "size": stat.st_size,
-            "mtime_ns": stat.st_mtime_ns,
-            "ctime_ns": stat.st_ctime_ns,
-        }
-        if current_file != identity["file_identity"]:
-            return {
-                "kind": "unknown",
-                "reason": "executable_replaced",
-                "identity_binding_changed": self._invalidate_bindings(row, "executable_replaced"),
-            }
-        key = self._key(row)
-        self._bindings[key] = decision
-        self._binding_history[key] = decision
-        self._revoked_bindings.pop(key, None)
-        return decision
+    def _binding_state(self, row: dict[str, Any]) -> str:
+        """State machine: unbound -> bound -> revoked; revoked is terminal."""
+        pid, birth = row.get("pid"), row.get("birth")
+        if type(pid) is not int or not isinstance(birth, str):
+            return "unbound"
+        process = (pid, birth)
+        if process in self._revoked_processes:
+            return "revoked"
+        matches = [key for key in self._bindings if key[:2] == process]
+        if not matches:
+            return "unbound"
+        try:
+            return "bound" if self._key(row) in matches else "changed"
+        except ValueError:
+            return "changed"
 
-    def _invalidate_bindings(self, row: dict[str, Any], reason: str) -> bool:
-        """Revoke active PID/birth bindings while preserving their export history."""
+    def invalidate_transition(self, row: dict[str, Any]) -> None:
+        """Permanently revoke a sampled exec/UID transition, even if never admitted."""
+        self._invalidate_bindings(row, "identity_binding_changed", transition=True)
+
+    def _invalidate_bindings(
+        self, row: dict[str, Any], reason: str, *, transition: bool = False
+    ) -> bool:
+        """Revoke once, retaining the first reason and immutable admission history."""
+        changed = self._binding_changed(row) or transition
         pid, birth = row.get("pid"), row.get("birth")
         if type(pid) is not int or not isinstance(birth, str):
             return False
-        matches = [key for key in self._bindings if key[0] == pid and key[1] == birth]
+        process = (pid, birth)
+        if changed:
+            self._revoked_processes.setdefault(process, reason)
+        first_reason = self._revoked_processes.get(process, reason)
+        matches = [key for key in self._bindings if key[:2] == process]
         for key in matches:
             self._bindings.pop(key)
-            self._revoked_bindings[key] = reason
-        return bool(matches)
+            self._revoked_bindings.setdefault(key, first_reason)
+        return changed
 
     def _binding_changed(self, row: dict[str, Any]) -> bool:
-        """True only when a previously admitted PID no longer has its binding."""
-        pid = row.get("pid")
-        birth = row.get("birth")
-        return (
-            type(pid) is int
-            and isinstance(birth, str)
-            and (
-                any(
-                    bound_pid == pid and bound_birth == birth
-                    for bound_pid, bound_birth, *_ in self._bindings
-                )
-                or any(
-                    revoked_pid == pid and revoked_birth == birth
-                    for revoked_pid, revoked_birth, *_ in self._revoked_bindings
-                )
-            )
+        """Whether failure must revoke an existing or already revoked process."""
+        return self._binding_state(row) != "unbound"
+
+    def _failure(self, row: dict[str, Any], reason: str, kind: str = "unknown") -> dict[str, Any]:
+        changed = self._invalidate_bindings(row, reason)
+        # Replacement remains identifiable on every subsequent point/interval
+        # check, including after the executable is restored on disk.
+        pid, birth = row.get("pid"), row.get("birth")
+        first_reason = (
+            self._revoked_processes.get((pid, birth))
+            if type(pid) is int and isinstance(birth, str)
+            else None
         )
+        if first_reason == "executable_replaced" and kind != "agent_workload":
+            reason = first_reason
+        return {"kind": kind, "reason": reason, "identity_binding_changed": changed}
+
+    def admit_process(self, row: dict[str, Any]) -> dict[str, Any]:
+        """Bind only an unbound, verified identity; revoked is terminal this attempt."""
+        state = self._binding_state(row)
+        decision = self.classify(row, allow_unbound=True)
+        if decision["kind"] not in {"desktop_app", "desktop_renderer"} or state == "bound":
+            return decision
+        identity = decision["identity"]
+        try:
+            if _sha256(Path(str(row["command"]))) != identity["sha256"]:
+                return self._failure(row, "executable_replaced")
+        except OSError:
+            return self._failure(row, "executable_replaced")
+        # Recheck the cheap file identity after digest I/O before publishing.
+        decision = self.classify(row, allow_unbound=True)
+        if decision["kind"] not in {"desktop_app", "desktop_renderer"}:
+            return decision
+        key = self._key(row)
+        self._bindings[key] = decision
+        self._binding_history[key] = decision
+        return decision
 
     @staticmethod
     def _key(row: dict[str, Any]) -> tuple[int, str, int, str]:
@@ -394,58 +405,26 @@ class DesktopRegistry:
             raise ValueError("desktop process row lacks pid, birth, uid, or command") from exc
 
     def classify(self, row: dict[str, Any], *, allow_unbound: bool = False) -> dict[str, Any]:
-        """Classify from cached evidence only; missing/replaced identity fails closed."""
+        """Classify once from cached evidence, applying terminal revocation on failure."""
         workload = self._workload_reason(row)
         if workload:
-            changed = self._binding_changed(row)
-            if changed:
-                self._invalidate_bindings(row, "identity_binding_changed")
-            return {
-                "kind": "agent_workload",
-                "reason": workload,
-                "identity_binding_changed": changed,
-            }
+            return self._failure(row, workload, "agent_workload")
+        state = self._binding_state(row)
+        if state == "revoked":
+            return self._failure(row, "identity_binding_changed")
         try:
             key = self._key(row)
             command_path = Path(key[3])
             command = str(_canonical(command_path))
-        except (ValueError, FileNotFoundError, OSError):
-            changed = self._binding_changed(row)
-            if changed:
-                self._invalidate_bindings(row, "identity_binding_changed")
-            return {
-                "kind": "unknown",
-                "reason": "missing_or_noncanonical_executable",
-                "identity_binding_changed": changed,
-            }
+        except (ValueError, OSError):
+            return self._failure(row, "missing_or_noncanonical_executable")
         if command_path.is_symlink() or str(command_path) != command:
-            changed = self._binding_changed(row)
-            if changed:
-                self._invalidate_bindings(row, "identity_binding_changed")
-            return {
-                "kind": "unknown",
-                "reason": "symlink_or_noncanonical_executable",
-                "identity_binding_changed": changed,
-            }
+            return self._failure(row, "symlink_or_noncanonical_executable")
         if key[2] != self.permitted_uid:
-            changed = self._binding_changed(row)
-            if changed:
-                self._invalidate_bindings(row, "identity_binding_changed")
-            return {
-                "kind": "unknown",
-                "reason": "uid_mismatch",
-                "identity_binding_changed": changed,
-            }
+            return self._failure(row, "uid_mismatch")
         identity = self._verified.get(command)
         if identity is None:
-            changed = self._binding_changed(row)
-            if changed:
-                self._invalidate_bindings(row, "identity_binding_changed")
-            return {
-                "kind": "unknown",
-                "reason": "unenrolled_or_unverified_executable",
-                "identity_binding_changed": changed,
-            }
+            return self._failure(row, "unenrolled_or_unverified_executable")
         kind = "desktop_renderer" if "renderer" in identity["role"] else "desktop_app"
         decision = {
             "kind": kind,
@@ -455,15 +434,8 @@ class DesktopRegistry:
             "role": identity["role"],
             "identity": identity,
         }
-        if allow_unbound:
-            return decision
-        bound = self._bindings.get(key)
-        if bound != decision:
-            return {
-                "kind": "unknown",
-                "reason": "process_identity_not_revalidated",
-                "identity_binding_changed": self._binding_changed(row),
-            }
+        if state == "changed" or (not allow_unbound and self._bindings.get(key) != decision):
+            return self._failure(row, "process_identity_not_revalidated")
         try:
             stat = Path(command).stat()
             current_file = {
@@ -474,17 +446,9 @@ class DesktopRegistry:
                 "ctime_ns": stat.st_ctime_ns,
             }
         except OSError:
-            return {
-                "kind": "unknown",
-                "reason": "executable_replaced",
-                "identity_binding_changed": self._invalidate_bindings(row, "executable_replaced"),
-            }
+            return self._failure(row, "executable_replaced")
         if current_file != identity["file_identity"]:
-            return {
-                "kind": "unknown",
-                "reason": "executable_replaced",
-                "identity_binding_changed": self._invalidate_bindings(row, "executable_replaced"),
-            }
+            return self._failure(row, "executable_replaced")
         return decision
 
     def read_export(self) -> dict[str, Any]:
@@ -505,6 +469,10 @@ class DesktopRegistry:
                 self._binding_history[key]
                 | {"pid": key[0], "birth": key[1], "uid": key[2], "command": key[3]}
                 for key in sorted(self._binding_history)
+            ],
+            "revoked_processes": [
+                {"pid": pid, "birth": birth, "reason": reason}
+                for (pid, birth), reason in sorted(self._revoked_processes.items())
             ],
             "revoked_bindings": [
                 {
