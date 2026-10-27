@@ -1,0 +1,117 @@
+{
+  "artifact_logs": {
+    "cuda-semantics.log": "97e31e9c9732352a7496ee1d7b12fe128dfcf2184541cfcd467ddc6cc7d2a5d6",
+    "dispatch-dry-run.log": "2a7e3a13916674ec4639799fe6a93d5331fd4cd58f2755ed02c2ed9600d2fb61",
+    "frozen-smoke/full.log": "efc1976fe29c7e84edf103e411f0664e2906359cc4f9affdcaa887e487f18d67",
+    "frozen-smoke/resume-proof.json": "2996eecfdf989731fd775d7523c0d02494cac10f9ee0c289552e757e1789e054",
+    "frozen-smoke/resume0.log": "efc1976fe29c7e84edf103e411f0664e2906359cc4f9affdcaa887e487f18d67",
+    "lint.log": "2f8c1d386d22cc96028fe8adf0ce1f76fc078ddcf5f34852039d37a74b4a775f",
+    "preflight.log": "2642dff89339d23b6e5ad1fd7492d68b773956d2529c5921dcc912e75251d00c",
+    "scoped-tests.log": "df92365bca3294c1e5eeba4c0615bb47dee0eeee33292dd377dd760ce670877c",
+    "seal-proof.json": "b650f96a82195bc95a0c4916c2fcb9838d406ebb2aaf83b0a324a0e750cae9ac",
+    "smoke.log": "4c03671599f5b6d054502a0b70524c59c10bfdf9d03c16209890722fd584d667",
+    "supervisor-runtime-tests.log": "6f3e65f4e52a2e65544fabb74c9664ed1e1cc7e46cc2beba9065002cacc88959"
+  },
+  "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-04-engineering-20261027",
+  "baseline_commit": "2a2fa381f499d81dfaaa44dc4dd478ce08fbc8db",
+  "both_detached_clean": true,
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex",
+  "broker_seal": "0f4e1e66f8755af10099b4dfb1716df1c8554426",
+  "commands": {
+    "cuda_semantics": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.training_preflight /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex/research/sandbox_a_resident/packet-train01-04 --cuda-semantics",
+    "dispatch": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-04 /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex/research/sandbox_a_resident/packet-train01-04/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-04-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-04/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex/research/sandbox_a_resident/packet-train01-04/DISPATCH.txt",
+    "dry_run": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-04 /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex/research/sandbox_a_resident/packet-train01-04/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-04-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-04/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex/research/sandbox_a_resident/packet-train01-04/DISPATCH.txt --dry-run",
+    "preflight": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m research.sandbox_a_resident.training_preflight /Users/josenunez/Projects/ml/snake-dqn-train01-04-broker.noindex/research/sandbox_a_resident/packet-train01-04",
+    "scoped_tests": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts= -p no:xdist research/sandbox_a_resident tools/sandbox/tests tools/ops/tests/test_persistence_priority.py tools/ops/tests/test_r2_packet.py",
+    "smoke": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-04-engineering-20261027/run_smoke.py (run from runtime checkout; test-only CPU full + iteration-zero resume)",
+    "supervisor_runtime": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 ./venv/bin/python -m pytest -q -o addopts= -p no:xdist tests/test_colab_cli_supervisor.py tests/test_colab_cli_runtime.py"
+  },
+  "control_sha256": "ff72948c0f95d52981b944e0c25f3b067b354431ad6be092a9b439ff9b6609d5",
+  "disclosures": [
+    "No runtime allocation or actual training dispatch; live account accounting not checked by dry-run.",
+    "CPU fixtures/API mocks do not qualify A100 kernels, numerical behavior, timing or Inductor.",
+    "No tmux sessions, released checkpoints, serving pins, prior packets or existing hash-bound evidence modified.",
+    "Runtime and broker remain detached at their sealed commits; final verification is a separate publication commit."
+  ],
+  "findings": [
+    {
+      "finding": 1,
+      "fix": "Stage whole ticks; balanced sampling without replacement, at most 1/8 batch per production life; fit baseline only on actual optimizer rows; cap open plus staged rows; handle lives outnumbering batch rows.",
+      "severity": "MAJOR",
+      "tests": [
+        "test_many_lives_are_balanced_across_every_production_sized_batch",
+        "test_short_residual_plus_long_life_waits_for_a_multilife_pool",
+        "test_more_staged_lives_than_batch_rows_never_oversizes_or_negative_slices",
+        "test_baseline_scalars_are_exactly_optimizer_rows_with_staged_tails",
+        "test_storage_cap_counts_staged_completed_lives"
+      ]
+    },
+    {
+      "finding": 2,
+      "fix": "Normalize sparse historical mappings to all three zero-initialized mixes; support and quality use all three explicit counts; fallback preserves actual support.",
+      "severity": "MAJOR",
+      "tests": [
+        "test_zero_life_mix_requires_support_until_cap_and_fails_without_keyerror",
+        "test_holdout_quality_fallback_preserves_actual_support_counts"
+      ]
+    },
+    {
+      "finding": 3,
+      "fix": "Verify full snapshot trio before skipping nonresumable phase.",
+      "severity": "MINOR",
+      "tests": [
+        "test_nonresumable_snapshot_still_verifies_state_payload_before_skip"
+      ]
+    },
+    {
+      "finding": 4,
+      "fix": "Prepare unprepared simulator before task.step opponent action selection.",
+      "severity": "MINOR",
+      "tests": [
+        "test_step_prepares_simulator_before_opponent_actions_without_observe"
+      ]
+    },
+    {
+      "finding": 5,
+      "fix": "Retain age-zero fresh lives at fit/holdout seam.",
+      "severity": "MINOR",
+      "tests": [
+        "test_age_zero_holdout_lives_are_kept_at_fit_seam"
+      ]
+    }
+  ],
+  "independent_review": "Read-only reviewer: no actionable findings; 50 prep/resume/task regressions passed in 1.74s using nice15/threads1; git diff --check PASS. CPU-only scope.",
+  "manifest_sha256": "2fa2e1a41fb08d1c08e47dc522b154f3b466439f4cbfa4e84dcc6b087948a50d",
+  "packet": "research/sandbox_a_resident/packet-train01-04",
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-04-runtime.noindex",
+  "runtime_pin": "c7da28fc3bb11d9a2fbdd2ca20268789e2267371",
+  "runtime_source_files_verified": 185,
+  "schema": "sandbox-a-train01-repair-verification/v1",
+  "seed_audit_count": 114299008,
+  "seed_audit_reused": "Byte-identical exhaustive audit; allocation universe and registry unchanged.",
+  "unchanged_trees": {
+    "research/colab_cli": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+    "research/sandbox_a_resident/packet-train01": "cc571c87b4f4ff9de7438d439ad6adb81f45e1ad",
+    "research/sandbox_a_resident/packet-train01-02": "afd5174a8bd1ec91fe254f42176737fc4e5f9e61",
+    "research/sandbox_a_resident/packet-train01-03": "4946009e675b12a7554ddb4c7ff2aec4ff3e0e31",
+    "src": "33851114fa40c8403fc3ed0182fad4e9b8285159",
+    "web": "a0a0fe5b58dc90b5fa0d2b88f0035b9bcd0714d8"
+  },
+  "verification": {
+    "cuda_semantics": "4 passed in 1.17s; mocks/meta/API contracts only",
+    "dry_run": "PASS_DRY_RUN sandbox-a-train01-20261027-04 allocations=0 live_accounting=NOT_CHECKED",
+    "exact_resume": {
+      "actor_rows": 12,
+      "compared_nodes": 1499,
+      "device": "cpu",
+      "iteration": 2,
+      "source_commit": "c7da28fc3bb11d9a2fbdd2ca20268789e2267371",
+      "status": "PASS_EXACT_ITERATION_ZERO_RESUME",
+      "test_only": true
+    },
+    "frozen_preflight": "195 passed in 25.45s; PASS_TRAIN01_PREFLIGHT seeds=114299008 allocations=0",
+    "lint": "Black/isort/flake8 on all six changed Python files PASS; make lint PASS; bash -n train_job.sh PASS; git diff --check PASS",
+    "scoped_suite": "274 passed in 17.70s",
+    "supervisor_runtime": "101 passed in 573.49s (0:09:33)"
+  }
+}
