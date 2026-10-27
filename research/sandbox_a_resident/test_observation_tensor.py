@@ -78,6 +78,9 @@ def test_observation_tensor_matches_pinned_observation_over_ticks_and_reset() ->
 
 def test_observation_tensor_real_aot_eager_fullgraph_has_no_fallback() -> None:
     """CPU compilation admits the pure body with no mutable simulator argument."""
+    # A separate test's finite shape matrix must not consume this test's
+    # process-global Dynamo code-cache budget.
+    torch.compiler.reset()
     runner = _runner()
     sim = runner.sim
     compiled = torch.compile(

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import torch
 
 from research.gpu_sim_spike.v8_device import v8_decide
 from research.sandbox_a_resident import run
 from research.sandbox_a_resident.core import Recipe, ResidentAssay
+from research.sandbox_a_resident.runtime_tools import CompiledBlock
 from research.sandbox_a_resident.tensor_blocks import TensorBlocks
 from src.model.ego2s_network import Ego2sNet
 
@@ -18,6 +21,7 @@ def test_real_aot_eager_compiles_and_retains_all_resident_blocks() -> None:
     CPU admission test quick; deployment retains the requested Inductor mode.
     It is intentionally not a fake compiler or a replacement eager callable.
     """
+    torch.compiler.reset()
     torch.set_num_threads(1)
     runner = ResidentAssay(
         Recipe(worlds=1, horizon=2, minibatch=2, episode_limit=2, tiny=True),
@@ -76,25 +80,59 @@ def test_tensor_v8_feature_boundary_matches_source_before_and_after_reset() -> N
 
 
 def test_shared_compile_cache_handles_four_world_shapes_under_tf32_timing_mode() -> None:
-    """Exercise real Dynamo guards; the all-block test above covers AOTAutograd.
+    """Reproduce Dynamo's global guards with cheap real compiled linear blocks.
 
-    Use the eager backend for this additional shape matrix so admission does
-    not repeatedly pay AOT lowering for every otherwise identical shape.
+    Full resident tensor/AOT boundaries are covered above. This test isolates
+    code-owner reuse, four collection shapes, a shared learner minibatch and
+    TF32/grad guards without redundantly lowering the resident raster graphs.
     """
+    torch.compiler.reset()
     torch.set_num_threads(1)
     cache = run.CellCompileCache()
     reused = []
+    owners = []
+
+    def fresh(worlds):
+        actor = torch.nn.Linear(2, 2)
+        runner = SimpleNamespace(
+            actor=actor,
+            optimizer=torch.optim.Adam(actor.parameters()),
+            device=torch.device("cpu"),
+            recipe=SimpleNamespace(worlds=worlds, learning_rate=0.0003),
+            sim=SimpleNamespace(cap=32, grid_h=6, grid_w=6),
+            compile_report={},
+        )
+
+        def enable(mode, *, backend):
+            for attribute in cache.attributes:
+                eager = actor if attribute.startswith("_forward") else torch.sin
+                setattr(
+                    runner,
+                    attribute,
+                    CompiledBlock(eager, mode, runner.compile_report, attribute, backend=backend),
+                )
+
+        runner.enable_compile = enable
+        return runner
+
     with (
         torch._dynamo.config.patch(recompile_limit=64, accumulated_recompile_limit=256),
         run.numerical_mode(deterministic=False, tf32=True),
     ):
         for worlds in (1, 2, 3, 4):
-            runner = ResidentAssay(
-                Recipe(worlds=worlds, horizon=1, minibatch=worlds, episode_limit=2, tiny=True),
-                Ego2sNet(local_channels=7, n_scalars=60),
-            )
-            reused.append(cache.attach(runner, "default", backend="eager"))
-            runner.update(runner.collect())
+            runner = fresh(worlds)
+            reused.append(cache.attach(runner, "default", backend="aot_eager"))
+            owners.append(runner.actor)
+            with torch.no_grad():
+                for name in ("_forward_collect", "_v8", "_observation", "_anchors"):
+                    block = getattr(runner, name)
+                    for _ in range(2):
+                        block(torch.ones(worlds, 2))
+            # Every world count uses exactly the same learner specialization.
+            for _ in range(2):
+                runner._forward_train(torch.ones(2, 2)).sum().backward()
             for entry in runner.compile_report.values():
                 assert entry["status"] == "compiled", entry.get("fallback_reason")
+        assert runner._forward_train.entry["validation_calls"] == 1
     assert reused == [False, True, True, True]
+    assert all(owner is owners[0] for owner in owners)
