@@ -32,14 +32,21 @@ it does not override the result's validity. Other collection/numerical faults
 and runaway limits retain their existing fail-closed behavior.
 
 The regression runs the actual H128 / warmup1 / cycles3 shape with E4 and both
-limits, `tiny=False`, real full-arena DeviceSim masks/dynamics/reset handling,
-deferred bootstrap, GAE, integrated PPO and immutable exports. Only its actor
-and expensive observation features are replaced with cheap shape-correct
-tensors to retain the existing 60-second dispatch admission bound. A nonzero
-critic exercises bootstrap values. Independent existing observation oracles
-remain enabled. Separate real published-B8/full-observation/full-arena E8
-checks cover both limits without those test substitutions. Their measured
-cycle counts and source hashes are in `VERIFICATION_A2_RESEAL03.json`.
+limits, `tiny=False`, full-arena DeviceSim configuration/masks/reset handling,
+deferred bootstrap, GAE, integrated PPO and immutable exports. It isolates the
+clock schedule with a no-death step seam, a cheap actor and shape-correct
+observation tensors. The no-death fixture asserts every seat is alive and skips
+the 32 empty CPU respawn trials per tick. Prepare, masks, ages and
+reset/collection logic are retained.
+Exact measured truncation counts are [8, 8, 8] at limit 64 and [1, 1, 1] at
+limit 512. This detects the original failure even with guaranteed survival.
+A nonzero critic exercises bootstrap values. Independent existing observation
+oracles remain enabled. Separate real published-B8/full-observation/full-arena
+E8 checks cover both limits without substitutions. Their measured cycle counts
+and source hashes are in `VERIFICATION_A2_RESEAL03.json`, which preserves the
+earlier, slower real-dynamics regression evidence. The clock-isolated successor
+and admission commands are bound in `ADMISSION_RESEAL03.json`. All tests remain
+enabled in preflight, including the exact-shape regression; no timeout changes.
 
 The dispatchable packet is `packet-a2/reseal-03`; the published runtime pin,
 committed ten-line manifest and exact operator commands are in its seal and

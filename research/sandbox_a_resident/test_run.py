@@ -83,9 +83,10 @@ def test_production_phase_requires_and_reports_measured_truncation(
 def test_exact_production_schedule_truncates_every_measured_cycle(
     monkeypatch, tmp_path: Path, episode_limit: int
 ) -> None:
-    """Real full-arena dynamics/schedule; cheap model/features keep admission bounded."""
+    """Isolate the production clock schedule; real B8 dynamics have a separate smoke."""
     torch.set_num_threads(1)
     torch.manual_seed(3403)
+    worlds = 4
 
     class ConstantActor(nn.Module):
         def __init__(self, b8):
@@ -118,19 +119,33 @@ def test_exact_production_schedule_truncates_every_measured_cycle(
         assert runner.sim.cap == 1024
         assert runner.sim.cfg.max_capacity == 10400
         if not collected:
-            assert runner.age.tolist() == [i * episode_limit // 4 for i in range(4)]
+            assert runner.age.tolist() == [i * episode_limit // worlds for i in range(worlds)]
         data = original_collect(runner)
         # Nonzero critic checks the actual deferred bootstrap/GAE path, not just flags.
         assert data["next_value"][data["truncated"]].ne(0).all()
         collected.append(int(data["truncated"].sum()))
         return data
 
+    def survive(sim, actions):
+        # Isolate deterministic time-limit reachability from policy mortality.
+        # The original age-zero schedule fails this test even with no deaths.
+        # Keep real collection, clock increments, resets, bank, bootstrap and GAE.
+        sim._last_done.zero_()
+        sim._last_reward.zero_()
+
+    def no_respawn(sim):
+        # The no-death fixture has no missing seats. Avoid 32 empty CPU spawn
+        # trials per tick without replacing prepare, masks or reset handling.
+        assert sim.alive.all()
+
     monkeypatch.setattr(core, "ActorCritic", ConstantActor)
     monkeypatch.setattr(core.ResidentAssay, "observe", observe)
     monkeypatch.setattr(core.ResidentAssay, "collect", collect)
+    monkeypatch.setattr(core.DeviceSim, "step", survive)
+    monkeypatch.setattr(core.DeviceSim, "_respawn", no_respawn)
     monkeypatch.setattr(run, "load_ego2s_checkpoint", lambda *args: None)
     control = {
-        "worlds": [4],
+        "worlds": [worlds],
         "horizon": 128,
         "minibatch": 2048,
         "epochs": 1,
@@ -141,7 +156,7 @@ def test_exact_production_schedule_truncates_every_measured_cycle(
     }
     result = run.run_cell(
         control,
-        4,
+        worlds,
         "integrated",
         27_000_000,
         tmp_path / "b8.pth",
@@ -151,7 +166,7 @@ def test_exact_production_schedule_truncates_every_measured_cycle(
         episode_limit,
     )
     assert len(collected) == 4  # One excluded warmup and three measured horizons.
-    assert all(count >= 1 for count in collected[1:])
+    assert collected[1:] == ([8, 8, 8] if episode_limit == 64 else [1, 1, 1])
     assert [row["truncated_rows"] for row in result["cycles"]] == collected[1:]
     assert result["status"] == "PASS" and not result["invalid_reasons"]
     assert result["measured_truncated_rows"] == sum(collected[1:])
