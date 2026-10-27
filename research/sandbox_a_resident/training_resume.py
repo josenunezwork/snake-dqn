@@ -25,6 +25,10 @@ class ResumeRefused(ValueError):
     """The immutable evidence is not eligible for an outcome-blind continuation."""
 
 
+class _NonResumableSnapshot(ResumeRefused):
+    """A complete snapshot is intact but predates a resumable trajectory boundary."""
+
+
 @dataclass(frozen=True)
 class ResumePacket:
     """Unwritten completion-attempt components for the caller's create-only packet."""
@@ -101,8 +105,6 @@ def _snapshot_row(
         raise ResumeRefused(f"foreign snapshot identity: {info_path.name}")
     if info.get("schema") != SNAPSHOT_SCHEMA or not isinstance(info.get("metadata"), dict):
         raise ResumeRefused(f"malformed snapshot metadata: {info_path.name}")
-    if not _phase_is_resumable(info["metadata"]):
-        raise ResumeRefused(f"snapshot phase is not a safe continuation: {info_path.name}")
     if info["metadata"].get("allocation") != allocation(dict(control)) or info["metadata"].get(
         "source_commit"
     ) != control.get("source_commit"):
@@ -110,6 +112,8 @@ def _snapshot_row(
     stem = f"iteration-{iteration:04d}"
     if info_path.name != f"{stem}.json":
         raise ResumeRefused(f"noncanonical snapshot filename: {info_path.name}")
+    if not _phase_is_resumable(info["metadata"]):
+        raise _NonResumableSnapshot(f"snapshot phase is not a safe continuation: {info_path.name}")
     paths = [root / f"{stem}.pt", info_path, root / f"{stem}-actor.pth"]
     # A completed envelope may be visible while its other completion-last
     # exports are still arriving.  It is not a ledger unit until the whole trio
@@ -162,16 +166,30 @@ def build_ledger(
     """
     rows: list[dict[str, Any]] = []
     uploads: list[dict[str, str]] = []
+    nonresumable: list[tuple[int, Path]] = []
     if export_root.is_symlink():
         raise ResumeRefused("snapshot export root must not be a symlink")
     for info_path in sorted(export_root.glob("iteration-*.json")):
-        candidate = _snapshot_row(export_root, info_path, control)
+        try:
+            candidate = _snapshot_row(export_root, info_path, control)
+        except _NonResumableSnapshot:
+            # Preparation-only snapshots are valid immutable evidence but
+            # cannot be resumed.  A later full PPO trajectory supersedes them;
+            # malformed or foreign snapshots still fail closed below.
+            # Canonicality and header identity were already verified by
+            # _snapshot_row before it reports this semantic phase state.
+            nonresumable.append((int(info_path.stem.removeprefix("iteration-")), info_path))
+            continue
         if candidate is None:
             continue
         iteration, row, items = candidate
         rows.append(row)
         uploads.extend(items)
     if not rows:
+        if nonresumable:
+            raise ResumeRefused(
+                f"snapshot phase is not a safe continuation: {nonresumable[-1][1].name}"
+            )
         raise ResumeRefused("no complete full-trajectory snapshot triples")
     rows.sort(key=lambda item: item["iteration"])
     if len({item["iteration"] for item in rows}) != len(rows):
@@ -184,6 +202,9 @@ def build_ledger(
         if any(row["iteration"] not in permitted for row in rows):
             raise ResumeRefused("snapshot lies outside the frozen boundary cadence")
     latest = rows[-1]["iteration"]
+    if any(iteration > latest for iteration, _path in nonresumable):
+        later = max(nonresumable, key=lambda item: item[0])[1]
+        raise ResumeRefused(f"snapshot phase is not a safe continuation: {later.name}")
     return (
         {
             "schema": LEDGER_SCHEMA,
@@ -256,10 +277,21 @@ def completion_packet(
         "prior_job_id": original_manifest["job_id"],
         "resume_from_iteration": latest,
     }
-    # The preparation layer appends the create-only ledger record after it
-    # serializes this payload and hashes it.  All numerical exports are already
-    # exact inputs, with runtime-relative ledger paths under COLAB_INPUT_DIR.
-    successor["inputs"] = [*copy.deepcopy(original_manifest.get("inputs", [])), *records]
+    # A successor resumes only the latest eligible full trajectory.  Strip all
+    # prior runtime inputs here too, because callers may use this function
+    # directly rather than the create-only packet writer below.
+    latest_unit = ledger["units"][-1]
+    ledger["units"] = [latest_unit]
+    destinations = {row["path"] for row in latest_unit["exports"]}
+    destinations |= {
+        name + suffix for name in list(destinations) for suffix in (".sha256", ".complete")
+    }
+    records = [row for row in records if row["dest"] in destinations]
+    successor["inputs"] = [
+        row
+        for row in copy.deepcopy(original_manifest.get("inputs", []))
+        if row["dest"] != "verified-ledger.json" and not row["dest"].startswith("resume/")
+    ] + records
     return ResumePacket(
         ledger=ledger, input_records=records, manifest=successor, latest_iteration=latest
     )

@@ -149,6 +149,81 @@ def test_completion_packet_requires_released_mechanical_failure_and_fresh_identi
         )
 
 
+def test_completion_packet_directly_filters_prior_runtime_inputs_and_uses_latest_unit(
+    tmp_path: Path,
+) -> None:
+    snapshot(tmp_path, 1, phase="calibrated-boundary")
+    snapshot(tmp_path, 2)
+    previous = manifest()
+    previous["inputs"] = [
+        {"path": "/tmp/plain", "dest": "b8-s3.pth", "sha256": "c" * 64},
+        {"path": "/tmp/old-ledger", "dest": "verified-ledger.json", "sha256": "d" * 64},
+        {"path": "/tmp/old-state", "dest": "resume/iteration-0001.pt", "sha256": "e" * 64},
+    ]
+    packet = completion_packet(
+        previous,
+        receipt(),
+        tmp_path,
+        control(),
+        completion_index=2,
+        job_id="train-01-completion-2",
+        output_dir=Path("/tmp/train-01-completion-2"),
+        original_manifest_sha256="b" * 64,
+    )
+    assert [row["iteration"] for row in packet.ledger["units"]] == [2]
+    assert all(row["dest"] != "verified-ledger.json" for row in packet.manifest["inputs"])
+    assert all(
+        not row["dest"].startswith("resume/iteration-0001") for row in packet.manifest["inputs"]
+    )
+    assert {row["dest"] for row in packet.input_records} == {
+        f"resume/iteration-0002{suffix}"
+        for suffix in (
+            ".pt",
+            ".json",
+            "-actor.pth",
+            ".pt.sha256",
+            ".json.sha256",
+            "-actor.pth.sha256",
+            ".pt.complete",
+            ".json.complete",
+            "-actor.pth.complete",
+        )
+    }
+
+
+def test_build_ledger_ignores_earlier_nonresumable_phase_but_keeps_integrity_refusals(
+    tmp_path: Path,
+) -> None:
+    snapshot(tmp_path, 1, phase="calibrated-boundary")
+    snapshot(tmp_path, 2)
+    ledger, _records, latest = build_ledger(tmp_path, control())
+    assert latest == 2
+    assert [row["iteration"] for row in ledger["units"]] == [2]
+
+    broken = tmp_path / "iteration-0001.json.sha256"
+    broken.write_text("0" * 64)
+    with pytest.raises(ResumeRefused, match="corrupt export"):
+        build_ledger(tmp_path, control())
+
+
+def test_build_ledger_refuses_nonresumable_foreign_or_later_snapshot(tmp_path: Path) -> None:
+    snapshot(tmp_path, 2)
+    snapshot(
+        tmp_path,
+        1,
+        phase="calibrated-boundary",
+        header_control={**control(), "source_commit": "c" * 40},
+    )
+    with pytest.raises(ResumeRefused, match="header differs"):
+        build_ledger(tmp_path, control())
+
+    other = tmp_path / "later"
+    snapshot(other, 2)
+    snapshot(other, 3, phase="calibrated-boundary")
+    with pytest.raises(ResumeRefused, match="safe continuation"):
+        build_ledger(other, control())
+
+
 def test_refuses_completed_snapshot_outside_frozen_boundary_cadence(tmp_path: Path) -> None:
     frozen = {**control(), "snapshot_interval": 2}
     snapshot(tmp_path, 3, header_control=frozen)

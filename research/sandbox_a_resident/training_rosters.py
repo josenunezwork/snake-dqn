@@ -273,7 +273,19 @@ class DeviceRosterRuntime:
         out = torch.empty((sim.E, sim.S), dtype=torch.long, device=self.device)
         for rows, policy, random_slots in self._groups:
             sub = _view(sim, rows)
+            pending = getattr(policy, "_training_pending_prepare", None)
+            was_prepared = policy.vector_prepared
+            if was_prepared and pending is not None and bool(pending.any()):
+                # The task's observe() has prepared the simulator by now.
+                # Only newly reset rows need a selector refresh when carry for
+                # continuing rows is already ready.
+                policy.vector_runtime.prepare(sub, pending)
+                pending.zero_()
             action = policy.actions(sub, hero_actions.index_select(0, rows))
+            if pending is not None and not was_prepared:
+                # DevicePolicy prepared the complete group on this normal
+                # decision seam, including any pending reset rows.
+                pending.zero_()
             for slot, table in random_slots.items():
                 safe = sub.advisory_mask()[:, slot, :3]
                 safe = torch.where(safe.any(1, keepdim=True), safe, torch.ones_like(safe))
@@ -290,16 +302,28 @@ class DeviceRosterRuntime:
             policy.after_step(_view(sim, rows))
 
     @torch.inference_mode()
-    def reset(self, mask: torch.Tensor, seeds: Sequence[int] | None = None) -> None:
+    def reset(
+        self, mask: torch.Tensor, seeds: Mapping[int, int] | Sequence[int] | None = None
+    ) -> None:
         """Clear only reset worlds' vector carry; roster identity never changes."""
         mask = torch.as_tensor(mask, dtype=torch.bool, device=self.device)
+        reset_rows = mask.nonzero(as_tuple=False).flatten().detach().cpu().tolist()
+        seed_by_row = (
+            None
+            if seeds is None
+            else (
+                {int(row): int(seeds[row]) for row in reset_rows}
+                if not isinstance(seeds, Mapping)
+                else {int(row): int(value) for row, value in seeds.items()}
+            )
+        )
         for rows, policy, random_slots in self._groups:
             local = mask.index_select(0, rows)
             runtime = policy.vector_runtime
             if not bool(local.any()) or runtime is None:
                 continue
-            for name in ("_carry_valid", "sel_ready", "sel_fresh"):
-                value = getattr(runtime, name)
+            for name in ("_carry_valid", "sel_ready", "sel_fresh", "_alive_post"):
+                value = getattr(runtime, name, None)
                 if value is not None:
                     value[local] = False
             for name in ("prev_dist",):
@@ -310,13 +334,21 @@ class DeviceRosterRuntime:
                 value = getattr(runtime, name)
                 if value is not None:
                     value[local] = -1
-            policy.vector_prepared = False
-            if seeds is not None:
+            # Defer selector refresh until actions(), after the next
+            # task.observe() has performed the simulator's respawn/food
+            # preparation.  Do not change the policy-wide prepared bit here.
+            pending = getattr(policy, "_training_pending_prepare", None)
+            if pending is None:
+                pending = torch.zeros_like(local)
+                policy._training_pending_prepare = pending
+            pending |= local
+            if seed_by_row is not None:
+                group_rows = rows.detach().cpu().tolist()
                 for slot, table in random_slots.items():
-                    for local_index, global_index in enumerate(rows.cpu().tolist()):
-                        if bool(mask[global_index]):
+                    for local_index, global_index in enumerate(group_rows):
+                        if global_index in seed_by_row:
                             table[local_index].copy_(
-                                random_table(int(seeds[global_index]), slot, self.device)
+                                random_table(seed_by_row[global_index], slot, self.device)
                             )
 
     def state_dict(self) -> dict[str, Any]:
@@ -334,6 +366,13 @@ class DeviceRosterRuntime:
                     "rows": rows.detach().cpu(),
                     "runtime": state,
                     "prepared": policy.vector_prepared,
+                    "pending_prepare": getattr(
+                        policy,
+                        "_training_pending_prepare",
+                        torch.zeros(rows.numel(), dtype=torch.bool, device=self.device),
+                    )
+                    .detach()
+                    .clone(),
                     "random_slots": {
                         int(slot): table.detach().clone() for slot, table in random_slots.items()
                     },
@@ -369,3 +408,13 @@ class DeviceRosterRuntime:
                     raise ValueError("roster random-safe table shape mismatch")
                 current.copy_(value.to(self.device))
             policy.vector_prepared = bool(saved["prepared"])
+            pending = saved.get("pending_prepare")
+            if pending is None:
+                policy._training_pending_prepare = torch.zeros(
+                    rows.numel(), dtype=torch.bool, device=self.device
+                )
+            else:
+                pending = pending.to(self.device, dtype=torch.bool).reshape(-1)
+                if pending.shape != (rows.numel(),):
+                    raise ValueError("runtime pending reset shape differs on resume")
+                policy._training_pending_prepare = pending.clone()

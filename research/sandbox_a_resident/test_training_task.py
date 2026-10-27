@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 
 from research.sandbox_a_resident.training_task import ResidentTrainingTask, TrainingTaskConfig
@@ -54,10 +55,129 @@ def test_forced_terminal_and_horizon_cut_reset_without_trace_leak() -> None:
 
     task.age.fill_(task.config.horizon - 1)
     result = task.step(torch.ones(3, dtype=torch.long))
-    assert result.cut.all()
     assert result.reset.all()
-    assert not result.terminal.any()
+    assert torch.all(result.cut | result.terminal)
     assert task.age.eq(0).all()
+
+
+def test_task_rejects_seed_range_that_can_escape_audited_phase() -> None:
+    with torch.no_grad():
+        try:
+            TrainingTaskConfig(
+                worlds=3,
+                tiny=True,
+                allocation_phase_offset=600_000_000,
+                allocation_offset=600_000_064,
+                allocation_count=96,
+                max_episodes=11,
+            )
+        except ValueError as error:
+            assert "audited phase range" in str(error)
+        else:
+            raise AssertionError("out-of-range reset allocation was accepted")
+
+
+@pytest.mark.parametrize(
+    ("phase_offset", "phase_count", "worlds"),
+    (
+        (200_000_000, 5_242_880 + 1024, 24),
+        (300_000_000, 8_388_608 + 1024, 24),
+        (400_000_000, 3 * 96, 96),
+        (500_000_000, 3 * 256, 256),
+        (600_000_000, 3 * 32, 32),
+    ),
+)
+def test_every_nontraining_phase_rejects_one_episode_past_its_audited_end(
+    phase_offset: int, phase_count: int, worlds: int
+) -> None:
+    with pytest.raises(ValueError, match="audited phase range"):
+        TrainingTaskConfig(
+            worlds=worlds,
+            allocation_phase_offset=phase_offset,
+            allocation_offset=phase_offset,
+            allocation_count=phase_count,
+            max_episodes=phase_count // worlds + 1,
+        )
+
+
+@torch.inference_mode()
+def test_step_reset_never_eagerly_observes_or_erases_terminal_cause(monkeypatch) -> None:
+    task = _task()
+    task.sim.bodies[0, 0, 0] = torch.tensor([0, 0])
+    task.sim.head_ptr[0, 0] = 0
+    task.sim.seg_count[0, 0] = 1
+    task.sim.length[0, 0] = 1
+    task.sim.direction[0, 0] = 3
+    monkeypatch.setattr(
+        task, "observe", lambda: (_ for _ in ()).throw(AssertionError("eager observe"))
+    )
+    event = task.step(torch.ones(3, dtype=torch.long))
+    assert event.terminal[0]
+    assert task.sim._last_death_cause[0, 0].item() != 0
+
+
+@torch.inference_mode()
+def test_reset_refuses_episode_after_audited_cap_before_hashing(monkeypatch) -> None:
+    task = ResidentTrainingTask(
+        TrainingTaskConfig(worlds=3, tiny=True, allocation_count=3, max_episodes=1), device="cpu"
+    )
+    task.episode[0] = 1
+    import research.sandbox_a_resident.training_task as task_module
+
+    monkeypatch.setattr(
+        task_module, "_key", lambda *_: (_ for _ in ()).throw(AssertionError("hashed"))
+    )
+    with pytest.raises(RuntimeError, match="audited seed allocation"):
+        task.reset(torch.tensor([True, False, False]))
+
+
+@torch.inference_mode()
+def test_initial_reset_hashes_only_initial_rows_not_all_episode_slots(monkeypatch) -> None:
+    import research.sandbox_a_resident.training_task as task_module
+
+    calls: list[int] = []
+    original = task_module._key
+    monkeypatch.setattr(
+        task_module,
+        "_key",
+        lambda namespace, index: calls.append(index) or original(namespace, index),
+    )
+    ResidentTrainingTask(
+        TrainingTaskConfig(worlds=3, tiny=True, allocation_count=6, max_episodes=2), device="cpu"
+    )
+    assert calls == [0, 1, 2]
+
+
+@torch.inference_mode()
+def test_reset_sampler_uses_counter_derived_headings() -> None:
+    task = ResidentTrainingTask(TrainingTaskConfig(worlds=24, tiny=True), device="cpu")
+    assert torch.any(task.sim.direction != 1)
+
+
+@torch.inference_mode()
+def test_single_life_terminal_reports_no_performed_reset() -> None:
+    task = ResidentTrainingTask(
+        TrainingTaskConfig(worlds=3, tiny=True, auto_reset=False, max_episodes=1), device="cpu"
+    )
+    task.observe()
+    task.sim.bodies[:, 0, 0] = 0
+    task.sim.head_ptr[:, 0] = 0
+    task.sim.direction[:, 0] = 3
+    result = task.step(torch.ones(3, dtype=torch.long))
+    assert result.terminal.all()
+    assert not result.reset.any()
+    assert not task.sim.alive[:, 0].any()
+    assert (task.sim._last_death_cause[:, 0] != 0).all()
+
+
+@torch.inference_mode()
+def test_reset_heading_and_spawn_are_independent_of_reset_grouping() -> None:
+    batched, separate = _task(), _task()
+    batched.reset()
+    for index in range(3):
+        separate.reset(torch.arange(3).eq(index))
+    for name in ("bodies", "direction", "rng_key", "rng_counter"):
+        assert torch.equal(getattr(batched.sim, name), getattr(separate.sim, name)), name
 
 
 def test_task_snapshot_round_trip_preserves_next_observation() -> None:

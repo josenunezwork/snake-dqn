@@ -141,25 +141,38 @@ class TrainingCompile:
                 "status": self.report["actor"]["status"],
                 "reason": self.report["actor"]["fallback_reason"],
             }
-        self.actor.zero_grad(set_to_none=True)
-        eager = self.actor(local, glob, scalars)
-        eager.square().mean().backward()
-        eager_grads = {
-            name: parameter.grad.detach().clone()
-            for name, parameter in self.actor.named_parameters()
-            if parameter.requires_grad and parameter.grad is not None
-        }
-        self.actor.zero_grad(set_to_none=True)
-        compiled = self.actor_forward(local, glob, scalars)
-        compiled.square().mean().backward()
-        torch.testing.assert_close(compiled, eager.detach(), rtol=2e-5, atol=2e-5)
-        for name, parameter in self.actor.named_parameters():
-            if name in eager_grads:
-                torch.testing.assert_close(parameter.grad, eager_grads[name], rtol=2e-5, atol=2e-5)
-        self.actor.zero_grad(set_to_none=True)
-        self.report["actor"][
-            "gradient_check"
-        ] = "eager/compiled logits and trainable gradients match"
+        try:
+            self.actor.zero_grad(set_to_none=True)
+            eager = self.actor(local, glob, scalars)
+            eager.square().mean().backward()
+            eager_grads = {
+                name: parameter.grad.detach().clone()
+                for name, parameter in self.actor.named_parameters()
+                if parameter.requires_grad and parameter.grad is not None
+            }
+            self.actor.zero_grad(set_to_none=True)
+            compiled = self.actor_forward(local, glob, scalars)
+            compiled.square().mean().backward()
+            torch.testing.assert_close(compiled, eager.detach(), rtol=2e-5, atol=2e-5)
+            for name, parameter in self.actor.named_parameters():
+                if name in eager_grads:
+                    torch.testing.assert_close(
+                        parameter.grad, eager_grads[name], rtol=2e-5, atol=2e-5
+                    )
+        except Exception as error:
+            # A backwards-only numerical mismatch is not covered by
+            # CompiledBlock's no-grad output validation.  Treat it as the same
+            # per-block failure and continue with the ordinary eager callable.
+            self.actor_block._fallback(error)
+            self.report["actor"]["gradient_check"] = "failed; actor block demoted to eager"
+        else:
+            self.report["actor"][
+                "gradient_check"
+            ] = "eager/compiled logits and trainable gradients match"
+        finally:
+            # This self-check must never leak probe gradients into preparation
+            # or leave the module dirty when a compiler/backend rejects it.
+            self.actor.zero_grad(set_to_none=True)
         return {"status": self.report["actor"]["status"], "rows": int(local.shape[0])}
 
     @torch.no_grad()

@@ -62,20 +62,7 @@ def prepare_completion(
         packet / "registry-check.json", json.loads((original / "registry-check.json").read_text())
     )
     broker = result.manifest
-    # Only the newest eligible full trajectory is required for continuation.
-    # Older completed units are covered by that trajectory's iteration counter.
-    latest_unit = result.ledger["units"][-1]
-    result.ledger["units"] = [latest_unit]
     write_once(packet / "verified-ledger.json", result.ledger)
-    destinations = {row["path"] for row in latest_unit["exports"]}
-    destinations |= {
-        name + suffix for name in list(destinations) for suffix in (".sha256", ".complete")
-    }
-    broker["inputs"] = [
-        row
-        for row in manifest["inputs"]
-        if row["dest"] != "verified-ledger.json" and not row["dest"].startswith("resume/")
-    ] + [row for row in result.input_records if row["dest"] in destinations]
     broker["inputs"].append(
         {
             "path": str(packet / "verified-ledger.json"),

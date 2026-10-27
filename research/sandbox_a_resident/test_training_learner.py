@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 
+import pytest
 import torch
 
 from research.sandbox_a_resident.training_learner import (
@@ -271,3 +272,39 @@ def test_critic_quality_baseline_has_cuda_like_same_device_semantics() -> None:
         torch.tensor([8, 16, 16]),
     )
     assert quality["baseline_mse"] > 0.0
+
+
+def test_critic_quality_uses_parameterized_preparation_thresholds() -> None:
+    lengths = torch.tensor([2.0, 2.0])
+    clocks = torch.tensor([0.5, 1.0])
+    returns = torch.tensor([1.0, 2.0])
+    coefficients = torch.zeros(3)
+    quality = critic_quality(
+        returns,
+        returns,
+        lengths,
+        clocks,
+        coefficients,
+        torch.tensor([1, 0, 0]),
+        late_length=2,
+        min_late_rows=2,
+        min_lives=1,
+        min_lives_per_mix=0,
+        min_late_ev=0.10,
+    )
+    assert quality["late_body_rows"] == 2.0 and quality["passed"] == 1.0
+
+
+def test_complete_life_critic_rejects_tiny_tail_batch() -> None:
+    b8 = Ego2sNet(local_channels=7, n_scalars=60)
+    actor, critic = B8Actor(b8_model=b8), ClockedPopArtCritic(b8)
+    trainer = PPOTrainer(actor, critic, PPOConfig(minibatch=3))
+    with pytest.raises(ValueError, match="complete shuffled minibatches"):
+        trainer.fit_complete_life_critic(
+            torch.zeros((3, 7, 31, 31), dtype=torch.uint8),
+            torch.zeros((3, 4, 37, 37), dtype=torch.uint8),
+            torch.zeros((3, 60)),
+            torch.ones(3),
+            torch.ones(3),
+            minibatch=2,
+        )

@@ -148,6 +148,11 @@ def run_distribution_screen(
 
     def one(factory: Callable[[str, int, int], Any], actor: Any, mix: str) -> dict[str, Any]:
         task = factory(mix, worlds_per_mix, horizon)
+        # The screen reads terminal-frame causes and opponent state after
+        # step().  Its single-life contract therefore forbids resident
+        # automatic replacement worlds.
+        if getattr(getattr(task, "config", None), "auto_reset", False):
+            raise ValueError("distribution screen requires auto_reset=False")
         parameters = getattr(actor, "parameters", None)
         actor_device = (
             next(iter(parameters()), torch.empty(0)).device
@@ -221,7 +226,7 @@ def run_distribution_screen(
             bins = (logical_mass / 200).long().clamp(0, 4)
             length_bins += torch.bincount(bins[first_life & ~terminal], minlength=5)
             deaths += int(terminal.sum())
-            resets += int(tensor(event.reset).bool().sum())
+            resets += int((tensor(event.reset).bool() & first_life).sum())
             for cause in tensor(sim._last_death_cause)[:, 0][terminal].tolist():
                 causes[str(cause)] = causes.get(str(cause), 0) + 1
             # A task is permitted to reset immediately after reporting a hero

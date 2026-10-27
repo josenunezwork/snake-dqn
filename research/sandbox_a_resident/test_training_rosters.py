@@ -79,6 +79,7 @@ def _stub_roster_runtime() -> tuple[object, torch.Tensor]:
         _carry_valid=torch.tensor([True, True]),
         sel_ready=torch.tensor([True, True]),
         sel_fresh=torch.tensor([True, True]),
+        _alive_post=torch.tensor([[True, True], [True, True]]),
         prev_dist=torch.tensor([3.0, 5.0]),
         prev_id=torch.tensor([4, 6]),
     )
@@ -132,3 +133,94 @@ def test_runtime_reset_rekeys_only_completed_world_random_safe_tape() -> None:
     assert torch.equal(table[0], original[0])
     assert torch.equal(table[1], random_table(0x5678, 2, torch.device("cpu")))
     assert not torch.equal(table[1], original[1])
+
+
+def test_runtime_reset_defers_only_reset_row_vector_refresh() -> None:
+    """A reset cannot mutate a carried peer or run prepare before task.observe()."""
+    runtime, _ = _stub_roster_runtime()
+    policy = runtime._groups[0][1]
+    before = {
+        name: getattr(policy.vector_runtime, name).clone()
+        for name in ("carry", "_carry_valid", "sel_ready", "sel_fresh", "prev_dist", "prev_id")
+    }
+    runtime.reset(torch.tensor([False, True]), seeds={1: 0x5678})
+
+    for name, value in before.items():
+        assert torch.equal(getattr(policy.vector_runtime, name)[0], value[0])
+    assert policy._training_pending_prepare.tolist() == [False, True]
+    assert policy.vector_prepared
+    restored = runtime.state_dict()
+    assert restored["groups"][0]["pending_prepare"].tolist() == [False, True]
+
+
+@torch.inference_mode()
+def test_partial_reset_refreshes_real_vector_rows_after_task_observe(monkeypatch) -> None:
+    """A reset row sees prepare-time food while its carried peer stays untouched."""
+    from types import SimpleNamespace
+
+    from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
+    from research.sandbox_a_resident.training_rosters import DeviceRosterRuntime, vector61_params
+    from research.sandbox_a_resident.training_task import ResidentTrainingTask, TrainingTaskConfig
+
+    task = ResidentTrainingTask(TrainingTaskConfig(worlds=3, tiny=True), device="cpu")
+    vector = DeviceVectorRuntime(vector61_params(task.sim.cfg))
+    controlled = torch.tensor([[False] + [True] * 5] * task.sim.E)
+    vector.bind(task.sim, controlled)
+    task.observe()
+    vector.prepare(task.sim)
+    peer_selection = vector.sel_state[1].clone()
+
+    runtime = object.__new__(DeviceRosterRuntime)
+    runtime.device = torch.device("cpu")
+    policy = SimpleNamespace(vector_runtime=vector, vector_prepared=True)
+
+    def policy_actions(sim, _actions):
+        if not policy.vector_prepared:
+            vector.prepare(sim)
+            policy.vector_prepared = True
+        return torch.ones((sim.E, sim.S), dtype=torch.long)
+
+    policy.actions = policy_actions
+    runtime._groups = [(torch.arange(task.sim.E), policy, {})]
+
+    calls: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+    original_prepare = vector.prepare
+
+    def record_prepare(sim, rows_mask=None):
+        calls.append(
+            (
+                torch.ones(sim.E, dtype=torch.bool) if rows_mask is None else rows_mask.clone(),
+                sim.food_count.clone(),
+                sim.alive.clone(),
+            )
+        )
+        original_prepare(sim, rows_mask)
+
+    monkeypatch.setattr(vector, "prepare", record_prepare)
+    task.sim.alive[1, 1] = False
+    task.sim.respawn_timer[1, 1] = 0
+    reset = torch.tensor([True, False, False])
+    task.reset(reset)
+    runtime.reset(reset, seeds={0: 17})
+    assert calls == []
+    task.observe()
+    assert task.sim.food_count[0].item() > 0
+    assert task.sim.alive[1, 1]
+    runtime.actions(task.sim, torch.ones(task.sim.E, dtype=torch.long))
+
+    assert len(calls) == 1
+    mask, food_count, alive = calls[0]
+    assert mask.tolist() == [True, False, False]
+    assert food_count[0].item() > 0
+    assert alive[1, 1]
+    assert torch.equal(vector.sel_state[1], peer_selection)
+
+    # The normal after-step path remains one complete-group prepare; a pending
+    # reset does not add a second prepare to that same decision seam.
+    calls.clear()
+    policy.vector_prepared = False
+    policy._training_pending_prepare[:] = True
+    runtime.actions(task.sim, torch.ones(task.sim.E, dtype=torch.long))
+    assert len(calls) == 1
+    assert calls[0][0].all()
+    assert not policy._training_pending_prepare.any()

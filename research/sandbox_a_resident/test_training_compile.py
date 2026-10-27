@@ -35,6 +35,24 @@ def test_compile_adapter_keeps_actor_state_and_export_surface_unwrapped() -> Non
     assert compiled.gradient_probe(local, glob, scalars)["status"] == "compiled"
 
 
+def test_gradient_probe_demotes_to_eager_and_clears_grads_on_numerical_failure(monkeypatch) -> None:
+    actor = B8Actor(b8_model=Ego2sNet(local_channels=7, n_scalars=60))
+    adapter = TrainingCompile(actor, mode="default", backend="eager")
+    local, glob, scalars = _inputs(2)
+    original = adapter.actor_forward
+
+    def mismatched(*args):
+        return original(*args) + 1.0
+
+    monkeypatch.setattr(adapter, "actor_forward", mismatched)
+    result = adapter.gradient_probe(local, glob, scalars)
+    assert result["status"] == "eager_fallback"
+    assert adapter.actor_block.compiled is None
+    assert adapter.report["actor"]["gradient_check"] == "failed; actor block demoted to eager"
+    assert "AssertionError" in adapter.report["actor"]["fallback_reason"]
+    assert all(parameter.grad is None for parameter in actor.parameters())
+
+
 def test_compile_adapter_runtime_self_check_is_small_and_resume_safe() -> None:
     torch.set_num_threads(1)
     actor = B8Actor(b8_model=Ego2sNet(local_channels=7, n_scalars=60))

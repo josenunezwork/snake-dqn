@@ -166,6 +166,12 @@ def critic_quality(
     remaining_horizon: torch.Tensor,
     baseline_coefficients: torch.Tensor,
     heldout_lives_per_mix: torch.Tensor,
+    *,
+    late_length: int = 800,
+    min_late_rows: int = 160,
+    min_lives: int = 40,
+    min_lives_per_mix: int = 8,
+    min_late_ev: float = 0.10,
 ) -> dict[str, float]:
     """Evaluate Astra's held-out complete-life critic acceptance quantities."""
     vectors = (predictions, returns, lengths, remaining_horizon)
@@ -176,8 +182,14 @@ def critic_quality(
         raise ValueError("critic quality vectors must be equal-length")
     if baseline_coefficients.shape != (3,) or heldout_lives_per_mix.shape != (3,):
         raise ValueError("need [3] baseline coefficients and lives-per-mix")
-    late = lengths >= 800
-    if late.sum() < 160 or heldout_lives_per_mix.sum() < 40 or (heldout_lives_per_mix < 8).any():
+    if late_length < 0 or min_late_rows < 0 or min_lives < 0 or min_lives_per_mix < 0:
+        raise ValueError("critic quality thresholds must be nonnegative")
+    late = lengths >= late_length
+    if (
+        late.sum() < min_late_rows
+        or heldout_lives_per_mix.sum() < min_lives
+        or (heldout_lives_per_mix < min_lives_per_mix).any()
+    ):
         raise ValueError("insufficient held-out late-body rows or completed lives")
     prediction, target = predictions[late].float(), returns[late].float()
     baseline = _baseline_predictions(
@@ -187,7 +199,7 @@ def critic_quality(
     baseline_mse = (baseline - target).square().mean()
     variance = (target - target.mean()).square().mean().clamp_min(1e-8)
     ev = 1.0 - (prediction - target).var(unbiased=False) / variance
-    passed = bool(ev >= 0.10 and mse < baseline_mse)
+    passed = bool(ev >= min_late_ev and mse < baseline_mse)
     return {
         "late_body_rows": float(late.sum()),
         "heldout_lives": float(heldout_lives_per_mix.sum()),
@@ -283,6 +295,11 @@ class PPOTrainer:
         n = returns.numel()
         if n < 1 or any(value.shape[0] != n for value in (local, glob, scalars, remaining_horizon)):
             raise ValueError("complete-life critic inputs must share a positive leading dimension")
+        if minibatch < 1 or n % minibatch:
+            raise ValueError("critic preparation requires complete shuffled minibatches")
+        order = torch.randperm(n, device=returns.device)
+        local, glob, scalars = local[order], glob[order], scalars[order]
+        remaining_horizon, returns = remaining_horizon[order], returns[order]
         self.critic.update_targets(returns, self.critic_optimizer)
         losses = []
         for start in range(0, n, minibatch):

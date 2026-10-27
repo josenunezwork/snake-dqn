@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 
 from research.sandbox_a_resident.prepare import runtime_source_paths
+from research.sandbox_a_resident.training_task import seed_allocations
 from research.sandbox_a_resident.training_units import empty_ledger
 from tools.sandbox.registry import (
     TRAINING_OPPONENTS,
@@ -58,20 +59,6 @@ def source_paths(commit: str) -> list[str]:
         )
     ]
     return sorted(set(runtime_source_paths(commit)) | set(additions))
-
-
-def seed_allocations(control: dict[str, Any]) -> list[dict[str, Any]]:
-    """Bound every potential natural reset, including one-frame deaths."""
-    e = control["worlds"]
-    ticks = control["outer_iterations"] * control["rollout_horizon"]
-    return [
-        {"phase": "train", "offset": 0, "count": (ticks + 1) * e},
-        {"phase": "calibration", "offset": 200_000_000, "count": 5_242_880 + e},
-        {"phase": "critic", "offset": 300_000_000, "count": 8_388_608 + e},
-        {"phase": "monitor", "offset": 400_000_000, "count": 3 * 96},
-        {"phase": "nomination", "offset": 500_000_000, "count": 3 * 256},
-        {"phase": "engineering", "offset": 600_000_000, "count": 3 * 32},
-    ]
 
 
 def audit_seeds(allocations: list[dict[str, Any]], registry_path: Path) -> dict[str, Any]:

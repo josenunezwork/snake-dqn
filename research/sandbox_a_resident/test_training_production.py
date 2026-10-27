@@ -70,7 +70,15 @@ def production(monkeypatch, tmp_path):
         def attach_opponents(self, opponents):
             pass
 
-        def proxy_factory(self, opponents):
+        def proxy_factory(self, opponents, allocations):
+            assert {row["phase"] for row in allocations} == {
+                "train",
+                "calibration",
+                "critic",
+                "monitor",
+                "nomination",
+                "engineering",
+            }
             return lambda *args: None
 
         def state_dict(self):
@@ -226,3 +234,32 @@ def test_material_distribution_gap_stops_before_preparation(production, tmp_path
         == "distribution-screen-failed"
     )
     assert not (tmp_path / "failure/iteration-0000.pt").exists()
+
+
+def test_production_tasks_use_exact_audited_phase_bounds(production, tmp_path, monkeypatch):
+    control, _calls = production
+    original_task, original_prepare = train.ResidentTrainingTask, train.prepare
+    configs = []
+
+    def make_task(config, **kwargs):
+        configs.append(config)
+        return original_task(config, **kwargs)
+
+    def preparation(factory, *args, **kwargs):
+        factory("calibration")
+        factory("refit")
+        return original_prepare(factory, *args, **kwargs)
+
+    monkeypatch.setattr(train, "ResidentTrainingTask", make_task)
+    monkeypatch.setattr(train, "prepare", preparation)
+    execute(control, tmp_path / "bounds")
+    allocations = train.seed_allocations(vars(control))
+    assert len(configs) == 3
+    for config, allocation in zip(configs, allocations[:3], strict=True):
+        assert config.allocation_phase_offset == allocation["offset"]
+        assert config.allocation_count == allocation["count"]
+        assert config.allocation_offset >= allocation["offset"]
+        assert (
+            config.allocation_offset + config.worlds * config.max_episodes
+            <= allocation["offset"] + allocation["count"]
+        )

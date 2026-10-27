@@ -39,7 +39,11 @@ from research.sandbox_a_resident.training_rosters import (
     FRP3_S12_SHA256,
     DeviceRosterRuntime,
 )
-from research.sandbox_a_resident.training_task import ResidentTrainingTask, TrainingTaskConfig
+from research.sandbox_a_resident.training_task import (
+    ResidentTrainingTask,
+    TrainingTaskConfig,
+    seed_allocations,
+)
 from research.sandbox_a_resident.training_units import allocation, load_ledger, publish_snapshot
 from research.sandbox_a_resident.units import digest, publish
 from src.model.inference_agent import InferenceAgent
@@ -340,10 +344,14 @@ def run(
     actor = B8Actor(checkpoint).to(dev)
     critic = ClockedPopArtCritic(actor.reference).to(dev)
     trainer = PPOTrainer(actor, critic, PPOConfig())
+    audited_allocations = {row["phase"]: row for row in seed_allocations(asdict(control))}
+    train_allocation = audited_allocations["train"]
     task = ResidentTrainingTask(
         TrainingTaskConfig(
             worlds=control.worlds,
             allocation_offset=control.train_seed_offset,
+            allocation_phase_offset=train_allocation["offset"],
+            allocation_count=train_allocation["count"],
             max_episodes=control.outer_iterations * control.rollout_horizon + 1,
             tiny=control.test_only,
         ),
@@ -375,7 +383,7 @@ def run(
     compile_check = compiled.runtime_self_check(control.worlds)
     # The screen is a mandatory simulator-D gross-error diagnostic before the
     # real trajectory, deliberately separate from any efficacy/gate evidence.
-    proxy_factory = task.proxy_factory(opponents)
+    proxy_factory = task.proxy_factory(opponents, list(audited_allocations.values()))
     start, metrics, prep_state, resumed = 0, [], None, False
     last_heartbeat = time.monotonic()
     action_window = torch.empty(0, dtype=torch.long)
@@ -430,12 +438,14 @@ def run(
     def prep_task_factory(phase: str) -> ResidentTrainingTask:
         if phase not in {"calibration", "refit"}:
             raise ValueError("unknown frozen preparation phase")
-        cap = 5_242_880 if phase == "calibration" else 8_388_608
+        allocation = audited_allocations["calibration" if phase == "calibration" else "critic"]
         prepared_task = ResidentTrainingTask(
             TrainingTaskConfig(
                 worlds=24,
-                allocation_offset=200_000_000 if phase == "calibration" else 300_000_000,
-                max_episodes=cap // 24 + 1,
+                allocation_offset=allocation["offset"],
+                allocation_phase_offset=allocation["offset"],
+                allocation_count=allocation["count"],
+                max_episodes=allocation["count"] // 24,
             ),
             device=str(dev),
         )

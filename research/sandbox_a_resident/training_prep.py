@@ -3,7 +3,7 @@
 This is deliberately a sandbox-local consumer of :class:`ResidentTrainingTask`.
 It does not alter the R2/T4A simulator or its policies.  The collector keeps a
 complete *open life* until its natural death/H5000 cut, calculates its exact
-gamma-one suffix targets, and immediately trains or validates it.  Thus the
+gamma-one suffix targets, and stages it for shuffled fitting or validation.  Thus the
 production row targets do not imply a multi-million-row GPU observation cache.
 """
 
@@ -16,6 +16,10 @@ from typing import Any, Callable, Mapping, Protocol
 
 import torch
 
+from research.sandbox_a_resident.training_learner import (
+    critic_quality,
+    fit_time_length_baseline,
+)
 from research.sandbox_a_resident.training_model import (
     B8Actor,
     ClockedPopArtCritic,
@@ -65,7 +69,7 @@ class PreparationConfig:
     prep_worlds: int = 24
     critic_max_rows: int = 8_388_608
     critic_min_fit_rows: int = 2_000_000
-    holdout_modulus: int = 5
+    holdout_modulus: int = 4
     holdout_remainder: int = 0
     min_holdout_lives: int = 40
     min_holdout_late_rows: int = 160
@@ -87,9 +91,9 @@ class PreparationConfig:
             raise ValueError("invalid bounded calibration row contract")
         if self.calibration_rows != self.calibration_quota_per_bin * 5:
             raise ValueError("TRAIN-01 calibration freezes five equal length-bin quotas")
-        if self.prep_worlds not in (3, 24) or self.max_open_rows < self.prep_worlds * 5000:
+        if self.prep_worlds not in (6, 24) or self.max_open_rows < self.prep_worlds * 5000:
             raise ValueError(
-                "preparation needs frozen E24 (or explicit E3 test fixture) full-life staging"
+                "preparation needs frozen E24 (or explicit E6 test fixture) full-life staging"
             )
         if not 0 < self.critic_min_fit_rows <= self.critic_max_rows:
             raise ValueError("invalid bounded critic row contract")
@@ -108,7 +112,7 @@ class PreparationConfig:
             calibration_rows=10,
             calibration_max_rows=24,
             calibration_quota_per_bin=2,
-            prep_worlds=3,
+            prep_worlds=6,
             critic_max_rows=240,
             critic_min_fit_rows=12,
             min_holdout_lives=2,
@@ -117,8 +121,9 @@ class PreparationConfig:
             late_length=2,
             critic_batch=8,
             metric_cache_rows=64,
-            max_open_rows=15_000,
+            max_open_rows=30_000,
             progress_rows=10,
+            holdout_modulus=2,
         )
 
 
@@ -317,29 +322,56 @@ def _batch_rows(rows: list[_Row], device: torch.device) -> tuple[torch.Tensor, .
     return local, glob, scalars, clock, targets
 
 
-def _fit_life(
-    life: _Life,
+def _permutation(count: int, generator: torch.Generator) -> list[int]:
+    """Return a CPU index list from either a CPU or CUDA generator."""
+    return torch.randperm(count, generator=generator, device=generator.device).cpu().tolist()
+
+
+def _take_cross_life_batch(
+    staged_lives: list[list[_Row]], config: PreparationConfig, generator: torch.Generator
+) -> list[_Row] | None:
+    """Draw one full shuffled batch only after at least two lives are available.
+
+    Reserving one row from every staged completed life prevents a long first
+    life from recreating the chronological single-life updates this staging
+    boundary exists to remove.  Remaining rows are sampled without replacement
+    and the completed batch itself is shuffled once more.
+    """
+    nonempty = [life for life in staged_lives if life]
+    available = sum(len(life) for life in nonempty)
+    if len(nonempty) < 2 or available < config.critic_batch:
+        return None
+    chosen = [life.pop(0) for life in nonempty]
+    pool = [(life, index) for life in nonempty for index in range(len(life))]
+    for pool_index in sorted(
+        _permutation(len(pool), generator)[: config.critic_batch - len(chosen)], reverse=True
+    ):
+        life, index = pool[pool_index]
+        chosen.append(life.pop(index))
+    staged_lives[:] = [life for life in staged_lives if life]
+    return [chosen[index] for index in _permutation(len(chosen), generator)]
+
+
+def _fit_batch(
+    rows: list[_Row],
     critic: ClockedPopArtCritic,
     optimizer: torch.optim.Optimizer,
     config: PreparationConfig,
 ) -> None:
-    if not life.rows:
-        return
-    training = _suffix_rows(life)
+    """Fit one complete shuffled critic batch; callers retain short tails."""
+    if len(rows) != config.critic_batch:
+        raise ValueError("critic preparation batches must have the frozen full size")
     device = next(critic.parameters()).device
-    for offset in range(0, len(training), config.critic_batch):
-        local, glob, scalars, clock, value = _batch_rows(
-            training[offset : offset + config.critic_batch], device
-        )
-        critic.update_targets(value, optimizer)
-        prediction = critic(local, glob, scalars, clock)
-        loss = (critic.normalise(prediction) - critic.normalise(value)).square().mean()
-        if not torch.isfinite(loss):
-            raise FloatingPointError("nonfinite critic preparation loss")
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(critic.parameters(), 0.5, error_if_nonfinite=True)
-        optimizer.step()
+    local, glob, scalars, clock, value = _batch_rows(rows, device)
+    critic.update_targets(value, optimizer)
+    prediction = critic(local, glob, scalars, clock)
+    loss = 0.5 * (critic.normalise(prediction) - critic.normalise(value)).square().mean()
+    if not torch.isfinite(loss):
+        raise FloatingPointError("nonfinite critic preparation loss")
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(critic.parameters(), 0.5, error_if_nonfinite=True)
+    optimizer.step()
 
 
 def _suffix_rows(life: _Life) -> list[_Row]:
@@ -352,36 +384,6 @@ def _suffix_rows(life: _Life) -> list[_Row]:
         output.append(target)
     output.reverse()
     return output
-
-
-def _evaluate(rows: list[_MetricRow]) -> dict[str, float]:
-    if not rows:
-        return {"mse": math.inf, "baseline_mse": math.inf, "late_ev": -math.inf}
-    if any(row.prediction is None for row in rows):
-        raise PreparationFailure("held-out quality record is missing frozen-critic prediction")
-    predicted = torch.tensor([float(row.prediction) for row in rows])
-    target = torch.tensor([row.target for row in rows])
-    mse = float((predicted - target).square().mean())
-    late = torch.tensor([row.length >= 800 for row in rows])
-    late_target, late_prediction = target[late], predicted[late]
-    variance = float(late_target.var(unbiased=False)) if late_target.numel() else 0.0
-    late_ev = (
-        -math.inf
-        if variance <= 0
-        else 1.0 - float((late_target - late_prediction).square().mean()) / variance
-    )
-    return {"mse": mse, "late_ev": late_ev, "baseline_mse": math.inf}
-
-
-def _fit_baseline(rows: list[_MetricRow]) -> tuple[torch.Tensor, float]:
-    if len(rows) < 3:
-        return torch.zeros(3), math.inf
-    x = torch.tensor([[1.0, row.clock, row.length] for row in rows], dtype=torch.float64)
-    y = torch.tensor([row.target for row in rows], dtype=torch.float64)
-    coefficient = torch.linalg.lstsq(x, y).solution
-    return coefficient.float(), float(
-        ((x.float() @ coefficient.float() - y.float()).square().mean())
-    )
 
 
 def prepare(
@@ -425,10 +427,8 @@ def prepare(
         # This is the immutable pre-actor boundary.  No critic life has been
         # sampled yet, so the runner can publish it before entering refit.
         on_calibrated(result, actor, critic, optimizer)
-    # Fit and held-out collection are separate fresh task instances.  This lets
-    # us discard holdout observations before the critic is frozen, then retain
-    # only final frozen-critic predictions/targets for quality.  Whole world
-    # slots remain disjoint across the two passes.
+    # Whole-world fit/holdout slots remain disjoint.  Holdout collection later
+    # continues this task through a seam so it never restarts a seed allocation.
     task = task_factory("refit")
     worlds = int(task.age.numel())
     if worlds != config.prep_worlds:
@@ -436,7 +436,8 @@ def prepare(
             f"refit task E{worlds} differs from frozen preparation E{config.prep_worlds}"
         )
     lives = [_Life() for _ in range(worlds)]
-    fit_metrics: list[_MetricRow] = []
+    staged_lives: list[list[_Row]] = []
+    fit_scalar_chunks: list[torch.Tensor] = []
     next_progress = config.progress_rows
     while result.fit_rows < config.critic_min_fit_rows:
         # The finite cap charges every simulated world, including the holdout
@@ -483,14 +484,22 @@ def prepare(
                     "open complete-life trajectory storage cap exceeded", result
                 )
             if bool(cpu_completed[index]):
-                _fit_life(lives[index], critic, optimizer, config)
                 completed_rows = _suffix_rows(lives[index])
-                result.fit_rows += len(completed_rows)
-                fit_metrics.extend(
-                    _MetricRow(row.length, row.clock, row.reward) for row in completed_rows
+                # Retain all three fit scalar columns for the required global
+                # float64 baseline, while staging observations only until a
+                # full cross-life minibatch can be shuffled and fitted.
+                fit_scalar_chunks.append(
+                    torch.tensor(
+                        [(row.length, row.clock, row.reward) for row in completed_rows],
+                        dtype=torch.float32,
+                    )
                 )
-                if len(fit_metrics) > config.metric_cache_rows:
-                    del fit_metrics[: len(fit_metrics) - config.metric_cache_rows]
+                staged_lives.append(completed_rows)
+                while (
+                    batch := _take_cross_life_batch(staged_lives, config, generator)
+                ) is not None:
+                    _fit_batch(batch, critic, optimizer, config)
+                    result.fit_rows += len(batch)
                 lives[index] = _Life()
         if result.critic_rows >= next_progress:
             _progress("critic-fit", result.critic_rows, config.critic_max_rows, on_progress)
@@ -502,97 +511,143 @@ def prepare(
             "critic fit row cap reached before fixed 2M completed-life rows", result
         )
 
-    baseline_coef, _ = _fit_baseline(fit_metrics)
+    fit_scalars = torch.cat(fit_scalar_chunks)
+    baseline_coef = fit_time_length_baseline(
+        fit_scalars[:, 0], fit_scalars[:, 1], fit_scalars[:, 2]
+    )
     # Freeze the learned critic before fresh holdout worlds.  The stored
     # validation records below contain only scalar targets and predictions.
+    critic_was_training = critic.training
     critic.eval()
-    task = task_factory("refit")
-    lives = [_Life() for _ in range(worlds)]
-    holdout_metrics: list[_MetricRow] = []
+    try:
+        # Continue the already-running fresh task instead of restarting the same
+        # refit seed allocation.  The first terminating life per holdout world is
+        # discarded below because it straddles the fit/holdout seam.
+        lives = [_Life() for _ in range(worlds)]
+        holdout_metrics: list[_MetricRow] = []
+        holdout_started = [False] * worlds
 
-    def support_complete() -> bool:
-        return (
-            result.completed_holdout_lives >= config.min_holdout_lives
-            and result.late_holdout_rows >= config.min_holdout_late_rows
-            and min(result.holdout_lives_by_mix.values(), default=0)
-            >= config.min_holdout_lives_per_mix
-        )
-
-    while not support_complete():
-        if result.critic_rows + worlds > config.critic_max_rows:
-            break
-        local, glob, scalars, legal = task.observe()
-        with torch.no_grad():
-            logits = actor.reference_logits(local, glob, scalars)
-            action = torch.multinomial(
-                categorical(logits, legal).probs, 1, generator=generator
-            ).squeeze(-1)
-        length = _lengths(task, worlds, logits.device)
-        clock = (task.config.horizon - task.age).clamp_min(0).float() / task.config.horizon
-        step = task.step(action)
-        result.critic_rows += worlds
-        completed = getattr(step, "reset", step.terminal | step.cut)
-        rewards = step.reward.detach().float()
-        cpu_observation = tuple(value.detach().cpu() for value in (local, glob, scalars))
-        cpu_length, cpu_clock, cpu_reward = length.cpu(), clock.cpu(), rewards.cpu()
-        cpu_completed, cpu_mix = completed.cpu(), task.roster_id.cpu()
-        for index in range(worlds):
-            if _world_split(index, config) != "holdout":
-                continue
-            lives[index].rows.append(
-                _Row(
-                    tuple(value[index : index + 1] for value in cpu_observation),
-                    float(cpu_length[index]),
-                    float(cpu_clock[index]),
-                    float(cpu_reward[index]),
-                    int(cpu_mix[index]),
-                )
+        def support_complete() -> bool:
+            return (
+                result.completed_holdout_lives >= config.min_holdout_lives
+                and result.late_holdout_rows >= config.min_holdout_late_rows
+                and min(result.holdout_lives_by_mix.values(), default=0)
+                >= config.min_holdout_lives_per_mix
             )
-            if sum(len(life.rows) for life in lives) > config.max_open_rows:
-                result.stage, result.task_state = "failed", task.state_dict()
-                raise PreparationFailure("open held-out life storage cap exceeded", result)
-            if bool(cpu_completed[index]):
-                completed_rows = _suffix_rows(lives[index])
-                with torch.no_grad():
-                    for offset in range(0, len(completed_rows), config.critic_batch):
-                        local_b, glob_b, scalars_b, clock_b, _ = _batch_rows(
-                            completed_rows[offset : offset + config.critic_batch],
-                            next(critic.parameters()).device,
-                        )
-                        prediction = critic(local_b, glob_b, scalars_b, clock_b).cpu().tolist()
-                        holdout_metrics.extend(
-                            _MetricRow(row.length, row.clock, row.reward, value)
-                            for row, value in zip(
-                                completed_rows[offset : offset + config.critic_batch], prediction
-                            )
-                        )
-                result.holdout_rows += len(completed_rows)
-                result.completed_holdout_lives += 1
-                mix = _mix_name(completed_rows[0].mix)
-                result.holdout_lives_by_mix[mix] = result.holdout_lives_by_mix.get(mix, 0) + 1
-                result.late_holdout_rows += sum(
-                    row.length >= config.late_length for row in completed_rows
-                )
-                lives[index] = _Life()
-        if result.critic_rows >= next_progress:
-            _progress("critic-holdout", result.critic_rows, config.critic_max_rows, on_progress)
-            next_progress += config.progress_rows
 
-    metrics = _evaluate(holdout_metrics)
-    if holdout_metrics and torch.isfinite(baseline_coef).all():
-        x = torch.tensor([[1.0, row.clock, row.length] for row in holdout_metrics])
-        y = torch.tensor([row.target for row in holdout_metrics])
-        metrics["baseline_mse"] = float((x @ baseline_coef - y).square().mean())
-    result.quality = metrics
-    support = support_complete()
-    quality = metrics["late_ev"] >= config.min_late_ev and metrics["mse"] < metrics["baseline_mse"]
-    if result.fit_rows < config.critic_min_fit_rows or not support or not quality:
-        result.stage = "failed"
-        raise PreparationFailure(
-            "critic preparation endpoint failed: "
-            f"fit={result.fit_rows}, holdout_lives={result.completed_holdout_lives}, "
-            f"quality={metrics}",
-            result,
-        )
-    result.stage, result.task_state = "ready", None
-    return PreparationResult(result, actor, critic, optimizer)
+        while not support_complete():
+            if result.critic_rows + worlds > config.critic_max_rows:
+                break
+            local, glob, scalars, legal = task.observe()
+            with torch.no_grad():
+                logits = actor.reference_logits(local, glob, scalars)
+                action = torch.multinomial(
+                    categorical(logits, legal).probs, 1, generator=generator
+                ).squeeze(-1)
+            length = _lengths(task, worlds, logits.device)
+            clock = (task.config.horizon - task.age).clamp_min(0).float() / task.config.horizon
+            try:
+                step = task.step(action)
+            except BaseException:
+                # The holdout critic is deliberately frozen only within this
+                # phase; task failures must not leak that mode to the caller.
+                raise
+            result.critic_rows += worlds
+            completed = getattr(step, "reset", step.terminal | step.cut)
+            rewards = step.reward.detach().float()
+            cpu_observation = tuple(value.detach().cpu() for value in (local, glob, scalars))
+            cpu_length, cpu_clock, cpu_reward = length.cpu(), clock.cpu(), rewards.cpu()
+            cpu_completed, cpu_mix = completed.cpu(), task.roster_id.cpu()
+            for index in range(worlds):
+                if _world_split(index, config) != "holdout":
+                    continue
+                if not holdout_started[index]:
+                    if bool(cpu_completed[index]):
+                        holdout_started[index] = True
+                    continue
+                lives[index].rows.append(
+                    _Row(
+                        tuple(value[index : index + 1] for value in cpu_observation),
+                        float(cpu_length[index]),
+                        float(cpu_clock[index]),
+                        float(cpu_reward[index]),
+                        int(cpu_mix[index]),
+                    )
+                )
+                if sum(len(life.rows) for life in lives) > config.max_open_rows:
+                    result.stage, result.task_state = "failed", task.state_dict()
+                    raise PreparationFailure("open held-out life storage cap exceeded", result)
+                if bool(cpu_completed[index]):
+                    completed_rows = _suffix_rows(lives[index])
+                    try:
+                        with torch.no_grad():
+                            for offset in range(0, len(completed_rows), config.critic_batch):
+                                local_b, glob_b, scalars_b, clock_b, _ = _batch_rows(
+                                    completed_rows[offset : offset + config.critic_batch],
+                                    next(critic.parameters()).device,
+                                )
+                                prediction = (
+                                    critic(local_b, glob_b, scalars_b, clock_b).cpu().tolist()
+                                )
+                                holdout_metrics.extend(
+                                    _MetricRow(row.length, row.clock, row.reward, value)
+                                    for row, value in zip(
+                                        completed_rows[offset : offset + config.critic_batch],
+                                        prediction,
+                                    )
+                                )
+                    except BaseException:
+                        raise
+                    result.holdout_rows += len(completed_rows)
+                    result.completed_holdout_lives += 1
+                    mix = _mix_name(completed_rows[0].mix)
+                    result.holdout_lives_by_mix[mix] = result.holdout_lives_by_mix.get(mix, 0) + 1
+                    result.late_holdout_rows += sum(
+                        row.length >= config.late_length for row in completed_rows
+                    )
+                    lives[index] = _Life()
+            if result.critic_rows >= next_progress:
+                _progress("critic-holdout", result.critic_rows, config.critic_max_rows, on_progress)
+                next_progress += config.progress_rows
+
+        try:
+            metrics = critic_quality(
+                torch.tensor([float(row.prediction) for row in holdout_metrics]),
+                torch.tensor([row.target for row in holdout_metrics]),
+                torch.tensor([row.length for row in holdout_metrics]),
+                torch.tensor([row.clock for row in holdout_metrics]),
+                baseline_coef,
+                torch.tensor(
+                    [result.holdout_lives_by_mix[_mix_name(mix)] for mix in range(3)],
+                    dtype=torch.long,
+                ),
+                late_length=config.late_length,
+                min_late_rows=config.min_holdout_late_rows,
+                min_lives=config.min_holdout_lives,
+                min_lives_per_mix=config.min_holdout_lives_per_mix,
+                min_late_ev=config.min_late_ev,
+            )
+        except ValueError:
+            metrics = {
+                "mse": math.inf,
+                "baseline_mse": math.inf,
+                "explained_variance": -math.inf,
+                "late_body_rows": 0.0,
+                "heldout_lives": 0.0,
+                "passed": 0.0,
+            }
+        result.quality = metrics
+        support = support_complete()
+        quality = bool(metrics["passed"])
+        if result.fit_rows < config.critic_min_fit_rows or not support or not quality:
+            result.stage = "failed"
+            raise PreparationFailure(
+                "critic preparation endpoint failed: "
+                f"fit={result.fit_rows}, holdout_lives={result.completed_holdout_lives}, "
+                f"quality={metrics}",
+                result,
+            )
+        result.stage, result.task_state = "ready", None
+        return PreparationResult(result, actor, critic, optimizer)
+    finally:
+        critic.train(critic_was_training)

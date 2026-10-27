@@ -6,10 +6,14 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+from research.sandbox_a_resident import training_prep
 from research.sandbox_a_resident.training_model import B8Actor, ClockedPopArtCritic
 from research.sandbox_a_resident.training_prep import (
     PreparationConfig,
     PreparationFailure,
+    _Row,
+    _take_cross_life_batch,
+    _world_split,
     calibrate,
     prepare,
     solve_temperature,
@@ -22,29 +26,30 @@ class Task:
         self.stage = stage
         self.tick = 0
         self.config = SimpleNamespace(horizon=5000)
-        self.age = torch.zeros(3, dtype=torch.long)
-        self.roster_id = torch.tensor([0, 1, 2])
-        self.sim = SimpleNamespace(length=torch.tensor([[100], [250], [450]], dtype=torch.long))
+        self.age = torch.zeros(6, dtype=torch.long)
+        self.roster_id = torch.tensor([0, 1, 2, 0, 1, 2])
+        self.sim = SimpleNamespace(
+            length=torch.tensor([[100], [250], [450], [100], [250], [450]], dtype=torch.long)
+        )
 
     def observe(self):
         return (
-            torch.zeros((3, 7, 31, 31), dtype=torch.uint8),
-            torch.zeros((3, 4, 37, 37), dtype=torch.uint8),
-            torch.zeros((3, 60)),
-            torch.ones((3, 6), dtype=torch.bool),
+            torch.zeros((6, 7, 31, 31), dtype=torch.uint8),
+            torch.zeros((6, 4, 37, 37), dtype=torch.uint8),
+            torch.zeros((6, 60)),
+            torch.ones((6, 6), dtype=torch.bool),
         )
 
     def step(self, action):
         del action
         self.tick += 1
         self.age += 1
-        self.sim.length[:, 0] = torch.tensor(
-            ([650, 850, 100], [250, 450, 650], [850, 100, 250])[self.tick % 3]
-        )
+        values = ([650, 850, 100], [250, 450, 650], [850, 100, 250])[self.tick % 3]
+        self.sim.length[:, 0] = torch.tensor(values * 2)
         reset = self.age.ge(2)
         self.age[reset] = 0
         return SimpleNamespace(
-            reward=torch.ones(3), terminal=reset, cut=torch.zeros(3, dtype=torch.bool), reset=reset
+            reward=torch.ones(6), terminal=reset, cut=torch.zeros(6, dtype=torch.bool), reset=reset
         )
 
     def state_dict(self):
@@ -125,6 +130,120 @@ def test_failed_tiny_critic_endpoint_never_returns_actor_ready():
         prepare(factory, actor, critic, config, torch.Generator().manual_seed(5))
     # The fixed tiny task has constant return, so late EV cannot meet .10;
     # preparation failure is terminal before the PPO loop receives an actor.
+    assert critic.training
+
+
+def test_critic_batches_wait_for_and_mix_completed_lives() -> None:
+    config = replace(PreparationConfig.tiny(), critic_batch=4)
+
+    def row(mix: int) -> _Row:
+        return _Row(
+            (
+                torch.zeros((1, 7, 31, 31), dtype=torch.uint8),
+                torch.zeros((1, 4, 37, 37), dtype=torch.uint8),
+                torch.zeros((1, 60)),
+            ),
+            1.0,
+            1.0,
+            1.0,
+            mix,
+        )
+
+    staged = [[row(0) for _ in range(4)]]
+    assert _take_cross_life_batch(staged, config, torch.Generator().manual_seed(7)) is None
+    staged.append([row(1) for _ in range(4)])
+    batch = _take_cross_life_batch(staged, config, torch.Generator().manual_seed(7))
+    assert batch is not None and len(batch) == config.critic_batch
+    assert {value.mix for value in batch} == {0, 1}
+
+
+def test_holdout_split_is_mix_balanced_for_production_and_tiny_fixture() -> None:
+    for worlds, config in ((24, PreparationConfig()), (6, PreparationConfig.tiny())):
+        counts = [
+            sum(
+                _world_split(index, config) == "holdout" and index % 3 == mix
+                for index in range(worlds)
+            )
+            for mix in range(3)
+        ]
+        assert max(counts) - min(counts) <= 1 and min(counts) > 0
+
+
+def test_fit_row_accounting_only_counts_full_optimizer_batches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actor, critic = _models()
+    consumed: list[int] = []
+    original = training_prep._fit_batch
+
+    def record(*args: object, **kwargs: object) -> None:
+        rows = args[0]
+        consumed.append(len(rows))  # type: ignore[arg-type]
+        original(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(training_prep, "_fit_batch", record)
+    with pytest.raises(PreparationFailure) as failed:
+        prepare(factory, actor, critic, PreparationConfig.tiny(), torch.Generator().manual_seed(17))
+    assert failed.value.state is not None
+    assert consumed and set(consumed) == {PreparationConfig.tiny().critic_batch}
+    assert failed.value.state.fit_rows == sum(consumed)
+
+
+def test_critic_mode_is_restored_when_heldout_forward_raises() -> None:
+    actor, critic = _models()
+
+    def fail_only_during_frozen_holdout(module: torch.nn.Module, _args: tuple[object, ...]) -> None:
+        if not module.training:
+            raise RuntimeError("heldout forward failed")
+
+    hook = critic.register_forward_pre_hook(fail_only_during_frozen_holdout)
+    try:
+        with pytest.raises(RuntimeError, match="heldout forward failed"):
+            prepare(
+                factory, actor, critic, PreparationConfig.tiny(), torch.Generator().manual_seed(19)
+            )
+    finally:
+        hook.remove()
+    assert critic.training
+
+
+def test_critic_mode_is_restored_when_heldout_task_step_raises() -> None:
+    class FailingHoldoutTask(Task):
+        def step(self, action):
+            if self.tick >= 4:
+                raise RuntimeError("heldout task step failed")
+            return super().step(action)
+
+    actor, critic = _models()
+    with pytest.raises(RuntimeError, match="heldout task step failed"):
+        prepare(
+            lambda stage: FailingHoldoutTask(stage),
+            actor,
+            critic,
+            replace(PreparationConfig.tiny(), critic_min_fit_rows=8),
+            torch.Generator().manual_seed(23),
+        )
+    assert critic.training
+
+
+def test_critic_mode_is_restored_when_heldout_observation_raises() -> None:
+    actor, critic = _models()
+
+    class FailingObservationTask(Task):
+        def observe(self):
+            if not critic.training:
+                raise RuntimeError("heldout observation failed")
+            return super().observe()
+
+    with pytest.raises(RuntimeError, match="heldout observation failed"):
+        prepare(
+            lambda stage: FailingObservationTask(stage),
+            actor,
+            critic,
+            PreparationConfig.tiny(),
+            torch.Generator().manual_seed(29),
+        )
+    assert critic.training
 
 
 def test_calibrated_callback_is_a_single_pre_critic_boundary():
@@ -159,7 +278,7 @@ def test_critic_cap_charges_every_simulated_world_not_only_fit_slots():
     actor, critic = _models()
     config = replace(
         PreparationConfig.tiny(),
-        critic_max_rows=3,
+        critic_max_rows=6,
         critic_min_fit_rows=3,
         min_holdout_lives=0,
         min_holdout_late_rows=0,
@@ -167,8 +286,8 @@ def test_critic_cap_charges_every_simulated_world_not_only_fit_slots():
     )
     with pytest.raises(PreparationFailure) as failed:
         prepare(factory, actor, critic, config, torch.Generator().manual_seed(11))
-    # E3 runs one whole world tick.  Only two slots are fit, but all three
+    # E6 runs one whole world tick.  Only three slots are fit, but all six
     # simulator rows are charged before the cap blocks another tick.
     assert failed.value.state is not None
-    assert failed.value.state.critic_rows == 3
+    assert failed.value.state.critic_rows == 6
     assert failed.value.state.fit_rows == 0

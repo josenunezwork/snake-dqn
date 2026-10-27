@@ -124,6 +124,10 @@ class TrainingDeviceSim(ResidentDeviceSim):
             self.head_ptr = torch.where(take, torch.zeros_like(self.head_ptr), self.head_ptr)
             self.seg_count = torch.where(take, torch.ones_like(self.seg_count), self.seg_count)
             self.length = torch.where(take, torch.ones_like(self.length), self.length)
+            # Bind heading to this slot's accepted draw, independently of
+            # later rejection trials needed by unrelated slots or worlds.
+            heading = (z >> 48).remainder(4).to(self.direction.dtype)
+            self.direction = torch.where(take, heading, self.direction)
             self.alive |= take
             placed |= take
             if bool((pending & ~placed).any()) is False:
@@ -133,7 +137,6 @@ class TrainingDeviceSim(ResidentDeviceSim):
         self.rng_counter += pending.any(dim=1).long() * (64 * self.S)
         if not bool((placed | ~pending).all()):
             raise RuntimeError("sandbox reset spawn rejection exhausted")
-        self.direction = torch.where(placed, torch.ones_like(self.direction), self.direction)
         self.respawn_timer = torch.where(
             placed, torch.zeros_like(self.respawn_timer), self.respawn_timer
         )

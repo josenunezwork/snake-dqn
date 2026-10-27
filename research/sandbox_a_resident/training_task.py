@@ -12,7 +12,6 @@ import hashlib
 from dataclasses import dataclass, replace
 from typing import Any, NamedTuple
 
-import numpy as np
 import torch
 
 from research.gpu_sim_spike import r2_cache
@@ -38,7 +37,9 @@ class TrainingTaskConfig:
     max_capacity: int = 10400
     namespace: str = "a100-dev/sandbox-a-train01"
     allocation_offset: int = 0
-    max_episodes: int = 100_000
+    allocation_phase_offset: int = 0
+    allocation_count: int = 100_664_320
+    max_episodes: int = 98_305
     tiny: bool = False
     auto_reset: bool = True
 
@@ -48,10 +49,32 @@ class TrainingTaskConfig:
         if (
             not self.namespace.startswith("a100-dev/")
             or self.allocation_offset < 0
+            or self.allocation_phase_offset < 0
+            or self.allocation_count < 1
             or self.max_episodes < 1
             or type(self.auto_reset) is not bool
         ):
             raise ValueError("sandbox task requires an a100-dev namespace")
+        if (
+            self.allocation_offset < self.allocation_phase_offset
+            or self.allocation_offset + self.max_episodes * self.worlds
+            > self.allocation_phase_offset + self.allocation_count
+        ):
+            raise ValueError("task episode allocation exceeds the audited phase range")
+
+
+def seed_allocations(control: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the finite, audited canonical-index ranges for every TRAIN-01 phase."""
+    worlds = int(control["worlds"])
+    ticks = int(control["outer_iterations"]) * int(control["rollout_horizon"])
+    return [
+        {"phase": "train", "offset": 0, "count": (ticks + 1) * worlds},
+        {"phase": "calibration", "offset": 200_000_000, "count": 5_242_880 + worlds},
+        {"phase": "critic", "offset": 300_000_000, "count": 8_388_608 + worlds},
+        {"phase": "monitor", "offset": 400_000_000, "count": 3 * 96},
+        {"phase": "nomination", "offset": 500_000_000, "count": 3 * 256},
+        {"phase": "engineering", "offset": 600_000_000, "count": 3 * 32},
+    ]
 
 
 class TaskStep(NamedTuple):
@@ -160,45 +183,41 @@ class ResidentTrainingTask:
         self.episode = torch.zeros(config.worlds, dtype=torch.long, device=self.device)
         self.age = torch.zeros_like(self.episode)
         self._world = torch.arange(config.worlds, device=self.device)
-        # Setup-only materialization of the finite SHA allocation.  Hot reset
-        # uses only a tensor gather; it never calls a CPU RNG or policy.
-        keys = np.empty((config.max_episodes, config.worlds), dtype=np.int64)
-        for episode in range(config.max_episodes):
-            start = config.allocation_offset + episode * config.worlds
-            keys[episode] = [
-                _key(config.namespace, start + world) for world in range(config.worlds)
-            ]
-        self._episode_keys = torch.as_tensor(keys, dtype=torch.long, device=self.device)
         self._pending_reset = torch.ones(config.worlds, dtype=torch.bool, device=self.device)
         self.opponents: Any | None = None
-        self.reset()
+        self._reset_rows(self._pending_reset)
 
-    def _keys(self, rows: torch.Tensor) -> torch.Tensor:
-        # Tensor-only counter PRF after the domain-separated SHA root.  Reset
-        # frequency therefore cannot introduce a per-reset host policy/RNG path.
-        episode = self.episode.index_select(0, rows)
-        # Exact public allocation: a100-dev/sandbox-a-train01/<offset + episode*E + world>.
-        return self._episode_keys[episode, rows]
-
-    def _full_keys(self) -> list[int]:
-        return [
-            _full_key(
-                self.config.namespace,
-                self.config.allocation_offset + int(self.episode[index]) * self.sim.E + index,
-            )
-            for index in range(self.sim.E)
+    def _seed_roots(self, rows: torch.Tensor) -> tuple[torch.Tensor, dict[int, int]]:
+        """Derive both signed and full roots after one compact host transfer."""
+        rows_cpu = rows.detach().cpu().tolist()
+        episodes_cpu = self.episode.index_select(0, rows).detach().cpu().tolist()
+        if any(episode < 0 or episode >= self.config.max_episodes for episode in episodes_cpu):
+            raise RuntimeError("task reset would exceed its audited seed allocation")
+        indexes = [
+            self.config.allocation_offset + episode * self.sim.E + world
+            for world, episode in zip(rows_cpu, episodes_cpu, strict=True)
         ]
+        signed = torch.tensor(
+            [_key(self.config.namespace, index) for index in indexes],
+            dtype=torch.long,
+            device=self.device,
+        )
+        full = {
+            world: _full_key(self.config.namespace, index)
+            for world, index in zip(rows_cpu, indexes, strict=True)
+        }
+        return signed, full
 
     def attach_opponents(self, runtime: Any) -> None:
         """Install the all-device roster runtime after verified checkpoint loading."""
         if getattr(runtime, "device", self.device) != self.device:
             raise ValueError("opponent runtime device differs from task")
         self.opponents = runtime
-        runtime.reset(
-            torch.ones(self.sim.E, dtype=torch.bool, device=self.device), self._full_keys()
-        )
+        rows = torch.arange(self.sim.E, device=self.device)
+        _, full_roots = self._seed_roots(rows)
+        runtime.reset(torch.ones(self.sim.E, dtype=torch.bool, device=self.device), full_roots)
 
-    def proxy_factory(self, source: DeviceRosterRuntime) -> Any:
+    def proxy_factory(self, source: DeviceRosterRuntime, allocations: list[dict[str, Any]]) -> Any:
         """Construct independent, paired H5000 device proxy tasks by mix."""
         frozen: dict[str, Any] = {}
         b8: Any | None = None
@@ -215,13 +234,26 @@ class ResidentTrainingTask:
             if worlds < 1 or (horizon != 5000 and not self.config.tiny):
                 raise ValueError("GPU proxy is H5000 except for a tiny test-only task")
             count = max(3, worlds)
+            phase = next(
+                (
+                    row
+                    for row in allocations
+                    if int(row["offset"]) <= seed
+                    and seed + count <= int(row["offset"]) + int(row["count"])
+                ),
+                None,
+            )
+            if phase is None:
+                raise ValueError("proxy slice is outside an audited seed allocation")
             task = ResidentTrainingTask(
                 TrainingTaskConfig(
                     worlds=count,
                     horizon=5000,
                     namespace=self.config.namespace,
                     allocation_offset=seed,
-                    max_episodes=2,
+                    allocation_phase_offset=int(phase["offset"]),
+                    allocation_count=int(phase["count"]),
+                    max_episodes=1,
                     tiny=self.config.tiny,
                     auto_reset=False,
                 ),
@@ -240,9 +272,7 @@ class ResidentTrainingTask:
         return make
 
     @torch.inference_mode()
-    def reset(
-        self, mask: torch.Tensor | None = None
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _reset_rows(self, mask: torch.Tensor) -> None:
         """Create actual fresh worlds via the engine's normal respawn sampler.
 
         This does not assign an artificial episode clock to a short body.  It
@@ -256,13 +286,16 @@ class ResidentTrainingTask:
             raise ValueError("reset mask must have shape (E,)")
         rows = mask.nonzero(as_tuple=False).flatten()
         if rows.numel() == 0:
-            return self.observe()
-        for name in _ENV_FIELDS:
+            return
+        keys, full_roots = self._seed_roots(rows)
+        # Preserve the terminal-frame cause for callers that inspect state
+        # immediately after step().  The next simulator step replaces it.
+        for name in (field for field in _ENV_FIELDS if field != "_last_death_cause"):
             getattr(self.sim, name)[rows] = 0
         self.sim.alive[rows] = False
         self.sim.length[rows] = 1
         self.sim._reward_prev_length[rows] = 1
-        self.sim.rng_key.index_copy_(0, rows, self._keys(rows))
+        self.sim.rng_key.index_copy_(0, rows, keys)
         self.sim.terminal_slots[rows] = False
         self.sim._prepared = False
         # This is the certified engine's complete bounded respawn sampler, not
@@ -275,11 +308,17 @@ class ResidentTrainingTask:
         self.age[rows] = 0
         self._pending_reset[rows] = True
         if self.opponents is not None:
-            self.opponents.reset(mask, self._full_keys())
+            self.opponents.reset(mask, full_roots)
         r2_cache.bump(self.sim)
         if bool(self.sim.capacity_overflow.any()):
             raise RuntimeError("body storage capacity overflow during reset")
-        return self.observe()
+
+    @torch.inference_mode()
+    def reset(self, mask: torch.Tensor | None = None) -> None:
+        """Create fresh rows without eagerly preparing a discarded observation."""
+        if mask is None:
+            mask = torch.ones(self.sim.E, dtype=torch.bool, device=self.device)
+        self._reset_rows(torch.as_tensor(mask, dtype=torch.bool, device=self.device))
 
     @torch.inference_mode()
     def observe(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -337,8 +376,9 @@ class ResidentTrainingTask:
             raise RuntimeError("body storage capacity overflow")
         if self.config.auto_reset and bool(reset.any()):
             self.episode += reset.long()
-            self.reset(reset)
-        return TaskStep(reward, terminal, cut, reset, mass)
+            self._reset_rows(reset)
+        performed_reset = reset if self.config.auto_reset else torch.zeros_like(reset)
+        return TaskStep(reward, terminal, cut, performed_reset, mass)
 
     def state_dict(self) -> dict[str, Any]:
         """Complete mutable sandbox task state for a same-package resume."""
@@ -404,6 +444,8 @@ class ResidentTrainingTask:
             getattr(self, "_pending_reset" if name == "pending_reset" else name).copy_(
                 state[name].to(self.device)
             )
+        if bool((self.episode < 0).any()) or bool((self.episode >= self.config.max_episodes).any()):
+            raise ValueError("resume episode exceeds the audited seed allocation")
         if state["opponents"] is not None:
             if self.opponents is None:
                 raise ValueError("resume needs attached opponent runtime")
