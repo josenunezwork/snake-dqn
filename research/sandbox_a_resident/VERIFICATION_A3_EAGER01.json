@@ -1,0 +1,36 @@
+{
+  "status": "PASS_CPU_ADMISSION",
+  "source_commit": "225e0227db7e35eaa34d7c2f06ebc93561388e27",
+  "packet_commit": "9f7a2a58",
+  "compile_mode": "none",
+  "tests": {
+    "passed": 73,
+    "seconds": 7.96,
+    "nice": 15,
+    "threads": 1
+  },
+  "preflight": {
+    "status": "PASS",
+    "allocated_seeds": 22457142,
+    "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-eager-local-verification-01/preflight.log"
+  },
+  "dispatch_dry_run": {
+    "status": "PASS",
+    "allocations": 0,
+    "live_accounting": "NOT_CHECKED",
+    "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-eager-local-verification-01/dispatch-dry-run.log"
+  },
+  "smoke": {
+    "status": "PASS",
+    "units": 12,
+    "seconds": 2.6130102910101414,
+    "summary": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-eager-local-verification-01/local-assay/summary.json"
+  },
+  "operator_dispatch_command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-sbxA/tools/ops/dispatch.sh sandbox-a-resident-a3-eager-20261026-01 /Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/packet-a3-eager-01/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxA --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxA --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-eager-attempt-01/state",
+  "evidence_sha256": {
+    "preflight.log": "b595423c88f1fdd07ddda36f253c837b7cf392c03e5caee7dd0bc0b28918e7e4",
+    "dispatch-dry-run.log": "3836356337e6e3a0aed7e9c634febbf882126a24d320294be369d95390d50de6",
+    "local-smoke.log": "44a56616ebd2be77b4d7e2c7d7a88413d287d20d3e4aeb1214e08d8bc53efb52"
+  },
+  "scope": "Prepared only. No A100/CUDA execution or provider accounting. Earlier packet seals unchanged."
+}
