@@ -442,3 +442,120 @@ def test_pre_update_finite_check_telemetry_names_first_nonfinite_term(
     ]
     for key, before in actor_before.items():
         torch.testing.assert_close(actor.state_dict()[key], before, rtol=0, atol=0)
+
+
+def test_nonfinite_reference_after_actor_stop_latch_emits_failure_telemetry_and_raises(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-finite reference after the old-KL latch must fail and emit telemetry."""
+    torch.set_num_threads(1)
+    b8 = Ego2sNet(local_channels=7, n_scalars=60)
+    actor, critic = B8Actor(b8_model=b8), ClockedPopArtCritic(b8)
+    rollout = make_rollout(actor, critic, time=3, worlds=3)
+    rollout.logp.sub_(10.0)
+    actor_before = copy.deepcopy(actor.state_dict())
+
+    # Direct helper checks: non-finite legal support must never be masked to 0.0 / -0.0.
+    legal_mask = torch.tensor([[True, True, False, False, False, False]])
+    finite_dist = categorical(torch.zeros((1, 6)), legal_mask)
+    for bad_val in (float("nan"), float("inf"), float("-inf")):
+        bad_logits = torch.zeros((1, 6))
+        bad_logits[0, 1] = bad_val
+        bad_dist = categorical(bad_logits, legal_mask)
+        assert torch.isnan(masked_categorical_kl(bad_dist, finite_dist, legal_mask)).all()
+        assert torch.isnan(masked_categorical_kl(finite_dist, bad_dist, legal_mask)).all()
+        assert torch.isnan(masked_categorical_entropy(bad_dist, legal_mask)).all()
+    nan_probs_dist = torch.distributions.Categorical(
+        probs=torch.full((1, 6), float("nan")), validate_args=False
+    )
+    assert torch.isnan(masked_categorical_kl(nan_probs_dist, finite_dist, legal_mask)).all()
+    assert torch.isnan(masked_categorical_entropy(nan_probs_dist, legal_mask)).all()
+    zero_legal_probs_dist = torch.distributions.Categorical(
+        probs=torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0]]), validate_args=False
+    )
+    assert torch.isnan(masked_categorical_kl(finite_dist, zero_legal_probs_dist, legal_mask)).all()
+    assert torch.isnan(masked_categorical_entropy(zero_legal_probs_dist, legal_mask)).all()
+
+    monkeypatch.setattr(
+        actor,
+        "reference_logits",
+        lambda local, glob, scalars: torch.full(
+            (local.shape[0], 6), float("nan"), dtype=scalars.dtype, device=scalars.device
+        ),
+    )
+    for diag_flag, expected_update in ((True, 1), (False, 1)):
+        trainer = PPOTrainer(actor, critic, PPOConfig(minibatch=3))
+        capsys.readouterr()
+        with pytest.raises(FloatingPointError, match="first_nonfinite_term=reference_logits"):
+            trainer.update(rollout, diagnostics=diag_flag)
+        captured = capsys.readouterr().out
+        progress_lines = [
+            json.loads(line.removeprefix("TRAIN01_PROGRESS ").strip())
+            for line in captured.splitlines()
+            if line.startswith("TRAIN01_PROGRESS ")
+        ]
+        assert progress_lines == [
+            {
+                "epoch": 1,
+                "finite": False,
+                "first_nonfinite_term": "reference_logits",
+                "minibatch": 1,
+                "stage": "learner-finite-check",
+                "update": expected_update,
+            }
+        ]
+    for key, before in actor_before.items():
+        torch.testing.assert_close(actor.state_dict()[key], before, rtol=0, atol=0)
+
+
+def test_legal_probability_underflow_contributes_exact_log_space_term() -> None:
+    """Finite legal tail log-probs that underflow float32 exp() retain their exact contribution."""
+    torch.set_num_threads(1)
+    mask = torch.tensor([[True, True, False, False, False, False]])
+    ref_logits = torch.tensor([[0.0, -104.0, 50.0, -50.0, 12.0, -12.0]], dtype=torch.float32)
+    act_logits = torch.tensor(
+        [[0.0, -1000.0, -90.0, 90.0, -7.0, 7.0]], dtype=torch.float32, requires_grad=True
+    )
+    ref_dist = categorical(ref_logits, mask)
+    act_dist = categorical(act_logits, mask)
+    # In float32, both tail probabilities underflow exp() to exact 0.0.
+    assert ref_dist.probs[0, 1].item() == 0.0
+    assert act_dist.probs[0, 1].item() == 0.0
+
+    # Independent float64 oracle over the two legal actions:
+    ref64 = ref_logits[:, :2].double()
+    act64 = act_logits.detach()[:, :2].double()
+    ref_logp64 = ref64 - torch.logsumexp(ref64, dim=-1, keepdim=True)
+    act_logp64 = act64 - torch.logsumexp(act64, dim=-1, keepdim=True)
+    expected_kl = (ref_logp64.exp() * (ref_logp64 - act_logp64)).sum(dim=-1).float()
+    expected_entropy = -(ref_logp64.exp() * ref_logp64).sum(dim=-1).float()
+    assert expected_kl.item() == pytest.approx(6.1096613044562024e-43, rel=0, abs=0)
+    assert expected_entropy.item() == pytest.approx(7.146622168056567e-44, rel=0, abs=0)
+
+    kl = masked_categorical_kl(ref_dist, act_dist, mask)
+    entropy = masked_categorical_entropy(ref_dist, mask)
+    assert kl.item() > 0.0 and torch.equal(kl, expected_kl)
+    assert entropy.item() > 0.0 and torch.equal(entropy, expected_entropy)
+    (kl.sum() + entropy.sum()).backward()
+    assert act_logits.grad is not None and torch.isfinite(act_logits.grad).all()
+    assert torch.equal(act_logits.grad[:, 2:], torch.zeros((1, 4)))
+
+    # Extreme legal tail logit (-1e38) retains the ~6.8135566e-8 KL contribution.
+    act_extreme = categorical(
+        torch.tensor([[0.0, -1e38, 0.0, 0.0, 0.0, 0.0]], dtype=torch.float32), mask
+    )
+    act_ext64 = torch.tensor([[0.0, -1e38]], dtype=torch.float32).double()
+    act_ext_logp64 = act_ext64 - torch.logsumexp(act_ext64, dim=-1, keepdim=True)
+    expected_extreme_kl = (ref_logp64.exp() * (ref_logp64 - act_ext_logp64)).sum(dim=-1).float()
+    extreme_kl = masked_categorical_kl(ref_dist, act_extreme, mask)
+    assert torch.equal(extreme_kl, expected_extreme_kl)
+    assert extreme_kl.item() == pytest.approx(6.8135566e-8, rel=1e-6)
+
+    # Genuinely absent support (~legal) contributes exact 0.0 even with extreme logits.
+    identical_legal_ref = categorical(
+        torch.tensor([[0.0, -1.0, -104.0, -1000.0, 0.0, 0.0]], dtype=torch.float32), mask
+    )
+    identical_legal_act = categorical(
+        torch.tensor([[0.0, -1.0, -1e38, 100.0, -500.0, 500.0]], dtype=torch.float32), mask
+    )
+    assert masked_categorical_kl(identical_legal_ref, identical_legal_act, mask).item() == 0.0

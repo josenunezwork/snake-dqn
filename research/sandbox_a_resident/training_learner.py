@@ -561,6 +561,7 @@ class PPOTrainer:
                 if not (
                     torch.isfinite(old_kl)
                     and torch.isfinite(logits).all()
+                    and torch.isfinite(distribution.logits.masked_fill(~masks[index], 0.0)).all()
                     and torch.isfinite(new_logp).all()
                     and torch.isfinite(old_logp[index]).all()
                 ):
@@ -568,7 +569,10 @@ class PPOTrainer:
                         _first_nonfinite_term(
                             (
                                 ("actor_logits", logits),
-                                ("masked_logits", distribution.logits),
+                                (
+                                    "masked_logits",
+                                    distribution.logits.masked_fill(~masks[index], 0.0),
+                                ),
                                 ("new_logp", new_logp),
                                 ("old_logp", old_logp[index]),
                                 ("log_ratio", log_ratio),
@@ -597,31 +601,71 @@ class PPOTrainer:
                     first_stop_epoch = _epoch + 1
                     first_stop_minibatch = start // self.config.minibatch + 1
                     metrics["old_kl"].append(old_kl.detach())
+                    # The stop minibatch is the most useful saturation
+                    # observation.  Evaluate detached reference/entropy
+                    # quantities and verify finiteness before latching so a
+                    # non-finite reference can never be masked behind kl_stop.
+                    with torch.no_grad():
+                        stopped_distribution = categorical(logits.detach(), masks[index])
+                        stopped_reference_logits = self.actor.reference_logits(
+                            local[index], glob[index], scalars[index]
+                        )
+                        stopped_reference = categorical(stopped_reference_logits, masks[index])
+                        stopped_reference_kl = masked_categorical_kl(
+                            stopped_reference, stopped_distribution, masks[index]
+                        )
+                        stopped_entropy = masked_categorical_entropy(
+                            stopped_distribution, masks[index]
+                        )
+                        stopped_entropy_loss = _equal_mix_mean(
+                            stopped_entropy, mix_ids[index], full_mix_counts
+                        )
+                        stopped_reference_kl_loss = _equal_mix_mean(
+                            stopped_reference_kl, mix_ids[index], full_mix_counts
+                        )
+                    if not (
+                        torch.isfinite(raw_advantage[index]).all()
+                        and torch.isfinite(advantage[index]).all()
+                        and torch.isfinite(stopped_reference_logits).all()
+                        and torch.isfinite(
+                            stopped_reference.logits.masked_fill(~masks[index], 0.0)
+                        ).all()
+                        and torch.isfinite(stopped_reference_kl).all()
+                        and torch.isfinite(stopped_reference_kl_loss)
+                        and torch.isfinite(stopped_entropy).all()
+                        and torch.isfinite(stopped_entropy_loss)
+                    ):
+                        bad_term = (
+                            _first_nonfinite_term(
+                                (
+                                    ("gae_advantages", raw_advantage[index]),
+                                    ("advantage", advantage[index]),
+                                    ("reference_logits", stopped_reference_logits),
+                                    (
+                                        "reference_masked_logits",
+                                        stopped_reference.logits.masked_fill(~masks[index], 0.0),
+                                    ),
+                                    ("reference_kl", stopped_reference_kl),
+                                    ("reference_kl_loss", stopped_reference_kl_loss),
+                                    ("entropy", stopped_entropy),
+                                    ("entropy_loss", stopped_entropy_loss),
+                                )
+                            )
+                            or "reference_kl"
+                        )
+                        _emit_finite_check_telemetry(
+                            update=self.update_count + 1,
+                            first_nonfinite_term=bad_term,
+                            epoch=_epoch + 1,
+                            minibatch=start // self.config.minibatch + 1,
+                        )
+                        raise FloatingPointError(
+                            f"non-finite PPO actor loss: first_nonfinite_term={bad_term}"
+                        )
                     if diagnostics:
-                        # The stop minibatch is the most useful saturation
-                        # observation.  It receives detached reference/entropy
-                        # telemetry only; it remains excluded from learning.
                         with torch.no_grad():
-                            stopped_distribution = categorical(logits.detach(), masks[index])
-                            stopped_reference_logits = self.actor.reference_logits(
-                                local[index], glob[index], scalars[index]
-                            )
-                            stopped_reference = categorical(stopped_reference_logits, masks[index])
-                            stopped_reference_kl = masked_categorical_kl(
-                                stopped_reference, stopped_distribution, masks[index]
-                            )
-                            metrics["entropy"].append(
-                                _equal_mix_mean(
-                                    masked_categorical_entropy(stopped_distribution, masks[index]),
-                                    mix_ids[index],
-                                    full_mix_counts,
-                                ).detach()
-                            )
-                            metrics["reference_kl"].append(
-                                _equal_mix_mean(
-                                    stopped_reference_kl, mix_ids[index], full_mix_counts
-                                ).detach()
-                            )
+                            metrics["entropy"].append(stopped_entropy_loss.detach())
+                            metrics["reference_kl"].append(stopped_reference_kl_loss.detach())
                             self._add_mix_length_rates(
                                 diagnostic,
                                 "greedy_actor_reference_disagreement",
@@ -660,12 +704,18 @@ class PPOTrainer:
                     and torch.isfinite(entropy_loss)
                     and torch.isfinite(reference_kl_loss)
                     and torch.isfinite(reference_logits).all()
+                    and torch.isfinite(reference.logits.masked_fill(~masks[index], 0.0)).all()
+                    and torch.isfinite(reference_kl).all()
+                    and torch.isfinite(entropy).all()
                 ):
                     bad_term = (
                         _first_nonfinite_term(
                             (
                                 ("actor_logits", logits),
-                                ("masked_logits", distribution.logits),
+                                (
+                                    "masked_logits",
+                                    distribution.logits.masked_fill(~masks[index], 0.0),
+                                ),
                                 ("new_logp", new_logp),
                                 ("old_logp", old_logp[index]),
                                 ("log_ratio", log_ratio),
@@ -676,7 +726,10 @@ class PPOTrainer:
                                 ("policy_terms", policy_terms),
                                 ("policy_loss", policy_loss),
                                 ("reference_logits", reference_logits),
-                                ("reference_masked_logits", reference.logits),
+                                (
+                                    "reference_masked_logits",
+                                    reference.logits.masked_fill(~masks[index], 0.0),
+                                ),
                                 ("reference_kl", reference_kl),
                                 ("reference_kl_loss", reference_kl_loss),
                                 ("entropy", entropy),
