@@ -8,6 +8,8 @@
   "observer_ticks": 120,
   "workers": 1,
   "max_pending": 1,
+  "worker_mode": "active",
+  "operator_mode": "exact_stop",
   "fixtures_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-l2/ruler-fixtures-08-final/ruler-fixtures.json",
   "fixtures_sha256": "bbe6975642512091ba279d9ff7c870000d68faa18e30063807f47af1352e8574",
   "reference_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/bl-l2/y1-native-mac/ruler-receipt.json",

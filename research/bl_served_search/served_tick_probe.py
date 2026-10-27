@@ -762,6 +762,7 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
             worker_summary = reduce_worker_contention(
                 result.get("worker_contention", {}),
                 expected_ticks=int(raw["manifest"]["measured_ticks"]),
+                require_exact_stop=True,
             )
             sub_verdicts = (tick_summary.get("verdict"), worker_summary.get("verdict"))
             combined_verdict = (
@@ -993,9 +994,20 @@ def _run_panel(
             "measured_ticks": manifest["measured_ticks"],
         }
         if cell["arm"] in ("w1_k1", "isolated_w1_k1"):
-            for key in ("fixtures_path", "reference_path", "max_pending", "worker_mode"):
+            for key in (
+                "fixtures_path",
+                "reference_path",
+                "max_pending",
+                "worker_mode",
+                "operator_mode",
+            ):
                 if key in manifest and key not in spec:
                     spec[key] = manifest[key]
+            if (
+                spec.get("worker_mode", "active") != "active"
+                or spec.get("operator_mode", "exact_stop") != "exact_stop"
+            ):
+                raise ValueError("scored W1/K1 panel cells require active exact_stop worker")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("whole diagnostic cap exhausted before next cell")
@@ -1122,13 +1134,26 @@ def preflight(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "max_pending",
     }
     missing = sorted(required - set(manifest))
-    is_w1_k1 = manifest.get("manifest_id") == W1_K1_MANIFEST_ID
+    arms_field = manifest.get("arms")
+    arms_seq = arms_field if isinstance(arms_field, (list, tuple, set, frozenset)) else ()
+    split = (
+        manifest.get("study") == "served-dto-split-20261027"
+        or manifest.get("arm_id") == "dto_split_w0_k0"
+        or "dto_split_w0_k0" in arms_seq
+    )
+    is_w1_k1 = manifest.get("manifest_id") == W1_K1_MANIFEST_ID or any(
+        arm in ("w1_k1", "isolated_w1_k1") for arm in arms_seq
+    )
+    if split and is_w1_k1:
+        raise ValueError("served-tick manifest differs from the committed fixed panel")
     if is_w1_k1:
         if (
             missing
             or manifest.get("schema") != SCHEMA
             or manifest.get("workers") != 1
             or manifest.get("max_pending") != 1
+            or manifest.get("worker_mode") != "active"
+            or manifest.get("operator_mode") != "exact_stop"
         ):
             raise ValueError(f"invalid W1/K1 served-tick manifest missing={missing}")
     elif (
@@ -1144,7 +1169,6 @@ def preflight(manifest: Mapping[str, Any]) -> dict[str, Any]:
         or int(manifest["measured_ticks"]) != MEASURED_TICKS
     ):
         raise ValueError("first package requires frozen 24fps/200-warmup/2400-measured exposure")
-    split = manifest.get("study") == "served-dto-split-20261027"
     manifest_file = (
         "served_dto_split_manifest.json"
         if split
@@ -1156,6 +1180,11 @@ def preflight(manifest: Mapping[str, Any]) -> dict[str, Any]:
     frozen = (
         (
             "manifest_id",
+            "study",
+            "workers",
+            "max_pending",
+            "worker_mode",
+            "operator_mode",
             "arms",
             "order",
             "base_timeout_seconds",
@@ -1169,6 +1198,9 @@ def preflight(manifest: Mapping[str, Any]) -> dict[str, Any]:
         )
         if is_w1_k1
         else (
+            "study",
+            "workers",
+            "max_pending",
             "arms",
             "order",
             "base_timeout_seconds",
@@ -1177,7 +1209,11 @@ def preflight(manifest: Mapping[str, Any]) -> dict[str, Any]:
             "instrumented_observer_order",
         )
     )
-    if any(manifest.get(field) != committed.get(field) for field in frozen):
+    if (
+        manifest != committed
+        or set(manifest.keys()) != set(committed.keys())
+        or any(manifest.get(field) != committed.get(field) for field in frozen)
+    ):
         raise ValueError("served-tick manifest differs from the committed fixed panel")
     if is_w1_k1:
         from research.bl_mac_latency import l1
@@ -1240,6 +1276,8 @@ def preflight(manifest: Mapping[str, Any]) -> dict[str, Any]:
                 "manifest_id": W1_K1_MANIFEST_ID,
                 "workers": 1,
                 "max_pending": 1,
+                "worker_mode": manifest["worker_mode"],
+                "operator_mode": manifest["operator_mode"],
                 "fixtures_sha256": manifest["fixtures_sha256"],
                 "reference_sha256": manifest["reference_sha256"],
             }

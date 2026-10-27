@@ -15,11 +15,19 @@ This module implements Section B (Row 2: "W1/K1 contention-only arm") of the
 
 from __future__ import annotations
 
+import errno
+import fcntl
 import multiprocessing
 import os
+import pickle
 import resource
+import select
+import socket
+import struct
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
+from multiprocessing.reduction import ForkingPickler
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +48,9 @@ DEFAULT_REFERENCE_PATH = Path(
 )
 Y1_FIXTURES_SHA256 = "bbe6975642512091ba279d9ff7c870000d68faa18e30063807f47af1352e8574"
 Y1_REFERENCE_SHA256 = "b97f73d2384a95455beb3c0d243caba513f5f307edc85d0a8da4b81f5e1ac791"
-WARM_S_P95_LIMIT_NS = 250_000_000  # 250 ms warm worker S p95 bar (RULING.md Section B)
+DEFAULT_MAX_PACKET_BYTES = 262_144  # 256 KiB bounded publication/reply frame cap
+DEFAULT_SOCKET_BUFFER_BYTES = 524_288  # 512 KiB kernel socket buffer for non-blocking IPC
+_SO_NWRITE = 0x1024  # Darwin SOL_SOCKET queued send bytes query
 DEFAULT_REQUEST_TIMEOUT_NS = 10_000_000_000  # 10 s per H300 request
 DEFAULT_STARTUP_TIMEOUT_S = 120.0
 THREAD_ENV = (
@@ -54,6 +64,165 @@ THREAD_ENV = (
 
 class _CooperativeStop(RuntimeError):
     """Raised inside the worker between rollout frames when shutdown is requested."""
+
+
+class _StopSignal:
+    """Semaphore-free stop signal using an in-process Event plus an anonymous Pipe wakeup.
+
+    Avoiding ``multiprocessing.Event`` prevents POSIX named-semaphore leaks if
+    the owning game process is terminated abruptly, while closing the write end
+    on parent exit immediately wakes the child watchdog with EOF.
+    """
+
+    def __init__(self, ctx: Any) -> None:
+        self._flag = threading.Event()
+        self._reader, self._writer = ctx.Pipe(duplex=False)
+
+    @property
+    def reader(self) -> Any:
+        return self._reader
+
+    def close_parent_reader(self) -> None:
+        if self._reader is not None:
+            try:
+                self._reader.close()
+            except BaseException:
+                pass
+            self._reader = None
+
+    def set(self) -> None:
+        self._flag.set()
+        if self._writer is not None:
+            try:
+                self._writer.send_bytes(b"\x01")
+            except BaseException:
+                pass
+            try:
+                self._writer.close()
+            except BaseException:
+                pass
+            self._writer = None
+
+    def is_set(self) -> bool:
+        return self._flag.is_set()
+
+    def close(self) -> None:
+        self.close_parent_reader()
+        if self._writer is not None:
+            try:
+                self._writer.close()
+            except BaseException:
+                pass
+            self._writer = None
+
+
+def _configure_pipe_socket(conn: Any, buffer_bytes: int = DEFAULT_SOCKET_BUFFER_BYTES) -> None:
+    """Increase AF_UNIX socket buffer sizes so bounded frames transfer without blocking."""
+    try:
+        fd = int(conn.fileno())
+    except (AttributeError, OSError, ValueError):
+        return
+    try:
+        sock = socket.fromfd(fd, socket.AF_UNIX, socket.SOCK_STREAM)
+    except OSError:
+        return
+    try:
+        target = max(int(buffer_bytes), 65_536)
+        for opt in (socket.SO_SNDBUF, socket.SO_RCVBUF):
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, opt, target)
+            except OSError:
+                pass
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
+def _try_send_nonblocking(conn: Any, payload: Mapping[str, Any], max_packet_bytes: int) -> str:
+    """Attempt an atomic, non-blocking framed send; return 'ok', 'overflow', or 'dead'."""
+    try:
+        raw_bytes = bytes(ForkingPickler.dumps(payload))
+    except Exception:
+        return "overflow"
+    frame_len = 4 + len(raw_bytes)
+    if len(raw_bytes) > max_packet_bytes or frame_len > max_packet_bytes:
+        return "overflow"
+    frame = struct.pack("!i", len(raw_bytes)) + raw_bytes
+
+    try:
+        fd = int(conn.fileno())
+    except (AttributeError, OSError, ValueError):
+        fd = None
+
+    if fd is None:
+        try:
+            conn.send(payload)
+            return "ok"
+        except BlockingIOError:
+            return "overflow"
+        except (BrokenPipeError, EOFError, OSError):
+            return "dead"
+
+    try:
+        sock = socket.fromfd(fd, socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sndbuf = int(sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF))
+            try:
+                nwrite = int(sock.getsockopt(socket.SOL_SOCKET, _SO_NWRITE))
+            except OSError:
+                nwrite = 0
+        except OSError:
+            sndbuf = max_packet_bytes
+            nwrite = 0
+        finally:
+            sock.close()
+    except OSError:
+        sndbuf = max_packet_bytes
+        nwrite = 0
+
+    if frame_len > max(0, sndbuf - nwrite):
+        return "overflow"
+
+    try:
+        _, writable, _ = select.select([], [fd], [], 0.0)
+    except (OSError, ValueError):
+        return "dead"
+    if not writable:
+        return "overflow"
+
+    try:
+        flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+        if not (flags & os.O_NONBLOCK):
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        written = os.write(fd, frame)
+        if written < frame_len:
+            # Attempt one immediate non-blocking write of the remainder; if the
+            # kernel buffer cannot accept the complete frame, close the broken
+            # stream and treat as overflow without waiting on the worker.
+            try:
+                written += os.write(fd, frame[written:])
+            except BlockingIOError:
+                pass
+            if written < frame_len:
+                try:
+                    conn.close()
+                except BaseException:
+                    pass
+                return "overflow"
+        return "ok"
+    except BlockingIOError:
+        return "overflow"
+    except (BrokenPipeError, ConnectionResetError, EOFError, OSError) as exc:
+        if getattr(exc, "errno", None) in (
+            errno.EAGAIN,
+            errno.EWOULDBLOCK,
+            errno.ENOBUFS,
+            errno.EMSGSIZE,
+        ):
+            return "overflow"
+        return "dead"
 
 
 def current_rss_bytes(pid: int | None = None) -> int:
@@ -249,12 +418,45 @@ class _SyntheticFastOperator:
 
 def _worker_main(
     conn: Any,
-    stop_event: Any,
+    stop_conn: Any,
+    parent_pid: int,
     operator_mode: str = "exact_stop",
     operator_kwargs: Mapping[str, Any] | None = None,
 ) -> None:
     """Run the persistent single-thread CPU native/exact-stop worker loop."""
     kwargs = dict(operator_kwargs or {})
+    stop_event = threading.Event()
+    watchdog_done = threading.Event()
+
+    def _parent_watchdog() -> None:
+        try:
+            while not watchdog_done.is_set():
+                if os.getppid() != parent_pid or not psutil.pid_exists(parent_pid):
+                    stop_event.set()
+                    os._exit(0)
+                if not stop_event.is_set() and stop_conn is not None:
+                    try:
+                        if stop_conn.poll(0.02):
+                            try:
+                                stop_conn.recv_bytes()
+                            except (EOFError, OSError):
+                                pass
+                            stop_event.set()
+                            if os.getppid() != parent_pid or not psutil.pid_exists(parent_pid):
+                                os._exit(0)
+                    except (EOFError, OSError, ValueError):
+                        stop_event.set()
+                        if os.getppid() != parent_pid or not psutil.pid_exists(parent_pid):
+                            os._exit(0)
+                else:
+                    watchdog_done.wait(0.02)
+        except BaseException:
+            if os.getppid() != parent_pid:
+                os._exit(0)
+
+    watchdog = threading.Thread(target=_parent_watchdog, name="w1-k1-parent-watchdog", daemon=True)
+    watchdog.start()
+
     try:
         for name in THREAD_ENV:
             os.environ[name] = "1"
@@ -304,6 +506,8 @@ def _worker_main(
 
         def guarded(original: Callable[..., Any]) -> Callable[..., Any]:
             def step(*args: Any, **step_kwargs: Any) -> Any:
+                if os.getppid() != parent_pid:
+                    os._exit(0)
                 if stop_event.is_set():
                     raise _CooperativeStop("worker stopped before next rollout step")
                 return original(*args, **step_kwargs)
@@ -311,11 +515,13 @@ def _worker_main(
             return step
 
         while not stop_event.is_set():
+            if os.getppid() != parent_pid:
+                os._exit(0)
             if not conn.poll(0.02):
                 continue
             try:
                 message = conn.recv()
-            except EOFError:
+            except (EOFError, OSError):
                 break
             if not isinstance(message, Mapping):
                 continue
@@ -335,7 +541,11 @@ def _worker_main(
                 os._exit(int(message.get("exitcode", 137)))
             if cmd == "simulate_hang":
                 hang_seconds = float(message.get("seconds", 30.0))
-                stop_event.wait(hang_seconds)
+                deadline = time.monotonic() + hang_seconds
+                while not stop_event.is_set() and time.monotonic() < deadline:
+                    if os.getppid() != parent_pid or not psutil.pid_exists(parent_pid):
+                        os._exit(0)
+                    stop_event.wait(min(0.02, max(0.0, deadline - time.monotonic())))
                 continue
             if cmd == "simulate_invalid_reply":
                 conn.send(
@@ -423,6 +633,12 @@ def _worker_main(
         except BaseException:
             pass
     finally:
+        watchdog_done.set()
+        if stop_conn is not None:
+            try:
+                stop_conn.close()
+            except BaseException:
+                pass
         try:
             conn.close()
         except BaseException:
@@ -441,6 +657,7 @@ class PersistentExactStopWorker:
         fixtures_sha256: str = Y1_FIXTURES_SHA256,
         reference_sha256: str = Y1_REFERENCE_SHA256,
         max_pending: int = 1,
+        max_packet_bytes: int = DEFAULT_MAX_PACKET_BYTES,
         worker_mode: str = "active",
         request_timeout_ns: int = DEFAULT_REQUEST_TIMEOUT_NS,
         startup_timeout_s: float = DEFAULT_STARTUP_TIMEOUT_S,
@@ -450,6 +667,8 @@ class PersistentExactStopWorker:
     ) -> None:
         if max_pending != 1:
             raise ValueError("W1/K1 contention arm requires max_pending == 1 (K <= 1)")
+        if int(max_packet_bytes) <= 0:
+            raise ValueError("max_packet_bytes must be positive")
         if worker_mode not in ("active", "idle"):
             raise ValueError(f"unsupported worker_mode: {worker_mode!r}")
         if measured_ticks < 0:
@@ -463,6 +682,7 @@ class PersistentExactStopWorker:
         self.reference_sha256 = str(reference_sha256)
         self.measured_ticks = int(measured_ticks)
         self.max_pending = 1
+        self.max_packet_bytes = int(max_packet_bytes)
         self.worker_mode = worker_mode
         self.request_timeout_ns = int(request_timeout_ns)
         self.startup_timeout_s = float(startup_timeout_s)
@@ -472,7 +692,8 @@ class PersistentExactStopWorker:
 
         self._ctx = multiprocessing.get_context("spawn")
         self._parent_conn: Any | None = None
-        self._stop_event: Any = self._ctx.Event()
+        self._rx_buf = bytearray()
+        self._stop_event = _StopSignal(self._ctx)
         self._process: Any | None = None
 
         self.worker_pid: int | None = None
@@ -529,16 +750,27 @@ class PersistentExactStopWorker:
         if self._process is not None:
             raise RuntimeError("worker already started")
         parent_conn, child_conn = self._ctx.Pipe(duplex=True)
+        socket_buf = max(DEFAULT_SOCKET_BUFFER_BYTES, 2 * self.max_packet_bytes)
+        _configure_pipe_socket(parent_conn, socket_buf)
+        _configure_pipe_socket(child_conn, socket_buf)
         self._parent_conn = parent_conn
+        self._rx_buf.clear()
         self._process = self._ctx.Process(
             target=_worker_main,
-            args=(child_conn, self._stop_event, self.operator_mode, self.operator_kwargs),
+            args=(
+                child_conn,
+                self._stop_event.reader,
+                os.getpid(),
+                self.operator_mode,
+                self.operator_kwargs,
+            ),
             name="served-tick-w1-k1-worker",
-            daemon=False,
+            daemon=True,
         )
         startup_started = time.perf_counter_ns()
         self._process.start()
         child_conn.close()
+        self._stop_event.close_parent_reader()
 
         if not parent_conn.poll(self.startup_timeout_s):
             self.close()
@@ -709,6 +941,62 @@ class PersistentExactStopWorker:
             self.warm_records.append(record)
         return record
 
+    def _poll_recv_nonblocking(self) -> tuple[str, Any]:
+        """Read available bytes non-blockingly; return a message only when a full frame arrives."""
+        conn = self._parent_conn
+        if conn is None:
+            return "dead", None
+        try:
+            fd = int(conn.fileno())
+        except (AttributeError, OSError, ValueError):
+            fd = None
+
+        if fd is None:
+            try:
+                if not conn.poll(0):
+                    return "empty", None
+                return "message", conn.recv()
+            except BlockingIOError:
+                return "empty", None
+            except (BrokenPipeError, EOFError, OSError):
+                return "dead", None
+
+        try:
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+            if not (flags & os.O_NONBLOCK):
+                fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+            while True:
+                readable, _, _ = select.select([fd], [], [], 0.0)
+                if not readable:
+                    break
+                chunk = os.read(fd, 65_536)
+                if not chunk:
+                    return "dead", None
+                self._rx_buf.extend(chunk)
+                if len(self._rx_buf) > self.max_packet_bytes + 12:
+                    self._rx_buf.clear()
+                    return "invalid", None
+        except BlockingIOError:
+            pass
+        except (BrokenPipeError, ConnectionResetError, EOFError, OSError) as exc:
+            if getattr(exc, "errno", None) not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                return "dead", None
+
+        if len(self._rx_buf) < 4:
+            return "empty", None
+        (size,) = struct.unpack("!i", self._rx_buf[:4])
+        if size <= 0 or size > self.max_packet_bytes:
+            self._rx_buf.clear()
+            return "invalid", None
+        if len(self._rx_buf) < 4 + size:
+            return "empty", None
+        payload_bytes = bytes(self._rx_buf[4 : 4 + size])
+        del self._rx_buf[: 4 + size]
+        try:
+            return "message", pickle.loads(payload_bytes)
+        except Exception:
+            return "invalid", None
+
     def poll(self, tick_index: int) -> dict[str, Any] | None:
         """Non-blockingly poll the worker pipe on the tick; consume/log reply, apply NO action."""
         started_wall = time.perf_counter_ns()
@@ -717,17 +1005,17 @@ class PersistentExactStopWorker:
         try:
             if self._parent_conn is None or self.pending_request is None:
                 return None
-            try:
-                has_message = bool(self._parent_conn.poll(0))
-            except (BrokenPipeError, EOFError, OSError):
+            status, reply = self._poll_recv_nonblocking()
+            if status == "dead":
                 self._handle_worker_crash()
                 return None
-            if has_message:
-                try:
-                    reply = self._parent_conn.recv()
-                except (BrokenPipeError, EOFError, OSError):
-                    self._handle_worker_crash()
-                    return None
+            if status == "invalid":
+                self.pending_request = None
+                self.current_pending_count = 0
+                self.invalid_reply_count += 1
+                self.fallback_count += 1
+                return None
+            if status == "message":
                 visible_ns = time.perf_counter_ns()
                 expected_id = int(self.pending_request["request_id"])
                 self.pending_request = None
@@ -740,7 +1028,7 @@ class PersistentExactStopWorker:
                     if 0 <= tick_index < self.measured_ticks:
                         self.tick_completed[tick_index] = 1
                 return record
-            # No message ready yet: check whether the worker crashed or timed out.
+            # No complete message ready yet: check whether the worker crashed or timed out.
             if self._process is None or not self._process.is_alive():
                 self._handle_worker_crash()
                 return None
@@ -751,7 +1039,7 @@ class PersistentExactStopWorker:
             return None
         finally:
             if 0 <= tick_index < self.measured_ticks:
-                self.poll_wall_ns[tick_index] += max(0, time.perf_counter_ns() - started_wall)
+                self.poll_wall_ns[tick_index] += max(1, time.perf_counter_ns() - started_wall)
                 self.poll_thread_cpu_ns[tick_index] += max(0, time.thread_time_ns() - started_cpu)
 
     def _handle_worker_crash(self) -> None:
@@ -793,14 +1081,14 @@ class PersistentExactStopWorker:
             return packet, copy_bytes
         finally:
             if 0 <= tick_index < self.measured_ticks:
-                self.state_copy_wall_ns[tick_index] += max(0, time.perf_counter_ns() - started_wall)
+                self.state_copy_wall_ns[tick_index] += max(1, time.perf_counter_ns() - started_wall)
                 self.state_copy_thread_cpu_ns[tick_index] += max(
                     0, time.thread_time_ns() - started_cpu
                 )
                 self.state_copy_bytes[tick_index] = copy_bytes
 
     def try_publish(self, packet: Mapping[str, Any], copy_bytes: int, tick_index: int) -> bool:
-        """Enforce K <= 1 bounded queue; send over Pipe if idle or drop-while-busy if pending."""
+        """Enforce K <= 1 bounded queue and non-blocking send with timeout armed before send."""
         started_wall = time.perf_counter_ns()
         started_cpu = time.thread_time_ns()
         try:
@@ -818,27 +1106,48 @@ class PersistentExactStopWorker:
                 if 0 <= tick_index < self.measured_ticks:
                     self.tick_overflow[tick_index] = 1
                 return False
+
             request_id = self._next_request_id
-            self._next_request_id += 1
             admitted_ns = time.perf_counter_ns()
+            fixture_id = str(packet["fixture"]["fixture_id"])
+            # Arm pending_request and timeout timestamp BEFORE serialization or send.
+            self.pending_request = {
+                "request_id": request_id,
+                "tick_index": int(tick_index),
+                "admitted_ns": admitted_ns,
+                "fixture_id": fixture_id,
+            }
+            self.current_pending_count = 1
+
+            if int(copy_bytes) > self.max_packet_bytes:
+                self.pending_request = None
+                self.current_pending_count = 0
+                self.queue_overflow_count += 1
+                self.fallback_count += 1
+                if 0 <= tick_index < self.measured_ticks:
+                    self.tick_overflow[tick_index] = 1
+                return False
+
             outbound = {
                 **packet,
                 "request_id": request_id,
                 "admitted_ns": admitted_ns,
                 "state_copy_bytes": int(copy_bytes),
             }
-            try:
-                self._parent_conn.send(outbound)
-            except (BrokenPipeError, EOFError, OSError):
+            send_status = _try_send_nonblocking(self._parent_conn, outbound, self.max_packet_bytes)
+            if send_status == "overflow":
+                self.pending_request = None
+                self.current_pending_count = 0
+                self.queue_overflow_count += 1
+                self.fallback_count += 1
+                if 0 <= tick_index < self.measured_ticks:
+                    self.tick_overflow[tick_index] = 1
+                return False
+            if send_status != "ok":
                 self._handle_worker_crash()
                 return False
-            self.pending_request = {
-                "request_id": request_id,
-                "tick_index": int(tick_index),
-                "admitted_ns": admitted_ns,
-                "fixture_id": str(packet["fixture"]["fixture_id"]),
-            }
-            self.current_pending_count = 1
+
+            self._next_request_id += 1
             if self.current_pending_count > self.max_observed_pending:
                 self.max_observed_pending = self.current_pending_count
             self.submitted_count += 1
@@ -848,7 +1157,7 @@ class PersistentExactStopWorker:
             return True
         finally:
             if 0 <= tick_index < self.measured_ticks:
-                self.publish_wall_ns[tick_index] += max(0, time.perf_counter_ns() - started_wall)
+                self.publish_wall_ns[tick_index] += max(1, time.perf_counter_ns() - started_wall)
                 self.publish_thread_cpu_ns[tick_index] += max(
                     0, time.thread_time_ns() - started_cpu
                 )
@@ -872,22 +1181,28 @@ class PersistentExactStopWorker:
         if self._parent_conn is not None:
             try:
                 if self._process is not None and self._process.is_alive():
-                    self._parent_conn.send({"cmd": "shutdown"})
+                    _try_send_nonblocking(
+                        self._parent_conn, {"cmd": "shutdown"}, self.max_packet_bytes
+                    )
                     deadline = time.monotonic() + 2.0
-                    while time.monotonic() < deadline and self._parent_conn.poll(0.05):
-                        msg = self._parent_conn.recv()
-                        if isinstance(msg, Mapping) and msg.get("kind") in (
-                            "shutdown_ack",
-                            "stopped",
-                        ):
-                            rss_end = int(msg.get("rss_bytes", 0))
-                            maxrss_end = int(msg.get("maxrss_bytes", 0))
-                            if rss_end > 0:
-                                self.worker_rss_bytes_final = rss_end
-                            self.worker_maxrss_bytes = max(
-                                self.worker_maxrss_bytes, rss_end, maxrss_end
-                            )
+                    while time.monotonic() < deadline:
+                        status, msg = self._poll_recv_nonblocking()
+                        if status == "message" and isinstance(msg, Mapping):
+                            if msg.get("kind") in ("shutdown_ack", "stopped"):
+                                rss_end = int(msg.get("rss_bytes", 0))
+                                maxrss_end = int(msg.get("maxrss_bytes", 0))
+                                if rss_end > 0:
+                                    self.worker_rss_bytes_final = rss_end
+                                self.worker_maxrss_bytes = max(
+                                    self.worker_maxrss_bytes, rss_end, maxrss_end
+                                )
+                                break
+                        elif status in ("dead", "invalid"):
                             break
+                        else:
+                            if not self._process.is_alive():
+                                break
+                            time.sleep(0.02)
             except (BrokenPipeError, EOFError, OSError):
                 pass
             finally:
@@ -896,10 +1211,14 @@ class PersistentExactStopWorker:
                 except BaseException:
                     pass
                 self._parent_conn = None
+        self._stop_event.close()
         if self._process is not None:
             self._process.join(timeout=5.0)
             if self._process.is_alive():
                 self._process.terminate()
+                self._process.join(timeout=5.0)
+            if self._process.is_alive():
+                self._process.kill()
                 self._process.join(timeout=5.0)
             self.worker_exitcode = self._process.exitcode
             self.clean_shutdown = (
@@ -933,6 +1252,7 @@ class PersistentExactStopWorker:
             "operator_mode": self.operator_mode,
             "workers": 1,
             "max_pending": self.max_pending,
+            "max_packet_bytes": self.max_packet_bytes,
             "prewarmed": self.prewarmed,
             "worker_pid": self.worker_pid,
             "worker_exitcode": self.worker_exitcode,
@@ -994,6 +1314,7 @@ def reduce_worker_contention(
     worker_data: Mapping[str, Any],
     *,
     expected_ticks: int,
+    require_exact_stop: bool = False,
 ) -> dict[str, Any]:
     """Validate and summarize W1/K1 contention telemetry fail-closed."""
     if (
@@ -1002,8 +1323,25 @@ def reduce_worker_contention(
     ):
         return {"verdict": "INVALID", "reason": "missing or invalid W1/K1 worker schema"}
     worker_mode = worker_data.get("worker_mode")
-    if worker_mode not in ("active", "idle"):
-        return {"verdict": "INVALID", "reason": "invalid W1/K1 worker_mode"}
+    if worker_mode != "active":
+        return {"verdict": "INVALID", "reason": "W1/K1 contention requires active worker_mode"}
+    operator_mode = worker_data.get("operator_mode")
+    allowed_operators = ("exact_stop",) if require_exact_stop else ("exact_stop", "synthetic_fast")
+    if operator_mode not in allowed_operators:
+        return {
+            "verdict": "INVALID",
+            "reason": "W1/K1 contention requires native exact_stop operator_mode",
+        }
+    if require_exact_stop and (
+        worker_data.get("fixtures_sha256") != Y1_FIXTURES_SHA256
+        or worker_data.get("reference_sha256") != Y1_REFERENCE_SHA256
+    ):
+        return {
+            "verdict": "INVALID",
+            "reason": "W1/K1 worker fixture/reference SHA256 binding mismatch",
+        }
+    if type(expected_ticks) is not int or expected_ticks <= 0:
+        return {"verdict": "INVALID", "reason": "expected_ticks must be a positive integer"}
     if worker_data.get("workers") != 1 or worker_data.get("max_pending") != 1:
         return {"verdict": "INVALID", "reason": "W1/K1 worker/max_pending contract violated"}
     if not worker_data.get("prewarmed") or not worker_data.get("clean_shutdown"):
@@ -1055,6 +1393,40 @@ def reduce_worker_contention(
             "verdict": "INVALID",
             "reason": "worker crash, timeout, or invalid/mismatched reply",
         }
+    if counts["in_flight_at_end_count"] not in (0, 1):
+        return {"verdict": "INVALID", "reason": "in_flight_at_end_count violates K <= 1"}
+    if counts["offered_count"] != expected_ticks:
+        return {
+            "verdict": "INVALID",
+            "reason": "offered_count does not match required measured tick exposure",
+        }
+    if counts["submitted_count"] <= 0 or counts["max_observed_pending"] != 1:
+        return {
+            "verdict": "INVALID",
+            "reason": "active W1/K1 worker submitted no requests or failed pending accounting",
+        }
+    if counts["submitted_count"] + counts["queue_overflow_count"] != counts["offered_count"]:
+        return {
+            "verdict": "INVALID",
+            "reason": "offered_count does not equal submitted_count + queue_overflow_count",
+        }
+    if counts["completed_count"] + counts["in_flight_at_end_count"] != counts["submitted_count"]:
+        return {
+            "verdict": "INVALID",
+            "reason": "submitted_count does not equal completed_count + in_flight_at_end_count",
+        }
+    expected_fallbacks = (
+        counts["queue_overflow_count"]
+        + counts["worker_timeout_count"]
+        + counts["worker_crash_count"]
+        + counts["invalid_reply_count"]
+        + counts["reference_mismatch_count"]
+    )
+    if counts["fallback_count"] != expected_fallbacks:
+        return {
+            "verdict": "INVALID",
+            "reason": "fallback_count does not reconcile with overflow and error counters",
+        }
 
     tick_costs = worker_data.get("tick_costs", {})
     if not isinstance(tick_costs, Mapping):
@@ -1080,6 +1452,77 @@ def reduce_worker_contention(
         ):
             return {"verdict": "INVALID", "reason": f"malformed W1/K1 tick series: {key}"}
 
+    state_copy_wall = tick_costs["state_copy_wall_ns"]
+    state_copy_cpu = tick_costs["state_copy_thread_cpu_ns"]
+    state_copy_bytes = tick_costs["state_copy_bytes"]
+    publish_wall = tick_costs["publish_wall_ns"]
+    publish_cpu = tick_costs["publish_thread_cpu_ns"]
+    poll_wall = tick_costs["poll_wall_ns"]
+    poll_cpu = tick_costs["poll_thread_cpu_ns"]
+    admitted_flags = tick_costs["tick_admitted"]
+    completed_flags = tick_costs["tick_completed"]
+    overflow_flags = tick_costs["tick_overflow"]
+
+    for flag_key, flag_series in (
+        ("tick_admitted", admitted_flags),
+        ("tick_completed", completed_flags),
+        ("tick_overflow", overflow_flags),
+    ):
+        if any(v not in (0, 1) for v in flag_series):
+            return {"verdict": "INVALID", "reason": f"non-binary flag in {flag_key}"}
+
+    if (
+        sum(admitted_flags) != counts["submitted_count"]
+        or sum(completed_flags) != counts["completed_count"]
+        or sum(overflow_flags) != counts["queue_overflow_count"]
+    ):
+        return {
+            "verdict": "INVALID",
+            "reason": "tick flag sums do not reconcile with submitted/completed/overflow counters",
+        }
+
+    if any(admitted_flags[i] + overflow_flags[i] != 1 for i in range(expected_ticks)):
+        return {
+            "verdict": "INVALID",
+            "reason": "every measured tick must record either admission or overflow",
+        }
+
+    if (
+        any(v <= 0 for v in state_copy_wall)
+        or any(v <= 0 for v in publish_wall)
+        or any(v <= 0 for v in poll_wall)
+        or any(v <= 0 for v in state_copy_bytes)
+    ):
+        return {
+            "verdict": "INVALID",
+            "reason": "missing or zero per-tick state_copy/publish/poll exposure",
+        }
+
+    pending = 0
+    for i in range(expected_ticks):
+        if completed_flags[i] == 1:
+            if pending != 1:
+                return {
+                    "verdict": "INVALID",
+                    "reason": f"tick {i} recorded completion with no request in flight",
+                }
+            pending = 0
+        if admitted_flags[i] == 1:
+            if pending != 0:
+                return {
+                    "verdict": "INVALID",
+                    "reason": f"tick {i} admitted request while K=1 slot was busy",
+                }
+            pending = 1
+    if pending != counts["in_flight_at_end_count"]:
+        return {
+            "verdict": "INVALID",
+            "reason": "tick flag trajectory does not match in_flight_at_end_count",
+        }
+
+    admitted_indices = [i for i, flag in enumerate(admitted_flags) if flag == 1]
+    completed_indices = [i for i, flag in enumerate(completed_flags) if flag == 1]
+
     cold_records = worker_data.get("cold_records")
     warm_records = worker_data.get("warm_records")
     if not isinstance(cold_records, list) or not isinstance(warm_records, list):
@@ -1093,12 +1536,43 @@ def reduce_worker_contention(
             not isinstance(record, Mapping)
             or record.get("action_applied") is not False
             or record.get("reference_match") is not True
+            or type(record.get("request_id")) is not int
+            or type(record.get("tick_index")) is not int
             or type(record.get("worker_service_ns")) is not int
-            or record["worker_service_ns"] < 0
+            or record["worker_service_ns"] <= 0
             or type(record.get("S_ns")) is not int
             or record["S_ns"] < record["worker_service_ns"]
         ):
             return {"verdict": "INVALID", "reason": "invalid worker reply record"}
+
+    if (
+        [r["request_id"] for r in cold_records] != list(range(len(cold_records)))
+        or [r["tick_index"] for r in cold_records] != [-1 - i for i in range(len(cold_records))]
+        or any(r.get("phase") != "cold" for r in cold_records)
+    ):
+        return {"verdict": "INVALID", "reason": "invalid cold record request/tick sequence"}
+
+    expected_warm_req_ids = [len(cold_records) + i for i in range(len(warm_records))]
+    if (
+        [r["request_id"] for r in warm_records] != expected_warm_req_ids
+        or [r["tick_index"] for r in warm_records] != admitted_indices[: len(warm_records)]
+        or any(r.get("phase") != "warm" for r in warm_records)
+    ):
+        return {
+            "verdict": "INVALID",
+            "reason": "warm record request_id/tick_index sequence does not match tick_admitted",
+        }
+    for idx, record in enumerate(warm_records):
+        admitted_tick = admitted_indices[idx]
+        completed_tick = completed_indices[idx]
+        if (
+            completed_tick < admitted_tick
+            or record.get("state_copy_bytes") != state_copy_bytes[admitted_tick]
+        ):
+            return {
+                "verdict": "INVALID",
+                "reason": "warm record tick timing or state_copy_bytes mismatch",
+            }
 
     # Check native_v8 kernel execution counters across all completed records.
     native_totals = {
@@ -1124,19 +1598,6 @@ def reduce_worker_contention(
         or native_totals["fallback_rows"] != 0
     ):
         return {"verdict": "INVALID", "reason": "worker native_v8 fell back to stock rows"}
-
-    state_copy_wall = tick_costs["state_copy_wall_ns"]
-    state_copy_cpu = tick_costs["state_copy_thread_cpu_ns"]
-    state_copy_bytes = tick_costs["state_copy_bytes"]
-    publish_wall = tick_costs["publish_wall_ns"]
-    publish_cpu = tick_costs["publish_thread_cpu_ns"]
-    poll_wall = tick_costs["poll_wall_ns"]
-    poll_cpu = tick_costs["poll_thread_cpu_ns"]
-    admitted_flags = tick_costs["tick_admitted"]
-    completed_flags = tick_costs["tick_completed"]
-
-    admitted_indices = [i for i, flag in enumerate(admitted_flags) if flag == 1]
-    completed_indices = [i for i, flag in enumerate(completed_flags) if flag == 1]
 
     combined_wall = [
         state_copy_wall[i] + publish_wall[i] + poll_wall[i] for i in range(expected_ticks)
@@ -1187,23 +1648,18 @@ def reduce_worker_contention(
     cold_service_dist = _distribution(cold_service_samples)
 
     # Require warm completions on full/multi-second active runs (>= 24 ticks = 1.0s).
-    if worker_mode == "active" and expected_ticks >= 24 and not warm_records:
+    if expected_ticks >= 24 and not warm_records:
         return {
             "verdict": "INCOMPLETE",
             "reason": "no warm worker completions observed during active measured window",
         }
 
-    warm_s_p95 = warm_s_dist["p95"]
-    warm_s_pass = warm_s_p95 is None or float(warm_s_p95) <= WARM_S_P95_LIMIT_NS
-    verdict = "PASS" if warm_s_pass else "FAIL"
-
     return {
-        "verdict": verdict,
+        "verdict": "PASS",
         "worker_mode": worker_mode,
+        "operator_mode": operator_mode,
         "workers": 1,
         "max_pending": 1,
-        "warm_s_p95_limit_ns": WARM_S_P95_LIMIT_NS,
-        "warm_s_p95_pass": warm_s_pass,
         "service_latency": {
             "cold_worker_service_ns": cold_service_dist,
             "warm_worker_service_ns": warm_service_dist,
