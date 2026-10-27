@@ -1,0 +1,17 @@
+TRAIN-01-02: simulator-D development; supersedes the rejected TRAIN-01 packet for dispatch.
+Runtime pin: 1bc437032085f781d426b6b2a35a37ec7a6b3560
+Clean detached runtime: /Users/josenunez/Projects/ml/snake-dqn-train01-02-runtime.noindex
+Clean detached broker: /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex
+Broker HEAD seals this packet; runtime source bytes match the published pin.
+Endpoint: 100663296 actor rows E1024/T256, H5000, bounded E24 preparation.
+Same frozen allocation/seed audit, empty ledger, 8-hour base / 16-hour effective guard.
+All Argon findings repaired; CUDA API contracts covered by mocks/meta checks.
+CPU reference world/features stay on host; neural screen inference uses CUDA.
+Material distribution gaps stop before preparation; no efficacy or release claim.
+Manual completion only via python -m research.sandbox_a_resident.training_completion.
+No A100 allocation is performed by preflight or dry-run.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-02 /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex/research/sandbox_a_resident/packet-train01-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-02-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-02/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-02-broker.noindex/research/sandbox_a_resident/packet-train01-02/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve both clean detached checkouts and all prior evidence.
