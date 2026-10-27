@@ -1,0 +1,85 @@
+{
+  "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-06-engineering-20261027",
+  "artifact_sha256": {
+    "admission-tests.log": "065664a2c2e2e0651e3fc353ec352e842213965a3b600b25177ad1d739724b8f",
+    "dispatch-dry-run.log": "827b48eb55ca7c9df3cc2091b44e7815c2e5b0f9263028e5349493b926985bd6",
+    "frozen-tiny-control.json": "37711d3332735b77f32a260b2a25f70191e6558079a15f7d06271bbd6824af7a",
+    "frozen-tiny-entrypoint.log": "079cce397f89554f5bfc94efb6a6b040af8efdcb2b9dff45b914087bade2180f",
+    "lint-black.log": "2086e52d894c8a9e346b7e54cf4e6aa5bfc4894eadf08c9c1fefbf7390e718f1",
+    "lint-flake8.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "lint-isort.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "mixed-E3-H256.json": "a465b93662319eb5b1685e57cc69b93deeae6d60f146ba1b7f99c38f584a84a0",
+    "mixed-E3-H5000.log": "3ad1a2a2fa52263644defacdd9a78bbe44f8b1d92f574dd44918aa2b7fdaeece",
+    "preflight.log": "d0a2c731689434967c641e9128b6729c6c808f76611d3e34ac87d700869f0f52",
+    "reproduction-provenance-verified.json": "fe80aef7c4502e7a8a938b9452216bb2ae069a6163ad772e00cbc8a02d3e4a2d",
+    "scoped-tests.log": "e87a37fec20441bb60d87625e199b923cf4ab2105d12f0d369ed7580ba05cd9d",
+    "seal-proof-final.json": "d881ba86b65eb459f2a3150d0970734e4e8a43dec06158cfed0eedef1fbce0ab",
+    "tiny-resident-E3-H5000.json": "456683a587df64ee000a45c5c8e71d031fc8e81ca11217c247b6eee90d557fd5",
+    "tiny-resident-E3-H5000.log": "ae07538701a4bc05d3c6e3c903ed0b919650e579b6940e16889b651419dcf3ba"
+  },
+  "baseline_commit": "5d0e0c7a28cab136fa0e30a24dfdefa22535223d",
+  "both_detached_clean": true,
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex",
+  "broker_seal": "1cf89337a79b545b2a2a171e7b2dfc66c05e578b",
+  "commands": {
+    "admission_tests": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -o addopts= -p no:xdist tools/sandbox/tests/test_admission.py",
+    "dispatch": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-06 /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex/research/sandbox_a_resident/packet-train01-06/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-06-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-06/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex/research/sandbox_a_resident/packet-train01-06/DISPATCH.txt",
+    "dry_run": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-06 /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex/research/sandbox_a_resident/packet-train01-06/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-06-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-06/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex/research/sandbox_a_resident/packet-train01-06/DISPATCH.txt --dry-run",
+    "entrypoint": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.sandbox_a_resident.train --checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth --frp3 /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth --champion /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth --control /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-06-engineering-20261027/frozen-tiny-control.json --output /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-06-engineering-20261027/frozen-tiny-entrypoint --device cpu",
+    "preflight": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.sandbox_a_resident.training_preflight /Users/josenunez/Projects/ml/snake-dqn-train01-06-broker.noindex/research/sandbox_a_resident/packet-train01-06",
+    "scoped_tests": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -o addopts= -p no:xdist research/sandbox_a_resident tools/sandbox/tests tools/ops/tests/test_persistence_priority.py tools/ops/tests/test_r2_packet.py tests/test_colab_cli_supervisor.py tests/test_colab_cli_release.py tests/test_colab_cli_export_batches.py"
+  },
+  "diagnosis": {
+    "actual_attempt05_runtime": "b4225e2540c6b0cdb2e00e2ce84debc8296f5deb",
+    "confirmed_defect": "Row observation views retained whole E24 allocations:12443 logical bytes kept298632 bytes; logical160000-row bound did not bound backing storage.",
+    "proof": "Verified calibrated-boundary.pt contains all CPU/device H5000 screens COMPLETE with material_gaps=[] and 10000 calibrated rows. This is published only after screen and calibration return.",
+    "screen_aggregation": "Bounded remaining ticks, fixed-size reductions and twelve scalar comparisons; no condition-wait or unbounded completion loop. No file write in the original screen function.",
+    "silent_phase": "Critic fit first progress previously at1500000 rows =62500 E24 ticks; first calibrated exports visible at5141.5s, stopped16982.05s.",
+    "uncertainty": "No original remote stack or RSS; cannot prove deadlock or attribute all silence to memory pressure. Slow bounded preparation plus inadequate telemetry fits evidence."
+  },
+  "fixes": [
+    "Select only retained fit/holdout worlds before host transfer; clone each stored one-world observation, preserving exact values/dtypes/order/RNG.",
+    "Emit completed-work progress every<=60s and explicit phase boundaries through screen, preparation, proxy and collection.",
+    "Native faulthandler no-progress timeout900s, all-thread stack dump and nonzero exit; parent shell publishes SHA sidecars/completion markers after child exit.",
+    "TRAIN01-only broker timeout env allowance, finite string0<seconds<=900; other package allowlists unchanged.",
+    "Startup E32 all-mix both-engine256-frame prefix of natural H5000 task, explicitly labelled early-life-only; maximum19.53125 times fewer screen ticks. Full H5000 remains callable, verified full snapshot resume skips screen.",
+    "Export completed screen separately before preparation, including gap report; no prior calibration-only snapshot migrated across source identity."
+  ],
+  "manifest_sha256": "452201d36ff439faed598d56491d8726109a573ab2ddb098b06cb661c3031e18",
+  "not_done_or_limits": [
+    "No live dispatch, allocation, accounting/session queries, A100 kernels, Inductor or A100 timing qualification.",
+    "Ordinary resident CPU H5000 stopped after useful progress, last reportframe1386/731.362s; CPU fallback v8 flood was advancing slowly. No ordinary resident CPU H5000 completion claim.",
+    "E3 prefix has one descriptive nearest-spawn gap; tiny resident smoke is a same-engine fixture, not distribution/CPU-device identity evidence.",
+    "Initial detached preflight missing ignored venv symlink corrected; initial dryrun timeout-env allowlist refusal corrected in new broker commit. Failed logs preserved.",
+    "New packet is fresh empty ledger; exact resume from attempt05 calibration-only state under old source pin was not attempted."
+  ],
+  "nothing_touched": [
+    "No pre-existing tmux sessions/processes killed or edited. Only owned Mac reproduction child stopped and verified gone.",
+    "Released checkpoints, serving pins, historical packets and hash-bound evidence preserved.",
+    "Qualified research/colab_cli, src and web trees identical to baseline."
+  ],
+  "packet": "research/sandbox_a_resident/packet-train01-06",
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-06-runtime.noindex",
+  "runtime_pin": "af3a445d0def4457fe4d6f853e529e20beae913e",
+  "runtime_source_files_verified": 186,
+  "schema": "sandbox-a-train01-repair-verification/v1",
+  "seed_audit_count": 114299008,
+  "seed_audit_reused": "Same immutable allocation and registry; byte-identical packet-05 exhaustive audit.",
+  "unchanged_trees": {
+    "research/colab_cli": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+    "src": "33851114fa40c8403fc3ed0182fad4e9b8285159",
+    "web": "a0a0fe5b58dc90b5fa0d2b88f0035b9bcd0714d8"
+  },
+  "verification": {
+    "dry_run": "PASS_DRY_RUN sandbox-a-train01-20261027-06 allocations=0 live_accounting=NOT_CHECKED",
+    "entrypoint": "Clean runtime checkout real test_only CPU entrypoint: PASS_SANDBOX_A_TRAIN iterations=1 actor_rows=6.",
+    "final_admission_tests": "40 passed in0.23s; independent reviewer40 passed in0.25s.",
+    "frozen_preflight": "215 passed in27.21s; PASS_TRAIN01_PREFLIGHT seeds=114299008 schema=PASS registry=PASS tests=PASS allocations=0.",
+    "lint": "Black/isort/flake8 all changed Python files, bash -n launcher and git diff --check PASS.",
+    "parity": "Permanent b4225 frozen preparation oracle compares exact model/critic/optimizer state, sampled RNG, batch targets and losses;28 prep tests pass.",
+    "reproduction": "Real mixed E3 prefix completed112.496s; ordinary CPU reference H5000 completed28.844s; tiny natural resident first-life fixture completed96 frames/11.752s with all heroes naturally dead.",
+    "review": "Independent final code, broker guard and packet review found no blocking findings.",
+    "scoped_suite": "394 passed in819.35s, resident+sandbox+ops+mocked supervisor/release/export regressions; final broker guard tested separately after this suite was started.",
+    "watchdog": "10 tests including real GIL-held ctypes.PyDLL sleep -> native timeout -> rc1 -> shell sealed diagnostics -> runtime._exports exact acceptance."
+  }
+}
