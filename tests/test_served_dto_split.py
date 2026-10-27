@@ -5,8 +5,13 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import pickle
+import queue
+import threading
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -183,6 +188,190 @@ def test_backpressure_bound_stale_reset_and_shutdown(session) -> None:
     assert not renderer.process.is_alive()
     assert renderer.poll(1) is None
     assert not renderer.publish(packed, 12, 1)
+
+
+@pytest.fixture
+def worker_harness(monkeypatch):
+    """Exercise the worker protocol with observable locks and wakeups, no models."""
+    from research.t1_commitment_20261015 import replay
+    from src.core import game_config
+    from web.backend import serialize
+
+    monkeypatch.setattr(replay, "configure_cpu", lambda: None)
+    monkeypatch.setattr(game_config, "initialize_config", lambda config: None)
+    monkeypatch.setattr(serialize, "build_frame", lambda session: {"frame": session.game.frame})
+    events, waits = [], queue.Queue()
+    model = SimpleNamespace(eval=lambda: None)
+    loads = pickle.loads
+
+    def decode(packed):
+        if packed == b"bootstrap":
+            return model, model, None
+        events.append("decode")
+        return loads(packed)
+
+    monkeypatch.setattr(split.pickle, "loads", decode)
+
+    class Lock:
+        acquisitions = 0
+
+        def __init__(self):
+            self.lock = threading.Lock()
+
+        def acquire(self, **kwargs):
+            acquired = self.lock.acquire(**kwargs)
+            self.acquisitions += int(acquired)
+            return acquired
+
+        def release(self):
+            self.lock.release()
+
+    class Requests(threading.Semaphore):
+        def acquire(self, **kwargs):
+            waits.put((meta[split.PHASE], meta[split.SEQ]))
+            return super().acquire(**kwargs)
+
+    class Ready:
+        def send(self, message):
+            events.append(message)
+
+        def close(self):
+            pass
+
+    slot, output, meta = bytearray(4096), bytearray(4096), [0] * 12
+    lock, requests, stop = Lock(), Requests(0), SimpleNamespace(value=False)
+    thread = threading.Thread(
+        target=split._worker,
+        args=(slot, output, meta, lock, requests, stop, Ready(), b"bootstrap", os.getppid()),
+    )
+    thread.start()
+    try:
+        assert waits.get(timeout=5) == (0, 0)
+        yield SimpleNamespace(
+            slot=slot,
+            output=output,
+            meta=meta,
+            lock=lock,
+            requests=requests,
+            waits=waits,
+            stop=stop,
+            events=events,
+            thread=thread,
+        )
+    finally:
+        stop.value = True
+        requests.release()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+
+
+def _notify_request(worker, sequence: int = 0, generation: int = 0) -> None:
+    row = dict(
+        sequence=sequence,
+        generation=generation,
+        observation=None,
+        id_to_row={},
+        snakes=[],
+        session={"hero_id": 0},
+        hero_state=None,
+        game={"frame": sequence},
+        food=[],
+        max_food=0,
+        veto=None,
+    )
+    packed = pickle.dumps(row)
+    worker.slot[: len(packed)] = packed
+    worker.meta[split.SIZE] = len(packed)
+    worker.meta[split.SEQ], worker.meta[split.GEN] = sequence, generation
+    worker.meta[split.PHASE] = 1
+    worker.requests.release()
+
+
+def _wait_for_reply(worker, sequence: int) -> None:
+    deadline = time.monotonic() + 5
+    while True:
+        remaining = deadline - time.monotonic()
+        assert remaining > 0, "worker did not return to its reply-ready wait"
+        if worker.waits.get(timeout=remaining) == (2, sequence):
+            return
+
+
+def test_worker_waits_without_slot_lock_when_free_or_reply_ready(worker_harness) -> None:
+    worker = worker_harness
+    # Timeout wakeups check owner liveness without locking a free slot.
+    assert worker.waits.get(timeout=5) == (0, 0)
+    assert worker.lock.acquisitions == 0
+    _notify_request(worker)
+    _wait_for_reply(worker, 0)
+    assert worker.meta[split.PHASE] == 2
+    completed_acquisitions = worker.lock.acquisitions
+    assert completed_acquisitions == 2  # request read and reply write only
+    assert worker.waits.get(timeout=5) == (2, 0)
+    assert worker.lock.acquisitions == completed_acquisitions
+    # Acknowledgement returns ownership; a retained notification wakes the next request.
+    worker.meta[split.PHASE] = 0
+    _notify_request(worker, sequence=1)
+    _wait_for_reply(worker, 1)
+    assert worker.meta[split.SEQ] == 1
+    assert worker.lock.acquisitions == completed_acquisitions + 2
+    worker.stop.value = True
+    worker.requests.release()
+    worker.thread.join(timeout=5)
+    assert not worker.thread.is_alive()
+    assert worker.lock.acquisitions == completed_acquisitions + 2
+
+
+def test_worker_decodes_once_before_service_clocks(worker_harness, monkeypatch) -> None:
+    worker = worker_harness
+
+    def clock(name):
+        worker.events.append(name)
+        return len(worker.events)
+
+    monkeypatch.setattr(
+        split,
+        "time",
+        SimpleNamespace(perf_counter_ns=lambda: clock("wall"), thread_time_ns=lambda: clock("cpu")),
+    )
+    _notify_request(worker, sequence=7, generation=3)
+    _wait_for_reply(worker, 7)
+    assert worker.events == [{"ready": True}, "decode", "wall", "cpu", "wall", "cpu"]
+    assert worker.meta[split.RECV] == 3
+    assert worker.meta[split.WALL] == worker.meta[split.CPU] == 2
+    assert json.loads(bytes(worker.output[: worker.meta[split.OUT_SIZE]])) == {"frame": 7}
+
+
+def test_final_busy_tick_diagnostic_keeps_export_sequence(session, monkeypatch) -> None:
+    original_renderer = split.Renderer
+    warmup, measured = 1, 2
+    final_sequence = warmup + measured - 1
+
+    class FinalBusyRenderer(original_renderer):
+        refused = False
+
+        def publish(self, packed, sequence, generation):
+            if sequence == final_sequence and not self.refused:
+                self.refused = True
+                self.busy += 1
+                return False
+            return super().publish(packed, sequence, generation)
+
+    monkeypatch.setattr(split, "Renderer", FinalBusyRenderer)
+    monkeypatch.setattr(probe, "new_probe_watch", lambda seed: (session, {}))
+    result = split.run_game(dict(seed=1, warmup_ticks=warmup, measured_ticks=measured))
+    assert result.get("status") != "INVALID", result.get("reason")
+    assert result["state_digest"]["final"] == probe.session_state_digest(session)
+    assert result["dto_digest"]["final"] == probe.dto_digest(session.snapshot())
+    data = result["dto_transport"]
+    assert not data["ticks"][-1]["published"]
+    assert data["final_diagnostic_publication"]
+    assert data["services"][-1]["sequence"] == final_sequence
+    assert data["crashes"] == 0
+    # Diagnostic parity survives, but a measured busy drop still invalidates timing.
+    from research.bl_served_search.dto_split_report import validate_transport
+
+    with pytest.raises(ValueError, match="fallback DTO exposure"):
+        validate_transport(result)
 
 
 def test_failure_retains_attempted_tick_trace(session, monkeypatch) -> None:

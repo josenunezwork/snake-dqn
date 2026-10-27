@@ -125,13 +125,14 @@ class _Veto(SimpleNamespace):
         return self.value
 
 
-def render_export(packed: bytes, models: tuple[Any, Any, Any]) -> tuple[dict[str, Any], bytes]:
+def render_export(
+    row: Mapping[str, Any], models: tuple[Any, Any, Any]
+) -> tuple[dict[str, Any], bytes]:
     """Use stock inspector and DTO code against a detached value-only facade."""
     import torch
 
     from web.backend.serialize import build_frame
 
-    row = pickle.loads(packed)
     ego, vector, _config = models
     policy = _InspectorPolicy(
         net=ego,
@@ -185,6 +186,7 @@ def _worker(
     output: Any,
     meta: Any,
     lock: Any,
+    requests: Any,
     stop: Any,
     ready: Any,
     frozen: bytes,
@@ -204,22 +206,29 @@ def _worker(
         models[1].eval()
         ready.send({"ready": True})
         while not stop.value and os.getppid() == owner_pid:
+            # Wait without the slot lock in FREE and REPLY. The timeout only
+            # checks owner liveness; publication/close explicitly wake us.
+            if not requests.acquire(timeout=0.05):
+                continue
+            if stop.value or os.getppid() != owner_pid:
+                return
             with _owner_lock(lock, owner_pid) as owned:
                 if not owned:
                     return
                 if meta[PHASE] == 1:
-                    received, cpu = time.perf_counter_ns(), time.thread_time_ns()
                     request = bytes(slot[: meta[SIZE]])
                     sequence, generation = meta[SEQ], meta[GEN]
                 else:
                     request = None
             if request is None:
-                time.sleep(0.001)
                 continue
-            identity = pickle.loads(request)
-            if (identity["sequence"], identity["generation"]) != (sequence, generation):
+            row = pickle.loads(request)
+            if (row["sequence"], row["generation"]) != (sequence, generation):
                 raise ValueError("export/header identity mismatch")
-            _dto, wire = render_export(request, models)
+            # Decode once before timing inspector/DTO service. End-to-end
+            # publish-to-finish latency still includes copy and deserialization.
+            received, cpu = time.perf_counter_ns(), time.thread_time_ns()
+            _dto, wire = render_export(row, models)
             with _owner_lock(lock, owner_pid) as owned:
                 if not owned:
                     return
@@ -257,6 +266,7 @@ class Renderer:
         self.output = context.RawArray(ctypes.c_ubyte, MAX_WIRE_BYTES)
         self.meta = context.RawArray(ctypes.c_int64, 12)
         self.lock = context.Lock()
+        self.requests = context.Semaphore(0)
         # A killed worker must not leave an Event's internal condition locked.
         self.stop = context.RawValue(ctypes.c_bool, False)
         self.parent, child = context.Pipe(duplex=False)
@@ -267,6 +277,7 @@ class Renderer:
                 self.output,
                 self.meta,
                 self.lock,
+                self.requests,
                 self.stop,
                 child,
                 frozen,
@@ -323,9 +334,12 @@ class Renderer:
             self.pending = sequence, generation
             self.last_sequence = sequence
             self.meta[PHASE] = 1  # ownership transfers after all bytes/metadata
-            return True
         finally:
             self.lock.release()
+        # Wake only after releasing the lock: idle wakeups cannot contend with
+        # publication or poll, and the semaphore retains pre-wait notifications.
+        self.requests.release()
+        return True
 
     def poll(self, generation: int) -> dict[str, int] | None:
         if self.closed:
@@ -392,6 +406,7 @@ class Renderer:
             return
         self.closed = True
         self.stop.value = True
+        self.requests.release()
         self.process.join(timeout=2)
         if self.process.is_alive():
             self.process.terminate()
@@ -510,7 +525,7 @@ def run_game(spec: Mapping[str, Any]) -> dict[str, Any]:
             services.append(reply)
         final_diagnostic = not transport[-1]["published"]
         if final_diagnostic:
-            if not renderer.publish(packed, sequence, 0):
+            if not renderer.publish(packed, transport[-1]["sequence"], 0):
                 raise RuntimeError("final diagnostic publication refused")
             services.append(renderer.drain(0))
         wire = json.loads(renderer.last_wire)
