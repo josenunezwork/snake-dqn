@@ -42,6 +42,12 @@ from research.compute.colab_control import RULING_SHA256 as CONTROL_RULING_SHA25
 EXACT_ERROR = "AccountingError('assignment endpoints changed during allocation')"
 BLOCK = re.compile(r"^\s*(?:BLOCK|HOLD)\b|RUNTIME BLOCKED|do not run this|PREPARED_NOT_DISPATCHED")
 NICE_FLOOR = 15
+# Sandbox admission executes its sealed focused test suite before invoking the
+# unchanged qualified supervisor.  Keep ordinary host subprocesses at 60s while
+# giving only that offline admission step a bounded window large enough for the
+# suite on a busy Mac.
+COMMAND_TIMEOUT_SECONDS = 60.0
+SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS = 180.0
 SANDBOX_OUTPUT_ROOTS = {
     "sandbox-b-heads-v1": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b-20261026",
     "sandbox-b-heads-v2": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b2-20261026",
@@ -242,10 +248,16 @@ exec /bin/bash -c \"$1\""""
 
 
 def command(
-    args: list[str], *, deadline: float | None = None, **kwargs: Any
+    args: list[str],
+    *,
+    deadline: float | None = None,
+    timeout_seconds: float = COMMAND_TIMEOUT_SECONDS,
+    **kwargs: Any,
 ) -> subprocess.CompletedProcess:
     """Bound every subprocess while the account lock is held."""
-    remaining = 60.0 if deadline is None else min(60.0, deadline - time.monotonic())
+    remaining = (
+        timeout_seconds if deadline is None else min(timeout_seconds, deadline - time.monotonic())
+    )
     if remaining <= 0:
         raise TimeoutError("allocation lock deadline expired")
     return subprocess.run(args, timeout=remaining, check=True, **kwargs)
@@ -648,10 +660,16 @@ def validate(
     broker: Path, cwd: Path, state: Path, manifest: Path, log: Path, deadline: float | None = None
 ) -> None:
     """Run real validation; launch.sh --check would only print and return."""
+    packet = read_json(manifest)
+    timeout_seconds = (
+        SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS
+        if "sandbox_admission" in packet
+        else COMMAND_TIMEOUT_SECONDS
+    )
     with log.open("x") as stream:
         command(
             [
-                str(supervisor_launcher(broker, read_json(manifest))),
+                str(supervisor_launcher(broker, packet)),
                 "--state-dir",
                 str(state),
                 "--colab",
@@ -663,6 +681,7 @@ def validate(
             stdout=stream,
             stderr=subprocess.STDOUT,
             deadline=deadline,
+            timeout_seconds=timeout_seconds,
         )
 
 
