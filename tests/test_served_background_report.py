@@ -177,6 +177,20 @@ def _desktop_sample(start, end, *, app=0, renderer=0, service=0, workload=0, unk
     }
 
 
+def test_desktop_identity_is_nested_as_exported_by_collector():
+    sample = _desktop_sample(0, 1_000_000_000, app=1)
+    process = sample["processes"][0]
+    for key in ("entry", "application", "role", "reason", "identity"):
+        process.pop(key)
+    host = _desktop_host([sample])
+    host["observations"] = [{"classified_processes": [process], "probe_exempt_pids": []}]
+    validate_desktop_host(host)
+    overall = desktop_overall(host)
+    report = summarize_background(_result([_row(0, 0, 100)]), host)
+    assert overall["applications"][0]["entry"] == "outlook-main"
+    assert report["process_observations"][0]["desktop_identity"] == process["classification"]
+
+
 def test_weighted_boundary_overlap_and_low_window():
     report = summarize_background(
         _result([_row(0, 50, 250)]), _host([_sample(0, 100, 10), _sample(100, 300, 30)])
@@ -464,6 +478,7 @@ def test_desktop_policy_rejects_missing_registry_or_app_identity_evidence():
         summarize_background(_result([_row(0, 0, 100)]), host)
     host = _desktop_host([_desktop_sample(0, 100, app=10)])
     del host["cpu_samples"][0]["processes"][0]["identity"]
+    del host["cpu_samples"][0]["processes"][0]["classification"]["identity"]
     with pytest.raises(ValueError, match="identity"):
         summarize_background(_result([_row(0, 0, 100)]), host)
 

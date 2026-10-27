@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -55,6 +56,14 @@ def observation_binding(path: Path, intent: Mapping[str, Any]) -> dict[str, Any]
     from research.bl_served_search.background_report import validate_desktop_host
 
     observation = read_export(path)
+    seconds = observation.get("observation_seconds")
+    if (
+        isinstance(seconds, bool)
+        or not isinstance(seconds, (int, float))
+        or not math.isfinite(seconds)
+        or seconds < 120
+    ):
+        raise ValueError("desktop observation is shorter than 120 seconds or malformed")
     previous = observation.get("desktop_intent", {})
     if (
         observation.get("schema") != "served-desktop-host-observation/v1"

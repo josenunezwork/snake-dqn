@@ -1020,7 +1020,9 @@ def main(argv: list[str] | None = None) -> int:
     ):
         parser.error("desktop policy is distinct; do not combine classification policies")
     if args.host_only_seconds is not None:
-        if not 1 <= args.host_only_seconds <= 600:
+        if args.desktop_app_registry is not None and not 120 <= args.host_only_seconds <= 450:
+            parser.error("desktop host-only observation requires 120..450 seconds")
+        if args.desktop_app_registry is None and not 1 <= args.host_only_seconds <= 600:
             parser.error("host-only observation requires 1..600 seconds")
         if args.remote_supervision_registry is None and args.desktop_app_registry is None:
             parser.error("--host-only-seconds requires a desktop or supervision registry")
@@ -1128,18 +1130,25 @@ def main(argv: list[str] | None = None) -> int:
             from research.bl_served_search.probe_host import HostMonitor
 
             # Read-only host observation: no lease, gameplay, provider calls or process changes.
-            # Leave a bounded final-interval/shutdown margin inside the ten-minute envelope.
-            duration = min(args.host_only_seconds, 450)
-            with HostMonitor(args.output, seconds=duration + 60, **desktop_options) as monitor:
-                deadline = time.monotonic() + duration
-                while time.monotonic() < deadline:
-                    monitor.check()
-                    time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+            # The CLI validates the desktop range, leaving a final-interval/shutdown margin.
+            duration = args.host_only_seconds
+            monitor_error = None
+            try:
+                with HostMonitor(args.output, seconds=duration + 60, **desktop_options) as monitor:
+                    deadline = time.monotonic() + duration
+                    while time.monotonic() < deadline:
+                        monitor.check()
+                        time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+            except (RuntimeError, TimeoutError) as exc:
+                # HostMonitor seals its INVALID host export before reporting a failed guard.
+                # Preserve that evidence in a host-observation receipt instead of falling
+                # through to the generic panel attempt handler.
+                monitor_error = exc
             host = read_export(args.output / "host.json")
             from research.bl_served_search.background_report import desktop_overall
 
             after = source_binding()
-            status = host["status"] if after == binding else "INVALID"
+            status = host["status"] if after == binding and monitor_error is None else "INVALID"
             observation = {
                 "schema": "served-desktop-host-observation/v1",
                 "status": status,
@@ -1150,11 +1159,20 @@ def main(argv: list[str] | None = None) -> int:
                 "source_after": after,
                 "requested_seconds": args.host_only_seconds,
                 "observation_seconds": duration,
-                "summary": desktop_overall(host),
                 "scope": "host integration only; no measured panel or causal timing claim",
             }
+            if monitor_error is not None:
+                observation["reason"] = (
+                    f"host monitor: {type(monitor_error).__name__}: {monitor_error}"
+                )
+            if status == "COMPLETE":
+                try:
+                    observation["summary"] = desktop_overall(host)
+                except (KeyError, TypeError, ValueError) as exc:
+                    observation["status"] = "INVALID"
+                    observation["reason"] = f"desktop host reduction: {type(exc).__name__}: {exc}"
             export_json(args.output / "observation.json", observation)
-            return 0 if status == "COMPLETE" else 2
+            return 0 if observation["status"] == "COMPLETE" else 2
         if args.smoke:
             # Functional only: no lease/quiet requirement and no paced timing
             # conclusion.  It still requires the launcher's CPU/nice environment.

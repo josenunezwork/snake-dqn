@@ -302,6 +302,8 @@ def test_desktop_reducer_keeps_all_cells_and_fail(monkeypatch):
         ["--desktop-app-registry", "registry", "--remote-supervision-registry", "remote"],
         ["--desktop-app-registry", "registry", "--host-only-seconds", "601"],
         ["--desktop-app-registry", "registry", "--host-only-seconds", "0"],
+        ["--desktop-app-registry", "registry", "--host-only-seconds", "119"],
+        ["--desktop-app-registry", "registry", "--host-only-seconds", "451"],
         ["--desktop-app-registry", "registry", "--host-only-seconds", "120", "--smoke"],
     ],
 )
@@ -344,7 +346,7 @@ def test_host_only_observation_never_acquires_lease_or_runs_game(monkeypatch, tm
             export_json(self.output / "host.json", {"status": "COMPLETE"})
 
     monkeypatch.setattr(probe_host, "HostMonitor", Monitor)
-    ticks = iter(range(10))
+    ticks = iter((0, 121))
     monkeypatch.setattr(probe.time, "monotonic", lambda: next(ticks))
     monkeypatch.setattr(probe.time, "sleep", lambda _: None)
     output = tmp_path / "observation"
@@ -354,7 +356,7 @@ def test_host_only_observation_never_acquires_lease_or_runs_game(monkeypatch, tm
                 "--desktop-app-registry",
                 str(tmp_path / "registry.json"),
                 "--host-only-seconds",
-                "1",
+                "120",
                 "--output",
                 str(output),
             ]
@@ -364,10 +366,167 @@ def test_host_only_observation_never_acquires_lease_or_runs_game(monkeypatch, tm
     observation = read_export(output / "observation.json")
     assert observation["status"] == "COMPLETE"
     assert observation["source_before"] == observation["source_after"] == binding
-    assert observation["observation_seconds"] == 1
+    assert observation["observation_seconds"] == 120
 
 
-@pytest.mark.parametrize("change", [None, "source", "registry", "status", "no_app"])
+def test_host_only_invalid_host_writes_observation_without_reducing(monkeypatch, tmp_path):
+    from research.bl_paced_identity.record import export_json, read_export
+    from research.bl_served_search import background_report, desktop_policy, probe_host
+
+    binding = {"commit": "a" * 40}
+    monkeypatch.setattr(probe, "preflight", lambda *a: {})
+    monkeypatch.setattr(probe, "source_binding", lambda **kw: binding)
+    monkeypatch.setattr(
+        desktop_policy, "freeze_intent", lambda *a: {"policy": desktop_policy.POLICY}
+    )
+    monkeypatch.setattr(probe_host, "preflight", lambda **kw: {"admitted": True})
+    monkeypatch.setattr(
+        background_report,
+        "desktop_overall",
+        lambda *a: (_ for _ in ()).throw(AssertionError("invalid host must not be reduced")),
+    )
+
+    class Monitor:
+        def __init__(self, output, **kwargs):
+            self.output = output
+
+        def __enter__(self):
+            return self
+
+        def check(self):
+            raise RuntimeError("host guard failed")
+
+        def __exit__(self, *args):
+            export_json(self.output / "host.json", {"status": "INVALID", "reason": "guard"})
+
+    monkeypatch.setattr(probe_host, "HostMonitor", Monitor)
+    ticks = iter((0, 0))
+    monkeypatch.setattr(probe.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(probe.time, "sleep", lambda _: None)
+    output = tmp_path / "invalid-observation"
+    assert (
+        probe.main(
+            [
+                "--desktop-app-registry",
+                str(tmp_path / "registry.json"),
+                "--host-only-seconds",
+                "120",
+                "--output",
+                str(output),
+            ]
+        )
+        == 2
+    )
+    observation = read_export(output / "observation.json")
+    assert observation["status"] == "INVALID"
+    assert "summary" not in observation
+    assert observation["reason"] == "host monitor: RuntimeError: host guard failed"
+
+
+def test_host_only_startup_failure_seals_invalid_observation(monkeypatch, tmp_path):
+    from research.bl_paced_identity.record import export_json, read_export
+    from research.bl_served_search import background_report, desktop_policy, probe_host
+
+    binding = {"commit": "a" * 40}
+    monkeypatch.setattr(probe, "preflight", lambda *a: {})
+    monkeypatch.setattr(probe, "source_binding", lambda **kw: binding)
+    monkeypatch.setattr(
+        desktop_policy, "freeze_intent", lambda *a: {"policy": desktop_policy.POLICY}
+    )
+    monkeypatch.setattr(probe_host, "preflight", lambda **kw: {"admitted": True})
+    monkeypatch.setattr(
+        background_report,
+        "desktop_overall",
+        lambda *a: (_ for _ in ()).throw(AssertionError("failed startup must not be reduced")),
+    )
+
+    class Monitor:
+        def __init__(self, output, **kwargs):
+            self.output = output
+
+        def __enter__(self):
+            export_json(self.output / "host.json", {"status": "INVALID", "reason": "startup"})
+            raise RuntimeError("host monitor startup timeout")
+
+        def __exit__(self, *args):
+            raise AssertionError("failed __enter__ must not invoke __exit__")
+
+    monkeypatch.setattr(probe_host, "HostMonitor", Monitor)
+    output = tmp_path / "startup-invalid-observation"
+    assert (
+        probe.main(
+            [
+                "--desktop-app-registry",
+                str(tmp_path / "registry.json"),
+                "--host-only-seconds",
+                "120",
+                "--output",
+                str(output),
+            ]
+        )
+        == 2
+    )
+    observation = read_export(output / "observation.json")
+    assert observation["status"] == "INVALID"
+    assert observation["reason"] == "host monitor: RuntimeError: host monitor startup timeout"
+
+
+def test_host_only_reducer_error_writes_invalid_observation(monkeypatch, tmp_path):
+    from research.bl_paced_identity.record import export_json, read_export
+    from research.bl_served_search import background_report, desktop_policy, probe_host
+
+    binding = {"commit": "a" * 40}
+    monkeypatch.setattr(probe, "preflight", lambda *a: {})
+    monkeypatch.setattr(probe, "source_binding", lambda **kw: binding)
+    monkeypatch.setattr(
+        desktop_policy, "freeze_intent", lambda *a: {"policy": desktop_policy.POLICY}
+    )
+    monkeypatch.setattr(probe_host, "preflight", lambda **kw: {"admitted": True})
+    monkeypatch.setattr(
+        background_report,
+        "desktop_overall",
+        lambda *a: (_ for _ in ()).throw(ValueError("replay differs")),
+    )
+
+    class Monitor:
+        def __init__(self, output, **kwargs):
+            self.output = output
+
+        def __enter__(self):
+            return self
+
+        def check(self):
+            pass
+
+        def __exit__(self, *args):
+            export_json(self.output / "host.json", {"status": "COMPLETE"})
+
+    monkeypatch.setattr(probe_host, "HostMonitor", Monitor)
+    ticks = iter((0, 121))
+    monkeypatch.setattr(probe.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(probe.time, "sleep", lambda _: None)
+    output = tmp_path / "reducer-invalid-observation"
+    assert (
+        probe.main(
+            [
+                "--desktop-app-registry",
+                str(tmp_path / "registry.json"),
+                "--host-only-seconds",
+                "120",
+                "--output",
+                str(output),
+            ]
+        )
+        == 2
+    )
+    observation = read_export(output / "observation.json")
+    assert observation["status"] == "INVALID"
+    assert observation["reason"] == "desktop host reduction: ValueError: replay differs"
+
+
+@pytest.mark.parametrize(
+    "change", [None, "source", "registry", "status", "no_app", "short", "invalid_seconds"]
+)
 def test_panel_requires_sealed_same_source_actual_app_observation(monkeypatch, tmp_path, change):
     from research.bl_paced_identity.record import export_json
     from research.bl_served_search import background_report, desktop_policy
@@ -388,6 +547,7 @@ def test_panel_requires_sealed_same_source_actual_app_observation(monkeypatch, t
         "source_before": deepcopy(intent["source"]),
         "source_after": deepcopy(intent["source"]),
         "host": host,
+        "observation_seconds": 120,
     }
     if change == "source":
         observation["source_after"]["commit"] = "b" * 40
@@ -397,6 +557,10 @@ def test_panel_requires_sealed_same_source_actual_app_observation(monkeypatch, t
         observation["status"] = "INVALID"
     elif change == "no_app":
         host["cpu_samples"][0]["processes"] = [{"kind": "unknown"}]
+    elif change == "short":
+        observation["observation_seconds"] = 119
+    elif change == "invalid_seconds":
+        observation["observation_seconds"] = "120"
     monkeypatch.setattr(background_report, "validate_desktop_host", lambda *a: None)
     export_json(tmp_path / "host.json", host)
     export_json(tmp_path / "intent.json", observation["desktop_intent"])

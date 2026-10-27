@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from research.bl_served_search import background_report, host_load
 from research.bl_served_search.desktop_apps import POLICY, DesktopRegistry, classify_exported
 
 
@@ -132,6 +133,67 @@ def test_exact_workload_cli_and_unknown_renderer_do_not_inherit(enrolled, tmp_pa
     assert registry.classify(dict(row, command=str(fake_renderer)))["kind"] == "unknown"
 
 
+def test_verified_codex_gui_is_admitted_but_an_unbound_instance_replays_unknown(enrolled):
+    registry, row, executable, bundle = enrolled
+    installed_codex = "/Applications/Codex.app/Contents/MacOS/Codex"
+    registry._verified[installed_codex] = {}
+    assert registry._workload_reason({"command": installed_codex}) is None
+    assert (
+        classify_exported(
+            {"pid": 44, "birth": "unbound", "uid": 501, "command": installed_codex},
+            registry.read_export(),
+        )["kind"]
+        == "unknown"
+    )
+    codex = bundle / "Contents" / "MacOS" / "Codex"
+    codex.write_bytes(b"sealed codex executable")
+    identity = dict(registry._verified[str(executable)])
+    identity.update(
+        {
+            "executable": str(codex),
+            "sha256": hashlib.sha256(codex.read_bytes()).hexdigest(),
+            "file_identity": {
+                "device": codex.stat().st_dev,
+                "inode": codex.stat().st_ino,
+                "size": codex.stat().st_size,
+                "mtime_ns": codex.stat().st_mtime_ns,
+                "ctime_ns": codex.stat().st_ctime_ns,
+            },
+        }
+    )
+    registry._verified[str(codex)] = identity
+    codex_row = {**row, "pid": 43, "birth": "codex", "command": str(codex)}
+    assert registry.classify(codex_row)["kind"] == "unknown"
+    assert registry.admit_process(codex_row)["kind"] == "desktop_app"
+    wrong_uid = dict(codex_row, uid=502)
+    assert registry.classify(wrong_uid)["kind"] == "unknown"
+    assert classify_exported(wrong_uid, registry.read_export())["kind"] == "unknown"
+    assert (
+        classify_exported(dict(codex_row, pid=44, birth="unbound"), registry.read_export())["kind"]
+        == "unknown"
+    )
+    assert (
+        registry.classify(dict(codex_row, command="/usr/local/bin/codex"))["kind"]
+        == "agent_workload"
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/Applications/Unverified Codex.app/Contents/MacOS/Codex",
+        "/Applications/Unverified Claude.app/Contents/MacOS/Claude",
+        "/usr/local/bin/codex",
+        "/usr/local/bin/claude",
+    ],
+)
+def test_unverified_gui_and_cli_workload_names_match_live_and_exported_replay(enrolled, command):
+    registry, row, *_ = enrolled
+    observed = {**row, "command": command}
+    assert registry.classify(observed)["kind"] == "agent_workload"
+    assert classify_exported(observed, registry.read_export())["kind"] == "agent_workload"
+
+
 def test_replacement_symlink_and_traversal_fail_closed(enrolled, tmp_path):
     registry, row, executable, bundle = enrolled
     registry.admit_process(row)
@@ -152,6 +214,103 @@ def test_replacement_symlink_and_traversal_fail_closed(enrolled, tmp_path):
         DesktopRegistry(
             bad, trusted_roots=[tmp_path / "Applications"], require_seal=False
         ).verify_all()
+
+
+def test_replacement_revokes_active_binding_but_preserves_prior_replay_history(enrolled):
+    registry, row, executable, _ = enrolled
+    assert registry.admit_process(row)["kind"] == "desktop_app"
+    prior = dict(row)
+    executable.write_bytes(b"replaced")
+    changed = registry.classify(row)
+    assert changed["identity_binding_changed"] is True
+    assert registry.classify(row)["identity_binding_changed"] is True
+    export = registry.read_export()
+    assert export["bindings"] == []
+    assert len(export["binding_history"]) == 1
+    assert export["revoked_bindings"][0]["reason"] == "executable_replaced"
+    assert classify_exported(prior, export)["kind"] == "desktop_app"
+    assert classify_exported({**row, "classification": changed}, export)["kind"] == "unknown"
+
+
+def _cpu_inventory(at: int, row: dict, cpu_seconds: float) -> dict:
+    return {
+        "time_ns": at * 1_000_000_000,
+        "capture_start_ns": at * 1_000_000_000 - 100,
+        "capture_end_ns": at * 1_000_000_000 + 100,
+        "processes": [{**row, "ppid": 1, "cpu_seconds": cpu_seconds}],
+    }
+
+
+def _desktop_host(
+    registry: DesktopRegistry, samples: list[dict], observations: list[dict] | None = None
+):
+    evidence = registry.read_export()
+    return {
+        "load_policy": host_load.DESKTOP_POLICY,
+        "desktop_registry": evidence["registry"],
+        "desktop_registry_sha256": evidence["registry_sha256"],
+        "desktop_registry_evidence": evidence,
+        "cpu_samples": samples,
+        "observations": observations or [],
+    }
+
+
+@pytest.mark.parametrize(
+    ("before_change", "expected_kind"),
+    [({"uid": 0}, "unknown"), ({"command": "/usr/local/bin/claude"}, "agent_workload")],
+)
+def test_real_collector_transition_replays_through_unmocked_reducer(
+    enrolled, before_change, expected_kind
+):
+    registry, row, *_ = enrolled
+    registry.admit_process(row)
+    before_row = {**row, **before_change}
+    before = _cpu_inventory(0, before_row, 1.0)
+    after = _cpu_inventory(1, row, 1.1)
+    sample = host_load.cpu_interval(before, after, owner_pid=999_999, desktop_classifier=registry)
+    process = sample["processes"][0]
+    assert process["kind"] == expected_kind
+    assert process["interval_transition"]["previous"] == before["processes"][0]
+    reduced = background_report._samples(_desktop_host(registry, [sample]))
+    assert reduced[0]["processes"][0]["kind"] == expected_kind
+
+
+def test_real_collector_replacement_reducer_reports_identity_guard_not_replay_mismatch(enrolled):
+    registry, row, executable, _ = enrolled
+    registry.admit_process(row)
+    prior = host_load.cpu_interval(
+        _cpu_inventory(0, row, 1.0),
+        _cpu_inventory(1, row, 1.1),
+        owner_pid=999_999,
+        desktop_classifier=registry,
+    )
+    executable.write_bytes(b"replaced after valid interval")
+    invalid = host_load.cpu_interval(
+        _cpu_inventory(1, row, 1.1),
+        _cpu_inventory(2, row, 1.2),
+        owner_pid=999_999,
+        desktop_classifier=registry,
+    )
+    invalid_process = invalid["processes"][0]
+    assert invalid_process["classification"]["identity_binding_changed"] is True
+    host = _desktop_host(registry, [prior, invalid])
+    # The old sample still replays through historical binding evidence, and the
+    # changed one reaches the explicit guard instead of failing as a mismatch.
+    assert len(background_report._samples(host)) == 2
+    with pytest.raises(ValueError, match="desktop identity binding changed in interval evidence"):
+        background_report.validate_desktop_host(host)
+    point_host = _desktop_host(
+        registry,
+        [prior],
+        [
+            {
+                "classified_processes": [{**invalid_process, "cpu_percent": 1.0}],
+                "probe_exempt_pids": [],
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="desktop identity binding changed in point evidence"):
+        background_report.validate_desktop_host(point_host)
 
 
 def test_registry_static_enrollment_is_real_and_ui_roles_only():

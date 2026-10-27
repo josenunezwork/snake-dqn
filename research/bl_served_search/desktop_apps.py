@@ -89,6 +89,12 @@ class DesktopRegistry:
             raise ValueError("desktop registry permitted UID is not this owner UID")
         self._verified: dict[str, dict[str, Any]] = {}
         self._bindings: dict[tuple[int, str, int, str], dict[str, Any]] = {}
+        # Bindings are evidence for samples already captured.  Revoking an
+        # active binding therefore must not erase the snapshot that proves an
+        # earlier interval; reducers distinguish it from a later invalid row
+        # through that row's explicit identity-binding-change evidence.
+        self._binding_history: dict[tuple[int, str, int, str], dict[str, Any]] = {}
+        self._revoked_bindings: dict[tuple[int, str, int, str], str] = {}
 
     @staticmethod
     def _verify_seal(path: Path) -> None:
@@ -276,6 +282,8 @@ class DesktopRegistry:
                 verified[evidence["executable"]] = evidence
         self._verified = verified
         self._bindings.clear()
+        self._binding_history.clear()
+        self._revoked_bindings.clear()
         return self.read_export()
 
     def _workload_reason(self, row: dict[str, Any]) -> str | None:
@@ -286,9 +294,9 @@ class DesktopRegistry:
         for exclusion in self.registry["workload_exclusions"]:
             if exclusion.get("exact_executable") == command:
                 return "workload_exclusion"
-        # Only Claude's case-sensitive signed GUI main needs this exception;
-        # arbitrary enrolled Python/node/CLI identities never bypass workloads.
-        if command in self._verified and Path(command).name == "Claude":
+        # These signed GUI mains are eligible only through a verified binding.
+        # Arbitrary enrolled Python/node/CLI identities never bypass workloads.
+        if command in self._verified and Path(command).name in {"Claude", "Codex"}:
             return None
         name = Path(command).name.lower()
         if (
@@ -316,7 +324,7 @@ class DesktopRegistry:
             return {
                 "kind": "unknown",
                 "reason": "executable_replaced",
-                "identity_binding_changed": self._binding_changed(row),
+                "identity_binding_changed": self._invalidate_bindings(row, "executable_replaced"),
             }
         stat = command.stat()
         current_file = {
@@ -330,11 +338,24 @@ class DesktopRegistry:
             return {
                 "kind": "unknown",
                 "reason": "executable_replaced",
-                "identity_binding_changed": self._binding_changed(row),
+                "identity_binding_changed": self._invalidate_bindings(row, "executable_replaced"),
             }
         key = self._key(row)
         self._bindings[key] = decision
+        self._binding_history[key] = decision
+        self._revoked_bindings.pop(key, None)
         return decision
+
+    def _invalidate_bindings(self, row: dict[str, Any], reason: str) -> bool:
+        """Revoke active PID/birth bindings while preserving their export history."""
+        pid, birth = row.get("pid"), row.get("birth")
+        if type(pid) is not int or not isinstance(birth, str):
+            return False
+        matches = [key for key in self._bindings if key[0] == pid and key[1] == birth]
+        for key in matches:
+            self._bindings.pop(key)
+            self._revoked_bindings[key] = reason
+        return bool(matches)
 
     def _binding_changed(self, row: dict[str, Any]) -> bool:
         """True only when a previously admitted PID no longer has its binding."""
@@ -343,9 +364,15 @@ class DesktopRegistry:
         return (
             type(pid) is int
             and isinstance(birth, str)
-            and any(
-                bound_pid == pid and bound_birth == birth
-                for bound_pid, bound_birth, *_ in self._bindings
+            and (
+                any(
+                    bound_pid == pid and bound_birth == birth
+                    for bound_pid, bound_birth, *_ in self._bindings
+                )
+                or any(
+                    revoked_pid == pid and revoked_birth == birth
+                    for revoked_pid, revoked_birth, *_ in self._revoked_bindings
+                )
             )
         )
 
@@ -370,39 +397,54 @@ class DesktopRegistry:
         """Classify from cached evidence only; missing/replaced identity fails closed."""
         workload = self._workload_reason(row)
         if workload:
+            changed = self._binding_changed(row)
+            if changed:
+                self._invalidate_bindings(row, "identity_binding_changed")
             return {
                 "kind": "agent_workload",
                 "reason": workload,
-                "identity_binding_changed": self._binding_changed(row),
+                "identity_binding_changed": changed,
             }
         try:
             key = self._key(row)
             command_path = Path(key[3])
             command = str(_canonical(command_path))
         except (ValueError, FileNotFoundError, OSError):
+            changed = self._binding_changed(row)
+            if changed:
+                self._invalidate_bindings(row, "identity_binding_changed")
             return {
                 "kind": "unknown",
                 "reason": "missing_or_noncanonical_executable",
-                "identity_binding_changed": self._binding_changed(row),
+                "identity_binding_changed": changed,
             }
         if command_path.is_symlink() or str(command_path) != command:
+            changed = self._binding_changed(row)
+            if changed:
+                self._invalidate_bindings(row, "identity_binding_changed")
             return {
                 "kind": "unknown",
                 "reason": "symlink_or_noncanonical_executable",
-                "identity_binding_changed": self._binding_changed(row),
+                "identity_binding_changed": changed,
             }
         if key[2] != self.permitted_uid:
+            changed = self._binding_changed(row)
+            if changed:
+                self._invalidate_bindings(row, "identity_binding_changed")
             return {
                 "kind": "unknown",
                 "reason": "uid_mismatch",
-                "identity_binding_changed": self._binding_changed(row),
+                "identity_binding_changed": changed,
             }
         identity = self._verified.get(command)
         if identity is None:
+            changed = self._binding_changed(row)
+            if changed:
+                self._invalidate_bindings(row, "identity_binding_changed")
             return {
                 "kind": "unknown",
                 "reason": "unenrolled_or_unverified_executable",
-                "identity_binding_changed": self._binding_changed(row),
+                "identity_binding_changed": changed,
             }
         kind = "desktop_renderer" if "renderer" in identity["role"] else "desktop_app"
         decision = {
@@ -435,13 +477,13 @@ class DesktopRegistry:
             return {
                 "kind": "unknown",
                 "reason": "executable_replaced",
-                "identity_binding_changed": self._binding_changed(row),
+                "identity_binding_changed": self._invalidate_bindings(row, "executable_replaced"),
             }
         if current_file != identity["file_identity"]:
             return {
                 "kind": "unknown",
                 "reason": "executable_replaced",
-                "identity_binding_changed": self._binding_changed(row),
+                "identity_binding_changed": self._invalidate_bindings(row, "executable_replaced"),
             }
         return decision
 
@@ -458,6 +500,21 @@ class DesktopRegistry:
                 self._bindings[key]
                 | {"pid": key[0], "birth": key[1], "uid": key[2], "command": key[3]}
                 for key in sorted(self._bindings)
+            ],
+            "binding_history": [
+                self._binding_history[key]
+                | {"pid": key[0], "birth": key[1], "uid": key[2], "command": key[3]}
+                for key in sorted(self._binding_history)
+            ],
+            "revoked_bindings": [
+                {
+                    "pid": key[0],
+                    "birth": key[1],
+                    "uid": key[2],
+                    "command": key[3],
+                    "reason": reason,
+                }
+                for key, reason in sorted(self._revoked_bindings.items())
             ],
         }
 
@@ -476,6 +533,13 @@ def classify_exported(row: dict[str, Any], registry_export: dict[str, Any]) -> d
     except ValueError:
         return {"kind": "unknown", "reason": "desktop_process_identity_missing"}
     command = key[3]
+    classification = row.get("classification")
+    if isinstance(classification, dict) and classification.get("identity_binding_changed"):
+        return {
+            "kind": "unknown",
+            "reason": str(classification.get("reason", "identity_binding_changed")),
+            "identity_binding_changed": True,
+        }
     registry = registry_export.get("registry", {})
     if row.get("known_workload") or row.get("workload"):
         return {"kind": "agent_workload", "reason": "known_workload"}
@@ -483,8 +547,12 @@ def classify_exported(row: dict[str, Any], registry_export: dict[str, Any]) -> d
         if exclusion.get("exact_executable") == command:
             return {"kind": "agent_workload", "reason": "workload_exclusion"}
     name = Path(command).name.lower()
+    verified_gui_main = command in registry_export.get("verified", {}) and Path(command).name in {
+        "Claude",
+        "Codex",
+    }
     if (
-        (name in _WORKLOAD_NAMES and name != "claude")
+        (name in _WORKLOAD_NAMES and not verified_gui_main)
         or re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", name)
         or _WORKLOAD_TEXT.search(command)
     ):
@@ -500,7 +568,10 @@ def classify_exported(row: dict[str, Any], registry_export: dict[str, Any]) -> d
     for exclusion in registry.get("workload_exclusions", []):
         if exclusion.get("exact_executable") == command:
             return {"kind": "agent_workload", "reason": "workload_exclusion"}
-    for binding in registry_export.get("bindings", []):
+    for binding in [
+        *registry_export.get("bindings", []),
+        *registry_export.get("binding_history", []),
+    ]:
         if (
             binding.get("pid"),
             binding.get("birth"),
@@ -554,6 +625,4 @@ def classify_exported(row: dict[str, Any], registry_export: dict[str, Any]) -> d
             "role": binding.get("role"),
             "identity": identity,
         }
-    if name == "claude":
-        return {"kind": "agent_workload", "reason": "workload_exclusion"}
     return {"kind": "unknown", "reason": "desktop_process_identity_not_bound"}

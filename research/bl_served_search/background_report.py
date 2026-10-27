@@ -48,6 +48,42 @@ def _number(value: Any, name: str) -> float:
 
 
 def _replay_kind(row: Mapping[str, Any], registry_evidence: Mapping[str, Any]) -> dict[str, Any]:
+    """Replay both identities of an interval transition with conservative precedence."""
+    transition = row.get("interval_transition")
+    if transition is None:
+        return _replay_identity(row, registry_evidence)
+    if not isinstance(transition, Mapping):
+        raise ValueError("malformed desktop interval transition")
+    previous = transition.get("previous")
+    prior_classification = transition.get("previous_classification")
+    if (
+        not isinstance(previous, Mapping)
+        or not isinstance(prior_classification, Mapping)
+        or previous.get("pid") != row.get("pid")
+        or previous.get("birth") != row.get("birth")
+        or (previous.get("uid") == row.get("uid") and previous.get("command") == row.get("command"))
+    ):
+        raise ValueError("malformed desktop interval transition identity")
+    current = _replay_identity(row, registry_evidence)
+    prior = _replay_identity(
+        {**previous, "classification": prior_classification}, registry_evidence
+    )
+    if prior.get("kind") != prior_classification.get("kind"):
+        raise ValueError("desktop interval previous classification replay differs")
+    kinds = {current.get("kind"), prior.get("kind")}
+    kind = (
+        "agent_workload"
+        if "agent_workload" in kinds
+        else "unknown" if "unknown" in kinds else current.get("kind")
+    )
+    if transition.get("conservative_kind") != kind:
+        raise ValueError("desktop interval conservative classification differs")
+    return current if current.get("kind") == kind else {"kind": kind}
+
+
+def _replay_identity(
+    row: Mapping[str, Any], registry_evidence: Mapping[str, Any]
+) -> dict[str, Any]:
     """Apply workload and system precedence before sealed desktop admission."""
     from research.bl_k1.m1_background import SYSTEM_EXECUTABLE_ROOTS
     from research.bl_served_search.host_load import _workload_kind
@@ -66,7 +102,7 @@ def _replay_kind(row: Mapping[str, Any], registry_evidence: Mapping[str, Any]) -
         for item in registry_evidence.get("registry", {}).get("workload_exclusions", [])
     ):
         return {"kind": "agent_workload", "reason": "workload_exclusion"}
-    workload = _workload_kind(command)
+    workload = _workload_kind(command, registry_evidence)
     if command.startswith(SYSTEM_EXECUTABLE_ROOTS) and ".." not in Path(command).parts:
         if workload is not None:
             return {"kind": workload, "reason": "workload_precedence"}
@@ -153,7 +189,7 @@ def _samples(host_evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
             if process["kind"] == "desktop_app":
                 # The collector binds the process to its sealed enrollment.  Do
                 # not turn a friendly command name into an admission here.
-                identity = process.get("desktop_identity", process)
+                identity = process.get("desktop_identity") or classification or process
                 if not isinstance(identity, Mapping):
                     raise ValueError("desktop app missing identity evidence")
                 # Keep both the collector's compact process fields and the
@@ -185,8 +221,13 @@ def _samples(host_evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
                     "cpu_percent": _number(process.get("cpu_percent"), "process CPU"),
                     **({"classification": dict(classification)} if classification else {}),
                     **(
-                        {"desktop_identity": dict(process.get("desktop_identity", process))}
+                        {"desktop_identity": dict(identity)}
                         if process["kind"] == "desktop_app"
+                        else {}
+                    ),
+                    **(
+                        {"interval_transition": dict(process["interval_transition"])}
+                        if "interval_transition" in process
                         else {}
                     ),
                 }
@@ -439,6 +480,8 @@ def validate_desktop_host(host_evidence: Mapping[str, Any]) -> None:
                 classification.get("identity_binding_changed")
                 or classification.get("reason") == "known_workload"
             ):
+                if classification.get("identity_binding_changed"):
+                    raise ValueError("desktop identity binding changed in point evidence")
                 raise ValueError("desktop point prohibited workload evidence")
             cpu = _number(process.get("cpu_percent"), "desktop point CPU")
             if process["kind"] not in BACKGROUND_KINDS and cpu >= 20.0:

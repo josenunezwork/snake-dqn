@@ -355,3 +355,41 @@ def test_desktop_interval_uid_change_is_churn_and_never_inherits_background():
     assert sample["process_churn"][0]["reason"] == "uid_changed_no_delta"
     assert sample["processes"][0]["kind"] == "unknown"
     assert sample["background_cpu_percent"] == 0
+    transition = sample["processes"][0]["interval_transition"]
+    assert transition["reason"] == "uid_changed_no_delta"
+    assert transition["previous"]["uid"] == 0
+    assert transition["previous_classification"]["kind"] == "unknown"
+    assert transition["conservative_kind"] == "unknown"
+
+
+def test_interval_admits_new_desktop_process_before_its_first_classification():
+    class AdmissionOnlyClassifier:
+        def __init__(self):
+            self.bound = set()
+
+        def admit_process(self, row):
+            self.bound.add((row["pid"], row["birth"]))
+            return self.classify(row)
+
+        def classify(self, row):
+            if (row.get("pid"), row.get("birth")) in self.bound:
+                return {"kind": "desktop_renderer", "reason": "enrolled_verified_ui_role"}
+            return {"kind": "unknown", "reason": "process_identity_not_revalidated"}
+
+    before = inventory(0, [])
+    after = inventory(
+        1,
+        [
+            (
+                20,
+                1,
+                "renderer",
+                "/Applications/Chrome.app/Contents/MacOS/Chrome Helper (Renderer)",
+                0.3,
+            )
+        ],
+    )
+    after["processes"][0]["uid"] = 501
+    sample = load.cpu_interval(before, after, 10, desktop_classifier=AdmissionOnlyClassifier())
+    assert sample["processes"][0]["kind"] == "desktop_renderer"
+    assert sample["background_cpu_percent"] == pytest.approx(30)

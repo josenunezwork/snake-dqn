@@ -182,6 +182,15 @@ def cpu_interval(
     seconds = (end - start) / 1e9
     before = {(row["pid"], row["birth"]): row for row in previous["processes"]}
     after = {(row["pid"], row["birth"]): row for row in current["processes"]}
+    # The interval collector runs in its dedicated monitor process, outside
+    # game ticks.  Bind newly observed approved UI processes before their
+    # first CPU delta is classified, so a renderer spawned between ten-second
+    # point snapshots is not temporarily treated as foreign work.
+    if desktop_classifier is not None:
+        admit = getattr(desktop_classifier, "admit_process", None)
+        if callable(admit):
+            for row in current["processes"]:
+                admit(row)
     own_before = owned_pids(previous["processes"], owner_pid)
     own_after = owned_pids(current["processes"], owner_pid)
     coverage = seconds <= MAX_SAMPLE_SECONDS
@@ -201,7 +210,8 @@ def cpu_interval(
         uid_changed = (
             desktop_classifier is not None and old is not None and old.get("uid") != row.get("uid")
         )
-        if old is None or old["command"] != row["command"] or uid_changed:
+        transition = old is not None and (old["command"] != row["command"] or uid_changed)
+        if old is None or transition:
             coverage = False
             churn.append(
                 {
@@ -215,8 +225,10 @@ def cpu_interval(
         if delta < 0:
             raise ValueError("process CPU counter decreased")
         kind = process_kind(row["command"], desktop_classifier, row)
-        if old is not None and (old["command"] != row["command"] or uid_changed):
-            kinds = {kind, process_kind(old["command"], desktop_classifier, old)}
+        prior_evidence = None
+        if transition:
+            prior_kind = process_kind(old["command"], desktop_classifier, old)
+            kinds = {kind, prior_kind}
             if "agent_workload" in kinds:
                 kind = "agent_workload"
             elif "unknown" in kinds:
@@ -236,6 +248,8 @@ def cpu_interval(
         evidence = (
             desktop_classifier.classify(row) if desktop_classifier is not None else {"kind": kind}
         )
+        if transition and desktop_classifier is not None:
+            prior_evidence = classification_evidence(prior_kind, desktop_classifier.classify(old))
         if old is not None and uid_changed and desktop_classifier is not None:
             prior = desktop_classifier.classify(old)
             if prior.get("identity_binding_changed"):
@@ -252,7 +266,20 @@ def cpu_interval(
                 or evidence.get("reason") == "known_workload"
             )
         ):
-            rows.append({**row, "kind": kind, "cpu_percent": cpu, "classification": evidence})
+            exported = {**row, "kind": kind, "cpu_percent": cpu, "classification": evidence}
+            if transition:
+                # Replay needs both identities: this interval's conservative
+                # classification is a precedence over the before/after rows,
+                # not a claim that the after identity supplied all its CPU.
+                exported["interval_transition"] = {
+                    "reason": "uid_changed_no_delta" if uid_changed else "exec_changed_no_delta",
+                    "previous": dict(old),
+                    "previous_classification": (
+                        prior_evidence if prior_evidence is not None else {"kind": prior_kind}
+                    ),
+                    "conservative_kind": kind,
+                }
+            rows.append(exported)
     for key, row in before.items():
         if key not in after and row["pid"] not in own_before:
             coverage = False
