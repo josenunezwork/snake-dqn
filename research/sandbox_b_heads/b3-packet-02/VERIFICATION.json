@@ -1,0 +1,163 @@
+{
+  "allocation": "split-v1",
+  "broker_manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b3-packet-02/dispatch-manifest.json",
+    "sha256": "2d43648bebbae0189076eacea409fce2975bd073758cc27fd58ce3de064a73d8"
+  },
+  "configurations": 12,
+  "dispatch_dry_run": {
+    "allocations": 0,
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/ops/dispatch.sh sandbox-b3-a100-packet02-attempt01 /Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b3-packet-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-sbxB --cwd /Users/josenunez/Projects/ml/snake-dqn-sbxB --dry-run",
+    "live_accounting": "NOT_CHECKED",
+    "log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/b3-packet-02-verification/dispatch-dry-run.log",
+      "sha256": "921c8774455d3cfba8ef63a9473aa296228ccc0b4553148914b811ba2d676771"
+    },
+    "returncode": 0,
+    "seconds": 13.513056542025879,
+    "status": "PASS_DRY_RUN"
+  },
+  "empty_ledger": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b3-packet-02/verified-ledger.json",
+    "sha256": "6601c6dc5d89b2803468330ce6b7fa3aee115fcd3cf6e3564d147960568250ef"
+  },
+  "fixes": [
+    "candidate body int64 TTL overlay: head=ceil(length), boost intermediate=ceil(length)+1; prevent neck leaks and false tail reach",
+    "remove unused Python flood",
+    "base no-vote sentinel 1.0 means unknown/no veto; every veto needs strictly safer selectable alternative",
+    "float32 geometry array and runtime tensor"
+  ],
+  "focused_tests": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q -p no:xdist tools/sandbox/tests research/sandbox_b_heads/tests",
+    "failed": 0,
+    "log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/b3-packet-02-verification/focused-tests.log",
+      "sha256": "e1ccb991ed8dd64c8edb7ff80c10a223b57faf0a9bd5407651695614fb68bed8"
+    },
+    "passed": 126,
+    "returncode": 0,
+    "seconds": 6.222550292033702
+  },
+  "full_sweep_neural_updates": 6000,
+  "independent_code_review": {
+    "b3_tests_passed": 23,
+    "extra_probes": "absolute TTL release boundary, int64 TTL1000/1001, all-six-action nonzero-raster dead ends",
+    "role": "reviewer",
+    "status": "NO_BLOCKERS"
+  },
+  "independent_packet_review": {
+    "checks": "same admitted inputs/salt/registry/envelopes; 35 source paths match runtime pin; 10 lines; empty recipe-bound ledger; packet01 unchanged",
+    "role": "scout",
+    "status": "NO_BLOCKERS"
+  },
+  "limitations": "Local crop geometry approximation; CPU smoke is not full-sweep A100 performance or gameplay efficacy. No live account capacity, rates, or protected-study coexistence checked by dry-run.",
+  "namespace": "a100-dev/sandbox-b/heads-v3",
+  "nice": 15,
+  "packet01_unchanged": true,
+  "preflight": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m tools.sandbox.preflight research/sandbox_b_heads/b3-packet-02/sandbox-manifest.json",
+    "log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/b3-packet-02-verification/preflight.log",
+      "sha256": "4aab077dd7178ebccb92a841403c11824f84573a9569b422ec41121f30314649"
+    },
+    "returncode": 0,
+    "seconds": 6.350162708084099,
+    "status": "PASS",
+    "tests_passed": 126
+  },
+  "protected_inputs_opened": false,
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "real_a100_dispatch": false,
+  "registry": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
+    "sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c"
+  },
+  "registry_unchanged": true,
+  "review": {
+    "addressed": [
+      "MAJOR 1",
+      "MAJOR 2",
+      "MINOR 3"
+    ],
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/big-lever/exp/argon-20261026/review-sbx-b3/answer.md",
+    "sha256": "28845705a5fac331b5bc2784feba63221c91fc686dab53606d6a0f1e0d46455e",
+    "verdict": "ACCEPT-WITH-FIXES"
+  },
+  "runtime_commit": "7f84306e30a257592b6d74cae71af27a12f47d9b",
+  "salt": "a100-dev/sandbox-b/split-v1",
+  "sandbox_manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b3-packet-02/sandbox-manifest.json",
+    "sha256": "a8d056c13c6a32d2247ceedfcabade92cc77260ebea8408fc9e7407a553803a3"
+  },
+  "sandbox_manifest_lines": 10,
+  "schema": "sandbox-b3-local-verification/v2",
+  "smoke": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m research.sandbox_b_heads.job_b3 --input /Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/inputs/d1024-allowed.npz --b8-checkpoint /Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth --registry /Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/sandbox/SANDBOX_INPUT_REGISTRY.json --output /Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/local-smoke-packet02 --device cpu --updates 3 --smoke-rows 600",
+    "configurations": 12,
+    "different_recipe_from_dispatch": true,
+    "log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/b3-packet-02-verification/cpu-smoke.log",
+      "sha256": "acd29940b76c55b5d3d4db03d7d19c6f4de713d66eb6f3ca5f9d6a6a5d31e2df"
+    },
+    "note": "Entrypoint/export smoke only. This 600-row subset has no ordinary validation rows; flip/harm denominators are undefined. Ordinary controls and zero-threshold behavior are tested separately in the focused synthetic fixtures.",
+    "ordinary_validation_rows": 0,
+    "output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/local-smoke-packet02",
+    "points": 432,
+    "returncode": 0,
+    "rows": 600,
+    "seconds": 2.527322083944455,
+    "timing": {
+      "completed_configs": 12,
+      "export_seconds": 0.026161000016145408,
+      "feature_cache_seconds": 0.2912732909899205,
+      "label": "simulator-D",
+      "restored_configs": 0,
+      "rows": 600,
+      "total_seconds": 1.678411915898323,
+      "total_updates": 18,
+      "training_seconds": 0.8967221669154242
+    },
+    "total_updates": 18,
+    "train_rows": 502,
+    "updates_per_neural_config": 3,
+    "val_rows": 98,
+    "verified_ledger": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/b3-packet-02-verification/smoke-verified-ledger.json",
+      "sha256": "c585ffabe41ecadf8da3360704039bba2b6528857ee83e264aa19a2de07d5a09"
+    },
+    "verified_units": 12
+  },
+  "source_paths_verified": 35,
+  "status": "PREPARED_NOT_DISPATCHED",
+  "style": {
+    "black": "PASS",
+    "flake8": "PASS",
+    "git_diff_check": "PASS",
+    "isort": "PASS",
+    "python_paths": [
+      "research/sandbox_b_heads/geometry_b3.py",
+      "research/sandbox_b_heads/core_b3.py",
+      "research/sandbox_b_heads/retrieval_b3.py",
+      "research/sandbox_b_heads/job_b3.py",
+      "research/sandbox_b_heads/tests/test_geometry_b3.py",
+      "research/sandbox_b_heads/tests/test_b3.py",
+      "research/sandbox_b_heads/tests/test_retrieval_b3.py"
+    ]
+  },
+  "threshold_points": 432,
+  "transport_regressions": {
+    "command": "nice -n 15 env OMP_NUM_THREADS=1 OMP_THREAD_LIMIT=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu ./venv/bin/python -m pytest -q -p no:xdist tests/test_ops_dispatch.py tests/test_colab_cli_supervisor.py -k 'dry_run or resume_contract or invalid_resume or missing_resume or exemption or export_collection_skips or existing_output_directory or partial_local_export or corrupt_download'",
+    "deselected": 124,
+    "failed": 0,
+    "log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/b3-packet-02-verification/transport-regressions.log",
+      "sha256": "97b7067db13b5bc20da49a870751c5acbf6b8bf443ece1d2ed775cb8327c41fc"
+    },
+    "passed": 46,
+    "returncode": 0,
+    "seconds": 12.918021084042266
+  },
+  "worker_threads": 1,
+  "world_simulations": 0,
+  "xdist": false
+}
