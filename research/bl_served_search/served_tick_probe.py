@@ -200,6 +200,8 @@ def _identity(session: Any, roster: Mapping[str, Any]) -> dict[str, Any]:
         root / "research/bl_k1/m1.py",
         root / "research/bl_served_search/served_tick_probe.py",
         root / "research/bl_served_search/isolated_game.py",
+        root / "research/bl_served_search/dto_split.py",
+        root / "research/bl_served_search/dto_split_report.py",
         root / "research/bl_served_search/tick_trace.py",
         root / "web/backend/session.py",
         root / "web/backend/serialize.py",
@@ -274,6 +276,10 @@ def new_probe_watch(seed: int) -> tuple[Any, dict[str, Any]]:
 
 def run_inline_arm(spec: Mapping[str, Any], fresh_process: bool = False) -> dict[str, Any]:
     """Run timer-only or real Watch6 step/snapshot workload in this process."""
+    if spec["arm"] == "dto_split_w0_k0":
+        from research.bl_served_search.dto_split import run_game
+
+        return run_game(spec)
     from research.bl_served_search.tick_trace import TraceRecorder
 
     arm = str(spec["arm"])
@@ -415,6 +421,9 @@ def source_binding(require_clean: bool = True) -> dict[str, Any]:
         Path(__file__).with_name("supervision_report.py"),
         Path(__file__).with_name("production_probe.py"),
         Path(__file__).with_name("isolated_game.py"),
+        Path(__file__).with_name("dto_split.py"),
+        Path(__file__).with_name("dto_split_report.py"),
+        Path(__file__).with_name("served_dto_split_manifest.json"),
         root / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
         root / "tools/sandbox/supervision_accounting.py",
     ]
@@ -593,6 +602,10 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
         expected_seed = manifest["seeds"][cell["cell"]["seed_index"]]
         if (
             result.get("seed") != expected_seed
+            or (
+                manifest.get("study") == "served-dto-split-20261027"
+                and result.get("arm") != cell["cell"]["arm"]
+            )
             or result.get("fps") != manifest["fps"]
             or result.get("warmup_ticks") != manifest["warmup_ticks"]
             or result.get("measured_ticks") != manifest["measured_ticks"]
@@ -633,6 +646,19 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
             )
             continue
         arm = str(cell["cell"].get("arm"))
+        if arm == "dto_split_w0_k0":
+            from research.bl_served_search.dto_split_report import validate_transport
+
+            if result.get("status") == "INVALID":
+                return {
+                    "verdict": "INVALID",
+                    "reason": f"DTO split failed cell: {result.get('reason')}",
+                    "cell": cell["cell"],
+                }
+            try:
+                covariates["dto_transport"] = validate_transport(result)
+            except (KeyError, TypeError, ValueError) as exc:
+                return {"verdict": "INVALID", "reason": f"DTO split evidence: {exc}"}
         arms.append(
             {
                 "cell": cell["cell"],
@@ -654,6 +680,14 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
         }
         pair = _verify_pair(results["inline"], results["isolated"])
         pairs.append({"seed_index": seed_index, **pair})
+        if manifest.get("study") == "served-dto-split-20261027":
+            pairs.append(
+                {
+                    "seed_index": seed_index,
+                    "arm": "dto_split_w0_k0",
+                    **_verify_pair(results["inline"], results["dto_split_w0_k0"]),
+                }
+            )
     observer = raw.get("observer_control", {})
     observer_arms = observer.get("arms", [])
     observer_valid = (
@@ -801,6 +835,8 @@ def _run_panel(
     """Execute the fixed W0 panel in a lease; exporting belongs after its final sample."""
     from research.bl_served_search.isolated_game import run_isolated_arm
 
+    if manifest.get("study") == "served-dto-split-20261027":
+        preflight(manifest)
     if manifest.get("schema") != SCHEMA:
         raise ValueError("unexpected served tick manifest schema")
     deadline = time.monotonic() + float(manifest["timeout_seconds"])
@@ -820,7 +856,7 @@ def _run_panel(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("whole diagnostic cap exhausted before next cell")
-        if cell["arm"] == "isolated":
+        if cell["arm"] in ("isolated", "dto_split_w0_k0"):
             # A monitor object contains multiprocessing primitives and is not a
             # child input; parent/child transport checks are bounded separately.
             result = run_isolated_arm(spec, remaining)
@@ -852,6 +888,8 @@ def _run_panel(
         "scope": "W0 bare Watch6 and production Hub baseline; no search or renderer split",
         "lease": dict(host_monitor.receipt) if host_monitor is not None else None,
     }
+    if manifest.get("study") == "served-dto-split-20261027":
+        raw["scope"] = "W0/K0 authoritative game/DTO split with matched W0 controls; no search"
     # Pair only same seed/current-vs-fresh process.  A mismatch is evidence, never discarded.
     pairs = []
     for seed in manifest["seeds"]:
@@ -937,7 +975,14 @@ def preflight(manifest: Mapping[str, Any]) -> dict[str, Any]:
         or int(manifest["measured_ticks"]) != MEASURED_TICKS
     ):
         raise ValueError("first package requires frozen 24fps/200-warmup/2400-measured exposure")
-    committed = json.loads(Path(__file__).with_name("served_tick_manifest.json").read_text())
+    split = manifest.get("study") == "served-dto-split-20261027"
+    committed = json.loads(
+        Path(__file__)
+        .with_name("served_dto_split_manifest.json" if split else "served_tick_manifest.json")
+        .read_text()
+    )
+    if split and manifest != committed:
+        raise ValueError("DTO split manifest differs from the committed fixed panel")
     frozen = (
         "arms",
         "order",
@@ -1198,6 +1243,14 @@ def main(argv: list[str] | None = None) -> int:
                 "isolated": isolated,
                 "parity": _verify_pair(inline, isolated),
             }
+            if manifest.get("study") == "served-dto-split-20261027":
+                split_result = run_isolated_arm(
+                    {**cell, "arm": "dto_split_w0_k0"}, timeout_seconds=90
+                )
+                result["dto_split"] = split_result
+                result["split_parity"] = _verify_pair(inline, split_result)
+                if not result["split_parity"]["pass"]:
+                    result["parity"]["pass"] = False
             if not result["parity"]["pass"]:
                 result["status"] = "INVALID_SEMANTIC_PARITY"
             export_json(args.output / "smoke.json", result)

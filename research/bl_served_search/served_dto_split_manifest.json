@@ -1,0 +1,102 @@
+{
+  "schema": "served-tick-diagnostic/v1",
+  "study": "served-dto-split-20261027",
+  "fps": 24,
+  "warmup_ticks": 200,
+  "measured_ticks": 2400,
+  "seeds": [
+    526572561647416456,
+    13180491676239199641,
+    6225946669805084767
+  ],
+  "observer_seed": 3333956771624233417,
+  "observer_ticks": 120,
+  "arms": [
+    "timer",
+    "inline",
+    "isolated",
+    "dto_split_w0_k0"
+  ],
+  "order": [
+    {
+      "seed_index": 0,
+      "arm": "timer"
+    },
+    {
+      "seed_index": 0,
+      "arm": "inline"
+    },
+    {
+      "seed_index": 0,
+      "arm": "isolated"
+    },
+    {
+      "seed_index": 0,
+      "arm": "dto_split_w0_k0"
+    },
+    {
+      "seed_index": 1,
+      "arm": "isolated"
+    },
+    {
+      "seed_index": 1,
+      "arm": "dto_split_w0_k0"
+    },
+    {
+      "seed_index": 1,
+      "arm": "timer"
+    },
+    {
+      "seed_index": 1,
+      "arm": "inline"
+    },
+    {
+      "seed_index": 2,
+      "arm": "dto_split_w0_k0"
+    },
+    {
+      "seed_index": 2,
+      "arm": "inline"
+    },
+    {
+      "seed_index": 2,
+      "arm": "isolated"
+    },
+    {
+      "seed_index": 2,
+      "arm": "timer"
+    }
+  ],
+  "base_timeout_seconds": 3600,
+  "timeout_seconds": 7200,
+  "update_bar_ms": 11.688,
+  "workers": 0,
+  "max_pending": 0,
+  "gc_policy": "default",
+  "registry_path": "tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
+  "registry_sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+  "instrumented_observer_order": [
+    "uninstrumented",
+    "instrumented"
+  ],
+  "decision": "INVALID/INCOMPLETE for parity/host/transport/missing exposure; FAIL for any absolute overrun or update p95 > 11.688 ms in any cell; otherwise engineering PASS only",
+  "arm_id": "dto_split_w0_k0",
+  "seed_control_study": "served-tick-20261026",
+  "transport": {
+    "slots": 1,
+    "max_export_bytes": 4194304,
+    "max_wire_bytes": 8388608,
+    "body_segments_per_snake": 10400,
+    "food_count": 20000,
+    "backpressure": "drop-new, count busy; no tick waits; any lost output invalidates the panel",
+    "search_workers": 0,
+    "search_max_pending": 0
+  },
+  "control_commands": "none during scored timing; ordering/reset/crash/parity tested outside timing",
+  "timeout_basis": "Retain bare-panel conservative base 3600s/effective 7200s; end-to-end successor runtime unmeasured; no extension or cell retry",
+  "authority": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-rule-argon-1027/RULING.md",
+    "sha256": "8d95e8e6cceb8b801b83cac60465aa8212638c343bb10166d2e3db3ef0ef7684",
+    "section": "B. Smallest next experiment after the bare panel, first table row"
+  }
+}
