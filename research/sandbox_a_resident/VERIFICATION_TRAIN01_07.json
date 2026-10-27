@@ -1,0 +1,176 @@
+{
+  "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-07-engineering-20261027",
+  "artifact_sha256": {
+    "admission-tests.log": "68c0d36de0ffbfb3d6ce96e1dba2c6057bfb3400e3433e6be383cd761fa75e03",
+    "check-seal.py": "861e8e6201c98817842b3e1ca7ce8ccfd79de6137f2b843e985e7c7308132cf9",
+    "cleanup.json": "5924736c472460e168e0b9660810bbe06c22065d166f7a59ed39d6a3fcd6dc52",
+    "dispatch-dry-run.log": "001151b9aa234829e1604cd2b554ee38f34d3c73b6833f9750516301097c7e52",
+    "lint-black.log": "26a5fd9505f2b5608a20c4fed4b4c4795e0783d03b72ade02a6af34dae8ad086",
+    "lint-flake8.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "lint-isort.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "make-lint.log": "7587ef5024bda852de86c9dd1c0252ca4b40aba869066ef7bd9906931f459ed3",
+    "mixed-companion/run-screen.py": "cd9bea359afb4bb6844f0b1ff1563d0ef1249571d18e1dbeef748622e11277f8",
+    "mixed-companion/screen-E32-H256.log": "f3489b8244993a9b7775630c6e2aeec2668fe8c3b064c53e47f6de80c34d9bce",
+    "mixed-companion/screen-incomplete.json": "ccdae614946d1a763a3f1538ad4c84303ef271e21065a29da5e1fef0c9ba23dc",
+    "mixed-companion/screen-progress.jsonl": "ad79e7259e37dd2eda63783fd7c5b36a8c24d3383f56fd3993713e0d8bb09205",
+    "owned-processes.json": "c7c68e63bcabdf26cf06f0b223f1b004c681ae4de6371da42cbe2c8cda5dab19",
+    "preflight.log": "ece233229db480e76c8a8b7482cb29d0000c02fae01abd648fbaaf6376848cf7",
+    "record-verification.py": "90b0eab4e2dfdd515b6333d33fa831e5a5eed7a7b634740541d1519ace348a4d",
+    "run-screen.py": "af83abef184fd05757944bed33dcd91bffcd22d5d7cb6b25f5e85e119d271bb8",
+    "scoped-tests.log": "4f24d348a51e40da7dee09c57e2711ae2c708ccd497763cf0451a95fe18f41b3",
+    "screen-E32-H256.log": "cec167c4e1dcec82b143cdbc930029bed07940c1259652aaa30038b687f27747",
+    "screen-incomplete.json": "3bdf27d1dd660c012ac952c9e89a62cf0f1987d9271c7c7e01710524c37cf12e",
+    "screen-process-priority.log": "d4a61bccddb4f3a897358f7f80548ba751fef42be9b9721b9c8b75120720c08d",
+    "screen-progress.jsonl": "afc79489566de5a2fb3be81ae41af1c55fa10dee04a030af69e4edad23d76bff",
+    "seal-packet.py": "efe055f2de8223d5dc8daf1783ae01a1e43b541d790cf1fadf3d88219ee11218",
+    "seal-proof-final.json": "6e659ed47b0002b021c061654b59695227dee7623e4d126b68a5ae74a429eb8b",
+    "seal-proof.json": "6e659ed47b0002b021c061654b59695227dee7623e4d126b68a5ae74a429eb8b"
+  },
+  "baseline_commit": "9582c313",
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex",
+  "broker_seal": "395061afc75e278634d40def2910b620b5c4f7d2",
+  "commands": {
+    "admission_tests": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -o addopts= -p no:xdist tools/sandbox/tests/test_admission.py",
+    "black": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m black --check --line-length 100 research/sandbox_a_resident/training_acceptance.py research/sandbox_a_resident/stall_watchdog.py research/sandbox_a_resident/test_training_acceptance.py research/sandbox_a_resident/test_stall_watchdog.py",
+    "dispatch": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-07 /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex/research/sandbox_a_resident/packet-train01-07/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-07-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-07/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex/research/sandbox_a_resident/packet-train01-07/DISPATCH.txt",
+    "dry_run": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-07 /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex/research/sandbox_a_resident/packet-train01-07/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-07-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-07/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex/research/sandbox_a_resident/packet-train01-07/DISPATCH.txt --dry-run",
+    "flake8": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m flake8 research/sandbox_a_resident/training_acceptance.py research/sandbox_a_resident/stall_watchdog.py research/sandbox_a_resident/test_training_acceptance.py research/sandbox_a_resident/test_stall_watchdog.py",
+    "focused_regressions": "nice -n 15 env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 ./venv/bin/python -m pytest -q research/sandbox_a_resident/test_training_acceptance.py research/sandbox_a_resident/test_stall_watchdog.py",
+    "isort": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m isort --check-only --profile black research/sandbox_a_resident/training_acceptance.py research/sandbox_a_resident/stall_watchdog.py research/sandbox_a_resident/test_training_acceptance.py research/sandbox_a_resident/test_stall_watchdog.py",
+    "make_lint": "make PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python lint",
+    "mixed_companion_screen": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu PYTHONUNBUFFERED=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python research/perf_sim_20261007/with_slots.py --slots 1 --timeout 10 -- caffeinate -dims /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-07-engineering-20261027/mixed-companion/run-screen.py",
+    "preflight": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.sandbox_a_resident.training_preflight /Users/josenunez/Projects/ml/snake-dqn-train01-07-broker.noindex/research/sandbox_a_resident/packet-train01-07",
+    "scoped_tests": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q -o addopts= -p no:xdist research/sandbox_a_resident tools/sandbox/tests tools/ops/tests/test_persistence_priority.py tools/ops/tests/test_r2_packet.py tests/test_colab_cli_supervisor.py tests/test_colab_cli_release.py tests/test_colab_cli_export_batches.py",
+    "screen": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu PYTHONUNBUFFERED=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python research/perf_sim_20261007/with_slots.py --slots 1 --timeout 60 -- caffeinate -dims /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-07-engineering-20261027/run-screen.py",
+    "seal_proof": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-07-engineering-20261027/check-seal.py",
+    "shell_syntax": "bash -n research/sandbox_a_resident/train_job.sh",
+    "whitespace": "git diff --check"
+  },
+  "dispatch_identity": "sandbox-a-train01-20261027-07",
+  "fixes": [
+    ">=16 terminal events in BOTH arms per mix for terminal rate/starvation/collision comparisons, otherwise explicit insufficient_support; remaining metrics keep25%. Correct v1 collision codes1-4; v1 has no starvation terminal.",
+    "Refuse either diagnostic .sha256/.complete before opening payloads, preserving completed exports.",
+    "Stable instantiated task class labels for start progress; actual requested mixes in returned report."
+  ],
+  "manifest_sha256": "dab8df4c7a68669eb596519a6976d759023a54063eee7b6ee7e778e1802d6a17",
+  "not_done_or_limits": [
+    "No live dispatch, allocation, provider accounting/session query or A100 kernels/timing/Inductor qualification.",
+    "A partial or timed-out CPU screen is INCOMPLETE and yields no full all-mix material-gap decision; no threshold softened after data."
+  ],
+  "nothing_touched": [
+    "No tmux session or exp/mac-lease.json* changed; no serving code, released checkpoints or qualified research/colab_cli source changed; historical sealed packets preserved."
+  ],
+  "packet": "research/sandbox_a_resident/packet-train01-07",
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-07-runtime.noindex",
+  "runtime_pin": "152af938acc32da6aeea9fcb5a300f470d96c53c",
+  "schema": "sandbox-a-train01-argon-fixes-verification/v1",
+  "screen": {
+    "arm_progress": {
+      "frozen/CpuRosterTask": {
+        "arm_wall_seconds": 9.71840012492612,
+        "last_reported_frame": 256,
+        "last_reported_seconds": 1426.2403612919152,
+        "stage": "distribution-screen-complete",
+        "started_seconds": 1416.521961166989
+      },
+      "frozen/ResidentTrainingTask": {
+        "last_reported_frame": 201,
+        "last_reported_seconds": 2681.440254749963,
+        "stage": "distribution-screen-advance",
+        "started_seconds": 1426.2921179590048
+      },
+      "scripted/CpuRosterTask": {
+        "arm_wall_seconds": 3.9767714159097522,
+        "last_reported_frame": 256,
+        "last_reported_seconds": 4.330399749916978,
+        "stage": "distribution-screen-complete",
+        "started_seconds": 0.35362833400722593
+      },
+      "scripted/ResidentTrainingTask": {
+        "arm_wall_seconds": 1411.952122541028,
+        "last_reported_frame": 256,
+        "last_reported_seconds": 1416.3258271249942,
+        "stage": "distribution-screen-complete",
+        "started_seconds": 4.373704583966173
+      }
+    },
+    "complete_comparison_available": false,
+    "device": "CPU reference and resident CPU fallback; both B8/frozen inference CPU",
+    "error": "TimeoutError('45-minute engineering-screen wall limit')",
+    "horizon": 256,
+    "material_gaps": null,
+    "mixed_companion": {
+      "arm_progress": {
+        "CpuRosterTask": {
+          "arm_wall_seconds": 7.536088875029236,
+          "last_reported_frame": 256,
+          "last_reported_seconds": 7.920441042049788,
+          "stage": "distribution-screen-complete",
+          "started_seconds": 0.38435216702055186
+        },
+        "ResidentTrainingTask": {
+          "last_reported_frame": 188,
+          "last_reported_seconds": 1062.9022352920147,
+          "stage": "distribution-screen-advance",
+          "started_seconds": 8.452002584002912
+        }
+      },
+      "error": "TimeoutError('remaining-time mixed companion wall limit (1092s)')",
+      "horizon": 256,
+      "interpretation": "Real production-capacity E32 mixed CPU/reference and resident CPU fallback; partial-mix flag required by API, no mocked task. Started on second free CPU slot for remaining overall45-minute window; not a full production all-mix screen verdict.",
+      "mixes": [
+        "mixed"
+      ],
+      "status": "INCOMPLETE_TIMEOUT",
+      "test_only": true,
+      "tiny_task": false,
+      "wall_seconds": 1092.0093772920081,
+      "worlds_per_mix": 32
+    },
+    "mixes_requested": [
+      "scripted",
+      "frozen",
+      "mixed"
+    ],
+    "nice_command": "nice -n 15; inherited launch priority made effective process nice20 (ps evidence)",
+    "provenance_note": "Started from clean-baseline9582c313 plus the final acceptance fixes before code commit; subsequent acceptance change was Black formatting only. No runtime algorithm edit during execution. Driver HEAD fields, if returned, identify checkout HEAD at completion rather than a frozen launch pin.",
+    "status": "INCOMPLETE_TIMEOUT",
+    "task_horizon": 5000,
+    "thread_caps": 1,
+    "wall_limit_seconds": 2700,
+    "wall_seconds": 2700.0094977089902,
+    "worlds_per_mix": 32
+  },
+  "verification": {
+    "admission_tests": "40 passed in 0.25s",
+    "cleanup": {
+      "remaining": [],
+      "status": "PASS",
+      "verified_owned_pids_gone": [
+        4030,
+        4100,
+        68973,
+        68980
+      ]
+    },
+    "dry_run": "PASS_DRY_RUN sandbox-a-train01-20261027-07 allocations=0 live_accounting=NOT_CHECKED",
+    "focused_regressions": "30 passed in 1.88s; independent reviewer initial subset 28 passed in 1.86s",
+    "frozen_preflight": "226 passed in 27.99s; PASS_TRAIN01_PREFLIGHT seeds=114299008 schema=PASS registry=PASS tests=PASS allocations=0",
+    "lint": "Changed Python black/isort/flake8 PASS; make lint PASS (149 source/backend Python files); bash -n and git diff --check PASS",
+    "review": "Independent source, regression and final packet review: no actionable findings",
+    "scoped_suite": "414 passed in 838.37s",
+    "seal": {
+      "audit_reused_byte_identical": true,
+      "both_detached_clean": true,
+      "broker": "395061afc75e278634d40def2910b620b5c4f7d2",
+      "empty_ledger": true,
+      "inputs_verified": 5,
+      "manifest_sha256": "dab8df4c7a68669eb596519a6976d759023a54063eee7b6ee7e778e1802d6a17",
+      "output_state_absent": true,
+      "runtime": "152af938acc32da6aeea9fcb5a300f470d96c53c",
+      "source_files_verified_in_both": 186,
+      "status": "PASS",
+      "transport_unchanged": true
+    }
+  }
+}
