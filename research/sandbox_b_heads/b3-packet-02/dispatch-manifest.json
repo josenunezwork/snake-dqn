@@ -1,0 +1,113 @@
+{
+  "job_id": "sandbox-b3-a100-packet02-attempt01",
+  "commit": "7f84306e30a257592b6d74cae71af27a12f47d9b",
+  "script": "research/sandbox_b_heads/run_b3.sh",
+  "source_paths": [
+    "research/sandbox_b_heads/core_b2.py",
+    "research/sandbox_b_heads/model_b2.py",
+    "research/sandbox_b_heads/job_b2.py",
+    "research/sandbox_b_heads/resume_b2.py",
+    "research/sandbox_b_heads/run_b2.sh",
+    "research/sandbox_b_heads/__init__.py",
+    "research/sandbox_b_heads/model.py",
+    "research/sandbox_b_heads/job.py",
+    "research/sandbox_b_heads/resume.py",
+    "research/sandbox_b_heads/run_job.sh",
+    "research/sandbox_b_heads/requirements.txt",
+    "research/a100_a2/model.py",
+    "research/bl_residual/data.py",
+    "src/__init__.py",
+    "src/model/__init__.py",
+    "src/model/base_network.py",
+    "src/model/apex_network.py",
+    "src/model/checkpoint_manager.py",
+    "src/model/checkpoint_io.py",
+    "src/model/ego2s_network.py",
+    "src/model/obs_spec.py",
+    "src/core/runtime_contract.py",
+    "src/core/__init__.py",
+    "src/core/config_loader.py",
+    "src/core/game_config.py",
+    "src/core/device_manager.py",
+    "tools/sandbox/__init__.py",
+    "tools/sandbox/registry.py",
+    "research/sandbox_b_heads/core_b3.py",
+    "research/sandbox_b_heads/job_b3.py",
+    "research/sandbox_b_heads/resume_b3.py",
+    "research/sandbox_b_heads/retrieval_b3.py",
+    "research/sandbox_b_heads/geometry_b3.py",
+    "research/sandbox_b_heads/run_b3.sh",
+    "research/sandbox_b_heads/requirements_b3.txt"
+  ],
+  "requirements": {
+    "gpu": "A100",
+    "allowed_gpus": [
+      "A100"
+    ],
+    "min_vcpu": 4,
+    "est_minutes": 60.0
+  },
+  "timeout_minutes": 120.0,
+  "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b3-20261026/a100-packet02-attempt-01",
+  "inputs": [
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/a100-sandbox-b-20261026/inputs/d1024-allowed.npz",
+      "dest": "d1024-admitted.npz",
+      "sha256": "91647489f1f6d1f35e03dac6cec17da496d4c08de08f1bd8f27d0bf60b880e99"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+      "dest": "b8.pth",
+      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
+      "dest": "SANDBOX_INPUT_REGISTRY.json",
+      "sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b3-packet-02/verified-ledger.json",
+      "dest": "verified-ledger.json",
+      "sha256": "6601c6dc5d89b2803468330ce6b7fa3aee115fcd3cf6e3564d147960568250ef"
+    }
+  ],
+  "required_exports": [
+    "checkpoints.tar",
+    "results.json",
+    "results.csv",
+    "pareto.json",
+    "verified-ledger.json",
+    "timing.json"
+  ],
+  "resume": {
+    "unit_kind": "retrieval-or-survival-config",
+    "ledger_path": "inputs/verified-ledger.json",
+    "skip_verified": true,
+    "max_outcome_blind_retries": 2
+  },
+  "env": {
+    "SANDBOX_B_SALT": "a100-dev/sandbox-b/split-v1",
+    "SNAKE_DQN_DEVICE": "cuda",
+    "COLAB_CLI_REQUIREMENTS": "research/sandbox_b_heads/requirements_b3.txt"
+  },
+  "sandbox_execution": "entire finite development sweep; no timing canary under the adopted sandbox rule",
+  "requirements_file": "research/sandbox_b_heads/requirements_b3.txt",
+  "budget": {
+    "rate_units_per_hour": 8.0,
+    "unit_cap": 16.0,
+    "reserve_units": 0,
+    "other_assignments": {}
+  },
+  "technical_envelope": {
+    "base_timeout_minutes": 60.0,
+    "effective_timeout_minutes": 120.0,
+    "includes_setup_and_export": true,
+    "purpose": "runaway-guard"
+  },
+  "sandbox_admission": {
+    "schema": "standing-a100-development-sandbox-admission/v1",
+    "manifest_path": "/Users/josenunez/Projects/ml/snake-dqn-sbxB/research/sandbox_b_heads/b3-packet-02/sandbox-manifest.json"
+  },
+  "max_export_bytes": 1073741824,
+  "lease_seconds": 180
+}
