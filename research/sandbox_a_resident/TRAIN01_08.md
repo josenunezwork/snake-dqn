@@ -98,8 +98,9 @@ RNG state. Valid cached B8 measurements are reused, with explicit new identity
 metadata; they are never silently recomputed. Existing packet07 bytes remain
 immutable. Missing/corrupt/foreign/unsafe snapshots fail closed.
 
-Commit and publish the newly created completion packet, seal its new broker
-checkout clean, create its own DISPATCH.txt with the new identity/state paths,
-then run frozen training preflight, broker admission tests and dispatch dry-run.
+Create a DISPATCH.txt for the completion packet with its fresh identity/state
+paths. Commit and publish that file together with the newly created packet,
+seal its broker checkout clean, then run frozen training preflight, broker
+admission tests and dispatch dry-run.
 The existing original-plus-two-manual-completion limit remains; index must
 advance exactly once. This helper never dispatches or retries automatically.
