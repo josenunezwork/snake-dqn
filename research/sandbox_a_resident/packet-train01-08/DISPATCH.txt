@@ -1,0 +1,17 @@
+TRAIN-01-08: simulator-D development; Astra detached diagnostics and update-16 proxy.
+Runtime pin: c8ab2e6feefc63ce866e1493bfd2f7f1bf3f64dd
+Clean detached runtime: /Users/josenunez/Projects/ml/snake-dqn-train01-08-runtime.noindex
+Clean detached broker: /Users/josenunez/Projects/ml/snake-dqn-train01-08-broker.noindex
+Broker HEAD seals this packet; runtime closure matches published pin.
+Packet07 startup screen and bytes remain separately sealed and unchanged.
+Exact learning recipe, finite endpoint, allocations and 8h base/16h effective runaway guard retained.
+Candidate monitoring: update16 diagnostic only, then original64,128,192,256,320,384.
+All checks96 worlds/mix,H5000 against the identical cached B8 bank; no nomination expansion.
+Detached update/behavior/scale and calibration/prep support telemetry introduces no new stop band.
+Fresh source-bound empty ledger; verified packet07 full-state resume is optional, see TRAIN01_08.md.
+No runtime dispatched; CPU CUDA-semantics checks prove API contracts only.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-08-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-08 /Users/josenunez/Projects/ml/snake-dqn-train01-08-broker.noindex/research/sandbox_a_resident/packet-train01-08/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-08-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-08-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-08/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-08-broker.noindex/research/sandbox_a_resident/packet-train01-08/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve both detached checkouts and historical evidence.
