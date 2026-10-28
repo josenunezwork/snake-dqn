@@ -68,7 +68,9 @@ def build(pin: str, broker: Path, runtime: Path) -> None:
         "historical_classification": (
             "retry_classification records prior 09d preparation verbatim"
         ),
-        "basis": "09d real dry-run REFUSED before reservation/allocation; no 09d dispatch artifacts",
+        "basis": (
+            "09d real dry-run REFUSED before reservation/allocation; no 09d dispatch artifacts"
+        ),
     }
     for name in ("SUMMARY.md", "dry-run.txt", "dry-run-diagnostic.txt"):
         path = ARTIFACTS / "t34-sol/astra-p-identity-09d" / name
