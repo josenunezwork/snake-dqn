@@ -479,7 +479,7 @@ def test_stop_during_publish_retains_and_accounts_whole_session(tmp_path, monkey
 
     ledger = tmp_path / "ledger.json"
     ledger.write_text(json.dumps(resume.empty_ledger()))
-    monkeypatch.setattr(run, "read_ledger", lambda *a: {i: {} for i in range(1, 32)})
+    monkeypatch.setattr(run, "read_ledger", lambda *a: {i: {} for i in range(2, 32)})
     monkeypatch.setattr(run, "worker", lambda i, a: {"initial_state": "same"})
 
     class Pool(concurrent.futures.ThreadPoolExecutor):
@@ -488,6 +488,15 @@ def test_stop_during_publish_retains_and_accounts_whole_session(tmp_path, monkey
             self._processes = {}
 
     monkeypatch.setattr(run.concurrent.futures, "ProcessPoolExecutor", Pool)
+
+    real_wait = concurrent.futures.wait
+
+    def wait(futures, **kw):
+        future = next(iter(futures))
+        real_wait([future])
+        return {future}, set(futures) - {future}
+
+    monkeypatch.setattr(run.concurrent.futures, "wait", wait)
     original = exports._publish
     suffix = {"payload": ".json", "sidecar": ".sha256", "marker": ".complete"}
 
@@ -582,3 +591,155 @@ def test_smoke_exercises_recipe_fingerprint(tmp_path, monkeypatch):
         json.loads((tmp_path / "smoke.json").read_text())["recipe_sha256"]
         == "fingerprint-exercised"
     )
+
+
+@pytest.mark.parametrize("signum", ["SIGUSR1", "SIGTERM"])
+@pytest.mark.parametrize(
+    "phase", ["last-unit", "inventory", "shutdown", "worker-error", "cleanup-error"]
+)
+def test_first_stop_at_completion_or_teardown(tmp_path, monkeypatch, signum, phase):
+    """A first late stop cannot spoil completion, mask errors, or escape reaping."""
+    import os
+    import signal
+
+    from research.bl_ppo.exports import verify_export
+    from research.watch_lead_p import run
+
+    sig = getattr(signal, signum)
+    original_handlers = {s: signal.getsignal(s) for s in (signal.SIGUSR1, signal.SIGTERM)}
+
+    def escaped_stop(signum, frame):
+        raise AssertionError("stop escaped protected completion")
+
+    for s in original_handlers:
+        signal.signal(s, escaped_stop)
+    previous = {s: signal.getsignal(s) for s in original_handlers}
+    monkeypatch.setattr(run, "read_ledger", lambda *a: {i: {} for i in range(1, 32)})
+    submitted = []
+    shutdown = []
+
+    class Pool:
+        _processes = {}
+
+        def __init__(self, **kw):
+            pass
+
+        def submit(self, fn, index, arm):
+            future = concurrent.futures.Future()
+            if phase == "worker-error":
+                future.set_exception(ValueError("original worker failure"))
+            else:
+                future.set_result({"initial_state": "same"})
+            submitted.append(future)
+            return future
+
+        def shutdown(self, **kw):
+            os.kill(os.getpid(), sig)
+            shutdown.append(True)
+            if phase == "cleanup-error":
+                raise RuntimeError("cleanup failure")
+
+    monkeypatch.setattr(run.concurrent.futures, "ProcessPoolExecutor", Pool)
+    monkeypatch.setattr(
+        run.concurrent.futures, "wait", lambda futures, **kw: ({next(iter(futures))}, set())
+    )
+    real_export = run.export_json
+    real_publish = run.publish
+
+    def export(path, row):
+        if path.name == "inventory.json" and phase == "inventory":
+            os.kill(os.getpid(), sig)
+        return real_export(path, row)
+
+    def publish(*args):
+        value = real_publish(*args)
+        if phase == "last-unit":
+            os.kill(os.getpid(), sig)
+        return value
+
+    monkeypatch.setattr(run, "export_json", export)
+    monkeypatch.setattr(run, "publish", publish)
+    output = tmp_path / "out"
+    try:
+        if phase == "worker-error":
+            with pytest.raises(ValueError, match="original worker failure"):
+                run.execute(tmp_path / "ledger", tmp_path, output)
+        elif phase == "cleanup-error":
+            with pytest.raises(RuntimeError, match="cleanup failure"):
+                run.execute(tmp_path / "ledger", tmp_path, output)
+        else:
+            run.execute(tmp_path / "ledger", tmp_path, output)
+            assert verify_export(output / "inventory.json")
+            inventory = json.loads((output / "inventory.json").read_text())
+            assert len(inventory["completed"]) == 1
+            assert len(inventory["skipped"]) == 31
+            assert not (output / "interruption.json").exists()
+        assert shutdown == [True]
+        assert all(signal.getsignal(s) == handler for s, handler in previous.items())
+    finally:
+        # Keep a red regression from leaking ignored signals into subsequent tests.
+        for s, handler in original_handlers.items():
+            signal.signal(s, handler)
+
+
+@pytest.mark.parametrize("signum", ["SIGUSR1", "SIGTERM"])
+@pytest.mark.parametrize("worker_error", [False, True])
+def test_first_stop_in_real_spawn_pool_shutdown(tmp_path, signum, worker_error):
+    """Prove late first stops preserve errors and reap actual spawned workers."""
+    import subprocess
+    import sys
+
+    import psutil
+
+    script = tmp_path / "late_stop.py"
+    script.write_text("""import os, signal, sys, time
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from research.watch_lead_p import run
+base = Path(sys.argv[2])
+def work(index, arm):
+    if sys.argv[4] == "True":
+        if arm == "P0":
+            raise ValueError("original worker failure")
+        time.sleep(60)
+    return {"initial_state": "same"}
+Original = run.concurrent.futures.ProcessPoolExecutor
+class Pool(Original):
+    def shutdown(self, *args, **kwargs):
+        os.kill(os.getpid(), getattr(signal, sys.argv[3]))
+        (base / "shutdown").write_text("entered")
+        return super().shutdown(*args, **kwargs)
+    def submit(self, *args, **kwargs):
+        value = super().submit(*args, **kwargs)
+        (base / "pids").write_text(" ".join(str(p.pid) for p in self._processes.values()))
+        return value
+run.worker = work
+run.concurrent.futures.ProcessPoolExecutor = Pool
+run.WORKERS = 2
+run.read_ledger = lambda *a: {i: {} for i in range(1, 32)}
+if __name__ == "__main__":
+    previous = {s: signal.getsignal(s) for s in (signal.SIGUSR1, signal.SIGTERM)}
+    try:
+        run.execute(base / "ledger", base, base / "out")
+        assert sys.argv[4] == "False"
+        assert (base / "out/inventory.json.complete").exists()
+    except ValueError as exc:
+        assert sys.argv[4] == "True" and str(exc) == "original worker failure"
+    assert all(signal.getsignal(s) == h for s, h in previous.items())
+""")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(Path(__file__).resolve().parents[2]),
+            str(tmp_path),
+            signum,
+            str(worker_error),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "shutdown").exists()
+    assert all(not psutil.pid_exists(int(pid)) for pid in (tmp_path / "pids").read_text().split())

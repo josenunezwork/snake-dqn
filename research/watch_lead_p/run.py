@@ -127,8 +127,10 @@ def execute(ledger: Path, inputs: Path, output: Path) -> None:
                     try:
                         completed.append(publish(index, partial.pop(index), output))
                     finally:
-                        defer_interrupt = False
-                    if interrupted:
+                        # Once the last missing unit is accounted for, no more
+                        # scientific work remains. Protect finalization too.
+                        defer_interrupt = len(completed) == len(pending)
+                    if interrupted and not defer_interrupt:
                         raise InterruptedError("P interrupted after whole-session publication")
             print(
                 f"P_RUNTIME completed={len(completed)} skipped={len(verified)} "
@@ -136,52 +138,59 @@ def execute(ledger: Path, inputs: Path, output: Path) -> None:
                 flush=True,
             )
     finally:
-        # Snapshot before shutdown clears _processes, including workers spawned by
-        # a submit that was interrupted before its Future was returned.
-        for sig in previous:
-            signal.signal(sig, signal.SIG_IGN)
-        processes = list((pool._processes or {}).values())
-        for process in processes:
-            if process.is_alive():
-                process.terminate()
-        # The executor manager owns waitpid/join. Concurrent Process.join calls
-        # race its reaping bookkeeping; inspect OS liveness, then let it join.
-        deadline = time.monotonic() + 2
-        alive = processes
+        try:
+            # No future spawn is possible. A first stop during cleanup must not
+            # abort reaping or mask a worker error; always restore caller handlers.
+            defer_interrupt = True
+            # Snapshot before shutdown clears _processes, including workers spawned by
+            # a submit that was interrupted before its Future was returned.
+            for sig in previous:
+                signal.signal(sig, signal.SIG_IGN)
+            processes = list((pool._processes or {}).values())
+            for process in processes:
+                if process.is_alive():
+                    process.terminate()
+            # The executor manager owns waitpid/join. Concurrent Process.join calls
+            # race its reaping bookkeeping; inspect OS liveness, then let it join.
+            deadline = time.monotonic() + 2
+            alive = processes
 
-        def running(process: multiprocessing.Process) -> bool:
-            try:
-                return psutil.Process(process.pid).status() != psutil.STATUS_ZOMBIE
-            except psutil.NoSuchProcess:
-                return False
+            def running(process: multiprocessing.Process) -> bool:
+                try:
+                    return psutil.Process(process.pid).status() != psutil.STATUS_ZOMBIE
+                except psutil.NoSuchProcess:
+                    return False
 
-        while alive and time.monotonic() < deadline:
-            alive = [p for p in alive if running(p)]
-            if alive:
-                time.sleep(0.02)
-        for process in alive:
-            try:
-                psutil.Process(process.pid).kill()
-            except psutil.NoSuchProcess:
-                pass
-        pool.shutdown(wait=True, cancel_futures=True)
-        for process in processes:
-            process.join(timeout=1)
-            if psutil.pid_exists(process.pid):
-                raise RuntimeError("P worker reaping failed")
-        if interrupted and not (output / "interruption.json").exists():
-            export_json(
-                output / "interruption.json", {"completed": completed, "skipped": sorted(verified)}
-            )
-        for sig, handler in previous.items():
-            signal.signal(sig, handler)
-    export_json(
-        output / "inventory.json",
-        {
-            "completed": sorted(completed, key=lambda r: r["allocation_index"]),
-            "skipped": sorted(verified),
-        },
-    )
+            while alive and time.monotonic() < deadline:
+                alive = [p for p in alive if running(p)]
+                if alive:
+                    time.sleep(0.02)
+            for process in alive:
+                try:
+                    psutil.Process(process.pid).kill()
+                except psutil.NoSuchProcess:
+                    pass
+            pool.shutdown(wait=True, cancel_futures=True)
+            for process in processes:
+                process.join(timeout=1)
+                if psutil.pid_exists(process.pid):
+                    raise RuntimeError("P worker reaping failed")
+            if interrupted and len(completed) != len(pending):
+                export_json(
+                    output / "interruption.json",
+                    {"completed": completed, "skipped": sorted(verified)},
+                )
+            if len(completed) == len(pending):
+                export_json(
+                    output / "inventory.json",
+                    {
+                        "completed": sorted(completed, key=lambda r: r["allocation_index"]),
+                        "skipped": sorted(verified),
+                    },
+                )
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
 
 
 def main() -> None:

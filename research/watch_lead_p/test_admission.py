@@ -570,7 +570,15 @@ def test_admission_requires_complete_unique_sparse_science(completion_packet, mo
 
 @pytest.mark.parametrize("state", ["working", "staged", "committed"])
 @pytest.mark.parametrize(
-    "name", ["research/watch_lead_p/science-sources.json", "research/watch_lead_p/live.py"]
+    "name",
+    [
+        "research/watch_lead_p/science-sources.json",
+        "research/watch_lead_p/live.py",
+        "research/watch_lead_p/runtime-sources.json",
+        "research/watch_lead_p/run.py",
+        "research/watch_lead_p/resume.py",
+        "research/watch_lead_p/run_job.sh",
+    ],
 )
 def test_seal_refuses_science_drift_from_pin(completion_packet, tmp_path, state, name):
     from research.watch_lead_p import seal
@@ -624,3 +632,82 @@ def test_seal_normalizes_all_cli_paths_and_binds_pin(completion_packet, tmp_path
     assert f"--cwd {tmp_path}/runtime" in text
     assert "nested/.." not in text
     assert len(resume.read_ledger(packet / "verified-ledger.json", inputs, recipe_root=repo)) == 31
+
+
+@pytest.mark.parametrize("completion", [False, True])
+@pytest.mark.parametrize(
+    "damage",
+    ["dot", "prefix", "slashes", "inner-dot", "trailing", "backslash", "extra", "ledger-hash"],
+)
+def test_upload_aliases_counts_and_ledger_hash(completion_packet, monkeypatch, completion, damage):
+    from research.watch_lead_p import admission, resume
+    from tools.sandbox.registry import load_registry
+
+    repo, packet, _, _ = completion_packet
+    monkeypatch.setattr(admission, "ROOT", repo)
+    payload = json.loads((packet / "sandbox.json").read_text())
+    manifest = json.loads((packet / "dispatch-manifest.json").read_text())
+    if not completion:
+        payload["inputs"] = [r for r in payload["inputs"] if r["kind"] != "verified-unit"]
+        manifest["inputs"] = manifest["inputs"][:4]
+        manifest["required_exports"] = ["watch-lead/inventory.json"] + [
+            f"watch-lead/units/session-{i:02d}.json" for i in range(32)
+        ]
+        (packet / "verified-ledger.json").write_text(json.dumps(resume.empty_ledger(repo)))
+    if damage == "ledger-hash":
+        manifest["inputs"][3]["sha256"] = "0" * 64
+    else:
+        dest = {
+            "dot": ".",
+            "prefix": "./verified-ledger.json",
+            "slashes": "units//session-00.json",
+            "inner-dot": "units/./session-00.json",
+            "trailing": "verified-ledger.json/",
+            "backslash": "units\\session-00.json",
+            "extra": "unexpected.json",
+        }[damage]
+        manifest["inputs"].append({**manifest["inputs"][3], "dest": dest})
+    (packet / "dispatch-manifest.json").write_text(json.dumps(manifest))
+    _refresh_packet_seal(packet)
+    monkeypatch.setattr(preflight, "verify_committed_manifest", lambda *a: None)
+    with pytest.raises(ValueError, match="destination|upload count"):
+        admission.validate_inputs(payload, load_registry())
+
+
+@pytest.mark.parametrize("completion", [False, True])
+@pytest.mark.parametrize("stale", [False, True])
+def test_admission_ledger_uses_selected_recipe_root(
+    completion_packet, monkeypatch, completion, stale
+):
+    from research.watch_lead_p import admission, resume
+    from tools.sandbox.registry import load_registry
+
+    repo, packet, _, _ = completion_packet
+    monkeypatch.setattr(admission, "ROOT", repo)
+    payload = json.loads((packet / "sandbox.json").read_text())
+    manifest = json.loads((packet / "dispatch-manifest.json").read_text())
+    path = repo / "research/watch_lead_p/protocol.py"
+    path.write_text(path.read_text() + "\n# distinct checkout recipe\n")
+    ledger_path = packet / "verified-ledger.json"
+    ledger = json.loads(ledger_path.read_text())
+    if not completion:
+        payload["inputs"] = [r for r in payload["inputs"] if r["kind"] != "verified-unit"]
+        manifest["inputs"] = manifest["inputs"][:4]
+        manifest["required_exports"] = ["watch-lead/inventory.json"] + [
+            f"watch-lead/units/session-{i:02d}.json" for i in range(32)
+        ]
+        ledger["units"] = []
+    if not stale:
+        ledger["recipe_sha256"] = resume.recipe_fingerprint(repo)
+    ledger_path.write_text(json.dumps(ledger))
+    checksum = admission.digest(ledger_path)
+    manifest["inputs"][3]["sha256"] = checksum
+    next(r for r in payload["inputs"] if r["kind"] == "verified-ledger")["sha256"] = checksum
+    (packet / "dispatch-manifest.json").write_text(json.dumps(manifest))
+    _refresh_packet_seal(packet)
+    monkeypatch.setattr(preflight, "verify_committed_manifest", lambda *a: None)
+    if stale:
+        with pytest.raises(ValueError, match="foreign namespace/allocation"):
+            admission.validate_inputs(payload, load_registry())
+    else:
+        admission.validate_inputs(payload, load_registry())

@@ -48,13 +48,17 @@ def seal(
         != pin
     ):
         raise ValueError("P runtime pin must be an existing full commit SHA")
-    # Read the dependency list at the pin, then prove every fingerprint byte is
-    # identical locally before deriving a ledger or writing any packet files.
+    # Read both dependency lists at the pin and prove the complete shipped
+    # runtime agrees locally before deriving a ledger or writing packet files.
     inventory = "research/watch_lead_p/science-sources.json"
     science = json.loads(
         subprocess.check_output(["git", "show", f"{pin}:{inventory}"], cwd=ROOT, text=True)
     )
-    paths = [inventory, *science]
+    runtime_inventory = "research/watch_lead_p/runtime-sources.json"
+    runtime_sources = json.loads(
+        subprocess.check_output(["git", "show", f"{pin}:{runtime_inventory}"], cwd=ROOT, text=True)
+    )
+    paths = list(dict.fromkeys([inventory, *science, runtime_inventory, *runtime_sources]))
     changed = subprocess.run(["git", "diff", "--quiet", pin, "--", *paths], cwd=ROOT).returncode
     dirty = subprocess.check_output(
         ["git", "status", "--porcelain", "--untracked-files=all", "--", *paths],
@@ -62,7 +66,7 @@ def seal(
         text=True,
     ).strip()
     if changed or dirty:
-        raise ValueError("P science fingerprint working tree differs from runtime pin")
+        raise ValueError("P science/runtime working tree differs from runtime pin")
     if type(attempt) is not int or not 1 <= attempt <= 99:
         raise ValueError("fresh packet attempt must be 1..99")
     if (ledger is None) != (units_root is None):
@@ -116,9 +120,7 @@ def seal(
         "commit": pin,
         "script": "research/watch_lead_p/run_job.sh",
         "device": "cpu",
-        "source_paths": json.loads(
-            (ROOT / "research/watch_lead_p/runtime-sources.json").read_text()
-        ),
+        "source_paths": runtime_sources,
         "requirements": {
             "gpu": "L4",
             "allowed_gpus": ["L4"],

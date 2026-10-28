@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from research.watch_lead_p.protocol import FIXTURE_SEED, NAMESPACE, SEEDS, STUDY
@@ -143,20 +143,34 @@ def validate_inputs(payload: dict, registry: dict) -> None:
             not isinstance(dest, str)
             or not dest
             or dest in uploads
-            or Path(dest).is_absolute()
-            or ".." in Path(dest).parts
+            or "\\" in dest
+            or dest == "."
+            or dest.endswith("/")
+            or PurePosixPath(dest).as_posix() != dest
+            or PurePosixPath(dest).is_absolute()
+            or ".." in PurePosixPath(dest).parts
         ):
             raise ValueError("P missing/duplicate/unsafe upload destination")
         uploads[dest] = item
     ledger_upload = uploads.get(packet["resume"]["ledger_path"])
-    if ledger_upload is None or Path(ledger_upload["path"]).resolve() != ledger_path.resolve():
+    if (
+        ledger_upload is None
+        or Path(ledger_upload["path"]).resolve() != ledger_path.resolve()
+        or ledger_upload.get("sha256") != kinds["verified-ledger"][0]["sha256"]
+    ):
         raise ValueError("P ledger upload must bind the sealed ledger destination")
     ledger = json.loads(ledger_path.read_text())
-    expected = empty_ledger()
+    expected = empty_ledger(ROOT)
     if not isinstance(ledger, dict) or set(ledger) != set(expected):
         raise ValueError("P outcome-free ledger schema differs")
     if not isinstance(ledger["units"], list):
         raise ValueError("P ledger units must be a list")
+    if {k: v for k, v in ledger.items() if k != "units"} != {
+        k: v for k, v in expected.items() if k != "units"
+    }:
+        raise ValueError("foreign namespace/allocation ledger")
+    if len(uploads) != 4 + 3 * len(ledger["units"]):
+        raise ValueError("P upload count differs from the sealed ledger")
     completion_root = ledger_path.parent
     if ledger != expected:
         # Bind shipped payloads and their actual adjacent sidecars without
@@ -203,7 +217,7 @@ def validate_inputs(payload: dict, registry: dict) -> None:
             raise ValueError("unreferenced P completion upload")
     if not ledger["units"] and kinds["verified-unit"]:
         raise ValueError("unreferenced P resume payloads")
-    read_ledger(ledger_path, completion_root)
+    read_ledger(ledger_path, completion_root, recipe_root=ROOT)
 
     indices = {record["allocation_index"] for record in ledger["units"]}
     expected_exports = ["watch-lead/inventory.json"] + [
