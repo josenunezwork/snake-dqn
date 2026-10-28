@@ -1,0 +1,20 @@
+P prepared for operator dispatch; no allocation performed.
+Runtime pin: 30a0a61d9d94b3ba20c16158fe403512a4f4673b
+Identity: sandbox-p-watch-lead-20261028-09c
+Science: 32 complete paired 6000-frame Watch6 sessions; P48 sole primary.
+Projected wall seconds: 17094.119; base/effective 17100/34200; effective governs, base is 1x refreshed estimate (owner 2x).
+Est285; timeout570; base units7.312484270908601; effective units14.63; reserves0/0.
+Claude operator decision 2026-10-28 supersedes 480min/12.32u; round up 14.62496854 to14.63.
+Eleven lower-priority arm workers, session cohorts of 11 with P0/P48/bare; each session W1/K1; L4 >=12 vCPUs.
+Only complete three-arm paired sessions are exported or resumed. CPU science only.
+Inputs remain sealed; remote exports are diagnostics, never a terminal decision.
+One original + at most two manual completion attempts after verified mechanical failure,
+stop_verified and missing-unit accounting, fresh packet/output/receipt, same allocation and N.
+Never rerun verified units or infer timing/service qualification. No automatic expansion or O1.
+All commits local by owner instruction; source is delivered by sparse fallback.
+
+Offline validation:
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09c-broker.noindex/tools/ops/dispatch.sh sandbox-p-watch-lead-20261028-09c /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09c-broker.noindex/research/watch_lead_p/packet-09/reseal-03/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09c-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09c-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-watch-lead-1028/attempt-09c/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09c-broker.noindex/research/watch_lead_p/packet-09/reseal-03/DISPATCH.txt --dry-run
+
+Exact operator dispatch command:
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09c-broker.noindex/tools/ops/dispatch.sh sandbox-p-watch-lead-20261028-09c /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09c-broker.noindex/research/watch_lead_p/packet-09/reseal-03/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09c-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09c-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-watch-lead-1028/attempt-09c/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09c-broker.noindex/research/watch_lead_p/packet-09/reseal-03/DISPATCH.txt
