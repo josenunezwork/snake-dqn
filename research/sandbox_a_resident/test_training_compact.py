@@ -555,3 +555,134 @@ def test_real_snapshot_round_trip_is_exact_for_every_tensor() -> None:
 
     same(original, from_decoded)
     assert compared == 209
+
+
+def test_compact_at_source_publish_verify_mac_preflight_and_materialize_without_raw_pt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Colab compact-at-source export writes zero raw .pt files and verifies/resumes end-to-end."""
+    from research.sandbox_a_resident.training_compact import (
+        publish_compact_snapshot,
+        verify_compact_snapshot_export,
+    )
+
+    c1_commit = "c" * 40
+    c2_commit = "d" * 40
+    monkeypatch.setattr(
+        training_units,
+        "allowed_migration_source_commits",
+        lambda **_kwargs: frozenset({TRAIN01_15_SOURCE_COMMIT, c1_commit}),
+    )
+    src_control = {
+        "study": "sandbox-a-train01",
+        "source_commit": c1_commit,
+        "outer_iterations": 384,
+        "snapshot_interval": 16,
+    }
+    dst_control = {**src_control, "source_commit": c2_commit}
+    export_dir = tmp_path / "c1-exports"
+    export_dir.mkdir(parents=True)
+
+    state = sample_state()
+    state["iteration"] = 96
+    torch.manual_seed(123456)
+    rng_before = torch.get_rng_state().clone()
+    published = publish_compact_snapshot(
+        export_dir,
+        96,
+        lambda path: torch.save(state, path),
+        metadata={
+            "allocation": allocation(src_control),
+            "source_commit": c1_commit,
+            "prepare_phase": "ready",
+        },
+        source_packet_id="packet-train01-15-c1-i0064",
+    )
+    assert torch.equal(torch.get_rng_state(), rng_before)
+    publish(export_dir / "iteration-0096-actor.pth", lambda path: path.write_bytes(b"actor-96"))
+
+    assert not (export_dir / "iteration-0096.pt").exists()
+    assert list(export_dir.glob("*.pt")) == []
+    assert (export_dir / "iteration-0096.pt.xz").is_file()
+    assert (export_dir / "iteration-0096.pt.xz.manifest").is_file()
+    assert (export_dir / "iteration-0096.json").is_file()
+    assert published["compact_snapshot"]["schema"] == "sandbox-a-train-compact-export/v1"
+
+    verified = verify_compact_snapshot_export(
+        export_dir,
+        96,
+        source_packet_id="packet-train01-15-c1-i0064",
+        source_commit=c1_commit,
+    )
+    assert verified["status"] == "PASS"
+    allowlist_entry = verified["allowlist_entry"]
+
+    # Adversarial tampering checks on Mac verification of compact-at-source export.
+    bad_tensor_dir = tmp_path / "tampered-tensor"
+    shutil.copytree(export_dir, bad_tensor_dir)
+    man_file = bad_tensor_dir / "iteration-0096.pt.xz.manifest"
+    man_obj = json.loads(man_file.read_text())
+    man_obj["tensors"][0]["sha256"] = "0" * 64
+    for suffix in ("", ".sha256", ".complete"):
+        Path(f"{man_file}{suffix}").unlink()
+    publish(man_file, lambda dst: dst.write_text(json.dumps(man_obj) + "\n"))
+    info_file = bad_tensor_dir / "iteration-0096.json"
+    info_obj = json.loads(info_file.read_text())
+    info_obj["compact_snapshot"]["manifest"] = {
+        "name": man_file.name,
+        "size": man_file.stat().st_size,
+        "sha256": digest(man_file),
+    }
+    for suffix in ("", ".sha256", ".complete"):
+        Path(f"{info_file}{suffix}").unlink()
+    publish(info_file, lambda dst: dst.write_text(json.dumps(info_obj) + "\n"))
+    with pytest.raises(CompactResumeRefused, match="decoded tensor differs"):
+        verify_compact_snapshot_export(bad_tensor_dir, 96)
+
+    # Chain c1 -> c2 ledger, Mac preflight (validate_uploaded_ledger), and VM materialization.
+    allowlist_path = tmp_path / "compact_allowlist.json"
+    allowlist_path.write_text(json.dumps({"schema": COMPACT_ALLOWLIST_SCHEMA, "entries": []}))
+    register_compact_allowlist_entry(allowlist_entry, path=allowlist_path)
+
+    ledger, uploads, latest = build_ledger(
+        export_dir, dst_control, source_control=src_control, allowlist_path=allowlist_path
+    )
+    assert latest == 96
+    upload_dests = [row["dest"] for row in uploads]
+    assert "resume/iteration-0096.pt" not in upload_dests
+    assert "resume/iteration-0096.pt.sha256" not in upload_dests
+    assert "resume/iteration-0096.pt.complete" not in upload_dests
+    assert "resume/iteration-0096.pt.xz" in upload_dests
+    assert "resume/iteration-0096.pt.xz.manifest" in upload_dests
+
+    ledger, uploads = attach_compact_resume(
+        ledger,
+        uploads,
+        export_dir,
+        source_packet_id="packet-train01-15-c1-i0064",
+        allowlist_path=allowlist_path,
+    )
+    packet = tmp_path / "packet-c2"
+    packet.mkdir()
+    (packet / "verified-ledger.json").write_text(json.dumps(ledger))
+    broker = {"inputs": [{"dest": "b8-s3.pth", "path": "/x", "sha256": "0" * 64}, *uploads]}
+    validate_uploaded_ledger(packet, broker, dst_control, allowlist_path=allowlist_path)
+
+    vm_inputs = tmp_path / "vm-inputs-c2"
+    for row in uploads:
+        (vm_inputs / row["dest"]).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(row["path"], vm_inputs / row["dest"])
+    materialized = materialize_compact_resume(ledger, vm_inputs, allowlist_path=allowlist_path)
+    decoded_pt = vm_inputs / "resume/iteration-0096.pt"
+    assert decoded_pt.is_file()
+    assert Path(f"{decoded_pt}.sha256").read_text().strip() == allowlist_entry["original"]["sha256"]
+    assert Path(f"{decoded_pt}.complete").read_text() == "complete\n"
+    verify_decoded_state(
+        torch.load(decoded_pt, map_location="cpu", weights_only=False), materialized
+    )
+    vm_ledger_path = vm_inputs / "verified-ledger.json"
+    vm_ledger_path.write_text(json.dumps(ledger))
+    loaded = load_ledger(
+        vm_ledger_path, dst_control, input_root=vm_inputs, allowlist_path=allowlist_path
+    )
+    assert list(loaded) == [96]

@@ -70,7 +70,14 @@ def _rebind_packet_to_fixture_repo(repo: Path, packet_name: str) -> None:
         row["path"] = fixed_map[row["dest"]]
         row["sha256"] = digest(Path(row["path"]))
         kept_inputs.append(row)
+    attempt_slug = (
+        "train01-attempt-15" if packet_name == "packet-train01-15" else "train01-attempt-16"
+    )
+    attempt_out = str(
+        (repo.parent / "snake-dqn-artifacts/sandbox-a-resident" / attempt_slug / "output").resolve()
+    )
     manifest["inputs"] = kept_inputs
+    manifest["output_dir"] = attempt_out
     manifest["sandbox_admission"] = {
         "schema": "standing-a100-development-sandbox-admission/v1",
         "manifest_path": str(sandbox_path),
@@ -99,6 +106,7 @@ def _rebind_packet_to_fixture_repo(repo: Path, packet_name: str) -> None:
         }
         for row in manifest["inputs"]
     ]
+    sandbox["outputs"]["paths"] = [attempt_out]
     sandbox["outputs"]["broker_manifest"] = {
         "path": str(manifest_path),
         "sha256": digest(manifest_path),
@@ -140,6 +148,9 @@ def fixture_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
     archive.stdout.close()
     assert archive.wait(timeout=30) == 0
 
+    for item in (ROOT / "tools/sandbox").glob("*.py"):
+        shutil.copy2(item, repo / "tools/sandbox" / item.name)
+
     src_pkg = ROOT / "research/sandbox_a_resident"
     dst_pkg = repo / "research/sandbox_a_resident"
     dst_pkg.mkdir(parents=True, exist_ok=True)
@@ -148,6 +159,14 @@ def fixture_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
             continue
         if item.is_file() and item.suffix in {".py", ".sh", ".json", ".txt"}:
             shutil.copy2(item, dst_pkg / item.name)
+    allowlist_file = dst_pkg / "compact_allowlist.json"
+    allowlist_payload = json.loads(allowlist_file.read_text())
+    allowlist_payload["entries"] = [
+        row
+        for row in allowlist_payload.get("entries", [])
+        if row.get("source_packet_id") == "packet-train01-11"
+    ]
+    allowlist_file.write_text(json.dumps(allowlist_payload, indent=2, sort_keys=True) + "\n")
     for pkt in ("packet-train01-15", "packet-train01-16"):
         shutil.copytree(src_pkg / pkt, dst_pkg / pkt)
         _rebind_packet_to_fixture_repo(repo, pkt)
@@ -823,3 +842,303 @@ def test_continuation_builder_refuses_timeout_with_scientific_fault_or_poll_faul
             date_tag="20261028",
             skip_dry_run=True,
         )
+
+
+def test_storage_projection_admits_compact_u64_and_refuses_raw_or_low_disk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Real u64 scale: 20 compact exports < 1 GB pass on 13 GiB free; 20 raw exports refuse."""
+    from collections import namedtuple
+
+    from research.sandbox_a_resident import training_continuation
+    from research.sandbox_a_resident.training_continuation import compute_storage_projection
+
+    DiskUsage = namedtuple("DiskUsage", ["total", "used", "free"])
+    free_13_gib = 13 * 1024**3
+    total_bytes = 500 * 1024**3
+    monkeypatch.setattr(
+        training_continuation.shutil,
+        "disk_usage",
+        lambda _path: DiskUsage(total_bytes, total_bytes - free_13_gib, free_13_gib),
+    )
+
+    u64_kwargs = {
+        "remaining_snapshot_count": 20,
+        "reference_original_pt_bytes": 1_343_234_243,
+        "reference_derivative_bytes": 38_396_880,
+        "reference_manifest_bytes": 93_518,
+        "reference_actor_bytes": 6_562_549,
+        "reference_json_bytes": 20_031,
+    }
+    compact_proj = compute_storage_projection(
+        tmp_path / "attempt-15-c1/output",
+        snapshot_format="compact",
+        **u64_kwargs,
+    )
+    assert compact_proj["status"] == "PASS"
+    assert compact_proj["remaining_exports_nominal_bytes"] < 1_000_000_000
+    assert compact_proj["under_1gb_nominal_for_remaining_exports"] is True
+    assert compact_proj["export_byte_reduction_factor"] > 29.0
+    assert compact_proj["free_above_safety_margin_at_temp_peak_gib"] > 6.0
+
+    # Raw 1.34 GB periodic snapshots (~27.0 GB exports) fail closed on 13 GiB free.
+    with pytest.raises(ContinuationRefused, match="insufficient Mac storage"):
+        compute_storage_projection(
+            tmp_path / "attempt-15-c1-raw/output",
+            snapshot_format="raw",
+            **u64_kwargs,
+        )
+
+    # Low-disk filesystem (< required_conservative_with_margin) fails closed even for compact.
+    free_5_gib = 5 * 1024**3
+    monkeypatch.setattr(
+        training_continuation.shutil,
+        "disk_usage",
+        lambda _path: DiskUsage(total_bytes, total_bytes - free_5_gib, free_5_gib),
+    )
+    with pytest.raises(ContinuationRefused, match="insufficient Mac storage"):
+        compute_storage_projection(
+            tmp_path / "attempt-15-c1-low/output",
+            snapshot_format="compact",
+            **u64_kwargs,
+        )
+
+
+def test_continuation_builder_admits_receipt_less_host_enospc_and_chains_compact_at_source_c2(
+    fixture_workspace: Path, tmp_path: Path
+) -> None:
+    """End-to-end receipt-less ENOSPC c1 builder + compact-at-source c1 -> c2 continuation."""
+    from research.sandbox_a_resident.training_compact import publish_compact_snapshot
+    from research.sandbox_a_resident.training_continuation import (
+        build_host_enospc_recovery_certificate,
+    )
+    from research.sandbox_a_resident.training_resume import (
+        ACCOUNT_RELEASE_CAPTURE_SCHEMA,
+        HOST_ENOSPC_FAILURE_CLASS,
+        HOST_ENOSPC_RECOVERY_SCHEMA,
+    )
+
+    repo = fixture_workspace / "snake-dqn-fixture"
+    artifacts = fixture_workspace / "snake-dqn-artifacts/sandbox-a-resident"
+    source_packet = repo / "research/sandbox_a_resident/packet-train01-15"
+
+    enospc_attempt = _populate_attempt(
+        artifacts / "train01-attempt-15",
+        source_packet,
+        [0, 16, 32, 48, 64],
+        receipt_overrides={},
+    )
+    # Remove receipt.json to reproduce the live receipt-less host ENOSPC failure.
+    (enospc_attempt / "output/receipt.json").unlink()
+    assert not (enospc_attempt / "output/receipt.json").exists()
+
+    # Without --recovery-evidence, build_continuation_packet refuses missing receipt.json.
+    with pytest.raises(ContinuationRefused, match="missing or symlinked source attempt evidence"):
+        build_continuation_packet(
+            enospc_attempt,
+            64,
+            slug="train01-15-c1-noev",
+            repo_root=repo,
+            checkout_parent=fixture_workspace,
+            artifacts_root=artifacts,
+            date_tag="20261028",
+            skip_dry_run=True,
+        )
+
+    exec_manifest = json.loads((enospc_attempt / "output/manifest.json").read_text())
+    job_id = exec_manifest["job_id"]
+    gen = "59e68cce673b4f90a8c2e1d0b7c6a5f4"
+    session = f"snake-{job_id}-{gen[:12]}"
+    endpoint = "m-s-enospc64"
+    state_dir = enospc_attempt / "state"
+    state_dir.mkdir(parents=True)
+    assignment = {
+        "endpoint": endpoint,
+        "generation": gen,
+        "session": session,
+        "output": str((enospc_attempt / "output").resolve()),
+    }
+    (state_dir / "assignment.json").write_text(json.dumps(assignment, sort_keys=True) + "\n")
+
+    account_root = tmp_path / "account/snake"
+    account_root.mkdir(parents=True)
+    (account_root / f"active-{session}.json").write_text(
+        json.dumps(assignment, sort_keys=True) + "\n"
+    )
+
+    for idx in range(1, 11):
+        (enospc_attempt / f"output/poll-{idx:06d}.json").write_text(
+            json.dumps(
+                {
+                    "job": job_id,
+                    "generation": gen,
+                    "status": "running",
+                    "job_log_tail": (
+                        f'TRAIN01_PROGRESS {{"stage": "ppo", "iteration": {idx * 6}}}\n'
+                    ),
+                    "exports": [],
+                }
+            )
+            + "\n"
+        )
+
+    sup_log = fixture_workspace / "snake-dqn-artifacts/ops/logs" / f"{job_id}.log"
+    sup_log.parent.mkdir(parents=True, exist_ok=True)
+    enospc_output_resolved = (enospc_attempt / "output").resolve()
+    sup_lines = (
+        ["PREFLIGHT_OK"]
+        + [
+            json.dumps(
+                {
+                    "event": "poll",
+                    "job": job_id,
+                    "job_log_tail": (
+                        f'TRAIN01_PROGRESS {{"stage": "ppo", "iteration": {idx * 6}}}\n'
+                    ),
+                }
+            )
+            for idx in range(1, 11)
+        ]
+        + [
+            f"[Errno 28] No space left on device: '{enospc_output_resolved}/.receipt-ihix0kmn'",
+            "EXIT=1",
+        ]
+    )
+    sup_log.write_text("\n".join(sup_lines) + "\n")
+
+    recovery_dir = tmp_path / "enospc-recovery-evidence"
+    recovery_dir.mkdir(parents=True)
+    capture_file = recovery_dir / "account-release-status.json"
+    capture_payload = {
+        "schema": ACCOUNT_RELEASE_CAPTURE_SCHEMA,
+        "captured_at_utc": "2026-10-28T13:15:00Z",
+        "captured_unix_seconds": sup_log.stat().st_mtime + 5.0,
+        "status": {
+            "sessions": {},
+            "usage": {"assignments": 0, "balance": 1080.0, "rate": 0.0},
+            "unresolved": [],
+        },
+    }
+    publish(capture_file, lambda dst: dst.write_text(json.dumps(capture_payload) + "\n"))
+
+    cert_file = recovery_dir / "host-enospc-recovery-certificate.json"
+    cert_summary = build_host_enospc_recovery_certificate(
+        enospc_attempt,
+        account_status_capture_path=capture_file,
+        certificate_output_path=cert_file,
+        supervisor_log_path=sup_log,
+        account_root=account_root,
+        source_packet=source_packet,
+        repo_root=repo,
+    )
+    assert cert_summary["failure_class"] == HOST_ENOSPC_FAILURE_CLASS
+    assert cert_summary["original_receipt_present"] is False
+
+    c1_result = build_continuation_packet(
+        enospc_attempt,
+        64,
+        slug="train01-15-c1-enospc64",
+        job_id="sandbox-a-train01-20261028-15-c1-enospc64",
+        repo_root=repo,
+        checkout_parent=fixture_workspace,
+        artifacts_root=artifacts,
+        date_tag="20261028",
+        skip_dry_run=True,
+        launch_runs=1,
+        recovery_evidence=cert_file,
+        supervisor_log=sup_log,
+    )
+    assert c1_result["status"] == "PREPARED_NOT_DISPATCHED"
+    assert c1_result["allocations"] == 0
+    assert c1_result["prior_stop_evidence_kind"] == "host_enospc_recovery_certificate"
+    assert c1_result["prior_receipt_present"] is False
+    assert not (enospc_attempt / "output/receipt.json").exists()
+
+    c1_packet_dir = Path(c1_result["packet_dir"])
+    assert (c1_packet_dir / "recovery-evidence.json").is_file()
+    c1_seal = json.loads((c1_packet_dir / "SEAL.json").read_text())
+    assert c1_seal["prior_stop_evidence_kind"] == "host_enospc_recovery_certificate"
+    assert c1_seal["prior_receipt_present"] is False
+    assert c1_seal["prior_receipt_sha256"] is None
+    assert c1_seal["prior_failure_class"] == HOST_ENOSPC_FAILURE_CLASS
+    assert c1_seal["prior_recovery_evidence_schema"] == HOST_ENOSPC_RECOVERY_SCHEMA
+    assert c1_seal["prior_recovery_evidence_sha256"] == digest(
+        c1_packet_dir / "recovery-evidence.json"
+    )
+    assert c1_seal["prior_release_proof"]["original_cleanup_error"] == "UNKNOWN_UNAVAILABLE"
+    assert c1_seal["prior_release_proof"]["post_hoc_release_verified"] is True
+    assert c1_seal["periodic_export_format"] == "compact"
+    assert c1_seal["mac_storage_projection"]["status"] == "PASS"
+
+    # Now simulate c1 running on Colab with compact-at-source periodic exports (zero raw .pt files)
+    # and stopping mechanically at iteration-0128, then build c2 from c1's broker_checkout!
+    c1_broker_repo = Path(c1_result["broker_checkout"])
+    c1_control = json.loads((c1_packet_dir / "control.json").read_text())
+    c1_exec_manifest = json.loads((c1_packet_dir / "dispatch-manifest.json").read_text())
+    c1_attempt = artifacts / "train01-attempt-15-c1-compactsrc"
+    c1_exports = c1_attempt / "output/exports/training"
+    c1_exports.mkdir(parents=True)
+    c1_exec_manifest["output_dir"] = str((c1_attempt / "output").resolve())
+    c1_exec_path = c1_attempt / "output/manifest.json"
+    c1_exec_path.write_text(json.dumps(c1_exec_manifest, indent=2, sort_keys=True) + "\n")
+
+    state_128 = {
+        "schema": "sandbox-a-train-state/v1",
+        "iteration": 128,
+        "actor": {"weight": torch.arange(16, dtype=torch.float32).reshape(4, 4) + 128},
+        "trainer": {"actor_rows": 128 * 1024 * 256},
+        "preparation": {"stage": "ready", "temperature": 0.00843973},
+    }
+    publish_compact_snapshot(
+        c1_exports,
+        128,
+        lambda path: torch.save(state_128, path),
+        metadata={
+            "allocation": allocation(c1_control),
+            "source_commit": c1_control["source_commit"],
+            "prepare_phase": "ready",
+        },
+    )
+    publish(
+        c1_exports / "iteration-0128-actor.pth",
+        lambda path: path.write_bytes(b"actor-0128"),
+    )
+    assert not (c1_exports / "iteration-0128.pt").exists()
+    c1_receipt = {
+        "job_id": c1_exec_manifest["job_id"],
+        "commit": c1_exec_manifest["commit"],
+        "generation": "71ffadd059e68cce673b4f90a8c2e1d0",
+        "manifest_sha256": digest(c1_exec_path),
+        "status": "INCOMPLETE",
+        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "terminal": None,
+        "stop_verified": True,
+        "cleanup_error": None,
+    }
+    (c1_attempt / "output/receipt.json").write_text(
+        json.dumps(c1_receipt, indent=2, sort_keys=True) + "\n"
+    )
+
+    c2_result = build_continuation_packet(
+        c1_attempt,
+        128,
+        source_packet=c1_packet_dir,
+        slug="train01-15-c2-compact128",
+        job_id="sandbox-a-train01-20261029-15-c2-compact128",
+        repo_root=c1_broker_repo,
+        checkout_parent=fixture_workspace,
+        artifacts_root=artifacts,
+        date_tag="20261029",
+        skip_dry_run=True,
+        launch_runs=1,
+    )
+    assert c2_result["status"] == "PREPARED_NOT_DISPATCHED"
+    assert c2_result["completion_attempt_index"] == 2
+    assert c2_result["resume_from_iteration"] == 128
+    c2_manifest = json.loads((Path(c2_result["packet_dir"]) / "dispatch-manifest.json").read_text())
+    c2_dests = {row["dest"] for row in c2_manifest["inputs"]}
+    assert "resume/iteration-0128.pt.xz" in c2_dests
+    assert "resume/iteration-0128.pt.xz.manifest" in c2_dests
+    assert "resume/iteration-0128.pt" not in c2_dests
+    assert "resume/iteration-0128.pt.sha256" not in c2_dests
+    assert "resume/iteration-0128.pt.complete" not in c2_dests

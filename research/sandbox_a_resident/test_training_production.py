@@ -850,3 +850,169 @@ def test_independent_replication_seed_domain_shifts_training_and_keeps_proxy_ban
             train.ResidentTrainingTask(task_configs[0]),
             torch.Generator(),
         )
+
+
+def test_compact_snapshot_format_matches_raw_trajectory_and_resumes_compact_at_source(
+    production, tmp_path, monkeypatch
+):
+    """Runtime snapshot_format='compact' emits zero .pt files, matches raw RNG, and chains c2."""
+    import io
+    import shutil
+
+    from research.sandbox_a_resident import training_units
+    from research.sandbox_a_resident.training_compact import (
+        decode_to_bytes,
+        verify_compact_snapshot_export,
+    )
+    from research.sandbox_a_resident.training_preflight import validate_uploaded_ledger
+    from research.sandbox_a_resident.training_resume import attach_compact_resume, build_ledger
+    from research.sandbox_a_resident.training_units import (
+        COMPACT_ALLOWLIST_SCHEMA,
+        register_compact_allowlist_entry,
+    )
+
+    base_control, _calls = production
+    c1_commit = "c" * 40
+    c2_commit = "d" * 40
+    monkeypatch.setattr(
+        training_units,
+        "allowed_migration_source_commits",
+        lambda **_kwargs: frozenset({TRAIN01_15_SOURCE_COMMIT, c1_commit}),
+    )
+    monkeypatch.setattr(train, "paired", lambda *args: {})
+
+    c1_control = train.TrainControl("sandbox-a-train01", c1_commit, 0)
+    c2_control = train.TrainControl("sandbox-a-train01", c2_commit, 0)
+    for target in (c1_control, c2_control):
+        for field in (
+            "worlds",
+            "rollout_horizon",
+            "proxy_worlds_per_mix",
+            "proxy_horizon",
+            "compile_mode",
+        ):
+            object.__setattr__(target, field, getattr(base_control, field))
+        object.__setattr__(target, "outer_iterations", 32)
+        object.__setattr__(target, "snapshot_interval", 16)
+
+    execute(c1_control, tmp_path / "raw_run", snapshot_format="raw")
+    execute(
+        c1_control,
+        tmp_path / "compact_run",
+        snapshot_format="compact",
+        source_packet_id="packet-train01-15-c1-i0064",
+    )
+
+    compact_dir = tmp_path / "compact_run"
+    assert list(compact_dir.glob("*.pt")) == []
+    for step in (0, 16, 32):
+        assert (compact_dir / f"iteration-{step:04d}.pt.xz").is_file()
+        assert (compact_dir / f"iteration-{step:04d}.pt.xz.manifest").is_file()
+        assert (compact_dir / f"iteration-{step:04d}.json").is_file()
+        assert (compact_dir / f"iteration-{step:04d}-actor.pth").is_file()
+
+    verified_16 = verify_compact_snapshot_export(
+        compact_dir,
+        16,
+        source_packet_id="packet-train01-15-c1-i0064",
+        source_commit=c1_commit,
+    )
+    verified_32 = verify_compact_snapshot_export(
+        compact_dir,
+        32,
+        source_packet_id="packet-train01-15-c1-i0064",
+        source_commit=c1_commit,
+    )
+    raw_final = torch.load(tmp_path / "raw_run/iteration-0032.pt", weights_only=False)
+    compact_final = torch.load(
+        io.BytesIO(
+            decode_to_bytes(
+                compact_dir / "iteration-0032.pt.xz",
+                expected_size=verified_32["original"]["size"],
+                expected_sha256=verified_32["original"]["sha256"],
+            )
+        ),
+        weights_only=False,
+    )
+    assert raw_final["metrics"] == compact_final["metrics"]
+    assert torch.equal(raw_final["rng"]["collection"], compact_final["rng"]["collection"])
+    assert torch.equal(raw_final["rng"]["torch"], compact_final["rng"]["torch"])
+    assert torch.equal(raw_final["task"]["age"], compact_final["task"]["age"])
+
+    # Simulate c1 mechanical stop after compact iteration-0016 and chain c2 compact-at-source.
+    c1_partial = tmp_path / "c1_partial"
+    c1_partial.mkdir()
+    for item in compact_dir.glob("iteration-0016*"):
+        shutil.copy2(item, c1_partial / item.name)
+    allowlist_path = tmp_path / "compact_allowlist.json"
+    allowlist_path.write_text(json.dumps({"schema": COMPACT_ALLOWLIST_SCHEMA, "entries": []}))
+    register_compact_allowlist_entry(verified_16["allowlist_entry"], path=allowlist_path)
+    monkeypatch.setattr(train, "DEFAULT_COMPACT_ALLOWLIST_PATH", allowlist_path, raising=False)
+
+    ledger, uploads, latest = build_ledger(
+        c1_partial,
+        asdict(c2_control),
+        source_control=asdict(c1_control),
+        allowlist_path=allowlist_path,
+    )
+    assert latest == 16
+    ledger, uploads = attach_compact_resume(
+        ledger,
+        uploads,
+        c1_partial,
+        source_packet_id="packet-train01-15-c1-i0064",
+        allowlist_path=allowlist_path,
+    )
+    pkt_dir = tmp_path / "pkt-c2"
+    pkt_dir.mkdir()
+    (pkt_dir / "verified-ledger.json").write_text(json.dumps(ledger))
+    validate_uploaded_ledger(
+        pkt_dir,
+        {"inputs": uploads},
+        asdict(c2_control),
+        allowlist_path=allowlist_path,
+    )
+
+    c2_inputs = tmp_path / "c2_inputs"
+    for row in uploads:
+        (c2_inputs / row["dest"]).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(row["path"], c2_inputs / row["dest"])
+    c2_ledger_path = c2_inputs / "verified-ledger.json"
+    c2_ledger_path.write_text(json.dumps(ledger))
+
+    original_materialize = train.materialize_compact_resume
+    original_load_ledger = train.load_ledger
+    monkeypatch.setattr(
+        train,
+        "materialize_compact_resume",
+        lambda payload, root: original_materialize(payload, root, allowlist_path=allowlist_path),
+    )
+    monkeypatch.setattr(
+        train,
+        "load_ledger",
+        lambda path, ctrl, **kw: original_load_ledger(
+            path, ctrl, allowlist_path=allowlist_path, **kw
+        ),
+    )
+    execute(
+        c2_control,
+        tmp_path / "c2_resumed",
+        ledger=c2_ledger_path,
+        input_root=c2_inputs,
+        snapshot_format="compact",
+    )
+    assert list((tmp_path / "c2_resumed").glob("*.pt")) == []
+    resumed_32_info = verify_compact_snapshot_export(tmp_path / "c2_resumed", 32)
+    resumed_final = torch.load(
+        io.BytesIO(
+            decode_to_bytes(
+                tmp_path / "c2_resumed/iteration-0032.pt.xz",
+                expected_size=resumed_32_info["original"]["size"],
+                expected_sha256=resumed_32_info["original"]["sha256"],
+            )
+        ),
+        weights_only=False,
+    )
+    assert torch.equal(raw_final["rng"]["collection"], resumed_final["rng"]["collection"])
+    assert torch.equal(raw_final["rng"]["torch"], resumed_final["rng"]["torch"])
+    assert torch.equal(raw_final["task"]["age"], resumed_final["task"]["age"])

@@ -45,13 +45,19 @@ from research.sandbox_a_resident.training_compact import (
     decode_stream,
     encode_snapshot,
     load_manifest,
+    verify_compact_snapshot_export,
     verify_decoded_state,
 )
 from research.sandbox_a_resident.training_prepare import STUDY, source_paths, write_once
 from research.sandbox_a_resident.training_resume import (
+    ACCOUNT_RELEASE_CAPTURE_SCHEMA,
+    HOST_ENOSPC_FAILURE_CLASS,
+    HOST_ENOSPC_RECOVERY_SCHEMA,
     ResumeRefused,
     build_ledger,
     completion_packet,
+    compute_retained_evidence_inventory,
+    verify_host_enospc_recovery,
     verify_mechanical_stop,
 )
 from research.sandbox_a_resident.training_task import seed_allocations
@@ -59,11 +65,13 @@ from research.sandbox_a_resident.training_units import (
     COMPACT_DERIVATIVE_SUFFIX,
     COMPACT_MANIFEST_SUFFIX,
     COMPACT_RESUME_SCHEMA_V2,
+    NAMESPACE,
     allocation,
     register_compact_allowlist_entry,
     unit_id,
     validate_compact_source_packet,
 )
+from research.sandbox_a_resident.units import publish
 from tools.sandbox import source_delivery
 from tools.sandbox.registry import TRANSPORT_TREE, digest, safe_path
 
@@ -100,6 +108,10 @@ MAX_CONTINUATION_PRIVATE_INPUT_BYTES = 100_000_000
 STAGING_HARD_CAP_SECONDS = 300.0
 STAGING_DESIGN_NOMINAL_SECONDS = 120.0
 STAGING_DESIGN_WORST_SECONDS = 210.0
+DEFAULT_STORAGE_SAFETY_MARGIN_BYTES = 4 * 1024**3
+COMPACT_20_SNAPSHOT_NOMINAL_CEILING_BYTES = 1_000_000_000
+TELEMETRY_AND_LOGS_BUDGET_BYTES = 100 * 1024 * 1024
+TRANSFER_TEMP_FLOOR_BYTES = 256 * 1024 * 1024
 SINGLE_THREAD_ENV = {
     "CUDA_VISIBLE_DEVICES": "",
     "SNAKE_DQN_DEVICE": "cpu",
@@ -271,10 +283,27 @@ def encode_or_verify_compact_snapshot(
     iteration: int,
     source_commit: str,
 ) -> dict[str, Any]:
-    """Create-only encode or re-verify an existing compact periodic snapshot."""
+    """Create-only encode or re-verify a Mac-encoded or compact-at-source snapshot."""
     torch.set_num_threads(1)
     derivative = Path(str(original_pt) + COMPACT_DERIVATIVE_SUFFIX)
     manifest_path = Path(str(original_pt) + COMPACT_MANIFEST_SUFFIX)
+    if original_pt.is_symlink():
+        raise CompactResumeRefused(f"symlinked full-state snapshot: {original_pt}")
+    if not original_pt.exists():
+        for suffix in (".sha256", ".complete"):
+            orphan = Path(f"{original_pt}{suffix}")
+            if orphan.exists() or orphan.is_symlink():
+                raise CompactResumeRefused(
+                    f"orphan raw full-state sidecar on compact-at-source export: {orphan.name}"
+                )
+        verified = verify_compact_snapshot_export(
+            original_pt.parent,
+            iteration,
+            source_packet_id=source_packet_id,
+            source_commit=source_commit,
+            require_actor=True,
+        )
+        return dict(verified["allowlist_entry"])
     if not derivative.exists() and not manifest_path.exists():
         encoded = encode_snapshot(
             original_pt,
@@ -319,6 +348,400 @@ def encode_or_verify_compact_snapshot(
         "manifest": binding["manifest"],
         "source_commit": source_commit,
     }
+
+
+def compute_storage_projection(
+    output_dir: Path,
+    *,
+    remaining_snapshot_count: int,
+    reference_original_pt_bytes: int,
+    reference_derivative_bytes: int,
+    reference_manifest_bytes: int,
+    reference_actor_bytes: int,
+    reference_json_bytes: int,
+    snapshot_format: str = "compact",
+    safety_margin_bytes: int = DEFAULT_STORAGE_SAFETY_MARGIN_BYTES,
+) -> dict[str, Any]:
+    """Fail-closed Mac destination disk-capacity admission check with stated margin."""
+    if snapshot_format not in {"compact", "raw"}:
+        raise ContinuationRefused(f"unsupported snapshot_format: {snapshot_format!r}")
+    if type(remaining_snapshot_count) is not int or remaining_snapshot_count < 1:
+        raise ContinuationRefused("remaining_snapshot_count must be a positive integer")
+    for label, val in (
+        ("reference_original_pt_bytes", reference_original_pt_bytes),
+        ("reference_derivative_bytes", reference_derivative_bytes),
+        ("reference_manifest_bytes", reference_manifest_bytes),
+        ("reference_actor_bytes", reference_actor_bytes),
+        ("reference_json_bytes", reference_json_bytes),
+        ("safety_margin_bytes", safety_margin_bytes),
+    ):
+        if type(val) is not int or val < 0:
+            raise ContinuationRefused(f"{label} must be a nonnegative integer")
+
+    probe = output_dir
+    while not probe.exists():
+        if probe.parent == probe:
+            raise ContinuationRefused(
+                f"cannot locate existing filesystem ancestor for {output_dir}"
+            )
+        probe = probe.parent
+    if probe.is_symlink():
+        raise ContinuationRefused(f"symlinked destination ancestor: {probe}")
+    resolved_ancestor = probe.resolve()
+    usage = shutil.disk_usage(resolved_ancestor)
+    st_dev = os.stat(resolved_ancestor).st_dev
+
+    raw_sidecar_overhead = 3 * 2 * 4096
+    raw_per_snapshot_nominal = (
+        reference_original_pt_bytes
+        + reference_actor_bytes
+        + reference_json_bytes
+        + raw_sidecar_overhead
+    )
+    raw_counterfactual_exports_bytes = remaining_snapshot_count * raw_per_snapshot_nominal
+
+    if snapshot_format == "compact":
+        sidecar_overhead = 4 * 2 * 4096
+        per_snapshot_nominal = (
+            reference_derivative_bytes
+            + reference_manifest_bytes
+            + reference_actor_bytes
+            + reference_json_bytes
+            + sidecar_overhead
+        )
+        per_snapshot_conservative = (
+            int(math.ceil(1.25 * reference_derivative_bytes))
+            + int(math.ceil(1.50 * reference_manifest_bytes))
+            + int(math.ceil(1.05 * reference_actor_bytes))
+            + int(math.ceil(1.50 * reference_json_bytes))
+            + sidecar_overhead
+        )
+        transfer_temp_bytes = max(
+            TRANSFER_TEMP_FLOOR_BYTES,
+            int(math.ceil(1.25 * max(reference_derivative_bytes, reference_actor_bytes))),
+        )
+        mac_verify_decode_temp_bytes = int(math.ceil(1.05 * reference_original_pt_bytes))
+    else:
+        per_snapshot_nominal = raw_per_snapshot_nominal
+        per_snapshot_conservative = (
+            int(math.ceil(1.05 * reference_original_pt_bytes))
+            + int(math.ceil(1.05 * reference_actor_bytes))
+            + int(math.ceil(1.50 * reference_json_bytes))
+            + raw_sidecar_overhead
+        )
+        transfer_temp_bytes = max(
+            TRANSFER_TEMP_FLOOR_BYTES,
+            int(math.ceil(1.10 * reference_original_pt_bytes)),
+        )
+        mac_verify_decode_temp_bytes = 0
+
+    remaining_exports_nominal = remaining_snapshot_count * per_snapshot_nominal
+    remaining_exports_conservative = remaining_snapshot_count * per_snapshot_conservative
+    if (
+        snapshot_format == "compact"
+        and remaining_snapshot_count <= 20
+        and remaining_exports_nominal >= COMPACT_20_SNAPSHOT_NOMINAL_CEILING_BYTES
+    ):
+        raise ContinuationRefused(
+            f"compact periodic exports ({remaining_exports_nominal} B across "
+            f"{remaining_snapshot_count} snapshots) exceed "
+            f"{COMPACT_20_SNAPSHOT_NOMINAL_CEILING_BYTES} B (<1 GB) design ceiling"
+        )
+
+    temp_headroom_bytes = transfer_temp_bytes + mac_verify_decode_temp_bytes
+    required_nominal_bytes = (
+        remaining_exports_nominal + TELEMETRY_AND_LOGS_BUDGET_BYTES + temp_headroom_bytes
+    )
+    required_conservative_bytes = (
+        remaining_exports_conservative + TELEMETRY_AND_LOGS_BUDGET_BYTES + temp_headroom_bytes
+    )
+    required_conservative_with_margin_bytes = required_conservative_bytes + safety_margin_bytes
+    free_bytes = int(usage.free)
+    if free_bytes < required_conservative_with_margin_bytes:
+        raise ContinuationRefused(
+            f"insufficient Mac storage on {resolved_ancestor}: free={free_bytes} B "
+            f"({free_bytes / (1024**3):.2f} GiB) < required_with_margin="
+            f"{required_conservative_with_margin_bytes} B "
+            f"({required_conservative_with_margin_bytes / (1024**3):.2f} GiB; "
+            f"exports={remaining_exports_conservative} B, temp={temp_headroom_bytes} B, "
+            f"logs={TELEMETRY_AND_LOGS_BUDGET_BYTES} B, margin={safety_margin_bytes} B)"
+        )
+    persistent_after_conservative_bytes = free_bytes - (
+        remaining_exports_conservative + TELEMETRY_AND_LOGS_BUDGET_BYTES
+    )
+    free_above_margin_at_temp_peak_bytes = free_bytes - required_conservative_with_margin_bytes
+    reduction_factor = (
+        round(raw_counterfactual_exports_bytes / remaining_exports_nominal, 2)
+        if remaining_exports_nominal > 0
+        else None
+    )
+    return {
+        "schema": "sandbox-a-train01-continuation-mac-storage-projection/v1",
+        "status": "PASS",
+        "snapshot_format": snapshot_format,
+        "destination_output_dir": str(output_dir),
+        "checked_filesystem_ancestor": str(resolved_ancestor),
+        "filesystem_st_dev": int(st_dev),
+        "filesystem_total_bytes": int(usage.total),
+        "filesystem_free_bytes": free_bytes,
+        "filesystem_free_gib": round(free_bytes / (1024**3), 3),
+        "remaining_snapshot_count": remaining_snapshot_count,
+        "reference_snapshot_bytes": {
+            "raw_original_pt": reference_original_pt_bytes,
+            "compact_derivative_pt_xz": reference_derivative_bytes,
+            "compact_manifest": reference_manifest_bytes,
+            "actor_pth": reference_actor_bytes,
+            "envelope_json": reference_json_bytes,
+        },
+        "per_snapshot_nominal_bytes": per_snapshot_nominal,
+        "per_snapshot_conservative_bytes": per_snapshot_conservative,
+        "remaining_exports_nominal_bytes": remaining_exports_nominal,
+        "remaining_exports_nominal_mb": round(remaining_exports_nominal / 1_000_000.0, 2),
+        "remaining_exports_conservative_bytes": remaining_exports_conservative,
+        "remaining_exports_conservative_gib": round(remaining_exports_conservative / (1024**3), 3),
+        "under_1gb_nominal_for_remaining_exports": (
+            remaining_exports_nominal < COMPACT_20_SNAPSHOT_NOMINAL_CEILING_BYTES
+        ),
+        "telemetry_and_logs_bytes": TELEMETRY_AND_LOGS_BUDGET_BYTES,
+        "transfer_temp_headroom_bytes": transfer_temp_bytes,
+        "mac_verify_decode_temp_bytes": mac_verify_decode_temp_bytes,
+        "temp_headroom_bytes": temp_headroom_bytes,
+        "safety_margin_bytes": safety_margin_bytes,
+        "safety_margin_gib": round(safety_margin_bytes / (1024**3), 3),
+        "required_nominal_bytes": required_nominal_bytes,
+        "required_conservative_bytes": required_conservative_bytes,
+        "required_conservative_with_margin_bytes": required_conservative_with_margin_bytes,
+        "required_conservative_with_margin_gib": round(
+            required_conservative_with_margin_bytes / (1024**3), 3
+        ),
+        "persistent_free_after_conservative_run_bytes": persistent_after_conservative_bytes,
+        "persistent_free_after_conservative_run_gib": round(
+            persistent_after_conservative_bytes / (1024**3), 3
+        ),
+        "free_above_safety_margin_at_temp_peak_bytes": free_above_margin_at_temp_peak_bytes,
+        "free_above_safety_margin_at_temp_peak_gib": round(
+            free_above_margin_at_temp_peak_bytes / (1024**3), 3
+        ),
+        "raw_counterfactual_exports_bytes": raw_counterfactual_exports_bytes,
+        "raw_counterfactual_exports_gib": round(raw_counterfactual_exports_bytes / (1024**3), 3),
+        "export_byte_reduction_factor": reduction_factor,
+    }
+
+
+def _discover_default_supervisor_log(
+    job_id: Any, *, output_root: Path, repo_root: Path
+) -> Path | None:
+    if not isinstance(job_id, str) or not job_id:
+        return None
+    candidates = [repo_root.parent / "snake-dqn-artifacts/ops/logs" / f"{job_id}.log"]
+    if len(output_root.parents) >= 3:
+        candidates.insert(0, output_root.parents[2] / "ops/logs" / f"{job_id}.log")
+    for candidate in candidates:
+        if candidate.is_file() and not candidate.is_symlink():
+            return candidate.resolve()
+    return None
+
+
+def build_host_enospc_recovery_certificate(
+    source_attempt: Path,
+    *,
+    account_status_capture_path: Path,
+    certificate_output_path: Path,
+    supervisor_log_path: Path | None = None,
+    state_dir: Path | None = None,
+    account_root: Path | None = None,
+    source_packet: Path | None = None,
+    repo_root: Path = ROOT,
+    now_unix_seconds: float | None = None,
+    max_capture_age_seconds: float | None = 86400.0,
+) -> dict[str, Any]:
+    """Create-only publish and immediately validate a host ENOSPC recovery certificate."""
+    repo_root = safe_path(repo_root).resolve()
+    output_root = _resolve_attempt_output(source_attempt)
+    attempt_root = output_root.parent if output_root.name == "output" else output_root
+    if (output_root / "receipt.json").exists() or (output_root / "receipt.json").is_symlink():
+        raise ContinuationRefused("receipt.json already exists; refusing ENOSPC recovery builder")
+    if (output_root / "terminal.json").exists() or (output_root / "terminal.json").is_symlink():
+        raise ContinuationRefused("terminal.json already exists; refusing ENOSPC recovery builder")
+    executed_manifest_path = output_root / "manifest.json"
+    if executed_manifest_path.is_symlink() or not executed_manifest_path.is_file():
+        raise ContinuationRefused(f"missing executed manifest: {executed_manifest_path}")
+    executed_manifest = json.loads(executed_manifest_path.read_text())
+    source_packet_dir = _resolve_source_packet(
+        executed_manifest, repo_root=repo_root, source_packet_override=source_packet
+    )
+    source_packet_id = source_packet_dir.name
+    source_packet_manifest_path = source_packet_dir / "dispatch-manifest.json"
+    source_control = json.loads((source_packet_dir / "control.json").read_text())
+
+    resolved_state = (attempt_root / "state") if state_dir is None else state_dir.resolve()
+    assignment_path = resolved_state / "assignment.json"
+    if (
+        state_dir is None
+        and not assignment_path.exists()
+        and isinstance(executed_manifest.get("job_id"), str)
+    ):
+        lane_assignment = resolved_state / executed_manifest["job_id"] / "assignment.json"
+        if lane_assignment.is_file() and not lane_assignment.is_symlink():
+            assignment_path = lane_assignment
+    if assignment_path.is_symlink() or not assignment_path.is_file():
+        raise ContinuationRefused(f"missing assignment.json: {assignment_path}")
+    assignment = json.loads(assignment_path.read_text())
+
+    resolved_sup_log = (
+        _discover_default_supervisor_log(
+            executed_manifest.get("job_id"), output_root=output_root, repo_root=repo_root
+        )
+        if supervisor_log_path is None
+        else supervisor_log_path.resolve()
+    )
+    if resolved_sup_log is None or not resolved_sup_log.is_file() or resolved_sup_log.is_symlink():
+        raise ContinuationRefused("host ENOSPC recovery certificate requires supervisor_log_path")
+    raw_lines = resolved_sup_log.read_text().splitlines()
+    nonempty = [line.strip() for line in raw_lines if line.strip()]
+    if len(nonempty) < 3:
+        raise ContinuationRefused("supervisor_log lacks poll history and terminal ENOSPC lines")
+
+    safe_path(account_status_capture_path)
+    resolved_capture = account_status_capture_path.resolve()
+    cap_size, cap_sha = _complete_sidecars(resolved_capture)
+    capture_payload = json.loads(resolved_capture.read_text())
+    if capture_payload.get("schema") != ACCOUNT_RELEASE_CAPTURE_SCHEMA:
+        raise ContinuationRefused("account_status_capture_path has wrong schema")
+
+    resolved_account_root = (
+        (Path.home() / ".config/colab-cli/snake").resolve()
+        if account_root is None
+        else account_root.resolve()
+    )
+    session = str(assignment["session"])
+    endpoint = str(assignment["endpoint"])
+    active_file = resolved_account_root / f"active-{session}.json"
+    if active_file.is_file() and not active_file.is_symlink():
+        python_cmd = os.path.abspath(sys.executable)
+        broker_reconciliation: dict[str, Any] = {
+            "mode": "verified_disappearance_with_bound_stale_active",
+            "account_root": str(resolved_account_root),
+            "stale_active_record": {
+                "path": str(active_file.resolve()),
+                "size": active_file.stat().st_size,
+                "sha256": digest(active_file),
+            },
+            "operator_reconcile_command": (
+                f"{python_cmd} -m research.colab_cli.supervisor recover {active_file.resolve()}"
+            ),
+        }
+    else:
+        recover_candidates = [
+            item
+            for item in sorted(output_root.glob("recovery-*.json"))
+            if item.is_file() and not item.is_symlink()
+        ]
+        matched_rec: Path | None = None
+        for rec_item in recover_candidates:
+            rec_obj = json.loads(rec_item.read_text())
+            if rec_obj.get("endpoint") == endpoint and rec_obj.get("stop_verified") is True:
+                matched_rec = rec_item.resolve()
+                break
+        if matched_rec is None:
+            raise ContinuationRefused(
+                "neither bound stale active record nor verified recovery-*.json found"
+            )
+        broker_reconciliation = {
+            "mode": "qualified_recover_receipt",
+            "account_root": str(resolved_account_root),
+            "recover_receipt": {
+                "path": str(matched_rec),
+                "size": matched_rec.stat().st_size,
+                "sha256": digest(matched_rec),
+            },
+        }
+
+    retained = compute_retained_evidence_inventory(output_root)
+    verified_ledger, _uploads, latest = build_ledger(
+        output_root / "exports/training", source_control
+    )
+    latest_export = verified_ledger["units"][-1]["exports"][0]
+
+    certificate = {
+        "schema": HOST_ENOSPC_RECOVERY_SCHEMA,
+        "original_attempt_state": {
+            "prior_attempt_status": "INCOMPLETE",
+            "failure_class": HOST_ENOSPC_FAILURE_CLASS,
+            "original_receipt_present": False,
+            "original_terminal_status": "UNKNOWN_UNAVAILABLE",
+            "original_supervisor_error": "UNKNOWN_UNAVAILABLE",
+            "original_cleanup_error": "UNKNOWN_UNAVAILABLE",
+            "post_hoc_release_verified": True,
+        },
+        "identities": {
+            "study": source_control["study"],
+            "namespace": NAMESPACE,
+            "job_id": executed_manifest["job_id"],
+            "source_packet_id": source_packet_id,
+            "source_packet_manifest_sha256": digest(source_packet_manifest_path),
+            "executed_manifest_sha256": digest(executed_manifest_path),
+            "source_commit": executed_manifest["commit"],
+            "control_allocation": allocation(source_control),
+            "output_dir": str(output_root.resolve()),
+            "generation": assignment["generation"],
+            "endpoint": endpoint,
+            "session": session,
+            "assignment_record": {
+                "path": str(assignment_path.resolve()),
+                "size": assignment_path.stat().st_size,
+                "sha256": digest(assignment_path),
+            },
+        },
+        "supervisor_log": {
+            "path": str(resolved_sup_log),
+            "size": resolved_sup_log.stat().st_size,
+            "sha256": digest(resolved_sup_log),
+            "line_count": len(raw_lines),
+            "terminal_enospc_line": nonempty[-2],
+            "terminal_exit_line": nonempty[-1],
+        },
+        "retained_evidence": retained,
+        "release_evidence": {
+            "account_status_capture": {
+                "path": str(resolved_capture),
+                "size": cap_size,
+                "sha256": cap_sha,
+                "captured_at_utc": capture_payload.get("captured_at_utc"),
+                "captured_unix_seconds": capture_payload.get("captured_unix_seconds"),
+            },
+            "broker_reconciliation": broker_reconciliation,
+        },
+        "resume_binding": {
+            "verified_snapshot_iterations": [
+                int(row["iteration"]) for row in verified_ledger["units"]
+            ],
+            "latest_eligible_iteration": latest,
+            "latest_eligible_unit": unit_id(latest),
+            "latest_full_state_size": latest_export["size"],
+            "latest_full_state_sha256": latest_export["sha256"],
+        },
+    }
+    safe_path(certificate_output_path)
+    certificate_output_path.parent.mkdir(parents=True, exist_ok=True)
+    publish(
+        certificate_output_path,
+        lambda dst: dst.write_text(json.dumps(certificate, indent=2, sort_keys=True) + "\n"),
+    )
+    try:
+        return verify_host_enospc_recovery(
+            certificate_output_path,
+            executed_manifest,
+            digest(executed_manifest_path),
+            output_root=output_root,
+            source_control=source_control,
+            source_packet_id=source_packet_id,
+            source_packet_manifest_sha256=digest(source_packet_manifest_path),
+            now_unix_seconds=now_unix_seconds,
+            max_capture_age_seconds=max_capture_age_seconds,
+        )
+    except ResumeRefused as error:
+        raise ContinuationRefused(str(error)) from error
 
 
 def compute_remaining_envelope(
@@ -683,6 +1106,9 @@ def build_continuation_packet(
     artifacts_root: Path | None = None,
     skip_dry_run: bool = False,
     launch_runs: int = 3,
+    recovery_evidence: Path | None = None,
+    supervisor_log: Path | None = None,
+    safety_margin_bytes: int = DEFAULT_STORAGE_SAFETY_MARGIN_BYTES,
 ) -> dict[str, Any]:
     """Seal a fresh TRAIN-01 continuation packet in detached worktrees; never dispatch."""
     if type(launch_runs) is not int or launch_runs < 1:
@@ -695,16 +1121,17 @@ def build_continuation_packet(
     executed_manifest_path = output_root / "manifest.json"
     receipt_path = output_root / "receipt.json"
     export_root = output_root / "exports/training"
-    for required in (executed_manifest_path, receipt_path):
-        safe_path(required)
-        if required.is_symlink() or not required.is_file():
-            raise ContinuationRefused(f"missing or symlinked source attempt evidence: {required}")
+    safe_path(executed_manifest_path)
+    safe_path(receipt_path)
+    if executed_manifest_path.is_symlink() or not executed_manifest_path.is_file():
+        raise ContinuationRefused(
+            f"missing or symlinked source attempt evidence: {executed_manifest_path}"
+        )
     safe_path(export_root)
     if export_root.is_symlink() or not export_root.is_dir():
         raise ContinuationRefused(f"missing or symlinked training export directory: {export_root}")
 
     executed_manifest = json.loads(executed_manifest_path.read_text())
-    receipt = json.loads(receipt_path.read_text())
     source_packet_dir = _resolve_source_packet(
         executed_manifest, repo_root=repo_root, source_packet_override=source_packet
     )
@@ -714,26 +1141,68 @@ def build_continuation_packet(
     except ValueError as error:
         raise ContinuationRefused(str(error)) from error
 
-    frozen_source_manifest = json.loads((source_packet_dir / "dispatch-manifest.json").read_text())
+    frozen_source_manifest_path = source_packet_dir / "dispatch-manifest.json"
+    frozen_source_manifest = json.loads(frozen_source_manifest_path.read_text())
     for key in WORKLOAD_MANIFEST_KEYS:
         if executed_manifest.get(key) != frozen_source_manifest.get(key):
             raise ContinuationRefused(f"executed manifest differs from frozen source packet: {key}")
-    try:
-        verify_mechanical_stop(
-            receipt,
-            executed_manifest,
-            digest(executed_manifest_path),
-            output_root=output_root,
+
+    source_control = json.loads((source_packet_dir / "control.json").read_text())
+    resolved_sup_log: Path | None = None
+    if supervisor_log is not None:
+        safe_path(supervisor_log)
+        resolved_sup_log = supervisor_log.resolve()
+        safe_path(resolved_sup_log)
+    else:
+        resolved_sup_log = _discover_default_supervisor_log(
+            executed_manifest.get("job_id"), output_root=output_root, repo_root=repo_root
         )
-    except ResumeRefused as error:
-        raise ContinuationRefused(str(error)) from error
+
+    receipt: dict[str, Any] | None = None
+    resolved_recovery: Path | None = None
+    recovery_summary: dict[str, Any] | None = None
+    if recovery_evidence is None:
+        if receipt_path.is_symlink() or not receipt_path.is_file():
+            raise ContinuationRefused(
+                f"missing or symlinked source attempt evidence: {receipt_path}"
+            )
+        receipt = json.loads(receipt_path.read_text())
+        try:
+            verify_mechanical_stop(
+                receipt,
+                executed_manifest,
+                digest(executed_manifest_path),
+                output_root=output_root,
+                supervisor_log_path=resolved_sup_log,
+            )
+        except ResumeRefused as error:
+            raise ContinuationRefused(str(error)) from error
+    else:
+        safe_path(recovery_evidence)
+        resolved_recovery = recovery_evidence.resolve()
+        safe_path(resolved_recovery)
+        if receipt_path.exists() or receipt_path.is_symlink():
+            raise ContinuationRefused(
+                "receipt.json exists in source attempt; refusing narrow host ENOSPC recovery path"
+            )
+        try:
+            recovery_summary = verify_host_enospc_recovery(
+                resolved_recovery,
+                executed_manifest,
+                digest(executed_manifest_path),
+                output_root=output_root,
+                source_control=source_control,
+                source_packet_id=source_packet_id,
+                source_packet_manifest_sha256=digest(frozen_source_manifest_path),
+            )
+        except ResumeRefused as error:
+            raise ContinuationRefused(str(error)) from error
 
     previous_index = frozen_source_manifest.get("completion_attempt", {}).get("index", 0)
     completion_index = previous_index + 1
     if completion_index not in (1, 2):
         raise ContinuationRefused("only two manual outcome-blind completion attempts are permitted")
 
-    source_control = json.loads((source_packet_dir / "control.json").read_text())
     try:
         _source_ledger, _source_uploads, latest = build_ledger(export_root, source_control)
     except ResumeRefused as error:
@@ -747,7 +1216,9 @@ def build_continuation_packet(
             f"({latest}); outcome-blind continuation must resume the latest snapshot"
         )
 
-    snapshot_info = json.loads((export_root / f"iteration-{iteration:04d}.json").read_text())
+    snapshot_json_path = export_root / f"iteration-{iteration:04d}.json"
+    snapshot_actor_path = export_root / f"iteration-{iteration:04d}-actor.pth"
+    snapshot_info = json.loads(snapshot_json_path.read_text())
     snapshot_meta = snapshot_info.get("metadata", {})
     deferred_proxy = snapshot_meta.get("deferred_proxy") is not None
     needs_baseline_proxy = iteration == 0 and snapshot_meta.get("prepare_phase") not in {
@@ -800,6 +1271,25 @@ def build_continuation_packet(
     except (CompactResumeRefused, FileExistsError) as error:
         raise ContinuationRefused(str(error)) from error
 
+    envelope = compute_remaining_envelope(
+        iteration,
+        outer_iterations=outer_iterations,
+        snapshot_interval=int(source_control["snapshot_interval"]),
+        deferred_proxy=deferred_proxy,
+        needs_baseline_proxy=needs_baseline_proxy,
+    )
+    storage_projection = compute_storage_projection(
+        output_dir,
+        remaining_snapshot_count=int(envelope["remaining_snapshot_count"]),
+        reference_original_pt_bytes=int(allowlist_entry["original"]["size"]),
+        reference_derivative_bytes=int(allowlist_entry["derivative"]["size"]),
+        reference_manifest_bytes=int(allowlist_entry["manifest"]["size"]),
+        reference_actor_bytes=snapshot_actor_path.stat().st_size,
+        reference_json_bytes=snapshot_json_path.stat().st_size,
+        snapshot_format="compact",
+        safety_margin_bytes=safety_margin_bytes,
+    )
+
     _git(repo_root, "worktree", "add", "--detach", str(runtime_checkout), "HEAD")
     _ensure_git_identity(runtime_checkout, repo_root)
     runtime_allowlist = runtime_checkout / "research/sandbox_a_resident/compact_allowlist.json"
@@ -831,14 +1321,6 @@ def build_continuation_packet(
     allocations = seed_allocations(successor_control)
     if allocations != seed_allocations(source_control):
         raise ContinuationRefused("successor seed/proxy bank allocations changed")
-
-    envelope = compute_remaining_envelope(
-        iteration,
-        outer_iterations=outer_iterations,
-        snapshot_interval=int(successor_control["snapshot_interval"]),
-        deferred_proxy=deferred_proxy,
-        needs_baseline_proxy=needs_baseline_proxy,
-    )
 
     broker_registry = (broker_checkout / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json").resolve()
     registry_check = json.loads((source_packet_dir / "registry-check.json").read_text())
@@ -902,27 +1384,43 @@ def build_continuation_packet(
         }
     )
 
-    resume_packet = completion_packet(
-        executed_manifest,
-        receipt,
-        export_root,
-        source_control,
-        completion_index=completion_index,
-        job_id=resolved_job_id,
-        output_dir=output_dir,
-        original_manifest_sha256=digest(executed_manifest_path),
-        successor_manifest=successor_template,
-        successor_control=successor_control,
-        compact_source_packet_id=source_packet_id,
-        allowlist_path=runtime_allowlist,
-        output_root=output_root,
-    )
+    try:
+        resume_packet = completion_packet(
+            executed_manifest,
+            receipt,
+            export_root,
+            source_control,
+            completion_index=completion_index,
+            job_id=resolved_job_id,
+            output_dir=output_dir,
+            original_manifest_sha256=digest(executed_manifest_path),
+            successor_manifest=successor_template,
+            successor_control=successor_control,
+            compact_source_packet_id=source_packet_id,
+            allowlist_path=runtime_allowlist,
+            output_root=output_root,
+            supervisor_log_path=resolved_sup_log,
+            recovery_evidence_path=resolved_recovery,
+            source_packet_id=source_packet_id,
+            source_packet_manifest_sha256=digest(frozen_source_manifest_path),
+        )
+    except ResumeRefused as error:
+        raise ContinuationRefused(str(error)) from error
 
     packet_dir = broker_checkout / "research/sandbox_a_resident" / packet_name
     packet_dir.mkdir(parents=True, exist_ok=False)
     write_once(packet_dir / "control.json", successor_control)
     write_once(packet_dir / "registry-check.json", registry_check)
     write_once(packet_dir / "verified-ledger.json", resume_packet.ledger)
+    committed_recovery_sha256: str | None = None
+    if resolved_recovery is not None:
+        packet_recovery_file = packet_dir / "recovery-evidence.json"
+        with packet_recovery_file.open("xb") as stream:
+            stream.write(resolved_recovery.read_bytes())
+        committed_recovery_sha256 = digest(packet_recovery_file)
+        assert recovery_summary is not None
+        if committed_recovery_sha256 != recovery_summary["certificate_sha256"]:
+            raise ContinuationRefused("recovery-evidence.json digest drifted during copy")
 
     broker_manifest = resume_packet.manifest
     broker_manifest["inputs"].append(
@@ -1033,6 +1531,20 @@ def build_continuation_packet(
             f"{staging_projection['fraction_of_300s_cap_worst'] * 100:.1f}% of 300 s cap)."
         ),
         (
+            f"Mac destination storage projection (compact-at-source periodic exports): "
+            f"{storage_projection['remaining_snapshot_count']} remaining snapshots = "
+            f"{storage_projection['remaining_exports_nominal_bytes']} B "
+            f"({storage_projection['remaining_exports_nominal_mb']:.2f} MB < 1 GB; "
+            f"{storage_projection['remaining_exports_conservative_gib']:.3f} GiB conservative; "
+            f"{storage_projection['export_byte_reduction_factor']}x smaller than "
+            f"{storage_projection['raw_counterfactual_exports_gib']:.2f} GiB raw); "
+            f"required with temp+logs+{storage_projection['safety_margin_gib']:.1f} GiB margin = "
+            f"{storage_projection['required_conservative_with_margin_gib']:.3f} GiB vs "
+            f"{storage_projection['filesystem_free_gib']:.3f} GiB free "
+            f"(+{storage_projection['free_above_safety_margin_at_temp_peak_gib']:.3f} GiB above "
+            f"safety margin)."
+        ),
+        (
             f"Remaining A100 wall-time projection: {envelope['nominal_hours']:.2f} h nominal "
             f"({envelope['conservative_base_hours']:.2f} h conservative) -> "
             f"est_minutes={envelope['est_minutes']} / "
@@ -1040,12 +1552,35 @@ def build_continuation_packet(
             f"(2x guard), unit_cap={envelope['unit_cap']} u; progress <=60 s; "
             f"faulthandler stall watchdog 900 s (exit 1); SIGUSR1 <15 s path active."
         ),
-        "",
-        "Exact operator dispatch (from any shell):",
-        dispatch_command,
-        "",
-        "Dry-run: append --dry-run. Preserve detached checkouts and prior evidence.",
     ]
+    if recovery_summary is not None:
+        dispatch_lines.append(
+            f"Prior attempt stop evidence: host ENOSPC recovery certificate "
+            f"({recovery_summary['certificate_sha256'][:16]}...; prior status=INCOMPLETE, "
+            f"original receipt absent as-is, post-hoc release verified: sessions empty, "
+            f"assignments=0, rate=0.0, {recovery_summary['polls_scanned']} retained polls + "
+            f"full supervisor log scanned with 0 scientific-failure hits)."
+        )
+        if recovery_summary.get("stale_active_present_now") and recovery_summary.get(
+            "operator_reconcile_command"
+        ):
+            dispatch_lines.extend(
+                [
+                    "",
+                    "Pre-dispatch stale broker record reconciliation (run once before live "
+                    "dispatch):",
+                    str(recovery_summary["operator_reconcile_command"]),
+                ]
+            )
+    dispatch_lines.extend(
+        [
+            "",
+            "Exact operator dispatch (from any shell):",
+            dispatch_command,
+            "",
+            "Dry-run: append --dry-run. Preserve detached checkouts and prior evidence.",
+        ]
+    )
     with (packet_dir / "DISPATCH.txt").open("x") as stream:
         stream.write("\n".join(dispatch_lines) + "\n")
 
@@ -1053,7 +1588,39 @@ def build_continuation_packet(
         rel_path: hashlib.sha256((runtime_checkout / rel_path).read_bytes()).hexdigest()
         for rel_path in broker_manifest["source_paths"]
     }
-    seal = {
+    if receipt is not None:
+        prior_stop_kind = "supervisor_receipt"
+        prior_receipt_present = True
+        prior_receipt_sha256: str | None = digest(receipt_path)
+        prior_failure_class = receipt.get("failure_class")
+        prior_release_proof: dict[str, Any] = {
+            "kind": "supervisor_receipt",
+            "original_receipt_present": True,
+            "stop_verified": receipt.get("stop_verified"),
+            "cleanup_error": receipt.get("cleanup_error"),
+        }
+    else:
+        assert recovery_summary is not None and resolved_recovery is not None
+        prior_stop_kind = "host_enospc_recovery_certificate"
+        prior_receipt_present = False
+        prior_receipt_sha256 = None
+        prior_failure_class = HOST_ENOSPC_FAILURE_CLASS
+        prior_release_proof = {
+            "kind": "post_hoc_host_enospc_recovery",
+            "prior_attempt_status": "INCOMPLETE",
+            "original_receipt_present": False,
+            "original_terminal_status": "UNKNOWN_UNAVAILABLE",
+            "original_supervisor_error": "UNKNOWN_UNAVAILABLE",
+            "original_cleanup_error": "UNKNOWN_UNAVAILABLE",
+            "post_hoc_release_verified": True,
+            "account_status_capture_sha256": recovery_summary["account_status_capture_sha256"],
+            "captured_at_utc": recovery_summary["captured_at_utc"],
+            "broker_reconciliation_mode": recovery_summary["broker_reconciliation_mode"],
+            "supervisor_log_sha256": recovery_summary["supervisor_log_sha256"],
+            "polls_scanned": recovery_summary["polls_scanned"],
+            "polls_sha256": recovery_summary["polls_sha256"],
+        }
+    seal: dict[str, Any] = {
         "schema": "sandbox-a-train01-continuation-seal/v1",
         "prepared_not_dispatched": True,
         "dispatch_identity": resolved_job_id,
@@ -1061,12 +1628,23 @@ def build_continuation_packet(
         "prior_packet": source_packet_id,
         "prior_job_id": executed_manifest["job_id"],
         "prior_executed_manifest_sha256": digest(executed_manifest_path),
-        "prior_receipt_sha256": digest(receipt_path),
-        "prior_failure_class": receipt.get("failure_class"),
+        "prior_stop_evidence_kind": prior_stop_kind,
+        "prior_receipt_present": prior_receipt_present,
+        "prior_receipt_sha256": prior_receipt_sha256,
+        "prior_failure_class": prior_failure_class,
+        "prior_recovery_evidence_schema": (
+            HOST_ENOSPC_RECOVERY_SCHEMA if recovery_summary is not None else None
+        ),
+        "prior_recovery_evidence_source_path": (
+            str(resolved_recovery) if resolved_recovery is not None else None
+        ),
+        "prior_recovery_evidence_sha256": committed_recovery_sha256,
+        "prior_release_proof": prior_release_proof,
         "completion_attempt_index": completion_index,
         "resume_from_iteration": iteration,
         "remaining_updates": envelope["remaining_updates"],
         "scheduled_proxy_updates": envelope["scheduled_proxy_updates"],
+        "periodic_export_format": "compact",
         "compact_allowlist_entry": allowlist_entry,
         "runtime_checkout": str(runtime_checkout),
         "runtime_pin": runtime_pin,
@@ -1076,6 +1654,7 @@ def build_continuation_packet(
         "local_launch_bound_seconds": 2,
         "launch_exec_bound": launch_bound,
         "upload_staging_projection": staging_projection,
+        "mac_storage_projection": storage_projection,
         "remaining_wall_time_projection": envelope,
         "est_minutes": envelope["est_minutes"],
         "timeout_minutes": envelope["timeout_minutes"],
@@ -1147,6 +1726,9 @@ def build_continuation_packet(
         "allocations": 0,
         "source_packet_id": source_packet_id,
         "source_job_id": executed_manifest["job_id"],
+        "prior_stop_evidence_kind": prior_stop_kind,
+        "prior_receipt_present": prior_receipt_present,
+        "prior_recovery_evidence_sha256": committed_recovery_sha256,
         "resume_from_iteration": iteration,
         "completion_attempt_index": completion_index,
         "packet_name": packet_name,
@@ -1161,9 +1743,11 @@ def build_continuation_packet(
         "output_dir": str(output_dir),
         "state_exists": state_dir.exists(),
         "output_exists": output_dir.exists(),
+        "periodic_export_format": "compact",
         "compact_allowlist_entry": allowlist_entry,
         "launch_exec_bound": launch_bound,
         "upload_staging_projection": staging_projection,
+        "mac_storage_projection": storage_projection,
         "remaining_envelope": envelope,
         "packet_validation": validation_output,
         "dry_run_output": dry_run_output,
@@ -1191,6 +1775,16 @@ def main(argv: list[str] | None = None) -> int:
         help="optional override for frozen source packet directory",
     )
     parser.add_argument(
+        "--recovery-evidence",
+        type=Path,
+        help="explicit create-only host ENOSPC recovery certificate for a receipt-less attempt",
+    )
+    parser.add_argument(
+        "--supervisor-log",
+        type=Path,
+        help="optional explicit supervisor log file for full retained fault-history scan",
+    )
+    parser.add_argument(
         "--slug",
         help="optional successor slug (default: train01-<15|16|17>-c<1|2>-i<NNNN>)",
     )
@@ -1216,6 +1810,8 @@ def main(argv: list[str] | None = None) -> int:
         checkout_parent=args.checkout_parent,
         artifacts_root=args.artifacts_root,
         skip_dry_run=args.skip_dry_run,
+        recovery_evidence=args.recovery_evidence,
+        supervisor_log=args.supervisor_log,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

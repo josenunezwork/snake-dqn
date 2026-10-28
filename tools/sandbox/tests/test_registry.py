@@ -189,3 +189,55 @@ def test_training_export_derivatives_require_completion_sidecars_and_original(tm
         validate_input(manifest)
     with pytest.raises(ValueError, match="input hash mismatch"):
         validate_input({**manifest, "sha256": "1" * 64})
+
+
+def test_training_export_derivatives_admit_compact_at_source_quadruple(tmp_path):
+    def publish_file(name: str, body: bytes) -> tuple[Path, str]:
+        path = tmp_path / name
+        path.write_bytes(body)
+        sha = hashlib.sha256(body).hexdigest()
+        Path(f"{path}.sha256").write_text(sha + "\n")
+        Path(f"{path}.complete").write_text("complete\n")
+        return path, sha
+
+    xz_path, xz_sha = publish_file("iteration-0080.pt.xz", b"compact-source-xz")
+    man_path, man_sha = publish_file("iteration-0080.pt.xz.manifest", b'{"tensors":[]}')
+    publish_file("iteration-0080-actor.pth", b"actor-0080")
+    meta_body = json.dumps(
+        {
+            "iteration": 80,
+            "compact_snapshot": {
+                "schema": "sandbox-a-train-compact-export/v1",
+                "derivative": {"name": "iteration-0080.pt.xz", "sha256": xz_sha},
+                "manifest": {"name": "iteration-0080.pt.xz.manifest", "sha256": man_sha},
+            },
+        }
+    ).encode()
+    meta_path, _ = publish_file("iteration-0080.json", meta_body)
+
+    xz_rec = {"kind": "training-export-derivative", "path": str(xz_path), "sha256": xz_sha}
+    man_rec = {"kind": "training-export-derivative", "path": str(man_path), "sha256": man_sha}
+    validate_input(xz_rec)
+    validate_input(man_rec)
+
+    # Tampered compact_snapshot digest inside .json fails closed even after updating .json.sha256.
+    bad_meta = json.dumps(
+        {
+            "iteration": 80,
+            "compact_snapshot": {
+                "schema": "sandbox-a-train-compact-export/v1",
+                "derivative": {"name": "iteration-0080.pt.xz", "sha256": "f" * 64},
+                "manifest": {"name": "iteration-0080.pt.xz.manifest", "sha256": man_sha},
+            },
+        }
+    ).encode()
+    publish_file("iteration-0080.json", bad_meta)
+    with pytest.raises(ValueError, match="completion sidecars or its original"):
+        validate_input(xz_rec)
+    publish_file("iteration-0080.json", meta_body)
+    validate_input(xz_rec)
+
+    # Missing -actor.pth sidecar also fails closed.
+    (tmp_path / "iteration-0080-actor.pth.complete").unlink()
+    with pytest.raises(ValueError, match="completion sidecars or its original"):
+        validate_input(man_rec)

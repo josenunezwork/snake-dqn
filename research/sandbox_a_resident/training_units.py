@@ -38,6 +38,7 @@ ALLOWED_MIGRATION_SOURCE_COMMITS = frozenset(
 COMPACT_RESUME_FIELD = "compact_resume"
 COMPACT_RESUME_SCHEMA = "sandbox-a-train-compact-resume/v1"
 COMPACT_RESUME_SCHEMA_V2 = "sandbox-a-train-compact-resume/v2"
+COMPACT_SNAPSHOT_EXPORT_SCHEMA = "sandbox-a-train-compact-export/v1"
 COMPACT_ALLOWLIST_SCHEMA = "sandbox-a-train-compact-allowlist/v2"
 COMPACT_ALLOWLIST_PATH = Path(__file__).resolve().with_name("compact_allowlist.json")
 COMPACT_DERIVATIVE_SUFFIX = ".xz"

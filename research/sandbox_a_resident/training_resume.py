@@ -8,7 +8,11 @@ envelope that says which completed full-state snapshot a payload belongs to.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
+import math
+import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -20,6 +24,7 @@ from research.sandbox_a_resident.training_units import (
     COMPACT_RESUME_FIELD,
     COMPACT_RESUME_SCHEMA,
     COMPACT_RESUME_SCHEMA_V2,
+    COMPACT_SNAPSHOT_EXPORT_SCHEMA,
     NAMESPACE,
     allocation,
     load_compact_allowlist,
@@ -32,6 +37,22 @@ from research.sandbox_a_resident.units import digest
 
 LEDGER_SCHEMA = "sandbox-a-train-ledger/v1"
 SNAPSHOT_SCHEMA = "sandbox-a-train-snapshot/v1"
+HOST_ENOSPC_RECOVERY_SCHEMA = "sandbox-a-train01-host-enospc-recovery/v1"
+ACCOUNT_RELEASE_CAPTURE_SCHEMA = "sandbox-a-colab-account-release-capture/v1"
+HOST_ENOSPC_FAILURE_CLASS = "HOST_SUPERVISOR_RECEIPT_WRITE_ENOSPC"
+ENOSPC_RECEIPT_LINE_RE = re.compile(
+    r"^\[Errno 28\] No space left on device: '(.+)/\.receipt-[A-Za-z0-9._-]+'$"
+)
+TRACKED_OPTIONAL_OUTPUT_FILES = (
+    "rate-calibration.json",
+    "accounting-baseline.json",
+    "exports/training/progress.json",
+    "exports/training/summary.json",
+    "exports/training/distribution-screen.json",
+    "exports/training/calibrated-boundary.json",
+    "exports/training/stall-watchdog/stall-watchdog.json",
+    "exports/training/stall-watchdog/faulthandler-stacks.log",
+)
 RUNTIME_ROOT = "resume"
 MECHANICAL_TERMINAL_REASONS = frozenset({"timeout", "lease_expired", "release_credential_expiring"})
 MECHANICAL_SUPERVISOR_ERROR_MARKERS = (
@@ -196,7 +217,104 @@ def _snapshot_row(
     stem = f"iteration-{iteration:04d}"
     if info_path.name != f"{stem}.json":
         raise ResumeRefused(f"noncanonical snapshot filename: {info_path.name}")
-    paths = [root / f"{stem}.pt", info_path, root / f"{stem}-actor.pth"]
+    raw_pt = root / f"{stem}.pt"
+    actor_path = root / f"{stem}-actor.pth"
+    derivative_path = root / f"{stem}.pt{COMPACT_DERIVATIVE_SUFFIX}"
+    manifest_path = root / f"{stem}.pt{COMPACT_MANIFEST_SUFFIX}"
+    paths = [raw_pt, info_path, actor_path]
+    if not raw_pt.exists() and not raw_pt.is_symlink():
+        if Path(f"{raw_pt}.sha256").exists() or Path(f"{raw_pt}.complete").exists():
+            raise ResumeRefused(f"orphan sidecar without raw snapshot: {raw_pt.name}")
+        compact_paths = [derivative_path, manifest_path, info_path, actor_path]
+        if not all(_complete(path) for path in compact_paths):
+            return None
+        deriv_desc = _descriptor(
+            derivative_path, runtime_path=f"{RUNTIME_ROOT}/{derivative_path.name}"
+        )
+        manifest_desc = _descriptor(
+            manifest_path, runtime_path=f"{RUNTIME_ROOT}/{manifest_path.name}"
+        )
+        info_desc = _descriptor(info_path, runtime_path=f"{RUNTIME_ROOT}/{info_path.name}")
+        actor_desc = _descriptor(actor_path, runtime_path=f"{RUNTIME_ROOT}/{actor_path.name}")
+        if not _phase_is_resumable(info["metadata"]):
+            raise _NonResumableSnapshot(
+                f"snapshot phase is not a safe continuation: {info_path.name}"
+            )
+        snapshot = info.get("snapshot")
+        orig_sha = snapshot.get("sha256") if isinstance(snapshot, dict) else None
+        if (
+            not isinstance(snapshot, dict)
+            or snapshot.get("id") != identity
+            or type(snapshot.get("size")) is not int
+            or snapshot["size"] < 1
+            or not isinstance(orig_sha, str)
+            or len(orig_sha) != 64
+            or any(char not in "0123456789abcdef" for char in orig_sha)
+        ):
+            raise ResumeRefused(f"metadata does not bind full state: {info_path.name}")
+        compact_info = info.get("compact_snapshot")
+        if (
+            not isinstance(compact_info, dict)
+            or compact_info.get("schema") != COMPACT_SNAPSHOT_EXPORT_SCHEMA
+            or compact_info.get("original")
+            != {"name": raw_pt.name, "size": snapshot["size"], "sha256": orig_sha}
+            or compact_info.get("derivative")
+            != {
+                "name": derivative_path.name,
+                "size": deriv_desc["size"],
+                "sha256": deriv_desc["sha256"],
+            }
+            or compact_info.get("manifest")
+            != {
+                "name": manifest_path.name,
+                "size": manifest_desc["size"],
+                "sha256": manifest_desc["sha256"],
+            }
+        ):
+            raise ResumeRefused(f"compact snapshot metadata/descriptor mismatch: {info_path.name}")
+        descriptors = [
+            {
+                "path": f"{RUNTIME_ROOT}/{raw_pt.name}",
+                "size": snapshot["size"],
+                "sha256": orig_sha,
+            },
+            info_desc,
+            actor_desc,
+        ]
+        uploads: list[dict[str, str]] = [
+            {
+                "path": str(derivative_path.resolve()),
+                "dest": deriv_desc["path"],
+                "sha256": deriv_desc["sha256"],
+            },
+            {
+                "path": str(manifest_path.resolve()),
+                "dest": manifest_desc["path"],
+                "sha256": manifest_desc["sha256"],
+            },
+        ]
+        for path, descriptor in ((info_path, info_desc), (actor_path, actor_desc)):
+            destination = descriptor["path"]
+            uploads.extend(
+                [
+                    {
+                        "path": str(path.resolve()),
+                        "dest": destination,
+                        "sha256": descriptor["sha256"],
+                    },
+                    {
+                        "path": str(Path(str(path) + ".sha256").resolve()),
+                        "dest": destination + ".sha256",
+                        "sha256": digest(Path(str(path) + ".sha256")),
+                    },
+                    {
+                        "path": str(Path(str(path) + ".complete").resolve()),
+                        "dest": destination + ".complete",
+                        "sha256": digest(Path(str(path) + ".complete")),
+                    },
+                ]
+            )
+        return iteration, {"id": identity, "iteration": iteration, "exports": descriptors}, uploads
     # A completed envelope may be visible while its other completion-last
     # exports are still arriving.  It is not a ledger unit until the whole trio
     # exists; do not parse or decode the missing members.
@@ -219,7 +337,7 @@ def _snapshot_row(
         or snapshot.get("sha256") != descriptors[0]["sha256"]
     ):
         raise ResumeRefused(f"metadata/state descriptor mismatch: {info_path.name}")
-    uploads: list[dict[str, str]] = []
+    uploads = []
     for path, destination, descriptor in zip(paths, runtime, descriptors):
         # The runtime repeats ``load_ledger`` validation after upload, so both
         # completion sidecars are inputs too.  They are independently hash-bound
@@ -399,11 +517,53 @@ def attach_compact_resume(
         validate_compact_resume(successor, allowlist=allowlist, allowlist_path=allowlist_path)
     except ValueError as error:
         raise ResumeRefused(str(error)) from error
-    kept = [row for row in uploads if row["dest"] != original["path"]]
-    if len(kept) != len(uploads) - 1:
+    if any(row["dest"] == original["path"] for row in uploads):
+        kept = [row for row in uploads if row["dest"] != original["path"]]
+        if len(kept) != len(uploads) - 1:
+            raise ResumeRefused("full-state upload record is missing or duplicated")
+        position = next(
+            index for index, row in enumerate(uploads) if row["dest"] == original["path"]
+        )
+        return successor, kept[:position] + records + kept[position:]
+    compact_dests = {row["dest"] for row in records}
+    existing_compact = [row for row in uploads if row["dest"] in compact_dests]
+    unexpected_raw = [
+        row
+        for row in uploads
+        if row["dest"].startswith(original["path"]) and row["dest"] not in compact_dests
+    ]
+    if existing_compact != records or unexpected_raw:
         raise ResumeRefused("full-state upload record is missing or duplicated")
-    position = next(index for index, row in enumerate(uploads) if row["dest"] == original["path"])
-    return successor, kept[:position] + records + kept[position:]
+    return successor, list(uploads)
+
+
+def _is_hex(value: Any, length: int) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == length
+        and all(char in "0123456789abcdef" for char in value)
+    )
+
+
+def _verified_regular_file(path: Path, descriptor: Mapping[str, Any], *, label: str) -> None:
+    if not isinstance(descriptor, Mapping):
+        raise ResumeRefused(f"malformed {label} file descriptor")
+    expected_path = descriptor.get("path")
+    expected_size = descriptor.get("size")
+    expected_sha = descriptor.get("sha256")
+    if (
+        not isinstance(expected_path, str)
+        or type(expected_size) is not int
+        or expected_size < 0
+        or not _is_hex(expected_sha, 64)
+    ):
+        raise ResumeRefused(f"malformed {label} file descriptor")
+    if path.is_symlink() or not path.is_file():
+        raise ResumeRefused(f"missing or symlinked {label}: {path}")
+    if str(path.resolve()) != str(Path(expected_path).resolve()):
+        raise ResumeRefused(f"{label} path differs from bound descriptor: {path}")
+    if path.stat().st_size != expected_size or digest(path) != expected_sha:
+        raise ResumeRefused(f"{label} size or SHA-256 differs from bound descriptor: {path}")
 
 
 def _refuse_if_fault_text(
@@ -457,54 +617,317 @@ def _check_terminal_fault_evidence(terminal: Mapping[str, Any], *, label: str) -
         _refuse_if_fault_exports(scanner.get("inventory"), source_name=f"{label}.export_scanner")
 
 
-def _check_output_root_fault_evidence(output_root: Path) -> None:
-    if output_root.is_symlink() or not output_root.is_dir():
-        return
+def _check_output_root_fault_evidence(
+    output_root: Path,
+    *,
+    expected_job_id: str | None = None,
+    expected_generation: str | None = None,
+) -> tuple[int, int]:
+    """Scan ALL retained attempt telemetry and exports for scientific/non-mechanical faults.
+
+    Returns ``(poll_count, identity_matched_poll_count)``.  Every saved
+    ``poll-*.json`` is scanned from earliest to latest (never a trailing window)
+    and any unreadable, non-dict, or symlinked poll/telemetry file refuses closed.
+    """
+    if output_root.is_symlink():
+        raise ResumeRefused("prior output directory must not be a symlink")
+    if not output_root.exists():
+        return 0, 0
+    if not output_root.is_dir():
+        raise ResumeRefused("prior output_root is not a directory")
+
     terminal_file = output_root / "terminal.json"
-    if terminal_file.is_file() and not terminal_file.is_symlink():
+    if terminal_file.is_symlink():
+        raise ResumeRefused("symlinked terminal.json in prior output directory")
+    if terminal_file.is_file():
         try:
             persisted_terminal = json.loads(terminal_file.read_text())
         except (OSError, json.JSONDecodeError) as error:
             raise ResumeRefused(
                 "corrupt persisted terminal.json in prior output directory"
             ) from error
-        if isinstance(persisted_terminal, Mapping):
-            if persisted_terminal.get("status") in {"completed", "succeeded"}:
-                raise ResumeRefused(
-                    "persisted terminal.json already completed; refusing continuation"
-                )
-            _check_terminal_fault_evidence(persisted_terminal, label="persisted_terminal")
+        if not isinstance(persisted_terminal, Mapping):
+            raise ResumeRefused("malformed persisted terminal.json in prior output directory")
+        if persisted_terminal.get("status") in {"completed", "succeeded"}:
+            raise ResumeRefused("persisted terminal.json already completed; refusing continuation")
+        _check_terminal_fault_evidence(persisted_terminal, label="persisted_terminal")
+
+    summary_base = output_root / "exports/training/summary.json"
+    for suffix in ("", ".partial", ".sha256", ".complete"):
+        probe = Path(f"{summary_base}{suffix}")
+        if probe.is_symlink() or probe.exists():
+            raise ResumeRefused("exported summary.json already exists; prior run completed")
+
     stacks_path = output_root / "exports/training/stall-watchdog/faulthandler-stacks.log"
-    if stacks_path.is_file() and not stacks_path.is_symlink() and stacks_path.stat().st_size > 0:
+    if stacks_path.is_symlink():
+        raise ResumeRefused("symlinked faulthandler-stacks.log in prior output directory")
+    if stacks_path.is_file() and stacks_path.stat().st_size > 0:
         raise ResumeRefused("exported faulthandler-stacks.log is non-empty (stall watchdog fired)")
+
+    watchdog_json = output_root / "exports/training/stall-watchdog/stall-watchdog.json"
+    if watchdog_json.is_symlink():
+        raise ResumeRefused("symlinked stall-watchdog.json in prior output directory")
+    if watchdog_json.is_file():
+        try:
+            watchdog_payload = json.loads(watchdog_json.read_text())
+        except (OSError, json.JSONDecodeError) as error:
+            raise ResumeRefused("corrupt exported stall-watchdog.json") from error
+        if not isinstance(watchdog_payload, Mapping):
+            raise ResumeRefused("malformed exported stall-watchdog.json")
+        if str(watchdog_payload.get("stage", "")).lower().endswith("-failed"):
+            raise ResumeRefused(
+                f"exported stall-watchdog.json records failed stage: "
+                f"{watchdog_payload.get('stage')!r}"
+            )
+
+    screen_path = output_root / "exports/training/distribution-screen.json"
+    if screen_path.is_symlink():
+        raise ResumeRefused("symlinked distribution-screen.json in prior output directory")
+    if screen_path.is_file():
+        try:
+            screen_payload = json.loads(screen_path.read_text())
+        except (OSError, json.JSONDecodeError) as error:
+            raise ResumeRefused("corrupt exported distribution-screen.json") from error
+        if not isinstance(screen_payload, Mapping):
+            raise ResumeRefused("malformed exported distribution-screen.json")
+        if screen_payload.get("material_gaps"):
+            raise ResumeRefused(
+                "exported distribution-screen.json records material distribution gaps"
+            )
+
     progress_path = output_root / "exports/training/progress.json"
-    if progress_path.is_file() and not progress_path.is_symlink():
+    if progress_path.is_symlink():
+        raise ResumeRefused("symlinked progress.json in prior output directory")
+    if progress_path.is_file():
         try:
             progress = json.loads(progress_path.read_text())
-        except (OSError, json.JSONDecodeError):
-            progress = None
-        if isinstance(progress, Mapping) and str(progress.get("stage", "")).lower().endswith(
-            "-failed"
-        ):
+        except (OSError, json.JSONDecodeError) as error:
+            raise ResumeRefused("corrupt exported progress.json") from error
+        if not isinstance(progress, Mapping):
+            raise ResumeRefused("malformed exported progress.json")
+        if str(progress.get("stage", "")).lower().endswith("-failed"):
             raise ResumeRefused(
                 f"exported progress.json records failed stage: {progress.get('stage')!r}"
             )
-    for poll_path in sorted(output_root.glob("poll-*.json"))[-8:]:
+        _refuse_if_fault_text(progress.get("error"), field_name="progress.json.error")
+
+    training_exports = output_root / "exports/training"
+    if training_exports.is_symlink():
+        raise ResumeRefused("symlinked training export directory")
+    if training_exports.is_dir():
+        header_candidates = [training_exports / "calibrated-boundary.json"] + sorted(
+            training_exports.glob("iteration-*.json")
+        )
+        for header_path in header_candidates:
+            if header_path.is_symlink():
+                raise ResumeRefused(f"symlinked snapshot header: {header_path.name}")
+            if not header_path.is_file():
+                continue
+            try:
+                header_payload = json.loads(header_path.read_text())
+            except (OSError, json.JSONDecodeError) as error:
+                if _complete(header_path):
+                    raise ResumeRefused(
+                        f"corrupt completed snapshot header: {header_path.name}"
+                    ) from error
+                continue
+            if not isinstance(header_payload, Mapping):
+                if _complete(header_path):
+                    raise ResumeRefused(f"malformed snapshot header: {header_path.name}")
+                continue
+            meta = header_payload.get("metadata")
+            if isinstance(meta, Mapping):
+                phase_str = str(meta.get("phase", "")).lower()
+                prep_str = str(meta.get("prepare_phase", "")).lower()
+                if "fail" in phase_str or prep_str == "failed":
+                    raise ResumeRefused(
+                        f"exported {header_path.name} records failed preparation/trajectory phase"
+                    )
+
+    poll_count = 0
+    identity_matched_polls = 0
+    for poll_path in sorted(output_root.glob("poll-*.json")):
         if poll_path.is_symlink() or not poll_path.is_file():
-            continue
+            raise ResumeRefused(f"non-regular or symlinked poll evidence: {poll_path.name}")
         try:
             poll_payload = json.loads(poll_path.read_text())
-        except (OSError, json.JSONDecodeError):
-            continue
+        except (OSError, json.JSONDecodeError) as error:
+            raise ResumeRefused(f"corrupt poll evidence: {poll_path.name}") from error
         if not isinstance(poll_payload, Mapping):
-            continue
+            raise ResumeRefused(f"malformed poll evidence: {poll_path.name}")
+        poll_count += 1
+        if poll_payload.get("status") in {"completed", "succeeded"}:
+            raise ResumeRefused(f"{poll_path.name} records completed status")
+        matched_this_poll = False
+        for key in ("job", "job_id"):
+            if key in poll_payload:
+                if expected_job_id is not None and poll_payload[key] != expected_job_id:
+                    raise ResumeRefused(
+                        f"{poll_path.name} belongs to foreign {key}: {poll_payload[key]!r}"
+                    )
+                matched_this_poll = True
+        if "generation" in poll_payload and expected_generation is not None:
+            if poll_payload["generation"] != expected_generation:
+                raise ResumeRefused(
+                    f"{poll_path.name} belongs to foreign generation: "
+                    f"{poll_payload['generation']!r}"
+                )
+        poll_state = poll_payload.get("state")
+        if poll_state is not None:
+            if not isinstance(poll_state, Mapping):
+                raise ResumeRefused(f"{poll_path.name}.state is malformed")
+            if poll_state.get("status") in {"completed", "succeeded"}:
+                raise ResumeRefused(f"{poll_path.name}.state records completed status")
+            if "job_id" in poll_state:
+                if expected_job_id is not None and poll_state["job_id"] != expected_job_id:
+                    raise ResumeRefused(
+                        f"{poll_path.name}.state belongs to foreign job_id: "
+                        f"{poll_state['job_id']!r}"
+                    )
+            if "generation" in poll_state:
+                if (
+                    expected_generation is not None
+                    and poll_state["generation"] != expected_generation
+                ):
+                    raise ResumeRefused(
+                        f"{poll_path.name}.state belongs to foreign generation: "
+                        f"{poll_state['generation']!r}"
+                    )
+            if (
+                expected_job_id is not None
+                and expected_generation is not None
+                and poll_state.get("job_id") == expected_job_id
+                and poll_state.get("generation") == expected_generation
+            ):
+                matched_this_poll = True
+            _refuse_if_fault_text(
+                poll_state.get("error"), field_name=f"{poll_path.name}.state.error"
+            )
+        if matched_this_poll:
+            identity_matched_polls += 1
+        _refuse_if_fault_text(
+            poll_payload.get("error"),
+            field_name=f"{poll_path.name}.error",
+            check_supervisor_denylist=True,
+        )
         _refuse_if_fault_text(
             poll_payload.get("job_log_tail"), field_name=f"{poll_path.name}.job_log_tail"
         )
+        _refuse_if_fault_text(
+            poll_payload.get("supervisor_log_tail"),
+            field_name=f"{poll_path.name}.supervisor_log_tail",
+        )
         _refuse_if_fault_exports(poll_payload.get("exports"), source_name=poll_path.name)
         poll_terminal = poll_payload.get("terminal")
-        if isinstance(poll_terminal, Mapping):
+        if poll_terminal is not None:
+            if not isinstance(poll_terminal, Mapping):
+                raise ResumeRefused(f"{poll_path.name}.terminal is malformed")
+            if poll_terminal.get("status") in {"completed", "succeeded"}:
+                raise ResumeRefused(f"{poll_path.name}.terminal already completed")
             _check_terminal_fault_evidence(poll_terminal, label=f"{poll_path.name}.terminal")
+    return poll_count, identity_matched_polls
+
+
+def _check_supervisor_log_fault_evidence(
+    supervisor_log_path: Path,
+    *,
+    expected_job_id: str | None = None,
+    allow_terminal_receipt_enospc: bool = False,
+    expected_output_root: Path | None = None,
+) -> dict[str, Any]:
+    """Scan EVERY line of a supervisor log for scientific/non-mechanical fault evidence."""
+    if supervisor_log_path.is_symlink() or not supervisor_log_path.is_file():
+        raise ResumeRefused(f"missing or symlinked supervisor log: {supervisor_log_path}")
+    try:
+        raw_lines = supervisor_log_path.read_text().splitlines()
+    except OSError as error:
+        raise ResumeRefused(f"unreadable supervisor log: {supervisor_log_path}") from error
+
+    nonempty_indices = [idx for idx, line in enumerate(raw_lines) if line.strip()]
+    enospc_line_index: int | None = None
+    exit_line_index: int | None = None
+    if allow_terminal_receipt_enospc:
+        if len(nonempty_indices) < 3 or expected_output_root is None:
+            raise ResumeRefused(
+                "host ENOSPC recovery requires supervisor log with poll history and terminal lines"
+            )
+        enospc_line_index = nonempty_indices[-2]
+        exit_line_index = nonempty_indices[-1]
+        enospc_text = raw_lines[enospc_line_index].strip()
+        exit_text = raw_lines[exit_line_index].strip()
+        match = ENOSPC_RECEIPT_LINE_RE.fullmatch(enospc_text)
+        if match is None or exit_text != "EXIT=1":
+            raise ResumeRefused("supervisor log does not end with receipt-write ENOSPC and EXIT=1")
+        enospc_dir = Path(match.group(1)).resolve()
+        if enospc_dir != expected_output_root.resolve():
+            raise ResumeRefused(
+                f"supervisor log ENOSPC path {enospc_dir} differs from {expected_output_root}"
+            )
+
+    matched_job_records = 0
+    for idx, raw_line in enumerate(raw_lines):
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if allow_terminal_receipt_enospc and idx in (enospc_line_index, exit_line_index):
+            continue
+        line_no = idx + 1
+        if stripped.startswith("{"):
+            try:
+                record = json.loads(stripped)
+            except json.JSONDecodeError as error:
+                raise ResumeRefused(
+                    f"corrupt JSON record in supervisor log at line {line_no}"
+                ) from error
+            if not isinstance(record, Mapping):
+                raise ResumeRefused(f"malformed JSON record in supervisor log at line {line_no}")
+            for key in ("job", "job_id"):
+                if key in record:
+                    if expected_job_id is not None and record[key] != expected_job_id:
+                        raise ResumeRefused(
+                            f"supervisor log line {line_no} belongs to foreign {key}: "
+                            f"{record[key]!r}"
+                        )
+                    matched_job_records += 1
+            if record.get("status") in {"completed", "succeeded"}:
+                raise ResumeRefused(
+                    f"supervisor log line {line_no} records completed run; refusing continuation"
+                )
+            _refuse_if_fault_text(
+                record.get("error"),
+                field_name=f"supervisor_log:{line_no}.error",
+                check_supervisor_denylist=True,
+            )
+            _refuse_if_fault_text(
+                record.get("job_log_tail"),
+                field_name=f"supervisor_log:{line_no}.job_log_tail",
+            )
+            _refuse_if_fault_text(
+                record.get("supervisor_log_tail"),
+                field_name=f"supervisor_log:{line_no}.supervisor_log_tail",
+            )
+            if isinstance(record.get("exports"), list):
+                _refuse_if_fault_exports(
+                    record.get("exports"), source_name=f"supervisor_log:{line_no}"
+                )
+            rec_terminal = record.get("terminal")
+            if isinstance(rec_terminal, Mapping):
+                if rec_terminal.get("status") in {"completed", "succeeded"}:
+                    raise ResumeRefused(f"supervisor_log:{line_no}.terminal already completed")
+                _check_terminal_fault_evidence(
+                    rec_terminal, label=f"supervisor_log:{line_no}.terminal"
+                )
+        _refuse_if_fault_text(stripped, field_name=f"supervisor_log:{line_no}")
+    return {
+        "line_count": len(raw_lines),
+        "matched_job_records": matched_job_records,
+        "terminal_enospc_line": (
+            raw_lines[enospc_line_index].strip() if enospc_line_index is not None else None
+        ),
+        "terminal_exit_line": (
+            raw_lines[exit_line_index].strip() if exit_line_index is not None else None
+        ),
+    }
 
 
 def verify_mechanical_stop(
@@ -513,13 +936,15 @@ def verify_mechanical_stop(
     manifest_sha256: str,
     *,
     output_root: Path | None = None,
+    supervisor_log_path: Path | None = None,
 ) -> None:
     """Require an exact, released mechanical stop before a manual successor.
 
     Explicit scientific, preparation, distribution-screen, or stall-watchdog
-    failure evidence in ``receipt``, ``terminal``, exported inventories, or
-    ``output_root`` always takes precedence over any timeout/lease/wall-cap
-    marker and refuses continuation.
+    failure evidence in ``receipt``, ``terminal``, exported inventories,
+    ``output_root`` (across ALL retained polls), or ``supervisor_log_path``
+    always takes precedence over any timeout/lease/wall-cap marker and refuses
+    continuation.
 
     Admits only mechanical timeout/recycle/poll terminations with verified VM
     release and clean cleanup:
@@ -534,11 +959,7 @@ def verify_mechanical_stop(
       or stall fault evidence is present.
     """
     terminal = receipt.get("terminal")
-    if (
-        not isinstance(manifest_sha256, str)
-        or len(manifest_sha256) != 64
-        or any(char not in "0123456789abcdef" for char in manifest_sha256)
-    ):
+    if not _is_hex(manifest_sha256, 64):
         raise ResumeRefused("original manifest digest is malformed")
     if (
         receipt.get("job_id") != manifest.get("job_id")
@@ -570,8 +991,21 @@ def verify_mechanical_stop(
             and terminal_reason not in MECHANICAL_TERMINAL_REASONS
         ):
             raise ResumeRefused("terminal records a non-mechanical child failure")
+    expected_job_id = manifest.get("job_id") if isinstance(manifest.get("job_id"), str) else None
+    expected_generation = (
+        receipt.get("generation") if isinstance(receipt.get("generation"), str) else None
+    )
     if output_root is not None:
-        _check_output_root_fault_evidence(output_root)
+        _check_output_root_fault_evidence(
+            output_root,
+            expected_job_id=expected_job_id,
+            expected_generation=expected_generation,
+        )
+    if supervisor_log_path is not None:
+        _check_supervisor_log_fault_evidence(
+            supervisor_log_path,
+            expected_job_id=expected_job_id,
+        )
     failure_class = receipt.get("failure_class")
     if failure_class == "RPC_EXEC_POLL_TIMEOUT":
         if terminal is not None and terminal_reason not in MECHANICAL_TERMINAL_REASONS:
@@ -601,9 +1035,440 @@ def verify_mechanical_stop(
     )
 
 
+def _glob_inventory(output_root: Path, pattern: str) -> tuple[int, str, str | None, str | None]:
+    rows: list[dict[str, Any]] = []
+    for item in sorted(output_root.glob(pattern)):
+        if item.is_symlink() or not item.is_file():
+            raise ResumeRefused(f"non-regular or symlinked retained evidence file: {item.name}")
+        rows.append({"name": item.name, "size": item.stat().st_size, "sha256": digest(item)})
+    encoded = json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return (
+        len(rows),
+        hashlib.sha256(encoded).hexdigest(),
+        rows[0]["name"] if rows else None,
+        rows[-1]["name"] if rows else None,
+    )
+
+
+def compute_retained_evidence_inventory(output_root: Path) -> dict[str, Any]:
+    """Build a deterministic hash-bound inventory of all retained attempt telemetry."""
+    if output_root.is_symlink() or not output_root.is_dir():
+        raise ResumeRefused(f"missing or symlinked output_root: {output_root}")
+    poll_count, polls_sha256, first_poll, last_poll = _glob_inventory(output_root, "poll-*.json")
+    spend_count, spend_sha256, _, _ = _glob_inventory(output_root, "spend-*.json")
+    usage_count, usage_sha256, _, _ = _glob_inventory(output_root, "usage-*.json")
+    receipt_path = output_root / "receipt.json"
+    terminal_path = output_root / "terminal.json"
+    optional_files: dict[str, dict[str, Any] | None] = {}
+    for rel_path in TRACKED_OPTIONAL_OUTPUT_FILES:
+        candidate = output_root / rel_path
+        if candidate.is_symlink():
+            raise ResumeRefused(f"symlinked retained output artifact: {rel_path}")
+        if candidate.is_file():
+            optional_files[rel_path] = {
+                "size": candidate.stat().st_size,
+                "sha256": digest(candidate),
+            }
+        else:
+            optional_files[rel_path] = None
+    return {
+        "poll_count": poll_count,
+        "first_poll": first_poll,
+        "last_poll": last_poll,
+        "polls_sha256": polls_sha256,
+        "spend_count": spend_count,
+        "spend_sha256": spend_sha256,
+        "usage_count": usage_count,
+        "usage_sha256": usage_sha256,
+        "receipt_present": receipt_path.exists() or receipt_path.is_symlink(),
+        "terminal_present": terminal_path.exists() or terminal_path.is_symlink(),
+        "optional_files": optional_files,
+    }
+
+
+def verify_host_enospc_recovery(
+    recovery_evidence_path: Path,
+    manifest: Mapping[str, Any],
+    manifest_sha256: str,
+    *,
+    output_root: Path,
+    source_control: Mapping[str, Any],
+    source_packet_id: str | None = None,
+    source_packet_manifest_sha256: str | None = None,
+    now_unix_seconds: float | None = None,
+    max_capture_age_seconds: float | None = 86400.0,
+) -> dict[str, Any]:
+    """Validate an explicit, create-only host-side ENOSPC recovery certificate.
+
+    This narrow admission path covers a host disk-full failure while writing the
+    supervisor receipt after remote execution stopped.  It preserves the missing
+    original ``receipt.json`` as absent, preserves unknown original terminal and
+    cleanup fields as ``UNKNOWN_UNAVAILABLE`` (never fabricating ``cleanup_error:
+    null`` or a wall-timeout classification), verifies post-hoc server session
+    disappearance and zero account assignments, reconciles broker assignment
+    records, and scans EVERY retained poll, export, and supervisor log line for
+    scientific or non-mechanical fault evidence.
+    """
+    if not _is_hex(manifest_sha256, 64):
+        raise ResumeRefused("original manifest digest is malformed")
+    if output_root.is_symlink() or not output_root.is_dir():
+        raise ResumeRefused(f"missing or symlinked output_root: {output_root}")
+    resolved_output = output_root.resolve()
+    resolved_cert = recovery_evidence_path.resolve()
+    if recovery_evidence_path.name == "receipt.json" or resolved_cert.parent == resolved_output:
+        raise ResumeRefused(
+            "recovery certificate must be separately named outside output_root (never receipt.json)"
+        )
+    cert_desc = _descriptor(recovery_evidence_path, runtime_path=recovery_evidence_path.name)
+    try:
+        certificate = json.loads(recovery_evidence_path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ResumeRefused("unreadable host ENOSPC recovery certificate") from error
+    if (
+        not isinstance(certificate, Mapping)
+        or certificate.get("schema") != HOST_ENOSPC_RECOVERY_SCHEMA
+    ):
+        raise ResumeRefused("unsupported or malformed host ENOSPC recovery certificate schema")
+
+    receipt_file = resolved_output / "receipt.json"
+    terminal_file = resolved_output / "terminal.json"
+    if receipt_file.exists() or receipt_file.is_symlink():
+        raise ResumeRefused(
+            "receipt.json exists in output_root; use ordinary receipt verification, "
+            "not ENOSPC recovery"
+        )
+    if terminal_file.exists() or terminal_file.is_symlink():
+        raise ResumeRefused(
+            "persisted terminal.json exists in output_root; "
+            "narrow receipt-less ENOSPC path disagrees"
+        )
+
+    attempt_state = certificate.get("original_attempt_state")
+    if (
+        not isinstance(attempt_state, Mapping)
+        or attempt_state.get("prior_attempt_status") != "INCOMPLETE"
+        or attempt_state.get("failure_class") != HOST_ENOSPC_FAILURE_CLASS
+        or attempt_state.get("original_receipt_present") is not False
+        or attempt_state.get("original_terminal_status") != "UNKNOWN_UNAVAILABLE"
+        or attempt_state.get("original_supervisor_error") != "UNKNOWN_UNAVAILABLE"
+        or attempt_state.get("original_cleanup_error") != "UNKNOWN_UNAVAILABLE"
+        or attempt_state.get("post_hoc_release_verified") is not True
+    ):
+        raise ResumeRefused(
+            "recovery certificate must preserve attempt INCOMPLETE and unknown original "
+            "receipt/terminal/cleanup fields without inventing cleanup_error=null"
+        )
+
+    identities = certificate.get("identities")
+    if not isinstance(identities, Mapping):
+        raise ResumeRefused("recovery certificate lacks identities section")
+    job_id = manifest.get("job_id")
+    source_commit = manifest.get("commit")
+    manifest_output_dir = manifest.get("output_dir")
+    if (
+        not isinstance(job_id, str)
+        or not job_id
+        or not _is_hex(source_commit, 40)
+        or not isinstance(manifest_output_dir, str)
+        or Path(manifest_output_dir).resolve() != resolved_output
+    ):
+        raise ResumeRefused("executed manifest identity or output_dir does not match output_root")
+    if source_control.get("source_commit") != source_commit:
+        raise ResumeRefused("source_control commit differs from executed manifest")
+    expected_allocation = allocation(dict(source_control))
+    generation = identities.get("generation")
+    endpoint = identities.get("endpoint")
+    session = identities.get("session")
+    if (
+        identities.get("study") != source_control.get("study")
+        or identities.get("namespace") != NAMESPACE
+        or identities.get("job_id") != job_id
+        or identities.get("executed_manifest_sha256") != manifest_sha256
+        or identities.get("source_commit") != source_commit
+        or identities.get("control_allocation") != expected_allocation
+        or identities.get("output_dir") != str(resolved_output)
+        or not _is_hex(generation, 32)
+        or not isinstance(endpoint, str)
+        or not endpoint.strip()
+        or session != f"snake-{job_id}-{generation[:12]}"
+    ):
+        raise ResumeRefused("recovery certificate identities do not match frozen attempt/control")
+    if source_packet_id is not None and identities.get("source_packet_id") != source_packet_id:
+        raise ResumeRefused("recovery certificate source_packet_id mismatch")
+    if (
+        not isinstance(identities.get("source_packet_id"), str)
+        or not identities["source_packet_id"]
+    ):
+        raise ResumeRefused("recovery certificate lacks source_packet_id")
+    if source_packet_manifest_sha256 is not None:
+        if identities.get("source_packet_manifest_sha256") != source_packet_manifest_sha256:
+            raise ResumeRefused("recovery certificate source_packet_manifest_sha256 mismatch")
+    elif not _is_hex(identities.get("source_packet_manifest_sha256"), 64):
+        raise ResumeRefused("recovery certificate lacks valid source_packet_manifest_sha256")
+
+    assignment_desc = identities.get("assignment_record")
+    if not isinstance(assignment_desc, Mapping) or not isinstance(assignment_desc.get("path"), str):
+        raise ResumeRefused("recovery certificate lacks assignment_record binding")
+    assignment_path = Path(assignment_desc["path"])
+    _verified_regular_file(assignment_path, assignment_desc, label="assignment.json")
+    try:
+        assignment = json.loads(assignment_path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ResumeRefused("unreadable assignment.json") from error
+    if (
+        not isinstance(assignment, Mapping)
+        or assignment.get("endpoint") != endpoint
+        or assignment.get("generation") != generation
+        or assignment.get("session") != session
+        or not isinstance(assignment.get("output"), str)
+        or Path(assignment["output"]).resolve() != resolved_output
+    ):
+        raise ResumeRefused("assignment.json disagrees with recovery certificate identities")
+
+    sup_log = certificate.get("supervisor_log")
+    if not isinstance(sup_log, Mapping) or not isinstance(sup_log.get("path"), str):
+        raise ResumeRefused("recovery certificate lacks supervisor_log binding")
+    sup_log_path = Path(sup_log["path"])
+    _verified_regular_file(sup_log_path, sup_log, label="supervisor_log")
+    log_audit = _check_supervisor_log_fault_evidence(
+        sup_log_path,
+        expected_job_id=job_id,
+        allow_terminal_receipt_enospc=True,
+        expected_output_root=resolved_output,
+    )
+    if (
+        sup_log.get("line_count") != log_audit["line_count"]
+        or sup_log.get("terminal_enospc_line") != log_audit["terminal_enospc_line"]
+        or sup_log.get("terminal_exit_line") != log_audit["terminal_exit_line"]
+        or log_audit["matched_job_records"] < 1
+    ):
+        raise ResumeRefused("supervisor_log line audit disagrees with recovery certificate")
+
+    retained_decl = certificate.get("retained_evidence")
+    actual_inventory = compute_retained_evidence_inventory(resolved_output)
+    if not isinstance(retained_decl, Mapping) or dict(retained_decl) != actual_inventory:
+        raise ResumeRefused(
+            "retained output_root evidence inventory/hashes drifted from recovery certificate"
+        )
+    if actual_inventory["poll_count"] < 1:
+        raise ResumeRefused("recovery certificate requires retained same-attempt poll evidence")
+    poll_count, matched_polls = _check_output_root_fault_evidence(
+        resolved_output,
+        expected_job_id=job_id,
+        expected_generation=generation,
+    )
+    if poll_count != actual_inventory["poll_count"] or matched_polls < 1:
+        raise ResumeRefused(
+            "retained poll files lack verified same-attempt job_id and generation bindings"
+        )
+
+    release = certificate.get("release_evidence")
+    if not isinstance(release, Mapping):
+        raise ResumeRefused("recovery certificate lacks release_evidence")
+    capture_desc = release.get("account_status_capture")
+    if not isinstance(capture_desc, Mapping) or not isinstance(capture_desc.get("path"), str):
+        raise ResumeRefused("recovery certificate lacks account_status_capture")
+    capture_path = Path(capture_desc["path"])
+    capture_sidecar_desc = _descriptor(capture_path, runtime_path=capture_path.name)
+    if (
+        capture_desc.get("size") != capture_sidecar_desc["size"]
+        or capture_desc.get("sha256") != capture_sidecar_desc["sha256"]
+    ):
+        raise ResumeRefused("account_status_capture size or SHA-256 differs from certificate")
+    try:
+        capture_payload = json.loads(capture_path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ResumeRefused("unreadable account_status_capture file") from error
+    if (
+        not isinstance(capture_payload, Mapping)
+        or capture_payload.get("schema") != ACCOUNT_RELEASE_CAPTURE_SCHEMA
+    ):
+        raise ResumeRefused("malformed account_status_capture schema")
+    captured_ts = capture_payload.get("captured_unix_seconds")
+    if (
+        isinstance(captured_ts, bool)
+        or not isinstance(captured_ts, (int, float))
+        or not math.isfinite(float(captured_ts))
+        or capture_desc.get("captured_unix_seconds") != captured_ts
+    ):
+        raise ResumeRefused("malformed or mismatched captured_unix_seconds in release capture")
+    log_mtime = sup_log_path.stat().st_mtime
+    now_ts = time.time() if now_unix_seconds is None else float(now_unix_seconds)
+    if float(captured_ts) < log_mtime - 1.0:
+        raise ResumeRefused(
+            "stale account_status_capture predates supervisor_log ENOSPC termination"
+        )
+    if float(captured_ts) > now_ts + 60.0:
+        raise ResumeRefused("account_status_capture timestamp lies in the future")
+    if (
+        max_capture_age_seconds is not None
+        and (now_ts - float(captured_ts)) > max_capture_age_seconds
+    ):
+        raise ResumeRefused("stale account_status_capture exceeds maximum admission age")
+
+    status_obj = capture_payload.get("status")
+    if not isinstance(status_obj, Mapping):
+        raise ResumeRefused("account_status_capture lacks status object")
+    sessions_obj = status_obj.get("sessions")
+    usage_obj = status_obj.get("usage")
+    unresolved_obj = status_obj.get("unresolved")
+    if (
+        not isinstance(sessions_obj, Mapping)
+        or len(sessions_obj) != 0
+        or endpoint in sessions_obj
+        or not isinstance(usage_obj, Mapping)
+        or isinstance(usage_obj.get("assignments"), bool)
+        or not isinstance(usage_obj.get("assignments"), (int, float))
+        or float(usage_obj["assignments"]) != 0.0
+        or isinstance(usage_obj.get("rate"), bool)
+        or not isinstance(usage_obj.get("rate"), (int, float))
+        or float(usage_obj["rate"]) != 0.0
+        or isinstance(usage_obj.get("balance"), bool)
+        or not isinstance(usage_obj.get("balance"), (int, float))
+        or not math.isfinite(float(usage_obj["balance"]))
+        or unresolved_obj != []
+    ):
+        raise ResumeRefused(
+            "account_status_capture does not prove empty server sessions, 0 assignments, "
+            "0.0 rate, and empty unresolved pending state"
+        )
+
+    broker_rec = release.get("broker_reconciliation")
+    if not isinstance(broker_rec, Mapping) or not isinstance(broker_rec.get("account_root"), str):
+        raise ResumeRefused("recovery certificate lacks broker_reconciliation")
+    account_root = Path(broker_rec["account_root"])
+    if account_root.is_symlink() or not account_root.is_dir():
+        raise ResumeRefused(f"missing or symlinked broker account_root: {account_root}")
+    pending_file = account_root / f"pending-{session}.json"
+    if pending_file.exists() or pending_file.is_symlink():
+        raise ResumeRefused(f"unresolved broker pending record exists: {pending_file}")
+    active_file = account_root / f"active-{session}.json"
+    rec_mode = broker_rec.get("mode")
+    if rec_mode == "verified_disappearance_with_bound_stale_active":
+        stale_desc = broker_rec.get("stale_active_record")
+        reconcile_cmd = broker_rec.get("operator_reconcile_command")
+        if (
+            not isinstance(stale_desc, Mapping)
+            or not isinstance(stale_desc.get("path"), str)
+            or Path(stale_desc["path"]).resolve() != active_file.resolve()
+            or not isinstance(reconcile_cmd, str)
+            or "research.colab_cli.supervisor recover" not in reconcile_cmd
+        ):
+            raise ResumeRefused("malformed stale_active_record binding in broker_reconciliation")
+        if active_file.is_symlink():
+            raise ResumeRefused(f"symlinked broker active record: {active_file}")
+        if active_file.is_file():
+            _verified_regular_file(active_file, stale_desc, label="stale_active_record")
+            try:
+                active_payload = json.loads(active_file.read_text())
+            except (OSError, json.JSONDecodeError) as error:
+                raise ResumeRefused("unreadable broker active record") from error
+            if (
+                not isinstance(active_payload, Mapping)
+                or active_payload.get("endpoint") != endpoint
+                or active_payload.get("session") != session
+                or not isinstance(active_payload.get("output"), str)
+                or Path(active_payload["output"]).resolve() != resolved_output
+            ):
+                raise ResumeRefused("broker active record disagrees with certificate identities")
+        else:
+            recovery_files = [
+                item
+                for item in sorted(resolved_output.glob("recovery-*.json"))
+                if item.is_file() and not item.is_symlink()
+            ]
+            verified_recover = False
+            for rec_file in recovery_files:
+                try:
+                    rec_payload = json.loads(rec_file.read_text())
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if (
+                    isinstance(rec_payload, Mapping)
+                    and rec_payload.get("endpoint") == endpoint
+                    and rec_payload.get("stop_verified") is True
+                ):
+                    verified_recover = True
+                    break
+            if not verified_recover:
+                raise ResumeRefused(
+                    "bound stale active record was removed without a verified "
+                    "recovery-*.json receipt"
+                )
+    elif rec_mode == "qualified_recover_receipt":
+        if active_file.exists() or active_file.is_symlink():
+            raise ResumeRefused(
+                "qualified_recover_receipt mode requires stale active record to be absent"
+            )
+        rec_desc = broker_rec.get("recover_receipt")
+        if not isinstance(rec_desc, Mapping) or not isinstance(rec_desc.get("path"), str):
+            raise ResumeRefused("qualified_recover_receipt lacks recover_receipt descriptor")
+        rec_path = Path(rec_desc["path"])
+        _verified_regular_file(rec_path, rec_desc, label="recover_receipt")
+        if rec_path.resolve().parent != resolved_output or not rec_path.name.startswith(
+            "recovery-"
+        ):
+            raise ResumeRefused("recover_receipt must reside in output_root as recovery-*.json")
+        try:
+            rec_payload = json.loads(rec_path.read_text())
+        except (OSError, json.JSONDecodeError) as error:
+            raise ResumeRefused("unreadable recover_receipt") from error
+        if (
+            not isinstance(rec_payload, Mapping)
+            or rec_payload.get("endpoint") != endpoint
+            or rec_payload.get("stop_verified") is not True
+        ):
+            raise ResumeRefused("recover_receipt does not prove stop_verified for endpoint")
+    else:
+        raise ResumeRefused(f"unsupported broker_reconciliation mode: {rec_mode!r}")
+
+    resume_binding = certificate.get("resume_binding")
+    if not isinstance(resume_binding, Mapping):
+        raise ResumeRefused("recovery certificate lacks resume_binding")
+    verified_ledger, _uploads, latest = build_ledger(
+        resolved_output / "exports/training",
+        source_control,
+    )
+    verified_iters = [int(row["iteration"]) for row in verified_ledger["units"]]
+    latest_export = verified_ledger["units"][-1]["exports"][0]
+    if (
+        resume_binding.get("verified_snapshot_iterations") != verified_iters
+        or resume_binding.get("latest_eligible_iteration") != latest
+        or resume_binding.get("latest_eligible_unit") != unit_id(latest)
+        or resume_binding.get("latest_full_state_size") != latest_export["size"]
+        or resume_binding.get("latest_full_state_sha256") != latest_export["sha256"]
+    ):
+        raise ResumeRefused("recovery certificate resume_binding disagrees with verified exports")
+
+    return {
+        "schema": HOST_ENOSPC_RECOVERY_SCHEMA,
+        "certificate_path": str(resolved_cert),
+        "certificate_sha256": cert_desc["sha256"],
+        "certificate_size": cert_desc["size"],
+        "failure_class": HOST_ENOSPC_FAILURE_CLASS,
+        "prior_attempt_status": "INCOMPLETE",
+        "original_receipt_present": False,
+        "original_terminal_status": "UNKNOWN_UNAVAILABLE",
+        "original_supervisor_error": "UNKNOWN_UNAVAILABLE",
+        "original_cleanup_error": "UNKNOWN_UNAVAILABLE",
+        "post_hoc_release_verified": True,
+        "account_status_capture_sha256": capture_sidecar_desc["sha256"],
+        "captured_at_utc": capture_payload.get("captured_at_utc"),
+        "captured_unix_seconds": captured_ts,
+        "broker_reconciliation_mode": rec_mode,
+        "operator_reconcile_command": broker_rec.get("operator_reconcile_command"),
+        "stale_active_present_now": active_file.is_file(),
+        "supervisor_log_sha256": sup_log["sha256"],
+        "polls_scanned": poll_count,
+        "polls_sha256": actual_inventory["polls_sha256"],
+        "latest_eligible_iteration": latest,
+        "latest_full_state_sha256": latest_export["sha256"],
+    }
+
+
 def completion_packet(
     original_manifest: Mapping[str, Any],
-    terminal_receipt: Mapping[str, Any],
+    terminal_receipt: Mapping[str, Any] | None,
     export_root: Path,
     control: Mapping[str, Any],
     *,
@@ -616,6 +1481,11 @@ def completion_packet(
     compact_source_packet_id: str | None = None,
     allowlist_path: Path | None = None,
     output_root: Path | None = None,
+    supervisor_log_path: Path | None = None,
+    recovery_evidence_path: Path | None = None,
+    source_packet_id: str | None = None,
+    source_packet_manifest_sha256: str | None = None,
+    max_recovery_capture_age_seconds: float | None = 86400.0,
 ) -> ResumePacket:
     """Return a fresh, manually dispatchable successor manifest and its inputs.
 
@@ -624,6 +1494,10 @@ def completion_packet(
     """
     if completion_index not in (1, 2):
         raise ResumeRefused("only two manual outcome-blind completion attempts are registered")
+    if (terminal_receipt is None) == (recovery_evidence_path is None):
+        raise ResumeRefused(
+            "completion_packet requires exclusively terminal_receipt or recovery_evidence_path"
+        )
     inferred_output_root = output_root
     if (
         inferred_output_root is None
@@ -631,12 +1505,28 @@ def completion_packet(
         and export_root.parent.name == "exports"
     ):
         inferred_output_root = export_root.parents[1]
-    verify_mechanical_stop(
-        terminal_receipt,
-        original_manifest,
-        original_manifest_sha256,
-        output_root=inferred_output_root,
-    )
+    if recovery_evidence_path is not None:
+        if inferred_output_root is None:
+            raise ResumeRefused("host ENOSPC recovery requires output_root")
+        verify_host_enospc_recovery(
+            recovery_evidence_path,
+            original_manifest,
+            original_manifest_sha256,
+            output_root=inferred_output_root,
+            source_control=control,
+            source_packet_id=source_packet_id,
+            source_packet_manifest_sha256=source_packet_manifest_sha256,
+            max_capture_age_seconds=max_recovery_capture_age_seconds,
+        )
+    else:
+        assert terminal_receipt is not None
+        verify_mechanical_stop(
+            terminal_receipt,
+            original_manifest,
+            original_manifest_sha256,
+            output_root=inferred_output_root,
+            supervisor_log_path=supervisor_log_path,
+        )
     if not job_id or job_id == original_manifest.get("job_id"):
         raise ResumeRefused("completion attempt requires a fresh job id")
     if str(output_dir) == original_manifest.get("output_dir") or not output_dir.is_absolute():
@@ -674,6 +1564,11 @@ def completion_packet(
     destinations = {row["path"] for row in latest_unit["exports"]}
     destinations |= {
         name + suffix for name in list(destinations) for suffix in (".sha256", ".complete")
+    }
+    state_runtime_path = latest_unit["exports"][0]["path"]
+    destinations |= {
+        state_runtime_path + COMPACT_DERIVATIVE_SUFFIX,
+        state_runtime_path + COMPACT_MANIFEST_SUFFIX,
     }
     records = [row for row in records if row["dest"] in destinations]
     if compact_source_packet_id is not None:

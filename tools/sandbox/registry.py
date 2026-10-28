@@ -122,6 +122,44 @@ def validate_rows(records: list[dict], registry: dict | None = None, dose: str =
         seen.add(row_id)
 
 
+def _valid_compact_at_source_quadruple(original_pt: Path) -> bool:
+    """Verify a complete compact-at-source snapshot quadruple when raw .pt is absent."""
+    xz_path = Path(f"{original_pt}.xz")
+    manifest_path = Path(f"{original_pt}.xz.manifest")
+    meta_path = original_pt.with_suffix(".json")
+    actor_path = original_pt.with_name(f"{original_pt.stem}-actor.pth")
+    digests: dict[Path, str] = {}
+    for member in (xz_path, manifest_path, meta_path, actor_path):
+        sha_sidecar = Path(f"{member}.sha256")
+        complete_sidecar = Path(f"{member}.complete")
+        if not member.is_file() or not sha_sidecar.is_file() or not complete_sidecar.is_file():
+            return False
+        member_sha = digest(member)
+        if sha_sidecar.read_text().strip() != member_sha:
+            return False
+        digests[member] = member_sha
+    try:
+        meta = json.loads(meta_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(meta, dict):
+        return False
+    compact_meta = meta.get("compact_snapshot")
+    if not isinstance(compact_meta, dict):
+        return False
+    deriv = compact_meta.get("derivative")
+    man = compact_meta.get("manifest")
+    if not isinstance(deriv, dict) or not isinstance(man, dict):
+        return False
+    return (
+        compact_meta.get("schema") == "sandbox-a-train-compact-export/v1"
+        and deriv.get("name") == xz_path.name
+        and deriv.get("sha256") == digests[xz_path]
+        and man.get("name") == manifest_path.name
+        and man.get("sha256") == digests[manifest_path]
+    )
+
+
 def validate_input(record: dict, registry: dict | None = None) -> None:
     """Validate content identity before a consumer opens numerical arrays."""
     registry = registry or load_registry()
@@ -172,22 +210,30 @@ def validate_input(record: dict, registry: dict | None = None) -> None:
     elif kind == "training-export-derivative":
         # A lossless transport derivative (XZ stream) of a canonical full-state
         # snapshot, or its manifest of the original decoded tensors.  It must be
-        # a completion-last artifact next to its complete original; which
-        # derivative may resume is frozen by the TRAIN-01 runtime allowlist.
+        # a completion-last artifact next to either its complete original raw
+        # .pt or a complete compact-at-source quadruple (.pt.xz, .pt.xz.manifest,
+        # .json with compact_snapshot binding, and -actor.pth); which derivative
+        # may resume is frozen by the TRAIN-01 runtime allowlist.
         match = re.fullmatch(r"(iteration-[0-9]{4}\.pt)\.xz(?:\.manifest)?", path.name)
         if match is None:
             raise ValueError("canonical TRAIN-01 snapshot derivative path required")
         sidecar = Path(str(path) + ".sha256")
         complete = Path(str(path) + ".complete")
         original = path.with_name(match.group(1))
+        orig_sha = Path(str(original) + ".sha256")
+        orig_complete = Path(str(original) + ".complete")
         if (
             not sidecar.is_file()
             or not complete.is_file()
             or sidecar.read_text().strip() != claimed
-            or not original.is_file()
-            or not Path(str(original) + ".sha256").is_file()
-            or not Path(str(original) + ".complete").is_file()
         ):
+            raise ValueError("snapshot derivative lacks completion sidecars or its original")
+        any_raw = original.exists() or orig_sha.exists() or orig_complete.exists()
+        raw_complete = original.is_file() and orig_sha.is_file() and orig_complete.is_file()
+        if any_raw:
+            if not raw_complete:
+                raise ValueError("snapshot derivative lacks completion sidecars or its original")
+        elif not _valid_compact_at_source_quadruple(original):
             raise ValueError("snapshot derivative lacks completion sidecars or its original")
     elif kind == "verified-ledger":
         value = json.loads(path.read_text())

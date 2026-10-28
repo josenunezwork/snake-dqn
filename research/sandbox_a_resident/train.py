@@ -20,6 +20,7 @@ import torch
 from research.sandbox_a_resident.training_acceptance import run_distribution_screen
 from research.sandbox_a_resident.training_compact import (
     materialize_compact_resume,
+    publish_compact_snapshot,
     verify_decoded_state,
 )
 from research.sandbox_a_resident.training_compile import TrainingCompile
@@ -522,6 +523,9 @@ def _progress(output: Path, value: dict[str, Any]) -> None:
     os.replace(temporary, output / "progress.json")
 
 
+SNAPSHOT_FORMATS = ("raw", "compact")
+
+
 def run(
     control: TrainControl,
     *,
@@ -535,10 +539,14 @@ def run(
     monitoring: bool = True,
     on_progress: Callable[[str, Mapping[str, Any]], None] | None = None,
     stop_controller: Sigusr1Controller | None = None,
+    snapshot_format: str = "raw",
+    source_packet_id: str | None = None,
 ) -> dict[str, Any]:
     """Run/resume the bounded trajectory; it never retries failed collection."""
     if type(monitoring) is not bool:
         raise TypeError("monitoring must be boolean")
+    if snapshot_format not in SNAPSHOT_FORMATS:
+        raise ValueError(f"unsupported snapshot_format: {snapshot_format!r}")
     if digest(checkpoint) != "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8":
         raise ValueError("TRAIN-01 requires the pinned B8 s3 checkpoint")
     if digest(frp3) != FRP3_S12_SHA256 or digest(champion) != CHAMPION_SHA256:
@@ -558,6 +566,31 @@ def run(
             and stop_controller.should_stop()
         ):
             raise GracefulSignalStop(interruptible_stage, minibatch_completed=False)
+
+    def _publish_state_snapshot(
+        boundary: int,
+        writer: Callable[[Path], None],
+        *,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        if snapshot_format == "compact":
+            emit("snapshot-compact-start", {"iteration": boundary})
+            published = publish_compact_snapshot(
+                output,
+                boundary,
+                writer,
+                metadata=metadata,
+                source_packet_id=source_packet_id,
+            )
+            emit(
+                "snapshot-compact-complete",
+                {
+                    "iteration": boundary,
+                    "derivative_bytes": published["compact_snapshot"]["derivative"]["size"],
+                },
+            )
+            return published
+        return publish_snapshot(output, boundary, writer, metadata=metadata)
 
     emit("initializing")
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -822,8 +855,7 @@ def run(
                     failed = _snapshot_state(
                         0, control, actor, critic, trainer, task, generator, metrics, failure
                     )
-                    publish_snapshot(
-                        output,
+                    _publish_state_snapshot(
                         0,
                         lambda path, value=failed: torch.save(value, path),
                         metadata={
@@ -1011,8 +1043,7 @@ def run(
             initial = _snapshot_state(
                 0, control, actor, critic, trainer, task, generator, metrics, prep_state
             )
-            publish_snapshot(
-                output,
+            _publish_state_snapshot(
                 0,
                 lambda path, value=initial: torch.save(value, path),
                 metadata={
@@ -1093,8 +1124,7 @@ def run(
                     prep_state,
                     action_window,
                 )
-                publish_snapshot(
-                    output,
+                _publish_state_snapshot(
                     boundary,
                     lambda path, value=state: torch.save(value, path),
                     metadata={
@@ -1201,8 +1231,7 @@ def run(
                     snap_meta["deferred_proxy"] = completed_consistent_row[
                         "proxy_deferred_on_sigusr1"
                     ]
-            publish_snapshot(
-                output,
+            _publish_state_snapshot(
                 boundary_to_write,
                 lambda path, value=state_payload: torch.save(value, path),
                 metadata=snap_meta,
@@ -1299,8 +1328,24 @@ def main() -> int:
             )
         ),
     )
+    parser.add_argument(
+        "--snapshot-format",
+        choices=SNAPSHOT_FORMATS,
+        default=None,
+        help="snapshot persistence format (defaults to SANDBOX_A_SNAPSHOT_FORMAT or compact)",
+    )
+    parser.add_argument(
+        "--source-packet-id",
+        default=os.environ.get("SANDBOX_A_PACKET_ID"),
+        help="optional packet id bound into compact snapshot manifests",
+    )
     args = parser.parse_args()
     control = TrainControl.from_json(json.loads(args.control.read_text()))
+    resolved_snapshot_format = (
+        args.snapshot_format
+        if args.snapshot_format is not None
+        else os.environ.get("SANDBOX_A_SNAPSHOT_FORMAT", "raw" if control.test_only else "compact")
+    )
     stop_controller = Sigusr1Controller(
         grace_seconds=args.sigusr1_grace_seconds,
         max_snapshot_bytes=args.sigusr1_max_snapshot_bytes,
@@ -1325,6 +1370,8 @@ def main() -> int:
                 input_root=args.input_root,
                 on_progress=lambda stage, values: watchdog.progress(stage, values),
                 stop_controller=stop_controller,
+                snapshot_format=resolved_snapshot_format,
+                source_packet_id=args.source_packet_id,
             )
     finally:
         if hasattr(signal, "SIGUSR1") and previous_sigusr1 is not None:
