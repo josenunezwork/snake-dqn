@@ -7,9 +7,11 @@ pmset -g batt | grep 'AC Power' >/dev/null || { echo 'refusing: Mac is on batter
 ioreg -r -k AppleClamshellState | grep '"AppleClamshellState" = No' >/dev/null || {
   echo 'refusing: lid is closed or its state is unknown' >&2; exit 2;
 }
-test -n "${SNAKE_SANDBOX_COLLECTOR_DIR:-}" || {
-  echo "refusing: SNAKE_SANDBOX_COLLECTOR_DIR is required" >&2; exit 2;
-}
+if [ "${5:-}" = "run" ]; then
+  test -n "${SNAKE_SANDBOX_COLLECTOR_DIR:-}" || {
+    echo "refusing: SNAKE_SANDBOX_COLLECTOR_DIR is required" >&2; exit 2;
+  }
+fi
 cd "$REPO"
 umask 077
 exec /usr/bin/caffeinate -is "$PY" -m tools.sandbox.supervisor_v2 "$@"

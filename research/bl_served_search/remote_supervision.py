@@ -100,7 +100,14 @@ def _number(value: Any) -> bool:
     return type(value) in (int, float) and math.isfinite(value) and value >= 0
 
 
-def replay_ordinary(points: list, intervals: list, lifecycles: dict, ledger: dict) -> dict:
+def replay_ordinary(
+    points: list,
+    intervals: list,
+    lifecycles: dict,
+    ledger: dict,
+    *,
+    desktop_background: set[str] | None = None,
+) -> dict:
     """Replay both original ordinary abort paths and sustained service ceiling.
 
     Complete raw point rows retain historical CPU. CPU interval process rows
@@ -137,6 +144,8 @@ def replay_ordinary(points: list, intervals: list, lifecycles: dict, ledger: dic
                 ):
                     raise ValueError("malformed point CPU/executable")
                 kind = host_load.process_kind(row["command"])
+                if digest([at, at, row]) in (desktop_background or ()):
+                    kind = "desktop_renderer"
                 if (
                     not _permitted(row, at, lifecycles)
                     and kind not in host_load.BACKGROUND_KINDS
@@ -210,7 +219,12 @@ def replay_ordinary(points: list, intervals: list, lifecycles: dict, ledger: dic
                         }
                     )
                     continue
+                desktop_verified = digest([a, b, row]) in (desktop_background or ())
                 row["kind"] = host_load.process_kind(row["command"])
+                if desktop_verified:
+                    # The combined reducer independently replays desktop identity
+                    # first. Retain the CPU in the SAME shared background pool.
+                    row["kind"] = "desktop_renderer"
                 group = (
                     "background"
                     if row["kind"] in host_load.BACKGROUND_KINDS

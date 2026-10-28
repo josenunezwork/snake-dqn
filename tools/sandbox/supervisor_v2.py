@@ -46,13 +46,27 @@ def main() -> None:
         )
         return
     args = sys.argv[1:]
-    if len(args) != 6 or args[0] != "--state-dir" or args[2] != "--colab" or args[4] != "run":
+    if (
+        len(args) != 6
+        or args[0] != "--state-dir"
+        or args[2] != "--colab"
+        or args[4] not in {"validate", "run"}
+    ):
         raise ValueError("future collector accepts only exact sandbox run argv")
-    directory = Path(os.environ.get("SNAKE_SANDBOX_COLLECTOR_DIR", ""))
-    if not directory.is_absolute():
-        raise ValueError("SNAKE_SANDBOX_COLLECTOR_DIR must be a fresh absolute path")
-    collector = Collector(directory)
     from tools.sandbox.supervisor import main as qualified_sandbox_main
+
+    if args[4] == "validate":
+        # Validate is allocation-free and must not consume the future journal.
+        qualified_sandbox_main()
+        return
+    from tools.ops.dispatch import sandbox_collector_directory
+
+    packet = json.loads(Path(args[-1]).read_text())
+    expected = sandbox_collector_directory(packet)
+    directory = Path(os.environ.get("SNAKE_SANDBOX_COLLECTOR_DIR", ""))
+    if expected is None or directory != expected or not directory.is_absolute():
+        raise ValueError("collector directory must match the opted-in packet output sibling")
+    collector = Collector(directory)
 
     try:
         with collector_route(collector):

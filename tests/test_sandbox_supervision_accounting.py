@@ -227,6 +227,32 @@ def test_collector_records_short_children_nonzero_exit_and_no_admission(tmp_path
     assert not status["errors"], status["errors"]
 
 
+def test_unpiped_response_does_not_claim_independent_zero_byte_capture(tmp_path) -> None:
+    collector = Collector(tmp_path / "collector")
+    result = collector.run([sys.executable, "-c", "pass"], timeout=5)
+    assert result.returncode == 0
+    collector.seal()
+    end = subject.read_journal(collector.journal.directory)[-1]
+    assert end["response_bytes"] == 0
+    assert end["response_capture"]["independent"] is False
+
+
+@pytest.mark.parametrize("size,invalid", [(65536, False), (65537, True)])
+def test_collector_payload_boundary_preserves_control_result(tmp_path, monkeypatch, size, invalid):
+    collector = Collector(tmp_path / "collector")
+    monkeypatch.setattr(collector, "metadata", lambda *a: ({"template": "usage"}, b""))
+    result = collector.run(
+        [sys.executable, "-c", f"import sys; sys.stdout.write('x' * {size})"],
+        capture_output=True,
+        timeout=5,
+    )
+    assert result.returncode == 0 and len(result.stdout) == size
+    status = collector.seal()
+    assert any("exceeds 65536" in error for error in status["errors"]) is invalid
+    end = subject.read_journal(collector.journal.directory)[-1]
+    assert end["response_bytes"] == size and end["response_capture"]["independent"] is True
+
+
 def test_collector_concurrent_calls_have_unique_operations_and_final_counters(tmp_path) -> None:
     collector = Collector(tmp_path / "collector")
     outputs = []

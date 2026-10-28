@@ -499,6 +499,10 @@ def source_binding(require_clean: bool = True) -> dict[str, Any]:
         Path(__file__).with_name("supervision_identity.py"),
         Path(__file__).with_name("supervision_cpu.py"),
         Path(__file__).with_name("supervision_report.py"),
+        Path(__file__).with_name("combined_policy.py"),
+        Path(__file__).with_name("supervision_dispatch.py"),
+        Path(__file__).with_name("supervision_qualification.py"),
+        Path(__file__).with_name("SUPV2_WIRING_20261028.md"),
         Path(__file__).with_name("production_probe.py"),
         Path(__file__).with_name("isolated_game.py"),
         Path(__file__).with_name("dto_split.py"),
@@ -650,7 +654,8 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
         (raw.get("lease") or {}).get("monitor_status") == "INVALID"
     ):
         return {"verdict": "INVALID", "reason": "missing or contaminated host evidence"}
-    supervised = raw.get("load_policy") == "classified-supervised-v2"
+    combined = raw.get("load_policy") == "classified-desktop-supervised-v2"
+    supervised = raw.get("load_policy") == "classified-supervised-v2" or combined
     desktop = raw.get("load_policy") == "classified-desktop-v1"
     classified = raw.get("load_policy") == "classified-v1" or supervised or desktop
     if raw.get("load_policy") != raw.get("host", {}).get("load_policy"):
@@ -660,12 +665,17 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
         "classified-v1",
         "classified-supervised-v2",
         "classified-desktop-v1",
+        "classified-desktop-supervised-v2",
     ):
         return {"verdict": "INVALID", "reason": "unsupported host load policy"}
     expected_schema = (
-        "served-tick-host/v4"
-        if desktop
-        else ("served-tick-host/v3" if supervised else "served-tick-host/v2")
+        "served-tick-host/v5"
+        if combined
+        else (
+            "served-tick-host/v4"
+            if desktop
+            else ("served-tick-host/v3" if supervised else "served-tick-host/v2")
+        )
     )
     if classified and raw["host"].get("schema") != expected_schema:
         return {"verdict": "INVALID", "reason": "classified host schema differs"}
@@ -683,8 +693,13 @@ def reduce_trace(raw: Mapping[str, Any]) -> dict[str, Any]:
         from research.bl_served_search.supervision_io import replay_host
 
         try:
-            supervision = replay_host(raw["host"], raw.get("supervision_intent", {}))
-        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            if combined:
+                from research.bl_served_search.combined_policy import replay_host as replay_combined
+
+                supervision = replay_combined(raw)
+            else:
+                supervision = replay_host(raw["host"], raw.get("supervision_intent", {}))
+        except (KeyError, TypeError, ValueError, AttributeError, RuntimeError) as exc:
             return {"verdict": "INVALID", "reason": f"supervision evidence: {exc}"}
     arms: list[dict[str, Any]] = []
     for cell in raw.get("cells", []):
@@ -1304,6 +1319,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host-only-seconds", type=int)
     parser.add_argument("--qualification-receipt", type=Path)
     parser.add_argument(
+        "--load-policy",
+        choices=["classified-desktop-supervised-v2"],
+        help="prospective combined policy; requires a complete qualified live supervision observer",
+    )
+    parser.add_argument(
         "--classified-host-load",
         action="store_true",
         help="record macOS/desktop background CPU covariates; abort sustained >150%% for >60s",
@@ -1316,12 +1336,29 @@ def main(argv: list[str] | None = None) -> int:
         or args.host_only_seconds is not None
     ):
         parser.error("desktop observation receipt is only an input to the full desktop panel")
-    if args.desktop_app_registry is not None and (
-        args.remote_supervision_registry is not None or args.classified_host_load
+    combined = args.load_policy == "classified-desktop-supervised-v2"
+    if combined and (
+        args.desktop_app_registry is None
+        or args.remote_supervision_registry is None
+        or not args.classified_host_load
+        or args.smoke
+        or args.reduce is not None
+    ):
+        parser.error(
+            "combined policy requires desktop and supervision registries and classified load"
+        )
+    if (
+        not combined
+        and args.desktop_app_registry is not None
+        and (args.remote_supervision_registry is not None or args.classified_host_load)
     ):
         parser.error("desktop policy is distinct; do not combine classification policies")
     if args.host_only_seconds is not None:
-        if args.desktop_app_registry is not None and not 120 <= args.host_only_seconds <= 450:
+        if (
+            not combined
+            and args.desktop_app_registry is not None
+            and not 120 <= args.host_only_seconds <= 450
+        ):
             parser.error("desktop host-only observation requires 120..450 seconds")
         if args.desktop_app_registry is None and not 1 <= args.host_only_seconds <= 600:
             parser.error("host-only observation requires 1..600 seconds")

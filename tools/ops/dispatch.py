@@ -512,11 +512,36 @@ def require_no_control_priority_drift() -> None:
 
 def supervisor_launcher(broker: Path, manifest: dict[str, Any]) -> Path:
     """Use the explicit host admission adapter only for declared sandbox jobs."""
+    collector = sandbox_collector_directory(manifest)
     if "sandbox_admission" in manifest:
         if broker.resolve() != HERE.parents[1]:
             raise Refused("sandbox adapter must run from the selected broker checkout")
-        return broker / "tools/sandbox/launch.sh"
+        return broker / (
+            "tools/sandbox/launch_v2.sh" if collector is not None else "tools/sandbox/launch.sh"
+        )
     return broker / "research/colab_cli/launch.sh"
+
+
+def sandbox_collector_directory(manifest: dict[str, Any]) -> Path | None:
+    """Resolve an explicit host-only opt-in, never a remote environment control.
+
+    Derive a sibling of the fresh output directory so allocation retries get
+    distinct journals automatically and collection cannot pre-create output_dir.
+    The original packet/preflight digest binds this field like every other byte.
+    """
+    if "sandbox_supervision" not in manifest:
+        return None
+    if (
+        "sandbox_admission" not in manifest
+        or manifest["sandbox_supervision"] != "collector-v2"
+        or not isinstance(manifest.get("output_dir"), str)
+        or not Path(manifest["output_dir"]).is_absolute()
+    ):
+        raise Refused("sandbox_supervision requires sandbox admission and collector-v2")
+    output = Path(manifest["output_dir"])
+    if str(output.resolve()) != str(output):
+        raise Refused("collector output must be a canonical absolute path")
+    return output.with_name(output.name + ".supervision")
 
 
 def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
@@ -565,9 +590,11 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         "sandbox_a",
         "sandbox_source_delivery",
         "completion_attempt",
+        "sandbox_supervision",
     }
     if set(manifest) - allowed_keys:
         raise Refused("sandbox forbids canary, registered-study or unknown controls")
+    sandbox_collector_directory(manifest)
     packages = {
         "research/sandbox_b_heads/run_job.sh": "sandbox-b-heads-v1",
         "research/sandbox_b_heads/run_b2.sh": "sandbox-b-heads-v2",
@@ -686,6 +713,11 @@ def validate(
 ) -> None:
     """Run real validation; launch.sh --check would only print and return."""
     packet = read_json(manifest)
+    colab = Path.home() / ".local/bin/colab"
+    if sandbox_collector_directory(packet) is not None:
+        # The supervision registry binds exact argv AND canonical CLI source.
+        # Keep the venv shebang script, but resolve the ~/.local/bin alias.
+        colab = colab.resolve()
     timeout_seconds = (
         SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS
         if "sandbox_admission" in packet
@@ -698,7 +730,7 @@ def validate(
                 "--state-dir",
                 str(state),
                 "--colab",
-                str(Path.home() / ".local/bin/colab"),
+                str(colab),
                 "validate",
                 str(manifest),
             ],
@@ -730,14 +762,23 @@ def start(
     small_bench_config: Path | None = None,
 ) -> None:
     """Submit one shell command with preserved argument boundaries and exit evidence."""
+    packet = read_json(manifest)
+    collector = sandbox_collector_directory(packet)
+    if collector is not None and (collector.exists() or collector.is_symlink()):
+        raise Refused("collector evidence path already exists")
+    if collector is not None and (control_nice0 or small_bench_config is not None):
+        raise Refused("collector-v2 cannot be combined with another host launch adapter")
+    colab = Path.home() / ".local/bin/colab"
+    if collector is not None:
+        colab = colab.resolve()
     log.touch(exist_ok=False)
     register(log.parent.parent, log, name)
     launcher = [
-        str(supervisor_launcher(broker, read_json(manifest))),
+        str(supervisor_launcher(broker, packet)),
         "--state-dir",
         str(state),
         "--colab",
-        str(Path.home() / ".local/bin/colab"),
+        str(colab),
         "run",
         str(manifest),
     ]
@@ -763,6 +804,8 @@ def start(
             *launcher,
         ]
     environment_items = ["env", f"HOME={Path.home()}", f'PATH={os.environ["PATH"]}']
+    if collector is not None:
+        environment_items.append(f"SNAKE_SANDBOX_COLLECTOR_DIR={collector}")
     if small_bench_config is not None:
         environment_items.append(f"SNAKE_SMALL_BENCH_CONFIG={small_bench_config}")
     if control_nice0:
@@ -1978,6 +2021,9 @@ def dispatch(args: argparse.Namespace) -> str:
     if not isinstance(output, str) or not Path(output).is_absolute():
         raise Refused("manifest output_dir must be absolute")
     output = str(Path(output).resolve())
+    collector = sandbox_collector_directory(value)
+    if collector is not None and (collector.exists() or collector.is_symlink()):
+        raise Refused("collector evidence path already exists")
     if not isinstance(value.get("job_id"), str) or not value["job_id"]:
         raise Refused("manifest job_id must be nonempty")
     commit = value.get("commit")

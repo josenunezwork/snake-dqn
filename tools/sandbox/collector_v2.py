@@ -46,10 +46,33 @@ class Collector:
             "root_process_id": self.parent,
             "capability": accounting.CAPABILITY,
             "sources": self.sources(),
+            "startup": self.startup(),
         }
         context_hash = accounting.sha256_bytes(accounting._canonical_json(context))
         self.journal = accounting.ImmutableJournal(directory, context_sha256=context_hash)
         export_json(directory / "collector.json", context)
+
+    @staticmethod
+    def startup() -> dict[str, Any]:
+        """Publish non-secret identity before control starts, never attach later."""
+        import psutil
+
+        from research.bl_served_search.supervision_io import file_digest
+
+        process = psutil.Process(os.getpid())
+        argv = process.cmdline()
+        result = {
+            "pid": process.pid,
+            "uid": process.uids().real,
+            "birth_ns": round(process.create_time() * 1_000_000) * 1000,
+            "argv": argv,
+            "cwd": str(Path.cwd().resolve()),
+            "interpreter": str(Path(process.exe()).resolve(strict=True)),
+        }
+        if len(argv) == 9 and argv[1:3] == ["-m", "tools.sandbox.supervisor_v2"]:
+            path = Path(argv[-1]).resolve(strict=True)
+            result.update(manifest=str(path), manifest_sha256=file_digest(path))
+        return result
 
     @staticmethod
     def sources() -> dict[str, str]:
@@ -240,6 +263,10 @@ class Collector:
             if kwargs.get("stdout") is not None or kwargs.get("stderr") is not None:
                 raise ValueError("stdout/stderr may not be used with capture_output")
             kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        response_captured = kwargs.get("stdout") == subprocess.PIPE and kwargs.get("stderr") in (
+            subprocess.PIPE,
+            subprocess.STDOUT,
+        )
         # Capture raw pipe bytes before the qualified caller's text decoding and
         # newline translation, preserving exact application payload digests.
         text = kwargs.pop("text", None)
@@ -420,9 +447,21 @@ class Collector:
         finally:
 
             response = (output or b"") + (error or b"")
+            if metadata["template"] in accounting.ALLOWED_TEMPLATES:
+                with self._lock:
+                    if not response_captured:
+                        self.errors.append("permitted operation response not fully captured")
+                    if len(request) + len(response) > accounting.MAX_APPLICATION_PAYLOAD_BYTES:
+                        self.errors.append(
+                            "permitted operation application payload exceeds 65536 bytes"
+                        )
             try:
                 accounting.record_operation_end(
-                    self.journal, oid, request=request, response=response
+                    self.journal,
+                    oid,
+                    request=request,
+                    response=response,
+                    response_captured=response_captured,
                 )
             except Exception as exc:
                 self.errors.append("operation completion: " + type(exc).__name__)

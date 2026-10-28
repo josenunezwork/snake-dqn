@@ -99,6 +99,7 @@ def _registry_from_identity(
             cwd / "tools/sandbox" / name
             for name in ("collector_v2.py", "supervision_accounting.py", "supervisor.py")
         )
+        paths.extend((cwd / "tools/sandbox/launch_v2.sh", cwd / "tools/ops/dispatch.py"))
     sources = {str(path.resolve(strict=True)): file_digest(path) for path in paths}
     colab = Path(argv[6]).resolve(strict=True)
     with colab.open("rb") as handle:
@@ -247,6 +248,14 @@ def policy_sources() -> dict[str, str]:
         "supervision_identity.py",
         "supervision_cpu.py",
         "supervision_report.py",
+        "combined_policy.py",
+        "supervision_dispatch.py",
+        "supervision_qualification.py",
+        "desktop_apps.py",
+        "desktop_policy.py",
+        "DESKTOP_APPS_AMENDMENT_20261027.md",
+        "ASTRA_DESKTOP_RULING_20261027.md",
+        "SUPV2_WIRING_20261028.md",
         "host_load.py",
         "background_report.py",
         "served_tick_probe.py",
@@ -262,6 +271,17 @@ def policy_sources() -> dict[str, str]:
         "tools/sandbox/supervision_accounting.py": file_digest(
             base.parents[1] / "tools/sandbox/supervision_accounting.py"
         ),
+        **{
+            name: file_digest(base.parents[1] / name)
+            for name in (
+                "tools/sandbox/launch_v2.sh",
+                "tools/sandbox/source_delivery.py",
+                "tools/ops/dispatch.py",
+                "research/colab_cli/supervisor.py",
+                "research/colab_cli/policy.py",
+                "research/colab_cli/cli_guard.py",
+            )
+        },
         "research/bl_paced_identity/events.py": file_digest(
             base.parent / "bl_paced_identity/events.py"
         ),
