@@ -220,6 +220,9 @@ def seal(
     lines = [json.dumps(k) + ": " + json.dumps(v, sort_keys=True) for k, v in sandbox.items()]
     (packet / "sandbox.json").write_text("{" + ",\n".join(lines) + "}\n")
     command = (
+        "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 "
+        "VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 "
+        "SNAKE_DQN_DEVICE=cpu nice -n 15 "
         f"{broker}/tools/ops/dispatch.sh {identity} {target}/dispatch-manifest.json "
         f"--broker {broker} --cwd {runtime} --state-dir {ARTIFACTS}/{attempt_name}/state "
         f"--dispatch-txt {target}/DISPATCH.txt"
