@@ -1,0 +1,12 @@
+TRAIN-01-16: prepared only; operator dispatch required.
+Runtime pin: 5cad044f3d9725a0ddbb967998b82c6eb9cb7739
+Fresh independent replication of train01-15: starts from B8 with full E24 calibration + E360 resident critic prep (no resume, empty verified-ledger.json).
+Same recipe & float64 log_softmax legal KL/entropy as train01-15; independent seed domain (allocation_index=1, train_seed_offset=1000000000).
+Monitor (400000000, 288 worlds) and nomination (500000000, 768 worlds) banks identical to train01-15; exhaustive 114,299,008-root seed audit + 228.6M cross-run disjointness audit PASS.
+Source delivery: background-sparse-v1 (spawn-only <2 s); 5 fixed inputs (~12.2 MB, 12%/21% of 300 s upload cap); progress <=60 s; faulthandler stall watchdog 900 s.
+Measured A100 wall-time projection: 21.75 h nominal (22.82 h conservative) -> 23.0 h base (1380 min) / 46.0 h 2x guard (2760 min), unit_cap=369.0 u.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-16-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-16 /Users/josenunez/Projects/ml/snake-dqn-train01-16-broker.noindex/research/sandbox_a_resident/packet-train01-16/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-16-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-16-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-16/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-16-broker.noindex/research/sandbox_a_resident/packet-train01-16/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve detached checkouts and prior evidence.

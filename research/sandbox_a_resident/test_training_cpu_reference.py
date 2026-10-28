@@ -27,6 +27,12 @@ def test_cpu_reference_uses_public_mix_partition_roots() -> None:
     assert _seed("scripted", 0) == _seed("scripted", 0)
     assert _seed("scripted", 0) != _seed("frozen", 0)
     assert _seed("mixed", 31) != _seed("mixed", 31, 1)
+    assert _seed("scripted", 0, root_offset=1_600_000_000) != _seed("scripted", 0)
+    task = CpuRosterTask("scripted", 2, 5000, checkpoint_paths=_paths(), root_offset=1_600_000_000)
+    assert task._shard.seeds == [
+        _seed("scripted", 0, root_offset=1_600_000_000),
+        _seed("scripted", 1, root_offset=1_600_000_000),
+    ]
 
 
 def test_cpu_reference_closes_over_sandbox_and_src_only() -> None:
