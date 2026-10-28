@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import copy
+import io
 import json
+import math
+from dataclasses import asdict
 from decimal import Decimal, localcontext
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -598,8 +602,11 @@ def test_legal_probability_underflow_contributes_exact_log_space_term() -> None:
 
     kl = masked_categorical_kl(ref_dist, act_dist, mask)
     entropy = masked_categorical_entropy(ref_dist, mask)
-    assert kl.item() > 0.0 and torch.equal(kl, expected_kl)
-    assert entropy.item() > 0.0 and torch.equal(entropy, expected_entropy)
+    assert kl.dtype == torch.float32 and entropy.dtype == torch.float32
+    assert kl.item() > 0.0
+    assert entropy.item() > 0.0
+    torch.testing.assert_close(kl, expected_kl, rtol=3e-3, atol=1.5e-45)
+    torch.testing.assert_close(entropy, expected_entropy, rtol=3e-2, atol=1.5e-45)
     (kl.sum() + entropy.sum()).backward()
     assert act_logits.grad is not None and torch.isfinite(act_logits.grad).all()
     assert torch.equal(act_logits.grad[:, 2:], torch.zeros((1, 4)))
@@ -612,7 +619,7 @@ def test_legal_probability_underflow_contributes_exact_log_space_term() -> None:
         [_f32(_dec_kl([0.0, -104.0], [0.0, float(torch.tensor(-1e38).item())]))]
     )
     extreme_kl = masked_categorical_kl(ref_dist, act_extreme, mask)
-    assert torch.equal(extreme_kl, expected_extreme_kl)
+    torch.testing.assert_close(extreme_kl, expected_extreme_kl, rtol=3e-7, atol=0.0)
     assert extreme_kl.item() == pytest.approx(6.8135566e-8, rel=1e-6)
 
     # Genuinely absent support (~legal) contributes exact 0.0 even with extreme logits.
@@ -632,6 +639,11 @@ _SATURATED_CASES = [
     (2, [0.0, -40.0], [0.0, -40.0]),
     (2, [0.0, -40.0], [0.0, -41.0]),
     (2, [0.0, -100.0], [0.0, -104.0]),
+    (2, [0.0, -1000.0], [0.0, 1.0]),
+    (2, [0.0, -1000.0], [0.0, 1e-6]),
+    (2, [0.0, -710.0], [-710.0, 0.0]),
+    (2, [0.0, -1000.0], [-1000.0, 0.0]),
+    (3, [0.0, -1000.0, -500.0], [-800.0, 2.0, 1.0]),
     (3, [0.0, -38.5, -39.0], [0.0, -38.5, -39.25]),
     (3, [5.0, 5.0, -100.0], [5.0, 4.999999, -101.0]),
     (3, [-3.0, 20.0, -80.0], [-3.5, 20.0, -79.0]),
@@ -640,15 +652,17 @@ _SATURATED_CASES = [
 ]
 
 
-def _padded(values: list[float], fill: float) -> torch.Tensor:
-    return torch.tensor([values + [fill] * (6 - len(values))], dtype=torch.float32)
+def _padded(
+    values: list[float], fill: float, *, dtype: torch.dtype = torch.float32
+) -> torch.Tensor:
+    return torch.tensor([values + [fill] * (6 - len(values))], dtype=dtype)
 
 
 @pytest.mark.parametrize("legal_count,reference,actor", _SATURATED_CASES)
 def test_saturated_kl_entropy_and_gradients_match_independent_decimal_oracle(
     legal_count: int, reference: list[float], actor: list[float]
 ) -> None:
-    """Values and analytic gradients are correctly rounded float32 of a 100-digit oracle."""
+    """Values and autograd gradients match the 100-digit oracle (float64 then float32 cast)."""
     torch.set_num_threads(1)
     mask = torch.tensor([[index < legal_count for index in range(6)]])
     ref_raw = _padded(reference, 77.0).requires_grad_(True)
@@ -663,37 +677,245 @@ def test_saturated_kl_entropy_and_gradients_match_independent_decimal_oracle(
     kl = masked_categorical_kl(ref_dist, act_dist, mask)
     entropy = masked_categorical_entropy(act_dist, mask)
     assert kl.dtype == torch.float32 and entropy.dtype == torch.float32
-    assert torch.equal(kl, torch.tensor([_f32(_dec_kl(ref_values, act_values))]))
-    assert torch.equal(entropy, torch.tensor([_f32(_dec_entropy(act_values))]))
+    torch.testing.assert_close(
+        kl, torch.tensor([_f32(_dec_kl(ref_values, act_values))]), rtol=3e-7, atol=1e-15
+    )
+    torch.testing.assert_close(
+        entropy, torch.tensor([_f32(_dec_entropy(act_values))]), rtol=3e-7, atol=1e-15
+    )
 
     grad_ref, grad_act = torch.autograd.grad(kl.sum(), (ref_logits, act_logits))
     (grad_entropy,) = torch.autograd.grad(entropy.sum(), (act_logits,))
     pad = [0.0] * (6 - legal_count)
+    assert torch.equal(grad_ref[:, legal_count:], torch.zeros((1, 6 - legal_count)))
+    assert torch.equal(grad_act[:, legal_count:], torch.zeros((1, 6 - legal_count)))
+    assert torch.equal(grad_entropy[:, legal_count:], torch.zeros((1, 6 - legal_count)))
     expected_ref = [_f32(v) for v in _dec_kl_reference_grad(ref_values, act_values)] + pad
     expected_act = [_f32(v) for v in _dec_kl_actor_grad(ref_values, act_values)] + pad
     expected_entropy = [_f32(v) for v in _dec_entropy_grad(act_values)] + pad
-    assert torch.equal(grad_ref, torch.tensor([expected_ref]))
-    assert torch.equal(grad_act, torch.tensor([expected_act]))
-    assert torch.equal(grad_entropy, torch.tensor([expected_entropy]))
+    torch.testing.assert_close(grad_ref, torch.tensor([expected_ref]), rtol=3e-7, atol=1e-15)
+    torch.testing.assert_close(grad_act, torch.tensor([expected_act]), rtol=3e-7, atol=1e-15)
+    torch.testing.assert_close(
+        grad_entropy, torch.tensor([expected_entropy]), rtol=3e-7, atol=1e-15
+    )
 
 
 def test_review_saturated_examples_are_correctly_rounded() -> None:
-    """The TRAIN01-13 review's three numerical counterexamples now round correctly."""
+    """The TRAIN01-13 review's three saturated tail cases retain positive float64->float32 terms."""
     mask = torch.tensor([[True, True, False, False, False, False]])
     ref = categorical(_padded([0.0, -104.0], 0.0), mask)
-    assert masked_categorical_kl(
-        ref, categorical(_padded([0.0, -108.0], 0.0), mask), mask
-    ).item() == (1.401298464324817e-45)
-    assert masked_categorical_kl(
-        ref, categorical(_padded([0.0, -1000.0], 0.0), mask), mask
-    ).item() == (6.095648319812954e-43)
+    kl_108 = masked_categorical_kl(ref, categorical(_padded([0.0, -108.0], 0.0), mask), mask)
+    assert kl_108.item() > 0.0
+    assert kl_108.item() == pytest.approx(float(_dec_kl([0.0, -104.0], [0.0, -108.0])), abs=1.5e-45)
+    kl_1000 = masked_categorical_kl(ref, categorical(_padded([0.0, -1000.0], 0.0), mask), mask)
+    assert kl_1000.item() > 0.0
+    assert kl_1000.item() == pytest.approx(
+        float(_dec_kl([0.0, -104.0], [0.0, -1000.0])), abs=1.5e-45
+    )
     logits = _padded([0.0, -40.0], 0.0).requires_grad_(True)
     entropy = masked_categorical_entropy(categorical(logits, mask), mask)
-    assert entropy.item() == 1.7418251854950444e-16
+    assert entropy.item() > 0.0
+    assert entropy.item() == pytest.approx(float(_dec_entropy([0.0, -40.0])), abs=1e-17)
     (grad,) = torch.autograd.grad(entropy.sum(), (logits,))
-    assert grad[0, 1].item() == 1.699341718629913e-16
-    assert grad[0, 0].item() == -1.699341718629913e-16
+    assert grad[0, 1].item() == pytest.approx(
+        float(_dec_entropy_grad([0.0, -40.0])[1]), rel=3e-7, abs=1e-17
+    )
+    assert grad[0, 0].item() == pytest.approx(
+        float(_dec_entropy_grad([0.0, -40.0])[0]), rel=3e-7, abs=2.5e-16
+    )
     assert torch.equal(grad[0, 2:], torch.zeros(4))
+
+
+def test_astra_opposite_dominant_overflow_counterexamples_and_learner_paths(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Astra TRAIN01-14 MAJOR regressions: opposite-dominant actor and saturated reference."""
+    torch.set_num_threads(1)
+    mask = torch.tensor([[True, True, False, False, False, False]])
+    cases = [
+        ([0.0, -1000.0], [0.0, 1.0], 1.31326162815094, [-0.7310585975646973, 0.7310585975646973]),
+        (
+            [0.0, -1000.0],
+            [0.0, 1e-6],
+            0.6931476593017578,
+            [-0.5000002384185791, 0.5000002384185791],
+        ),
+        ([0.0, -710.0], [-710.0, 0.0], 710.0, [-1.0, 1.0]),
+        ([0.0, -1000.0], [-1000.0, 0.0], 1000.0, [-1.0, 1.0]),
+    ]
+    for ref_vals, act_vals, expected_kl, expected_grad in cases:
+        ref_raw = _padded(ref_vals, 50.0)
+        act_raw = _padded(act_vals, -50.0).requires_grad_(True)
+        kl = masked_categorical_kl(categorical(ref_raw, mask), categorical(act_raw, mask), mask)
+        assert kl.dtype == torch.float32 and torch.isfinite(kl).all()
+        assert kl.item() == expected_kl
+        (grad_act,) = torch.autograd.grad(kl.sum(), (act_raw,))
+        assert torch.isfinite(grad_act).all()
+        assert torch.equal(grad_act[:, 2:], torch.zeros((1, 4)))
+        torch.testing.assert_close(
+            grad_act[:, :2],
+            torch.tensor([expected_grad], dtype=torch.float32),
+            rtol=3e-7,
+            atol=1e-7,
+        )
+
+    # Exercise both PPOTrainer.update paths (ordinary actor step and old-KL stop latch)
+    # with diagnostics disabled and enabled on oppositely saturated finite legal logits.
+    for trigger_stop in (False, True):
+        for diag_flag in (False, True):
+            b8 = Ego2sNet(local_channels=7, n_scalars=60)
+            actor, critic = B8Actor(b8_model=b8), ClockedPopArtCritic(b8)
+            with torch.no_grad():
+                actor.adv.weight.zero_()
+                actor.adv.bias.copy_(
+                    torch.tensor([-1000.0, 0.0, 25.0, -25.0, 5.0, -5.0], dtype=torch.float32)
+                )
+            monkeypatch.setattr(
+                actor,
+                "reference_logits",
+                lambda local, glob, scalars: torch.tensor(
+                    [0.0, -1000.0, -30.0, 30.0, -8.0, 8.0],
+                    dtype=scalars.dtype,
+                    device=scalars.device,
+                ).expand(local.shape[0], 6),
+            )
+            rollout = make_rollout(actor, critic, time=2, worlds=3)
+            rollout.legal_masks.copy_(
+                torch.tensor([True, True, False, False, False, False]).expand_as(
+                    rollout.legal_masks
+                )
+            )
+            rollout.actions.fill_(1)
+            with torch.no_grad():
+                flat_logits = actor(
+                    rollout.local.flatten(0, 1),
+                    rollout.glob.flatten(0, 1),
+                    rollout.scalars.flatten(0, 1),
+                )
+                rollout.logp.copy_(
+                    categorical(flat_logits, rollout.legal_masks.flatten(0, 1))
+                    .log_prob(rollout.actions.flatten())
+                    .reshape_as(rollout.logp)
+                )
+                if trigger_stop:
+                    rollout.logp.sub_(10.0)
+            trainer = PPOTrainer(actor, critic, PPOConfig(minibatch=3))
+            before_adv_bias = actor.adv.bias.detach().clone()
+            capsys.readouterr()
+            result = trainer.update(rollout, diagnostics=diag_flag)
+            captured = capsys.readouterr().out
+            assert all(
+                torch.isfinite(torch.as_tensor(val)).all().item()
+                for val in result.values()
+                if isinstance(val, (int, float))
+            )
+            if trigger_stop:
+                assert result["actor_stopped"] == 1.0
+                assert result["stopped_epochs"] == 2.0
+                assert torch.equal(actor.adv.bias, before_adv_bias)
+                if diag_flag:
+                    assert result["actor_optimizer_steps"] == 0.0
+                    assert math.isclose(result["reference_kl"], 1000.0, rel_tol=3e-7)
+            else:
+                assert result["actor_stopped"] == 0.0
+                assert result["stopped_epochs"] == 0.0
+                # Minibatch 1 evaluates at 1000.0, and the finite actor gradient pulls
+                # subsequent minibatches strictly toward the reference (< 1000.0).
+                assert 999.0 < result["reference_kl"] < 1000.0
+                assert not torch.equal(actor.adv.bias, before_adv_bias)
+                if diag_flag:
+                    assert result["actor_optimizer_steps"] == 4.0
+            progress_lines = [
+                json.loads(line.removeprefix("TRAIN01_PROGRESS ").strip())
+                for line in captured.splitlines()
+                if line.startswith("TRAIN01_PROGRESS ")
+            ]
+            assert progress_lines == [
+                {
+                    "finite": True,
+                    "first_nonfinite_term": None,
+                    "stage": "learner-finite-check",
+                    "update": 1,
+                }
+            ]
+
+
+def test_kl_and_entropy_gradients_match_float64_finite_differences() -> None:
+    """Autograd gradients match float64 central finite differences (float64 and float32 paths)."""
+    torch.set_num_threads(1)
+    fd_cases = [
+        ([True, True, False, False, False, False], [0.0, -1000.0], [0.0, 1.0]),
+        ([True, True, False, False, False, False], [0.0, -1000.0], [0.0, 1e-6]),
+        ([True, True, False, False, False, False], [0.3, -0.7], [0.1, 0.2]),
+        ([True, True, True, False, False, False], [0.0, -50.0, -2.0], [-30.0, 2.0, 1.5]),
+        ([False, False, False, False, False, False], [0.5, -1.2, 0.3], [-0.4, 0.9, -0.1]),
+        (
+            [True, True, True, True, True, True],
+            [0.2, -1.5, 0.7, -3.0, 1.1, -0.4],
+            [-0.6, 0.8, -0.2, 1.3, -2.1, 0.5],
+        ),
+    ]
+    h = 1e-6
+    for mask_row, ref_legal, act_legal in fd_cases:
+        mask = torch.tensor([mask_row], dtype=torch.bool)
+        ref64 = _padded(ref_legal, 17.0, dtype=torch.float64).requires_grad_(True)
+        act64 = _padded(act_legal, -19.0, dtype=torch.float64).requires_grad_(True)
+        assert torch.autograd.gradcheck(
+            lambda r, a: masked_categorical_kl(categorical(r, mask), categorical(a, mask), mask),
+            (ref64, act64),
+            eps=h,
+            atol=1e-9,
+            rtol=1e-7,
+        )
+        assert torch.autograd.gradcheck(
+            lambda a: masked_categorical_entropy(categorical(a, mask), mask),
+            (act64,),
+            eps=h,
+            atol=1e-9,
+            rtol=1e-7,
+        )
+
+        # Also check the production float32 input -> float32 output path against float64 central FD.
+        ref32 = _padded(ref_legal, 17.0, dtype=torch.float32).requires_grad_(True)
+        act32 = _padded(act_legal, -19.0, dtype=torch.float32).requires_grad_(True)
+        kl32 = masked_categorical_kl(categorical(ref32, mask), categorical(act32, mask), mask)
+        ent32 = masked_categorical_entropy(categorical(act32, mask), mask)
+        assert kl32.dtype == torch.float32 and ent32.dtype == torch.float32
+        grad_ref32, grad_act32 = torch.autograd.grad(kl32.sum(), (ref32, act32))
+        (grad_ent32,) = torch.autograd.grad(ent32.sum(), (act32,))
+
+        ref_base = ref32.detach().to(torch.float64)
+        act_base = act32.detach().to(torch.float64)
+        fd_ref = torch.zeros_like(ref_base)
+        fd_act = torch.zeros_like(act_base)
+        fd_ent = torch.zeros_like(act_base)
+        with torch.no_grad():
+            for j in range(6):
+                step = torch.zeros_like(act_base)
+                step[0, j] = h
+                kl_p = masked_categorical_kl(
+                    categorical(ref_base, mask), categorical(act_base + step, mask), mask
+                )
+                kl_m = masked_categorical_kl(
+                    categorical(ref_base, mask), categorical(act_base - step, mask), mask
+                )
+                fd_act[0, j] = (kl_p.item() - kl_m.item()) / (2.0 * h)
+
+                rkl_p = masked_categorical_kl(
+                    categorical(ref_base + step, mask), categorical(act_base, mask), mask
+                )
+                rkl_m = masked_categorical_kl(
+                    categorical(ref_base - step, mask), categorical(act_base, mask), mask
+                )
+                fd_ref[0, j] = (rkl_p.item() - rkl_m.item()) / (2.0 * h)
+
+                ent_p = masked_categorical_entropy(categorical(act_base + step, mask), mask)
+                ent_m = masked_categorical_entropy(categorical(act_base - step, mask), mask)
+                fd_ent[0, j] = (ent_p.item() - ent_m.item()) / (2.0 * h)
+
+        torch.testing.assert_close(grad_act32.double(), fd_act, rtol=1e-5, atol=1e-6)
+        torch.testing.assert_close(grad_ref32.double(), fd_ref, rtol=1e-5, atol=1e-6)
+        torch.testing.assert_close(grad_ent32.double(), fd_ent, rtol=1e-5, atol=1e-6)
 
 
 def test_probability_validation_is_independent_of_lazy_logits_cache() -> None:
@@ -743,12 +965,11 @@ def test_probability_validation_is_independent_of_lazy_logits_cache() -> None:
 
 
 def test_seeded_oracle_sweep_values_and_actor_gradients_are_correctly_rounded() -> None:
-    """Seeded saturated/close/extreme sweep against the independent Decimal oracle.
+    """Seeded saturated/close/opposite-dominant sweep against the 100-digit Decimal oracle.
 
-    KL, entropy and the actor/entropy gradients used by PPO must be correctly
-    rounded float32.  The frozen reference's gradient (never used by training;
-    reference logits are computed under ``no_grad``) is bounded at float64
-    resolution: one float32 ulp at exact float32 rounding midpoints.
+    Values and autograd gradients (float64 log_softmax then float32 cast) must
+    agree with the Decimal oracle within float64-then-float32 rounding
+    (rtol=3e-7, atol=1e-15), with exact 0.0 on illegal entries.
     """
     import random
 
@@ -756,17 +977,24 @@ def test_seeded_oracle_sweep_values_and_actor_gradients_are_correctly_rounded() 
     for _ in range(150):
         count = rng.randint(2, 6)
         reference = [
-            rng.choice([0.0, rng.uniform(-120, 0), rng.uniform(-5, 5)]) for _ in range(count)
+            rng.choice([0.0, rng.uniform(-1000, 0), rng.uniform(-10, 10)]) for _ in range(count)
         ]
-        actor = [
-            value
-            + rng.choice(
-                [0.0, 0.0, rng.uniform(-1e-5, 1e-5), rng.uniform(-1, 1), rng.uniform(-50, 50)]
-            )
-            for value in reference
-        ]
+        if rng.random() < 0.35:
+            actor = [
+                rng.choice([0.0, rng.uniform(-1000, 0), rng.uniform(-10, 10)]) for _ in range(count)
+            ]
+        else:
+            actor = [
+                value
+                + rng.choice(
+                    [0.0, 0.0, rng.uniform(-1e-5, 1e-5), rng.uniform(-1, 1), rng.uniform(-50, 50)]
+                )
+                for value in reference
+            ]
         if rng.random() < 0.1:
-            actor[rng.randrange(count)] = -1e38
+            tail_idx = rng.randrange(count)
+            if any(i != tail_idx and actor[i] > -1000.0 for i in range(count)):
+                actor[tail_idx] = -1e38
         mask = torch.tensor([[index < count for index in range(6)]])
         ref_dist = categorical(_padded(reference, 3.0).requires_grad_(True), mask)
         act_dist = categorical(_padded(actor, -3.0).requires_grad_(True), mask)
@@ -775,19 +1003,197 @@ def test_seeded_oracle_sweep_values_and_actor_gradients_are_correctly_rounded() 
         act_values = act_logits.detach()[0, :count].tolist()
         kl = masked_categorical_kl(ref_dist, act_dist, mask)
         entropy = masked_categorical_entropy(act_dist, mask)
-        assert kl.item() == _f32(_dec_kl(ref_values, act_values))
-        assert entropy.item() == _f32(_dec_entropy(act_values))
+        assert kl.dtype == torch.float32 and entropy.dtype == torch.float32
+        torch.testing.assert_close(
+            kl, torch.tensor([_f32(_dec_kl(ref_values, act_values))]), rtol=3e-7, atol=1e-15
+        )
+        torch.testing.assert_close(
+            entropy, torch.tensor([_f32(_dec_entropy(act_values))]), rtol=3e-7, atol=1e-15
+        )
         grad_ref, grad_act = torch.autograd.grad(kl.sum(), (ref_logits, act_logits))
         (grad_entropy,) = torch.autograd.grad(entropy.sum(), (act_logits,))
         pad = [0.0] * (6 - count)
-        assert (
-            grad_act[0].tolist()
-            == [_f32(v) for v in _dec_kl_actor_grad(ref_values, act_values)] + pad
+        assert torch.equal(grad_ref[:, count:], torch.zeros((1, 6 - count)))
+        assert torch.equal(grad_act[:, count:], torch.zeros((1, 6 - count)))
+        assert torch.equal(grad_entropy[:, count:], torch.zeros((1, 6 - count)))
+        torch.testing.assert_close(
+            grad_act,
+            torch.tensor([[_f32(v) for v in _dec_kl_actor_grad(ref_values, act_values)] + pad]),
+            rtol=3e-7,
+            atol=1e-15,
         )
-        assert grad_entropy[0].tolist() == [_f32(v) for v in _dec_entropy_grad(act_values)] + pad
+        torch.testing.assert_close(
+            grad_entropy,
+            torch.tensor([[_f32(v) for v in _dec_entropy_grad(act_values)] + pad]),
+            rtol=3e-7,
+            atol=1e-15,
+        )
         torch.testing.assert_close(
             grad_ref,
             torch.tensor([[_f32(v) for v in _dec_kl_reference_grad(ref_values, act_values)] + pad]),
-            rtol=1.2e-7,
-            atol=1e-36,
+            rtol=3e-7,
+            atol=1e-15,
         )
+
+
+_REAL_EXPORTS = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/"
+    "train01-attempt-11/output/exports/training"
+)
+_REAL_DERIVATIVE = _REAL_EXPORTS / "iteration-0000.pt.xz"
+_REAL_MANIFEST = _REAL_EXPORTS / "iteration-0000.pt.xz.manifest"
+_REAL_SAVED_SNAKES = Path("/Users/josenunez/Projects/ml/snake-dqn/saved_snakes")
+_REAL_B8 = _REAL_SAVED_SNAKES / "b8_s3_t7_20261016.pth"
+_REAL_FRP3 = _REAL_SAVED_SNAKES / "frp3_m3_s12_u60000_20261005.pth"
+_REAL_CHAMPION = _REAL_SAVED_SNAKES / "champion_a5_freespace_20260621.pth"
+
+
+@pytest.mark.skipif(
+    not all(
+        path.is_file()
+        for path in (_REAL_DERIVATIVE, _REAL_MANIFEST, _REAL_B8, _REAL_FRP3, _REAL_CHAMPION)
+    ),
+    reason="train01-11 compact derivative and frozen checkpoints are only on the operator Mac",
+)
+def test_real_compact_derivative_first_update_smoke_on_cpu_has_finite_losses(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Decode real iteration-0000.pt.xz on CPU, restore state, and run first PPO update."""
+    import hashlib
+    import shutil
+    import subprocess
+
+    from research.sandbox_a_resident.train import (
+        CHAMPION_SHA256,
+        FRP3_S12_SHA256,
+        TrainControl,
+        _load_vector61,
+        collect,
+        seed_allocations,
+    )
+    from research.sandbox_a_resident.training_compact import (
+        decode_to_bytes,
+        load_manifest,
+        verify_decoded_state,
+    )
+    from research.sandbox_a_resident.training_rosters import (
+        DeviceRosterRuntime,
+        roster_ids,
+        training_rosters,
+    )
+    from research.sandbox_a_resident.training_task import (
+        ResidentTrainingTask,
+        TrainingTaskConfig,
+    )
+    from research.sandbox_a_resident.training_units import COMPACT_RESUME_ALLOWLIST, unit_id
+
+    torch.set_num_threads(1)
+    frozen_entry = COMPACT_RESUME_ALLOWLIST[unit_id(0)]
+    assert _REAL_DERIVATIVE.stat().st_size == frozen_entry["derivative"]["size"]
+    assert (
+        hashlib.sha256(_REAL_DERIVATIVE.read_bytes()).hexdigest()
+        == frozen_entry["derivative"]["sha256"]
+    )
+    entry = {"schema": "sandbox-a-train-compact-resume/v1", "unit": unit_id(0), **frozen_entry}
+    manifest = load_manifest(_REAL_MANIFEST, entry)
+    xz_bin = shutil.which("xz") or (
+        "/opt/homebrew/bin/xz" if Path("/opt/homebrew/bin/xz").is_file() else None
+    )
+    if xz_bin is not None:
+        decoded = subprocess.check_output([xz_bin, "--threads=1", "-dc", str(_REAL_DERIVATIVE)])
+        assert len(decoded) == frozen_entry["original"]["size"]
+        assert hashlib.sha256(decoded).hexdigest() == frozen_entry["original"]["sha256"]
+    else:
+        decoded = decode_to_bytes(
+            _REAL_DERIVATIVE,
+            expected_size=frozen_entry["original"]["size"],
+            expected_sha256=frozen_entry["original"]["sha256"],
+        )
+    state = torch.load(io.BytesIO(decoded), map_location="cpu", weights_only=False)
+    del decoded
+    verify_decoded_state(state, manifest)
+
+    control = TrainControl(study="sandbox-a-train01", source_commit="0" * 40, allocation_index=0)
+    actor = B8Actor(_REAL_B8)
+    critic = ClockedPopArtCritic(actor.reference)
+    trainer = PPOTrainer(actor, critic, PPOConfig())
+    actor.load_state_dict(state["actor"])
+    critic.load_state_dict(state["critic"])
+    trainer.load_state_dict(state["trainer"])
+    with torch.no_grad():
+        actor.temperature.fill_(float(state["preparation"]["temperature"]))
+
+    # Slice 6 restored real worlds across all 3 opponent mixes (2 scripted, 2 frozen, 2 mixed)
+    # directly from state["task"] so CPU single-thread preflight skips redundant 1024-world reset.
+    all_rosters = training_rosters(control.worlds)
+    assert tuple(state["task"]["rosters"]) == tuple(row.identity for row in all_rosters)
+    all_mix_ids = roster_ids(all_rosters, torch.device("cpu"))
+    rows = torch.tensor(
+        [
+            int((all_mix_ids == mix).nonzero(as_tuple=False)[slot].item())
+            for mix in (0, 1, 2)
+            for slot in (0, 1)
+        ],
+        dtype=torch.long,
+    )
+    allocs = {row["phase"]: row for row in seed_allocations(asdict(control))}
+    train_alloc = allocs["train"]
+    subtask = ResidentTrainingTask(
+        TrainingTaskConfig(
+            worlds=int(rows.numel()),
+            allocation_offset=control.train_seed_offset,
+            allocation_phase_offset=train_alloc["offset"],
+            allocation_count=train_alloc["count"],
+            max_episodes=control.outer_iterations * control.rollout_horizon + 1,
+        ),
+        device="cpu",
+    )
+    for field_name, tensor in state["task"]["sim"].items():
+        getattr(subtask.sim, field_name).copy_(tensor.index_select(0, rows))
+    subtask.sim._prepared = bool(state["task"].get("prepared", False))
+    subtask.rosters = tuple(all_rosters[index] for index in rows.tolist())
+    subtask.roster_id = roster_ids(subtask.rosters, subtask.device)
+    subtask.episode.copy_(state["task"]["episode"].index_select(0, rows))
+    subtask.age.copy_(state["task"]["age"].index_select(0, rows))
+    subtask._pending_reset.copy_(state["task"]["pending_reset"].index_select(0, rows))
+    frozen_nets = {
+        FRP3_S12_SHA256: _load_vector61(_REAL_FRP3, torch.device("cpu")),
+        CHAMPION_SHA256: _load_vector61(_REAL_CHAMPION, torch.device("cpu")),
+    }
+    subtask.attach_opponents(
+        DeviceRosterRuntime(
+            subtask.sim,
+            subtask.rosters,
+            b8_network=actor.reference,
+            checkpoint_networks=frozen_nets,
+        )
+    )
+
+    generator = torch.Generator(device="cpu").manual_seed(20261027)
+    rollout = collect(subtask, actor, critic, 2, generator)
+    capsys.readouterr()
+    result = trainer.update(rollout, diagnostics=True)
+    captured = capsys.readouterr().out
+
+    progress_lines = [
+        json.loads(line.removeprefix("TRAIN01_PROGRESS ").strip())
+        for line in captured.splitlines()
+        if line.startswith("TRAIN01_PROGRESS ")
+    ]
+    assert progress_lines == [
+        {
+            "finite": True,
+            "first_nonfinite_term": None,
+            "stage": "learner-finite-check",
+            "update": 1,
+        }
+    ]
+    for key in ("loss", "policy", "value", "entropy", "reference_kl", "old_kl", "kl_beta"):
+        assert key in result and math.isfinite(float(result[key])), (key, result.get(key))
+    assert all(
+        math.isfinite(float(val)) for val in result.values() if isinstance(val, (int, float))
+    )
+    assert result["entropy"] > 0.0
+    assert result["reference_kl"] >= 0.0
+    for tensor in (*actor.parameters(), *actor.buffers(), *critic.parameters(), *critic.buffers()):
+        assert torch.isfinite(tensor).all()
