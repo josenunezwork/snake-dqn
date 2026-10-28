@@ -17,6 +17,7 @@ from research.sandbox_a_resident.training_compact import (
 )
 from research.sandbox_a_resident.training_continuation import (
     ContinuationRefused,
+    _derive_identities,
     build_continuation_packet,
     compute_remaining_envelope,
     run_dispatch_dry_run,
@@ -517,3 +518,29 @@ def test_run_dispatch_dry_run_enforces_dry_run_flag_and_zero_allocations(tmp_pat
         run_dispatch_dry_run(
             broker, runtime, packet, state_dir, "sandbox-a-train01-20261028-15-c1-i0192"
         )
+
+
+def test_derive_identities_supports_train01_17_and_c1_c2_continuations() -> None:
+    slug_c1, suffix_c1, job_c1 = _derive_identities(
+        "packet-train01-17",
+        completion_index=1,
+        iteration=176,
+        slug_override=None,
+        job_id_override=None,
+        date_tag="20261028",
+    )
+    assert slug_c1 == "train01-17-c1-i0176"
+    assert suffix_c1 == "17-c1-i0176"
+    assert job_c1 == "sandbox-a-train01-20261028-17-c1-i0176"
+
+    slug_c2, suffix_c2, job_c2 = _derive_identities(
+        f"packet-{slug_c1}",
+        completion_index=2,
+        iteration=320,
+        slug_override=None,
+        job_id_override=None,
+        date_tag="20261028",
+    )
+    assert slug_c2 == "train01-17-c2-i0320"
+    assert suffix_c2 == "17-c2-i0320"
+    assert job_c2 == "sandbox-a-train01-20261028-17-c2-i0320"

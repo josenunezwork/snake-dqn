@@ -260,6 +260,16 @@ verification record once executed.
 | Cached B8 proxy cannot be paired to the same engine/configuration/roster/hash | Invalidate the cache and rebuild the baseline on the matching proxy specification.  Do not compare across simulator or roster identities. |
 | CPU common-state mismatch or material B8 distribution gap | Stop and diagnose the sandbox adapter.  Do not call the result CPU parity, a gate, or a release candidate. |
 
+### Recorded operational incidents (2026-10-27..28)
+
+| Attempt / Identity |Elapsed / Failure Class | Observed Boundary & Operational Resolution |
+| --- | --- | --- |
+| `train01-05` | `16,982.05 s` (`SIGINT` after long preparation silence) | Exported `calibrated-boundary.pt`, then ran silent during critic collection; resolved in `train01-06` via cheap `E32` 256-frame startup screen, `<= 60 s` progress heartbeats, and `900 s` `faulthandler` `StallWatchdog`. |
+| `train01-08`, `train01-09` | `~30.01 s` post-upload (`RPC_EXEC_POLL_TIMEOUT` on synchronous source delivery) | Synchronous GitHub fetch/extract inside `deliver_source` exceeded the kernel control RPC timeout; resolved in `train01-10` via spawn-only `sandbox_source_delivery: "background-sparse-v1"` (`< 2.0 s` launch RPC). |
+| `train01-11` (`sandbox-a-train01-20261027-11`) | First PPO update after `iteration-0000` (`FloatingPointError`) | Float32 probability underflow under calibrated `1 / T = 118.487` in `torch.distributions.kl_divergence`; resolved in `train01-15` via `float64` `log_softmax` legal KL/entropy with `torch.where` off-support zeroing and standard autograd. |
+| `train01-13` (`sandbox-a-train01-20261027-13`) | `325 s` staging (`UPLOAD_CAP`, `0` assignments) | Raw `1.33 GB` `iteration-0000.pt` resume upload exceeded the `300 s` `UPLOAD_TOTAL_TIMEOUT_SECONDS` whole-staging deadline; resolved in `train01-14`/`15` via lossless XZ stream compression (`~8.8 MB`) + per-tensor SHA-256 manifest, generalized to periodic snapshots (`v2`) in `f80bcdeb`. |
+| `train01-16` (`sandbox-a-train01-20261027-16`) | `7,215.45 s` (`RPC_EXEC_POLL_TIMEOUT` on foreground lease-renewal `exec`, `stop_verified: true`) | During healthy `E360` critic holdout collection (`4,618,800` rows / `27,172` holdout rows at child elapsed `6,038 s`; background `colab-lease` Contents PUTs succeeding in `~1.0 s`), MainThread's foreground `renewal` `poll_rpc` (`300.0 s` shared `TELEMETRY_SECONDS` budget, `3` attempts) hit two `120.0 s` `colab exec` timeouts + recovery/backoff and timed out on Attempt 3 after exceeding its remaining `25.014 s` timeout. Only `distribution-screen.json` and `calibrated-boundary.{json,pt}` were exported (zero `iteration-NNNN` training snapshots or outcomes). Mechanically resealed as `train01-17` (`sandbox-a-train01-20261028-17`), reusing `train01-16`'s unconsumed independent seed domain (`allocation_index = 1`, `train_seed_offset = 1_000_000_000`) and moving the runtime pin to include `f80bcdeb` (`< 15 s` `SIGUSR1` checkpoint/marker path + compact v2 continuation tooling). |
+
 ## Estimate and uncertainty
 
 The allocation estimate is **4–8 A100 allocation-hours**, with an **8-hour base

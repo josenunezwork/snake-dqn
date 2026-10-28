@@ -1,24 +1,27 @@
-# TRAIN-01 Continuation Tooling & Recovery Contract (`train01-15` / `train01-16`)
+# TRAIN-01 Continuation Tooling & Recovery Contract (`train01-15` / `train01-16` / `train01-17`)
 
 Prepared only; no job dispatched. Resolves all four findings in Astra's `2026-10-28` review of
-`packet-train01-16` while leaving `research/colab_cli/*` (`5833e54e9c5396121cbbf99a5cd4e52006e564fd`),
-serving code, checkpoints, and all hash-bound prior packet files (`packet-train01-15/*`,
-`packet-train01-16/*`, `TRAIN01_16.md`, `VERIFICATION_TRAIN01_16.json`) byte-untouched.
+`packet-train01-16` and extends compact v2 continuation support to mechanical reseal
+`packet-train01-17` while leaving `research/colab_cli/*`
+(`5833e54e9c5396121cbbf99a5cd4e52006e564fd`), serving code, checkpoints, and all hash-bound prior
+packet files (`packet-train01-15/*`, `packet-train01-16/*`, `TRAIN01_16.md`,
+`VERIFICATION_TRAIN01_16.json`) byte-untouched.
 
 ---
 
 ## 1. Exact One-Command Continuation Packet Builder
 
-After a running `TRAIN-01` attempt (`train01-attempt-15` or `train01-attempt-16`) terminates with a
-verified mechanical stop (`status: "INCOMPLETE"`, `stop_verified: true`, `cleanup_error: null`) and
-its latest periodic snapshot triple (`iteration-NNNN.{pt,json,-actor.pth}` + `.sha256` + `.complete`)
-has landed on the Mac, seal a ready-to-dispatch continuation packet (without dispatching) via:
+After a running `TRAIN-01` attempt (`train01-attempt-15` or `train01-attempt-17`, or any `-c1`
+continuation) terminates with a verified mechanical stop (`status: "INCOMPLETE"`,
+`stop_verified: true`, `cleanup_error: null`) and its latest periodic snapshot triple
+(`iteration-NNNN.{pt,json,-actor.pth}` + `.sha256` + `.complete`) has landed on the Mac, seal a
+ready-to-dispatch continuation packet (without dispatching) via:
 
 ```bash
 CUDA_VISIBLE_DEVICES="" SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 PYTHONDONTWRITEBYTECODE=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.sandbox_a_resident.training_continuation --source-attempt /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15 --iteration <NNNN>
 ```
 
-(Replace `train01-attempt-15` with `train01-attempt-16` and `<NNNN>` with the latest completed
+(Replace `train01-attempt-15` with `train01-attempt-17` and `<NNNN>` with the latest completed
 periodic snapshot iteration, e.g. `176` or `192`.)
 
 What `training_continuation` executes in one command:
@@ -54,11 +57,12 @@ What `training_continuation` executes in one command:
     byte-exact.
   - Adds `sandbox-a-train-compact-resume/v2` backed by tracked `compact_allowlist.json`
     (`sandbox-a-train-compact-allowlist/v2`), keyed by `(source_packet_id, iteration, sha256)` across
-    `packet-train01-{11,15,16}` and their `-c1`/`-c2` continuations.
+    `packet-train01-{11,15,16,17}` and their `-c1`/`-c2` continuations.
   - Extends `ALLOWED_MIGRATION_SOURCE_COMMITS` with `TRAIN01_15_SOURCE_COMMIT`
     (`5c0a101a85237e2ce563dcaa6429828126a37d04`), `TRAIN01_16_SOURCE_COMMIT`
     (`5cad044f3d9725a0ddbb967998b82c6eb9cb7739`), and any `source_commit` bound in
-    `compact_allowlist.json` so `c1 -> c2` continuations migrate cleanly without recipe drift.
+    `compact_allowlist.json` so `train01-17` and `c1 -> c2` continuations migrate cleanly without
+    recipe drift.
 - **Transport & Runtime Verification (`training_compact.py`, `training_preflight.py`, `train.py`):**
   - Replaces the `~1.33 GB` raw `.pt` upload (`~812 s` nominal, exceeding `300 s` `UPLOAD_CAP`) with
     `iteration-NNNN.pt.xz` (`~8.8–14 MB`) + `iteration-NNNN.pt.xz.manifest` (`~70 KB`), admitted as
@@ -120,3 +124,26 @@ group, grants `15 s` (`checkpoint_grace_seconds = 15`), then escalates to `SIGTE
   Mac-downloaded and Mac-verified periodic snapshot triple** (`snapshot_interval = 16` updates:
   `~37.2 min` across non-proxy intervals, or `~71.4 min` across a scheduled `E96 H5000` proxy
   boundary plus serial `8 MiB` export download lag).
+
+---
+
+## 5. Recorded Incident (`train01-attempt-16` -> Mechanical Reseal `train01-17`)
+
+- **Incident (`2026-10-28`, `sandbox-a-train01-20261027-16`):** stopped after `7,215.45 s`
+  (`2.004 h`) on `gpu-a100-s-ass1c0-3rkrbo2c7yjga` (`NVIDIA A100-SXM4-40GB`) by the qualified
+  supervisor (`status: "INCOMPLETE"`, `failure_class: "RPC_EXEC_POLL_TIMEOUT"`,
+  `stop_verified: true`, `cleanup_error: null`, `terminal: null`, receipt
+  `/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-16/output/receipt.json`).
+  While GPU `E360` critic holdout collection (`4,618,800` rows / `27,172` holdout rows at child
+  elapsed `6,038 s`) and background `colab-lease` Contents PUTs (`~1.0 s` every `30 s`) remained
+  healthy, MainThread's foreground `renewal` `poll_rpc` (`300.0 s` shared `TELEMETRY_SECONDS`
+  budget, `3` attempts) incurred two `120.0 s` `colab exec` timeouts + recovery/backoff and
+  exhausted Attempt 3's remaining `25.014 s` timeout.
+- **Why fresh reseal (not snapshot continuation):** only `distribution-screen.json` and
+  `calibrated-boundary.{json,pt}` had been exported (`iteration-0000` was not yet reached, and
+  `TRAIN01.md` forbids resuming PPO from calibration-only state). Because zero training snapshots,
+  actor updates, proxy evaluations, or outcomes were produced, `packet-train01-17`
+  (`sandbox-a-train01-20261028-17`) reuses `train01-16`'s unconsumed independent seed domain
+  (`allocation_index = 1`, `train_seed_offset = 1_000_000_000`) from scratch on a moved runtime pin
+  that includes commit `f80bcdeb` (`SIGUSR1` `< 15 s` checkpoint/marker path + compact v2
+  continuation support) and extends the v2 continuation allowlist/slug regexes to `train01-17`.

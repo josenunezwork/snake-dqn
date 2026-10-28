@@ -81,9 +81,9 @@ WORKLOAD_MANIFEST_KEYS = (
     "inputs",
     "resume",
 )
-SLUG_RE = re.compile(r"^train01-(?:11|15|16)-c[12]-[a-z0-9][a-z0-9_-]*$")
+SLUG_RE = re.compile(r"^train01-(?:11|15|16|17)-c[12]-[a-z0-9][a-z0-9_-]*$")
 SOURCE_PACKET_BASE_RE = re.compile(
-    r"^packet-(train01-(?:11|15|16))(?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?$"
+    r"^packet-(train01-(?:11|15|16|17))(?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?$"
 )
 SINGLE_THREAD_ENV = {
     "CUDA_VISIBLE_DEVICES": "",
@@ -625,7 +625,7 @@ def _derive_identities(
     )
     if not SLUG_RE.fullmatch(slug):
         raise ContinuationRefused(
-            f"successor slug {slug!r} must match train01-(11|15|16)-c(1|2)-<suffix>"
+            f"successor slug {slug!r} must match train01-(11|15|16|17)-c(1|2)-<suffix>"
         )
     short_suffix = slug.removeprefix("train01-")
     day = dt.date.today().strftime("%Y%m%d") if date_tag is None else date_tag
@@ -1153,7 +1153,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--slug",
-        help="optional successor slug (default: train01-<15|16>-c<1|2>-i<NNNN>)",
+        help="optional successor slug (default: train01-<15|16|17>-c<1|2>-i<NNNN>)",
     )
     parser.add_argument("--job-id", help="optional successor dispatch job_id")
     parser.add_argument("--date-tag", help="optional YYYYMMDD tag for default job_id")

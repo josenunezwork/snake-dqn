@@ -140,6 +140,7 @@ def test_source_migration_accepts_bound_train01_11_iteration0_snapshot(
     [
         (TRAIN01_15_SOURCE_COMMIT, "packet-train01-15", 192),
         (TRAIN01_16_SOURCE_COMMIT, "packet-train01-16", 176),
+        ("e" * 40, "packet-train01-17", 176),
     ],
 )
 def test_v2_compact_allowlist_and_periodic_source_migration_for_train01_15_16(
