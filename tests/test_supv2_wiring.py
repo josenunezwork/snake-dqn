@@ -13,6 +13,8 @@ from research.bl_paced_identity.record import export_json
 from research.bl_served_search import served_tick_probe, supervision_dispatch
 from research.bl_served_search import supervision_io as io
 from research.bl_served_search import supervision_qualification
+from research.bl_served_search.desktop_apps import DEFAULT_REGISTRY
+from tests.test_served_supervision_identity import qualified_fixture
 from tools.ops import dispatch
 from tools.sandbox import supervisor_v2
 from tools.sandbox.collector_v2 import Collector
@@ -47,7 +49,9 @@ def test_unknown_opt_ins_refused(tmp_path, opt):
         dispatch.sandbox_collector_directory(value)
 
 
-@pytest.mark.parametrize("output", ["relative", "", "/tmp/../tmp/job"])
+@pytest.mark.parametrize(
+    "output", ["relative", "", "/tmp/../tmp/job", "/abs/out/", "/abs//out", "/abs/./out", "/"]
+)
 def test_collector_requires_canonical_absolute_output(tmp_path, output):
     value = packet(tmp_path)
     value["output_dir"] = output
@@ -215,6 +219,7 @@ def dispatch_fixture(tmp_path, monkeypatch):
     directory.mkdir()
     export_json(directory / "collector.json", context)
     root = {**startup, "assignment": "endpoint", "session": "session", "generation": "generation"}
+    root["source_hashes"] = {str(ROOT / name): sha for name, sha in context["sources"].items()}
     registry = {"roots": [root], "assignment_path": str(assignment_path)}
     monkeypatch.setattr(io, "capture_registry", lambda _: deepcopy(registry))
     monkeypatch.setattr(io, "verify_root", lambda _: None)
@@ -263,8 +268,8 @@ def test_combined_parser_reaches_the_unchanged_closed_live_gate(tmp_path, monkey
                 "desktop.json",
                 "--remote-supervision-registry",
                 "remote.json",
-                "--host-only-seconds",
-                "600",
+                "--qualification-receipt",
+                "qualification/report.json",
                 "--output",
                 str(output),
             ]
@@ -277,6 +282,7 @@ def test_qualification_cannot_consume_a_flag_as_observer_proof(tmp_path, monkeyp
         supervision_qualification,
         "capture_dispatch_registry",
         lambda _: {
+            **qualified_fixture()[0],
             "live_accounting_capability": "QUALIFIED_LIVE_V2",
             "loaded_source_verified": True,
         },
@@ -288,7 +294,7 @@ def test_qualification_cannot_consume_a_flag_as_observer_proof(tmp_path, monkeyp
                 "--dispatch-manifest",
                 "packet.json",
                 "--desktop-app-registry",
-                "desktop.json",
+                str(DEFAULT_REGISTRY),
                 "--output",
                 str(output),
             ]
@@ -299,7 +305,9 @@ def test_qualification_cannot_consume_a_flag_as_observer_proof(tmp_path, monkeyp
 def test_qualification_check_reports_missing_capability_without_output(
     tmp_path, monkeypatch, capsys
 ):
-    monkeypatch.setattr(supervision_qualification, "capture_dispatch_registry", lambda _: {})
+    monkeypatch.setattr(
+        supervision_qualification, "capture_dispatch_registry", lambda _: qualified_fixture()[0]
+    )
     output = tmp_path / "not-created"
     assert (
         supervision_qualification.main(
@@ -307,7 +315,7 @@ def test_qualification_check_reports_missing_capability_without_output(
                 "--dispatch-manifest",
                 "packet.json",
                 "--desktop-app-registry",
-                "desktop.json",
+                str(DEFAULT_REGISTRY),
                 "--output",
                 str(output),
                 "--check",
@@ -331,3 +339,163 @@ def test_registry_rechecks_assignment_after_source_capture(tmp_path, monkeypatch
     monkeypatch.setattr(io, "verify_root", change)
     with pytest.raises(ValueError, match="changed or became terminal"):
         supervision_dispatch.capture_dispatch_registry(manifest)
+
+
+@pytest.mark.parametrize("seconds", ["-1", "0", "600", "999999"])
+def test_combined_parser_rejects_host_only_mode_before_live_io(tmp_path, monkeypatch, seconds):
+    monkeypatch.setattr(io, "read_registry", lambda *a, **kw: pytest.fail("live IO"))
+    with pytest.raises(SystemExit) as exc:
+        served_tick_probe.main(
+            [
+                "--load-policy",
+                "classified-desktop-supervised-v2",
+                "--classified-host-load",
+                "--desktop-app-registry",
+                "desktop.json",
+                "--remote-supervision-registry",
+                "remote.json",
+                "--host-only-seconds",
+                seconds,
+                "--output",
+                str(tmp_path / "out"),
+            ]
+        )
+    assert exc.value.code == 2
+    assert not (tmp_path / "out").exists()
+
+
+def test_combined_panel_requires_qualification_receipt_before_live_io(monkeypatch):
+    monkeypatch.setattr(io, "read_registry", lambda *a, **kw: pytest.fail("live IO"))
+    with pytest.raises(SystemExit) as exc:
+        served_tick_probe.main(
+            [
+                "--load-policy",
+                "classified-desktop-supervised-v2",
+                "--classified-host-load",
+                "--desktop-app-registry",
+                "desktop.json",
+                "--remote-supervision-registry",
+                "remote.json",
+                "--output",
+                "panel",
+            ]
+        )
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "path", ["tools/sandbox/launch_v2.sh", "tools/ops/dispatch.py", "tools/ops/dispatch.sh"]
+)
+def test_launch_source_change_after_startup_refused(tmp_path, monkeypatch, path):
+    manifest, _, registry, _ = dispatch_fixture(tmp_path, monkeypatch)
+    registry["roots"][0]["source_hashes"][str(ROOT / path)] = "f" * 64
+    with pytest.raises(ValueError, match="differs from prospective startup"):
+        supervision_dispatch.capture_dispatch_registry(manifest)
+    assert path in io.policy_sources()
+    assert path in Collector.sources()
+
+
+def test_assignment_byte_change_even_with_same_json_is_refused(tmp_path, monkeypatch):
+    manifest, _, registry, _ = dispatch_fixture(tmp_path, monkeypatch)
+    assignment = Path(registry["assignment_path"])
+    original = assignment.read_bytes()
+    monkeypatch.setattr(io, "verify_root", lambda _: assignment.write_bytes(original + b" "))
+    with pytest.raises(ValueError, match="changed or became terminal"):
+        supervision_dispatch.capture_dispatch_registry(manifest)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing-desktop",
+        "invalid-desktop",
+        "invalid-registry",
+        "existing-output",
+        "dangling-output",
+    ],
+)
+def test_qualification_validates_all_inputs_before_capability_check(tmp_path, monkeypatch, fault):
+    registry = qualified_fixture()[0]
+    if fault == "invalid-registry":
+        registry["roots"][0]["repo"] = "relative"
+    monkeypatch.setattr(supervision_qualification, "capture_dispatch_registry", lambda _: registry)
+    desktop = DEFAULT_REGISTRY
+    output = tmp_path / "report.json"
+    if fault == "missing-desktop":
+        desktop = tmp_path / "missing.json"
+    if fault == "invalid-desktop":
+        desktop = tmp_path / "invalid.json"
+        export_json(desktop, {"invalid": True})
+    if fault == "existing-output":
+        output.write_bytes(b"original")
+    if fault == "dangling-output":
+        output.symlink_to(tmp_path / "missing-target")
+    with pytest.raises((ValueError, OSError)):
+        supervision_qualification.main(
+            [
+                "--dispatch-manifest",
+                "packet.json",
+                "--desktop-app-registry",
+                str(desktop),
+                "--output",
+                str(output),
+                "--check",
+            ]
+        )
+    if fault == "existing-output":
+        assert output.read_bytes() == b"original"
+    elif fault == "dangling-output":
+        assert output.is_symlink()
+    else:
+        assert not output.exists()
+
+
+def test_collector_startup_binds_the_exact_parsed_manifest_bytes(tmp_path, monkeypatch):
+    import psutil
+
+    manifest = tmp_path / "manifest.json"
+    original = b'{"job_id":"fixture"}'
+    manifest.write_bytes(original)
+    argv = [
+        sys.executable,
+        "-m",
+        "tools.sandbox.supervisor_v2",
+        "--state-dir",
+        "state",
+        "--colab",
+        "cli",
+        "run",
+        str(manifest),
+    ]
+    monkeypatch.setattr(psutil.Process, "cmdline", lambda _: argv)
+    startup = Collector.startup(manifest_bytes=original)
+    assert startup["manifest_sha256"] == io.file_digest(manifest)
+    manifest.write_bytes(original + b" ")
+    with pytest.raises(RuntimeError, match="manifest bytes changed"):
+        Collector.startup(manifest_bytes=original)
+
+
+def test_binding_hashes_checked_bytes_without_reopening_assignment(tmp_path, monkeypatch):
+    import hashlib
+
+    manifest, _, registry, context = dispatch_fixture(tmp_path, monkeypatch)
+    assignment_path = Path(registry["assignment_path"])
+    original_read = Path.read_bytes
+    original = original_read(assignment_path)
+    reads = []
+
+    def read(path):
+        payload = original_read(path)
+        if path == assignment_path:
+            reads.append(payload)
+            if len(reads) == 2:
+                # Transition after the post-capture check returned its snapshot.
+                path.write_bytes(b'{"endpoint":"new","session":"new","generation":"new"}')
+        return payload
+
+    monkeypatch.setattr(Path, "read_bytes", read)
+    captured = supervision_dispatch.capture_dispatch_registry(manifest)
+    assert len(reads) == 2
+    assert captured["dispatch_binding"]["assignment_sha256"] == hashlib.sha256(original).hexdigest()
+    assert captured["dispatch_binding"]["manifest_sha256"] == context["startup"]["manifest_sha256"]
+    assert captured["roots"][0]["assignment"] == "endpoint"

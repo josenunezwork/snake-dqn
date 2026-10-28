@@ -33,7 +33,7 @@ VERSION = accounting.COLLECTOR_VERSION
 class Collector:
     """Own immutable child evidence while preserving qualified control behavior."""
 
-    def __init__(self, directory: Path) -> None:
+    def __init__(self, directory: Path, *, manifest_bytes: bytes | None = None) -> None:
         self.errors: list[str] = []
         self._lock = threading.RLock()
         self._active: set[str] = set()
@@ -46,18 +46,16 @@ class Collector:
             "root_process_id": self.parent,
             "capability": accounting.CAPABILITY,
             "sources": self.sources(),
-            "startup": self.startup(),
+            "startup": self.startup(manifest_bytes=manifest_bytes),
         }
         context_hash = accounting.sha256_bytes(accounting._canonical_json(context))
         self.journal = accounting.ImmutableJournal(directory, context_sha256=context_hash)
         export_json(directory / "collector.json", context)
 
     @staticmethod
-    def startup() -> dict[str, Any]:
+    def startup(*, manifest_bytes: bytes | None = None) -> dict[str, Any]:
         """Publish non-secret identity before control starts, never attach later."""
         import psutil
-
-        from research.bl_served_search.supervision_io import file_digest
 
         process = psutil.Process(os.getpid())
         argv = process.cmdline()
@@ -71,14 +69,17 @@ class Collector:
         }
         if len(argv) == 9 and argv[1:3] == ["-m", "tools.sandbox.supervisor_v2"]:
             path = Path(argv[-1]).resolve(strict=True)
-            result.update(manifest=str(path), manifest_sha256=file_digest(path))
+            actual_bytes = path.read_bytes()
+            if manifest_bytes is None or actual_bytes != manifest_bytes:
+                raise accounting.AccountingError("startup manifest bytes changed or unavailable")
+            result.update(
+                manifest=str(path), manifest_sha256=accounting.sha256_bytes(manifest_bytes)
+            )
         return result
 
     @staticmethod
     def sources() -> dict[str, str]:
         """Bind the exact future adapter/collector and qualified source closure."""
-        from research.bl_served_search.supervision_io import file_digest
-
         repo = Path(__file__).resolve().parents[2]
         names = [
             "tools/sandbox/" + name
@@ -103,8 +104,8 @@ class Collector:
                 "source.py",
             )
         ]
-        names.append("tools/ops/dispatch.py")
-        return {name: file_digest(repo / name) for name in names}
+        names += ["tools/ops/dispatch.py", "tools/ops/dispatch.sh"]
+        return {name: accounting.sha256_bytes((repo / name).read_bytes()) for name in names}
 
     @staticmethod
     def _birth(pid: int) -> str:
@@ -263,7 +264,7 @@ class Collector:
             if kwargs.get("stdout") is not None or kwargs.get("stderr") is not None:
                 raise ValueError("stdout/stderr may not be used with capture_output")
             kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        response_captured = kwargs.get("stdout") == subprocess.PIPE and kwargs.get("stderr") in (
+        pipes_requested = kwargs.get("stdout") == subprocess.PIPE and kwargs.get("stderr") in (
             subprocess.PIPE,
             subprocess.STDOUT,
         )
@@ -288,6 +289,7 @@ class Collector:
         launch_start = time.monotonic_ns()
         tracked = None
         output = error = None
+        pipes_drained = False
         try:
             try:
                 process = accounting.Wait4Popen(arg_strings, **kwargs)
@@ -375,9 +377,19 @@ class Collector:
                     )
                 try:
                     output, error = child.communicate(input_bytes, timeout=timeout)
+                    pipes_drained = (
+                        child.returncode is not None
+                        and output is not None
+                        and (kwargs.get("stderr") != subprocess.PIPE or error is not None)
+                    )
                 except subprocess.TimeoutExpired:
                     child.kill()
                     output, error = child.communicate()
+                    pipes_drained = (
+                        child.returncode is not None
+                        and output is not None
+                        and (kwargs.get("stderr") != subprocess.PIPE or error is not None)
+                    )
                     raise
                 except BaseException:
                     child.kill()
@@ -446,6 +458,7 @@ class Collector:
             return subprocess.CompletedProcess(args, code, stdout, stderr)
         finally:
 
+            response_captured = pipes_requested and pipes_drained
             response = (output or b"") + (error or b"")
             if metadata["template"] in accounting.ALLOWED_TEMPLATES:
                 with self._lock:
@@ -464,7 +477,8 @@ class Collector:
                     response_captured=response_captured,
                 )
             except Exception as exc:
-                self.errors.append("operation completion: " + type(exc).__name__)
+                with self._lock:
+                    self.errors.append("operation completion: " + type(exc).__name__)
             with self._lock:
                 self._active.discard(oid)
 

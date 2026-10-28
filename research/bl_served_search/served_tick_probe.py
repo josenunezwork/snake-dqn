@@ -1337,6 +1337,10 @@ def main(argv: list[str] | None = None) -> int:
     ):
         parser.error("desktop observation receipt is only an input to the full desktop panel")
     combined = args.load_policy == "classified-desktop-supervised-v2"
+    if combined and args.host_only_seconds is not None:
+        parser.error("combined host-only qualification uses supervision_qualification")
+    if combined and args.qualification_receipt is None:
+        parser.error("combined panel requires --qualification-receipt")
     if combined and (
         args.desktop_app_registry is None
         or args.remote_supervision_registry is None

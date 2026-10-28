@@ -96,6 +96,9 @@ def _replay(host: dict, *, final: bool) -> dict:
     if host.get("load_policy") != POLICY or host.get("schema") != SCHEMA:
         raise ValueError("combined policy/schema mismatch")
     registry = host["supervisor_registry"]
+    registry_check = remote.validate_registry(registry)
+    if not registry_check["valid"]:
+        raise ValueError("invalid supervision registry: " + str(registry_check["errors"]))
     journal = host["supervision_journal"]
     cpu_evidence = host["supervision_cpu_evidence"]
     identity = supervision_identity.verify_identity(
@@ -136,6 +139,7 @@ def _replay(host: dict, *, final: bool) -> dict:
         identity["lifecycles"],
         cpu,
         desktop_background=keys,
+        desktop_host=desktop,
     )
     errors.extend(ordinary["errors"])
     if final and not cpu["admission_ready"]:
@@ -176,17 +180,20 @@ def summarize(
     supervision_host = {**host, "load_policy": remote.POLICY}
     supervision_proof = {**proof, "policy": remote.POLICY}
     report = summarize_supervision(
-        result, supervision_host, supervision_proof, production=production, fps=fps
+        result,
+        supervision_host,
+        supervision_proof,
+        production=production,
+        fps=fps,
+        desktop_host=desktop_view(host, proof["identity"]["lifecycles"]),
     )
     report.update(
         policy=POLICY,
         components=COMPONENTS,
-        desktop=background.summarize_background(
-            result,
-            desktop_view(host, proof["identity"]["lifecycles"]),
-            production=production,
-            fps=fps,
-        ),
+        desktop={
+            "inventory": proof["desktop_summary"],
+            "interpretation": "Desktop covariates; combined timing mask is authoritative.",
+        },
         load_policy=POLICY,
         admission_scope="offline replay only; not live panel admission",
     )
@@ -226,7 +233,34 @@ def replay_host(raw: dict) -> dict:
         or supervision.get("ruling_sha256") != supervision_io.RULING_SHA256
     ):
         raise ValueError("combined intent registry/ruling/policy/source mismatch")
-    desktop_policy.validate_intent(raw)
+    desktop_policy.validate_component_intent(raw)
+    receipt = raw.get("qualification_receipt")
+    observation_times = [s["start_ns"] for s in host["cpu_samples"]]
+    observation_times.extend(
+        s["capture_start_ns"] for s in host["cpu_samples"] if "capture_start_ns" in s
+    )
+    for observation in host["observations"]:
+        screen = observation["process_screen"]
+        observation_times.append(screen["observation_ns"])
+        if "capture_start_ns" in screen:
+            observation_times.append(screen["capture_start_ns"])
+    if any(type(at) is not int or at < 0 for at in observation_times):
+        raise ValueError("combined intent has malformed observation timestamps")
+    first_observation = min(observation_times)
+    publications = [
+        raw["desktop_intent"].get("published_ns"),
+        supervision.get("published_ns"),
+        intent.get("published_ns"),
+        receipt.get("published_ns") if isinstance(receipt, dict) else None,
+    ]
+    if (
+        not isinstance(receipt, dict)
+        or not receipt
+        or intent.get("qualification_receipt_sha256") != remote.digest(receipt)
+        or any(type(at) is not int or not 0 <= at < first_observation for at in publications)
+        or any(at > publications[2] for at in (publications[0], publications[1], publications[3]))
+    ):
+        raise ValueError("combined intent qualification/publication binding differs")
     checked = replay(host)
     if not checked["valid"] or checked != host.get("supervision_replay"):
         raise ValueError("combined reported accounting differs from independent replay")

@@ -107,6 +107,7 @@ def replay_ordinary(
     ledger: dict,
     *,
     desktop_background: set[str] | None = None,
+    desktop_host: dict | None = None,
 ) -> dict:
     """Replay both original ordinary abort paths and sustained service ceiling.
 
@@ -145,14 +146,14 @@ def replay_ordinary(
                     raise ValueError("malformed point CPU/executable")
                 kind = host_load.process_kind(row["command"])
                 if digest([at, at, row]) in (desktop_background or ()):
-                    kind = "desktop_renderer"
+                    kind = row["kind"]
                 if (
                     not _permitted(row, at, lifecycles)
-                    and kind not in host_load.BACKGROUND_KINDS
+                    and kind not in {*host_load.BACKGROUND_KINDS, "desktop_app"}
                     and row["cpu_percent"] >= 20
                 ):
                     errors.append("ordinary workload/unknown point >=20%")
-        guard = host_load.LoadGuard()
+        guard = host_load.LoadGuard(desktop_policy=desktop_host is not None)
         previous_end = None
         for raw in intervals:
             sample = deepcopy(raw)
@@ -220,14 +221,15 @@ def replay_ordinary(
                     )
                     continue
                 desktop_verified = digest([a, b, row]) in (desktop_background or ())
+                original_kind = row["kind"] if desktop_verified else None
                 row["kind"] = host_load.process_kind(row["command"])
                 if desktop_verified:
                     # The combined reducer independently replays desktop identity
                     # first. Retain the CPU in the SAME shared background pool.
-                    row["kind"] = "desktop_renderer"
+                    row["kind"] = original_kind
                 group = (
                     "background"
-                    if row["kind"] in host_load.BACKGROUND_KINDS
+                    if desktop_verified or row["kind"] in host_load.BACKGROUND_KINDS
                     else "workload" if row["kind"] == "agent_workload" else "unknown"
                 )
                 totals[group] += row["cpu_percent"]
@@ -248,9 +250,9 @@ def replay_ordinary(
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         errors.append(str(exc))
     try:
-        # Validate only the unchanged wire shape on our derived v2 projection;
-        # never read a historical v1 artifact through this policy path.
-        _samples({"load_policy": "classified-v1", "cpu_samples": projected})
+        # Revalidate the derived projection. Combined replay supplies the exact
+        # desktop registry/history view, retaining original desktop kinds.
+        _samples({**(desktop_host or {"load_policy": "classified-v1"}), "cpu_samples": projected})
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         errors.append("ordinary CPU wire evidence: " + str(exc))
     return {

@@ -102,7 +102,7 @@ def observation_binding(path: Path, intent: Mapping[str, Any]) -> dict[str, Any]
     return {"path": str(path.resolve(strict=True)), "sha256": digest(observation)}
 
 
-def validate_intent(raw: Mapping[str, Any]) -> None:
+def validate_component_intent(raw: Mapping[str, Any]) -> None:
     """Reconcile sealed policy/source inputs without re-reading current installed apps."""
     intent = raw.get("desktop_intent", {})
     host = raw.get("host", {})
@@ -161,6 +161,12 @@ def validate_intent(raw: Mapping[str, Any]) -> None:
             relative = str(input_path.relative_to(worktree))
             if hashes.get(relative) != item["sha256"]:
                 raise ValueError("desktop base/extension input differs from source closure")
+
+
+def validate_intent(raw: Mapping[str, Any]) -> None:
+    """Validate standalone desktop inputs and its original host observation."""
+    validate_component_intent(raw)
+    intent = raw["desktop_intent"]
     observed = intent.get("host_observation")
     if (
         not isinstance(observed, Mapping)

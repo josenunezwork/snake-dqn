@@ -538,8 +538,9 @@ def sandbox_collector_directory(manifest: dict[str, Any]) -> Path | None:
         or not Path(manifest["output_dir"]).is_absolute()
     ):
         raise Refused("sandbox_supervision requires sandbox admission and collector-v2")
-    output = Path(manifest["output_dir"])
-    if str(output.resolve()) != str(output):
+    raw_output = manifest["output_dir"]
+    output = Path(raw_output)
+    if not output.name or str(output.resolve()) != raw_output:
         raise Refused("collector output must be a canonical absolute path")
     return output.with_name(output.name + ".supervision")
 

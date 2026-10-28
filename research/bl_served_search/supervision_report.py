@@ -498,6 +498,7 @@ def summarize_supervision(
     *,
     production: bool = False,
     fps: int = 24,
+    desktop_host: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Report all timing rows plus a prospective low-contention sensitivity subset."""
     if fps <= 0 or not all(
@@ -508,10 +509,12 @@ def summarize_supervision(
         raise ValueError("unsupported supervision policy")
     if host_evidence.get("load_policy") != POLICY:
         raise ValueError("unsupported supervised host load policy")
-    # v2 binds a different policy name.  The imported validator is used only for
-    # its frozen CPU-sample wire shape; its v1 policy gate is never exposed here.
-    core_host = dict(host_evidence)
-    core_host["load_policy"] = "classified-v1"
+    # Standalone supervision validates the frozen CPU wire shape. Combined
+    # replay supplies its verified desktop view so original app kinds and the
+    # registry/history validation survive into the reporting projection.
+    core_host = dict(desktop_host or host_evidence)
+    if desktop_host is None:
+        core_host["load_policy"] = "classified-v1"
     if "ordinary_cpu_samples" in replay_result:
         core_host["cpu_samples"] = replay_result["ordinary_cpu_samples"]
     samples, intervals, operations = (

@@ -61,12 +61,13 @@ def main() -> None:
         return
     from tools.ops.dispatch import sandbox_collector_directory
 
-    packet = json.loads(Path(args[-1]).read_text())
+    manifest_bytes = Path(args[-1]).read_bytes()
+    packet = json.loads(manifest_bytes)
     expected = sandbox_collector_directory(packet)
     directory = Path(os.environ.get("SNAKE_SANDBOX_COLLECTOR_DIR", ""))
     if expected is None or directory != expected or not directory.is_absolute():
         raise ValueError("collector directory must match the opted-in packet output sibling")
-    collector = Collector(directory)
+    collector = Collector(directory, manifest_bytes=manifest_bytes)
 
     try:
         with collector_route(collector):

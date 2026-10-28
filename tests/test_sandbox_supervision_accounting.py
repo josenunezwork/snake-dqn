@@ -548,3 +548,59 @@ def test_root_cli_guard_helpers_are_collected_and_all_routes_restored(tmp_path):
     assert [module.subprocess for module in (cli_guard, release, supervisor, dispatch)] == originals
     collector.seal()
     assert len(subject.read_journal(collector.journal.directory)) == 5
+
+
+@pytest.mark.parametrize(
+    "failure", ["spawn", "drain", "interrupt", "timeout-drain", "missing-stderr"]
+)
+def test_aborted_pipe_capture_never_certifies_independent_response(tmp_path, monkeypatch, failure):
+    collector = Collector(tmp_path / "collector")
+    monkeypatch.setattr(collector, "metadata", lambda *a: ({"template": "usage"}, b""))
+    if failure == "spawn":
+
+        def spawn(*args, **kwargs):
+            raise OSError("injected spawn failure")
+
+        monkeypatch.setattr(subject, "Wait4Popen", spawn)
+    else:
+        original = subject.Wait4Popen.communicate
+        calls = []
+
+        def communicate(child, *args, **kwargs):
+            calls.append(1)
+            if failure == "timeout-drain" and len(calls) == 1:
+                raise subprocess.TimeoutExpired("fixture", 1)
+            if failure == "missing-stderr":
+                output, _ = original(child, *args, **kwargs)
+                return output, None
+            if failure == "interrupt":
+                raise KeyboardInterrupt()
+            raise OSError("injected pipe drain failure")
+
+        monkeypatch.setattr(subject.Wait4Popen, "communicate", communicate)
+    if failure == "missing-stderr":
+        collector.run([sys.executable, "-c", "print('partial')"], capture_output=True, timeout=5)
+    else:
+        with pytest.raises((OSError, KeyboardInterrupt)):
+            collector.run(
+                [sys.executable, "-c", "print('partial')"], capture_output=True, timeout=5
+            )
+    status = collector.seal()
+    assert "permitted operation response not fully captured" in status["errors"]
+    end = subject.read_journal(collector.journal.directory)[-1]
+    assert end["kind"] == "operation_end"
+    assert end["response_capture"]["independent"] is False
+
+
+def test_timeout_with_successful_full_drain_records_independent_capture(tmp_path):
+    collector = Collector(tmp_path / "collector")
+    with pytest.raises(subprocess.TimeoutExpired):
+        collector.run(
+            [sys.executable, "-c", "import time; print('before', flush=True); time.sleep(5)"],
+            capture_output=True,
+            timeout=0.2,
+        )
+    collector.seal()
+    end = subject.read_journal(collector.journal.directory)[-1]
+    assert end["response_capture"]["independent"] is True
+    assert end["response_bytes"] == len(b"before\n")

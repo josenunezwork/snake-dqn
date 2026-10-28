@@ -28,7 +28,15 @@ def main(argv: list[str] | None = None) -> int:
         help="inspect live dispatch declaration and report missing qualification capability",
     )
     args = parser.parse_args(argv)
-    capture_dispatch_registry(args.dispatch_manifest)
+    if args.output.exists() or args.output.is_symlink():
+        raise ValueError("qualification output must not exist")
+    from research.bl_served_search.desktop_apps import DesktopRegistry
+    from research.bl_served_search.remote_supervision import validate_registry
+
+    DesktopRegistry(args.desktop_app_registry).read_export()
+    checked = validate_registry(capture_dispatch_registry(args.dispatch_manifest))
+    if not checked["valid"]:
+        raise ValueError(f"invalid supervision registry: {checked['errors']}")
     if args.check:
         print(
             json.dumps(

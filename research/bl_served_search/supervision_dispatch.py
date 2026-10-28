@@ -7,6 +7,7 @@ changes a job. A dispatch declaration is not a qualified live observer.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -46,11 +47,16 @@ def capture_dispatch_registry(manifest_path: Path) -> dict[str, Any]:
             root[key] != startup[key]
             for key in ("pid", "uid", "birth_ns", "argv", "cwd", "interpreter")
         )
+        or any(
+            root.get("source_hashes", {}).get(str(Path(startup["cwd"]) / name)) != value
+            for name, value in context["sources"].items()
+        )
         or context.get("root_process_id") != f'{root["pid"]}@{root["birth_ns"]}'
     ):
         raise ValueError("dispatch root restarted or differs from prospective startup")
     assignment_path = Path(registry["assignment_path"])
-    assignment = json.loads(assignment_path.read_text())
+    assignment_bytes = assignment_path.read_bytes()
+    assignment = json.loads(assignment_bytes)
     if any(
         root[key] != assignment[field]
         for key, field in (
@@ -65,19 +71,19 @@ def capture_dispatch_registry(manifest_path: Path) -> dict[str, Any]:
     # A mixed old/new declaration must never survive an allocation transition.
     if (
         io.file_digest(manifest_path) != startup["manifest_sha256"]
-        or json.loads(assignment_path.read_text()) != assignment
+        or assignment_path.read_bytes() != assignment_bytes
         or (directory / "COMPLETE.json").exists()
         or (directory / "status.json").exists()
     ):
         raise ValueError("dispatch changed or became terminal during registry capture")
     registry["dispatch_binding"] = {
         "manifest": str(manifest_path),
-        "manifest_sha256": io.file_digest(manifest_path),
+        "manifest_sha256": startup["manifest_sha256"],
         "collector_directory": str(directory),
         "collector_sha256": io.digest(context),
         "job_id": packet["job_id"],
         "assignment_path": str(assignment_path),
-        "assignment_sha256": io.file_digest(assignment_path),
+        "assignment_sha256": hashlib.sha256(assignment_bytes).hexdigest(),
     }
     return registry
 
