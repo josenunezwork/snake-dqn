@@ -1,0 +1,43 @@
+{
+  "aliases": 0,
+  "allocations": [
+    {
+      "count": 100664320,
+      "offset": 1000000000,
+      "phase": "train"
+    },
+    {
+      "count": 5243904,
+      "offset": 1200000000,
+      "phase": "calibration"
+    },
+    {
+      "count": 8389632,
+      "offset": 1300000000,
+      "phase": "critic"
+    },
+    {
+      "count": 288,
+      "offset": 400000000,
+      "phase": "monitor"
+    },
+    {
+      "count": 768,
+      "offset": 500000000,
+      "phase": "nomination"
+    },
+    {
+      "count": 96,
+      "offset": 1600000000,
+      "phase": "engineering"
+    }
+  ],
+  "canonical_uint64_sha256": "1db80dc4dbe77ed16a04ac52c867e694cc1d9e53e626ebf32aea70fe5f6c12b5",
+  "count": 114299008,
+  "effective_seed_bits": 63,
+  "excluded_intersection": 0,
+  "registry_sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+  "schema": "sandbox-a-train-seed-audit/v1",
+  "status": "PASS",
+  "study": "sandbox-a-train01"
+}
