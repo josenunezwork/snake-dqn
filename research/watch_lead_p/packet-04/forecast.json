@@ -1,0 +1,157 @@
+{
+  "arm_seconds": {
+    "P0": 3517.482629646547,
+    "P48": 447.9061317484593,
+    "bare": 45.34223000053316
+  },
+  "bare_tick_seconds": 0.007557038333422194,
+  "base_seconds": 14400,
+  "effective_seconds": 28800,
+  "excluded_from_all_32_sessions": true,
+  "fixture": "natural actual Watch6 L>=600; no geometry or future action tape",
+  "fixture_index": 32,
+  "host_scaling": "Mac measurements; L4 host speed and twelve-worker contention unmeasured",
+  "late_six_branch_stress_seconds": 63834.55388362985,
+  "min_vcpu": 12,
+  "old_ten_worker_pair_seconds_corrected": 17242.92396558216,
+  "pair_waves": 3,
+  "projected_seconds": 11908.898773281835,
+  "projection": "max observed inclusive root cost; P0 1200/P48 123 roots per session; 96 indivisible arm tasks, longest arm first /12 workers +1200s setup/export",
+  "receipt_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-watch-lead-1028/engineering-04/benchmark-final.json",
+  "receipt_sha256": "fea79ccbac17ef6691c1ee42030f64f6afca94a21546c2d12ea6db5483980008",
+  "samples": [
+    {
+      "branches": 1,
+      "certificate": true,
+      "delay": 0,
+      "drop": null,
+      "frame": 2161,
+      "index": 0,
+      "length": 600,
+      "root_bytes": 8394106,
+      "seconds": 2.7986012909095734
+    },
+    {
+      "branches": 1,
+      "certificate": true,
+      "delay": 48,
+      "drop": null,
+      "frame": 2161,
+      "index": 0,
+      "length": 600,
+      "root_bytes": 8394106,
+      "seconds": 3.2303709589177743
+    },
+    {
+      "branches": 1,
+      "certificate": true,
+      "delay": 0,
+      "drop": null,
+      "frame": 2166,
+      "index": 1,
+      "length": 603,
+      "root_bytes": 8394285,
+      "seconds": 2.843664375017397
+    },
+    {
+      "branches": 1,
+      "certificate": true,
+      "delay": 48,
+      "drop": null,
+      "frame": 2166,
+      "index": 1,
+      "length": 603,
+      "root_bytes": 8394285,
+      "seconds": 3.2728772499831393
+    },
+    {
+      "branches": 1,
+      "certificate": true,
+      "delay": 0,
+      "drop": null,
+      "frame": 2171,
+      "index": 2,
+      "length": 603,
+      "root_bytes": 8394368,
+      "seconds": 2.893450333038345
+    },
+    {
+      "branches": 1,
+      "certificate": true,
+      "delay": 48,
+      "drop": null,
+      "frame": 2171,
+      "index": 2,
+      "length": 603,
+      "root_bytes": 8394368,
+      "seconds": 3.261376000009477
+    },
+    {
+      "branches": 2,
+      "delay": 0,
+      "fixture": "engineering forced first-transition bare death; real H300 alternatives",
+      "index": 3,
+      "outcomes": {
+        "0": {
+          "frames_survived": 300,
+          "survives": true
+        },
+        "1": {
+          "frames_survived": 0,
+          "survives": false
+        },
+        "3": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "seconds": 2.6185663749929518
+    },
+    {
+      "branches": 2,
+      "delay": 48,
+      "fixture": "engineering forced first-transition bare death; real H300 alternatives",
+      "index": 3,
+      "outcomes": {
+        "0": {
+          "frames_survived": 0,
+          "survives": false
+        },
+        "1": {
+          "status": "NOT_EVALUATED"
+        },
+        "2": {
+          "status": "NOT_EVALUATED"
+        },
+        "3": {
+          "frames_survived": 300,
+          "survives": true
+        },
+        "4": {
+          "status": "NOT_EVALUATED"
+        },
+        "5": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "seconds": 3.260582833085209
+    }
+  ],
+  "seed": 7886337691721480313,
+  "warmup_frames": 2161,
+  "warmup_seconds": 13.124051042017527,
+  "worker_loads_seconds": [
+    10688.47457894124,
+    10688.47457894124,
+    10688.47457894124,
+    10688.47457894124,
+    10688.47457894124,
+    10688.47457894124,
+    10688.47457894124,
+    10688.47457894124,
+    10708.898773281835,
+    10708.898773281835,
+    10708.898773281835,
+    10708.898773281835
+  ],
+  "workers": 12
+}

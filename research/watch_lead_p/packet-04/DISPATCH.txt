@@ -1,0 +1,18 @@
+P prepared for operator dispatch; no allocation performed.
+Runtime pin: 8d4333bebd182fe61b0dbea6babbf2f61745e8d6
+Identity: sandbox-p-watch-lead-20261028-04
+Science: 32 complete paired 6000-frame Watch6 sessions; P48 sole primary.
+Projected wall seconds: 11908.899; base/effective 14400/28800.
+Twelve arm workers, longest arm first, each session W1/K1; L4 >=12 vCPUs.
+Only complete three-arm paired sessions are exported or resumed. CPU science only.
+Inputs remain sealed; remote exports are diagnostics, never a terminal decision.
+One original + at most two manual completion attempts after verified mechanical failure,
+stop_verified and missing-unit accounting, fresh packet/output/receipt, same allocation and N.
+Never rerun verified units or infer timing/service qualification. No automatic expansion or O1.
+All commits local by owner instruction; source is delivered by sparse fallback.
+
+Offline validation:
+/Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-04-broker.noindex/tools/ops/dispatch.sh sandbox-p-watch-lead-20261028-04 /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-04-broker.noindex/research/watch_lead_p/packet-04/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-04-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-04-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-watch-lead-1028/attempt-04/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-04-broker.noindex/research/watch_lead_p/packet-04/DISPATCH.txt --dry-run
+
+Exact operator dispatch command:
+/Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-04-broker.noindex/tools/ops/dispatch.sh sandbox-p-watch-lead-20261028-04 /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-04-broker.noindex/research/watch_lead_p/packet-04/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-04-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-04-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-watch-lead-1028/attempt-04/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-04-broker.noindex/research/watch_lead_p/packet-04/DISPATCH.txt
