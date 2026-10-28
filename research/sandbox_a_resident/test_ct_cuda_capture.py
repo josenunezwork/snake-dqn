@@ -169,7 +169,7 @@ def test_real_cuda_surfaces_healthy_and_fault_twins(
             ValueError,
             match=(
                 "scientific/non-mechanical|job_log_tail|signal marker|"
-                "runtime evidence|stop marker"
+                "runtime evidence|stop marker|qualified-transport proof"
             ),
         ):
             _admit(playback)
@@ -281,6 +281,34 @@ def test_every_real_cuda_progress_record_full_admission(
         with pytest.raises(
             ct_resume.CTResumeRefused, match="scientific/non-mechanical|job_log_tail"
         ):
+            _admit(playback)
+    else:
+        _admit(playback)
+
+
+def _transport_shapes() -> tuple[tuple[str, dict], ...]:
+    receipt = _read(GOLDEN / "output/receipt.json")
+    seen = {}
+    for surface in ("cli_calls", "contents_transfers", "transfers", "control_operations"):
+        for row in receipt[surface]:
+            key = (surface, tuple(sorted(row)), row.get("operation"), row.get("status"))
+            seen.setdefault(key, (surface, row))
+    return tuple(seen.values())
+
+
+@pytest.mark.parametrize("surface,record", _transport_shapes())
+@pytest.mark.parametrize("fault", [False, True])
+def test_every_real_cuda_transport_shape_full_admission(
+    playback: Path, surface: str, record: dict, fault: bool
+) -> None:
+    receipt = _read(playback / "output/receipt.json")
+    row = copy.deepcopy(record)
+    if fault:
+        row["diagnostic"] = FAULT
+    receipt[surface].append(row)
+    _write(playback / "output/receipt.json", receipt)
+    if fault:
+        with pytest.raises(ct_resume.CTResumeRefused, match="scientific/non-mechanical"):
             _admit(playback)
     else:
         _admit(playback)
