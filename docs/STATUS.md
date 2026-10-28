@@ -1,4 +1,4 @@
-# Current state — release updated 2026-10-17
+# Current state — snapshot updated 2026-10-27; release updated 2026-10-17
 
 Start: [documentation map](README.md) · [study index](research/INDEX.md) · [glossary](research/GLOSSARY.md).
 This is a dated documentary snapshot, not a live job or deployment check. The owner-ratified campaign
@@ -23,6 +23,58 @@ Kept: Mac-only strict gate and serving qualification, fresh paired banks, surviv
 
 **Colab credits (owner, 2026-10-20):** use the owner's Colab Pro+ credits whenever they speed up our work or add a parallel research lane — do not wait for the Mac or ask first. Go through the qualified CLI supervisor (`research/colab_cli`, QUALIFICATION.md), L4 by default, price per useful result, stay within each study's registered caps. Mac-only work stays on the Mac: Path B timing/paced tests, the strict gate, serving qualification. **Goal (owner, 2026-10-20): spend all ~1,160 Colab units by ~2026-11-20 (~39 u/day) on lanes that produce decisions** — see the compute portfolio in docs/research/final_run_20261019/CAMPAIGN_LOG.md. **Units never block (owner, 2026-10-24, STANDING):** Colab units are never by themselves a reason to decline, shrink or delay work that could speed up the campaign. Only science/pre-registration, integrity, safety and the owner's release rules may block; budgets/caps are generous runaway guards (timeouts, per-job caps), not rationing — no judge rulings over unit shortfalls, the operator raises the guard and logs it. Caps written into a pre-registration before data still need a pre-data judge amendment. **No Colab budgets (owner, 2026-10-24 later, STANDING):** 'remove budget — fine using all Colab credits in 1 week if even possible.' There are no unit budgets or ceilings; per-job timeouts remain as runaway guards; pre-registered science caps remain unless a pre-data judge amends them; actively seek high-value uses for the credits. **Approvals (owner, 2026-10-20):** all Colab use is pre-approved; any other decision needing approval (ratifying a registration, funding gates) goes to one independent Fable judge instead of the owner (**2026-10-20 ~19:05 PT, owner:** while Fable is at its usage limit, independent Opus stand-ins serve as panel members and approval judges until Fable returns), is recorded in CAMPAIGN_LOG.md, and is reported to the owner. **Release/serving changes still need the owner's OK** (SUCCESS_CONTRACT §4; corrected 2026-10-20 per RULING_label_ordering.md §4 — a Fable judge may only recommend a release).
 
+
+## Development snapshot — 2026-10-27 PT
+
+Snapshot at 23:56 PT, main `aa5d6dfc`. Operational progress below is development evidence;
+no new strict pass, serving qualification or release is established. Artifact paths are
+relative to `/Users/josenunez/Projects/ml/snake-dqn-artifacts/`.
+
+**Direction:** F5 closed before any fit by owner decision (`81863023`; campaign-log
+closure row dated 2026-10-26). Work redirected to GPU-resident training and Mac served
+search. The A-3 throughput result is already recorded in the campaign log (`88ba3f56`);
+it measures collection plus PPO throughput, not skill or live-game identity.
+
+**GPU training — TRAIN-01 packet 15 is running; packet 16 is being built.** Packet 15
+runtime/seal/verification are `5c0a101a` / `a51380c1` / `6e54ed4c`.
+`ops/logs/sandbox-a-train01-20261027-15.log` shows ongoing running/nonterminal telemetry,
+finite learner completion through update 16 and the diagnostic-update-16 proxy in progress.
+The terminal `sandbox-a-resident/train01-attempt-15/output/receipt.json` is absent at this
+snapshot. Packet 16's build state is operator-reported; acceptance or dispatch is not
+established. These are simulator-D development runs, with no completed 384-update endpoint,
+B8 efficacy claim or gate result. The prospective recipe/diagnostic ruling is
+`t34-sol/astra-rule-argon-1027/RULING.md`; update 16 does not expand the nomination set.
+
+Earlier TRAIN-01 receipts retain their original dispositions: 05/07/10 INCOMPLETE after
+supervisor interruption; 08/09 INCOMPLETE / RPC_EXEC_POLL_TIMEOUT; 11 INCOMPLETE /
+CHILD_NONZERO_EXIT after a non-finite PPO actor loss; 13 INCOMPLETE / UPLOAD_CAP before
+resume staging completed. Each extant receipt in
+`sandbox-a-resident/train01-attempt-{05,07,08,09,10,11,13}/output/receipt.json` records
+verified stop and `cleanup_error=null`. Packet numbers do not imply executed runs: receipts
+for 06/12/14 are absent at the requested paths. Packet 11 preserved iteration-0000 full
+state; compact resume in 14/15 passed independent integrity and CPU smoke checks.
+Astra's `t34-sol/astra-review-train01-14/REVIEW.md` rejected a MAJOR finite-input KL
+overflow; `astra-review-train01-15/REVIEW.md` is ACCEPT-WITH-FIXES after its repair,
+with a remaining MINOR saturated KL/entropy value/helper-gradient exactness issue.
+The review does not establish material learning harm or a completed CUDA continuation.
+
+**Mac served search — the fresh scored served panel has not yet run.** Historical host
+attempts remain INVALID under `served-tick-20261026/`; desktop-13 refused its observation
+binding before panel execution. The supervision and desktop rulings at
+`t34-sol/astra-guard-supervisor/RULING.md` and `astra-desktop-apps/RULING.md` are prospective
+and do not salvage earlier timing cells. Desktop fixes `a3799098`, merge `2c748fcb` and
+protected-service precedence `6fa8e658` have ACCEPT reviews in
+`t34-sol/astra-review-argon-desktop4/REVIEW.md`, `astra-review-desktop-merge/REVIEW.md`
+and `astra-review-desktop-live2/REVIEW.md`. Their short integration/replay evidence is
+not scored timing or concurrent-supervisor qualification for the current TRAIN-01 job.
+
+The opt-in authoritative game/DTO split (`8ffc34d0`, `59217589`) and W1/K1 contention arm
+(`892bcd1e`, `709ccdf3`) have accepted source repairs: Argon's
+`big-lever/exp/argon-20261026/review-astra-served-split-fix/answer.md`, Astra's
+`t34-sol/astra-review-argon-w1b/REVIEW.md` and `astra-review-w1-merge/REVIEW.md`.
+No measured timing-panel verdict, client-cadence qualification or delivered-value result
+is established. The documented release remains **bare B8 s3**; releases still need the
+owner's approval.
 
 ## Released agent
 
@@ -75,6 +127,10 @@ These rules replace any older text that conflicts with them (for example the 5x 
 "always serverless", or champion+v8 as the served agent).
 
 - **Released agent:** b8-s3 without a veto (2026-10-17). Rollbacks and monitoring are above.
+- **Implementers (owner, 2026-10-27):** project code is implemented and reviewed only by
+  Argon (Gemini 4 Argon via Antigravity CLI, own worktree/local commits) and Astra (Codex).
+  The reviewer is always the other one; authors never review their own builds. Do not
+  use the Sol implementer persona. Source: `AGENTS.md`, commit `1ad5dc95`.
 - **RunPod per-step rule:** use RunPod for a step only if its projected wall-clock time is
   **≥4× faster than the same step on the Mac**. Base the projection on measured timings,
   including setup and transfers. The threshold was 5× until the user lowered it on 2026-10-05.
