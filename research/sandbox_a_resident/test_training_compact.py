@@ -32,9 +32,13 @@ from research.sandbox_a_resident.training_resume import (
     build_ledger,
 )
 from research.sandbox_a_resident.training_units import (
+    COMPACT_ALLOWLIST_SCHEMA,
     COMPACT_RESUME_ALLOWLIST,
+    TRAIN01_15_SOURCE_COMMIT,
+    TRAIN01_16_SOURCE_COMMIT,
     allocation,
     load_ledger,
+    register_compact_allowlist_entry,
     unit_id,
     validate_compact_resume,
 )
@@ -372,6 +376,109 @@ def test_attach_refuses_unallowlisted_or_incomplete_derivative(tmp_path: Path, m
     Path(f"{original}.xz.complete").unlink()
     with pytest.raises(ResumeRefused, match="incomplete export"):
         attach_compact_resume(ledger, uploads, original.parent)
+
+
+@pytest.mark.parametrize(
+    ("source_packet_id", "source_commit", "iteration"),
+    [
+        ("packet-train01-15", TRAIN01_15_SOURCE_COMMIT, 192),
+        ("packet-train01-16", TRAIN01_16_SOURCE_COMMIT, 176),
+    ],
+)
+def test_v2_periodic_checkpoint_compact_encode_attach_preflight_and_materialize(
+    tmp_path: Path, source_packet_id: str, source_commit: str, iteration: int
+) -> None:
+    src_control = {
+        "study": "sandbox-a-train01",
+        "source_commit": source_commit,
+        "outer_iterations": 384,
+        "snapshot_interval": 16,
+    }
+    dst_control = {**src_control, "source_commit": "f" * 40}
+    export_dir = tmp_path / "exports"
+    export_dir.mkdir(parents=True)
+    state = sample_state()
+    state["iteration"] = iteration
+    # Exercise non-contiguous transposed/sliced tensors in periodic checkpoints.
+    state["non_contiguous_view"] = torch.arange(24, dtype=torch.float32).reshape(4, 6).t()[1:5]
+    assert not state["non_contiguous_view"].is_contiguous()
+
+    stem = f"iteration-{iteration:04d}"
+    payload = publish(export_dir / f"{stem}.pt", lambda path: torch.save(state, path))
+    info = {
+        "schema": "sandbox-a-train-snapshot/v1",
+        "id": unit_id(iteration),
+        "iteration": iteration,
+        "snapshot": {"id": unit_id(iteration), **payload},
+        "metadata": {
+            "allocation": allocation(src_control),
+            "source_commit": src_control["source_commit"],
+            "prepare_phase": "ready",
+        },
+    }
+    publish(export_dir / f"{stem}.json", lambda path: path.write_text(json.dumps(info)))
+    publish(export_dir / f"{stem}-actor.pth", lambda path: path.write_bytes(b"periodic-actor"))
+
+    encoded = encode_snapshot(
+        export_dir / f"{stem}.pt",
+        source_packet_id=source_packet_id,
+        iteration=iteration,
+        source_commit=source_commit,
+    )
+    assert "allowlist_entry" in encoded
+    allowlist_path = tmp_path / "compact_allowlist.json"
+    allowlist_path.write_text(json.dumps({"schema": COMPACT_ALLOWLIST_SCHEMA, "entries": []}))
+    register_compact_allowlist_entry(encoded["allowlist_entry"], path=allowlist_path)
+
+    ledger, uploads, latest = build_ledger(
+        export_dir, dst_control, source_control=src_control, allowlist_path=allowlist_path
+    )
+    assert latest == iteration
+    ledger, uploads = attach_compact_resume(
+        ledger,
+        uploads,
+        export_dir,
+        source_packet_id=source_packet_id,
+        allowlist_path=allowlist_path,
+    )
+    assert ledger["compact_resume"]["schema"] == "sandbox-a-train-compact-resume/v2"
+    assert ledger["compact_resume"]["source_packet_id"] == source_packet_id
+    assert ledger["compact_resume"]["iteration"] == iteration
+    assert f"resume/{stem}.pt" not in {row["dest"] for row in uploads}
+
+    packet = tmp_path / "packet"
+    packet.mkdir()
+    (packet / "verified-ledger.json").write_text(json.dumps(ledger))
+    broker = {"inputs": [{"dest": "b8-s3.pth", "path": "/x", "sha256": "0" * 64}, *uploads]}
+    validate_uploaded_ledger(packet, broker, dst_control, allowlist_path=allowlist_path)
+
+    # Forging source_packet_id or iteration in the manifest fails closed.
+    manifest_file = export_dir / f"{stem}.pt.xz.manifest"
+    forged_payload = json.loads(manifest_file.read_text())
+    forged_payload["iteration"] = iteration + 16
+    forged_path = tmp_path / "forged.xz.manifest"
+    forged_path.write_text(json.dumps(forged_payload))
+    forged_entry = copy.deepcopy(ledger["compact_resume"])
+    forged_entry["manifest"] = descriptor(forged_path, forged_entry["manifest"]["path"])
+    with pytest.raises(CompactResumeRefused, match="source_packet_id/iteration differs"):
+        load_manifest(forged_path, forged_entry)
+
+    # Runtime materialization decodes byte-identical periodic checkpoint and verifies tensors.
+    inputs = tmp_path / "inputs"
+    for row in uploads:
+        (inputs / row["dest"]).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(row["path"], inputs / row["dest"])
+    materialized = materialize_compact_resume(ledger, inputs, allowlist_path=allowlist_path)
+    decoded_target = inputs / f"resume/{stem}.pt"
+    assert decoded_target.read_bytes() == (export_dir / f"{stem}.pt").read_bytes()
+    loaded_state = torch.load(decoded_target, map_location="cpu", weights_only=False)
+    verify_decoded_state(loaded_state, materialized)
+    ledger_on_vm = inputs / "verified-ledger.json"
+    ledger_on_vm.write_text(json.dumps(ledger))
+    verified = load_ledger(
+        ledger_on_vm, dst_control, input_root=inputs, allowlist_path=allowlist_path
+    )
+    assert list(verified) == [iteration]
 
 
 real = pytest.mark.skipif(

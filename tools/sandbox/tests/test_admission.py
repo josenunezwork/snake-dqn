@@ -517,10 +517,14 @@ def test_train01_admits_only_bounded_package_stall_timeout(monkeypatch):
         },
     )
     calls = []
-    monkeypatch.setattr(dispatch, "command", lambda *a, **kw: calls.append(a[0]))
+    kwargs_seen = []
+    monkeypatch.setattr(
+        dispatch, "command", lambda *a, **kw: (calls.append(a[0]), kwargs_seen.append(kw))
+    )
     dispatch.require_sandbox_admission(packet, ROOT)
     assert packet["env"]["SANDBOX_A_STALL_TIMEOUT_SECONDS"] == "900"
     assert calls[0][2] == "research.sandbox_a_resident.training_preflight"
+    assert kwargs_seen[0]["timeout_seconds"] == dispatch.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS
 
 
 @pytest.mark.parametrize("timeout", ("0", "-1", "901", "inf", "nan", "disabled", 900))

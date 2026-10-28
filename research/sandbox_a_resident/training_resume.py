@@ -19,17 +19,36 @@ from research.sandbox_a_resident.training_units import (
     COMPACT_MANIFEST_SUFFIX,
     COMPACT_RESUME_FIELD,
     COMPACT_RESUME_SCHEMA,
+    COMPACT_RESUME_SCHEMA_V2,
     NAMESPACE,
     allocation,
+    load_compact_allowlist,
     source_migration,
     unit_id,
     validate_compact_resume,
+    validate_compact_source_packet,
 )
 from research.sandbox_a_resident.units import digest
 
 LEDGER_SCHEMA = "sandbox-a-train-ledger/v1"
 SNAPSHOT_SCHEMA = "sandbox-a-train-snapshot/v1"
 RUNTIME_ROOT = "resume"
+MECHANICAL_TERMINAL_REASONS = frozenset({"timeout", "lease_expired", "release_credential_expiring"})
+MECHANICAL_SUPERVISOR_ERROR_MARKERS = (
+    "whole-session wall cap reached",
+    "whole-session deadline reached",
+    "priced session unit cap reached",
+    "study reserve reached",
+    "retention lease elapsed",
+    "read retry budget exhausted",
+)
+NON_MECHANICAL_SUPERVISOR_ERROR_MARKERS = (
+    "keyboardinterrupt",
+    "missing required export",
+    "canary",
+    "corrupt",
+    "schema",
+)
 
 
 class ResumeRefused(ValueError):
@@ -174,6 +193,7 @@ def build_ledger(
     control: Mapping[str, Any],
     *,
     source_control: Mapping[str, Any] | None = None,
+    allowlist_path: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]], int]:
     """Build a relative-path ledger from complete canonical snapshot triples.
 
@@ -184,7 +204,9 @@ def build_ledger(
     target_control = dict(control)
     snapshot_control = target_control if source_control is None else dict(source_control)
     migration = (
-        None if source_control is None else source_migration(snapshot_control, target_control)
+        None
+        if source_control is None
+        else source_migration(snapshot_control, target_control, allowlist_path=allowlist_path)
     )
     rows: list[dict[str, Any]] = []
     uploads: list[dict[str, str]] = []
@@ -243,7 +265,13 @@ def build_ledger(
 
 
 def attach_compact_resume(
-    ledger: Mapping[str, Any], uploads: list[dict[str, str]], export_root: Path
+    ledger: Mapping[str, Any],
+    uploads: list[dict[str, str]],
+    export_root: Path,
+    *,
+    source_packet_id: str | None = None,
+    allowlist: dict[Any, dict[str, Any]] | None = None,
+    allowlist_path: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """Bind the allowlisted compact derivative in place of the full-state upload.
 
@@ -259,18 +287,48 @@ def attach_compact_resume(
     if not isinstance(units, list) or len(units) != 1:
         raise ResumeRefused("compact resume binds exactly one latest snapshot")
     unit = units[0]
-    frozen = training_units.COMPACT_RESUME_ALLOWLIST.get(unit.get("id"))
-    if frozen is None:
-        raise ResumeRefused("snapshot is not allowlisted for compact resume")
     original = unit["exports"][0]
-    if original != frozen["original"]:
-        raise ResumeRefused("ledger full-state export differs from the allowlisted original")
+    if source_packet_id is None:
+        table_v1 = training_units.COMPACT_RESUME_ALLOWLIST if allowlist is None else allowlist
+        frozen = table_v1.get(unit.get("id"))
+        if frozen is None:
+            raise ResumeRefused("snapshot is not allowlisted for compact resume")
+        if original != frozen["original"]:
+            raise ResumeRefused("ledger full-state export differs from the allowlisted original")
+        entry: dict[str, Any] = {
+            "schema": COMPACT_RESUME_SCHEMA,
+            "unit": unit["id"],
+            "original": dict(original),
+        }
+    else:
+        iteration = unit.get("iteration")
+        try:
+            validate_compact_source_packet(source_packet_id, iteration)
+        except ValueError as error:
+            raise ResumeRefused("snapshot is not allowlisted for compact resume") from error
+        table_v2 = load_compact_allowlist(allowlist_path) if allowlist is None else allowlist
+        frozen = table_v2.get((source_packet_id, iteration, original["sha256"]))
+        if frozen is None:
+            if any(
+                isinstance(key, tuple)
+                and len(key) == 3
+                and key[:2] == (source_packet_id, iteration)
+                for key in table_v2
+            ):
+                raise ResumeRefused(
+                    "ledger full-state export differs from the allowlisted original"
+                )
+            raise ResumeRefused("snapshot is not allowlisted for compact resume")
+        if original != frozen["original"]:
+            raise ResumeRefused("ledger full-state export differs from the allowlisted original")
+        entry = {
+            "schema": COMPACT_RESUME_SCHEMA_V2,
+            "source_packet_id": source_packet_id,
+            "iteration": iteration,
+            "unit": unit["id"],
+            "original": dict(original),
+        }
     stem = Path(original["path"]).name
-    entry: dict[str, Any] = {
-        "schema": COMPACT_RESUME_SCHEMA,
-        "unit": unit["id"],
-        "original": dict(original),
-    }
     records: list[dict[str, str]] = []
     for role, suffix in (
         ("derivative", COMPACT_DERIVATIVE_SUFFIX),
@@ -283,7 +341,10 @@ def attach_compact_resume(
             {"path": str(path.resolve()), "dest": destination, "sha256": entry[role]["sha256"]}
         )
     successor[COMPACT_RESUME_FIELD] = entry
-    validate_compact_resume(successor)
+    try:
+        validate_compact_resume(successor, allowlist=allowlist, allowlist_path=allowlist_path)
+    except ValueError as error:
+        raise ResumeRefused(str(error)) from error
     kept = [row for row in uploads if row["dest"] != original["path"]]
     if len(kept) != len(uploads) - 1:
         raise ResumeRefused("full-state upload record is missing or duplicated")
@@ -294,26 +355,80 @@ def attach_compact_resume(
 def verify_mechanical_stop(
     receipt: Mapping[str, Any], manifest: Mapping[str, Any], manifest_sha256: str
 ) -> None:
-    """Require an exact, released mechanical stop before a manual successor."""
+    """Require an exact, released mechanical stop before a manual successor.
+
+    Admits only mechanical timeout/recycle/poll terminations with verified VM
+    release and clean cleanup:
+    - ``RPC_EXEC_POLL_TIMEOUT`` (with ``terminal`` absent or bearing a
+      mechanical timeout/lease reason),
+    - ``SUPERVISOR`` when ``terminal.reason`` is a mechanical timeout/lease
+      reason or ``terminal`` is absent and ``error`` names a host wall/unit/lease
+      cap or read-retry exhaustion (never ``KeyboardInterrupt`` or missing/corrupt
+      exports),
+    - ``CHILD_NONZERO_EXIT`` only when ``terminal.reason`` explicitly records a
+      mechanical VM timeout/lease/credential stop (refusing scientific tripwires,
+      ``StallWatchdog`` ``os._exit(1)``, and ordinary crashes where ``reason`` is
+      ``None``).
+    """
     terminal = receipt.get("terminal")
-    if len(manifest_sha256) != 64:
+    if (
+        not isinstance(manifest_sha256, str)
+        or len(manifest_sha256) != 64
+        or any(char not in "0123456789abcdef" for char in manifest_sha256)
+    ):
         raise ResumeRefused("original manifest digest is malformed")
     if (
         receipt.get("job_id") != manifest.get("job_id")
         or receipt.get("commit") != manifest.get("commit")
         or receipt.get("manifest_sha256") != manifest_sha256
         or receipt.get("status") != "INCOMPLETE"
-        or receipt.get("failure_class") != "RPC_EXEC_POLL_TIMEOUT"
         or receipt.get("stop_verified") is not True
         or receipt.get("cleanup_error") is not None
     ):
-        raise ResumeRefused("prior receipt does not prove the frozen released RPC-poll trigger")
-    if terminal is not None and (
-        not isinstance(terminal, Mapping)
-        or terminal.get("job_id") != manifest.get("job_id")
-        or terminal.get("generation") != receipt.get("generation")
-    ):
-        raise ResumeRefused("terminal identity differs from the incomplete receipt")
+        raise ResumeRefused("prior receipt does not prove a verified released incomplete run")
+    terminal_reason: Any = None
+    if terminal is not None:
+        if (
+            not isinstance(terminal, Mapping)
+            or terminal.get("job_id") != manifest.get("job_id")
+            or terminal.get("generation") != receipt.get("generation")
+        ):
+            raise ResumeRefused("terminal identity differs from the incomplete receipt")
+        if terminal.get("status") == "completed":
+            raise ResumeRefused("prior terminal already completed; refusing continuation")
+        terminal_reason = terminal.get("reason")
+        if (
+            terminal.get("returncode") not in (None, 0)
+            and terminal_reason not in MECHANICAL_TERMINAL_REASONS
+        ):
+            raise ResumeRefused("terminal records a non-mechanical child failure")
+    failure_class = receipt.get("failure_class")
+    if failure_class == "RPC_EXEC_POLL_TIMEOUT":
+        if terminal is not None and terminal_reason not in MECHANICAL_TERMINAL_REASONS:
+            raise ResumeRefused("RPC poll timeout receipt carries a non-mechanical terminal record")
+        return
+    if failure_class == "CHILD_NONZERO_EXIT":
+        if isinstance(terminal, Mapping) and terminal_reason in MECHANICAL_TERMINAL_REASONS:
+            return
+        raise ResumeRefused(
+            "CHILD_NONZERO_EXIT receipt lacks a mechanical timeout/lease terminal reason"
+        )
+    if failure_class == "SUPERVISOR":
+        if isinstance(terminal, Mapping) and terminal_reason in MECHANICAL_TERMINAL_REASONS:
+            return
+        error = receipt.get("error")
+        if terminal is None and isinstance(error, str):
+            lowered = error.lower()
+            if any(marker in lowered for marker in MECHANICAL_SUPERVISOR_ERROR_MARKERS) and not any(
+                bad in lowered for bad in NON_MECHANICAL_SUPERVISOR_ERROR_MARKERS
+            ):
+                return
+        raise ResumeRefused(
+            "SUPERVISOR receipt does not prove a mechanical wall/unit/lease/poll stop"
+        )
+    raise ResumeRefused(
+        f"prior receipt failure_class {failure_class!r} is not an eligible mechanical trigger"
+    )
 
 
 def completion_packet(
@@ -328,6 +443,8 @@ def completion_packet(
     original_manifest_sha256: str,
     successor_manifest: Mapping[str, Any] | None = None,
     successor_control: Mapping[str, Any] | None = None,
+    compact_source_packet_id: str | None = None,
+    allowlist_path: Path | None = None,
 ) -> ResumePacket:
     """Return a fresh, manually dispatchable successor manifest and its inputs.
 
@@ -346,15 +463,14 @@ def completion_packet(
         dict(original_manifest) if successor_manifest is None else dict(successor_manifest)
     )
     if target_control != dict(control):
-        # This validates the exact train01-07 predecessor pin and permits only
-        # the committed successor source pin to differ.
-        source_migration(dict(control), target_control)
+        source_migration(dict(control), target_control, allowlist_path=allowlist_path)
     if target_manifest.get("commit") != target_control.get("source_commit"):
         raise ResumeRefused("successor manifest source pin differs from successor control")
     ledger, records, latest = build_ledger(
         export_root,
         target_control,
         source_control=None if target_control == dict(control) else dict(control),
+        allowlist_path=allowlist_path,
     )
     if latest == target_control.get("outer_iterations"):
         raise ResumeRefused("latest verified snapshot already reaches the frozen endpoint")
@@ -377,6 +493,14 @@ def completion_packet(
         name + suffix for name in list(destinations) for suffix in (".sha256", ".complete")
     }
     records = [row for row in records if row["dest"] in destinations]
+    if compact_source_packet_id is not None:
+        ledger, records = attach_compact_resume(
+            ledger,
+            records,
+            export_root,
+            source_packet_id=compact_source_packet_id,
+            allowlist_path=allowlist_path,
+        )
     successor["inputs"] = [
         row
         for row in copy.deepcopy(target_manifest.get("inputs", []))

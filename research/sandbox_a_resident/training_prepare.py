@@ -36,11 +36,11 @@ def write_once(path: Path, value: dict[str, Any]) -> None:
         stream.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
-def source_paths(commit: str) -> list[str]:
+def source_paths(commit: str, *, repo_root: Path = ROOT) -> list[str]:
     """Retain A-3's runtime closure and add the isolated training modules."""
     tracked = subprocess.check_output(
         ["git", "ls-tree", "-r", "--name-only", commit, "src", "research/sandbox_a_resident"],
-        cwd=ROOT,
+        cwd=repo_root,
         text=True,
     ).splitlines()
     additions = [
@@ -50,15 +50,21 @@ def source_paths(commit: str) -> list[str]:
         or (
             Path(name).parent.as_posix() == "research/sandbox_a_resident"
             and (
-                Path(name).name in {"train.py", "train_job.sh", "stall_watchdog.py"}
+                Path(name).name
+                in {"train.py", "train_job.sh", "stall_watchdog.py", "compact_allowlist.json"}
                 or (
                     Path(name).name.startswith("training_")
-                    and Path(name).name not in {"training_prepare.py", "training_preflight.py"}
+                    and Path(name).name
+                    not in {
+                        "training_prepare.py",
+                        "training_preflight.py",
+                        "training_continuation.py",
+                    }
                 )
             )
         )
     ]
-    return sorted(set(runtime_source_paths(commit)) | set(additions))
+    return sorted(set(runtime_source_paths(commit, repo_root=repo_root)) | set(additions))
 
 
 def audit_seeds(allocations: list[dict[str, Any]], registry_path: Path) -> dict[str, Any]:

@@ -130,7 +130,7 @@ def test_completion_packet_requires_released_mechanical_failure_and_fresh_identi
     assert packet.manifest["inputs"] == packet.input_records
     failed = receipt()
     failed["failure_class"] = "CHILD_NONZERO_EXIT"
-    with pytest.raises(ResumeRefused, match="RPC-poll trigger"):
+    with pytest.raises(ResumeRefused, match="lacks a mechanical timeout/lease terminal reason"):
         completion_packet(
             manifest(),
             failed,
@@ -367,3 +367,180 @@ def test_build_ledger_binds_train01_11_post_preparation_snapshot_to_successor(
     assert migration["from_source_commit"] == TRAIN01_11_SOURCE_COMMIT
     assert migration["to_source_commit"] == successor["source_commit"]
     assert ledger["allocation"] == allocation(successor)
+
+
+@pytest.mark.parametrize(
+    "eligible_receipt",
+    [
+        # Host whole-session wall cap (SUPERVISOR, terminal=None)
+        {
+            "failure_class": "SUPERVISOR",
+            "terminal": None,
+            "error": "SupervisorError('whole-session wall cap reached')",
+        },
+        # Host deadline / unit cap / lease / read-retry SUPERVISOR stops
+        {
+            "failure_class": "SUPERVISOR",
+            "terminal": None,
+            "error": "SupervisorError('whole-session deadline reached')",
+        },
+        {
+            "failure_class": "SUPERVISOR",
+            "terminal": None,
+            "error": "SupervisorError('priced session unit cap reached')",
+        },
+        {
+            "failure_class": "SUPERVISOR",
+            "terminal": None,
+            "error": "SupervisorError('retention lease elapsed')",
+        },
+        {
+            "failure_class": "SUPERVISOR",
+            "terminal": None,
+            "error": "SupervisorError('read retry budget exhausted')",
+        },
+        # VM runtime timeout terminating child (CHILD_NONZERO_EXIT with reason=timeout)
+        {
+            "failure_class": "CHILD_NONZERO_EXIT",
+            "terminal": {
+                "job_id": "train-01",
+                "generation": "g-1",
+                "status": "failed",
+                "returncode": -15,
+                "reason": "timeout",
+            },
+        },
+        # VM lease expiry / credential expiry
+        {
+            "failure_class": "CHILD_NONZERO_EXIT",
+            "terminal": {
+                "job_id": "train-01",
+                "generation": "g-1",
+                "status": "failed",
+                "returncode": 0,
+                "reason": "lease_expired",
+            },
+        },
+        {
+            "failure_class": "SUPERVISOR",
+            "terminal": {
+                "job_id": "train-01",
+                "generation": "g-1",
+                "status": "failed",
+                "returncode": -9,
+                "reason": "release_credential_expiring",
+            },
+        },
+        # RPC poll timeout with matching mechanical terminal
+        {
+            "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+            "terminal": {
+                "job_id": "train-01",
+                "generation": "g-1",
+                "status": "failed",
+                "returncode": -15,
+                "reason": "timeout",
+            },
+        },
+    ],
+)
+def test_completion_packet_admits_legitimate_wall_and_child_timeout_receipts(
+    tmp_path: Path, eligible_receipt: dict
+) -> None:
+    snapshot(tmp_path, 2)
+    observed = {**receipt(), **eligible_receipt}
+    packet = completion_packet(
+        manifest(),
+        observed,
+        tmp_path,
+        control(),
+        completion_index=1,
+        job_id="train-01-timeout-c1",
+        output_dir=Path("/tmp/train-01-timeout-c1"),
+        original_manifest_sha256="b" * 64,
+    )
+    assert packet.latest_iteration == 2
+    assert packet.manifest["completion_attempt"]["resume_from_iteration"] == 2
+
+
+@pytest.mark.parametrize(
+    "ineligible_receipt",
+    [
+        # Scientific tripwire / StallWatchdog os._exit(1) (reason is None)
+        {
+            "failure_class": "CHILD_NONZERO_EXIT",
+            "terminal": {
+                "job_id": "train-01",
+                "generation": "g-1",
+                "status": "failed",
+                "returncode": 1,
+                "reason": None,
+            },
+        },
+        # Operator KeyboardInterrupt
+        {
+            "failure_class": "SUPERVISOR",
+            "terminal": None,
+            "error": "KeyboardInterrupt()",
+        },
+        # Missing required export on completed child
+        {
+            "failure_class": "SUPERVISOR",
+            "terminal": None,
+            "error": "SupervisorError('whole-session wall cap reached; missing required export')",
+        },
+        # Bare SUPERVISOR with no mechanical marker
+        {
+            "failure_class": "SUPERVISOR",
+            "terminal": None,
+            "error": "SupervisorError('unexpected state corruption')",
+        },
+        # Completed terminal cannot be continued
+        {
+            "failure_class": "SUPERVISOR",
+            "terminal": {
+                "job_id": "train-01",
+                "generation": "g-1",
+                "status": "completed",
+                "returncode": 0,
+                "reason": "timeout",
+            },
+        },
+        # Non-mechanical failure classes
+        {"failure_class": "UPLOAD_CAP"},
+        {"failure_class": "ACCOUNTING"},
+        {"failure_class": "FOREIGN_GENERATION"},
+        # Unverified stop or dirty cleanup
+        {
+            "failure_class": "SUPERVISOR",
+            "error": "whole-session wall cap reached",
+            "stop_verified": False,
+        },
+        {
+            "failure_class": "SUPERVISOR",
+            "error": "whole-session wall cap reached",
+            "cleanup_error": "unassign failed",
+        },
+        {
+            "failure_class": "SUPERVISOR",
+            "error": "whole-session wall cap reached",
+            "status": "PASS",
+        },
+    ],
+)
+def test_completion_packet_refuses_non_mechanical_or_unreleased_receipts(
+    tmp_path: Path, ineligible_receipt: dict
+) -> None:
+    snapshot(tmp_path, 2)
+    observed = {**receipt(), **ineligible_receipt}
+    with pytest.raises(ResumeRefused):
+        completion_packet(
+            manifest(),
+            observed,
+            tmp_path,
+            control(),
+            completion_index=1,
+            job_id="train-01-refused-c1",
+            output_dir=Path("/tmp/train-01-refused-c1"),
+            original_manifest_sha256="b" * 64,
+        )

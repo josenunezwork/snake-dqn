@@ -47,7 +47,7 @@ NICE_FLOOR = 15
 # giving only that offline admission step a bounded window large enough for the
 # suite on a busy Mac.
 COMMAND_TIMEOUT_SECONDS = 60.0
-SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS = 180.0
+SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS = 240.0
 SANDBOX_OUTPUT_ROOTS = {
     "sandbox-b-heads-v1": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b-20261026",
     "sandbox-b-heads-v2": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b2-20261026",
@@ -678,6 +678,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         command(
             [sys.executable, "-m", module, str(path.parent)],
             cwd=broker,
+            timeout_seconds=SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS,
         )
 
 

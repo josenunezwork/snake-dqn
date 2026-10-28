@@ -19,6 +19,7 @@ import hashlib
 import json
 import lzma
 import os
+import re
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -29,7 +30,10 @@ import torch
 from research.sandbox_a_resident.training_units import (
     COMPACT_DERIVATIVE_SUFFIX,
     COMPACT_MANIFEST_SUFFIX,
+    COMPACT_RESUME_SCHEMA_V2,
+    unit_id,
     validate_compact_resume,
+    validate_compact_source_packet,
 )
 from research.sandbox_a_resident.units import digest, publish
 
@@ -54,7 +58,7 @@ class CompactResumeRefused(ValueError):
 
 
 def _tensor_sha256(tensor: torch.Tensor) -> str:
-    flat = tensor.detach().reshape(-1)
+    flat = tensor.detach().contiguous().reshape(-1)
     return hashlib.sha256(memoryview(flat.view(torch.uint8).numpy())).hexdigest()
 
 
@@ -190,12 +194,47 @@ def _verified_original(original: Path) -> tuple[int, str]:
     return original.stat().st_size, expected
 
 
-def encode_snapshot(original: Path, *, unit: str) -> dict[str, Any]:
+def _infer_iteration(original: Path, iteration: int | None) -> int | None:
+    match = re.fullmatch(r"iteration-([0-9]{4})\.pt", original.name)
+    inferred = int(match.group(1)) if match is not None else None
+    if iteration is None:
+        return inferred
+    if type(iteration) is not int or iteration < 0:
+        raise CompactResumeRefused("iteration must be a nonnegative integer")
+    if inferred is not None and inferred != iteration:
+        raise CompactResumeRefused("snapshot filename iteration differs from requested iteration")
+    return iteration
+
+
+def encode_snapshot(
+    original: Path,
+    *,
+    unit: str | None = None,
+    source_packet_id: str | None = None,
+    iteration: int | None = None,
+    source_commit: str | None = None,
+) -> dict[str, Any]:
     """Create-only Mac encoding: derivative and manifest, each with completion sidecars.
 
     The derivative is fully decoded and verified against the original bytes
     before the manifest (of the original file's decoded tensors) is published.
     """
+    resolved_iteration = _infer_iteration(original, iteration)
+    if unit is None:
+        if resolved_iteration is None:
+            raise CompactResumeRefused("unit or canonical iteration-NNNN.pt filename required")
+        resolved_unit = unit_id(resolved_iteration)
+    else:
+        if resolved_iteration is not None and unit != unit_id(resolved_iteration):
+            raise CompactResumeRefused("unit differs from canonical snapshot iteration")
+        resolved_unit = unit
+    if source_packet_id is not None:
+        if resolved_iteration is None:
+            raise CompactResumeRefused("source_packet_id requires a canonical snapshot iteration")
+        try:
+            validate_compact_source_packet(source_packet_id, resolved_iteration)
+        except ValueError as error:
+            raise CompactResumeRefused(str(error)) from error
     size, sha256 = _verified_original(original)
     derivative = Path(str(original) + COMPACT_DERIVATIVE_SUFFIX)
     manifest_path = Path(str(original) + COMPACT_MANIFEST_SUFFIX)
@@ -204,9 +243,9 @@ def encode_snapshot(original: Path, *, unit: str) -> dict[str, Any]:
     encoded = publish(derivative, lambda path: _compress(original, path))
     decode_stream(derivative, lambda block: None, expected_size=size, expected_sha256=sha256)
     state = torch.load(original, map_location="cpu", weights_only=False)
-    manifest = {
+    manifest: dict[str, Any] = {
         "schema": MANIFEST_SCHEMA,
-        "unit": unit,
+        "unit": resolved_unit,
         "codec": CODEC,
         "original": {"name": original.name, "size": size, "sha256": sha256},
         "derivative": {
@@ -216,11 +255,38 @@ def encode_snapshot(original: Path, *, unit: str) -> dict[str, Any]:
         },
         **describe_state(state),
     }
+    if source_packet_id is not None:
+        assert resolved_iteration is not None
+        manifest["source_packet_id"] = source_packet_id
+        manifest["iteration"] = resolved_iteration
     described = publish(
         manifest_path,
         lambda path: path.write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n"),
     )
-    return {"derivative": encoded, "manifest": described}
+    result: dict[str, Any] = {"derivative": encoded, "manifest": described}
+    if source_packet_id is not None:
+        assert resolved_iteration is not None
+        runtime_stem = f"resume/iteration-{resolved_iteration:04d}.pt"
+        allowlist_entry: dict[str, Any] = {
+            "source_packet_id": source_packet_id,
+            "iteration": resolved_iteration,
+            "unit": resolved_unit,
+            "original": {"path": runtime_stem, "size": size, "sha256": sha256},
+            "derivative": {
+                "path": runtime_stem + COMPACT_DERIVATIVE_SUFFIX,
+                "size": encoded["size"],
+                "sha256": encoded["sha256"],
+            },
+            "manifest": {
+                "path": runtime_stem + COMPACT_MANIFEST_SUFFIX,
+                "size": described["size"],
+                "sha256": described["sha256"],
+            },
+        }
+        if source_commit is not None:
+            allowlist_entry["source_commit"] = source_commit
+        result["allowlist_entry"] = allowlist_entry
+    return result
 
 
 def _safe_input(root: Path, relative: str) -> Path:
@@ -263,18 +329,35 @@ def load_manifest(path: Path, entry: Mapping[str, Any]) -> dict[str, Any]:
         or manifest.get("tensor_count") != len(manifest["tensors"])
     ):
         raise CompactResumeRefused("compact snapshot manifest does not match its binding")
+    if entry.get("schema") == COMPACT_RESUME_SCHEMA_V2:
+        legacy_train01_11 = (
+            entry.get("source_packet_id") == "packet-train01-11"
+            and entry.get("iteration") == 0
+            and "source_packet_id" not in manifest
+            and "iteration" not in manifest
+        )
+        if not legacy_train01_11 and (
+            manifest.get("source_packet_id") != entry.get("source_packet_id")
+            or manifest.get("iteration") != entry.get("iteration")
+        ):
+            raise CompactResumeRefused(
+                "compact snapshot manifest source_packet_id/iteration differs from its binding"
+            )
     return manifest
 
 
 def materialize_compact_resume(
-    ledger_payload: Mapping[str, Any], input_root: Path
+    ledger_payload: Mapping[str, Any],
+    input_root: Path,
+    *,
+    allowlist_path: Path | None = None,
 ) -> dict[str, Any]:
     """Decode the allowlisted derivative into its byte-identical original, create-only.
 
     Returns the verified manifest; the caller must pass the loaded state to
     :func:`verify_decoded_state` before restoring anything.
     """
-    entry = validate_compact_resume(dict(ledger_payload))
+    entry = validate_compact_resume(dict(ledger_payload), allowlist_path=allowlist_path)
     if entry is None:
         raise CompactResumeRefused("ledger has no compact resume binding")
     derivative = _safe_input(input_root, entry["derivative"]["path"])
@@ -336,10 +419,19 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     encode = sub.add_parser("encode", help="create-only Mac encoding of one verified snapshot")
     encode.add_argument("original", type=Path)
-    encode.add_argument("--unit", required=True)
+    encode.add_argument("--unit")
+    encode.add_argument("--source-packet-id")
+    encode.add_argument("--iteration", type=int)
+    encode.add_argument("--source-commit")
     args = parser.parse_args()
     torch.set_num_threads(1)
-    result = encode_snapshot(args.original.resolve(), unit=args.unit)
+    result = encode_snapshot(
+        args.original.resolve(),
+        unit=args.unit,
+        source_packet_id=args.source_packet_id,
+        iteration=args.iteration,
+        source_commit=args.source_commit,
+    )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

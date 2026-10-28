@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
@@ -25,7 +26,13 @@ from tools.sandbox.registry import digest
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def validate_uploaded_ledger(packet: Path, broker: dict, control: dict) -> None:
+def validate_uploaded_ledger(
+    packet: Path,
+    broker: dict,
+    control: dict,
+    *,
+    allowlist_path: Path | None = None,
+) -> None:
     """Verify relative runtime ledger paths against the actual Mac upload set.
 
     With an allowlisted ``compact_resume`` binding, the full-state ``.pt`` is not
@@ -33,8 +40,11 @@ def validate_uploaded_ledger(packet: Path, broker: dict, control: dict) -> None:
     the Mac original, together with the original's completion sidecars.  The
     Mac original itself is still verified by path/size/hash below.
     """
+    resolved_allowlist = allowlist_path
+    if resolved_allowlist is None and (packet.parent / "compact_allowlist.json").is_file():
+        resolved_allowlist = packet.parent / "compact_allowlist.json"
     ledger = json.loads((packet / "verified-ledger.json").read_text())
-    compact = validate_compact_resume(ledger)
+    compact = validate_compact_resume(ledger, allowlist_path=resolved_allowlist)
     uploads = {row["dest"]: row for row in broker["inputs"]}
     if len(uploads) != len(broker["inputs"]):
         raise ValueError("duplicate runtime input destination")
@@ -99,7 +109,7 @@ def validate_uploaded_ledger(packet: Path, broker: dict, control: dict) -> None:
     with tempfile.TemporaryDirectory(prefix="train01-verify-ledger-") as directory:
         path = Path(directory) / "ledger.json"
         path.write_text(json.dumps(ledger))
-        load_ledger(path, control)
+        load_ledger(path, control, allowlist_path=resolved_allowlist)
 
 
 def validate_packet(packet: Path) -> dict[str, Any]:
@@ -187,12 +197,13 @@ def main() -> int:
         "research/sandbox_a_resident/test_training_rosters.py"
         "::test_runtime_resume_normalizes_relocated_row_identity_to_cpu",
     ]
+    python_exe = ROOT / "venv/bin/python"
     subprocess.run(
         [
             "nice",
             "-n",
             "15",
-            str(ROOT / "venv/bin/python"),
+            str(python_exe if python_exe.exists() else Path(sys.executable)),
             "-m",
             "pytest",
             "-q",

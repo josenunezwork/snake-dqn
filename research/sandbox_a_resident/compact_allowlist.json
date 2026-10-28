@@ -1,0 +1,26 @@
+{
+  "entries": [
+    {
+      "derivative": {
+        "path": "resume/iteration-0000.pt.xz",
+        "sha256": "a25562d7e95e5dd486620dbe3eee3e7445396c8eb5f5f5f6f1f0f4fdda05fb7b",
+        "size": 8804064
+      },
+      "iteration": 0,
+      "manifest": {
+        "path": "resume/iteration-0000.pt.xz.manifest",
+        "sha256": "44c0b5d30e48ef3d3be370e30cc478b8ad0855ee2da236bdfaab4f9b5838efd5",
+        "size": 69385
+      },
+      "original": {
+        "path": "resume/iteration-0000.pt",
+        "sha256": "2b5478e895e7b2b68c02e3bd118612257ea4e97c0cfab727013d7e2143338ab6",
+        "size": 1327620931
+      },
+      "source_commit": "e86e4b0bc8ea37550103b14652878d1b63f5b0e1",
+      "source_packet_id": "packet-train01-11",
+      "unit": "a100-dev/sandbox-a/train01/iteration-0000"
+    }
+  ],
+  "schema": "sandbox-a-train-compact-allowlist/v2"
+}

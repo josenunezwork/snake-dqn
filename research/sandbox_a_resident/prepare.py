@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 
 
-def runtime_source_paths(commit: str) -> list[str]:
+def runtime_source_paths(commit: str, *, repo_root: Path = ROOT) -> list[str]:
     """Ship the resident runtime and its audited CPU/CUDA dependency superset.
 
     Admission binds every shipped byte. Excluding unrelated research fixtures and
@@ -64,7 +64,7 @@ def runtime_source_paths(commit: str) -> list[str]:
     }
     tracked = subprocess.check_output(
         ["git", "ls-tree", "-r", "--name-only", commit, "src", "research"],
-        cwd=ROOT,
+        cwd=repo_root,
         text=True,
     ).splitlines()
     return [

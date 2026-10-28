@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import random
+import signal
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -23,7 +24,12 @@ from research.sandbox_a_resident.training_compact import (
 )
 from research.sandbox_a_resident.training_compile import TrainingCompile
 from research.sandbox_a_resident.training_cpu_reference import cpu_distribution_factory
-from research.sandbox_a_resident.training_learner import PPOConfig, PPORollout, PPOTrainer
+from research.sandbox_a_resident.training_learner import (
+    GracefulSignalStop,
+    PPOConfig,
+    PPORollout,
+    PPOTrainer,
+)
 from research.sandbox_a_resident.training_model import (
     B8Actor,
     ClockedPopArtCritic,
@@ -55,11 +61,93 @@ from research.sandbox_a_resident.training_units import (
     migration_source_control,
     publish_snapshot,
     source_migration,
+    unit_id,
 )
 from research.sandbox_a_resident.units import digest, publish
 from src.model.inference_agent import InferenceAgent
 
 DIAGNOSTIC_PROXY_UPDATE = 16
+SIGUSR1_GRACE_SECONDS = 15.0
+DEFAULT_SIGUSR1_MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
+SIGUSR1_MIN_REMAINING_SECONDS_FOR_SNAPSHOT = 3.0
+SIGUSR1_MARKER_NAME = "sigusr1-checkpoint.json"
+SIGUSR1_MARKER_SCHEMA = "sandbox-a-train-sigusr1-checkpoint/v1"
+
+
+class Sigusr1Controller:
+    """Bounded SIGUSR1 grace tracker for clean minibatch/tick termination."""
+
+    def __init__(
+        self,
+        *,
+        grace_seconds: float = SIGUSR1_GRACE_SECONDS,
+        max_snapshot_bytes: int = DEFAULT_SIGUSR1_MAX_SNAPSHOT_BYTES,
+    ) -> None:
+        if not np.isfinite(grace_seconds) or grace_seconds <= 0:
+            raise ValueError("grace_seconds must be finite and positive")
+        if type(max_snapshot_bytes) is not int or max_snapshot_bytes < 0:
+            raise ValueError("max_snapshot_bytes must be a nonnegative integer")
+        self.grace_seconds = float(grace_seconds)
+        self.max_snapshot_bytes = max_snapshot_bytes
+        self.received_at: float | None = None
+        self.signal_count = 0
+
+    def request_stop(self, *_args: Any) -> None:
+        if self.received_at is None:
+            self.received_at = time.monotonic()
+        self.signal_count += 1
+
+    def should_stop(self) -> bool:
+        return self.received_at is not None
+
+    def elapsed_seconds(self) -> float:
+        if self.received_at is None:
+            return 0.0
+        return max(0.0, time.monotonic() - self.received_at)
+
+    def remaining_seconds(self) -> float:
+        return self.grace_seconds - self.elapsed_seconds()
+
+
+def _estimate_snapshot_bytes(*components: Any) -> int:
+    """Estimate serialized state bytes in O(tensor_count) without copying buffers."""
+    seen_storages: set[int] = set()
+    total = 65_536
+
+    def walk(value: Any) -> None:
+        nonlocal total
+        if isinstance(value, torch.Tensor):
+            try:
+                storage = value.untyped_storage()
+                pointer = int(storage.data_ptr())
+                size = int(storage.nbytes())
+            except RuntimeError:
+                pointer = 0
+                size = int(value.numel() * value.element_size())
+            if pointer == 0 or pointer not in seen_storages:
+                if pointer != 0:
+                    seen_storages.add(pointer)
+                total += size
+            return
+        if isinstance(value, np.ndarray):
+            total += int(value.nbytes)
+            return
+        if isinstance(value, Mapping):
+            for item in value.values():
+                walk(item)
+            return
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                walk(item)
+
+    for component in components:
+        if component is None:
+            continue
+        if hasattr(component, "state_dict") and callable(component.state_dict):
+            walk(component.state_dict())
+        else:
+            walk(component)
+    return total
 
 
 @dataclass(frozen=True)
@@ -225,6 +313,8 @@ def collect(
     generator: torch.Generator,
     compiled: TrainingCompile | None = None,
     on_progress: Callable[[str, Mapping[str, Any]], None] | None = None,
+    *,
+    should_stop: Callable[[], bool] | None = None,
 ) -> PPORollout:
     """Collect exactly ``ticks * E`` fresh hero rows and retain natural cut facts."""
     observations: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
@@ -269,6 +359,8 @@ def collect(
         if on_progress is not None and time.monotonic() - last_progress >= 60:
             on_progress("collect", {"ticks": tick + 1, "total": ticks})
             last_progress = time.monotonic()
+        if should_stop is not None and should_stop():
+            raise GracefulSignalStop("collect-tick", minibatch_completed=False)
     local, glob, scalars, _ = compiled.observe() if compiled is not None else task.observe()
     remaining = (task.config.horizon - task.age).clamp_min(0).float() / task.config.horizon
     return PPORollout(
@@ -398,6 +490,7 @@ def run(
     input_root: Path | None = None,
     monitoring: bool = True,
     on_progress: Callable[[str, Mapping[str, Any]], None] | None = None,
+    stop_controller: Sigusr1Controller | None = None,
 ) -> dict[str, Any]:
     """Run/resume the bounded trajectory; it never retries failed collection."""
     if type(monitoring) is not bool:
@@ -407,6 +500,7 @@ def run(
     if digest(frp3) != FRP3_S12_SHA256 or digest(champion) != CHAMPION_SHA256:
         raise ValueError("frozen roster checkpoint hash differs from gate identity")
     output.mkdir(parents=True, exist_ok=True)
+    interruptible_stage: str | None = None
 
     def emit(stage: str, values: Mapping[str, Any] | None = None) -> None:
         value = {"stage": stage, **dict(values or {})}
@@ -414,6 +508,12 @@ def run(
         print(f"TRAIN01_PROGRESS {json.dumps(value, sort_keys=True)}", flush=True)
         if on_progress is not None:
             on_progress(stage, value)
+        if (
+            interruptible_stage is not None
+            and stop_controller is not None
+            and stop_controller.should_stop()
+        ):
+            raise GracefulSignalStop(interruptible_stage, minibatch_completed=False)
 
     emit("initializing")
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -475,6 +575,17 @@ def run(
     last_heartbeat = time.monotonic()
     action_window = torch.empty(0, dtype=torch.long)
     resume_source_control: dict[str, Any] | None = None
+    permitted_boundaries = {
+        0,
+        control.outer_iterations,
+        *range(control.snapshot_interval, control.outer_iterations, control.snapshot_interval),
+    }
+    last_published_iteration: int | None = None
+    completed_consistent_iteration: int | None = None
+    completed_consistent_row: dict[str, Any] | None = None
+    stop_kwargs: dict[str, Any] = (
+        {"should_stop": stop_controller.should_stop} if stop_controller is not None else {}
+    )
     if ledger is not None and ledger.exists():
         ledger_payload = json.loads(ledger.read_text())
         predecessor = migration_source_control(ledger_payload, asdict(control))
@@ -492,14 +603,7 @@ def run(
             emit("compact-resume-decoded", {"unit": compact_manifest["unit"]})
         verified = load_ledger(ledger, asdict(control), input_root=input_root)
         if verified:
-            permitted = {
-                0,
-                control.outer_iterations,
-                *range(
-                    control.snapshot_interval, control.outer_iterations, control.snapshot_interval
-                ),
-            }
-            if not set(verified).issubset(permitted):
+            if not set(verified).issubset(permitted_boundaries):
                 raise ValueError("ledger contains a snapshot outside the frozen cadence/endpoint")
             latest = verified[max(verified)]
             # Decode durable metadata/RNG on CPU. Module, optimizer and task
@@ -528,362 +632,512 @@ def run(
             action_window = state.get("action_window", action_window).cpu()
             prep_state = state.get("preparation")
             resumed = True
+            last_published_iteration = start
+            completed_consistent_iteration = start
             if prep_state is not None and prep_state.get("temperature") is not None:
                 with torch.no_grad():
                     actor.temperature.fill_(float(prep_state["temperature"]))
-    if not control.test_only and start == 0 and not resumed:
-        proxy_factory = task.proxy_factory(opponents, list(audited_allocations.values()))
-        os.environ.setdefault("SNAKE_CKPT_DIR", str(frp3.parent))
-        cpu_actor = copy.deepcopy(actor.reference).to(dev).eval()
-        engineering_offset = int(audited_allocations["engineering"]["offset"])
-        emit("distribution-screen-start")
-        screen = run_distribution_screen(
-            cpu_factory=cpu_distribution_factory(
-                {FRP3_S12_SHA256: frp3, CHAMPION_SHA256: champion},
-                inference_device=dev,
-                root_offset=engineering_offset,
-            ),
-            device_factory=lambda mix, worlds, horizon: proxy_factory(
-                mix,
-                worlds,
-                horizon,
-                engineering_offset + ("scripted", "frozen", "mixed").index(mix) * 32,
-            ),
-            cpu_actor=cpu_actor,
-            device_actor=actor.reference,
-            on_progress=emit,
-        )
-        metrics.append({"iteration": 0, "distribution_screen": screen})
-        publish(
-            output / "distribution-screen.json",
-            lambda path: path.write_text(json.dumps(screen, sort_keys=True) + "\n"),
-        )
-        emit("distribution-screen-complete", {"material_gap_count": len(screen["material_gaps"])})
-        if screen["material_gaps"]:
-            _progress(
-                output, {"stage": "distribution-screen-failed", "distribution_screen": screen}
-            )
-            raise RuntimeError(
-                "material distribution gap: diagnose sandbox adapter before training"
-            )
-
-    prep_config = PreparationConfig(diagnostics=monitoring)
-
-    def prep_task_factory(phase: str) -> ResidentTrainingTask:
-        if phase not in {"calibration", "refit"}:
-            raise ValueError("unknown frozen preparation phase")
-        allocation = audited_allocations["calibration" if phase == "calibration" else "critic"]
-        worlds = (
-            prep_config.calibration_worlds if phase == "calibration" else prep_config.prep_worlds
-        )
-        prepared_task = ResidentTrainingTask(
-            TrainingTaskConfig(
-                worlds=worlds,
-                allocation_offset=allocation["offset"],
-                allocation_phase_offset=allocation["offset"],
-                allocation_count=allocation["count"],
-                max_episodes=allocation["count"] // worlds,
-            ),
-            device=str(dev),
-        )
-        prepared_task.attach_opponents(
-            DeviceRosterRuntime(
-                prepared_task.sim,
-                prepared_task.rosters,
-                b8_network=actor.reference,
-                checkpoint_networks=frozen,
-            )
-        )
-        return prepared_task
-
-    prep_stage = None if prep_state is None else prep_state.get("stage")
-    if prep_stage == "failed":
-        raise PreparationFailure("refusing PPO resume from a failed preparation endpoint")
-    if prep_stage not in ("ready", "skipped") and not control.test_only:
-
-        def calibrated_boundary(
-            state: Any, _actor: B8Actor, _critic: ClockedPopArtCritic, optimizer: Any
-        ) -> None:
-            emit("calibrated-boundary-write")
-            trainer.critic_optimizer = optimizer
-            payload = _snapshot_state(
-                0,
-                control,
-                actor,
-                critic,
-                trainer,
-                task,
-                generator,
-                metrics,
-                state.state_dict(),
-            )
+    try:
+        if stop_controller is not None and stop_controller.should_stop():
+            raise GracefulSignalStop("compile-self-check", minibatch_completed=False)
+        if not control.test_only and start == 0 and not resumed:
+            proxy_factory = task.proxy_factory(opponents, list(audited_allocations.values()))
+            os.environ.setdefault("SNAKE_CKPT_DIR", str(frp3.parent))
+            cpu_actor = copy.deepcopy(actor.reference).to(dev).eval()
+            engineering_offset = int(audited_allocations["engineering"]["offset"])
+            interruptible_stage = "distribution-screen"
+            try:
+                emit("distribution-screen-start")
+                screen = run_distribution_screen(
+                    cpu_factory=cpu_distribution_factory(
+                        {FRP3_S12_SHA256: frp3, CHAMPION_SHA256: champion},
+                        inference_device=dev,
+                        root_offset=engineering_offset,
+                    ),
+                    device_factory=lambda mix, worlds, horizon: proxy_factory(
+                        mix,
+                        worlds,
+                        horizon,
+                        engineering_offset + ("scripted", "frozen", "mixed").index(mix) * 32,
+                    ),
+                    cpu_actor=cpu_actor,
+                    device_actor=actor.reference,
+                    on_progress=emit,
+                )
+            finally:
+                interruptible_stage = None
+            metrics.append({"iteration": 0, "distribution_screen": screen})
             publish(
-                output / "calibrated-boundary.pt",
-                lambda path, value=payload: torch.save(value, path),
+                output / "distribution-screen.json",
+                lambda path: path.write_text(json.dumps(screen, sort_keys=True) + "\n"),
             )
-            publish(
-                output / "calibrated-boundary.json",
-                lambda path: path.write_text(
+            emit(
+                "distribution-screen-complete",
+                {"material_gap_count": len(screen["material_gaps"])},
+            )
+            if screen["material_gaps"]:
+                _progress(
+                    output, {"stage": "distribution-screen-failed", "distribution_screen": screen}
+                )
+                raise RuntimeError(
+                    "material distribution gap: diagnose sandbox adapter before training"
+                )
+
+        prep_config = PreparationConfig(diagnostics=monitoring)
+
+        def prep_task_factory(phase: str) -> ResidentTrainingTask:
+            if phase not in {"calibration", "refit"}:
+                raise ValueError("unknown frozen preparation phase")
+            allocation = audited_allocations["calibration" if phase == "calibration" else "critic"]
+            worlds = (
+                prep_config.calibration_worlds
+                if phase == "calibration"
+                else prep_config.prep_worlds
+            )
+            prepared_task = ResidentTrainingTask(
+                TrainingTaskConfig(
+                    worlds=worlds,
+                    allocation_offset=allocation["offset"],
+                    allocation_phase_offset=allocation["offset"],
+                    allocation_count=allocation["count"],
+                    max_episodes=allocation["count"] // worlds,
+                ),
+                device=str(dev),
+            )
+            prepared_task.attach_opponents(
+                DeviceRosterRuntime(
+                    prepared_task.sim,
+                    prepared_task.rosters,
+                    b8_network=actor.reference,
+                    checkpoint_networks=frozen,
+                )
+            )
+            return prepared_task
+
+        prep_stage = None if prep_state is None else prep_state.get("stage")
+        if prep_stage == "failed":
+            raise PreparationFailure("refusing PPO resume from a failed preparation endpoint")
+        if prep_stage not in ("ready", "skipped") and not control.test_only:
+
+            def calibrated_boundary(
+                state: Any, _actor: B8Actor, _critic: ClockedPopArtCritic, optimizer: Any
+            ) -> None:
+                emit("calibrated-boundary-write")
+                trainer.critic_optimizer = optimizer
+                payload = _snapshot_state(
+                    0,
+                    control,
+                    actor,
+                    critic,
+                    trainer,
+                    task,
+                    generator,
+                    metrics,
+                    state.state_dict(),
+                )
+                publish(
+                    output / "calibrated-boundary.pt",
+                    lambda path, value=payload: torch.save(value, path),
+                )
+                publish(
+                    output / "calibrated-boundary.json",
+                    lambda path: path.write_text(
+                        json.dumps(
+                            {
+                                "schema": "sandbox-a-train-calibrated-boundary/v1",
+                                "metadata": {
+                                    **snapshot_header,
+                                    "phase": "calibrated",
+                                    "prepare_phase": state.stage,
+                                },
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    ),
+                )
+
+            interruptible_stage = "preparation"
+            try:
+                emit("preparation-start", {"prepare_phase": prep_stage})
+                try:
+                    prepared = prepare(
+                        prep_task_factory,
+                        actor,
+                        critic,
+                        prep_config,
+                        generator,
+                        state=prep_state,
+                        on_calibrated=calibrated_boundary,
+                        on_progress=emit,
+                    )
+                except PreparationFailure as error:
+                    interruptible_stage = None
+                    # The preparation helper carries its exact independent task state.
+                    failure = None if error.state is None else error.state.state_dict()
+                    failed = _snapshot_state(
+                        0, control, actor, critic, trainer, task, generator, metrics, failure
+                    )
+                    publish_snapshot(
+                        output,
+                        0,
+                        lambda path, value=failed: torch.save(value, path),
+                        metadata={
+                            **snapshot_header,
+                            "phase": "preparation-failed",
+                            "prepare_phase": "failed",
+                        },
+                    )
+                    raise
+            finally:
+                interruptible_stage = None
+            emit("preparation-complete")
+            prep_state = prepared.state.state_dict()
+            trainer.critic_optimizer = prepared.critic_optimizer
+            metrics.append({"iteration": 0, "preparation": _preparation_metrics(prep_state)})
+        elif prep_state is None:
+            # Deliberately conspicuous CPU fixture path.  It is unavailable unless
+            # the immutable control says test_only and cannot qualify a real run.
+            prep_state = {"schema": "sandbox-a-train01-prep/test-only", "stage": "skipped"}
+            metrics.append({"iteration": 0, "preparation": _preparation_metrics(prep_state)})
+        # Proxy adapters may allocate helper tensors while constructing a factory.
+        # Monitoring is wholly detached from the training trajectory: when it is
+        # disabled, do not construct/evaluate the cache or mutate telemetry.
+        factory = None
+        proxy = None
+        baseline_cache = None
+        if monitoring:
+            if proxy_factory is None:
+                proxy_factory = task.proxy_factory(opponents, list(audited_allocations.values()))
+            factory = proxy_factory
+            proxy = ProxyConfig(
+                horizon=control.proxy_horizon,
+                worlds_per_mix=control.proxy_worlds_per_mix,
+                seed_base=int(audited_allocations["monitor"]["offset"]),
+            )
+
+            def cache_identity(source_commit: str) -> str:
+                return hashlib.sha256(
                     json.dumps(
                         {
-                            "schema": "sandbox-a-train-calibrated-boundary/v1",
-                            "metadata": {
-                                **snapshot_header,
-                                "phase": "calibrated",
-                                "prepare_phase": state.stage,
-                            },
+                            "source_commit": source_commit,
+                            "provenance": provenance,
+                            "world_config": asdict(task.sim.cfg),
+                            "proxy": asdict(proxy),
+                            "rosters": [roster.identity for roster in task.rosters],
                         },
                         sort_keys=True,
+                    ).encode()
+                ).hexdigest()
+
+            proxy_identity = cache_identity(control.source_commit)
+            baseline_cache = next(
+                (row.get("proxy_baseline") for row in reversed(metrics) if "proxy_baseline" in row),
+                None,
+            )
+            if baseline_cache is not None:
+                saved_identity = next(
+                    row.get("proxy_identity")
+                    for row in reversed(metrics)
+                    if "proxy_baseline" in row
+                )
+                if resume_source_control is not None:
+                    predecessor_identity = cache_identity(resume_source_control["source_commit"])
+                    if saved_identity != predecessor_identity:
+                        raise ValueError("cached B8 proxy identity differs from bound predecessor")
+                    # Preserve the verified immutable B8 cache bytes.  Rebind the
+                    # latest cache metadata to the successor identity instead of
+                    # silently recomputing its common-random-number bank.
+                    metrics.append(
+                        {
+                            "iteration": start,
+                            "proxy_baseline": baseline_cache,
+                            "proxy_config": asdict(proxy),
+                            "proxy_identity": proxy_identity,
+                            "proxy_cache_migration": {
+                                "from_source_commit": resume_source_control["source_commit"],
+                                "to_source_commit": control.source_commit,
+                                "from_proxy_identity": predecessor_identity,
+                                "to_proxy_identity": proxy_identity,
+                            },
+                        }
                     )
-                    + "\n"
-                ),
+                elif saved_identity != proxy_identity:
+                    raise ValueError(
+                        "cached B8 proxy identity differs from frozen engine/roster/config"
+                    )
+        if start == 0 and not resumed:
+            from research.sandbox_a_resident.training_proxy import masked_argmax
+
+            with torch.no_grad():
+                local, glob, scalars, legal = task.observe()
+                logits = actor(local, glob, scalars)
+                reference_q = actor.reference(local, glob, scalars)
+                actor_action = masked_argmax(logits, legal)
+                reference_action = masked_argmax(reference_q, legal)
+                difference = actor_action != reference_action
+                fallback = torch.tensor((True, True, True, False, False, False), device=dev)
+                allowed = torch.where(legal.any(-1, keepdim=True), legal, fallback)
+                top = reference_q.masked_fill(~allowed, -torch.inf).topk(2).values
+                margin = top[:, 0] - top[:, 1]
+                if difference.any():
+                    raise RuntimeError(
+                        "zero-update B8 greedy agreement failed on fresh task observations"
+                    )
+                metrics.append(
+                    {
+                        "iteration": 0,
+                        "zero_update_b8_greedy": {
+                            "rows": int(reference_action.numel()),
+                            "mismatches": int(difference.sum()),
+                            "min_top_two_margin": float(margin.min()),
+                            "same_device": str(dev),
+                        },
+                    }
+                )
+            completed_consistent_iteration = 0
+        if monitoring and baseline_cache is None:
+            assert factory is not None and proxy is not None
+            emit("proxy-baseline-start")
+            baseline = evaluate(actor.reference, factory, proxy, emit, **stop_kwargs)
+            emit("proxy-baseline-complete")
+            baseline_cache = serializable(baseline)
+            metrics.append(
+                {
+                    "iteration": 0,
+                    "proxy_baseline": baseline_cache,
+                    "proxy_config": asdict(proxy),
+                    "proxy_identity": proxy_identity,
+                    "zero_actor_proxy": (
+                        "identity reuse after fresh-observation B8 greedy agreement"
+                    ),
+                }
             )
 
-        emit("preparation-start", {"prepare_phase": prep_stage})
-        try:
-            prepared = prepare(
-                prep_task_factory,
-                actor,
-                critic,
-                prep_config,
-                generator,
-                state=prep_state,
-                on_calibrated=calibrated_boundary,
-                on_progress=emit,
+        def detached_proxy(boundary: int, kind: str) -> dict[str, Any]:
+            """Run one fixed-bank monitor with no nomination or stop consequence."""
+            assert factory is not None and proxy is not None and baseline_cache is not None
+            emit("proxy-candidate-start", {"iteration": boundary, "kind": kind})
+            candidate = evaluate(actor, factory, proxy, emit, **stop_kwargs)
+            emit("proxy-candidate-complete", {"iteration": boundary, "kind": kind})
+            baseline = {mix: MixMetrics(**value) for mix, value in baseline_cache.items()}
+            return {
+                "kind": kind,
+                "diagnostic_only": kind == "diagnostic-update-16",
+                "nominates": False,
+                "config": asdict(proxy),
+                "baseline": baseline_cache,
+                "candidate": serializable(candidate),
+                "paired": paired(candidate, baseline),
+            }
+
+        # A train01-07 snapshot at the exact new boundary contains the correct
+        # post-update-16 weights but predates this detached check.  Measure it once
+        # before collecting update 17, then persist it in the successor snapshot.
+        # Once successor telemetry is present, a further resume never repeats it.
+        has_update16_proxy = any(
+            row.get("proxy", {}).get("kind") == "diagnostic-update-16" for row in metrics
+        )
+        if monitoring and resumed and start == DIAGNOSTIC_PROXY_UPDATE and not has_update16_proxy:
+            diagnostic_row = next(
+                (row for row in reversed(metrics) if row.get("iteration") == start), None
             )
-        except PreparationFailure as error:
-            # The preparation helper carries its exact independent task state.
-            failure = None if error.state is None else error.state.state_dict()
-            failed = _snapshot_state(
-                0, control, actor, critic, trainer, task, generator, metrics, failure
+            if diagnostic_row is None:
+                raise ValueError("resume snapshot lacks its update-16 metrics row")
+            diagnostic_row["proxy"] = detached_proxy(start, "diagnostic-update-16")
+            diagnostic_row.pop("proxy_deferred_on_sigusr1", None)
+        elif monitoring and resumed and start > DIAGNOSTIC_PROXY_UPDATE and not has_update16_proxy:
+            # Do not backdate a diagnostic against later weights.  It was absent
+            # from the predecessor bytes and is explicitly reported as missed.
+            metrics.append(
+                {
+                    "iteration": start,
+                    "monitoring_note": "update-16 diagnostic unavailable in predecessor snapshot",
+                }
+            )
+        resumed_proxy_kind = proxy_kind(start, control) if start > 0 else None
+        if (
+            monitoring
+            and resumed
+            and resumed_proxy_kind is not None
+            and start != DIAGNOSTIC_PROXY_UPDATE
+        ):
+            resumed_row = next(
+                (row for row in reversed(metrics) if row.get("iteration") == start), None
+            )
+            if resumed_row is not None and "proxy" not in resumed_row:
+                resumed_row["proxy"] = detached_proxy(start, resumed_proxy_kind)
+                resumed_row.pop("proxy_deferred_on_sigusr1", None)
+        if start == 0 and not resumed:
+            initial = _snapshot_state(
+                0, control, actor, critic, trainer, task, generator, metrics, prep_state
             )
             publish_snapshot(
                 output,
                 0,
-                lambda path, value=failed: torch.save(value, path),
+                lambda path, value=initial: torch.save(value, path),
                 metadata={
                     **snapshot_header,
-                    "phase": "preparation-failed",
-                    "prepare_phase": "failed",
+                    "actor_rows": 0,
+                    "phase": "pre-actor",
+                    "prepare_phase": prep_state.get("stage"),
                 },
             )
-            raise
-        emit("preparation-complete")
-        prep_state = prepared.state.state_dict()
-        trainer.critic_optimizer = prepared.critic_optimizer
-        metrics.append({"iteration": 0, "preparation": _preparation_metrics(prep_state)})
-    elif prep_state is None:
-        # Deliberately conspicuous CPU fixture path.  It is unavailable unless
-        # the immutable control says test_only and cannot qualify a real run.
-        prep_state = {"schema": "sandbox-a-train01-prep/test-only", "stage": "skipped"}
-        metrics.append({"iteration": 0, "preparation": _preparation_metrics(prep_state)})
-    # Proxy adapters may allocate helper tensors while constructing a factory.
-    # Monitoring is wholly detached from the training trajectory: when it is
-    # disabled, do not construct/evaluate the cache or mutate telemetry.
-    factory = None
-    proxy = None
-    baseline_cache = None
-    if monitoring:
-        if proxy_factory is None:
-            proxy_factory = task.proxy_factory(opponents, list(audited_allocations.values()))
-        factory = proxy_factory
-        proxy = ProxyConfig(
-            horizon=control.proxy_horizon,
-            worlds_per_mix=control.proxy_worlds_per_mix,
-            seed_base=int(audited_allocations["monitor"]["offset"]),
-        )
-
-        def cache_identity(source_commit: str) -> str:
-            return hashlib.sha256(
-                json.dumps(
-                    {
-                        "source_commit": source_commit,
-                        "provenance": provenance,
-                        "world_config": asdict(task.sim.cfg),
-                        "proxy": asdict(proxy),
-                        "rosters": [roster.identity for roster in task.rosters],
-                    },
-                    sort_keys=True,
-                ).encode()
-            ).hexdigest()
-
-        proxy_identity = cache_identity(control.source_commit)
-        baseline_cache = next(
-            (row.get("proxy_baseline") for row in reversed(metrics) if "proxy_baseline" in row),
-            None,
-        )
-        if baseline_cache is not None:
-            saved_identity = next(
-                row.get("proxy_identity") for row in reversed(metrics) if "proxy_baseline" in row
+            _export_actor(
+                output,
+                0,
+                actor,
+                {"iteration": 0, "source_commit": control.source_commit, **provenance},
             )
-            if resume_source_control is not None:
-                predecessor_identity = cache_identity(resume_source_control["source_commit"])
-                if saved_identity != predecessor_identity:
-                    raise ValueError("cached B8 proxy identity differs from bound predecessor")
-                # Preserve the verified immutable B8 cache bytes.  Rebind the
-                # latest cache metadata to the successor identity instead of
-                # silently recomputing its common-random-number bank.
-                metrics.append(
-                    {
-                        "iteration": start,
-                        "proxy_baseline": baseline_cache,
-                        "proxy_config": asdict(proxy),
-                        "proxy_identity": proxy_identity,
-                        "proxy_cache_migration": {
-                            "from_source_commit": resume_source_control["source_commit"],
-                            "to_source_commit": control.source_commit,
-                            "from_proxy_identity": predecessor_identity,
-                            "to_proxy_identity": proxy_identity,
-                        },
-                    }
-                )
-            elif saved_identity != proxy_identity:
-                raise ValueError(
-                    "cached B8 proxy identity differs from frozen engine/roster/config"
-                )
-    if start == 0 and not resumed:
-        from research.sandbox_a_resident.training_proxy import masked_argmax
-
-        with torch.no_grad():
-            local, glob, scalars, legal = task.observe()
-            logits = actor(local, glob, scalars)
-            reference_q = actor.reference(local, glob, scalars)
-            actor_action = masked_argmax(logits, legal)
-            reference_action = masked_argmax(reference_q, legal)
-            difference = actor_action != reference_action
-            fallback = torch.tensor((True, True, True, False, False, False), device=dev)
-            allowed = torch.where(legal.any(-1, keepdim=True), legal, fallback)
-            top = reference_q.masked_fill(~allowed, -torch.inf).topk(2).values
-            margin = top[:, 0] - top[:, 1]
-            if difference.any():
-                raise RuntimeError(
-                    "zero-update B8 greedy agreement failed on fresh task observations"
-                )
-            metrics.append(
-                {
-                    "iteration": 0,
-                    "zero_update_b8_greedy": {
-                        "rows": int(reference_action.numel()),
-                        "mismatches": int(difference.sum()),
-                        "min_top_two_margin": float(margin.min()),
-                        "same_device": str(dev),
-                    },
-                }
+            last_published_iteration = 0
+        for iteration in range(start, control.outer_iterations):
+            if stop_controller is not None and stop_controller.should_stop():
+                raise GracefulSignalStop("before-collect", minibatch_completed=False)
+            collect_started = time.monotonic()
+            emit("collect-start", {"iteration": iteration + 1})
+            rollout = collect(
+                task,
+                actor,
+                critic,
+                control.rollout_horizon,
+                generator,
+                compiled,
+                emit,
+                **stop_kwargs,
             )
-    if monitoring and baseline_cache is None:
-        assert factory is not None and proxy is not None
-        emit("proxy-baseline-start")
-        baseline = evaluate(actor.reference, factory, proxy, emit)
-        emit("proxy-baseline-complete")
-        baseline_cache = serializable(baseline)
-        metrics.append(
-            {
-                "iteration": 0,
-                "proxy_baseline": baseline_cache,
-                "proxy_config": asdict(proxy),
-                "proxy_identity": proxy_identity,
-                "zero_actor_proxy": "identity reuse after fresh-observation B8 greedy agreement",
+            emit("learner-start", {"iteration": iteration + 1})
+            if not rollout.legal_masks.gather(-1, rollout.actions[..., None]).all():
+                raise RuntimeError("collector selected an illegal action")
+            action_window = torch.cat((action_window, rollout.actions.detach().cpu().reshape(-1)))
+            while action_window.numel() >= 100_000:
+                completed, action_window = action_window[:100_000], action_window[100_000:]
+                if torch.bincount(completed, minlength=6).max().item() > 90_000:
+                    raise RuntimeError(
+                        "action collapse exceeds 90 percent over a complete 100k-row window"
+                    )
+            learner_started = time.monotonic()
+            row = {
+                "iteration": iteration + 1,
+                **trainer.update(rollout, diagnostics=monitoring, **stop_kwargs),
+                "collector_seconds": learner_started - collect_started,
+                "learner_seconds": time.monotonic() - learner_started,
+                "compile": {"self_check": compile_check, "report": compiled.report},
             }
-        )
-
-    def detached_proxy(boundary: int, kind: str) -> dict[str, Any]:
-        """Run one fixed-bank monitor with no nomination or stop consequence."""
-        assert factory is not None and proxy is not None and baseline_cache is not None
-        emit("proxy-candidate-start", {"iteration": boundary, "kind": kind})
-        candidate = evaluate(actor, factory, proxy, emit)
-        emit("proxy-candidate-complete", {"iteration": boundary, "kind": kind})
-        baseline = {mix: MixMetrics(**value) for mix, value in baseline_cache.items()}
-        return {
-            "kind": kind,
-            "diagnostic_only": kind == "diagnostic-update-16",
-            "nominates": False,
-            "config": asdict(proxy),
-            "baseline": baseline_cache,
-            "candidate": serializable(candidate),
-            "paired": paired(candidate, baseline),
-        }
-
-    # A train01-07 snapshot at the exact new boundary contains the correct
-    # post-update-16 weights but predates this detached check.  Measure it once
-    # before collecting update 17, then persist it in the successor snapshot.
-    # Once successor telemetry is present, a further resume never repeats it.
-    has_update16_proxy = any(
-        row.get("proxy", {}).get("kind") == "diagnostic-update-16" for row in metrics
-    )
-    if monitoring and resumed and start == DIAGNOSTIC_PROXY_UPDATE and not has_update16_proxy:
-        diagnostic_row = next(
-            (row for row in reversed(metrics) if row.get("iteration") == start), None
-        )
-        if diagnostic_row is None:
-            raise ValueError("resume snapshot lacks its update-16 metrics row")
-        diagnostic_row["proxy"] = detached_proxy(start, "diagnostic-update-16")
-    elif monitoring and resumed and start > DIAGNOSTIC_PROXY_UPDATE and not has_update16_proxy:
-        # Do not backdate a diagnostic against later weights.  It was absent
-        # from the predecessor bytes and is explicitly reported as missed.
-        metrics.append(
-            {
-                "iteration": start,
-                "monitoring_note": "update-16 diagnostic unavailable in predecessor snapshot",
-            }
-        )
-    if start == 0 and not resumed:
-        initial = _snapshot_state(
-            0, control, actor, critic, trainer, task, generator, metrics, prep_state
-        )
-        publish_snapshot(
-            output,
-            0,
-            lambda path, value=initial: torch.save(value, path),
-            metadata={
-                **snapshot_header,
-                "actor_rows": 0,
-                "phase": "pre-actor",
-                "prepare_phase": prep_state.get("stage"),
-            },
-        )
-        _export_actor(
-            output,
-            0,
-            actor,
-            {"iteration": 0, "source_commit": control.source_commit, **provenance},
-        )
-    for iteration in range(start, control.outer_iterations):
-        collect_started = time.monotonic()
-        emit("collect-start", {"iteration": iteration + 1})
-        rollout = collect(task, actor, critic, control.rollout_horizon, generator, compiled, emit)
-        emit("learner-start", {"iteration": iteration + 1})
-        if not rollout.legal_masks.gather(-1, rollout.actions[..., None]).all():
-            raise RuntimeError("collector selected an illegal action")
-        action_window = torch.cat((action_window, rollout.actions.detach().cpu().reshape(-1)))
-        while action_window.numel() >= 100_000:
-            completed, action_window = action_window[:100_000], action_window[100_000:]
-            if torch.bincount(completed, minlength=6).max().item() > 90_000:
-                raise RuntimeError(
-                    "action collapse exceeds 90 percent over a complete 100k-row window"
+            if monitoring:
+                row["transition_support"] = rollout_monitoring(rollout)
+            metrics.append(row)
+            emit("learner-complete", {"iteration": iteration + 1})
+            boundary = iteration + 1
+            completed_consistent_iteration = boundary
+            completed_consistent_row = row
+            kind = proxy_kind(boundary, control)
+            if monitoring and kind is not None:
+                # The task factory is supplied by the adapter so each candidate and
+                # baseline starts an independent, identical proxy RNG stream.  The
+                # update-16 result is diagnostic only: it never expands nomination
+                # or changes retry/stop behaviour.
+                try:
+                    row["proxy"] = detached_proxy(boundary, kind)
+                except GracefulSignalStop:
+                    row["proxy_deferred_on_sigusr1"] = kind
+                    raise
+            if boundary % control.snapshot_interval == 0 or boundary == control.outer_iterations:
+                state = _snapshot_state(
+                    boundary,
+                    control,
+                    actor,
+                    critic,
+                    trainer,
+                    task,
+                    generator,
+                    metrics,
+                    prep_state,
+                    action_window,
                 )
-        learner_started = time.monotonic()
-        row = {
-            "iteration": iteration + 1,
-            **trainer.update(rollout, diagnostics=monitoring),
-            "collector_seconds": learner_started - collect_started,
-            "learner_seconds": time.monotonic() - learner_started,
-            "compile": {"self_check": compile_check, "report": compiled.report},
-        }
-        if monitoring:
-            row["transition_support"] = rollout_monitoring(rollout)
-        metrics.append(row)
-        emit("learner-complete", {"iteration": iteration + 1})
-        boundary = iteration + 1
-        kind = proxy_kind(boundary, control)
-        if monitoring and kind is not None:
-            # The task factory is supplied by the adapter so each candidate and
-            # baseline starts an independent, identical proxy RNG stream.  The
-            # update-16 result is diagnostic only: it never expands nomination
-            # or changes retry/stop behaviour.
-            row["proxy"] = detached_proxy(boundary, kind)
-        if boundary % control.snapshot_interval == 0 or boundary == control.outer_iterations:
-            state = _snapshot_state(
-                boundary,
+                publish_snapshot(
+                    output,
+                    boundary,
+                    lambda path, value=state: torch.save(value, path),
+                    metadata={
+                        **snapshot_header,
+                        "actor_rows": trainer.actor_rows,
+                        "metrics": row,
+                        "prepare_phase": prep_state.get("stage"),
+                    },
+                )
+                _export_actor(
+                    output,
+                    boundary,
+                    actor,
+                    {"iteration": boundary, "source_commit": control.source_commit, **provenance},
+                )
+                last_published_iteration = boundary
+            emit("iteration-complete", {"iteration": boundary})
+            now = time.monotonic()
+            if now - last_heartbeat >= 120 or boundary == control.outer_iterations:
+                _progress(
+                    output,
+                    {
+                        "stage": "ppo",
+                        "iteration": boundary,
+                        "actor_rows": trainer.actor_rows,
+                        "preparation": _preparation_metrics(prep_state),
+                        "elapsed_seconds": now - last_heartbeat,
+                    },
+                )
+                last_heartbeat = now
+            if (
+                stop_controller is not None
+                and stop_controller.should_stop()
+                and boundary < control.outer_iterations
+            ):
+                raise GracefulSignalStop("iteration-complete", minibatch_completed=False)
+    except GracefulSignalStop as stopped:
+        interruptible_stage = None
+        estimated_bytes = _estimate_snapshot_bytes(actor, critic, trainer, task)
+        remaining_grace = (
+            SIGUSR1_GRACE_SECONDS
+            if stop_controller is None
+            else stop_controller.remaining_seconds()
+        )
+        max_bytes = (
+            DEFAULT_SIGUSR1_MAX_SNAPSHOT_BYTES
+            if stop_controller is None
+            else stop_controller.max_snapshot_bytes
+        )
+        grace_budget = (
+            SIGUSR1_GRACE_SECONDS if stop_controller is None else stop_controller.grace_seconds
+        )
+        can_attempt_boundary = (
+            completed_consistent_iteration is not None
+            and completed_consistent_iteration != last_published_iteration
+            and completed_consistent_iteration in permitted_boundaries
+            and prep_state is not None
+            and prep_state.get("stage") in ("ready", "skipped")
+        )
+        sigusr1_action = "last_known_good_marker"
+        if not can_attempt_boundary:
+            if (
+                completed_consistent_iteration is not None
+                and completed_consistent_iteration == last_published_iteration
+            ):
+                sigusr1_reason = "latest_boundary_already_published"
+            elif (
+                completed_consistent_iteration is not None
+                and completed_consistent_iteration not in permitted_boundaries
+            ):
+                sigusr1_reason = "off_cadence_boundary_rollback_to_last_snapshot"
+            else:
+                sigusr1_reason = "mid_iteration_rollback_to_last_snapshot"
+        elif estimated_bytes > max_bytes:
+            sigusr1_reason = "snapshot_exceeds_15s_byte_budget"
+        elif remaining_grace < SIGUSR1_MIN_REMAINING_SECONDS_FOR_SNAPSHOT:
+            sigusr1_reason = "insufficient_remaining_grace_budget"
+        else:
+            boundary_to_write = completed_consistent_iteration
+            assert boundary_to_write is not None and prep_state is not None
+            state_payload = _snapshot_state(
+                boundary_to_write,
                 control,
                 actor,
                 critic,
@@ -892,39 +1146,79 @@ def run(
                 generator,
                 metrics,
                 prep_state,
-                action_window,
+                None if boundary_to_write == 0 else action_window,
             )
+            snap_meta: dict[str, Any] = {
+                **snapshot_header,
+                "actor_rows": 0 if boundary_to_write == 0 else trainer.actor_rows,
+                "prepare_phase": prep_state.get("stage"),
+                "sigusr1_boundary_save": True,
+            }
+            if boundary_to_write == 0:
+                snap_meta["phase"] = "pre-actor"
+            elif completed_consistent_row is not None:
+                snap_meta["metrics"] = completed_consistent_row
+                if "proxy_deferred_on_sigusr1" in completed_consistent_row:
+                    snap_meta["deferred_proxy"] = completed_consistent_row[
+                        "proxy_deferred_on_sigusr1"
+                    ]
             publish_snapshot(
                 output,
-                boundary,
-                lambda path, value=state: torch.save(value, path),
-                metadata={
-                    **snapshot_header,
-                    "actor_rows": trainer.actor_rows,
-                    "metrics": row,
-                    "prepare_phase": prep_state.get("stage"),
-                },
+                boundary_to_write,
+                lambda path, value=state_payload: torch.save(value, path),
+                metadata=snap_meta,
             )
             _export_actor(
                 output,
-                boundary,
+                boundary_to_write,
                 actor,
-                {"iteration": boundary, "source_commit": control.source_commit, **provenance},
-            )
-        emit("iteration-complete", {"iteration": boundary})
-        now = time.monotonic()
-        if now - last_heartbeat >= 120 or boundary == control.outer_iterations:
-            _progress(
-                output,
                 {
-                    "stage": "ppo",
-                    "iteration": boundary,
-                    "actor_rows": trainer.actor_rows,
-                    "preparation": _preparation_metrics(prep_state),
-                    "elapsed_seconds": now - last_heartbeat,
+                    "iteration": boundary_to_write,
+                    "source_commit": control.source_commit,
+                    **provenance,
                 },
             )
-            last_heartbeat = now
+            last_published_iteration = boundary_to_write
+            sigusr1_action = "full_snapshot_published"
+            sigusr1_reason = "permitted_boundary_within_15s_budget"
+
+        elapsed_grace = 0.0 if stop_controller is None else stop_controller.elapsed_seconds()
+        marker = {
+            "schema": SIGUSR1_MARKER_SCHEMA,
+            "signal": "SIGUSR1",
+            "action": sigusr1_action,
+            "reason": sigusr1_reason,
+            "stopped_stage": stopped.stage,
+            "minibatch_completed": bool(stopped.minibatch_completed),
+            "stopped_epoch": stopped.epoch,
+            "stopped_minibatch": stopped.minibatch,
+            "completed_consistent_iteration": completed_consistent_iteration,
+            "last_known_good_iteration": last_published_iteration,
+            "last_known_good_unit": (
+                None if last_published_iteration is None else unit_id(last_published_iteration)
+            ),
+            "estimated_snapshot_bytes": estimated_bytes,
+            "max_snapshot_bytes": max_bytes,
+            "grace_budget_seconds": grace_budget,
+            "grace_elapsed_seconds": round(elapsed_grace, 6),
+        }
+        marker_path = output / SIGUSR1_MARKER_NAME
+        if not marker_path.exists():
+            publish(
+                marker_path,
+                lambda path, value=marker: path.write_text(
+                    json.dumps(value, sort_keys=True) + "\n"
+                ),
+            )
+        emit("sigusr1-stopped", marker)
+        return {
+            "schema": "sandbox-a-train-sigusr1-stop/v1",
+            "status": "SIGUSR1_STOPPED",
+            "allocation": allocation(asdict(control)),
+            "actor_rows": trainer.actor_rows,
+            "iterations": last_published_iteration,
+            "sigusr1": marker,
+        }
     summary = {
         "schema": "sandbox-a-train-summary/v1",
         "allocation": allocation(asdict(control)),
@@ -951,24 +1245,59 @@ def main() -> int:
     parser.add_argument("--input-root", type=Path)
     parser.add_argument("--stall-timeout-seconds", type=float, default=900)
     parser.add_argument("--stall-diagnostics", type=Path)
+    parser.add_argument(
+        "--sigusr1-grace-seconds",
+        type=float,
+        default=SIGUSR1_GRACE_SECONDS,
+    )
+    parser.add_argument(
+        "--sigusr1-max-snapshot-bytes",
+        type=int,
+        default=int(
+            os.environ.get(
+                "SANDBOX_A_SIGUSR1_MAX_SNAPSHOT_BYTES",
+                str(DEFAULT_SIGUSR1_MAX_SNAPSHOT_BYTES),
+            )
+        ),
+    )
     args = parser.parse_args()
     control = TrainControl.from_json(json.loads(args.control.read_text()))
+    stop_controller = Sigusr1Controller(
+        grace_seconds=args.sigusr1_grace_seconds,
+        max_snapshot_bytes=args.sigusr1_max_snapshot_bytes,
+    )
+    previous_sigusr1 = None
+    if hasattr(signal, "SIGUSR1"):
+        previous_sigusr1 = signal.signal(signal.SIGUSR1, stop_controller.request_stop)
     from research.sandbox_a_resident.stall_watchdog import StallWatchdog
 
-    with StallWatchdog(
-        args.stall_diagnostics or args.output / "stall-watchdog", args.stall_timeout_seconds
-    ) as watchdog:
-        summary = run(
-            control,
-            checkpoint=args.checkpoint,
-            frp3=args.frp3,
-            champion=args.champion,
-            output=args.output,
-            device=args.device,
-            ledger=args.ledger,
-            input_root=args.input_root,
-            on_progress=lambda stage, values: watchdog.progress(stage, values),
+    try:
+        with StallWatchdog(
+            args.stall_diagnostics or args.output / "stall-watchdog", args.stall_timeout_seconds
+        ) as watchdog:
+            summary = run(
+                control,
+                checkpoint=args.checkpoint,
+                frp3=args.frp3,
+                champion=args.champion,
+                output=args.output,
+                device=args.device,
+                ledger=args.ledger,
+                input_root=args.input_root,
+                on_progress=lambda stage, values: watchdog.progress(stage, values),
+                stop_controller=stop_controller,
+            )
+    finally:
+        if hasattr(signal, "SIGUSR1") and previous_sigusr1 is not None:
+            signal.signal(signal.SIGUSR1, previous_sigusr1)
+    if summary.get("status") == "SIGUSR1_STOPPED":
+        sigusr1 = summary["sigusr1"]
+        print(
+            f"STOP_SANDBOX_A_TRAIN_SIGUSR1 action={sigusr1['action']} "
+            f"last_known_good_iteration={sigusr1['last_known_good_iteration']} "
+            f"actor_rows={summary['actor_rows']}"
         )
+        return 0
     print(
         f"PASS_SANDBOX_A_TRAIN iterations={summary['iterations']} "
         f"actor_rows={summary['actor_rows']}"

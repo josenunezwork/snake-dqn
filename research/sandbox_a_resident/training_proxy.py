@@ -13,6 +13,8 @@ from typing import Any, Callable, Mapping, Protocol
 
 import torch
 
+from research.sandbox_a_resident.training_learner import GracefulSignalStop
+
 MIXES = ("scripted", "frozen", "mixed")
 
 
@@ -74,6 +76,8 @@ def evaluate(
     make_task: Callable[[str, int, int, int], ProxyTask],
     config: ProxyConfig,
     on_progress: Callable[[str, Mapping[str, Any]], None] | None = None,
+    *,
+    should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, MixMetrics]:
     """Evaluate an actor with deterministic argmax on three paired fresh mixes.
 
@@ -137,6 +141,8 @@ def evaluate(
                 if on_progress is not None and time.monotonic() - last_progress >= 60:
                     on_progress("proxy", {"mix": mix, "frame": tick + 1, "horizon": config.horizon})
                     last_progress = time.monotonic()
+                if should_stop is not None and should_stop():
+                    raise GracefulSignalStop("proxy-tick", minibatch_completed=False)
             if on_progress is not None:
                 on_progress("proxy-mix-complete", {"mix": mix, "frame": config.horizon})
             rate = (low_boosts.sum() / low_length_ticks.sum().clamp_min(1)).item()
