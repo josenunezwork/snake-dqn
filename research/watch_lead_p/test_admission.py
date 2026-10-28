@@ -219,7 +219,8 @@ def completion_packet(tmp_path, monkeypatch, request):
     pin = git("rev-parse", "HEAD")
     inputs = tmp_path / "inputs"
     paths = []
-    for index in range(31):
+    recipe_sha256 = resume.recipe_fingerprint()
+    for index in range(getattr(request, "param", 1)):
         path = inputs / "units" / f"session-{index:02d}.json"
         arms = {
             a: dict(initial_state="same", frames=FRAMES, seed=SEEDS[index], deaths=10, mass=100)
@@ -232,7 +233,7 @@ def completion_packet(tmp_path, monkeypatch, request):
                 allocation=resume.ALLOCATION,
                 unit_id=resume.unit_id(index),
                 allocation_index=index,
-                recipe_sha256=resume.recipe_fingerprint(),
+                recipe_sha256=recipe_sha256,
                 seed=SEEDS[index],
                 arms=arms,
             ),
@@ -265,6 +266,7 @@ def completion_packet(tmp_path, monkeypatch, request):
     return repo, repo / "research/watch_lead_p/packet-90", inputs, paths
 
 
+@pytest.mark.parametrize("completion_packet", [31], indirect=True)
 def test_completion_packet_preflight_upload_skip_and_union(
     completion_packet, tmp_path, monkeypatch
 ):
@@ -339,6 +341,7 @@ def test_completion_packet_preflight_upload_skip_and_union(
 @pytest.mark.parametrize(
     "corruption", ["seal-empty", "seal-uncommitted", "ledger-path", "dest-missing", "all-complete"]
 )
+@pytest.mark.parametrize("completion_packet", [31], indirect=True)
 def test_completion_admission_rejects_broken_bindings(
     completion_packet, tmp_path, monkeypatch, corruption
 ):
@@ -589,6 +592,7 @@ def test_seal_refuses_science_drift_from_pin(completion_packet, tmp_path, state,
     assert not (repo / "research/watch_lead_p/packet-91").exists()
 
 
+@pytest.mark.parametrize("completion_packet", [31], indirect=True)
 def test_seal_normalizes_all_cli_paths_and_binds_pin(completion_packet, tmp_path, monkeypatch):
     from research.watch_lead_p import resume, seal
 
