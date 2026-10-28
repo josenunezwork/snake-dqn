@@ -1,0 +1,70 @@
+{
+  "applies_to": [
+    "research/sandbox_a_resident/TRAIN01_16.md",
+    "research/sandbox_a_resident/VERIFICATION_TRAIN01_16.json",
+    "research/sandbox_a_resident/packet-train01-16/DISPATCH.txt"
+  ],
+  "applies_to_sha256": {
+    "DISPATCH.txt": "1f0352ace18c64722a6e74a5f71f796c8d5a0fc63f574f41c097dc67a007543c",
+    "TRAIN01_16.md": "9212a6a8fd6af55eaaaa76602e2eeefb4e613e1f70d84f233c0a1ea2ec24fe82",
+    "VERIFICATION_TRAIN01_16.json": "8d362f01ee36862de0d2552a02c44e303cd069ffd179931527668a45ce0636cd"
+  },
+  "corrected_checklist": {
+    "10_live_preflight_and_mac_host_discipline": {
+      "live_accounting_at_dry_run": "NOT_CHECKED",
+      "live_dispatch_checks_status": "PENDING_LIVE_DISPATCH",
+      "offline_mac_discipline_status": "PASS"
+    },
+    "1_staging_budget_300s_cap": {
+      "fallback_tarball_path_measured": {
+        "file_count": 8,
+        "fraction_of_300s_cap_nominal": 0.1203,
+        "fraction_of_300s_cap_worst": 0.2082,
+        "nominal_seconds": 36.08,
+        "total_bytes": 22555736,
+        "worst_case_seconds": 62.47
+      },
+      "github_source_path_measured": {
+        "file_count": 7,
+        "fraction_of_300s_cap_nominal": 0.1111,
+        "fraction_of_300s_cap_worst": 0.1922,
+        "nominal_seconds": 33.32,
+        "total_bytes": 21619506,
+        "worst_case_seconds": 57.65
+      },
+      "measured_source_tar_gz_bytes": 936230,
+      "private_input_bytes": 21601751,
+      "private_input_count": 5,
+      "private_inputs": {
+        "b8-s3.pth": 6562005,
+        "champion.pth": 6898955,
+        "frp3-s12.pth": 6906247,
+        "registry.json": 1234356,
+        "verified-ledger.json": 188
+      },
+      "status": "PASS",
+      "supervisor_pinned_files": {
+        "bootstrap.sh": 3244,
+        "source.py": 14511
+      }
+    },
+    "3_snapshot_cadence_and_recovery_boundary": {
+      "incremental_download_lag_minutes_range": [
+        5.0,
+        13.4
+      ],
+      "non_proxy_16_update_interval_minutes_nominal": 37.2,
+      "non_proxy_16_update_interval_seconds_nominal": 2232.0,
+      "proxy_boundary_16_update_interval_minutes_nominal": 71.36,
+      "proxy_boundary_16_update_interval_seconds_nominal": 4281.4,
+      "recovery_boundary": "latest completed Mac-verified periodic snapshot triple via compact v2 continuation builder"
+    },
+    "6_heartbeat_and_stall_watchdog": {
+      "faulthandler_timeout_exit_code": 1,
+      "stall_timeout_seconds": 900,
+      "status": "PASS"
+    }
+  },
+  "note": "Preserves all hash-bound packet-train01-16 and TRAIN01_16.md bytes while recording Astra's exact measured byte totals (21,601,751 B private inputs; 22,555,736 B across 8 fallback staging files; 33.32 s / 57.65 s GitHub staging; 36.08 s / 62.47 s fallback staging), StallWatchdog faulthandler _exit(1) return code, 71.36-minute proxy-crossing snapshot interval, and PENDING_LIVE_DISPATCH status for live accounting/host checks at offline seal time.",
+  "schema": "sandbox-a-train01-16-verification-erratum/v1"
+}
