@@ -16,6 +16,15 @@ from tools.sandbox import preflight
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_sparse_source_includes_nested_requirements() -> None:
+    paths = json.loads((ROOT / "research/watch_lead_p/runtime-sources.json").read_text())
+    assert "requirements.txt" in paths
+    assert "research/watch_lead_p/requirements.txt" in paths
+    assert (ROOT / "research/watch_lead_p/requirements.txt").read_text().splitlines()[0] == (
+        "-r ../../requirements.txt"
+    )
+
+
 def test_registry_exclusion_audit() -> None:
     value = exclusion_audit()
     assert value["seeds"] == list(SEEDS)

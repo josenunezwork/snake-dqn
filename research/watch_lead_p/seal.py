@@ -23,10 +23,14 @@ def write(path: Path, data: object) -> None:
         handle.write("\n")
 
 
-def seal(pin: str, broker: Path, runtime: Path, benchmark: Path) -> None:
-    packet = ROOT / "research/watch_lead_p/packet-01"
+def seal(pin: str, broker: Path, runtime: Path, benchmark: Path, attempt: int = 1) -> None:
+    if type(attempt) is not int or not 1 <= attempt <= 99:
+        raise ValueError("fresh packet attempt must be 1..99")
+    packet_name = f"packet-{attempt:02d}"
+    attempt_name = f"attempt-{attempt:02d}"
+    packet = ROOT / "research/watch_lead_p" / packet_name
     packet.mkdir(exist_ok=False)
-    target = broker / "research/watch_lead_p/packet-01"
+    target = broker / "research/watch_lead_p" / packet_name
     write(packet / "verified-ledger.json", empty_ledger())
     write(packet / "exclusion-audit.json", exclusion_audit())
     measured = json.loads(benchmark.read_text())
@@ -45,7 +49,7 @@ def seal(pin: str, broker: Path, runtime: Path, benchmark: Path) -> None:
     for kind, path, dest in kinds:
         local = ROOT / path.relative_to(broker) if path.is_relative_to(broker) else path
         inputs.append({"kind": kind, "path": str(path), "sha256": digest(local), "dest": dest})
-    identity = "sandbox-p-watch-lead-20261028-01"
+    identity = f"sandbox-p-watch-lead-20261028-{attempt:02d}"
     manifest = {
         "job_id": identity,
         "commit": pin,
@@ -61,7 +65,7 @@ def seal(pin: str, broker: Path, runtime: Path, benchmark: Path) -> None:
             "est_minutes": math.ceil(measured["projected_seconds"] / 60),
         },
         "timeout_minutes": 480,
-        "output_dir": str(ARTIFACTS / "attempt-01/output"),
+        "output_dir": str(ARTIFACTS / attempt_name / "output"),
         "max_export_bytes": 64 * 1024 * 1024,
         "lease_seconds": 180,
         "inputs": [{k: r[k] for k in ("path", "sha256", "dest")} for r in inputs],
@@ -143,7 +147,7 @@ def seal(pin: str, broker: Path, runtime: Path, benchmark: Path) -> None:
     (packet / "sandbox.json").write_text("{" + ",\n".join(lines) + "}\n")
     command = (
         f"{broker}/tools/ops/dispatch.sh {identity} {target}/dispatch-manifest.json "
-        f"--broker {broker} --cwd {runtime} --state-dir {ARTIFACTS}/attempt-01/state "
+        f"--broker {broker} --cwd {runtime} --state-dir {ARTIFACTS}/{attempt_name}/state "
         f"--dispatch-txt {target}/DISPATCH.txt"
     )
     (packet / "DISPATCH.txt").write_text(
@@ -173,5 +177,6 @@ if __name__ == "__main__":
     parser.add_argument("--broker", type=Path, required=True)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--benchmark", type=Path, required=True)
+    parser.add_argument("--attempt", type=int, default=1)
     args = parser.parse_args()
-    seal(args.pin, args.broker, args.runtime, args.benchmark)
+    seal(args.pin, args.broker, args.runtime, args.benchmark, args.attempt)
