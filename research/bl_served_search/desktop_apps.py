@@ -27,6 +27,20 @@ from research.bl_paced_identity.events import canonical_bytes
 POLICY = "classified-desktop-v1"
 DEFAULT_REGISTRY = Path(__file__).with_name("DESKTOP_APP_REGISTRY_20261027_03.json")
 PROTECTED_MACOS_SERVICE_ROOTS = (*SYSTEM_EXECUTABLE_ROOTS, "/Library/Apple/System/")
+_AGENT_BUNDLE_NON_UI_PATH_RE = re.compile(
+    r"/(?:ChatGPT|Codex|Claude)\.app/Contents/Resources/|/Claude\.app/Contents/Helpers/"
+)
+
+
+def is_protected_macos_service_path(command: str) -> bool:
+    """Return True for non-traversing paths under protected Apple service roots."""
+    return (
+        isinstance(command, str)
+        and command.startswith(PROTECTED_MACOS_SERVICE_ROOTS)
+        and ".." not in Path(command).parts
+    )
+
+
 _WORKLOAD_NAMES = frozenset(
     {"python", "python3", "node", "pytest", "uv", "codex", "claude", "codex-exec", "agy"}
 )
@@ -202,9 +216,28 @@ def _path_bounded_in_text(target: str, text: str) -> bool:
         start = idx + 1
 
 
+def _is_verified_gui_command(command: str, verified: Any) -> bool:
+    """Return True only for an enrolled UI executable, never a CLI or Resources helper."""
+    if (
+        not isinstance(verified, Mapping)
+        or not isinstance(command, str)
+        or not command
+        or command not in verified
+        or is_protected_macos_service_path(command)
+        or "/Contents/Resources/" in command
+        or "/Contents/Helpers/" in command
+        or "/Application Support/" in command
+    ):
+        return False
+    name = Path(command).name.lower()
+    if _is_workload_name(name):
+        return name in {"claude", "codex"} and ".app/Contents/MacOS/" in command
+    return True
+
+
 def _is_non_ui_agent_helper(command: str, verified_ui_command: bool) -> bool:
     """Enforce workload precedence on non-UI helpers of AI/agent desktop bundles."""
-    if not command or verified_ui_command:
+    if not command or verified_ui_command or is_protected_macos_service_path(command):
         return False
     name = Path(command).name.lower()
     if name in {"codex (renderer)", "claude helper (renderer)"}:
@@ -221,16 +254,7 @@ def _is_non_ui_agent_helper(command: str, verified_ui_command: bool) -> bool:
         )
     ):
         return True
-    if command.startswith(
-        (
-            "/Applications/ChatGPT.app/Contents/Resources/",
-            "/Applications/Codex.app/Contents/Resources/",
-            "/Applications/Claude.app/Contents/Resources/",
-            "/Applications/Claude.app/Contents/Helpers/",
-        )
-    ):
-        return True
-    return False
+    return bool(_AGENT_BUNDLE_NON_UI_PATH_RE.search(command))
 
 
 _DISPLAY_JSON_FLAG_RE = re.compile(r"--[A-Za-z0-9_.-]+=\{.*?\}(?=\s+--|\s*$)")
@@ -315,7 +339,7 @@ def _intrinsic_workload_reason(
     if any(_path_bounded_in_text(excl, anc) for anc in ancestor_commands for excl in exclusions):
         return "workload_exclusion"
 
-    verified_ui_command = isinstance(verified, Mapping) and bool(command) and command in verified
+    verified_ui_command = _is_verified_gui_command(command, verified)
     if command:
         path = Path(command)
         if ".." not in path.parts:
@@ -330,9 +354,17 @@ def _intrinsic_workload_reason(
         if text and _WORKLOAD_TEXT.search(text):
             return "workload_exclusion"
 
-    verified_keys = tuple(verified.keys()) if isinstance(verified, Mapping) else ()
+    verified_keys = (
+        tuple(
+            k
+            for k in verified.keys()
+            if isinstance(k, str) and _is_verified_gui_command(k, verified)
+        )
+        if isinstance(verified, Mapping)
+        else ()
+    )
     for anc_cmd in ancestor_commands:
-        if isinstance(verified, Mapping) and anc_cmd in verified:
+        if _is_verified_gui_command(anc_cmd, verified):
             continue
         anc_direct = Path(anc_cmd)
         if ".." not in anc_direct.parts:
@@ -351,7 +383,7 @@ def _intrinsic_workload_reason(
             anc_path = Path(tok)
             if ".." in anc_path.parts:
                 continue
-            anc_verified = isinstance(verified, Mapping) and tok in verified
+            anc_verified = _is_verified_gui_command(tok, verified)
             if _is_workload_name(anc_path.name) and not anc_verified:
                 return "workload_exclusion"
 
@@ -372,7 +404,7 @@ def _intrinsic_workload_reason(
         tok_path = Path(tok)
         if ".." in tok_path.parts:
             continue
-        tok_verified = isinstance(verified, Mapping) and tok in verified
+        tok_verified = _is_verified_gui_command(tok, verified)
         if _is_workload_name(tok_path.name) and not tok_verified:
             return "workload_exclusion"
 
@@ -709,8 +741,7 @@ def classify_row(
 
     is_system = (
         workload_reason is None
-        and command.startswith(PROTECTED_MACOS_SERVICE_ROOTS)
-        and ".." not in Path(command).parts
+        and is_protected_macos_service_path(command)
         and canonical_command not in verified
     )
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Any
 
 from research.bl_served_search.served_tick_probe import _distribution
@@ -701,8 +700,8 @@ def _replay_identity(
 ) -> dict[str, Any]:
     """Apply workload and system precedence before sealed desktop admission."""
     from research.bl_served_search.desktop_apps import (
-        PROTECTED_MACOS_SERVICE_ROOTS,
         classify_exported,
+        is_protected_macos_service_path,
     )
     from research.bl_served_search.host_load import _workload_kind
 
@@ -727,7 +726,7 @@ def _replay_identity(
         return {"kind": "agent_workload", "reason": "workload_precedence"}
     if enrolled.get("identity_binding_changed") or workload == "unknown":
         return {**enrolled, "kind": "unknown"}
-    if command.startswith(PROTECTED_MACOS_SERVICE_ROOTS) and ".." not in Path(command).parts:
+    if is_protected_macos_service_path(command):
         return {"kind": "macos_service", "reason": "system_executable"}
     return enrolled
 

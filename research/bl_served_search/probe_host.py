@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from research.bl_mac_latency import host
 from research.bl_paced_identity.record import export_json
-from research.bl_served_search.desktop_apps import PROTECTED_MACOS_SERVICE_ROOTS
+from research.bl_served_search.desktop_apps import is_protected_macos_service_path
 from research.mac_lease import held
 
 THREAD_ENV = (
@@ -215,7 +215,7 @@ def foreign_load(
                 violation or (kind not in background_kinds and cpu >= HEAVY_PERCENT)
             ):
                 rows.append(row)
-        elif command.startswith(PROTECTED_MACOS_SERVICE_ROOTS) and ".." not in Path(command).parts:
+        elif is_protected_macos_service_path(command):
             background.append(row)
         # A point-sampled owned helper (notably ps itself) may have exited
         # before children() runs. Its sampled parent still proves ownership.

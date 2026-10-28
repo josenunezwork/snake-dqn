@@ -106,7 +106,7 @@ def test_unmocked_desktop_collector_raw_export_and_reducers():
     assert (artifact_dir / "host.json.sha256").is_file()
     assert (artifact_dir / "host.json.complete").read_bytes() == b"complete\n"
 
-    from research.bl_k1.m1_background import SYSTEM_EXECUTABLE_ROOTS
+    from research.bl_served_search.desktop_apps import is_protected_macos_service_path
 
     admitted_apps = {
         process["classification"]["application"]
@@ -129,12 +129,18 @@ def test_unmocked_desktop_collector_raw_export_and_reducers():
         cmd = proc["command"]
         cls = proc.get("classification", {})
         if (
-            cmd.startswith(SYSTEM_EXECUTABLE_ROOTS)
-            and ".." not in Path(cmd).parts
+            is_protected_macos_service_path(cmd)
             and proc["kind"] != "agent_workload"
             and not cls.get("identity_binding_changed")
         ):
             assert proc["kind"] == "macos_service", f"system service misclassified: {proc}"
+            assert (
+                host_load._workload_kind(cmd) is None
+            ), f"protected service workload-flagged: {cmd}"
+            assert host_load.process_kind(cmd) == "macos_service"
+            assert background_report._replay_identity(proc, registry_export)["kind"] == (
+                "macos_service"
+            )
             if proc.get("identity_observation_error"):
                 assert proc.get("argv") == []
                 point_protected_services.add(Path(cmd).name)
@@ -151,14 +157,18 @@ def test_unmocked_desktop_collector_raw_export_and_reducers():
             cmd = proc["command"]
             cls = proc.get("classification", {})
             if (
-                cmd.startswith(SYSTEM_EXECUTABLE_ROOTS)
-                and ".." not in Path(cmd).parts
+                is_protected_macos_service_path(cmd)
                 and proc["kind"] != "agent_workload"
                 and not cls.get("identity_binding_changed")
             ):
                 assert (
                     proc["kind"] == "macos_service"
                 ), f"interval system service misclassified: {proc}"
+                assert host_load._workload_kind(cmd) is None
+                assert host_load.process_kind(cmd) == "macos_service"
+                assert background_report._replay_identity(proc, registry_export)["kind"] == (
+                    "macos_service"
+                )
 
     trace = [
         _trace_row(index, sample["start_ns"], sample["end_ns"])

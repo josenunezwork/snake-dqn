@@ -3299,10 +3299,11 @@ def test_replay_actual_host_desktop_13_rows_through_classify_row():
     assert obs1_by_pid[22017]["cpu_percent"] == pytest.approx(0.0)
 
     # 2. Verify sealed registry 03 outside the observation window and replay all rows
-    # through classify_row.
+    # chronologically through both pure classify_row and live DesktopRegistry.step_row.
     reg = DesktopRegistry(DEFAULT_REGISTRY)
-    reg_export = reg.verify_all(outside_observation_window=True)
-    assert reg_export["verification_cpu"]["outside_observation_window"] is True
+    reg.verify_all(outside_observation_window=True)
+    initial_export = reg.read_export()
+    assert initial_export["verification_cpu"]["outside_observation_window"] is True
 
     events: list[tuple[int, str, int, dict]] = []
     for idx, obs in enumerate(raw_host["observations"]):
@@ -3319,32 +3320,69 @@ def test_replay_actual_host_desktop_13_rows_through_classify_row():
         "history_after",
         "sequence",
         "previous_classification",
+        "executable_status",
+        "entry",
+        "application",
+        "role",
+        "reason",
+        "identity",
+        "desktop_identity",
     }
     history_by_proc: dict[tuple[int, str], dict] = {}
     replayed_points: dict[int, list[dict]] = {}
+    replayed_observations: dict[int, dict] = {}
     replayed_samples: dict[int, dict] = {}
 
-    for _ts, event_kind, idx, payload in events:
+    for ts, event_kind, idx, payload in events:
         if event_kind == "point":
-            exempt = set(payload["process_screen"].get("probe_exempt_pids", ()))
+            screen = payload["process_screen"]
+            exempt = set(screen.get("probe_exempt_pids", ()))
             replayed_rows = []
-            for raw_proc in payload["process_screen"]["classified_processes"]:
+            full_classified = []
+            for raw_proc in screen["classified_processes"]:
                 if raw_proc["pid"] in exempt:
+                    full_classified.append(dict(raw_proc))
                     continue
                 clean_row = {k: v for k, v in raw_proc.items() if k not in strip_keys}
                 clean_row["admit"] = True
+                step_kind, step_decision, h_before, h_after, _ = reg.step_row(
+                    clean_row, admit=True, observation_ns=ts
+                )
                 pkey = (clean_row["pid"], clean_row["birth"])
                 prior = history_by_proc.get(pkey)
-                new_kind, new_hist, reason = classify_row(prior, clean_row, reg_export)
-                history_by_proc[pkey] = new_hist
-                replayed_rows.append(
-                    {
-                        **clean_row,
-                        "kind": new_kind,
-                        "classification": decision_from_history(new_kind, new_hist, reason),
-                    }
+                new_kind, new_hist, reason = classify_row(
+                    prior,
+                    {**clean_row, "executable_status": h_after["executable_status"]},
+                    initial_export,
                 )
+                history_by_proc[pkey] = new_hist
+                expected_decision = decision_from_history(new_kind, new_hist, reason)
+                assert step_kind == new_kind
+                assert step_decision == expected_decision
+                assert host_load.process_kind(clean_row["command"], reg, clean_row) == new_kind
+                if new_kind == "macos_service":
+                    assert host_load.process_kind(clean_row["command"]) == "macos_service"
+                built_row = {
+                    **clean_row,
+                    "kind": step_kind,
+                    "classification": step_decision,
+                    "history_before": h_before,
+                    "history_after": h_after,
+                    "sequence": h_after["sequence"],
+                    "executable_status": h_after["executable_status"],
+                    "observation_ns": ts,
+                }
+                replayed_rows.append(built_row)
+                full_classified.append(built_row)
             replayed_points[idx] = replayed_rows
+            replayed_observations[idx] = {
+                **payload,
+                "process_screen": {
+                    **screen,
+                    "classified_processes": full_classified,
+                    "history_sequence": len(reg._history_log),
+                },
+            }
         else:
             totals = {
                 "background": 0.0,
@@ -3357,11 +3395,25 @@ def test_replay_actual_host_desktop_13_rows_through_classify_row():
             replayed_procs = []
             for raw_proc in payload["processes"]:
                 clean_row = {k: v for k, v in raw_proc.items() if k not in strip_keys}
-                clean_row["admit"] = "interval_transition" not in raw_proc
+                admit = "interval_transition" not in raw_proc
+                clean_row["admit"] = admit
+                step_kind, step_decision, h_before, h_after, _ = reg.step_row(
+                    clean_row, admit=admit, observation_ns=ts
+                )
                 pkey = (clean_row["pid"], clean_row["birth"])
                 prior = history_by_proc.get(pkey)
-                new_kind, new_hist, reason = classify_row(prior, clean_row, reg_export)
+                new_kind, new_hist, reason = classify_row(
+                    prior,
+                    {**clean_row, "executable_status": h_after["executable_status"]},
+                    initial_export,
+                )
                 history_by_proc[pkey] = new_hist
+                expected_decision = decision_from_history(new_kind, new_hist, reason)
+                assert step_kind == new_kind
+                assert step_decision == expected_decision
+                assert host_load.process_kind(clean_row["command"], reg, clean_row) == new_kind
+                if new_kind == "macos_service":
+                    assert host_load.process_kind(clean_row["command"]) == "macos_service"
                 cpu_pct = float(clean_row["cpu_percent"])
                 if new_kind in host_load.DESKTOP_BACKGROUND_KINDS:
                     totals["background"] += cpu_pct
@@ -3370,23 +3422,38 @@ def test_replay_actual_host_desktop_13_rows_through_classify_row():
                     totals["workload"] += cpu_pct
                 else:
                     totals["unknown"] += cpu_pct
-                replayed_procs.append(
-                    {
-                        **clean_row,
-                        "kind": new_kind,
-                        "classification": decision_from_history(new_kind, new_hist, reason),
-                    }
-                )
+                built_proc = {
+                    **clean_row,
+                    "kind": step_kind,
+                    "classification": step_decision,
+                    "history_before": h_before,
+                    "history_after": h_after,
+                    "sequence": h_after["sequence"],
+                    "executable_status": h_after["executable_status"],
+                    "observation_ns": ts,
+                }
+                if step_kind == "desktop_app":
+                    built_proc["desktop_identity"] = dict(step_decision)
+                replayed_procs.append(built_proc)
             replayed_samples[idx] = {
                 **payload,
                 "background_cpu_percent": totals["background"],
-                "service_cpu_percent": totals["macos_service"],
-                "renderer_cpu_percent": totals["desktop_renderer"],
+                "macos_service_cpu_percent": totals["macos_service"],
+                "desktop_renderer_cpu_percent": totals["desktop_renderer"],
                 "desktop_app_cpu_percent": totals["desktop_app"],
                 "workload_cpu_percent": totals["workload"],
                 "unknown_cpu_percent": totals["unknown"],
                 "processes": replayed_procs,
             }
+
+    final_export = reg.read_export()
+    minimal_export = {
+        "policy": final_export["policy"],
+        "registry": final_export["registry"],
+        "registry_sha256": final_export["registry_sha256"],
+        "verified": final_export["verified"],
+        "bindings": final_export["bindings"],
+    }
 
     # 3. Verify PID 19017 (and all ChatGPT Codex (Renderer) rows) now classify as desktop_renderer.
     replayed_s7_by_pid = {p["pid"]: p for p in replayed_samples[7]["processes"]}
@@ -3404,6 +3471,10 @@ def test_replay_actual_host_desktop_13_rows_through_classify_row():
     codex_renderer_rows = [r for r in all_replayed_rows if r["command"] == abort_cmd]
     assert codex_renderer_rows
     assert all(r["kind"] == "desktop_renderer" for r in codex_renderer_rows)
+
+    # Every replayed row must agree with reducer _replay_identity as well.
+    for row in all_replayed_rows:
+        assert background_report._replay_identity(row, minimal_export)["kind"] == row["kind"], row
 
     # 4. Verify codex CLI and non-UI helpers in host-desktop-13 remain agent_workload.
     expected_workloads = {
@@ -3429,16 +3500,35 @@ def test_replay_actual_host_desktop_13_rows_through_classify_row():
             seen_workloads.add(row["command"])
     assert seen_workloads == expected_workloads
 
-    # 5. Verify syspolicyd, trustd, and /Library/Apple/System/* rows classify as macos_service.
+    # 5. Verify protected services — including Astra's three CoreServices Contents/Resources
+    # services, syspolicyd, trustd, and /Library/Apple/System/* — classify as macos_service
+    # across collector and reducer paths.
+    expected_protected_resources = {
+        "/System/Library/CoreServices/Software Update.app/Contents/Resources/suhelperd",
+        "/System/Library/CoreServices/Software Update.app/Contents/Resources/softwareupdated",
+        "/System/Library/CoreServices/Setup Assistant.app/Contents/Resources/mbuseragent",
+    }
+    seen_protected_resources = set()
     seen_apple_system = set()
     for row in all_replayed_rows:
-        if row["command"] in {"/usr/libexec/syspolicyd", "/usr/libexec/trustd"} or row[
-            "command"
-        ].startswith("/Library/Apple/System/"):
+        cmd = row["command"]
+        if cmd in expected_protected_resources:
             assert row["kind"] == "macos_service", row
             assert row["classification"]["reason"] == "system_executable_root"
-            if row["command"].startswith("/Library/Apple/System/"):
-                seen_apple_system.add(Path(row["command"]).name)
+            assert host_load.process_kind(cmd) == "macos_service"
+            assert host_load.process_kind(cmd, reg, row) == "macos_service"
+            assert background_report._replay_identity(row, minimal_export)["kind"] == (
+                "macos_service"
+            )
+            seen_protected_resources.add(cmd)
+        if cmd in {"/usr/libexec/syspolicyd", "/usr/libexec/trustd"} or cmd.startswith(
+            "/Library/Apple/System/"
+        ):
+            assert row["kind"] == "macos_service", row
+            assert row["classification"]["reason"] == "system_executable_root"
+            if cmd.startswith("/Library/Apple/System/"):
+                seen_apple_system.add(Path(cmd).name)
+    assert seen_protected_resources == expected_protected_resources
     assert {
         "XProtectPluginService",
         "deviceinterfaced",
@@ -3446,7 +3536,8 @@ def test_replay_actual_host_desktop_13_rows_through_classify_row():
         "remotepairingd",
     } <= seen_apple_system
 
-    # 6. Verify point guard and LoadGuard pass across all replayed observations and samples.
+    # 6. Verify point guard, LoadGuard, and full reducer replay (validate_desktop_host,
+    # desktop_overall, summarize_background) pass across all replayed observations and samples.
     for idx, rows in sorted(replayed_points.items()):
         point_heavy = [
             r
@@ -3457,6 +3548,448 @@ def test_replay_actual_host_desktop_13_rows_through_classify_row():
             point_heavy == []
         ), f"unexpected point guard violation in observation {idx}: {point_heavy}"
 
+    ordered_samples = [replayed_samples[i] for i in range(len(raw_host["cpu_samples"]))]
     guard = host_load.LoadGuard(desktop_policy=True)
-    for idx in range(len(raw_host["cpu_samples"])):
-        guard.check(replayed_samples[idx])
+    for sample in ordered_samples:
+        guard.check(sample)
+
+    replayed_host = {
+        **raw_host,
+        "status": "COMPLETE",
+        "reason": None,
+        "observations": [replayed_observations[i] for i in range(len(raw_host["observations"]))],
+        "cpu_samples": ordered_samples,
+        "desktop_registry": final_export["registry"],
+        "desktop_registry_sha256": final_export["registry_sha256"],
+        "desktop_registry_evidence": final_export,
+    }
+    background_report.validate_desktop_host(replayed_host)
+    overall = background_report.desktop_overall(replayed_host)
+    assert overall["sample_count"] == 8
+    trace_rows = [
+        {
+            "tick": idx,
+            "target_ns": sample["start_ns"],
+            "wake_ns": sample["start_ns"],
+            "start_ns": sample["start_ns"],
+            "end_ns": sample["end_ns"],
+            "start_cpu_ns": 10,
+            "end_cpu_ns": 20,
+            "spans": {"game_update": {"wall_ns": 5}},
+        }
+        for idx, sample in enumerate(ordered_samples)
+    ]
+    summary = background_report.summarize_background(
+        {"warmup_ticks": 0, "trace": trace_rows}, replayed_host
+    )
+    assert len(summary["ticks"]) == 8
+
+
+def test_protected_resources_services_live_collector_argv_transitions_and_reducer_replay(
+    enrolled, monkeypatch
+):
+    """Protected Apple services beneath Contents/Resources classify as macos_service across the
+    live collector (including bare-comm resolution and exact-argv availability transitions) and
+    both reducer replay paths, while real workloads (python/node/codex CLI, even inside
+    Contents/Resources or under /System) still win over system roots and desktop enrollment."""
+    import time as time_mod
+    from types import SimpleNamespace
+
+    import psutil
+
+    from research.bl_served_search.desktop_apps import classify_row
+
+    reg, base_row, executable, bundle = enrolled
+    reg_export = reg.read_export()
+
+    protected_resources_services = [
+        "/System/Library/CoreServices/Software Update.app/Contents/Resources/suhelperd",
+        "/System/Library/CoreServices/Software Update.app/Contents/Resources/softwareupdated",
+        "/System/Library/CoreServices/Setup Assistant.app/Contents/Resources/mbuseragent",
+        (
+            "/Library/Apple/System/Library/CoreServices/XProtect.app/Contents/Resources/"
+            "XProtectPluginService"
+        ),
+    ]
+
+    # 1. Exact path parity across classify_row, DesktopRegistry, host_load, and background_report.
+    for idx, svc_cmd in enumerate(protected_resources_services, start=400):
+        svc_row = {
+            "pid": idx,
+            "ppid": 1,
+            "uid": 0,
+            "birth": "Tue Oct 27 09:00:00 2026",
+            "command": svc_cmd,
+            "argv": [svc_cmd],
+            "argv_display": svc_cmd,
+        }
+        kind, _, reason = classify_row(None, svc_row, reg_export)
+        assert kind == "macos_service"
+        assert reason == "system_executable_root"
+        assert reg.classify(svc_row)["kind"] == "macos_service"
+        assert reg.admit_process(svc_row)["kind"] == "macos_service"
+        assert host_load._workload_kind(svc_cmd) is None
+        assert host_load._workload_kind(svc_cmd, reg) is None
+        assert host_load.process_kind(svc_cmd) == "macos_service"
+        assert host_load.process_kind(svc_cmd, reg, svc_row) == "macos_service"
+        assert background_report._replay_identity(svc_row, reg_export)["kind"] == "macos_service"
+        assert (
+            background_report._replay_kind(
+                {**svc_row, "kind": "macos_service", "classification": {"kind": "macos_service"}},
+                {"registry_sha256": reg_export["registry_sha256"]},
+            )["kind"]
+            == "macos_service"
+        )
+
+    # 2. Live collector bare-comm path: ps reports bare comm="softwareupdated"/"suhelperd"/
+    # "mbuseragent" with 0.30s CPU delta over 1s (30% CPU each); _resolve_protected_service_path
+    # upgrades them to full protected paths so cpu_interval + LoadGuard(desktop_policy=True) and
+    # probe_host.foreign_load admit them as macos_service.
+    fixed_epoch = 1_761_580_000.0
+    fixed_birth = " ".join(time_mod.ctime(fixed_epoch).split())
+    suhelperd_path, softwareupdated_path, mbuseragent_path = protected_resources_services[:3]
+    apple_python_path = "/System/Library/Python.app/Contents/MacOS/Python"
+    sys_res_python_path = (
+        "/System/Library/CoreServices/Software Update.app/Contents/Resources/python3"
+    )
+    fake_kernel_procs = {
+        501: (fixed_epoch, 0, softwareupdated_path),
+        502: (fixed_epoch, 0, suhelperd_path),
+        503: (fixed_epoch, 501, mbuseragent_path),
+        504: (fixed_epoch, 501, apple_python_path),
+        505: (fixed_epoch, 501, sys_res_python_path),
+    }
+
+    class FakeProc:
+        def __init__(self, pid: int):
+            if pid not in fake_kernel_procs:
+                raise psutil.NoSuchProcess(pid)
+            self._epoch, self._uid, _ = fake_kernel_procs[pid]
+
+        def create_time(self) -> float:
+            return self._epoch
+
+        def uids(self):
+            return SimpleNamespace(effective=self._uid)
+
+    monkeypatch.setattr(psutil, "Process", FakeProc)
+    monkeypatch.setattr(host_load, "_proc_pidpath", lambda pid: fake_kernel_procs[pid][2])
+    monkeypatch.setattr(
+        host_load,
+        "capture_argv",
+        lambda _row: {"argv": [], "identity_observation_error": "argv_identity_unavailable"},
+    )
+
+    def _ps_line(pid: int, uid: int, time_str: str, comm: str, args: str) -> str:
+        padded = f"{comm:<{host_load._COMMAND_WIDTH}}"
+        return f"{pid} 1 {uid} {fixed_birth} {time_str} {padded} {args}\n"
+
+    ps_outputs = iter(
+        [
+            SimpleNamespace(
+                stdout=(
+                    "PID PPID UID STARTED TIME COMM ARGS\n"
+                    + _ps_line(501, 0, "00:01.00", "softwareupdated", "softwareupdated")
+                    + _ps_line(502, 0, "00:01.00", "suhelperd", "suhelperd")
+                    + _ps_line(503, 501, "00:01.00", "mbuseragent", "mbuseragent")
+                )
+            ),
+            SimpleNamespace(
+                stdout=(
+                    "PID PPID UID STARTED TIME COMM ARGS\n"
+                    + _ps_line(501, 0, "00:01.30", "softwareupdated", "softwareupdated")
+                    + _ps_line(502, 0, "00:01.25", "suhelperd", "suhelperd")
+                    + _ps_line(503, 501, "00:01.10", "mbuseragent", "mbuseragent")
+                )
+            ),
+        ]
+    )
+    orig_perf_counter_ns = time_mod.perf_counter_ns
+    perf_ticks = iter([1_000_000_000, 1_000_000_000, 2_000_000_000, 2_000_000_000])
+    monkeypatch.setattr(host_load.subprocess, "run", lambda *_a, **_kw: next(ps_outputs))
+    monkeypatch.setattr(
+        host_load.time, "perf_counter_ns", lambda: next(perf_ticks, orig_perf_counter_ns())
+    )
+
+    inv_before = host_load.capture_cpu()
+    inv_after = host_load.capture_cpu()
+    assert [p["command"] for p in inv_before["processes"]] == [
+        softwareupdated_path,
+        suhelperd_path,
+        mbuseragent_path,
+    ]
+    sample_bare = host_load.cpu_interval(
+        inv_before, inv_after, owner_pid=999_999, desktop_classifier=reg
+    )
+    assert sample_bare["coverage_complete"] is True
+    assert sample_bare["process_churn"] == []
+    assert [p["kind"] for p in sample_bare["processes"]] == [
+        "macos_service",
+        "macos_service",
+        "macos_service",
+    ]
+    assert sample_bare["macos_service_cpu_percent"] == pytest.approx(65.0)
+    assert sample_bare["background_cpu_percent"] == pytest.approx(65.0)
+    assert sample_bare["workload_cpu_percent"] == pytest.approx(0.0)
+    assert sample_bare["unknown_cpu_percent"] == pytest.approx(0.0)
+    host_load.LoadGuard(desktop_policy=True).check(sample_bare)
+
+    # Point guard on upgraded protected Resources service at 30% CPU also passes with 0 violations.
+    monkeypatch.setattr(
+        probe_host,
+        "_desktop_point_inventory",
+        lambda: (
+            setattr(
+                probe_host,
+                "_LAST_POINT_CAPTURE_BRACKET",
+                (900_000_000, 950_000_000, 925_000_000),
+            )
+            or [
+                {
+                    "pid": 501,
+                    "ppid": 1,
+                    "uid": 0,
+                    "birth": fixed_birth,
+                    "command": softwareupdated_path,
+                    "argv": [],
+                    "argv_display": "softwareupdated",
+                    "identity_observation_error": "argv_identity_unavailable",
+                    "cpu_percent": 30.0,
+                    "rss_kb": 16384,
+                    "state": "R",
+                    "name": "softwareupdated",
+                }
+            ]
+        ),
+    )
+    point_screen: dict = {"foreign_processes": [], "probe_exempt_pids": []}
+    assert (
+        probe_host.foreign_load(
+            point_screen,
+            owner_pid=999_999,
+            classified=True,
+            desktop_classifier=reg,
+            admit_desktop=True,
+        )
+        == []
+    )
+    assert point_screen["classified_processes"][0]["kind"] == "macos_service"
+
+    # Contrast: bare comm="Python" / "python3" resolving under /System (even inside
+    # Contents/Resources) must NOT upgrade to macos_service and must abort LoadGuard at 30% CPU.
+    for py_pid, py_comm in [(504, "Python"), (505, "python3")]:
+        py_row = {"pid": py_pid, "uid": 501, "birth": fixed_birth, "command": py_comm}
+        host_load._resolve_protected_service_path(py_row)
+        assert py_row["command"] == py_comm
+        py_inv_0 = {
+            "time_ns": 3_000_000_000,
+            "capture_start_ns": 3_000_000_000,
+            "capture_end_ns": 3_000_000_000,
+            "processes": [
+                {
+                    "pid": py_pid,
+                    "ppid": 1,
+                    "uid": 501,
+                    "birth": fixed_birth,
+                    "command": fake_kernel_procs[py_pid][2],
+                    "argv": [fake_kernel_procs[py_pid][2]],
+                    "argv_display": fake_kernel_procs[py_pid][2],
+                    "cpu_seconds": 1.0,
+                }
+            ],
+        }
+        py_inv_1 = copy.deepcopy(py_inv_0)
+        py_inv_1["time_ns"] = 4_000_000_000
+        py_inv_1["capture_start_ns"] = 4_000_000_000
+        py_inv_1["capture_end_ns"] = 4_000_000_000
+        py_inv_1["processes"][0]["cpu_seconds"] = 1.30
+        py_sample = host_load.cpu_interval(
+            py_inv_0, py_inv_1, owner_pid=999_999, desktop_classifier=reg
+        )
+        assert py_sample["processes"][0]["kind"] == "agent_workload"
+        with pytest.raises(RuntimeError, match="foreign workload/unknown heavy load"):
+            host_load.LoadGuard(desktop_policy=True).check(py_sample)
+
+    # 3. Exact-argv availability transitions (ok -> unavailable -> ok) on protected
+    # Contents/Resources services with unchanged PID/birth/UID/command/displayed args preserve
+    # coverage_complete=True, zero churn, low_background eligibility, and full reducer replay.
+    reg_avail = DesktopRegistry(
+        reg.path,
+        uid=501,
+        runner=reg._runner,
+        trusted_roots=[bundle.parent],
+        require_seal=False,
+    )
+    reg_avail.verify_all(outside_observation_window=True)
+
+    def _avail_inv(ts_ns: int, cpu_sec: float, *, available: bool) -> dict:
+        proc: dict = {
+            "pid": 610,
+            "ppid": 1,
+            "uid": 0,
+            "birth": fixed_birth,
+            "command": softwareupdated_path,
+            "argv_display": softwareupdated_path,
+            "cpu_seconds": cpu_sec,
+            "observation_ns": ts_ns,
+        }
+        if available:
+            proc["argv"] = [softwareupdated_path]
+        else:
+            proc["argv"] = []
+            proc["identity_observation_error"] = "argv_identity_unavailable"
+        return {
+            "time_ns": ts_ns,
+            "capture_start_ns": ts_ns - 100,
+            "capture_end_ns": ts_ns + 100,
+            "processes": [proc],
+        }
+
+    t0 = _avail_inv(10_000_000_000, 1.00, available=True)
+    t1 = _avail_inv(11_000_000_000, 1.05, available=False)
+    t2 = _avail_inv(12_000_000_000, 1.10, available=True)
+    assert host_load._argv_changed(t0["processes"][0], t1["processes"][0]) is False
+    assert host_load._argv_changed(t1["processes"][0], t2["processes"][0]) is False
+
+    # Seed initial point observation before the two intervals, then capture both intervals.
+    point_obs_ns = 9_500_000_000
+    p_row = {
+        "pid": 610,
+        "ppid": 1,
+        "uid": 0,
+        "birth": fixed_birth,
+        "command": softwareupdated_path,
+        "argv": [softwareupdated_path],
+        "argv_display": softwareupdated_path,
+        "cpu_percent": 5.0,
+        "observation_ns": point_obs_ns,
+    }
+    p_kind, p_dec, p_hb, p_ha, _ = reg_avail.step_row(
+        p_row, admit=True, observation_ns=point_obs_ns
+    )
+    assert p_kind == "macos_service"
+    point_seq = len(reg_avail._history_log)
+
+    s1 = host_load.cpu_interval(t0, t1, owner_pid=999_999, desktop_classifier=reg_avail)
+    s2 = host_load.cpu_interval(t1, t2, owner_pid=999_999, desktop_classifier=reg_avail)
+    for s in (s1, s2):
+        assert s["coverage_complete"] is True
+        assert s["process_churn"] == []
+        assert s["processes"][0]["kind"] == "macos_service"
+        assert s["background_cpu_percent"] == pytest.approx(5.0)
+        host_load.LoadGuard(desktop_policy=True).check(s)
+
+    avail_export = reg_avail.read_export()
+    avail_host = {
+        "schema": "served-tick-host/v4",
+        "load_policy": POLICY,
+        "status": "COMPLETE",
+        "reason": None,
+        "observations": [
+            {
+                "process_screen": {
+                    "capture_start_ns": point_obs_ns - 100,
+                    "capture_end_ns": point_obs_ns + 100,
+                    "observation_ns": point_obs_ns,
+                    "history_sequence": point_seq,
+                    "probe_exempt_pids": [],
+                    "classified_processes": [
+                        {
+                            **p_row,
+                            "admit": True,
+                            "kind": p_kind,
+                            "classification": p_dec,
+                            "history_before": p_hb,
+                            "history_after": p_ha,
+                            "sequence": p_ha["sequence"],
+                            "executable_status": p_ha["executable_status"],
+                        }
+                    ],
+                }
+            }
+        ],
+        "cpu_samples": [s1, s2],
+        "desktop_registry": avail_export["registry"],
+        "desktop_registry_sha256": avail_export["registry_sha256"],
+        "desktop_registry_evidence": avail_export,
+    }
+    background_report.validate_desktop_host(avail_host)
+    assert background_report.desktop_overall(avail_host)["sample_count"] == 2
+    avail_trace = {
+        "warmup_ticks": 0,
+        "trace": [
+            {
+                "tick": idx,
+                "target_ns": s["start_ns"],
+                "wake_ns": s["start_ns"],
+                "start_ns": s["start_ns"],
+                "end_ns": s["end_ns"],
+                "start_cpu_ns": 10,
+                "end_cpu_ns": 20,
+                "spans": {"game_update": {"wall_ns": 5}},
+            }
+            for idx, s in enumerate((s1, s2))
+        ],
+    }
+    avail_report = background_report.summarize_background(avail_trace, avail_host)
+    assert all(t["coverage_complete"] and t["low_background"] for t in avail_report["ticks"])
+    assert avail_report["timing"]["low_background"]["count"] == 2
+
+    # Minimal-export replay (exercising background_report._replay_identity when
+    # _has_full_desktop_history is False) must also pass and keep low_background=2.
+    for s in (s1, s2):
+        assert (
+            background_report._replay_identity(s["processes"][0], avail_export)["kind"]
+            == "macos_service"
+        )
+    minimal_reg = {"policy": POLICY, "workload_exclusions": []}
+    minimal_avail_host = copy.deepcopy(avail_host)
+    minimal_avail_host["desktop_registry"] = minimal_reg
+    minimal_avail_host["desktop_registry_sha256"] = "a" * 64
+    minimal_avail_host["desktop_registry_evidence"] = {
+        "policy": POLICY,
+        "registry": minimal_reg,
+        "registry_sha256": "a" * 64,
+        "bindings": [],
+    }
+    del minimal_avail_host["observations"][0]["process_screen"]["history_sequence"]
+    background_report.validate_desktop_host(minimal_avail_host)
+    assert (
+        background_report.summarize_background(avail_trace, minimal_avail_host)["timing"][
+            "low_background"
+        ]["count"]
+        == 2
+    )
+
+    # 4. Real workloads inside app bundles' Contents/Resources (python/node/codex CLI) still win
+    # over desktop-app enrollment, even if artificially injected into _verified.
+    workload_in_resources = [
+        str(bundle / "Contents" / "Resources" / "python3"),
+        str(bundle / "Contents" / "Resources" / "node"),
+        str(bundle / "Contents" / "Resources" / "CodexCLI.app" / "Contents" / "MacOS" / "codex"),
+        "/Applications/ChatGPT.app/Contents/Resources/CodexCLI.app/Contents/MacOS/codex",
+        "/Applications/Claude.app/Contents/Resources/claude",
+    ]
+    base_verified_identity = dict(reg._verified[str(executable)])
+    for idx, wl_cmd in enumerate(workload_in_resources, start=700):
+        reg._verified[wl_cmd] = {**base_verified_identity, "executable": wl_cmd}
+        try:
+            wl_row = {
+                **base_row,
+                "pid": idx,
+                "birth": f"wl-{idx}",
+                "command": wl_cmd,
+                "argv": [wl_cmd],
+                "argv_display": wl_cmd,
+            }
+            assert reg.classify(wl_row)["kind"] == "agent_workload"
+            assert reg.admit_process(wl_row)["kind"] == "agent_workload"
+            assert classify_row(None, wl_row, reg.read_export())[0] == "agent_workload"
+            assert host_load._workload_kind(wl_cmd, reg) == "agent_workload"
+            assert host_load.process_kind(wl_cmd, reg, wl_row) == "agent_workload"
+            assert (
+                background_report._replay_identity(wl_row, reg.read_export())["kind"]
+                == "agent_workload"
+            )
+        finally:
+            reg._verified.pop(wl_cmd, None)

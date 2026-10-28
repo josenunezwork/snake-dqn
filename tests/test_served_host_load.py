@@ -15,6 +15,23 @@ from research.bl_served_search import host_load as load
         ("/usr/libexec/fileproviderd", "macos_service"),
         ("/usr/libexec/cloudd", "macos_service"),
         ("/System/Library/PrivateFrameworks/SkyLight.framework/WindowServer", "macos_service"),
+        (
+            "/System/Library/CoreServices/Software Update.app/Contents/Resources/suhelperd",
+            "macos_service",
+        ),
+        (
+            "/System/Library/CoreServices/Software Update.app/Contents/Resources/softwareupdated",
+            "macos_service",
+        ),
+        (
+            "/System/Library/CoreServices/Setup Assistant.app/Contents/Resources/mbuseragent",
+            "macos_service",
+        ),
+        (
+            "/Library/Apple/System/Library/CoreServices/XProtect.app/Contents/Resources/"
+            "XProtectPluginService",
+            "macos_service",
+        ),
         ("/Applications/Codex.app/Contents/Frameworks/Codex Helper (Renderer)", "desktop_renderer"),
         ("/Applications/Chrome.app/Contents/Frameworks/Chrome Helper (GPU)", "desktop_renderer"),
         (
@@ -23,6 +40,18 @@ from research.bl_served_search import host_load as load
             "desktop_renderer",
         ),
         ("/Applications/Codex.app/Contents/Resources/codex", "agent_workload"),
+        (
+            "/Applications/ChatGPT.app/Contents/Resources/CodexCLI.app/Contents/MacOS/codex",
+            "agent_workload",
+        ),
+        (
+            "/System/Library/CoreServices/Software Update.app/Contents/Resources/python3",
+            "agent_workload",
+        ),
+        (
+            "/Applications/Microsoft Outlook.app/Contents/Resources/python3",
+            "agent_workload",
+        ),
         ("/usr/local/bin/agy", "agent_workload"),
         ("/System/Library/Python.app/Contents/MacOS/Python", "agent_workload"),
         ("/usr/local/bin/python3.12", "agent_workload"),
@@ -31,6 +60,7 @@ from research.bl_served_search import host_load as load
         ("/tmp/Codex Helper (Renderer)", "unknown"),
         ("/System/../tmp/corespotlightd", "unknown"),
         ("/Applications/Other.app/Contents/MacOS/Other", "unknown"),
+        ("/Applications/Other.app/Contents/Resources/other-helper", "unknown"),
         ("/bin/bash", "unknown"),
     ],
 )
@@ -408,3 +438,25 @@ def test_interval_admits_new_desktop_process_before_its_first_classification():
     sample = load.cpu_interval(before, after, 10, desktop_classifier=AdmissionOnlyClassifier())
     assert sample["processes"][0]["kind"] == "desktop_renderer"
     assert sample["background_cpu_percent"] == pytest.approx(30)
+
+
+def test_protected_resources_service_classified_v1_load_guard_and_workload_precedence():
+    svc_cmd = "/System/Library/CoreServices/Software Update.app/Contents/Resources/softwareupdated"
+    before = inventory(1, [(20, 1, "svc", svc_cmd, 1.0)])
+    after = inventory(2, [(20, 1, "svc", svc_cmd, 1.30)])
+    measured = load.cpu_interval(before, after, 10)
+    assert measured["coverage_complete"] is True
+    assert measured["processes"][0]["kind"] == "macos_service"
+    assert measured["background_cpu_percent"] == pytest.approx(30.0)
+    assert measured["workload_cpu_percent"] == pytest.approx(0.0)
+    assert measured["unknown_cpu_percent"] == pytest.approx(0.0)
+    load.LoadGuard().check(measured)
+
+    py_cmd = "/System/Library/CoreServices/Software Update.app/Contents/Resources/python3"
+    py_before = inventory(1, [(21, 1, "py", py_cmd, 1.0)])
+    py_after = inventory(2, [(21, 1, "py", py_cmd, 1.30)])
+    py_measured = load.cpu_interval(py_before, py_after, 10)
+    assert py_measured["processes"][0]["kind"] == "agent_workload"
+    assert py_measured["workload_cpu_percent"] == pytest.approx(30.0)
+    with pytest.raises(RuntimeError, match="foreign workload"):
+        load.LoadGuard().check(py_measured)

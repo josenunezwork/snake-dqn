@@ -10,10 +10,15 @@ import platform
 import re
 import subprocess
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from research.bl_served_search.desktop_apps import PROTECTED_MACOS_SERVICE_ROOTS
+from research.bl_served_search.desktop_apps import (
+    _AGENT_BUNDLE_NON_UI_PATH_RE,
+    _is_verified_gui_command,
+    is_protected_macos_service_path,
+)
 
 POLICY = "classified-v1"
 DESKTOP_POLICY = "classified-desktop-v1"
@@ -47,13 +52,42 @@ def _argv_changed(old: dict[str, Any], row: dict[str, Any]) -> bool:
         isinstance(cmd, str)
         and cmd == old.get("command")
         and row.get("uid") == old.get("uid")
-        and cmd.startswith(PROTECTED_MACOS_SERVICE_ROOTS)
-        and ".." not in Path(cmd).parts
+        and is_protected_macos_service_path(cmd)
         and _workload_kind(cmd) is None
         and (old_status != "ok" or row_status != "ok")
     ):
         return False
     return True
+
+
+_EXPLICIT_WORKLOAD_MARKERS = (
+    "/Projects/",
+    "/research/",
+    "/codex-cli/",
+    "/claude-code/",
+    "/cua_node/",
+    "/.codex/",
+    "/artifact-sessions/",
+)
+_NON_TOP_LEVEL_GUI_MARKERS = (
+    "/Contents/Resources/",
+    "/Contents/Helpers/",
+    "/Contents/Frameworks/",
+    "/Application Support/",
+)
+
+
+def _classifier_verified_map(desktop_classifier: Any | None) -> Mapping[str, Any] | None:
+    if desktop_classifier is None:
+        return None
+    verified = getattr(desktop_classifier, "_verified", None)
+    if isinstance(verified, Mapping):
+        return verified
+    if isinstance(desktop_classifier, Mapping):
+        exported = desktop_classifier.get("verified")
+        if isinstance(exported, Mapping):
+            return exported
+    return None
 
 
 def _workload_kind(command: str, desktop_classifier: Any | None = None) -> str | None:
@@ -62,32 +96,33 @@ def _workload_kind(command: str, desktop_classifier: Any | None = None) -> str |
     name = path.name.lower()
     if ".." in path.parts:
         return "unknown"
-    non_gui_bundle_tree = any(
-        marker in command
-        for marker in (
-            "/codex-cli/",
-            "/claude-code/",
-            "/cua_node/",
-            "/.codex/",
-            "/Contents/Resources/",
-            "/Application Support/",
-        )
+    explicit_workload_tree = any(marker in command for marker in _EXPLICIT_WORKLOAD_MARKERS)
+    non_top_level_gui = any(marker in command for marker in _NON_TOP_LEVEL_GUI_MARKERS)
+    verified_map = _classifier_verified_map(desktop_classifier)
+    gui_location_ok = (
+        _is_verified_gui_command(command, verified_map)
+        if verified_map is not None
+        else command.startswith(("/Applications/", "/Users/"))
     )
     verified_gui_candidate = (
         desktop_classifier is not None
-        and not non_gui_bundle_tree
+        and not is_protected_macos_service_path(command)
+        and not explicit_workload_tree
+        and not non_top_level_gui
         and name in {"claude", "codex"}
-        and command.startswith(("/Applications/", "/Users/"))
+        and gui_location_ok
         and ".app/Contents/MacOS/" in command
     )
     if (
         re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", name)
         or (name in {"codex", "claude"} and not verified_gui_candidate)
         or name in {"codex-exec", "agy", "node", "pytest", "uv"}
-        or "/Projects/" in command
-        or "/research/" in command
-        or non_gui_bundle_tree
+        or explicit_workload_tree
     ):
+        return "agent_workload"
+    if is_protected_macos_service_path(command):
+        return None
+    if _AGENT_BUNDLE_NON_UI_PATH_RE.search(command):
         return "agent_workload"
     return None
 
@@ -117,7 +152,7 @@ def _kind_from_evidence(command: str, desktop_classifier: Any | None, evidence: 
         return "agent_workload"
     if evidence.get("identity_binding_changed") or workload == "unknown":
         return "unknown"
-    if command.startswith(PROTECTED_MACOS_SERVICE_ROOTS):
+    if is_protected_macos_service_path(command):
         return "macos_service"
     if desktop_classifier is not None:
         return str(evidence.get("kind", "unknown"))
@@ -234,8 +269,7 @@ def _resolve_protected_service_path(row: dict[str, Any]) -> None:
     except (psutil.Error, OSError, ValueError, KeyError):
         return
     if (
-        pidpath.startswith(PROTECTED_MACOS_SERVICE_ROOTS)
-        and ".." not in Path(pidpath).parts
+        is_protected_macos_service_path(pidpath)
         and Path(pidpath).name == command
         and _workload_kind(pidpath) is None
     ):
