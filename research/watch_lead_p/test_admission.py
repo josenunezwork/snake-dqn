@@ -185,9 +185,29 @@ def completion_packet(tmp_path, monkeypatch, request):
     # Each parameterized case owns and removes its checkout, including on failure.
     # Retaining dozens of full clones previously exhausted the Mac disk.
     request.addfinalizer(lambda: shutil.rmtree(repo, ignore_errors=True))
-    subprocess.run(["git", "clone", "--quiet", "--shared", str(ROOT), str(repo)], check=True)
-    # Exercise the current implementation before and after its eventual commit.
+    subprocess.run(
+        ["git", "clone", "--quiet", "--shared", "--no-checkout", str(ROOT), str(repo)],
+        check=True,
+    )
+    # Keep the complete pinned Git tree, but materialize only this fixture's
+    # dependency closure. Full checkouts per case exceed dispatch's 180s guard.
     sources = json.loads((ROOT / "research/watch_lead_p/runtime-sources.json").read_text())
+    patterns = [
+        *sources,
+        "research/watch_lead_p/",
+        "research/colab_cli/",
+        "tools/ops/",
+        "tools/sandbox/",
+        ".gitignore",
+    ]
+    subprocess.run(
+        ["git", "-C", str(repo), "sparse-checkout", "set", "--no-cone", "--stdin"],
+        input="".join(f"/{name}\n" for name in patterns),
+        text=True,
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(repo), "checkout", "--quiet", "--detach", "HEAD"], check=True)
+    # Exercise the current implementation before and after its eventual commit.
     for name in [*sources, "tools/ops/dispatch.py"]:
         shutil.copyfile(ROOT / name, repo / name)
 

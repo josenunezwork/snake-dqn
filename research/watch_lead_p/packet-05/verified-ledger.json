@@ -1,7 +1,0 @@
-{
-  "allocation": "watch6-32x6000-v1",
-  "namespace": "a100-dev/t34-watch-lead-1028/",
-  "recipe_sha256": "acb5d0a6492c50a4ee382837f2bf4f115a305bd4779282626da5d2815b30170c",
-  "schema": "watch-lead-p-ledger/v1",
-  "units": []
-}
