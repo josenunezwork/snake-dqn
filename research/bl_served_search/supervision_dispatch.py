@@ -42,15 +42,28 @@ def capture_dispatch_registry(manifest_path: Path) -> dict[str, Any]:
         raise ValueError("dispatch collector source/startup/manifest changed or job is terminal")
     registry = io.capture_registry(startup["pid"])
     root = registry["roots"][0]
+    cwd = Path(startup["cwd"]).resolve(strict=True)
+    expected_sources = {
+        str((cwd / name).resolve(strict=True)): value for name, value in context["sources"].items()
+    }
+    expected_sources[startup["colab"]] = startup["colab_sha256"]
+    # The qualified CLI generates this hook after collector startup. Bind its
+    # deterministic bytes, rather than trusting a post-startup file hash.
+    hook = Path(startup["argv"][4]) / packet["job_id"] / "cli-hook/sitecustomize.py"
+    guard = str(cwd / "research/colab_cli/cli_guard.py")
+    hook_bytes = (
+        "import os,runpy\ntry:\n    runpy.run_path("
+        + repr(guard)
+        + ", run_name='snake_cli_guard')\nexcept BaseException:\n    os._exit(70)\n"
+    ).encode()
+    expected_sources[str(hook.resolve(strict=True))] = hashlib.sha256(hook_bytes).hexdigest()
     if (
         any(
             root[key] != startup[key]
             for key in ("pid", "uid", "birth_ns", "argv", "cwd", "interpreter")
         )
-        or any(
-            root.get("source_hashes", {}).get(str(Path(startup["cwd"]) / name)) != value
-            for name, value in context["sources"].items()
-        )
+        or root.get("source_hashes") != expected_sources
+        or root.get("colab") != startup["colab"]
         or context.get("root_process_id") != f'{root["pid"]}@{root["birth_ns"]}'
     ):
         raise ValueError("dispatch root restarted or differs from prospective startup")

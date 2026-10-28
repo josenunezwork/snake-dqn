@@ -109,6 +109,8 @@ def _registry_from_identity(
         )
     sources = {str(path.resolve(strict=True)): file_digest(path) for path in paths}
     colab = Path(argv[6]).resolve(strict=True)
+    if argv[2] == "tools.sandbox.supervisor_v2":
+        sources[str(colab)] = file_digest(colab)
     with colab.open("rb") as handle:
         shebang = handle.readline(4096)
     if not shebang.startswith(b"#!"):

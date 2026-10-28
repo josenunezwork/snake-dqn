@@ -19,7 +19,7 @@ def enrolled(tmp_path):
     return _desktop_enrolled.__wrapped__(tmp_path)
 
 
-def fixture(enrolled):
+def fixture(enrolled, *, supervised_desktop=None):
     desktop_registry, app_row, *_ = enrolled
     decision = desktop_registry.admit_process(app_row)
     assert decision["kind"] == "desktop_app"
@@ -40,10 +40,34 @@ def fixture(enrolled):
         ]
 
     registry, journal, cpu, observations, points, intervals = supervised_fixture()
+    if supervised_desktop is not None:
+        # Retain the real CLI lifecycle shape while using a desktop executable
+        # as its interpreter; do not patch identity or accounting predicates.
+        def replace(value):
+            if isinstance(value, dict):
+                return {key: replace(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [replace(item) for item in value]
+            return supervised_desktop if value == "/cli/python" else value
+
+        registry, journal, observations, intervals = replace(
+            [registry, journal, observations, intervals]
+        )
+        child = journal[2]["identity"]
+        desktop_registry.admit_process(
+            dict(app_row, pid=child["pid"], birth="child", command=supervised_desktop)
+        )
+        desktop_evidence = desktop_registry.read_export()
+        for entry in desktop_evidence["history_log"]:
+            entry["observation_ns"] = 0
+        for sample in intervals:
+            for row in sample["processes"]:
+                if row["pid"] == child["pid"]:
+                    row.update(uid=app_row["uid"], birth="child")
     for sample in intervals:
         for row in sample["processes"]:
-            row["kind"] = host_load.process_kind(row["command"])
             row["classification"] = background_report._replay_kind(row, desktop_evidence)
+            row["kind"] = row["classification"]["kind"]
         sample["processes"].extend(desktop_rows(25))
         combined._totals(sample)
     for point in points:
@@ -77,6 +101,51 @@ def fixture(enrolled):
         ],
     )
     return host
+
+
+@pytest.mark.parametrize("kind", ["desktop_app", "desktop_renderer"])
+def test_supervised_desktop_child_totals_are_removed_before_wire_and_report_validation(
+    enrolled, kind
+):
+    import json
+
+    from research.bl_served_search.desktop_apps import DesktopRegistry
+    from tests.test_served_supervision_report import _row
+
+    registry, app_row, executable, bundle = enrolled
+    command = str(executable)
+    if kind == "desktop_renderer":
+        renderer = executable.with_name("Mail (Renderer)")
+        renderer.write_bytes(executable.read_bytes())
+        payload = deepcopy(registry.registry)
+        entry = deepcopy(payload["applications"][0]["executables"][0])
+        entry.update(
+            role="remote_chat_renderer", relative_executable_path=str(renderer.relative_to(bundle))
+        )
+        payload["applications"][0]["executables"].append(entry)
+        registry.path.write_text(json.dumps(payload))
+        registry = DesktopRegistry(
+            registry.path,
+            runner=registry._runner,
+            trusted_roots=[bundle.parent],
+            require_seal=False,
+        )
+        registry.verify_all()
+        command = str(renderer)
+    host = fixture((registry, app_row, executable, bundle), supervised_desktop=command)
+    assert host["cpu_samples"][2][kind + "_cpu_percent"] >= 10
+    before = deepcopy(host)
+    proof = combined.replay(host)
+    assert proof["valid"], proof["errors"]
+    sample = proof["ordinary_cpu_samples"][2]
+    assert sample["desktop_app_cpu_percent"] == 25
+    assert sample["desktop_renderer_cpu_percent"] == 0
+    assert len(sample["processes"]) == 1
+    report = combined.summarize(
+        {"trace": [_row(0, 61 * SECOND, 61 * SECOND + 10)], "warmup_ticks": 0}, host, proof
+    )
+    assert report["counts"]["ticks"] == 1
+    assert host == before
 
 
 def test_both_verified_classes_compose_without_mutating_raw_evidence(enrolled):
@@ -226,7 +295,7 @@ def bound_raw(enrolled):
                     }
                     and type(item) is int
                 ):
-                    value[key] += 10 * SECOND
+                    value[key] += 610 * SECOND
                 else:
                     offset(item)
         elif isinstance(value, list):
@@ -234,6 +303,13 @@ def bound_raw(enrolled):
                 offset(item)
 
     del host["supervision_replay"]
+    for sample in host["cpu_samples"]:
+        sample["capture_start_ns"] = sample["start_ns"]
+        sample["capture_end_ns"] = sample["end_ns"]
+    for observation in host["observations"]:
+        screen = observation["process_screen"]
+        screen["capture_start_ns"] = screen["observation_ns"]
+        screen["capture_end_ns"] = screen["observation_ns"]
     offset(host)
     host["status"] = "COMPLETE"
     host["supervision_replay"] = combined.replay(host)
@@ -244,14 +320,14 @@ def bound_raw(enrolled):
     for path in [desktop_policy.RULING, desktop_policy.AMENDMENT]:
         source["source_sha256"][str(path.relative_to(root))] = io.file_digest(path)
     desktop_intent = desktop_policy.freeze_intent(registry_path, source, manifest)
-    desktop_intent["published_ns"] = 1
+    desktop_intent["published_ns"] = 600 * SECOND + 1
 
     supervision = {
         "load_policy": io.POLICY,
         "registry_sha256": io.digest(registry),
         "policy_source_sha256": io.policy_sources(),
         "ruling_sha256": io.RULING_SHA256,
-        "published_ns": 1,
+        "published_ns": 600 * SECOND + 1,
     }
     raw = {
         "load_policy": combined.POLICY,
@@ -260,12 +336,26 @@ def bound_raw(enrolled):
         "source_after": deepcopy(source),
         "manifest": manifest,
         "desktop_intent": desktop_intent,
-        "qualification_receipt": {"published_ns": 2, "fixture": "offline-only-600s"},
+        "qualification_receipt": {
+            "schema": combined.QUALIFICATION_SCHEMA,
+            "load_policy": combined.POLICY,
+            "status": "COMPLETE",
+            "verdict": "VALID",
+            "coverage_complete": True,
+            "observation_start_ns": 0,
+            "observation_end_ns": 600 * SECOND,
+            "published_ns": 600 * SECOND,
+            "desktop_registry_sha256": desktop_intent["registry_sha256"],
+            "supervisor_registry_sha256": supervision["registry_sha256"],
+            "ruling_sha256": supervision["ruling_sha256"],
+            "source_before": deepcopy(source),
+            "source_after": deepcopy(source),
+        },
         "supervision_intent": supervision,
     }
     raw["combined_intent"] = {
         "schema": "served-combined-intent/v1",
-        "published_ns": 3,
+        "published_ns": 600 * SECOND + 3,
         "qualification_receipt_sha256": io.digest(raw["qualification_receipt"]),
         "load_policy": combined.POLICY,
         "components": combined.COMPONENTS,
@@ -323,7 +413,7 @@ def test_reduce_trace_combined_branch_reaches_closed_gate_unmocked(enrolled):
 @pytest.mark.parametrize(
     "owner", ["desktop_intent", "supervision_intent", "combined_intent", "qualification_receipt"]
 )
-@pytest.mark.parametrize("published", [None, True, -1, 10 * SECOND])
+@pytest.mark.parametrize("published", [None, True, -1, 610 * SECOND])
 def test_combined_publication_must_precede_first_host_read(enrolled, owner, published):
     from research.bl_served_search import supervision_io as io
 
@@ -439,14 +529,81 @@ def test_qualification_receipt_must_be_published_before_combined_intent(enrolled
     from research.bl_served_search import supervision_io as io
 
     raw = bound_raw(enrolled)
-    raw["qualification_receipt"]["published_ns"] = 4
+    raw["qualification_receipt"]["published_ns"] = 600 * SECOND + 4
     raw["combined_intent"]["qualification_receipt_sha256"] = io.digest(raw["qualification_receipt"])
     with pytest.raises(ValueError, match="publication"):
         combined.replay_host(raw)
 
 
-def test_combined_publication_precedes_capture_start_not_only_midpoint(enrolled):
+@pytest.mark.parametrize("inventory", ["cpu_samples", "observations"])
+def test_combined_publication_precedes_capture_start_not_only_midpoint(enrolled, inventory):
     raw = bound_raw(enrolled)
-    raw["host"]["observations"][0]["process_screen"]["capture_start_ns"] = 2
+    capture = raw["host"][inventory][0]
+    if inventory == "observations":
+        capture = capture["process_screen"]
+    capture["capture_start_ns"] = 2
     with pytest.raises(ValueError, match="publication"):
+        combined.replay_host(raw)
+
+
+@pytest.mark.parametrize("inventory", ["cpu_samples", "observations"])
+@pytest.mark.parametrize("bad", ["missing", None, True, -1, "0"])
+@pytest.mark.parametrize("index", [0, -1])
+def test_combined_requires_each_capture_start_unmocked(enrolled, inventory, bad, index):
+    raw = bound_raw(enrolled)
+    entry = raw["host"][inventory][index]
+    capture = entry if inventory == "cpu_samples" else entry["process_screen"]
+    if bad == "missing":
+        del capture["capture_start_ns"]
+    else:
+        capture["capture_start_ns"] = bad
+    with pytest.raises(ValueError, match="capture_start_ns"):
+        combined.replay_host(raw)
+
+
+@pytest.mark.parametrize("inventory", ["cpu_samples", "observations"])
+def test_combined_refuses_empty_observation_inventory(enrolled, inventory):
+    raw = bound_raw(enrolled)
+    raw["host"][inventory] = []
+    with pytest.raises(ValueError, match="empty observation"):
+        combined.replay_host(raw)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("schema", "foreign"),
+        ("load_policy", "classified-supervised-v2"),
+        ("status", "PARTIAL"),
+        ("verdict", "INVALID"),
+        ("coverage_complete", False),
+        ("observation_start_ns", 1),  # 599.999999999 seconds
+        ("observation_start_ns", True),
+        ("observation_start_ns", -1),
+        ("observation_end_ns", None),
+        ("observation_end_ns", 600 * SECOND + 1),  # completed after publication
+        ("desktop_registry_sha256", "f" * 64),
+        ("supervisor_registry_sha256", "f" * 64),
+        ("ruling_sha256", "f" * 64),
+        ("source_before", {"commit": "f" * 40}),
+        ("source_after", {"commit": "f" * 40}),
+    ],
+)
+def test_combined_qualification_receipt_contract_is_replayed_unmocked(enrolled, field, value):
+    from research.bl_served_search import supervision_io as io
+
+    raw = bound_raw(enrolled)
+    raw["qualification_receipt"][field] = value
+    raw["combined_intent"]["qualification_receipt_sha256"] = io.digest(raw["qualification_receipt"])
+    with pytest.raises(ValueError, match="qualification completion/input"):
+        combined.replay_host(raw)
+
+
+def test_combined_arbitrary_hashed_receipt_is_refused(enrolled):
+    from research.bl_served_search import supervision_io as io
+
+    raw = bound_raw(enrolled)
+    raw["qualification_receipt"] = {"published_ns": 600 * SECOND, "fixture": "offline-only-600s"}
+    raw["combined_intent"]["qualification_receipt_sha256"] = io.digest(raw["qualification_receipt"])
+    with pytest.raises(ValueError, match="qualification completion/input"):
         combined.replay_host(raw)

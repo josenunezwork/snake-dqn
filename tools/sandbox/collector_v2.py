@@ -28,6 +28,7 @@ from research.bl_served_search import supervision_identity as identity
 from tools.sandbox import supervision_accounting as accounting
 
 VERSION = accounting.COLLECTOR_VERSION
+POST_KILL_DRAIN_SECONDS = 0.25
 
 
 class Collector:
@@ -59,21 +60,31 @@ class Collector:
 
         process = psutil.Process(os.getpid())
         argv = process.cmdline()
+        cwd = Path(process.cwd()).resolve(strict=True)
+        if cwd != Path(__file__).resolve().parents[2]:
+            raise accounting.AccountingError("startup cwd differs from loaded collector checkout")
+        exact_argv = len(argv) == 9 and argv[1:3] == ["-m", "tools.sandbox.supervisor_v2"]
+        if manifest_bytes is not None and not exact_argv:
+            raise accounting.AccountingError("startup manifest requires exact supervisor argv")
         result = {
             "pid": process.pid,
             "uid": process.uids().real,
             "birth_ns": round(process.create_time() * 1_000_000) * 1000,
             "argv": argv,
-            "cwd": str(Path.cwd().resolve()),
+            "cwd": str(cwd),
             "interpreter": str(Path(process.exe()).resolve(strict=True)),
         }
-        if len(argv) == 9 and argv[1:3] == ["-m", "tools.sandbox.supervisor_v2"]:
+        if exact_argv:
             path = Path(argv[-1]).resolve(strict=True)
             actual_bytes = path.read_bytes()
             if manifest_bytes is None or actual_bytes != manifest_bytes:
                 raise accounting.AccountingError("startup manifest bytes changed or unavailable")
             result.update(
                 manifest=str(path), manifest_sha256=accounting.sha256_bytes(manifest_bytes)
+            )
+            colab = Path(argv[6]).resolve(strict=True)
+            result.update(
+                colab=str(colab), colab_sha256=accounting.sha256_bytes(colab.read_bytes())
             )
         return result
 
@@ -105,6 +116,12 @@ class Collector:
             )
         ]
         names += ["tools/ops/dispatch.py", "tools/ops/dispatch.sh"]
+        # Match the registry's full Python closure, including newly added files.
+        names += [
+            str(path.relative_to(repo))
+            for directory in ("research/colab_cli", "tools/sandbox")
+            for path in sorted((repo / directory).glob("*.py"))
+        ]
         return {name: accounting.sha256_bytes((repo / name).read_bytes()) for name in names}
 
     @staticmethod
@@ -384,12 +401,14 @@ class Collector:
                     )
                 except subprocess.TimeoutExpired:
                     child.kill()
-                    output, error = child.communicate()
-                    pipes_drained = (
-                        child.returncode is not None
-                        and output is not None
-                        and (kwargs.get("stderr") != subprocess.PIPE or error is not None)
-                    )
+                    # Descendants may retain pipe FDs after the direct child
+                    # dies. Bound cleanup, and never certify a post-kill drain.
+                    try:
+                        child.communicate(timeout=POST_KILL_DRAIN_SECONDS)
+                    except subprocess.TimeoutExpired:
+                        for pipe in (child.stdin, child.stdout, child.stderr):
+                            if pipe is not None:
+                                pipe.close()
                     raise
                 except BaseException:
                     child.kill()

@@ -242,6 +242,11 @@ def replay_ordinary(
             if required != seen_permitted:
                 errors.append("missing permitted process reconciliation in ordinary interval")
             sample.update(processes=rows, **{k + "_cpu_percent": v for k, v in totals.items()})
+            if desktop_host is not None:
+                for kind in ("desktop_app", "desktop_renderer", "macos_service"):
+                    sample[kind + "_cpu_percent"] = sum(
+                        row["cpu_percent"] for row in rows if row["kind"] == kind
+                    )
             projected.append(sample)
             try:
                 guard.check(sample)

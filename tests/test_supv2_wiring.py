@@ -183,6 +183,16 @@ def dispatch_fixture(tmp_path, monkeypatch):
     value = packet(tmp_path)
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps(value))
+    cli = tmp_path / "colab"
+    cli.write_text("# offline fixture\n")
+    hook = tmp_path / "state" / value["job_id"] / "cli-hook/sitecustomize.py"
+    hook.parent.mkdir(parents=True)
+    guard = str(ROOT / "research/colab_cli/cli_guard.py")
+    hook.write_text(
+        "import os,runpy\ntry:\n    runpy.run_path("
+        + repr(guard)
+        + ", run_name='snake_cli_guard')\nexcept BaseException:\n    os._exit(70)\n"
+    )
     argv = [
         "/python",
         "-m",
@@ -190,7 +200,7 @@ def dispatch_fixture(tmp_path, monkeypatch):
         "--state-dir",
         str(tmp_path / "state"),
         "--colab",
-        "/cli",
+        str(cli),
         "run",
         str(manifest),
     ]
@@ -203,6 +213,8 @@ def dispatch_fixture(tmp_path, monkeypatch):
         "interpreter": "/python",
         "manifest": str(manifest),
         "manifest_sha256": io.file_digest(manifest),
+        "colab": str(cli),
+        "colab_sha256": io.file_digest(cli),
     }
     assignment_path = tmp_path / "assignment.json"
     assignment_path.write_text(
@@ -220,6 +232,7 @@ def dispatch_fixture(tmp_path, monkeypatch):
     export_json(directory / "collector.json", context)
     root = {**startup, "assignment": "endpoint", "session": "session", "generation": "generation"}
     root["source_hashes"] = {str(ROOT / name): sha for name, sha in context["sources"].items()}
+    root["source_hashes"].update({str(cli): io.file_digest(cli), str(hook): io.file_digest(hook)})
     registry = {"roots": [root], "assignment_path": str(assignment_path)}
     monkeypatch.setattr(io, "capture_registry", lambda _: deepcopy(registry))
     monkeypatch.setattr(io, "verify_root", lambda _: None)
@@ -456,6 +469,8 @@ def test_collector_startup_binds_the_exact_parsed_manifest_bytes(tmp_path, monke
     manifest = tmp_path / "manifest.json"
     original = b'{"job_id":"fixture"}'
     manifest.write_bytes(original)
+    cli = tmp_path / "cli"
+    cli.write_text("# offline fixture\n")
     argv = [
         sys.executable,
         "-m",
@@ -463,7 +478,7 @@ def test_collector_startup_binds_the_exact_parsed_manifest_bytes(tmp_path, monke
         "--state-dir",
         "state",
         "--colab",
-        "cli",
+        str(cli),
         "run",
         str(manifest),
     ]

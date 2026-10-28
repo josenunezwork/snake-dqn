@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -592,7 +593,7 @@ def test_aborted_pipe_capture_never_certifies_independent_response(tmp_path, mon
     assert end["response_capture"]["independent"] is False
 
 
-def test_timeout_with_successful_full_drain_records_independent_capture(tmp_path):
+def test_timeout_with_successful_post_kill_drain_never_certifies_capture(tmp_path):
     collector = Collector(tmp_path / "collector")
     with pytest.raises(subprocess.TimeoutExpired):
         collector.run(
@@ -602,5 +603,48 @@ def test_timeout_with_successful_full_drain_records_independent_capture(tmp_path
         )
     collector.seal()
     end = subject.read_journal(collector.journal.directory)[-1]
-    assert end["response_capture"]["independent"] is True
-    assert end["response_bytes"] == len(b"before\n")
+    assert end["response_capture"]["independent"] is False
+    assert end["response_bytes"] == 0
+
+
+@pytest.mark.parametrize("holds_pipes", [False, True])
+def test_real_descendant_post_death_output_is_bounded_and_uncertified(tmp_path, holds_pipes):
+    from tools.sandbox.collector_v2 import POST_KILL_DRAIN_SECONDS
+
+    collector = Collector(tmp_path / "collector")
+    pid_file = tmp_path / "descendant.pid"
+    # The descendant inherits BOTH response pipes and writes after the direct
+    # child has been killed. It either exits during drain or keeps FDs open.
+    descendant = "import time; time.sleep(0.4); print('post-death', flush=True); " + (
+        "time.sleep(10)" if holds_pipes else "pass"
+    )
+    code = (
+        "import subprocess,sys,time; from pathlib import Path; "
+        f"p=subprocess.Popen([sys.executable, '-c', {descendant!r}]); "
+        f"Path({str(pid_file)!r}).write_text(str(p.pid)); time.sleep(10)"
+    )
+    started = time.monotonic()
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            collector.run([sys.executable, "-c", code], capture_output=True, timeout=0.3)
+        elapsed = time.monotonic() - started
+        assert elapsed < 0.3 + POST_KILL_DRAIN_SECONDS + 2
+        assert pid_file.exists()
+        collector.seal()
+        end = subject.read_journal(collector.journal.directory)[-1]
+        assert end["kind"] == "operation_end"
+        assert end["response_capture"]["independent"] is False
+        assert end["response_bytes"] == 0
+    finally:
+        if pid_file.exists():
+            import psutil
+
+            try:
+                descendant_process = psutil.Process(int(pid_file.read_text()))
+                descendant_process.kill()
+                try:
+                    descendant_process.wait(timeout=2)
+                except psutil.TimeoutExpired:
+                    pass  # An orphan zombie may await the system reaper.
+            except psutil.NoSuchProcess:
+                pass

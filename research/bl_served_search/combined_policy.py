@@ -18,6 +18,7 @@ from research.bl_served_search import supervision_cpu, supervision_identity
 POLICY = "classified-desktop-supervised-v2"
 SCHEMA = "served-tick-host/v5"
 COMPONENTS = [background.DESKTOP_POLICY, remote.POLICY]
+QUALIFICATION_SCHEMA = "served-combined-qualification/v1"
 
 
 def _totals(sample: dict) -> None:
@@ -121,17 +122,15 @@ def _replay(host: dict, *, final: bool) -> dict:
         at = point["time_ns"]
         for row in point["processes"]:
             if row.get("kind") in {"desktop_app", "desktop_renderer"}:
-                if remote._permitted(row, at, identity["lifecycles"]):
-                    raise ValueError("process cannot be both desktop and supervision")
-                keys.add(remote.digest([at, at, row]))
+                if not remote._permitted(row, at, identity["lifecycles"]):
+                    keys.add(remote.digest([at, at, row]))
     for sample in host["cpu_samples"]:
         a, b = sample["start_ns"], sample["end_ns"]
         for row in sample["processes"]:
             permitted = remote._permitted_interval(row, a, b, identity["lifecycles"])
             if row.get("kind") in {"desktop_app", "desktop_renderer"}:
-                if permitted:
-                    raise ValueError("process cannot be both desktop and supervision")
-                keys.add(remote.digest([a, b, row]))
+                if not permitted:
+                    keys.add(remote.digest([a, b, row]))
     background.validate_desktop_host(desktop)
     ordinary = remote.replay_ordinary(
         points,
@@ -235,15 +234,20 @@ def replay_host(raw: dict) -> dict:
         raise ValueError("combined intent registry/ruling/policy/source mismatch")
     desktop_policy.validate_component_intent(raw)
     receipt = raw.get("qualification_receipt")
-    observation_times = [s["start_ns"] for s in host["cpu_samples"]]
-    observation_times.extend(
-        s["capture_start_ns"] for s in host["cpu_samples"] if "capture_start_ns" in s
-    )
+    observation_times = []
+    captures = list(host["cpu_samples"])
+    captures.extend(o["process_screen"] for o in host["observations"])
+    if not host["cpu_samples"] or not host["observations"]:
+        raise ValueError("combined intent has empty observation timestamps")
+    for capture in captures:
+        at = capture.get("capture_start_ns")
+        if type(at) is not int or at < 0:
+            raise ValueError("combined intent requires capture_start_ns on every observation")
+        observation_times.append(at)
+    observation_times.extend(s["start_ns"] for s in host["cpu_samples"])
     for observation in host["observations"]:
         screen = observation["process_screen"]
         observation_times.append(screen["observation_ns"])
-        if "capture_start_ns" in screen:
-            observation_times.append(screen["capture_start_ns"])
     if any(type(at) is not int or at < 0 for at in observation_times):
         raise ValueError("combined intent has malformed observation timestamps")
     first_observation = min(observation_times)
@@ -261,6 +265,27 @@ def replay_host(raw: dict) -> dict:
         or any(at > publications[2] for at in (publications[0], publications[1], publications[3]))
     ):
         raise ValueError("combined intent qualification/publication binding differs")
+    # A qualification is a completed prior observation, bound to the same
+    # source and both sealed registries. Duration comes from the covered clock
+    # interval, never a declared nominal number of seconds.
+    start, end = receipt.get("observation_start_ns"), receipt.get("observation_end_ns")
+    if (
+        receipt.get("schema") != QUALIFICATION_SCHEMA
+        or receipt.get("load_policy") != POLICY
+        or receipt.get("status") != "COMPLETE"
+        or receipt.get("verdict") != "VALID"
+        or receipt.get("coverage_complete") is not True
+        or type(start) is not int
+        or type(end) is not int
+        or not 0 <= start <= end <= receipt["published_ns"]
+        or end - start < 600_000_000_000
+        or receipt.get("desktop_registry_sha256") != raw["desktop_intent"]["registry_sha256"]
+        or receipt.get("supervisor_registry_sha256") != supervision["registry_sha256"]
+        or receipt.get("ruling_sha256") != supervision["ruling_sha256"]
+        or receipt.get("source_before") != raw["source_before"]
+        or receipt.get("source_after") != raw["source_before"]
+    ):
+        raise ValueError("combined intent qualification completion/input binding differs")
     checked = replay(host)
     if not checked["valid"] or checked != host.get("supervision_replay"):
         raise ValueError("combined reported accounting differs from independent replay")
