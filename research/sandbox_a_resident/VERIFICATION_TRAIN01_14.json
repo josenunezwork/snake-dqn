@@ -1,0 +1,118 @@
+{
+  "PPO_recipe_unchanged": true,
+  "astra_review_fixes": {
+    "finding_1_minor_normalization_exact_kl_entropy": "FIXED: _anchored_normalization retains log1p(tail) at one legal maximum; _LegalCategoricalKL differences normalizers before large logits and sums non-negative q_j * phi(u_j) terms with analytic residual-preserving backward; _LegalCategoricalEntropy evaluates log1p(s) + sum_i p_i (-s_i) with analytic normalizer-cancelled backward; verified against independent 100-digit Decimal oracle",
+    "finding_2_minor_cache_independent_probs_validation": "FIXED: _probability_parameterized inspects Categorical._param identity rather than lazy-property dictionary keys, so observational reads of .logits or .probs cannot bypass non-positive/non-finite legal probability validation"
+  },
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-14-broker.noindex",
+  "broker_seal": "6286dc909cf6465b607e46737f2c66f9c1063d9f",
+  "compact_resume_evidence": {
+    "allowlist_equal": true,
+    "codec": {
+      "check": "sha256",
+      "container": "xz",
+      "filter": "lzma2",
+      "preset": 6,
+      "streams": 1
+    },
+    "derivative_bytes": 8804064,
+    "derivative_chunks_2mib": 5,
+    "derivative_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-11/output/exports/training/iteration-0000.pt.xz",
+    "derivative_sha256": "a25562d7e95e5dd486620dbe3eee3e7445396c8eb5f5f5f6f1f0f4fdda05fb7b",
+    "full_state_uploaded": false,
+    "manifest_bytes": 69385,
+    "manifest_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-11/output/exports/training/iteration-0000.pt.xz.manifest",
+    "manifest_sha256": "44c0b5d30e48ef3d3be370e30cc478b8ad0855ee2da236bdfaab4f9b5838efd5",
+    "original_bytes": 1327620931,
+    "original_sha256": "2b5478e895e7b2b68c02e3bd118612257ea4e97c0cfab727013d7e2143338ab6",
+    "original_tensors_verified": 209,
+    "upload_cap_seconds": 300,
+    "upload_projection": {
+      "derivative_nominal_fraction_of_cap": 0.02524995274543049,
+      "derivative_nominal_seconds": 7.574985823629147,
+      "derivative_worst_fraction_of_cap": 0.04842977245814134,
+      "derivative_worst_seconds": 14.528931737442402,
+      "target_fraction_of_cap": 0.25,
+      "whole_staging_nominal_fraction_of_cap": 0.18139059444739974,
+      "whole_staging_nominal_seconds": 54.417178334219926,
+      "whole_staging_worst_fraction_of_cap": 0.31844123326667545,
+      "whole_staging_worst_seconds": 95.53236998000264
+    }
+  },
+  "control_allocation_sha256": "1d0348b8ebdc20352c1ad120c3a3108e97d44fad2084c6598fb74e8d0711439f",
+  "dispatch_identity": "sandbox-a-train01-20261027-14",
+  "dry_run_output": "PASS_DRY_RUN sandbox-a-train01-20261027-14 allocations=0 live_accounting=NOT_CHECKED",
+  "launch_exec_bound": {
+    "bound_seconds": 2.0,
+    "files_verified": 192,
+    "runs": [
+      {
+        "completion_seconds": 0.08645612502004951,
+        "index": 0,
+        "launch_seconds": 0.023862458067014813,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.08702775009442121,
+        "index": 1,
+        "launch_seconds": 0.02394162502605468,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.08648733294103295,
+        "index": 2,
+        "launch_seconds": 0.02445558295585215,
+        "status": "completed"
+      }
+    ],
+    "status": "PASS"
+  },
+  "lint": {
+    "black": "PASS",
+    "flake8": "PASS",
+    "isort": "PASS"
+  },
+  "packet_file_sha256": {
+    "DISPATCH.txt": "c8b1deca50a69398fb300853d6ef2f6389808dba12a5bf54b8ab7821993a708d",
+    "SEAL.json": "4dddffa9bde7a697db8d47aba4534956d9dbeb259fdbf9ec42bb913a09df97e4",
+    "control.json": "06b4438d15311dde30eb57b0b228c3fc3cf830d3e2b0060f413c6ce900eafaa3",
+    "dispatch-manifest.json": "7f43917d2d7fe63e2ebfc80321408edeabeaddb38651fe33c91852da6cd43f40",
+    "registry-check.json": "c08fc1775ac2805786d2e4b151cbde58bebc554b38d652db12078fde4880b759",
+    "sandbox.json": "e2e791d66201edd0dbb7a906969aab17dde6afff37a44f3f2c0454e1dc250752",
+    "verified-ledger.json": "68c8c18d20e18d5381c7c3d0468a23b8aa9d0657d0b2b4410637ef6b79263849"
+  },
+  "packet_hashes": {
+    "control.json": "06b4438d15311dde30eb57b0b228c3fc3cf830d3e2b0060f413c6ce900eafaa3",
+    "dispatch-manifest.json": "7f43917d2d7fe63e2ebfc80321408edeabeaddb38651fe33c91852da6cd43f40",
+    "registry-check.json": "c08fc1775ac2805786d2e4b151cbde58bebc554b38d652db12078fde4880b759",
+    "sandbox.json": "e2e791d66201edd0dbb7a906969aab17dde6afff37a44f3f2c0454e1dc250752",
+    "verified-ledger.json": "68c8c18d20e18d5381c7c3d0468a23b8aa9d0657d0b2b4410637ef6b79263849"
+  },
+  "prepared_not_dispatched": true,
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "resume_evidence": {
+    "from_packet": "packet-train01-11",
+    "from_source_commit": "e86e4b0bc8ea37550103b14652878d1b63f5b0e1",
+    "iteration_0000_actor_pth_sha256": "64c9c404946d4747239d4a339c06e3f72902e228513a5de09067cbb49594f519",
+    "iteration_0000_json_sha256": "2bd2111d7a3061797cf7d4c0c8a94e8114033aa03671ff9397bf868820a04541",
+    "iteration_0000_pt_sha256": "2b5478e895e7b2b68c02e3bd118612257ea4e97c0cfab727013d7e2143338ab6",
+    "iteration_0000_pt_xz_manifest_sha256": "44c0b5d30e48ef3d3be370e30cc478b8ad0855ee2da236bdfaab4f9b5838efd5",
+    "iteration_0000_pt_xz_sha256": "a25562d7e95e5dd486620dbe3eee3e7445396c8eb5f5f5f6f1f0f4fdda05fb7b",
+    "unit_id": "a100-dev/sandbox-a/train01/iteration-0000"
+  },
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-14-runtime.noindex",
+  "runtime_pin": "4364e56bf6651134eb7817dac413d29dd97d60fa",
+  "schema": "sandbox-a-train01-14-verification/v1",
+  "state_and_output_absent": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-14/output": false,
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-14/state": false
+  },
+  "test_counts": {
+    "broker_admission_suite": 276,
+    "combined_resident_and_sandbox_tools_suite": 387,
+    "frozen_cuda_semantics_preflight": 4,
+    "frozen_training_preflight": 315,
+    "scoped_sandbox_a_resident_suite": 299,
+    "tools_sandbox_suite": 88
+  }
+}
