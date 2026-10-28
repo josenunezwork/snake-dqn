@@ -1,0 +1,66 @@
+CT_HEARTBEAT {"elapsed_sec": 3.2e-05, "phase": "imports", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 0.370944, "phase": "runner-configuration", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 0.371708, "phase": "input-validation", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_PROGRESS {"elapsed_sec": 0.0, "latest_durable_stage": 0, "schema": "t34-cf-progress/v1", "stage": "initializing", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 0.372402, "phase": "cuda-configuration", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 0.372534, "phase": "forced-state-checks", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 0.377062, "phase": "forced-state-cpu-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 0.524665, "phase": "forced-state-device-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 0.874987, "phase": "forced-state-checks", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 0.875225, "phase": "forced-state-cpu-step", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 0.889963, "phase": "forced-state-device-step", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.694864, "phase": "forced-state-cpu-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.696368, "phase": "forced-state-device-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.699198, "phase": "forced-state-checks", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.699368, "phase": "forced-state-cpu-step", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.700813, "phase": "forced-state-device-step", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.720642, "phase": "forced-state-cpu-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.721894, "phase": "forced-state-device-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.724468, "phase": "forced-state-checks", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.724628, "phase": "forced-state-cpu-step", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.725627, "phase": "forced-state-device-step", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.732367, "phase": "forced-state-cpu-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.733642, "phase": "forced-state-device-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.736239, "phase": "forced-state-checks", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.736385, "phase": "forced-state-cpu-step", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.737621, "phase": "forced-state-device-step", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.745584, "phase": "forced-state-cpu-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.746756, "phase": "forced-state-device-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.749733, "phase": "forced-state-checks", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.749971, "phase": "forced-state-cpu-step", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.751069, "phase": "forced-state-device-step", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.759721, "phase": "forced-state-cpu-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.760795, "phase": "forced-state-device-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.763244, "phase": "forced-state-checks", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.763373, "phase": "forced-state-cpu-step", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.764436, "phase": "forced-state-device-step", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.777502, "phase": "forced-state-cpu-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.778741, "phase": "forced-state-device-world", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.781304, "phase": "forced-state-checks", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.785006, "phase": "forced-state-cpu-observation", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.840169, "phase": "forced-state-device-observation", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 1.990252, "phase": "forced-state-vector-carry", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 2.048626, "phase": "forced-state-cpu-observation", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 2.050652, "phase": "forced-state-device-observation", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 2.091072, "phase": "forced-state-vector-carry", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 2.093998, "phase": "forced-state-root-restoration", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 2.174738, "phase": "topology-fixtures", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_PROGRESS {"elapsed_sec": 1.83, "forced_state_cases": 7, "forced_state_device": "cuda:0", "latest_durable_stage": 0, "schema": "t34-cf-progress/v1", "stage": "startup-self-checks-passed", "study": "t34-cf-1028", "topology_fixtures": "PASS"}
+CT_HEARTBEAT {"elapsed_sec": 2.207101, "phase": "model-load", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 2.230785, "phase": "ledger-validation", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_HEARTBEAT {"elapsed_sec": 2.231083, "phase": "collection", "schema": "t34-cf-heartbeat/v1", "study": "t34-cf-1028"}
+CT_PROGRESS {"elapsed_sec": 1.86, "latest_durable_stage": 0, "schema": "t34-cf-progress/v1", "stage": "stage-0001-collection-start", "study": "t34-cf-1028"}
+CT_PROGRESS {"charged_rows": 6, "elapsed_sec": 0.7, "eligible_deaths_observed": 0, "hero_deaths": 0, "latest_durable_stage": 0, "phase": "collection", "retained_death_candidates": 0, "schema": "t34-cf-progress/v1", "stage": "collection-progress", "study": "t34-cf-1028", "tick": 1, "total_ticks": 12}
+CT_PROGRESS {"charged_rows": 12, "elapsed_sec": 1.11, "eligible_deaths_observed": 0, "hero_deaths": 0, "latest_durable_stage": 0, "phase": "collection", "retained_death_candidates": 0, "schema": "t34-cf-progress/v1", "stage": "collection-progress", "study": "t34-cf-1028", "tick": 2, "total_ticks": 12}
+CT_PROGRESS {"charged_rows": 18, "elapsed_sec": 1.52, "eligible_deaths_observed": 0, "hero_deaths": 0, "latest_durable_stage": 0, "phase": "collection", "retained_death_candidates": 0, "schema": "t34-cf-progress/v1", "stage": "collection-progress", "study": "t34-cf-1028", "tick": 3, "total_ticks": 12}
+CT_PROGRESS {"charged_rows": 24, "elapsed_sec": 1.91, "eligible_deaths_observed": 0, "hero_deaths": 0, "latest_durable_stage": 0, "phase": "collection", "retained_death_candidates": 0, "schema": "t34-cf-progress/v1", "stage": "collection-progress", "study": "t34-cf-1028", "tick": 4, "total_ticks": 12}
+CT_PROGRESS {"charged_rows": 30, "elapsed_sec": 2.32, "eligible_deaths_observed": 0, "hero_deaths": 0, "latest_durable_stage": 0, "phase": "collection", "retained_death_candidates": 0, "schema": "t34-cf-progress/v1", "stage": "collection-progress", "study": "t34-cf-1028", "tick": 5, "total_ticks": 12}
+CT_PROGRESS {"charged_rows": 36, "elapsed_sec": 2.72, "eligible_deaths_observed": 0, "hero_deaths": 0, "latest_durable_stage": 0, "phase": "collection", "retained_death_candidates": 0, "schema": "t34-cf-progress/v1", "stage": "collection-progress", "study": "t34-cf-1028", "tick": 6, "total_ticks": 12}
+CT_PROGRESS {"charged_rows": 42, "elapsed_sec": 3.12, "eligible_deaths_observed": 0, "hero_deaths": 0, "latest_durable_stage": 0, "phase": "collection", "retained_death_candidates": 0, "schema": "t34-cf-progress/v1", "stage": "collection-progress", "study": "t34-cf-1028", "tick": 7, "total_ticks": 12}
+CT_PROGRESS {"charged_rows": 48, "elapsed_sec": 3.51, "eligible_deaths_observed": 0, "hero_deaths": 0, "latest_durable_stage": 0, "phase": "collection", "retained_death_candidates": 0, "schema": "t34-cf-progress/v1", "stage": "collection-progress", "study": "t34-cf-1028", "tick": 8, "total_ticks": 12}
+CT_PROGRESS {"charged_rows": 54, "elapsed_sec": 3.92, "eligible_deaths_observed": 0, "hero_deaths": 0, "latest_durable_stage": 0, "phase": "collection", "retained_death_candidates": 0, "schema": "t34-cf-progress/v1", "stage": "collection-progress", "study": "t34-cf-1028", "tick": 9, "total_ticks": 12}
+CT_PROGRESS {"charged_rows": 60, "elapsed_sec": 4.32, "eligible_deaths_observed": 0, "hero_deaths": 0, "latest_durable_stage": 0, "phase": "collection", "retained_death_candidates": 0, "schema": "t34-cf-progress/v1", "stage": "collection-progress", "study": "t34-cf-1028", "tick": 10, "total_ticks": 12}
+CT_PROGRESS {"charged_rows": 66, "elapsed_sec": 4.72, "eligible_deaths_observed": 0, "hero_deaths": 0, "latest_durable_stage": 0, "phase": "collection", "retained_death_candidates": 0, "schema": "t34-cf-progress/v1", "stage": "collection-progress", "study": "t34-cf-1028", "tick": 11, "total_ticks": 12}
+CT_PROGRESS {"charged_rows": 72, "elapsed_sec": 5.12, "eligible_deaths_observed": 0, "hero_deaths": 0, "latest_durable_stage": 0, "phase": "collection", "retained_death_candidates": 0, "schema": "t34-cf-progress/v1", "stage": "collection-progress", "study": "t34-cf-1028", "tick": 12, "total_ticks": 12}
+CT_PROGRESS {"anchors": 16, "elapsed_sec": 9.19, "latest_durable_stage": 1, "roots": 4, "schema": "t34-cf-progress/v1", "stage": "stage-0001-published", "study": "t34-cf-1028", "support_status": "PASS"}
+CT_SIGUSR1_CLEAN_EXIT {"allocation": "a4a238b1267fbd3a51e3c28a50ac69742bc1294318f863f81964fd09cafa8372", "interrupted_phase": "stage-0001-collection", "latest_durable_stage": 1, "received_unix": 1793229824.0533004, "schema": "t34-cf-sigusr1-marker/v1", "shutdown_elapsed_sec": 2.1947, "status": "PREEMPTED_SIGUSR1", "study": "t34-cf-1028", "within_15s_sla": true}

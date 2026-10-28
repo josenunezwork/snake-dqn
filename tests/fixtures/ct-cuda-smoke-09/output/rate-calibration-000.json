@@ -1,0 +1,13 @@
+{
+  "elapsed_seconds": 1.1458343750564381,
+  "sessions": {
+    "gpu-a100-s-ass1c0-2y6u91cdmjrix": "?",
+    "gpu-a100-s-usc1b0-1l4sw2y5wz5nq": "snake-ct-cuda-smoke-20261028-09-cacb2fe3b86b",
+    "gpu-l4-s-ass1a1-32qh9oc3q618f": "?"
+  },
+  "usage": {
+    "assignments": 3.0,
+    "balance": 936.79,
+    "rate": 12.14
+  }
+}

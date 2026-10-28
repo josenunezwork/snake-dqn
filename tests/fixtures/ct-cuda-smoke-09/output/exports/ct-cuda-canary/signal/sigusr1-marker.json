@@ -1,0 +1,11 @@
+{
+  "allocation": "a4a238b1267fbd3a51e3c28a50ac69742bc1294318f863f81964fd09cafa8372",
+  "interrupted_phase": "stage-0001-collection",
+  "latest_durable_stage": 1,
+  "received_unix": 1793229824.0533004,
+  "schema": "t34-cf-sigusr1-marker/v1",
+  "shutdown_elapsed_sec": 2.1947,
+  "status": "PREEMPTED_SIGUSR1",
+  "study": "t34-cf-1028",
+  "within_15s_sla": true
+}

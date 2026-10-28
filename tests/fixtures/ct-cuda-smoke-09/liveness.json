@@ -1,0 +1,748 @@
+{
+  "host_first_ct_line_seconds": 180.1,
+  "host_last_ct_line_seconds": 569.2,
+  "host_max_gap_endpoints_seconds": [
+    244.7,
+    262.0
+  ],
+  "host_observation_points": [
+    {
+      "elapsed": 180.1,
+      "log_line": 10,
+      "new_lines": 1
+    },
+    {
+      "elapsed": 197.2,
+      "log_line": 11,
+      "new_lines": 14
+    },
+    {
+      "elapsed": 213.0,
+      "log_line": 12,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 228.9,
+      "log_line": 13,
+      "new_lines": 3
+    },
+    {
+      "elapsed": 244.7,
+      "log_line": 14,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 262.0,
+      "log_line": 15,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 277.9,
+      "log_line": 16,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 293.8,
+      "log_line": 17,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 309.8,
+      "log_line": 18,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 326.9,
+      "log_line": 19,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 342.9,
+      "log_line": 20,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 358.7,
+      "log_line": 21,
+      "new_lines": 30
+    },
+    {
+      "elapsed": 374.6,
+      "log_line": 22,
+      "new_lines": 3
+    },
+    {
+      "elapsed": 391.5,
+      "log_line": 23,
+      "new_lines": 3
+    },
+    {
+      "elapsed": 407.4,
+      "log_line": 24,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 423.2,
+      "log_line": 25,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 439.1,
+      "log_line": 26,
+      "new_lines": 3
+    },
+    {
+      "elapsed": 455.9,
+      "log_line": 27,
+      "new_lines": 3
+    },
+    {
+      "elapsed": 471.8,
+      "log_line": 28,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 487.7,
+      "log_line": 29,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 503.6,
+      "log_line": 30,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 520.3,
+      "log_line": 31,
+      "new_lines": 2
+    },
+    {
+      "elapsed": 536.2,
+      "log_line": 32,
+      "new_lines": 17
+    },
+    {
+      "elapsed": 552.0,
+      "log_line": 33,
+      "new_lines": 15
+    },
+    {
+      "elapsed": 569.2,
+      "log_line": 34,
+      "new_lines": 3
+    }
+  ],
+  "host_observed_max_gap_seconds": 17.30000000000001,
+  "host_poll_count": 33,
+  "limit_seconds": 60,
+  "parent_reported_heartbeat_max_gap_seconds": 15.000527398999907,
+  "probes": [
+    {
+      "child_reported_heartbeat_max_gap_seconds": 15.01676599999999,
+      "name": "complete",
+      "parent_receive_heartbeat_max_gap_seconds": 15.02607706599997,
+      "parent_receive_max_gap_seconds": 15.02607706599997,
+      "phases": [
+        {
+          "duration_seconds": 0.395676,
+          "end_seconds": 0.395706,
+          "phase": "imports",
+          "start_seconds": 3e-05
+        },
+        {
+          "duration_seconds": 0.0008599999999999719,
+          "end_seconds": 0.396566,
+          "phase": "runner-configuration",
+          "start_seconds": 0.395706
+        },
+        {
+          "duration_seconds": 0.0008550000000000502,
+          "end_seconds": 0.397421,
+          "phase": "input-validation",
+          "start_seconds": 0.396566
+        },
+        {
+          "duration_seconds": 0.00014599999999997948,
+          "end_seconds": 0.397567,
+          "phase": "cuda-configuration",
+          "start_seconds": 0.397421
+        },
+        {
+          "duration_seconds": 0.016708,
+          "end_seconds": 0.414275,
+          "phase": "forced-state-checks",
+          "start_seconds": 0.397567
+        },
+        {
+          "duration_seconds": 0.968596,
+          "end_seconds": 1.382871,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 0.414275
+        },
+        {
+          "duration_seconds": 0.3652710000000001,
+          "end_seconds": 1.748142,
+          "phase": "forced-state-device-world",
+          "start_seconds": 1.382871
+        },
+        {
+          "duration_seconds": 0.00023200000000000998,
+          "end_seconds": 1.748374,
+          "phase": "forced-state-checks",
+          "start_seconds": 1.748142
+        },
+        {
+          "duration_seconds": 2.525892,
+          "end_seconds": 4.274266,
+          "phase": "forced-state-cpu-step",
+          "start_seconds": 1.748374
+        },
+        {
+          "duration_seconds": 159.228309,
+          "end_seconds": 163.502575,
+          "phase": "forced-state-device-step",
+          "start_seconds": 4.274266
+        },
+        {
+          "duration_seconds": 0.0015879999999981464,
+          "end_seconds": 163.504163,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 163.502575
+        },
+        {
+          "duration_seconds": 0.0028779999999812844,
+          "end_seconds": 163.507041,
+          "phase": "forced-state-device-world",
+          "start_seconds": 163.504163
+        },
+        {
+          "duration_seconds": 0.00017400000001543958,
+          "end_seconds": 163.507215,
+          "phase": "forced-state-checks",
+          "start_seconds": 163.507041
+        },
+        {
+          "duration_seconds": 0.0015339999999923748,
+          "end_seconds": 163.508749,
+          "phase": "forced-state-cpu-step",
+          "start_seconds": 163.507215
+        },
+        {
+          "duration_seconds": 0.01987900000000309,
+          "end_seconds": 163.528628,
+          "phase": "forced-state-device-step",
+          "start_seconds": 163.508749
+        },
+        {
+          "duration_seconds": 0.00123099999998999,
+          "end_seconds": 163.529859,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 163.528628
+        },
+        {
+          "duration_seconds": 0.002573000000012371,
+          "end_seconds": 163.532432,
+          "phase": "forced-state-device-world",
+          "start_seconds": 163.529859
+        },
+        {
+          "duration_seconds": 0.0001540000000090913,
+          "end_seconds": 163.532586,
+          "phase": "forced-state-checks",
+          "start_seconds": 163.532432
+        },
+        {
+          "duration_seconds": 0.0010039999999946758,
+          "end_seconds": 163.53359,
+          "phase": "forced-state-cpu-step",
+          "start_seconds": 163.532586
+        },
+        {
+          "duration_seconds": 0.006498999999990929,
+          "end_seconds": 163.540089,
+          "phase": "forced-state-device-step",
+          "start_seconds": 163.53359
+        },
+        {
+          "duration_seconds": 0.001222000000012713,
+          "end_seconds": 163.541311,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 163.540089
+        },
+        {
+          "duration_seconds": 0.0029439999999851807,
+          "end_seconds": 163.544255,
+          "phase": "forced-state-device-world",
+          "start_seconds": 163.541311
+        },
+        {
+          "duration_seconds": 0.00014500000000339242,
+          "end_seconds": 163.5444,
+          "phase": "forced-state-checks",
+          "start_seconds": 163.544255
+        },
+        {
+          "duration_seconds": 0.0012000000000114142,
+          "end_seconds": 163.5456,
+          "phase": "forced-state-cpu-step",
+          "start_seconds": 163.5444
+        },
+        {
+          "duration_seconds": 0.007790999999997439,
+          "end_seconds": 163.553391,
+          "phase": "forced-state-device-step",
+          "start_seconds": 163.5456
+        },
+        {
+          "duration_seconds": 0.001125000000001819,
+          "end_seconds": 163.554516,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 163.553391
+        },
+        {
+          "duration_seconds": 0.0025829999999871234,
+          "end_seconds": 163.557099,
+          "phase": "forced-state-device-world",
+          "start_seconds": 163.554516
+        },
+        {
+          "duration_seconds": 0.0002180000000180371,
+          "end_seconds": 163.557317,
+          "phase": "forced-state-checks",
+          "start_seconds": 163.557099
+        },
+        {
+          "duration_seconds": 0.0010719999999935226,
+          "end_seconds": 163.558389,
+          "phase": "forced-state-cpu-step",
+          "start_seconds": 163.557317
+        },
+        {
+          "duration_seconds": 0.008636999999993122,
+          "end_seconds": 163.567026,
+          "phase": "forced-state-device-step",
+          "start_seconds": 163.558389
+        },
+        {
+          "duration_seconds": 0.0010570000000029722,
+          "end_seconds": 163.568083,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 163.567026
+        },
+        {
+          "duration_seconds": 0.0023860000000013315,
+          "end_seconds": 163.570469,
+          "phase": "forced-state-device-world",
+          "start_seconds": 163.568083
+        },
+        {
+          "duration_seconds": 0.00012799999998946987,
+          "end_seconds": 163.570597,
+          "phase": "forced-state-checks",
+          "start_seconds": 163.570469
+        },
+        {
+          "duration_seconds": 0.0010690000000010969,
+          "end_seconds": 163.571666,
+          "phase": "forced-state-cpu-step",
+          "start_seconds": 163.570597
+        },
+        {
+          "duration_seconds": 0.012867999999997437,
+          "end_seconds": 163.584534,
+          "phase": "forced-state-device-step",
+          "start_seconds": 163.571666
+        },
+        {
+          "duration_seconds": 0.0012389999999982138,
+          "end_seconds": 163.585773,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 163.584534
+        },
+        {
+          "duration_seconds": 0.002587000000005446,
+          "end_seconds": 163.58836,
+          "phase": "forced-state-device-world",
+          "start_seconds": 163.585773
+        },
+        {
+          "duration_seconds": 0.0035599999999931242,
+          "end_seconds": 163.59192,
+          "phase": "forced-state-checks",
+          "start_seconds": 163.58836
+        },
+        {
+          "duration_seconds": 20.228543000000002,
+          "end_seconds": 183.820463,
+          "phase": "forced-state-cpu-observation",
+          "start_seconds": 163.59192
+        },
+        {
+          "duration_seconds": 82.13148300000003,
+          "end_seconds": 265.951946,
+          "phase": "forced-state-device-observation",
+          "start_seconds": 183.820463
+        },
+        {
+          "duration_seconds": 79.28941599999996,
+          "end_seconds": 345.241362,
+          "phase": "forced-state-vector-carry",
+          "start_seconds": 265.951946
+        },
+        {
+          "duration_seconds": 0.002338000000008833,
+          "end_seconds": 345.2437,
+          "phase": "forced-state-cpu-observation",
+          "start_seconds": 345.241362
+        },
+        {
+          "duration_seconds": 0.04326500000001943,
+          "end_seconds": 345.286965,
+          "phase": "forced-state-device-observation",
+          "start_seconds": 345.2437
+        },
+        {
+          "duration_seconds": 0.0027539999999817155,
+          "end_seconds": 345.289719,
+          "phase": "forced-state-vector-carry",
+          "start_seconds": 345.286965
+        },
+        {
+          "duration_seconds": 0.0806100000000356,
+          "end_seconds": 345.370329,
+          "phase": "forced-state-root-restoration",
+          "start_seconds": 345.289719
+        },
+        {
+          "duration_seconds": 3.0335139999999683,
+          "end_seconds": 348.403843,
+          "phase": "topology-fixtures",
+          "start_seconds": 345.370329
+        },
+        {
+          "duration_seconds": 0.023192999999992026,
+          "end_seconds": 348.427036,
+          "phase": "model-load",
+          "start_seconds": 348.403843
+        },
+        {
+          "duration_seconds": 0.00029000000000678483,
+          "end_seconds": 348.427326,
+          "phase": "ledger-validation",
+          "start_seconds": 348.427036
+        },
+        {
+          "duration_seconds": 5.346431999999993,
+          "end_seconds": 353.773758,
+          "phase": "collection",
+          "start_seconds": 348.427326
+        },
+        {
+          "duration_seconds": 2.1219169999999963,
+          "end_seconds": 355.895675,
+          "phase": "scoring",
+          "start_seconds": 353.773758
+        }
+      ]
+    },
+    {
+      "child_reported_heartbeat_max_gap_seconds": 0.804901,
+      "name": "signal",
+      "parent_receive_heartbeat_max_gap_seconds": 8.237473869999803,
+      "parent_receive_max_gap_seconds": 2.2107488920000833,
+      "phases": [
+        {
+          "duration_seconds": 0.370912,
+          "end_seconds": 0.370944,
+          "phase": "imports",
+          "start_seconds": 3.2e-05
+        },
+        {
+          "duration_seconds": 0.0007639999999999869,
+          "end_seconds": 0.371708,
+          "phase": "runner-configuration",
+          "start_seconds": 0.370944
+        },
+        {
+          "duration_seconds": 0.0006940000000000279,
+          "end_seconds": 0.372402,
+          "phase": "input-validation",
+          "start_seconds": 0.371708
+        },
+        {
+          "duration_seconds": 0.00013199999999996548,
+          "end_seconds": 0.372534,
+          "phase": "cuda-configuration",
+          "start_seconds": 0.372402
+        },
+        {
+          "duration_seconds": 0.004528000000000032,
+          "end_seconds": 0.377062,
+          "phase": "forced-state-checks",
+          "start_seconds": 0.372534
+        },
+        {
+          "duration_seconds": 0.14760300000000004,
+          "end_seconds": 0.524665,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 0.377062
+        },
+        {
+          "duration_seconds": 0.3503219999999999,
+          "end_seconds": 0.874987,
+          "phase": "forced-state-device-world",
+          "start_seconds": 0.524665
+        },
+        {
+          "duration_seconds": 0.0002380000000000715,
+          "end_seconds": 0.875225,
+          "phase": "forced-state-checks",
+          "start_seconds": 0.874987
+        },
+        {
+          "duration_seconds": 0.014737999999999918,
+          "end_seconds": 0.889963,
+          "phase": "forced-state-cpu-step",
+          "start_seconds": 0.875225
+        },
+        {
+          "duration_seconds": 0.804901,
+          "end_seconds": 1.694864,
+          "phase": "forced-state-device-step",
+          "start_seconds": 0.889963
+        },
+        {
+          "duration_seconds": 0.0015040000000001719,
+          "end_seconds": 1.696368,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 1.694864
+        },
+        {
+          "duration_seconds": 0.002829999999999888,
+          "end_seconds": 1.699198,
+          "phase": "forced-state-device-world",
+          "start_seconds": 1.696368
+        },
+        {
+          "duration_seconds": 0.00017000000000000348,
+          "end_seconds": 1.699368,
+          "phase": "forced-state-checks",
+          "start_seconds": 1.699198
+        },
+        {
+          "duration_seconds": 0.0014449999999999186,
+          "end_seconds": 1.700813,
+          "phase": "forced-state-cpu-step",
+          "start_seconds": 1.699368
+        },
+        {
+          "duration_seconds": 0.019829000000000097,
+          "end_seconds": 1.720642,
+          "phase": "forced-state-device-step",
+          "start_seconds": 1.700813
+        },
+        {
+          "duration_seconds": 0.0012520000000000309,
+          "end_seconds": 1.721894,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 1.720642
+        },
+        {
+          "duration_seconds": 0.002573999999999854,
+          "end_seconds": 1.724468,
+          "phase": "forced-state-device-world",
+          "start_seconds": 1.721894
+        },
+        {
+          "duration_seconds": 0.00016000000000016001,
+          "end_seconds": 1.724628,
+          "phase": "forced-state-checks",
+          "start_seconds": 1.724468
+        },
+        {
+          "duration_seconds": 0.0009989999999999721,
+          "end_seconds": 1.725627,
+          "phase": "forced-state-cpu-step",
+          "start_seconds": 1.724628
+        },
+        {
+          "duration_seconds": 0.006739999999999968,
+          "end_seconds": 1.732367,
+          "phase": "forced-state-device-step",
+          "start_seconds": 1.725627
+        },
+        {
+          "duration_seconds": 0.001274999999999915,
+          "end_seconds": 1.733642,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 1.732367
+        },
+        {
+          "duration_seconds": 0.0025970000000001825,
+          "end_seconds": 1.736239,
+          "phase": "forced-state-device-world",
+          "start_seconds": 1.733642
+        },
+        {
+          "duration_seconds": 0.00014599999999997948,
+          "end_seconds": 1.736385,
+          "phase": "forced-state-checks",
+          "start_seconds": 1.736239
+        },
+        {
+          "duration_seconds": 0.0012360000000000149,
+          "end_seconds": 1.737621,
+          "phase": "forced-state-cpu-step",
+          "start_seconds": 1.736385
+        },
+        {
+          "duration_seconds": 0.007962999999999942,
+          "end_seconds": 1.745584,
+          "phase": "forced-state-device-step",
+          "start_seconds": 1.737621
+        },
+        {
+          "duration_seconds": 0.0011719999999999509,
+          "end_seconds": 1.746756,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 1.745584
+        },
+        {
+          "duration_seconds": 0.0029770000000000074,
+          "end_seconds": 1.749733,
+          "phase": "forced-state-device-world",
+          "start_seconds": 1.746756
+        },
+        {
+          "duration_seconds": 0.00023799999999996047,
+          "end_seconds": 1.749971,
+          "phase": "forced-state-checks",
+          "start_seconds": 1.749733
+        },
+        {
+          "duration_seconds": 0.0010980000000000434,
+          "end_seconds": 1.751069,
+          "phase": "forced-state-cpu-step",
+          "start_seconds": 1.749971
+        },
+        {
+          "duration_seconds": 0.008652000000000104,
+          "end_seconds": 1.759721,
+          "phase": "forced-state-device-step",
+          "start_seconds": 1.751069
+        },
+        {
+          "duration_seconds": 0.0010740000000000194,
+          "end_seconds": 1.760795,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 1.759721
+        },
+        {
+          "duration_seconds": 0.0024489999999999235,
+          "end_seconds": 1.763244,
+          "phase": "forced-state-device-world",
+          "start_seconds": 1.760795
+        },
+        {
+          "duration_seconds": 0.00012900000000004574,
+          "end_seconds": 1.763373,
+          "phase": "forced-state-checks",
+          "start_seconds": 1.763244
+        },
+        {
+          "duration_seconds": 0.001062999999999814,
+          "end_seconds": 1.764436,
+          "phase": "forced-state-cpu-step",
+          "start_seconds": 1.763373
+        },
+        {
+          "duration_seconds": 0.013066000000000022,
+          "end_seconds": 1.777502,
+          "phase": "forced-state-device-step",
+          "start_seconds": 1.764436
+        },
+        {
+          "duration_seconds": 0.0012389999999999901,
+          "end_seconds": 1.778741,
+          "phase": "forced-state-cpu-world",
+          "start_seconds": 1.777502
+        },
+        {
+          "duration_seconds": 0.002563000000000093,
+          "end_seconds": 1.781304,
+          "phase": "forced-state-device-world",
+          "start_seconds": 1.778741
+        },
+        {
+          "duration_seconds": 0.003702000000000094,
+          "end_seconds": 1.785006,
+          "phase": "forced-state-checks",
+          "start_seconds": 1.781304
+        },
+        {
+          "duration_seconds": 0.05516299999999985,
+          "end_seconds": 1.840169,
+          "phase": "forced-state-cpu-observation",
+          "start_seconds": 1.785006
+        },
+        {
+          "duration_seconds": 0.15008299999999997,
+          "end_seconds": 1.990252,
+          "phase": "forced-state-device-observation",
+          "start_seconds": 1.840169
+        },
+        {
+          "duration_seconds": 0.05837400000000015,
+          "end_seconds": 2.048626,
+          "phase": "forced-state-vector-carry",
+          "start_seconds": 1.990252
+        },
+        {
+          "duration_seconds": 0.0020259999999998612,
+          "end_seconds": 2.050652,
+          "phase": "forced-state-cpu-observation",
+          "start_seconds": 2.048626
+        },
+        {
+          "duration_seconds": 0.04042000000000012,
+          "end_seconds": 2.091072,
+          "phase": "forced-state-device-observation",
+          "start_seconds": 2.050652
+        },
+        {
+          "duration_seconds": 0.002925999999999984,
+          "end_seconds": 2.093998,
+          "phase": "forced-state-vector-carry",
+          "start_seconds": 2.091072
+        },
+        {
+          "duration_seconds": 0.08074000000000003,
+          "end_seconds": 2.174738,
+          "phase": "forced-state-root-restoration",
+          "start_seconds": 2.093998
+        },
+        {
+          "duration_seconds": 0.03236300000000014,
+          "end_seconds": 2.207101,
+          "phase": "topology-fixtures",
+          "start_seconds": 2.174738
+        },
+        {
+          "duration_seconds": 0.023683999999999816,
+          "end_seconds": 2.230785,
+          "phase": "model-load",
+          "start_seconds": 2.207101
+        },
+        {
+          "duration_seconds": 0.00029799999999990945,
+          "end_seconds": 2.231083,
+          "phase": "ledger-validation",
+          "start_seconds": 2.230785
+        }
+      ]
+    }
+  ],
+  "schema": "ct-cuda-liveness-review/v1",
+  "scope": "consecutive C/T status lines; pre-entrypoint provider/bootstrap reported separately",
+  "status": "HOLD_RESOLVED_CT_CONSECUTIVE_STATUS_CADENCE"
+}

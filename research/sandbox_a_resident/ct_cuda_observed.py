@@ -1,4 +1,4 @@
-"""Exact benign bootstrap lines observed in immutable A100 capture ct-cuda-smoke-08.
+"""Exact benign bootstrap lines observed in immutable A100 captures 08 and 09.
 
 No pattern expansion or warning-class exemptions. Version/timing drift refuses."""
 
@@ -12,6 +12,7 @@ BOOTSTRAP_LINES: frozenset[str] = frozenset(
         "Creating virtual environment with seed packages at: .venv",
         "Downloading cpython-3.12.16-linux-x86_64-gnu (download) (32.9MiB)",
         "Installed Python 3.12.16 in 989ms",
+        "Installed Python 3.12.16 in 1.17s",
         "Using CPython 3.12.16",
         (
             "warning: The `--system` flag has no effect, `uv venv` always igno"
@@ -232,5 +233,184 @@ CAPTURE_LABELS: frozenset[str] = frozenset(
         "ct-cuda-canary/signal/stall-watchdog/faulthandler-stacks.log",
         "ct-cuda-canary/signal/stall-watchdog/stall-watchdog.json",
         "research/sandbox_a_resident/ct_cuda_canary_job.sh",
+    ]
+)
+
+# Additional exact paths observed in smoke 09; no path-pattern exemptions.
+CAPTURE_LABELS = CAPTURE_LABELS | frozenset(
+    [
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "00.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "01.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "02.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "03.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "04.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "05.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "06.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "07.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "08.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "09.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "10.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "11.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "12.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "13.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "14.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "15.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "16.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "17.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "18.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "19.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "20.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "21.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "22.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "23.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "24.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "25.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "26.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "27.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "28.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "29.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "30.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/.snake-transfer-14e69e22c35345a4883c2ae8a64080d7/000000"
+            "31.part"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/stage-0001.pt"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/stage-0001.pt.complete"
+        ),
+        (
+            "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0/output/ct-cuda-c"
+            "anary/signal/stage-0001.pt.sha256"
+        ),
+        "ct-cuda-canary/progress-history.log",
     ]
 )

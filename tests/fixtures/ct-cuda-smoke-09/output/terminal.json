@@ -1,0 +1,357 @@
+{
+  "canary_observations": [
+    {
+      "caller": "research/sandbox_a_resident/ct_mechanics.py:1308:forced_state_determinism_suite",
+      "cuda_decisions": 1,
+      "device": "cuda:0",
+      "operation": "Tensor.argmax",
+      "package": "research/sandbox_a_resident",
+      "pid": 3240,
+      "root": "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0",
+      "shape": [
+        1,
+        6
+      ],
+      "version": 1
+    },
+    {
+      "caller": "research/sandbox_a_resident/ct_mechanics.py:1308:forced_state_determinism_suite",
+      "cuda_decisions": 1,
+      "device": "cuda:0",
+      "operation": "Tensor.argmax",
+      "package": "research/sandbox_a_resident",
+      "pid": 4908,
+      "root": "/content/snake-cli/cacb2fe3b86b43f4bacb296d283042c0",
+      "shape": [
+        1,
+        6
+      ],
+      "version": 1
+    }
+  ],
+  "export_scanner": {
+    "inventory": [
+      {
+        "path": "ct-cuda-canary/capture.json",
+        "sha256": "34d9cbd4b35a4fd763094f717dd032d54927ea0c1ef611e8a027c4998869254e",
+        "size": 33958
+      },
+      {
+        "path": "ct-cuda-canary/complete/fixture-runtime.json",
+        "sha256": "d198ef7ac474dfcae443936e39cedb5198fea9213e1cce8d3b6bad1a3bd48d88",
+        "size": 177
+      },
+      {
+        "path": "ct-cuda-canary/complete/progress-history.log",
+        "sha256": "5964c5cf160bfd3063f9aa639ac8229d4bebfc91000b40933bb7e6e54d29e5dc",
+        "size": 19206
+      },
+      {
+        "path": "ct-cuda-canary/complete/progress.json",
+        "sha256": "abd960cbb64d93ef17c4eb325a31f38cc7ed6ec01b5e4471474d85371225a55e",
+        "size": 170
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0001.json",
+        "sha256": "3985014bfc50ccbd214fd9fe8dca6bb17ea6daba6a1dcd6ceec8df1629e4d998",
+        "size": 619
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0001.pt",
+        "sha256": "fc2c04c5bb19c448d6525ee7d9bb57cc2f2a6a7bff12681ec0adfeaf4cd03a28",
+        "size": 46833
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0002.json",
+        "sha256": "e39683f2c42b6b8dd22d355943aabf29dc3c718af39972d5029eeb95d73e3e68",
+        "size": 695
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0002.pt",
+        "sha256": "2072bf6ebfc7872bf08c793e55ea95ccc354f856827df096ae97be24c2f85efa",
+        "size": 8244
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0003.json",
+        "sha256": "cec65f0b19229d626fc174c274993c629f27d3257662e08a6a7b2209986b44c7",
+        "size": 695
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0003.pt",
+        "sha256": "fed390335169f4e3ec19189ec93a20a23a9ca8d7dbad3f5fbd1ef277756ab712",
+        "size": 8244
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0004.json",
+        "sha256": "d8dcfc969a4ef88a2a3068f7e411b2e797ca01de68cb48e594d79c31e91d5ef2",
+        "size": 615
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0004.pt",
+        "sha256": "6fef61c44933020439095e641855524e4eef5c1771974a5dcf696e94d1b5ae39",
+        "size": 10199
+      },
+      {
+        "path": "ct-cuda-canary/complete/stall-watchdog/faulthandler-stacks.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      {
+        "path": "ct-cuda-canary/complete/stall-watchdog/stall-watchdog.json",
+        "sha256": "f4624af372fbdf773267d1e8f54a9b337ffbf9cfb710dde520fea6a1318292e4",
+        "size": 378
+      },
+      {
+        "path": "ct-cuda-canary/complete/summary.json",
+        "sha256": "c580755f6d8ac6898c42ef4b3df727f322bbddc012ac6509c32686e9aeff4154",
+        "size": 48656
+      },
+      {
+        "path": "ct-cuda-canary/complete-control.json",
+        "sha256": "5cc1a1886b938bfa6f5dabecdc46bf189ed7e852da7442ac8675d4aa3e6fdee7",
+        "size": 966
+      },
+      {
+        "path": "ct-cuda-canary/complete-entrypoint.log",
+        "sha256": "5964c5cf160bfd3063f9aa639ac8229d4bebfc91000b40933bb7e6e54d29e5dc",
+        "size": 19206
+      },
+      {
+        "path": "ct-cuda-canary/complete-ledger.json",
+        "sha256": "0d847152aea9fa809b7bfacd1c9eb48edd127326173338631a66cb37321debb6",
+        "size": 176
+      },
+      {
+        "path": "ct-cuda-canary/progress-history.log",
+        "sha256": "efe54440d2d299f77615f339d5e69b73fc71dc9bae65c909b7285d66626f36ce",
+        "size": 33988
+      },
+      {
+        "path": "ct-cuda-canary/signal/fixture-checkpoint-start",
+        "sha256": "ed1a545bb85e55816bbf9566b028b2a0bc456b88f49f6f266c0401048824194b",
+        "size": 6
+      },
+      {
+        "path": "ct-cuda-canary/signal/fixture-runtime.json",
+        "sha256": "5ce3a0d49672b6d7a8fd5a980560ed967bba5c6664017f4b9ee8b219988f1c12",
+        "size": 177
+      },
+      {
+        "path": "ct-cuda-canary/signal/progress-history.log",
+        "sha256": "fc7436457e09ad4a24be118f0e08da59c6758c57ba58ff49cad6b55fc3d90941",
+        "size": 11148
+      },
+      {
+        "path": "ct-cuda-canary/signal/progress.json",
+        "sha256": "c15cdc7542c843c76f520f39993e2b75cdb0cdcd6f2d8a66aee6f636b2031a39",
+        "size": 191
+      },
+      {
+        "path": "ct-cuda-canary/signal/sigusr1-marker.json",
+        "sha256": "3c883f5c0e695e7360ca2805c4c21ffbe47353c3a2b65c76763df2d57618c2b3",
+        "size": 362
+      },
+      {
+        "path": "ct-cuda-canary/signal/stage-0001.json",
+        "sha256": "81daad45e9ec3f0b48cbe34c2159a23ff2a8049fc3c65c1b968b089601d4737b",
+        "size": 621
+      },
+      {
+        "path": "ct-cuda-canary/signal/stage-0001.pt",
+        "sha256": "5b843962c543882303dcc214ac1257c99beeeae61e957477d633c2233826dbb7",
+        "size": 267434164
+      },
+      {
+        "path": "ct-cuda-canary/signal/stall-watchdog/faulthandler-stacks.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      {
+        "path": "ct-cuda-canary/signal/stall-watchdog/stall-watchdog.json",
+        "sha256": "13a0cf56d041bb5db8e622cc3beff292dfa47f23b451187ce15ce15e74f530bb",
+        "size": 410
+      },
+      {
+        "path": "ct-cuda-canary/signal-control.json",
+        "sha256": "62e196f29255fd0cc34677418be5677201aac18f37427f106150c28e2f1711c4",
+        "size": 966
+      },
+      {
+        "path": "ct-cuda-canary/signal-entrypoint.log",
+        "sha256": "fc7436457e09ad4a24be118f0e08da59c6758c57ba58ff49cad6b55fc3d90941",
+        "size": 11148
+      },
+      {
+        "path": "ct-cuda-canary/signal-ledger.json",
+        "sha256": "9d4ca9d7afb892ba045dfbcf95b47369c88447e987ee6c7f53f133a6c2004d09",
+        "size": 176
+      }
+    ],
+    "name": "runtime._exports"
+  },
+  "exports": [
+    {
+      "path": "ct-cuda-canary/capture.json",
+      "sha256": "34d9cbd4b35a4fd763094f717dd032d54927ea0c1ef611e8a027c4998869254e",
+      "size": 33958
+    },
+    {
+      "path": "ct-cuda-canary/complete/fixture-runtime.json",
+      "sha256": "d198ef7ac474dfcae443936e39cedb5198fea9213e1cce8d3b6bad1a3bd48d88",
+      "size": 177
+    },
+    {
+      "path": "ct-cuda-canary/complete/progress-history.log",
+      "sha256": "5964c5cf160bfd3063f9aa639ac8229d4bebfc91000b40933bb7e6e54d29e5dc",
+      "size": 19206
+    },
+    {
+      "path": "ct-cuda-canary/complete/progress.json",
+      "sha256": "abd960cbb64d93ef17c4eb325a31f38cc7ed6ec01b5e4471474d85371225a55e",
+      "size": 170
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0001.json",
+      "sha256": "3985014bfc50ccbd214fd9fe8dca6bb17ea6daba6a1dcd6ceec8df1629e4d998",
+      "size": 619
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0001.pt",
+      "sha256": "fc2c04c5bb19c448d6525ee7d9bb57cc2f2a6a7bff12681ec0adfeaf4cd03a28",
+      "size": 46833
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0002.json",
+      "sha256": "e39683f2c42b6b8dd22d355943aabf29dc3c718af39972d5029eeb95d73e3e68",
+      "size": 695
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0002.pt",
+      "sha256": "2072bf6ebfc7872bf08c793e55ea95ccc354f856827df096ae97be24c2f85efa",
+      "size": 8244
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0003.json",
+      "sha256": "cec65f0b19229d626fc174c274993c629f27d3257662e08a6a7b2209986b44c7",
+      "size": 695
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0003.pt",
+      "sha256": "fed390335169f4e3ec19189ec93a20a23a9ca8d7dbad3f5fbd1ef277756ab712",
+      "size": 8244
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0004.json",
+      "sha256": "d8dcfc969a4ef88a2a3068f7e411b2e797ca01de68cb48e594d79c31e91d5ef2",
+      "size": 615
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0004.pt",
+      "sha256": "6fef61c44933020439095e641855524e4eef5c1771974a5dcf696e94d1b5ae39",
+      "size": 10199
+    },
+    {
+      "path": "ct-cuda-canary/complete/stall-watchdog/faulthandler-stacks.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "ct-cuda-canary/complete/stall-watchdog/stall-watchdog.json",
+      "sha256": "f4624af372fbdf773267d1e8f54a9b337ffbf9cfb710dde520fea6a1318292e4",
+      "size": 378
+    },
+    {
+      "path": "ct-cuda-canary/complete/summary.json",
+      "sha256": "c580755f6d8ac6898c42ef4b3df727f322bbddc012ac6509c32686e9aeff4154",
+      "size": 48656
+    },
+    {
+      "path": "ct-cuda-canary/complete-control.json",
+      "sha256": "5cc1a1886b938bfa6f5dabecdc46bf189ed7e852da7442ac8675d4aa3e6fdee7",
+      "size": 966
+    },
+    {
+      "path": "ct-cuda-canary/complete-entrypoint.log",
+      "sha256": "5964c5cf160bfd3063f9aa639ac8229d4bebfc91000b40933bb7e6e54d29e5dc",
+      "size": 19206
+    },
+    {
+      "path": "ct-cuda-canary/complete-ledger.json",
+      "sha256": "0d847152aea9fa809b7bfacd1c9eb48edd127326173338631a66cb37321debb6",
+      "size": 176
+    },
+    {
+      "path": "ct-cuda-canary/progress-history.log",
+      "sha256": "efe54440d2d299f77615f339d5e69b73fc71dc9bae65c909b7285d66626f36ce",
+      "size": 33988
+    },
+    {
+      "path": "ct-cuda-canary/signal/fixture-checkpoint-start",
+      "sha256": "ed1a545bb85e55816bbf9566b028b2a0bc456b88f49f6f266c0401048824194b",
+      "size": 6
+    },
+    {
+      "path": "ct-cuda-canary/signal/fixture-runtime.json",
+      "sha256": "5ce3a0d49672b6d7a8fd5a980560ed967bba5c6664017f4b9ee8b219988f1c12",
+      "size": 177
+    },
+    {
+      "path": "ct-cuda-canary/signal/progress-history.log",
+      "sha256": "fc7436457e09ad4a24be118f0e08da59c6758c57ba58ff49cad6b55fc3d90941",
+      "size": 11148
+    },
+    {
+      "path": "ct-cuda-canary/signal/progress.json",
+      "sha256": "c15cdc7542c843c76f520f39993e2b75cdb0cdcd6f2d8a66aee6f636b2031a39",
+      "size": 191
+    },
+    {
+      "path": "ct-cuda-canary/signal/sigusr1-marker.json",
+      "sha256": "3c883f5c0e695e7360ca2805c4c21ffbe47353c3a2b65c76763df2d57618c2b3",
+      "size": 362
+    },
+    {
+      "path": "ct-cuda-canary/signal/stage-0001.json",
+      "sha256": "81daad45e9ec3f0b48cbe34c2159a23ff2a8049fc3c65c1b968b089601d4737b",
+      "size": 621
+    },
+    {
+      "path": "ct-cuda-canary/signal/stage-0001.pt",
+      "sha256": "5b843962c543882303dcc214ac1257c99beeeae61e957477d633c2233826dbb7",
+      "size": 267434164
+    },
+    {
+      "path": "ct-cuda-canary/signal/stall-watchdog/faulthandler-stacks.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "ct-cuda-canary/signal/stall-watchdog/stall-watchdog.json",
+      "sha256": "13a0cf56d041bb5db8e622cc3beff292dfa47f23b451187ce15ce15e74f530bb",
+      "size": 410
+    },
+    {
+      "path": "ct-cuda-canary/signal-control.json",
+      "sha256": "62e196f29255fd0cc34677418be5677201aac18f37427f106150c28e2f1711c4",
+      "size": 966
+    },
+    {
+      "path": "ct-cuda-canary/signal-entrypoint.log",
+      "sha256": "fc7436457e09ad4a24be118f0e08da59c6758c57ba58ff49cad6b55fc3d90941",
+      "size": 11148
+    },
+    {
+      "path": "ct-cuda-canary/signal-ledger.json",
+      "sha256": "9d4ca9d7afb892ba045dfbcf95b47369c88447e987ee6c7f53f133a6c2004d09",
+      "size": 176
+    }
+  ],
+  "finished_at": 1793229828.5270977,
+  "generation": "cacb2fe3b86b43f4bacb296d283042c0",
+  "job_id": "ct-cuda-smoke-20261028-09",
+  "last_traceback_line": "CT_HEARTBEAT {\"elapsed_sec\": 372.895516, \"phase\": \"export-sealing\", \"schema\": \"t34-cf-heartbeat/v1\", \"study\": \"t34-cf-1028\"}",
+  "reason": null,
+  "returncode": 0,
+  "started_at": 1793229281.2474322,
+  "status": "succeeded"
+}

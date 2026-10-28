@@ -84,6 +84,14 @@
       ],
       "successor": "packet-ct-1028-08",
       "reason": "Real A100 capture closes bootstrap, signal-marker and history witness admission gaps; all packet-07 bytes remain immutable."
+    },
+    {
+      "packet_dir": "packet-ct-1028-08",
+      "job_ids": [
+        "sandbox-ct-cf-20261028-08"
+      ],
+      "successor": "packet-ct-1028-09",
+      "reason": "Second real A100 capture resolves C/T startup status HOLD; new immutable packet binds cadence and new producer shapes. Prior packet and all evidence preserved."
     }
   ]
 }

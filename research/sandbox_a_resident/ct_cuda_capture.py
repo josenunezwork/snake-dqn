@@ -21,6 +21,9 @@ from research.sandbox_a_resident import ct_resume as admission
 ROOT = Path(__file__).resolve().parents[2]
 BINDING = ROOT / "tests/fixtures/ct-cuda-smoke-08"
 PACKET = ROOT / "research/sandbox_a_resident/packet-ct-cuda-smoke-1028-08"
+# Immutable first capture predates heartbeat instrumentation. Every later source
+# must carry the new cadence proof regardless of its local directory name.
+LEGACY_CAPTURE_PIN = "d2302487ebecb1791bec1fb22cd9ab98209ad3d7"
 
 
 def _read(path: Path) -> Any:
@@ -38,7 +41,7 @@ def _finite_under(value: Any, bound: float) -> bool:
 
 @admission._evidence_session
 def validate_capture(
-    output: Path, supervisor_log: Path, *, packet: Path = PACKET
+    output: Path, supervisor_log: Path, *, packet: Path = PACKET, binding: Path = BINDING
 ) -> dict[str, Any]:
     """Verify every retained byte and diagnostic surface of this fixture-only run."""
     admission._no_symlink_path(output)
@@ -47,18 +50,18 @@ def validate_capture(
     receipt = _read(output / "receipt.json")
     terminal = _read(output / "terminal.json")
     pin = seal["source_commit"]
-    original = _read(BINDING / "dispatch-original.json")
-    live = _read(BINDING / "dispatch-live.json")
-    accounting = _read(BINDING / "accounting.json")
+    original = _read(binding / "dispatch-original.json")
+    live = _read(binding / "dispatch-live.json")
+    accounting = _read(binding / "accounting.json")
     expected_live = copy.deepcopy(original)
     expected_live["budget"]["other_assignments"] = accounting["other_assignments"]
     expected_runtime = copy.deepcopy(live)
     expected_runtime["lease_seconds"] = 180.0
     _require(
         original == _read(packet / "dispatch-manifest.json")
-        and admission.digest(BINDING / "dispatch-original.json") == seal["manifest_sha256"]
+        and admission.digest(binding / "dispatch-original.json") == seal["manifest_sha256"]
         and accounting["source_manifest_sha256"] == seal["manifest_sha256"]
-        and admission.digest(BINDING / "dispatch-live.json") == accounting["manifest_sha256"]
+        and admission.digest(binding / "dispatch-live.json") == accounting["manifest_sha256"]
         and live == expected_live
         and manifest == expected_runtime,
         "capture dispatch accounting/normalization chain mismatch",
@@ -104,9 +107,9 @@ def validate_capture(
     cache = admission._EVIDENCE_CACHE.get()
     assert cache is not None
     plan = _read(output / "staging/source-plan.json")
-    prepared = _read(BINDING / "prepared-source-plan.json")
+    prepared = _read(binding / "prepared-source-plan.json")
     _require(
-        admission.digest(BINDING / "prepared-source-plan.json") == seal["source_plan_sha256"]
+        admission.digest(binding / "prepared-source-plan.json") == seal["source_plan_sha256"]
         and prepared["fallback_sha256"] == seal["source_archive"]["sha256"]
         and {k: v for k, v in plan.items() if k != "fallback_sha256"}
         == {k: v for k, v in prepared.items() if k != "fallback_sha256"},
@@ -131,6 +134,11 @@ def validate_capture(
         and capture["gpu"] == "NVIDIA A100-SXM4-40GB",
         "capture is not the frozen real-CUDA excluded fixture",
     )
+    liveness = None
+    if pin != LEGACY_CAPTURE_PIN:
+        from research.sandbox_a_resident.ct_capture_liveness import measure_liveness
+
+        liveness = measure_liveness(output, supervisor_log)
     probes = capture["probes"]
     _require([p["name"] for p in probes] == ["complete", "signal"], "missing fixture probes")
     for p in probes:
@@ -235,7 +243,13 @@ def validate_capture(
         "capture export inventory mismatch",
     )
     _require(
-        rows == terminal["exports"] == terminal["export_scanner"]["inventory"],
+        all(
+            len(inventory) == len(rows)
+            and len({row["path"] for row in inventory}) == len(rows)
+            and sorted(inventory, key=lambda row: row["path"])
+            == sorted(rows, key=lambda row: row["path"])
+            for inventory in (terminal["exports"], terminal["export_scanner"]["inventory"])
+        ),
         "capture terminal/export scanner disagreement",
     )
     for row in rows:
@@ -257,6 +271,7 @@ def validate_capture(
         "signal_to_exit_seconds": signal["signal_to_exit_seconds"],
         "stop_verified": True,
         "source_commit": pin,
+        "liveness": liveness,
     }
 
 
@@ -264,8 +279,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--supervisor-log", type=Path, required=True)
+    parser.add_argument("--packet", type=Path, default=PACKET)
+    parser.add_argument("--binding", type=Path, default=BINDING)
     args = parser.parse_args()
-    print(json.dumps(validate_capture(args.output, args.supervisor_log), indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            validate_capture(
+                args.output, args.supervisor_log, packet=args.packet, binding=args.binding
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 

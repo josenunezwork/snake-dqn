@@ -1,0 +1,15 @@
+{
+  "exports": [],
+  "job_log_tail": "",
+  "state": {
+    "generation": "cacb2fe3b86b43f4bacb296d283042c0",
+    "job_id": "ct-cuda-smoke-20261028-09",
+    "max_export_bytes": 1073741824,
+    "pid": 2412,
+    "started_at": 1793229281.2474322,
+    "status": "running",
+    "updated_at": 1793229311.4483314
+  },
+  "supervisor_log_tail": "",
+  "terminal": null
+}

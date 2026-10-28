@@ -25,6 +25,42 @@ HEARTBEAT_SOURCES = ("ct_liveness.py", "ct_run.py", "ct_cuda_canary.py", "ct_mec
 
 
 @functools.lru_cache(maxsize=1)
+def capture_inventory() -> dict[str, frozenset[str]]:
+    """Derive closed fixture report/receive-record shapes from the real producer."""
+    tree = ast.parse((HERE / "ct_cuda_canary.py").read_text())
+    inventory = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in {"report", "cadence"}:
+                    inventory[target.id] = frozenset(_keys(node.value))
+                elif (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "report"
+                ):
+                    key = ast.literal_eval(target.slice)
+                    inventory["report"] = inventory["report"] | {key}
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "append"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in {"probes", "observations"}
+        ):
+            keys = frozenset(_keys(node.args[0]))
+            name = (
+                ("signal" if "marker" in keys else "complete")
+                if node.func.value.id == "probes"
+                else "observation"
+            )
+            inventory[name] = keys
+    if set(inventory) != {"report", "cadence", "complete", "signal", "observation"}:
+        raise ValueError("missing fixture capture emitter AST")
+    return inventory
+
+
+@functools.lru_cache(maxsize=1)
 def heartbeat_inventory() -> tuple[frozenset[str], frozenset[str]]:
     """Derive closed heartbeat keys and phases from the actual producer ASTs."""
     phases: set[str] = set()

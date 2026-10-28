@@ -1,0 +1,8 @@
+{
+  "manifest_sha256": "f48db988197bf88c15509761e3e8b63952ef4ae0ab6ceafa799e11c0aed04c9b",
+  "required_exports": [
+    "ct-cuda-canary/capture.json"
+  ],
+  "schema": "colab-cli-manifest/v1",
+  "status": "PASS"
+}

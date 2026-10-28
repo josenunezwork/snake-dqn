@@ -1,0 +1,11 @@
+{
+  "bootstrap.sh": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+  "inputs/b8-fixture.pth": "e19fb0c8fda8c5c01e2e45ffa65419d055f31d270faa806b4acadc21ca99b83f",
+  "inputs/champion-fixture.pth": "c02bc08b8a6c922ba7e7812d22a6417aacfb6a9a20114d1acee261dce6cf369b",
+  "inputs/fixture-audit.json": "3518b7ad0e604639d100cc64a784ee04c2b7a00b92e24a5e42aafd28d17ac4a5",
+  "inputs/frp3-fixture.pth": "867a981ad44b3ed99c29d974c81b3739ab064338658a6277698a2b8fb38fcab8",
+  "release.py": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+  "runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+  "source.py": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+  "source.tar.gz": "32c859b97d30f566b6b9c5f059865d777d0b612e08857c720e36080242fdcfc1"
+}

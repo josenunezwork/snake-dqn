@@ -41,7 +41,11 @@ from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
 from research.sandbox_a_resident.ct_cuda_observed import BOOTSTRAP_LINES, CAPTURE_LABELS
 from research.sandbox_a_resident.ct_prepare import STUDY, ct_endpoint_steps, write_once
-from research.sandbox_a_resident.ct_progress import validate_heartbeat, validate_progress
+from research.sandbox_a_resident.ct_progress import (
+    capture_inventory,
+    validate_heartbeat,
+    validate_progress,
+)
 from research.sandbox_a_resident.ct_units import (
     COMPACT_DERIVATIVE_SUFFIX,
     COMPACT_MANIFEST_SUFFIX,
@@ -478,7 +482,17 @@ def _check_retained_execution(
     fixture_signal = (
         fixture_completion
         and set(record)
-        == {"name", "returncode", "runtime", "checkpoint_bytes", "signal_to_exit_seconds", "marker"}
+        in (
+            {
+                "name",
+                "returncode",
+                "runtime",
+                "checkpoint_bytes",
+                "signal_to_exit_seconds",
+                "marker",
+            },
+            capture_inventory()["signal"],
+        )
         and record.get("name") == "signal"
         and returncode == 138
     )
@@ -594,6 +608,15 @@ def _mechanical_supervisor_error(value: Any) -> bool:
 
 def _observed_signal_line(value: Any, generation: str | None = None) -> bool:
     """Exact observed benign lines; a mechanical reason never exempts arbitrary text."""
+    if isinstance(value, str) and value.startswith("CT_HEARTBEAT ") and "\n" not in value:
+        try:
+            row = _load_json(value.partition(" ")[2])
+            if not isinstance(row, dict):
+                return False
+            validate_heartbeat(row)
+            return True
+        except (ValueError, TypeError, KeyError, RecursionError):
+            return False
     if isinstance(value, str) and value.startswith("CT_SIGUSR1_CLEAN_EXIT ") and "\n" not in value:
         try:
             _validate_signal_marker(_load_json(value.partition(" ")[2]))
@@ -682,7 +705,9 @@ def _scan_job_tail(
                 raise ValueError("unknown line")
         except (ValueError, TypeError, RecursionError):
             _refuse_if_fault_text(line, field_name=label)
-            witnesses = (_EVIDENCE_CACHE.get() or {}).get("progress_history_lines", set())
+            witnesses = (_EVIDENCE_CACHE.get() or {}).get(
+                "progress_history_lines", set()
+            ) | BOOTSTRAP_LINES
             if (
                 index == 0
                 and prefix not in {"CT_PROGRESS", "CT_HEARTBEAT", "CT_SIGUSR1_CLEAN_EXIT"}
