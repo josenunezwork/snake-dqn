@@ -1,0 +1,44 @@
+{
+  "base_effective_envelopes": {
+    "base_reserve_units": 0.05,
+    "base_timeout_minutes": 15,
+    "base_unit_cap": 2.05,
+    "effective_reserve_units": 0.1,
+    "effective_timeout_minutes": 30,
+    "effective_unit_cap": 4.1,
+    "estimate_minutes": 15,
+    "rate_units_per_hour": 8.0
+  },
+  "broker": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-09-broker.noindex",
+  "dispatch_performed": false,
+  "dispatch_txt_sha256": "b994dc0334774a10ef707a3873a805377605aa3a0922a850cfec43c2286dd100",
+  "fixture_audit_sha256": "3518b7ad0e604639d100cc64a784ee04c2b7a00b92e24a5e42aafd28d17ac4a5",
+  "heartbeat_interval_seconds": 15,
+  "heartbeat_max_gap_seconds": 30,
+  "manifest_sha256": "fa551298ad575018f88fe6c0698faf7b637b18c6caa83e985a05a245d7e84d1f",
+  "prior_fixture_input_identity_equal": true,
+  "progress_max_gap_seconds": 60,
+  "retained_capture_required": true,
+  "review_status": "AWAITING_ARGON_REVIEW_AND_OPERATOR_CUDA_CAPTURE",
+  "runtime": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-09-runtime.noindex",
+  "schema": "ct-cuda-smoke-preparation/v1",
+  "science_packet_resealed": false,
+  "scope": "byte-identical fixture inputs to smoke08, same numerical fixture controls, real CUDA entrypoint complete and SIGUSR1 probes; no science data",
+  "source_archive": {
+    "sha256": "2a049b5da602fbb3dca97ff455ac6efacffc12de75de6568f532d5ef9f4e342c",
+    "size": 1064266
+  },
+  "source_commit": "f1512de75d9b9c9288f9fc4cba002e25dc054a52",
+  "source_plan_sha256": "b918563b10310514de2fa1f2b3766832ad67e52db8cdabd5b307becaba93b8a8",
+  "source_tree": "b8dea1825e3e96ba6d87d6f4bea1757e74663c2c",
+  "staging": {
+    "canary_bar_seconds": 150,
+    "hard_cap_seconds": 300,
+    "nominal_seconds": 25.318674825484756,
+    "private_bytes": 6569799,
+    "total_bytes": 7651820,
+    "uploads": 7,
+    "worst_seconds": 40.4181387730131
+  },
+  "work_watchdog_seconds": 900
+}
