@@ -26,9 +26,13 @@ def write(path: Path, data: object) -> None:
 
 
 def seal(pin: str, broker: Path, runtime: Path, benchmark: Path, attempt: int = 1) -> None:
-    if not re.fullmatch(r"[0-9a-f]{40}", pin) or subprocess.check_output(
-        ["git", "rev-parse", "--verify", f"{pin}^{{commit}}"], cwd=ROOT, text=True
-    ).strip() != pin:
+    if (
+        not re.fullmatch(r"[0-9a-f]{40}", pin)
+        or subprocess.check_output(
+            ["git", "rev-parse", "--verify", f"{pin}^{{commit}}"], cwd=ROOT, text=True
+        ).strip()
+        != pin
+    ):
         raise ValueError("P runtime pin must be an existing full commit SHA")
     if type(attempt) is not int or not 1 <= attempt <= 99:
         raise ValueError("fresh packet attempt must be 1..99")

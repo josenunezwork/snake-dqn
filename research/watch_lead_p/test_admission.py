@@ -25,6 +25,15 @@ def test_sparse_source_includes_nested_requirements() -> None:
     )
 
 
+def test_seal_rejects_invalid_pin_before_creating_packet(tmp_path, monkeypatch) -> None:
+    from research.watch_lead_p import seal
+
+    monkeypatch.setattr(seal, "ROOT", tmp_path)
+    with pytest.raises(ValueError, match="full commit SHA"):
+        seal.seal("invalid", tmp_path / "broker", tmp_path / "runtime", tmp_path / "benchmark")
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_registry_exclusion_audit() -> None:
     value = exclusion_audit()
     assert value["seeds"] == list(SEEDS)
