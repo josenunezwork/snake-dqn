@@ -100,7 +100,15 @@ def _number(value: Any) -> bool:
     return type(value) in (int, float) and math.isfinite(value) and value >= 0
 
 
-def replay_ordinary(points: list, intervals: list, lifecycles: dict, ledger: dict) -> dict:
+def replay_ordinary(
+    points: list,
+    intervals: list,
+    lifecycles: dict,
+    ledger: dict,
+    *,
+    desktop_background: set[str] | None = None,
+    desktop_host: dict | None = None,
+) -> dict:
     """Replay both original ordinary abort paths and sustained service ceiling.
 
     Complete raw point rows retain historical CPU. CPU interval process rows
@@ -137,13 +145,15 @@ def replay_ordinary(points: list, intervals: list, lifecycles: dict, ledger: dic
                 ):
                     raise ValueError("malformed point CPU/executable")
                 kind = host_load.process_kind(row["command"])
+                if digest([at, at, row]) in (desktop_background or ()):
+                    kind = row["kind"]
                 if (
                     not _permitted(row, at, lifecycles)
-                    and kind not in host_load.BACKGROUND_KINDS
+                    and kind not in {*host_load.BACKGROUND_KINDS, "desktop_app"}
                     and row["cpu_percent"] >= 20
                 ):
                     errors.append("ordinary workload/unknown point >=20%")
-        guard = host_load.LoadGuard()
+        guard = host_load.LoadGuard(desktop_policy=desktop_host is not None)
         previous_end = None
         for raw in intervals:
             sample = deepcopy(raw)
@@ -210,10 +220,16 @@ def replay_ordinary(points: list, intervals: list, lifecycles: dict, ledger: dic
                         }
                     )
                     continue
+                desktop_verified = digest([a, b, row]) in (desktop_background or ())
+                original_kind = row["kind"] if desktop_verified else None
                 row["kind"] = host_load.process_kind(row["command"])
+                if desktop_verified:
+                    # The combined reducer independently replays desktop identity
+                    # first. Retain the CPU in the SAME shared background pool.
+                    row["kind"] = original_kind
                 group = (
                     "background"
-                    if row["kind"] in host_load.BACKGROUND_KINDS
+                    if desktop_verified or row["kind"] in host_load.BACKGROUND_KINDS
                     else "workload" if row["kind"] == "agent_workload" else "unknown"
                 )
                 totals[group] += row["cpu_percent"]
@@ -226,6 +242,11 @@ def replay_ordinary(points: list, intervals: list, lifecycles: dict, ledger: dic
             if required != seen_permitted:
                 errors.append("missing permitted process reconciliation in ordinary interval")
             sample.update(processes=rows, **{k + "_cpu_percent": v for k, v in totals.items()})
+            if desktop_host is not None:
+                for kind in ("desktop_app", "desktop_renderer", "macos_service"):
+                    sample[kind + "_cpu_percent"] = sum(
+                        row["cpu_percent"] for row in rows if row["kind"] == kind
+                    )
             projected.append(sample)
             try:
                 guard.check(sample)
@@ -234,9 +255,9 @@ def replay_ordinary(points: list, intervals: list, lifecycles: dict, ledger: dic
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         errors.append(str(exc))
     try:
-        # Validate only the unchanged wire shape on our derived v2 projection;
-        # never read a historical v1 artifact through this policy path.
-        _samples({"load_policy": "classified-v1", "cpu_samples": projected})
+        # Revalidate the derived projection. Combined replay supplies the exact
+        # desktop registry/history view, retaining original desktop kinds.
+        _samples({**(desktop_host or {"load_policy": "classified-v1"}), "cpu_samples": projected})
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         errors.append("ordinary CPU wire evidence: " + str(exc))
     return {

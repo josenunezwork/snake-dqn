@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -225,6 +226,32 @@ def test_collector_records_short_children_nonzero_exit_and_no_admission(tmp_path
     assert exits[1]["returncode"] == 23
     assert all(row["template"] == "ordinary" for row in rows if row["kind"] == "operation_start")
     assert not status["errors"], status["errors"]
+
+
+def test_unpiped_response_does_not_claim_independent_zero_byte_capture(tmp_path) -> None:
+    collector = Collector(tmp_path / "collector")
+    result = collector.run([sys.executable, "-c", "pass"], timeout=5)
+    assert result.returncode == 0
+    collector.seal()
+    end = subject.read_journal(collector.journal.directory)[-1]
+    assert end["response_bytes"] == 0
+    assert end["response_capture"]["independent"] is False
+
+
+@pytest.mark.parametrize("size,invalid", [(65536, False), (65537, True)])
+def test_collector_payload_boundary_preserves_control_result(tmp_path, monkeypatch, size, invalid):
+    collector = Collector(tmp_path / "collector")
+    monkeypatch.setattr(collector, "metadata", lambda *a: ({"template": "usage"}, b""))
+    result = collector.run(
+        [sys.executable, "-c", f"import sys; sys.stdout.write('x' * {size})"],
+        capture_output=True,
+        timeout=5,
+    )
+    assert result.returncode == 0 and len(result.stdout) == size
+    status = collector.seal()
+    assert any("exceeds 65536" in error for error in status["errors"]) is invalid
+    end = subject.read_journal(collector.journal.directory)[-1]
+    assert end["response_bytes"] == size and end["response_capture"]["independent"] is True
 
 
 def test_collector_concurrent_calls_have_unique_operations_and_final_counters(tmp_path) -> None:
@@ -522,3 +549,148 @@ def test_root_cli_guard_helpers_are_collected_and_all_routes_restored(tmp_path):
     assert [module.subprocess for module in (cli_guard, release, supervisor, dispatch)] == originals
     collector.seal()
     assert len(subject.read_journal(collector.journal.directory)) == 5
+
+
+@pytest.mark.parametrize(
+    "failure", ["spawn", "drain", "interrupt", "timeout-drain", "missing-stderr"]
+)
+def test_aborted_pipe_capture_never_certifies_independent_response(tmp_path, monkeypatch, failure):
+    collector = Collector(tmp_path / "collector")
+    monkeypatch.setattr(collector, "metadata", lambda *a: ({"template": "usage"}, b""))
+    if failure == "spawn":
+
+        def spawn(*args, **kwargs):
+            raise OSError("injected spawn failure")
+
+        monkeypatch.setattr(subject, "Wait4Popen", spawn)
+    else:
+        original = subject.Wait4Popen.communicate
+        calls = []
+
+        def communicate(child, *args, **kwargs):
+            calls.append(1)
+            if failure == "timeout-drain" and len(calls) == 1:
+                raise subprocess.TimeoutExpired("fixture", 1)
+            if failure == "missing-stderr":
+                output, _ = original(child, *args, **kwargs)
+                return output, None
+            if failure == "interrupt":
+                raise KeyboardInterrupt()
+            raise OSError("injected pipe drain failure")
+
+        monkeypatch.setattr(subject.Wait4Popen, "communicate", communicate)
+    if failure == "missing-stderr":
+        collector.run([sys.executable, "-c", "print('partial')"], capture_output=True, timeout=5)
+    else:
+        with pytest.raises((OSError, KeyboardInterrupt)):
+            collector.run(
+                [sys.executable, "-c", "print('partial')"], capture_output=True, timeout=5
+            )
+    status = collector.seal()
+    assert "permitted operation response not fully captured" in status["errors"]
+    end = subject.read_journal(collector.journal.directory)[-1]
+    assert end["kind"] == "operation_end"
+    assert end["response_capture"]["independent"] is False
+
+
+def test_timeout_with_successful_post_kill_drain_never_certifies_capture(tmp_path):
+    collector = Collector(tmp_path / "collector")
+    with pytest.raises(subprocess.TimeoutExpired):
+        collector.run(
+            [sys.executable, "-c", "import time; print('before', flush=True); time.sleep(5)"],
+            capture_output=True,
+            timeout=0.2,
+        )
+    collector.seal()
+    end = subject.read_journal(collector.journal.directory)[-1]
+    assert end["response_capture"]["independent"] is False
+    assert end["response_bytes"] == 0
+
+
+@pytest.mark.parametrize("holds_pipes", [False, True])
+def test_real_descendant_post_death_output_is_bounded_and_uncertified(
+    tmp_path, monkeypatch, holds_pipes
+):
+    import select
+
+    from tools.sandbox.collector_v2 import POST_KILL_DRAIN_SECONDS
+
+    collector = Collector(tmp_path / "collector")
+    pid_file = tmp_path / "descendant.pid"
+    ready_read, ready_write = os.pipe()
+    # The descendant signals readiness, then waits for EOF on a pipe whose
+    # sole writer is the direct child. Only killing that child releases it.
+    descendant = (
+        "import os,sys,time; from pathlib import Path; "
+        f"Path({str(pid_file)!r}).write_text(str(os.getpid())); "
+        f"os.write({ready_write}, b'R'); os.close({ready_write}); "
+        "assert os.read(int(sys.argv[1]), 1) == b''; "
+        "print('post-death', flush=True); " + ("time.sleep(10)" if holds_pipes else "pass")
+    )
+    code = (
+        "import os,subprocess,sys; r,w=os.pipe(); "
+        f"subprocess.Popen([sys.executable, '-c', {descendant!r}, str(r)], "
+        f"pass_fds=(r, {ready_write})); "
+        f"os.close(r); os.close({ready_write}); sys.stdin.buffer.read()"
+    )
+    original = subject.Wait4Popen.communicate
+    calls = []
+
+    def communicate(child, *args, **kwargs):
+        if not calls:
+            assert select.select([ready_read], [], [], 10)[0], "descendant never became ready"
+            assert os.read(ready_read, 1) == b"R"
+            calls.append("ready")
+            # Deterministically enter the timeout branch only after both real
+            # interpreters have started. No startup deadline or sleep race.
+            raise subprocess.TimeoutExpired(child.args, kwargs["timeout"])
+        assert kwargs["timeout"] == POST_KILL_DRAIN_SECONDS
+        started = time.monotonic()
+        try:
+            output, error = original(child, *args, **kwargs)
+        except subprocess.TimeoutExpired as exc:
+            calls.append("drain-timeout")
+            assert exc.output == b"post-death\n"
+            raise
+        else:
+            calls.append("drain-completed")
+            assert output == b"post-death\n"
+            assert error == b""
+            return output, error
+        finally:
+            assert time.monotonic() - started < POST_KILL_DRAIN_SECONDS + 2
+
+    monkeypatch.setattr(subject.Wait4Popen, "communicate", communicate)
+    started = time.monotonic()
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            collector.run(
+                [sys.executable, "-c", code],
+                capture_output=True,
+                stdin=subprocess.PIPE,
+                pass_fds=(ready_write,),
+                timeout=10,
+            )
+        assert time.monotonic() - started < 10 + POST_KILL_DRAIN_SECONDS + 2
+        assert calls == ["ready", "drain-timeout" if holds_pipes else "drain-completed"]
+        assert pid_file.exists()
+        collector.seal()
+        end = subject.read_journal(collector.journal.directory)[-1]
+        assert end["kind"] == "operation_end"
+        assert end["response_capture"]["independent"] is False
+        assert end["response_bytes"] == 0
+    finally:
+        os.close(ready_read)
+        os.close(ready_write)
+        if pid_file.exists():
+            import psutil
+
+            try:
+                descendant_process = psutil.Process(int(pid_file.read_text()))
+                descendant_process.kill()
+                try:
+                    descendant_process.wait(timeout=2)
+                except psutil.TimeoutExpired:
+                    pass  # An orphan zombie may await the system reaper.
+            except psutil.NoSuchProcess:
+                pass

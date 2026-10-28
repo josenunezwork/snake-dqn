@@ -467,11 +467,14 @@ def record_operation_end(
     *,
     request: bytes = b"",
     response: bytes = b"",
+    response_captured: bool = True,
     monotonic_ns: int | None = None,
 ) -> dict[str, Any]:
     """Complete after every exit with independently captured byte counts/digests."""
     if not isinstance(request, bytes) or not isinstance(response, bytes):
         raise AccountingError("operation captures must be bytes")
+    if type(response_captured) is not bool:
+        raise AccountingError("response capture completeness must be boolean")
     return journal.append(
         "operation_end",
         {
@@ -486,7 +489,7 @@ def record_operation_end(
             "response_capture": {
                 "bytes": len(response),
                 "digest": sha256_bytes(response),
-                "independent": True,
+                "independent": response_captured,
             },
         },
         monotonic_ns=monotonic_ns,

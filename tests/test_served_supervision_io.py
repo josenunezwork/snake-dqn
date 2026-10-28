@@ -197,8 +197,16 @@ def test_captured_declaration_contains_full_v2_metadata_and_roundtrips(
     sandbox = repo / "tools/sandbox"
     sandbox.mkdir(parents=True)
     (sandbox / "supervisor.py").write_text("# declared adapter\n")
-    for name in ("supervisor_v2.py", "collector_v2.py", "supervision_accounting.py"):
+    for name in (
+        "supervisor_v2.py",
+        "collector_v2.py",
+        "supervision_accounting.py",
+        "launch_v2.sh",
+    ):
         (sandbox / name).write_text("# declared collector\n")
+    (repo / "tools/ops").mkdir()
+    (repo / "tools/ops/dispatch.py").write_text("# declared dispatch\n")
+    (repo / "tools/ops/dispatch.sh").write_text("# declared dispatch entrypoint\n")
     state = tmp_path / "state"
     lane = state / "job"
     hook_dir = lane / "cli-hook"
@@ -243,6 +251,14 @@ def test_captured_declaration_contains_full_v2_metadata_and_roundtrips(
             export_json(missing, changed)
             with pytest.raises(ValueError, match="invalid supervisor registry"):
                 io.read_registry(missing)
+    if module == "tools.sandbox.supervisor_v2":
+        for relative in (
+            "tools/sandbox/launch_v2.sh",
+            "tools/ops/dispatch.py",
+            "tools/ops/dispatch.sh",
+        ):
+            source = repo / relative
+            assert registry["roots"][0]["source_hashes"][str(source)] == io.file_digest(source)
     assert registry["declaration_only"] is True
     with pytest.raises(RuntimeError, match="admission unavailable"):
         io.read_registry(path, live=True)

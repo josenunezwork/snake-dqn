@@ -28,12 +28,13 @@ from research.bl_served_search import supervision_identity as identity
 from tools.sandbox import supervision_accounting as accounting
 
 VERSION = accounting.COLLECTOR_VERSION
+POST_KILL_DRAIN_SECONDS = 0.25
 
 
 class Collector:
     """Own immutable child evidence while preserving qualified control behavior."""
 
-    def __init__(self, directory: Path) -> None:
+    def __init__(self, directory: Path, *, manifest_bytes: bytes | None = None) -> None:
         self.errors: list[str] = []
         self._lock = threading.RLock()
         self._active: set[str] = set()
@@ -46,16 +47,54 @@ class Collector:
             "root_process_id": self.parent,
             "capability": accounting.CAPABILITY,
             "sources": self.sources(),
+            "startup": self.startup(manifest_bytes=manifest_bytes),
         }
         context_hash = accounting.sha256_bytes(accounting._canonical_json(context))
         self.journal = accounting.ImmutableJournal(directory, context_sha256=context_hash)
         export_json(directory / "collector.json", context)
 
     @staticmethod
+    def startup(*, manifest_bytes: bytes | None = None) -> dict[str, Any]:
+        """Publish non-secret identity before control starts, never attach later."""
+        import psutil
+
+        process = psutil.Process(os.getpid())
+        argv = process.cmdline()
+        cwd = Path(process.cwd()).resolve(strict=True)
+        if cwd != Path(__file__).resolve().parents[2]:
+            raise accounting.AccountingError("startup cwd differs from loaded collector checkout")
+        exact_argv = (
+            len(argv) == 9
+            and argv[1:3] == ["-m", "tools.sandbox.supervisor_v2"]
+            and (argv[3], argv[5], argv[7]) == ("--state-dir", "--colab", "run")
+        )
+        if manifest_bytes is not None and not exact_argv:
+            raise accounting.AccountingError("startup manifest requires exact supervisor argv")
+        result = {
+            "pid": process.pid,
+            "uid": process.uids().real,
+            "birth_ns": round(process.create_time() * 1_000_000) * 1000,
+            "argv": argv,
+            "cwd": str(cwd),
+            "interpreter": str(Path(process.exe()).resolve(strict=True)),
+        }
+        if exact_argv:
+            path = (cwd / argv[-1]).resolve(strict=True)
+            actual_bytes = path.read_bytes()
+            if manifest_bytes is None or actual_bytes != manifest_bytes:
+                raise accounting.AccountingError("startup manifest bytes changed or unavailable")
+            result.update(
+                manifest=str(path), manifest_sha256=accounting.sha256_bytes(manifest_bytes)
+            )
+            colab = (cwd / argv[6]).resolve(strict=True)
+            result.update(
+                colab=str(colab), colab_sha256=accounting.sha256_bytes(colab.read_bytes())
+            )
+        return result
+
+    @staticmethod
     def sources() -> dict[str, str]:
         """Bind the exact future adapter/collector and qualified source closure."""
-        from research.bl_served_search.supervision_io import file_digest
-
         repo = Path(__file__).resolve().parents[2]
         names = [
             "tools/sandbox/" + name
@@ -80,8 +119,14 @@ class Collector:
                 "source.py",
             )
         ]
-        names.append("tools/ops/dispatch.py")
-        return {name: file_digest(repo / name) for name in names}
+        names += ["tools/ops/dispatch.py", "tools/ops/dispatch.sh"]
+        # Match the registry's full Python closure, including newly added files.
+        names += [
+            str(path.relative_to(repo))
+            for directory in ("research/colab_cli", "tools/sandbox")
+            for path in sorted((repo / directory).glob("*.py"))
+        ]
+        return {name: accounting.sha256_bytes((repo / name).read_bytes()) for name in names}
 
     @staticmethod
     def _birth(pid: int) -> str:
@@ -240,6 +285,10 @@ class Collector:
             if kwargs.get("stdout") is not None or kwargs.get("stderr") is not None:
                 raise ValueError("stdout/stderr may not be used with capture_output")
             kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        pipes_requested = kwargs.get("stdout") == subprocess.PIPE and kwargs.get("stderr") in (
+            subprocess.PIPE,
+            subprocess.STDOUT,
+        )
         # Capture raw pipe bytes before the qualified caller's text decoding and
         # newline translation, preserving exact application payload digests.
         text = kwargs.pop("text", None)
@@ -261,6 +310,7 @@ class Collector:
         launch_start = time.monotonic_ns()
         tracked = None
         output = error = None
+        pipes_drained = False
         try:
             try:
                 process = accounting.Wait4Popen(arg_strings, **kwargs)
@@ -348,9 +398,21 @@ class Collector:
                     )
                 try:
                     output, error = child.communicate(input_bytes, timeout=timeout)
+                    pipes_drained = (
+                        child.returncode is not None
+                        and output is not None
+                        and (kwargs.get("stderr") != subprocess.PIPE or error is not None)
+                    )
                 except subprocess.TimeoutExpired:
                     child.kill()
-                    output, error = child.communicate()
+                    # Descendants may retain pipe FDs after the direct child
+                    # dies. Bound cleanup, and never certify a post-kill drain.
+                    try:
+                        child.communicate(timeout=POST_KILL_DRAIN_SECONDS)
+                    except subprocess.TimeoutExpired:
+                        for pipe in (child.stdin, child.stdout, child.stderr):
+                            if pipe is not None:
+                                pipe.close()
                     raise
                 except BaseException:
                     child.kill()
@@ -419,13 +481,27 @@ class Collector:
             return subprocess.CompletedProcess(args, code, stdout, stderr)
         finally:
 
+            response_captured = pipes_requested and pipes_drained
             response = (output or b"") + (error or b"")
+            if metadata["template"] in accounting.ALLOWED_TEMPLATES:
+                with self._lock:
+                    if not response_captured:
+                        self.errors.append("permitted operation response not fully captured")
+                    if len(request) + len(response) > accounting.MAX_APPLICATION_PAYLOAD_BYTES:
+                        self.errors.append(
+                            "permitted operation application payload exceeds 65536 bytes"
+                        )
             try:
                 accounting.record_operation_end(
-                    self.journal, oid, request=request, response=response
+                    self.journal,
+                    oid,
+                    request=request,
+                    response=response,
+                    response_captured=response_captured,
                 )
             except Exception as exc:
-                self.errors.append("operation completion: " + type(exc).__name__)
+                with self._lock:
+                    self.errors.append("operation completion: " + type(exc).__name__)
             with self._lock:
                 self._active.discard(oid)
 

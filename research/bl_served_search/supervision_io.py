@@ -80,8 +80,8 @@ def _registry_from_identity(
 
     capture_start = time.monotonic_ns()
     boot_id = "boot-" + str(psutil.boot_time())
-    state_dir = Path(argv[4]).resolve(strict=True)
-    manifest_path = Path(argv[-1]).resolve(strict=True)
+    state_dir = (cwd / argv[4]).resolve(strict=True)
+    manifest_path = (cwd / argv[-1]).resolve(strict=True)
     manifest = json.loads(manifest_path.read_text())
     lane = state_dir / manifest["job_id"]
     assignment_path = lane / "assignment.json"
@@ -99,8 +99,18 @@ def _registry_from_identity(
             cwd / "tools/sandbox" / name
             for name in ("collector_v2.py", "supervision_accounting.py", "supervisor.py")
         )
+        paths.extend(
+            cwd / name
+            for name in (
+                "tools/sandbox/launch_v2.sh",
+                "tools/ops/dispatch.py",
+                "tools/ops/dispatch.sh",
+            )
+        )
     sources = {str(path.resolve(strict=True)): file_digest(path) for path in paths}
-    colab = Path(argv[6]).resolve(strict=True)
+    colab = (cwd / argv[6]).resolve(strict=True)
+    if argv[2] == "tools.sandbox.supervisor_v2":
+        sources[str(colab)] = file_digest(colab)
     with colab.open("rb") as handle:
         shebang = handle.readline(4096)
     if not shebang.startswith(b"#!"):
@@ -247,6 +257,14 @@ def policy_sources() -> dict[str, str]:
         "supervision_identity.py",
         "supervision_cpu.py",
         "supervision_report.py",
+        "combined_policy.py",
+        "supervision_dispatch.py",
+        "supervision_qualification.py",
+        "desktop_apps.py",
+        "desktop_policy.py",
+        "DESKTOP_APPS_AMENDMENT_20261027.md",
+        "ASTRA_DESKTOP_RULING_20261027.md",
+        "SUPV2_WIRING_20261028.md",
         "host_load.py",
         "background_report.py",
         "served_tick_probe.py",
@@ -262,6 +280,18 @@ def policy_sources() -> dict[str, str]:
         "tools/sandbox/supervision_accounting.py": file_digest(
             base.parents[1] / "tools/sandbox/supervision_accounting.py"
         ),
+        **{
+            name: file_digest(base.parents[1] / name)
+            for name in (
+                "tools/sandbox/launch_v2.sh",
+                "tools/sandbox/source_delivery.py",
+                "tools/ops/dispatch.py",
+                "tools/ops/dispatch.sh",
+                "research/colab_cli/supervisor.py",
+                "research/colab_cli/policy.py",
+                "research/colab_cli/cli_guard.py",
+            )
+        },
         "research/bl_paced_identity/events.py": file_digest(
             base.parent / "bl_paced_identity/events.py"
         ),
