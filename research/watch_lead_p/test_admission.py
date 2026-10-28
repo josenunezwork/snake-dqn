@@ -139,7 +139,7 @@ def test_actual_launch_exec_binds_python_module_and_uploaded_inputs(tmp_path) ->
     assert result["nice"] >= 15
     assert result["env"].pop("SNAKE_DQN_DEVICE") == "cpu"
     assert set(result["env"].values()) == {"1"}
-    assert (tmp_path / "saved_snakes/b8_s3_t7_20261016.pth").read_text() == "fixture"
+    assert not (tmp_path / "saved_snakes").exists()
 
 
 def test_p_qualified_supervisor_exec_uses_source_adapter(monkeypatch) -> None:

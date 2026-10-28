@@ -145,6 +145,7 @@
   "research/watch_lead_p/seal.py",
   "research/watch_lead_p/test_admission.py",
   "research/watch_lead_p/test_p.py",
+  "research/watch_lead_p/uploaded.py",
   "src/__init__.py",
   "src/core/__init__.py",
   "src/core/config_loader.py",

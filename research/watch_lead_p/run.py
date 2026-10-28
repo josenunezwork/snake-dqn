@@ -24,6 +24,7 @@ from research.watch_lead_p.resume import (
     recipe_fingerprint,
     unit_id,
 )
+from research.watch_lead_p.uploaded import uploaded_checkpoints
 
 WORKERS = 12
 # Longest arm first within each cohort; complete sessions accrue throughout the run.
@@ -52,7 +53,8 @@ def worker(index: int, arm: str) -> dict:
         faulthandler.dump_traceback_later(900, exit=True)
 
     try:
-        return run_arm(SEEDS[index], arm, pulse=pulse)
+        with uploaded_checkpoints():
+            return run_arm(SEEDS[index], arm, pulse=pulse)
     finally:
         faulthandler.cancel_dump_traceback_later()
 
@@ -208,16 +210,18 @@ def main() -> None:
         cmd.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "run":
-        execute(args.ledger, args.inputs, args.output)
+        with uploaded_checkpoints(args.inputs):
+            execute(args.ledger, args.inputs, args.output)
     elif args.command == "smoke":
-        export_json(
-            args.output,
-            {
-                "engineering_only": True,
-                "recipe_sha256": recipe_fingerprint(),
-                **run_pair(FIXTURE_SEED, frames=60),
-            },
-        )
+        with uploaded_checkpoints():
+            export_json(
+                args.output,
+                {
+                    "engineering_only": True,
+                    "recipe_sha256": recipe_fingerprint(),
+                    **run_pair(FIXTURE_SEED, frames=60),
+                },
+            )
     elif args.command == "ledger":
         make_ledger(args.unit, args.output)
     else:

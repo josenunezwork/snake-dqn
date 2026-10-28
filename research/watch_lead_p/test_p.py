@@ -584,6 +584,9 @@ def test_smoke_exercises_recipe_fingerprint(tmp_path, monkeypatch):
     from research.watch_lead_p import run
 
     monkeypatch.setattr(sys, "argv", ["run", "smoke", "--output", str(tmp_path / "smoke.json")])
+    from contextlib import nullcontext
+
+    monkeypatch.setattr(run, "uploaded_checkpoints", nullcontext)
     monkeypatch.setattr(run, "recipe_fingerprint", lambda: "fingerprint-exercised")
     monkeypatch.setattr(run, "run_pair", lambda *a, **k: {})
     run.main()
