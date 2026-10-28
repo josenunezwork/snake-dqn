@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from research.watch_lead_p.protocol import FIXTURE_SEED, NAMESPACE, SEEDS, STUDY
-from research.watch_lead_p.resume import empty_ledger
+from research.watch_lead_p.resume import empty_ledger, read_ledger, unit_id
 from tools.sandbox.registry import B8_SHA, DEFAULT_REGISTRY, digest, load_registry, world_seed
+
+ROOT = Path(__file__).resolve().parents[2]
 
 FRP3_SHA = "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
 
@@ -103,6 +105,19 @@ def validate_inputs(payload: dict, registry: dict) -> None:
     if expected_audit != audit:
         raise ValueError("P committed registry exclusion audit differs")
     packet = json.loads(packet_path.read_text())
+    runtime_sources = json.loads((ROOT / "research/watch_lead_p/runtime-sources.json").read_text())
+    science_sources = json.loads((ROOT / "research/watch_lead_p/science-sources.json").read_text())
+    for paths in (runtime_sources, science_sources, packet["source_paths"]):
+        if not isinstance(paths, list) or any(not isinstance(p, str) for p in paths):
+            raise ValueError("P source inventory must list paths")
+        if len(paths) != len(set(paths)):
+            raise ValueError("P duplicate source inventory path")
+    if (
+        "research/watch_lead_p/science-sources.json" not in runtime_sources
+        or not set(science_sources).issubset(runtime_sources)
+        or set(packet["source_paths"]) != set(runtime_sources)
+    ):
+        raise ValueError("P sparse runtime must contain the complete science inventory")
     if (
         packet["device"] != "cpu"
         or packet["requirements"]["min_vcpu"] != 12
@@ -120,34 +135,48 @@ def validate_inputs(payload: dict, registry: dict) -> None:
     ledger_path = Path(kinds["verified-ledger"][0]["path"])
     if ledger_path.resolve() != (packet_path.parent / "verified-ledger.json").resolve():
         raise ValueError("P ledger must belong to the sealed packet")
-    # Admission checks first attempt without opening any outcomes. Completion
-    # packets must preserve the same namespace and pass read_ledger offline.
+    # Destination binding applies to empty first attempts and completions alike.
+    uploads = {}
+    for item in packet["inputs"]:
+        dest = item.get("dest")
+        if (
+            not isinstance(dest, str)
+            or not dest
+            or dest in uploads
+            or Path(dest).is_absolute()
+            or ".." in Path(dest).parts
+        ):
+            raise ValueError("P missing/duplicate/unsafe upload destination")
+        uploads[dest] = item
+    ledger_upload = uploads.get(packet["resume"]["ledger_path"])
+    if ledger_upload is None or Path(ledger_upload["path"]).resolve() != ledger_path.resolve():
+        raise ValueError("P ledger upload must bind the sealed ledger destination")
     ledger = json.loads(ledger_path.read_text())
-    if ledger != empty_ledger():
-        # Materialize no outcomes: bind the shipped bytes and completion
-        # sidecars to each path/size/hash-only ledger entry.
-        from research.bl_served_search.exports import verify_export
-        from research.watch_lead_p.resume import unit_id
-
-        expected = empty_ledger()
-        if {k: ledger.get(k) for k in expected if k != "units"} != {
-            k: expected[k] for k in expected if k != "units"
-        }:
-            raise ValueError("foreign P completion allocation/recipe")
+    expected = empty_ledger()
+    if not isinstance(ledger, dict) or set(ledger) != set(expected):
+        raise ValueError("P outcome-free ledger schema differs")
+    if not isinstance(ledger["units"], list):
+        raise ValueError("P ledger units must be a list")
+    completion_root = ledger_path.parent
+    if ledger != expected:
+        # Bind shipped payloads and their actual adjacent sidecars without
+        # opening outcomes. The shared runtime validator is the final check.
         if not 0 < len(ledger["units"]) < 32:
             raise ValueError("P completion requires 1..31 verified units")
-        uploads = {}
-        for item in packet["inputs"]:
-            dest = item.get("dest")
-            if not isinstance(dest, str) or not dest or dest in uploads:
-                raise ValueError("P missing/duplicate upload destination")
-            uploads[dest] = item
         admitted = {(r["path"], r["sha256"]) for r in kinds["verified-unit"]}
         used = set()
         indices = set()
         for record in ledger["units"]:
+            if not isinstance(record, dict) or set(record) != {
+                "unit_id",
+                "allocation_index",
+                "path",
+                "size",
+                "sha256",
+            }:
+                raise ValueError("P outcome-free unit schema differs")
             index = record["allocation_index"]
-            if index in indices or record["unit_id"] != unit_id(index):
+            if type(index) is not int or index in indices or record["unit_id"] != unit_id(index):
                 raise ValueError("duplicate/foreign P completion unit")
             indices.add(index)
             if record["path"] != f"units/session-{index:02d}.json":
@@ -155,13 +184,17 @@ def validate_inputs(payload: dict, registry: dict) -> None:
             upload = uploads.get(record["path"])
             if upload is None:
                 raise ValueError("P missing completion upload destination")
-            source = Path(upload["path"])
-            if source.stat().st_size != record["size"] or verify_export(source) != record["sha256"]:
-                raise ValueError("unverified P completion unit")
+            source = Path(upload["path"]).resolve()
+            if len(indices) == 1:
+                completion_root = source.parent.parent
+            if source != (completion_root / record["path"]).resolve():
+                raise ValueError("P completion sources must share the ledger root")
             for suffix in ("", ".sha256", ".complete"):
                 item = uploads.get(record["path"] + suffix)
                 if item is None:
                     raise ValueError("P missing completion sidecar destination")
+                if Path(item["path"]).resolve() != Path(f"{source}{suffix}").resolve():
+                    raise ValueError("P completion sidecar must be adjacent to its payload")
                 pair = (item["path"], item["sha256"])
                 if pair not in admitted:
                     raise ValueError("unadmitted P completion payload/sidecar")
@@ -170,6 +203,7 @@ def validate_inputs(payload: dict, registry: dict) -> None:
             raise ValueError("unreferenced P completion upload")
     if not ledger["units"] and kinds["verified-unit"]:
         raise ValueError("unreferenced P resume payloads")
+    read_ledger(ledger_path, completion_root)
 
     indices = {record["allocation_index"] for record in ledger["units"]}
     expected_exports = ["watch-lead/inventory.json"] + [

@@ -13,7 +13,7 @@ from research.bl_served_search.exports import export_json
 from research.watch_lead_p.engine import submit
 from research.watch_lead_p.live import LiveWorld
 from research.watch_lead_p.protocol import FIXTURE_SEED, NAMESPACE
-from research.watch_lead_p.run import WORKERS
+from research.watch_lead_p.run import WORKERS, task_schedule
 
 
 def project(bare_tick: float, p0: float, p48: float, workers: int = WORKERS) -> dict:
@@ -24,14 +24,19 @@ def project(bare_tick: float, p0: float, p48: float, workers: int = WORKERS) -> 
         "P48": 6000 * bare_tick + 123 * p48,
     }
     loads = [0.0] * workers
-    for arm in ("P0", "P48", "bare"):
-        for _ in range(32):
-            heapq.heappush(loads, heapq.heappop(loads) + costs[arm])
+    finishes = {i: [] for i in range(32)}
+    for index, arm in task_schedule(list(range(32)), workers):
+        finish = heapq.heappop(loads) + costs[arm]
+        finishes[index].append(finish)
+        heapq.heappush(loads, finish)
+    publications = sorted(max(times) for times in finishes.values())
     per_pair = sum(costs.values())
     return {
         "projected_seconds": max(loads) + 1200,
         "arm_seconds": costs,
         "worker_loads_seconds": sorted(loads),
+        "session_publication_seconds": publications,
+        "schedule": "session cohorts of workers; P0/P48/bare within each cohort",
         "old_ten_worker_pair_seconds_corrected": math.ceil(32 / 10) * per_pair + 1200,
         "pair_waves": math.ceil(32 / workers),
     }
@@ -128,7 +133,7 @@ def main() -> None:
             ],
             "projection": (
                 "max observed inclusive root cost; P0 1200/P48 123 roots per session; "
-                "96 indivisible arm tasks, longest arm first /12 workers +1200s setup/export"
+                "96 indivisible arm tasks, cohort-12 P0/P48/bare /12 workers +1200s setup/export"
             ),
             "host_scaling": (
                 "Mac measurements; L4 host speed and twelve-worker contention unmeasured"

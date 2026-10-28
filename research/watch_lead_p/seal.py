@@ -35,6 +35,11 @@ def seal(
     ledger: Path | None = None,
     units_root: Path | None = None,
 ) -> None:
+    broker = broker.expanduser().resolve()
+    runtime = runtime.expanduser().resolve()
+    benchmark = benchmark.expanduser().resolve()
+    ledger = ledger.expanduser().resolve() if ledger is not None else None
+    units_root = units_root.expanduser().resolve() if units_root is not None else None
     if (
         not re.fullmatch(r"[0-9a-f]{40}", pin)
         or subprocess.check_output(
@@ -43,11 +48,26 @@ def seal(
         != pin
     ):
         raise ValueError("P runtime pin must be an existing full commit SHA")
+    # Read the dependency list at the pin, then prove every fingerprint byte is
+    # identical locally before deriving a ledger or writing any packet files.
+    inventory = "research/watch_lead_p/science-sources.json"
+    science = json.loads(
+        subprocess.check_output(["git", "show", f"{pin}:{inventory}"], cwd=ROOT, text=True)
+    )
+    paths = [inventory, *science]
+    changed = subprocess.run(["git", "diff", "--quiet", pin, "--", *paths], cwd=ROOT).returncode
+    dirty = subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=all", "--", *paths],
+        cwd=ROOT,
+        text=True,
+    ).strip()
+    if changed or dirty:
+        raise ValueError("P science fingerprint working tree differs from runtime pin")
     if type(attempt) is not int or not 1 <= attempt <= 99:
         raise ValueError("fresh packet attempt must be 1..99")
     if (ledger is None) != (units_root is None):
         raise ValueError("completion requires both ledger and units root")
-    verified = read_ledger(ledger, units_root) if ledger is not None else {}
+    verified = read_ledger(ledger, units_root, recipe_root=ROOT) if ledger is not None else {}
     if ledger is not None and not 0 < len(verified) < 32:
         raise ValueError("completion requires 1..31 verified units")
     measured = json.loads(benchmark.read_text())
@@ -62,7 +82,7 @@ def seal(
     target = broker / "research/watch_lead_p" / packet_name
     write(
         packet / "verified-ledger.json",
-        json.loads(ledger.read_text()) if ledger else empty_ledger(),
+        json.loads(ledger.read_text()) if ledger else empty_ledger(ROOT),
     )
     write(packet / "exclusion-audit.json", exclusion_audit())
     measured["receipt_path"] = str(benchmark)
@@ -197,7 +217,8 @@ def seal(
         "Science: 32 complete paired 6000-frame Watch6 sessions; P48 sole primary.\n"
         f"Projected wall seconds: {measured['projected_seconds']:.3f}; "
         "base/effective 14400/28800.\n"
-        "Twelve arm workers, longest arm first, each session W1/K1; L4 >=12 vCPUs.\n"
+        "Twelve arm workers, session cohorts of 12 with P0/P48/bare; "
+        "each session W1/K1; L4 >=12 vCPUs.\n"
         "Only complete three-arm paired sessions are exported or resumed. CPU science only.\n"
         "Inputs remain sealed; remote exports are diagnostics, never a terminal decision.\n"
         "One original + at most two manual completion attempts after verified mechanical failure,\n"

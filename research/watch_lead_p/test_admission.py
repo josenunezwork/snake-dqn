@@ -18,6 +18,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_sparse_source_includes_nested_requirements() -> None:
     paths = json.loads((ROOT / "research/watch_lead_p/runtime-sources.json").read_text())
+    science = json.loads((ROOT / "research/watch_lead_p/science-sources.json").read_text())
+    assert len(paths) == len(set(paths))
+    assert len(science) == len(set(science))
+    assert "research/watch_lead_p/science-sources.json" in paths
+    assert set(science).issubset(paths)
     assert "requirements.txt" in paths
     assert "research/watch_lead_p/requirements.txt" in paths
     assert (ROOT / "research/watch_lead_p/requirements.txt").read_text().splitlines()[0] == (
@@ -168,7 +173,7 @@ def test_p_qualified_supervisor_exec_uses_source_adapter(monkeypatch) -> None:
 
 
 @pytest.fixture
-def completion_packet(tmp_path, monkeypatch):
+def completion_packet(tmp_path, monkeypatch, request):
     """Real committed miniature operator workflow; synthetic outcomes only."""
     import shutil
 
@@ -177,6 +182,9 @@ def completion_packet(tmp_path, monkeypatch):
     from research.watch_lead_p.protocol import ARMS, FRAMES
 
     repo = (tmp_path / "repo").resolve()
+    # Each parameterized case owns and removes its checkout, including on failure.
+    # Retaining dozens of full clones previously exhausted the Mac disk.
+    request.addfinalizer(lambda: shutil.rmtree(repo, ignore_errors=True))
     subprocess.run(["git", "clone", "--quiet", "--shared", str(ROOT), str(repo)], check=True)
     # Exercise the current implementation before and after its eventual commit.
     sources = json.loads((ROOT / "research/watch_lead_p/runtime-sources.json").read_text())
@@ -407,3 +415,188 @@ def test_sealer_refuses_empty_or_complete_completion_ledger(tmp_path, count):
     with pytest.raises(ValueError, match="1..31 verified units"):
         seal.seal(pin, tmp_path, tmp_path, tmp_path / "unused", 99, ledger, tmp_path)
     assert not (ROOT / "research/watch_lead_p/packet-99").exists()
+
+
+def _refresh_packet_seal(packet):
+    from research.bl_served_search.exports import digest
+
+    value = json.loads((packet / "seal.json").read_text())
+    for name in value:
+        value[name] = digest(packet / name)
+    (packet / "seal.json").write_text(json.dumps(value))
+
+
+@pytest.mark.parametrize("completion", [False, True])
+@pytest.mark.parametrize("damage", ["missing", "empty", "duplicate", "misroute", "foreign-source"])
+def test_all_packets_validate_upload_destinations(
+    completion_packet, monkeypatch, completion, damage
+):
+    from research.watch_lead_p.admission import validate_inputs
+    from research.watch_lead_p.resume import empty_ledger
+    from tools.sandbox.registry import load_registry
+
+    _, packet, _, _ = completion_packet
+    payload = json.loads((packet / "sandbox.json").read_text())
+    manifest = json.loads((packet / "dispatch-manifest.json").read_text())
+    if not completion:
+        payload["inputs"] = [r for r in payload["inputs"] if r["kind"] != "verified-unit"]
+        manifest["inputs"] = manifest["inputs"][:4]
+        manifest["required_exports"] = ["watch-lead/inventory.json"] + [
+            f"watch-lead/units/session-{i:02d}.json" for i in range(32)
+        ]
+        (packet / "verified-ledger.json").write_text(json.dumps(empty_ledger()))
+    upload = manifest["inputs"][3]
+    if damage == "missing":
+        upload.pop("dest")
+    elif damage == "empty":
+        upload["dest"] = ""
+    elif damage == "duplicate":
+        upload["dest"] = manifest["inputs"][0]["dest"]
+    elif damage == "misroute":
+        upload["dest"] = "wrong-ledger.json"
+    else:
+        upload["path"] = str(packet / "foreign.json")
+    (packet / "dispatch-manifest.json").write_text(json.dumps(manifest))
+    _refresh_packet_seal(packet)
+    monkeypatch.setattr(preflight, "verify_committed_manifest", lambda *a: None)
+    with pytest.raises(ValueError, match="destination"):
+        validate_inputs(payload, load_registry())
+
+
+@pytest.mark.parametrize(
+    "damage", ["ledger-extra", "record-extra", "bool-index", "unit-id", "sidecar", "hash"]
+)
+def test_completion_offline_schema_and_actual_sidecars(completion_packet, monkeypatch, damage):
+    from research.bl_served_search.exports import digest
+    from research.watch_lead_p.admission import validate_inputs
+    from tools.sandbox.registry import load_registry
+
+    _, packet, _, _ = completion_packet
+    payload = json.loads((packet / "sandbox.json").read_text())
+    manifest = json.loads((packet / "dispatch-manifest.json").read_text())
+    ledger = json.loads((packet / "verified-ledger.json").read_text())
+    if damage == "ledger-extra":
+        ledger["outcome"] = 1
+    elif damage == "record-extra":
+        ledger["units"][0]["outcome"] = 1
+    elif damage == "bool-index":
+        ledger["units"][0]["allocation_index"] = True
+    elif damage == "unit-id":
+        ledger["units"][0]["unit_id"] = "foreign"
+    elif damage == "hash":
+        ledger["units"][0]["sha256"] = "0" * 64
+    else:
+        original = next(
+            r for r in manifest["inputs"] if r["dest"] == "units/session-00.json.sha256"
+        )
+        foreign = packet / "foreign.sha256"
+        foreign.write_text("wrong bytes")
+        admitted = next(r for r in payload["inputs"] if r.get("path") == original["path"])
+        original["path"] = admitted["path"] = str(foreign)
+        original["sha256"] = admitted["sha256"] = digest(foreign)
+    (packet / "dispatch-manifest.json").write_text(json.dumps(manifest))
+    (packet / "verified-ledger.json").write_text(json.dumps(ledger))
+    _refresh_packet_seal(packet)
+    monkeypatch.setattr(preflight, "verify_committed_manifest", lambda *a: None)
+    with pytest.raises(ValueError):
+        validate_inputs(payload, load_registry())
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "science-duplicate",
+        "runtime-duplicate",
+        "missing-science",
+        "missing-inventory",
+        "packet-paths",
+    ],
+)
+def test_admission_requires_complete_unique_sparse_science(completion_packet, monkeypatch, damage):
+    from research.watch_lead_p import admission
+    from tools.sandbox.registry import load_registry
+
+    repo, packet, _, _ = completion_packet
+    monkeypatch.setattr(admission, "ROOT", repo)
+    science_path = repo / "research/watch_lead_p/science-sources.json"
+    runtime_path = repo / "research/watch_lead_p/runtime-sources.json"
+    science = json.loads(science_path.read_text())
+    runtime = json.loads(runtime_path.read_text())
+    manifest = json.loads((packet / "dispatch-manifest.json").read_text())
+    if damage == "science-duplicate":
+        science.append(science[0])
+    elif damage == "runtime-duplicate":
+        runtime.append(runtime[0])
+    elif damage == "missing-science":
+        runtime.remove(science[0])
+        manifest["source_paths"] = runtime
+    elif damage == "missing-inventory":
+        runtime.remove("research/watch_lead_p/science-sources.json")
+        manifest["source_paths"] = runtime
+    else:
+        manifest["source_paths"] = manifest["source_paths"][1:]
+    science_path.write_text(json.dumps(science))
+    runtime_path.write_text(json.dumps(runtime))
+    (packet / "dispatch-manifest.json").write_text(json.dumps(manifest))
+    _refresh_packet_seal(packet)
+    monkeypatch.setattr(preflight, "verify_committed_manifest", lambda *a: None)
+    payload = json.loads((packet / "sandbox.json").read_text())
+    with pytest.raises(ValueError, match="inventory"):
+        admission.validate_inputs(payload, load_registry())
+
+
+@pytest.mark.parametrize("state", ["working", "staged", "committed"])
+@pytest.mark.parametrize(
+    "name", ["research/watch_lead_p/science-sources.json", "research/watch_lead_p/live.py"]
+)
+def test_seal_refuses_science_drift_from_pin(completion_packet, tmp_path, state, name):
+    from research.watch_lead_p import seal
+
+    repo, _, _, _ = completion_packet
+    pin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    path = repo / name
+    path.write_text(path.read_text() + "\n")
+    if state in {"staged", "committed"}:
+        subprocess.run(["git", "add", name], cwd=repo, check=True)
+    if state == "committed":
+        subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture drift"],
+            cwd=repo,
+            check=True,
+        )
+    with pytest.raises(ValueError, match="differs from runtime pin"):
+        seal.seal(pin, tmp_path / "broker", tmp_path / "runtime", tmp_path / "benchmark.json", 91)
+    assert not (repo / "research/watch_lead_p/packet-91").exists()
+
+
+def test_seal_normalizes_all_cli_paths_and_binds_pin(completion_packet, tmp_path, monkeypatch):
+    from research.watch_lead_p import resume, seal
+
+    repo, _, inputs, _ = completion_packet
+    pin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    monkeypatch.chdir(tmp_path)
+    seal.seal(
+        pin,
+        Path("nested/../broker"),
+        Path("./runtime"),
+        Path("benchmark.json"),
+        91,
+        Path("ledger.json"),
+        Path("inputs"),
+    )
+    packet = repo / "research/watch_lead_p/packet-91"
+    manifest = json.loads((packet / "dispatch-manifest.json").read_text())
+    assert manifest["sandbox_admission"]["manifest_path"] == str(
+        tmp_path / "broker/research/watch_lead_p/packet-91/sandbox.json"
+    )
+    assert all(Path(r["path"]).is_absolute() for r in manifest["inputs"])
+    assert json.loads((packet / "forecast.json").read_text())["receipt_path"] == str(
+        tmp_path / "benchmark.json"
+    )
+    assert json.loads((packet / "verified-ledger.json").read_text())[
+        "recipe_sha256"
+    ] == resume.recipe_fingerprint(repo)
+    text = (packet / "DISPATCH.txt").read_text()
+    assert f"--cwd {tmp_path}/runtime" in text
+    assert "nested/.." not in text
+    assert len(resume.read_ledger(packet / "verified-ledger.json", inputs, recipe_root=repo)) == 31

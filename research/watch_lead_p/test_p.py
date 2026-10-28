@@ -364,6 +364,9 @@ def test_forecast_quantizes_pairs_and_schedules_indivisible_arms():
     assert result["projected_seconds"] <= 14400
     assert len(result["worker_loads_seconds"]) == 12
     assert result["projected_seconds"] == max(result["worker_loads_seconds"]) + 1200
+    assert len(result["session_publication_seconds"]) == 32
+    assert result["session_publication_seconds"][11] < 0.4 * (result["projected_seconds"] - 1200)
+    assert result["session_publication_seconds"][23] < 0.8 * (result["projected_seconds"] - 1200)
 
 
 def test_recipe_ignores_transport_but_binds_science(monkeypatch):
@@ -377,7 +380,7 @@ def test_recipe_ignores_transport_but_binds_science(monkeypatch):
     assert resume.recipe_fingerprint() != before
 
 
-@pytest.mark.parametrize("during_submit", [False, True])
+@pytest.mark.parametrize("during_submit", ["active", "after_super_submit", "before_super_submit"])
 def test_signal_pair_reaps_spawned_workers(tmp_path, during_submit):
     import signal
     import subprocess
@@ -401,12 +404,16 @@ def slow(index, arm):
 Original=run.concurrent.futures.ProcessPoolExecutor
 class Pool(Original):
     def submit(self,*a,**k):
+        if sys.argv[3]=="before_super_submit":
+            (base / "start-stop").write_text(str(time.monotonic()))
+            os.kill(os.getpid(),signal.SIGUSR1)
         result=super().submit(*a,**k)
         (base / "pids").write_text(" ".join(str(p.pid) for p in self._processes.values()))
-        if sys.argv[3]=="True":
+        if sys.argv[3]=="after_super_submit":
             os.kill(os.getpid(),signal.SIGUSR1)
         return result
     def shutdown(self,*a,**k):
+        (base / "shutdown").write_text(str(time.monotonic()))
         time.sleep(.3)
         return super().shutdown(*a,**k)
 run.worker=slow
@@ -415,7 +422,7 @@ if __name__=="__main__":
     try:
         run.execute(base/"ledger.json",base,base/"out")
     except InterruptedError:
-        pass
+        (base / "end").write_text(str(time.monotonic()))
 """)
     log = (tmp_path / "log").open("w")
     proc = subprocess.Popen(
@@ -427,7 +434,7 @@ if __name__=="__main__":
         deadline = time.monotonic() + 30
         marker = tmp_path / "out/interruption.json.complete"
         while time.monotonic() < deadline:
-            if during_submit:
+            if during_submit != "active":
                 ready = (tmp_path / "pids").exists()
             else:
                 ready = len(list(tmp_path.glob("active-*"))) >= 2
@@ -438,7 +445,7 @@ if __name__=="__main__":
             time.sleep(0.02)
         else:
             pytest.fail("workers did not start")
-        if not during_submit:
+        if during_submit == "active":
             proc.send_signal(signal.SIGUSR1)
         time.sleep(0.03)
         if proc.poll() is None:
@@ -446,6 +453,12 @@ if __name__=="__main__":
         proc.wait(timeout=20)
         assert proc.returncode == 0, (tmp_path / "log").read_text()
         assert marker.exists()
+        # Includes spawn and reaping, and must not hit the 2-second kill fallback.
+        if during_submit == "before_super_submit":
+            assert (
+                float((tmp_path / "end").read_text()) - float((tmp_path / "start-stop").read_text())
+                < 1.5
+            )
         assert json.loads((tmp_path / "out/interruption.json").read_text())["completed"] == []
         for pid in (tmp_path / "pids").read_text().split():
             assert not psutil.pid_exists(int(pid)), f"unreaped worker {pid}"
@@ -454,3 +467,118 @@ if __name__=="__main__":
             proc.kill()
             proc.wait()
         log.close()
+
+
+@pytest.mark.parametrize("phase", ["payload", "sidecar", "marker", "returned"])
+def test_stop_during_publish_retains_and_accounts_whole_session(tmp_path, monkeypatch, phase):
+    import os
+    import signal
+
+    from research.bl_ppo import exports
+    from research.watch_lead_p import run
+
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(json.dumps(resume.empty_ledger()))
+    monkeypatch.setattr(run, "read_ledger", lambda *a: {i: {} for i in range(1, 32)})
+    monkeypatch.setattr(run, "worker", lambda i, a: {"initial_state": "same"})
+
+    class Pool(concurrent.futures.ThreadPoolExecutor):
+        def __init__(self, **kw):
+            super().__init__(max_workers=1)
+            self._processes = {}
+
+    monkeypatch.setattr(run.concurrent.futures, "ProcessPoolExecutor", Pool)
+    original = exports._publish
+    suffix = {"payload": ".json", "sidecar": ".sha256", "marker": ".complete"}
+
+    def publish_part(path, data):
+        original(path, data)
+        if "units" in path.parts and path.suffix == suffix.get(phase):
+            os.kill(os.getpid(), signal.SIGUSR1)
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    monkeypatch.setattr(exports, "_publish", publish_part)
+    real_publish = run.publish
+
+    def publish_return(*args):
+        row = real_publish(*args)
+        if phase == "returned":
+            os.kill(os.getpid(), signal.SIGUSR1)
+            os.kill(os.getpid(), signal.SIGTERM)
+        return row
+
+    monkeypatch.setattr(run, "publish", publish_return)
+    output = tmp_path / "out"
+    with pytest.raises(InterruptedError, match="publication"):
+        run.execute(ledger, tmp_path, output)
+    path = output / "units/session-00.json"
+    assert exports.verify_export(path)
+    inventory = json.loads((output / "interruption.json").read_text())
+    assert inventory["completed"] == [
+        {
+            "allocation_index": 0,
+            "path": str(path),
+            "sha256": exports.digest(path),
+            "size": path.stat().st_size,
+        }
+    ]
+    assert not (output / "inventory.json").exists()
+
+
+def test_cohort_schedule_banks_twelve_units_before_later_cohort(tmp_path, monkeypatch):
+    import os
+    import signal
+
+    from research.watch_lead_p import run
+
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(json.dumps(resume.empty_ledger()))
+    submitted = []
+    delivered = []
+
+    class Pool:
+        _processes = {}
+
+        def __init__(self, **kw):
+            pass
+
+        def submit(self, fn, index, arm):
+            future = concurrent.futures.Future()
+            future.set_result({"initial_state": f"world-{index}"})
+            submitted.append((future, index, arm))
+            return future
+
+        def shutdown(self, **kw):
+            pass
+
+    def wait(futures, **kw):
+        if len(delivered) == 36:
+            assert len(list((tmp_path / "out/units").glob("*.complete"))) == 12
+            assert {i for i, a in delivered} == set(range(12))
+            os.kill(os.getpid(), signal.SIGUSR1)
+        future, index, arm = next(row for row in submitted if row[0] in futures)
+        delivered.append((index, arm))
+        return {future}, set(futures) - {future}
+
+    monkeypatch.setattr(run.concurrent.futures, "ProcessPoolExecutor", Pool)
+    monkeypatch.setattr(run.concurrent.futures, "wait", wait)
+    with pytest.raises(InterruptedError):
+        run.execute(ledger, tmp_path, tmp_path / "out")
+    inventory = json.loads((tmp_path / "out/interruption.json").read_text())
+    assert [r["allocation_index"] for r in inventory["completed"]] == list(range(12))
+    assert [(i, a) for _, i, a in submitted] == run.task_schedule(list(range(32)))
+
+
+def test_smoke_exercises_recipe_fingerprint(tmp_path, monkeypatch):
+    import sys
+
+    from research.watch_lead_p import run
+
+    monkeypatch.setattr(sys, "argv", ["run", "smoke", "--output", str(tmp_path / "smoke.json")])
+    monkeypatch.setattr(run, "recipe_fingerprint", lambda: "fingerprint-exercised")
+    monkeypatch.setattr(run, "run_pair", lambda *a, **k: {})
+    run.main()
+    assert (
+        json.loads((tmp_path / "smoke.json").read_text())["recipe_sha256"]
+        == "fingerprint-exercised"
+    )

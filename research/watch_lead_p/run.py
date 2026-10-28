@@ -26,12 +26,25 @@ from research.watch_lead_p.resume import (
 )
 
 WORKERS = 12
-# Longest forecast arm first. Whole paired sessions remain the only resume units.
+# Longest arm first within each cohort; complete sessions accrue throughout the run.
 ARM_ORDER = ("P0", "P48", "bare")
+
+
+def task_schedule(pending: list[int], workers: int = WORKERS) -> list[tuple[int, str]]:
+    """Queue cohort-sized groups of sessions with their three arms kept together."""
+    if type(workers) is not int or workers < 1:
+        raise ValueError("workers must be positive")
+    return [
+        (index, arm)
+        for start in range(0, len(pending), workers)
+        for arm in ARM_ORDER
+        for index in pending[start : start + workers]
+    ]
 
 
 def worker(index: int, arm: str) -> dict:
     """Compute one deterministic arm; only the coordinator publishes full units."""
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
     faulthandler.dump_traceback_later(900, exit=True)
 
     def pulse(_progress: dict) -> None:
@@ -71,15 +84,16 @@ def execute(ledger: Path, inputs: Path, output: Path) -> None:
     completed = []
     started = time.monotonic()
     interrupted = False
-    submitting = False
+    defer_interrupt = False
 
     def interrupt(_signum: int, _frame: object) -> None:
         nonlocal interrupted
-        # No I/O in the synchronous signal frame; a follow-up TERM cannot interrupt reaping.
-        signal.signal(signal.SIGUSR1, signal.SIG_IGN)
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        # Keep caught dispositions during spawn: SIG_IGN survives exec into children.
+        # Repeated signals are inert without changing dispositions until teardown.
+        if interrupted:
+            return
         interrupted = True
-        if not submitting:
+        if not defer_interrupt:
             raise InterruptedError("P completion units retained; manual completion only")
 
     previous = {sig: signal.getsignal(sig) for sig in (signal.SIGUSR1, signal.SIGTERM)}
@@ -90,18 +104,16 @@ def execute(ledger: Path, inputs: Path, output: Path) -> None:
         for sig in previous:
             signal.signal(sig, interrupt)
         futures = {}
-        for arm in ARM_ORDER:
-            for i in pending:
-                # A signal inside Process.start must let submit register its child
-                # before unwinding; otherwise even a dynamic snapshot can miss it.
-                submitting = True
-                try:
-                    future = pool.submit(worker, i, arm)
-                finally:
-                    submitting = False
-                if interrupted:
-                    raise InterruptedError("P interrupted during worker submission")
-                futures[future] = (i, arm)
+        for i, arm in task_schedule(pending):
+            # Finish registering an in-flight child before unwinding.
+            defer_interrupt = True
+            try:
+                future = pool.submit(worker, i, arm)
+            finally:
+                defer_interrupt = False
+            if interrupted:
+                raise InterruptedError("P interrupted during worker submission")
+            futures[future] = (i, arm)
         partial = {}
         while futures:
             done, _ = concurrent.futures.wait(futures, timeout=30, return_when="FIRST_COMPLETED")
@@ -109,7 +121,15 @@ def execute(ledger: Path, inputs: Path, output: Path) -> None:
                 index, arm = futures.pop(future)
                 partial.setdefault(index, {})[arm] = future.result()
                 if len(partial[index]) == len(ARMS):
-                    completed.append(publish(index, partial.pop(index), output))
+                    # Publish payload/sidecars/marker and account for the unit as
+                    # one critical section, even when a stop arrives mid-export.
+                    defer_interrupt = True
+                    try:
+                        completed.append(publish(index, partial.pop(index), output))
+                    finally:
+                        defer_interrupt = False
+                    if interrupted:
+                        raise InterruptedError("P interrupted after whole-session publication")
             print(
                 f"P_RUNTIME completed={len(completed)} skipped={len(verified)} "
                 f"total=32 elapsed={time.monotonic()-started:.1f}s",
@@ -181,7 +201,14 @@ def main() -> None:
     if args.command == "run":
         execute(args.ledger, args.inputs, args.output)
     elif args.command == "smoke":
-        export_json(args.output, {"engineering_only": True, **run_pair(FIXTURE_SEED, frames=60)})
+        export_json(
+            args.output,
+            {
+                "engineering_only": True,
+                "recipe_sha256": recipe_fingerprint(),
+                **run_pair(FIXTURE_SEED, frames=60),
+            },
+        )
     elif args.command == "ledger":
         make_ledger(args.unit, args.output)
     else:

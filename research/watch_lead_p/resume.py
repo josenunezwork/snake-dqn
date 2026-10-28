@@ -23,9 +23,9 @@ ALLOCATION = "watch6-32x6000-v1"
 SCHEMA = "watch-lead-p-ledger/v1"
 
 
-def recipe_fingerprint() -> str:
+def recipe_fingerprint(root: Path | None = None) -> str:
     """Bind scientific dependencies, independent of packet/admission/orchestration fixes."""
-    root = Path(__file__).resolve().parents[2]
+    root = root if root is not None else Path(__file__).resolve().parents[2]
     sources = json.loads((root / "research/watch_lead_p/science-sources.json").read_text())
     identities = [(name, digest(root / name)) for name in sources]
     return hashlib.sha256(json.dumps(identities, separators=(",", ":")).encode()).hexdigest()
@@ -37,29 +37,49 @@ def unit_id(index: int) -> str:
     return f"{NAMESPACE}{ALLOCATION}/{index:02d}"
 
 
-def empty_ledger() -> dict[str, Any]:
+def empty_ledger(recipe_root: Path | None = None) -> dict[str, Any]:
     return {
         "schema": SCHEMA,
         "namespace": NAMESPACE,
         "allocation": ALLOCATION,
-        "recipe_sha256": recipe_fingerprint(),
+        "recipe_sha256": recipe_fingerprint(recipe_root),
         "units": [],
     }
 
 
-def read_ledger(path: Path, root: Path) -> dict[int, dict]:
+def read_ledger(path: Path, root: Path, recipe_root: Path | None = None) -> dict[int, dict]:
     """Verify metadata and bytes only; never open a paired outcome while resuming."""
     value = json.loads(path.read_text())
-    expected = empty_ledger()
+    expected = empty_ledger(recipe_root)
+    if not isinstance(value, dict) or set(value) != set(expected):
+        raise ValueError("outcome-free ledger schema differs")
+    if not isinstance(value["units"], list):
+        raise ValueError("ledger units must be a list")
     if {k: value.get(k) for k in ("schema", "namespace", "allocation", "recipe_sha256")} != {
         k: expected[k] for k in ("schema", "namespace", "allocation", "recipe_sha256")
     }:
         raise ValueError("foreign namespace/allocation ledger")
     found = {}
     for record in value["units"]:
+        if not isinstance(record, dict) or set(record) != {
+            "unit_id",
+            "allocation_index",
+            "path",
+            "size",
+            "sha256",
+        }:
+            raise ValueError("outcome-free unit schema differs")
         index = record["allocation_index"]
         if record.get("unit_id") != unit_id(index) or index in found:
             raise ValueError("foreign/duplicate unit identity")
+        if (
+            record["path"] != f"units/session-{index:02d}.json"
+            or type(record["size"]) is not int
+            or record["size"] <= 0
+            or not isinstance(record["sha256"], str)
+            or len(record["sha256"]) != 64
+        ):
+            raise ValueError("foreign unit metadata")
         relative = Path(record["path"])
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError("foreign unit path")
