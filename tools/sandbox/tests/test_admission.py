@@ -587,3 +587,19 @@ def test_stall_timeout_does_not_widen_other_sandbox_package_controls(tmp_path, m
     packet["env"]["SANDBOX_A_STALL_TIMEOUT_SECONDS"] = "900"
     with pytest.raises(dispatch.Refused, match="non-package controls"):
         dispatch.require_sandbox_admission(packet, ROOT)
+
+
+def test_validation_deadline_refusal_keeps_diagnostic_tail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = tmp_path / "job.json"
+    manifest.write_text("{}")
+
+    def fail(_argv: list[str], **kwargs: object) -> None:
+        kwargs["stdout"].write("phase evidence before deadline clipping\n")
+        raise dispatch.Refused("deadline clipped validation")
+
+    monkeypatch.setattr(dispatch, "command", fail)
+    with pytest.raises(dispatch.Refused, match="phase evidence before deadline clipping"):
+        dispatch.validate(ROOT, tmp_path, tmp_path / "state", manifest, tmp_path / "deadline.log")

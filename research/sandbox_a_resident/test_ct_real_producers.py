@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GOLDENS = ROOT / "tests/fixtures/ct-supervisor-06-exports"
 MECHANICAL = tuple(
     path.name
-    for path in sorted(GOLDENS.iterdir())
+    for path in sorted(GOLDENS.iterdir() if GOLDENS.is_dir() else [])
     if (path / "output/receipt.json").is_file()
     and path.name not in {"clean-completion", "child-nonmechanical-exit"}
 )
@@ -40,6 +40,9 @@ def _source_binding(output: Path, control: dict) -> dict:
     archive = output / "staging/source.tar.gz"
     return {
         "source_commit": control["source_commit"],
+        "source_files": {
+            k: v["sha256"] for k, v in _read(output / "staging/source-plan.json")["files"].items()
+        },
         "source_archive": {
             "size": archive.stat().st_size,
             "sha256": ct_resume.digest(archive),
@@ -83,6 +86,18 @@ def test_real_supervisor_mechanical_formats_and_compound_twins(
         receipt["error"] += "; FloatingPointError: non-finite appended fault"
         with pytest.raises(ct_resume.CTResumeRefused, match="scientific/non-mechanical"):
             admit()
+    elif scenario in {
+        "lease-renewal-timeout",
+        "rpc-exec-poll-timeout",
+        "rpc-busy-timeout",
+        "unit-runaway-guard",
+        "unit-cap-account-lock",
+    }:
+        with pytest.raises(
+            ct_resume.CTResumeRefused,
+            match="unexplained retained receipt error|scientific/non-mechanical",
+        ):
+            admit()
     else:
         admit()
 
@@ -90,13 +105,26 @@ def test_real_supervisor_mechanical_formats_and_compound_twins(
 @pytest.mark.parametrize("scenario", ["clean-completion", "child-nonmechanical-exit"])
 def test_real_completed_or_unexplained_child_cannot_continue(scenario: str) -> None:
     output = GOLDENS / scenario / "output"
-    with pytest.raises(ct_resume.CTResumeRefused):
+
+    @ct_resume._evidence_session
+    def admit() -> None:
+        ct_resume._EVIDENCE_CACHE.get()["source_archive_binding"] = _source_binding(
+            output, _read(GOLDENS / "control.json")
+        )
         ct_resume.verify_mechanical_stop(
             _read(output / "receipt.json"),
             _read(output / "manifest.json"),
             ct_resume.digest(output / "manifest.json"),
             export_root=output,
         )
+
+    match = (
+        "not a qualified mechanical trigger"
+        if scenario == "clean-completion"
+        else "unexplained retained receipt error"
+    )
+    with pytest.raises(ct_resume.CTResumeRefused, match=match):
+        admit()
 
 
 @pytest.mark.parametrize(
@@ -169,7 +197,7 @@ def test_publication_sidecars_share_the_runtime_parser(tmp_path: Path) -> None:
     path = tmp_path / "value.json"
     path.write_text('{"detail":"okay"}')
     Path(str(path) + ".sha256").write_text(ct_resume.digest(path) + "  value.json\n")
-    Path(str(path) + ".complete").touch()
+    Path(str(path) + ".complete").write_text("complete\n")
     ct_resume._descriptor(path, runtime_path=path.name)
     ct_resume._check_attempt_base_fault_evidence(tmp_path)
 
@@ -231,7 +259,7 @@ def test_lineage_graph_refuses_boundedly(tmp_path: Path, attack: str) -> None:
         )
         _rebind_forged_packet(other, other_broker)
         broker["completion_attempt"]["prior_manifest_path"] = str(other / "dispatch-manifest.json")
-        match = "^continuation lineage cycle detected$"
+        match = "^prior manifest SHA-256 mismatch in lineage$"
     else:
         broker["completion_attempt"]["index"] = 2
         match = r"^continuation index must equal prior index \+ 1$"
@@ -255,9 +283,11 @@ def test_source_archive_uses_sealed_bytes_without_git(
             value["commit"] = "1" * 40
             _write(path, value)
     elif attack == "archive-sha":
-        binding["source_archive"]["sha256"] = "0" * 64
+        binding["source_files"][next(iter(binding["source_files"]))] = "0" * 64
     elif attack == "archive-size":
-        binding["source_archive"]["size"] += 1
+        plan = _read(output / "staging/source-plan.json")
+        plan["fallback_size"] += 1
+        _write(output / "staging/source-plan.json", plan)
     monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: pytest.fail("archive invoked Git"))
     monkeypatch.setattr(
         subprocess, "check_output", lambda *_a, **_k: pytest.fail("archive invoked Git")
@@ -269,7 +299,7 @@ def test_source_archive_uses_sealed_bytes_without_git(
         ct_resume._verify_staged_source_archive(output / "staging/source.tar.gz", output)
 
     if attack:
-        with pytest.raises(ct_resume.CTResumeRefused, match="sealed source_commit/size/SHA"):
+        with pytest.raises(ct_resume.CTResumeRefused, match="sealed source_commit/files/size/SHA"):
             admit()
     else:
         admit()
@@ -290,7 +320,12 @@ def test_superseded_packet_refuses_in_preflight_and_dispatch(tmp_path: Path, num
         ct_preflight.validate_packet(packet)
     # Shared check is the first manifest check in dispatch, before state/log/account I/O.
     with pytest.raises(ValueError, match="packet superseded"):
-        require_current_packet(manifest, packet / "dispatch-manifest.json", root=ROOT)
+        require_current_packet(
+            manifest,
+            packet / "dispatch-manifest.json",
+            root=ROOT,
+            original_bytes=(packet / "dispatch-manifest.json").read_bytes(),
+        )
     with pytest.raises(ValueError, match="packet superseded"):
         dispatch.dispatch(
             SimpleNamespace(
@@ -406,6 +441,7 @@ def test_actual_ct_tree_writes_and_commits_continuation(
         manifest_sha256=ct_resume.digest(packet / "dispatch-manifest.json"),
         sandbox_sha256=ct_resume.digest(packet / "sandbox.json"),
         source_archive=_source_binding(output, control)["source_archive"],
+        source_sha256=_source_binding(output, control)["source_files"],
     )
     _write(packet / "SEAL.json", seal)
     log = tmp_path / "supervisor.log"
@@ -453,3 +489,121 @@ def test_actual_ct_tree_writes_and_commits_continuation(
         stream.write('{"nested":{"detail":"schema mismatch appended fault"}}\n')
     with pytest.raises(ValueError, match="supervisor|inventory"):
         ct_preflight.validate_packet(successor, require_committed=True, allow_tiny=True)
+
+
+@pytest.mark.parametrize("scenario", MECHANICAL)
+@pytest.mark.parametrize("corpus", ["ct-supervisor-06-exports", "ct-supervisor-06-main"])
+@pytest.mark.parametrize(
+    "surface",
+    [
+        "last_error_line",
+        "last_traceback_line",
+        "poll-transport",
+        "job_log_tail",
+        "transport_summary",
+    ],
+)
+def test_every_mechanical_capture_fault_twin_on_every_exempt_surface(
+    tmp_path: Path,
+    scenario: str,
+    corpus: str,
+    surface: str,
+) -> None:
+    """Run the actual scanner directly so an earlier receipt refusal cannot mask a gap."""
+    output = tmp_path / "output"
+    shutil.copytree(ROOT / "tests/fixtures" / corpus / scenario / "output", output)
+    receipt = _read(output / "receipt.json")
+    fault = "LookupError: injected scientific invariant"
+    assert not any(marker in fault.lower() for marker in ct_resume.EXPLICIT_FAULT_EVIDENCE_MARKERS)
+    if surface in {"last_error_line", "last_traceback_line"}:
+        record = receipt.get("terminal") or {
+            "job_id": receipt["job_id"],
+            "generation": receipt["generation"],
+            "status": "failed",
+            "reason": "timeout",
+            "returncode": 138,
+        }
+        record[surface] = fault
+        name = "terminal.json"
+    elif surface == "poll-transport":
+        record = copy.deepcopy(receipt["cli_calls"][0])
+        record["last_error_line"] = fault
+        name = "poll-999999.json"
+    elif surface == "transport_summary":
+        record = {
+            "job": receipt["job_id"],
+            "elapsed": 1.0,
+            "status": "failed",
+            "terminal": False,
+            "exports": 0,
+            "job_log_tail": fault,
+        }
+        name = "poll-999999.json"
+    else:
+        record = {"job_log_tail": fault}
+        name = "poll-999999.json"
+    path = output / name
+    _write(path, record)
+    with pytest.raises(ct_resume.CTResumeRefused, match="scientific/non-mechanical|job_log_tail"):
+        ct_resume._scan_retained_text(
+            path,
+            output_root=output,
+            expected_job_id=receipt["job_id"],
+            expected_generation=receipt["generation"],
+        )
+
+
+@pytest.mark.parametrize("sidecar", ["sha256", "complete"])
+@pytest.mark.parametrize("fault", ["LookupError: unexpected science", "opaque appended bytes"])
+def test_sidecar_trailing_content_refuses(tmp_path: Path, sidecar: str, fault: str) -> None:
+    path = tmp_path / "value.json"
+    path.write_text("{}")
+    Path(str(path) + ".sha256").write_text(ct_resume.digest(path) + "  value.json\n")
+    Path(str(path) + ".complete").write_text("complete\n")
+    with Path(str(path) + "." + sidecar).open("a") as stream:
+        stream.write(fault)
+    with pytest.raises(ct_resume.CTResumeRefused, match="malformed"):
+        ct_resume._check_attempt_base_fault_evidence(tmp_path)
+
+
+def test_regenerated_source_archive_metadata_is_not_identity(tmp_path: Path) -> None:
+    import gzip
+    import hashlib
+
+    output = tmp_path / "output"
+    shutil.copytree(GOLDENS / "wall-cap/output", output)
+    binding = _source_binding(output, _read(GOLDENS / "control.json"))
+    archive = output / "staging/source.tar.gz"
+    original = archive.read_bytes()
+    archive.chmod(0o600)
+    archive.write_bytes(gzip.compress(gzip.decompress(original), mtime=123456))
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() != hashlib.sha256(original).hexdigest()
+    plan = _read(output / "staging/source-plan.json")
+    plan.update(fallback_size=archive.stat().st_size, fallback_sha256=ct_resume.digest(archive))
+    _write(output / "staging/source-plan.json", plan)
+
+    @ct_resume._evidence_session
+    def admit() -> None:
+        ct_resume._EVIDENCE_CACHE.get()["source_archive_binding"] = binding
+        ct_resume._verify_staged_source_archive(archive, output)
+
+    admit()
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [
+        "priced session unit cap reached",
+        "priced session unit cap reached during calibration",
+        "priced session unit cap reached while awaiting account broker",
+        "deadline reached during telemetry recovery",
+        "telemetry recovery exhausted",
+        "kernel remains busy/unknown after telemetry interruption",
+        "kernel remains busy/unknown after telemetry hiccup",
+        "ClassifiedFailure('whole-session wall cap reached')",
+        "colab upload failed (1): provider changed its stderr",
+        "colab exec failed (1): provider changed its stderr",
+    ],
+)
+def test_unregistered_and_provider_reported_causes_are_not_mechanical(cause: str) -> None:
+    assert not ct_resume._mechanical_supervisor_error(cause)

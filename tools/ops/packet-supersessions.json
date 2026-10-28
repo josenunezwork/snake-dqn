@@ -6,7 +6,7 @@
       "job_ids": [
         "sandbox-ct-cf-20261028-01"
       ],
-      "successor": "packet-ct-1028-06/reseal-02",
+      "successor": "packet-ct-1028-07",
       "reason": "Superseded admission implementation; evidence retained immutable."
     },
     {
@@ -14,7 +14,7 @@
       "job_ids": [
         "sandbox-ct-cf-20261028-02"
       ],
-      "successor": "packet-ct-1028-06/reseal-02",
+      "successor": "packet-ct-1028-07",
       "reason": "Superseded admission implementation; evidence retained immutable."
     },
     {
@@ -22,7 +22,7 @@
       "job_ids": [
         "sandbox-ct-cf-20261028-03"
       ],
-      "successor": "packet-ct-1028-06/reseal-02",
+      "successor": "packet-ct-1028-07",
       "reason": "Superseded admission implementation; evidence retained immutable."
     },
     {
@@ -30,7 +30,7 @@
       "job_ids": [
         "sandbox-ct-cf-20261028-04"
       ],
-      "successor": "packet-ct-1028-06/reseal-02",
+      "successor": "packet-ct-1028-07",
       "reason": "Superseded admission implementation; evidence retained immutable."
     },
     {
@@ -38,22 +38,30 @@
       "job_ids": [
         "sandbox-ct-cf-20261028-05"
       ],
-      "successor": "packet-ct-1028-06/reseal-02",
+      "successor": "packet-ct-1028-07",
       "reason": "Includes original and reseal-01; real-producer false refusals and log fault bypass."
     },
     {
       "packet_dir": "packet-ct-1028-06",
       "job_ids": [],
       "manifest_sha256": "96096ff0b34f03563bed376cee5805460cf59472ce2d0c91efc670981400718f",
-      "successor": "packet-ct-1028-06/reseal-02",
+      "successor": "packet-ct-1028-07",
       "reason": "Preserved first seal; full CLI terminal footer compatibility requires appended source pin."
     },
     {
       "packet_dir": "packet-ct-1028-06/reseal-01",
       "job_ids": [],
       "manifest_sha256": "9bc8b37dd49bb184e6dc3e1a3cf2b6a82a845a3d518ad96eaef2e30d4dce46d7",
-      "successor": "packet-ct-1028-06/reseal-02",
+      "successor": "packet-ct-1028-07",
       "reason": "Retained loaded reproduction proves nested C/T preflight used generic 60 second timeout; bounded 180 second host test window required."
+    },
+    {
+      "packet_dir": "packet-ct-1028-06",
+      "job_ids": [
+        "sandbox-ct-cf-20261028-06"
+      ],
+      "successor": "packet-ct-1028-07",
+      "reason": "Packet 07 corrects continuation fault surfaces, scan-root binding and archive metadata admission; all packet-06 evidence retained."
     }
   ]
 }

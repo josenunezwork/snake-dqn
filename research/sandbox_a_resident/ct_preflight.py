@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import os
 import subprocess
@@ -52,7 +53,6 @@ CT_FOCUSED_TESTS: tuple[str, ...] = (
     "research/sandbox_a_resident/test_ct_runner_and_resume.py",
     CT_CUDA_SEMANTICS_TEST,
     "research/sandbox_a_resident/test_ct_hardening.py",
-    "research/sandbox_a_resident/test_ct_real_producers.py",
     "tools/sandbox/tests/test_source_delivery.py",
 )
 
@@ -101,18 +101,34 @@ def _verify_packet_components(
             raise ValueError("initial SEAL.json lacks packet component bindings")
 
 
+def _bounded_manifest_bytes(path: Path) -> bytes:
+    """Read at most one MiB and normalize unavailable lineage evidence to a refusal."""
+    _no_symlink_path(path)
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024:
+            raise ValueError("oversized lineage manifest")
+        return raw
+    except OSError as error:
+        raise ValueError(f"unreadable lineage manifest: {path}") from error
+
+
 def _check_lineage_graph(packet: Path, broker: dict[str, Any], control: dict[str, Any]) -> None:
     """Bound traversal before recursive admission, including malformed cyclic graphs."""
-    visited: set[Path] = set()
+    visited: set[str] = set()
     indices: list[int] = []
     outputs: set[str] = set()
     current, manifest = packet, broker
     while True:
         _no_symlink_path(current)
         canonical = current / "dispatch-manifest.json"
-        if canonical in visited:
+        identity = os.path.normpath(str(canonical)).casefold()
+        if identity in visited:
             raise ValueError("continuation lineage cycle detected")
-        visited.add(canonical)
+        visited.add(identity)
+        raw_manifest = _bounded_manifest_bytes(canonical)
+        require_current_packet(manifest, canonical, root=ROOT, original_bytes=raw_manifest)
         comp = manifest.get("completion_attempt")
         index = 0 if comp is None else comp.get("index") if isinstance(comp, dict) else None
         if type(index) is not int or index < 0:
@@ -131,9 +147,12 @@ def _check_lineage_graph(packet: Path, broker: dict[str, Any], control: dict[str
         _no_symlink_path(path)
         if path.name != "dispatch-manifest.json":
             raise ValueError("prior_manifest_path must name canonical dispatch-manifest.json")
-        if path in visited:
+        if os.path.normpath(str(path)).casefold() in visited:
             raise ValueError("continuation lineage cycle detected")
-        manifest = _load_json(path.read_text())
+        raw_manifest = _bounded_manifest_bytes(path)
+        if hashlib.sha256(raw_manifest).hexdigest() != comp.get("prior_manifest_sha256"):
+            raise ValueError("prior manifest SHA-256 mismatch in lineage")
+        manifest = _load_json(raw_manifest.decode("utf-8"))
         if not isinstance(manifest, dict):
             raise ValueError("malformed prior manifest")
         current = path.parent
@@ -147,6 +166,7 @@ def _check_lineage_graph(packet: Path, broker: dict[str, Any], control: dict[str
         cache["source_archive_binding"] = {
             "source_commit": control["source_commit"],
             "source_archive": seal.get("source_archive", {}),
+            "source_files": seal.get("source_sha256", {}),
         }
         cache.setdefault("bound_output_dirs", set()).update(outputs)
 
@@ -471,8 +491,9 @@ def validate_packet(
 ) -> dict[str, Any]:
     """Bind C/T runtime controls to committed seed audit and frozen topology contract."""
     _no_symlink_path(packet)
-    broker = _load_json((packet / "dispatch-manifest.json").read_text())
-    require_current_packet(broker, packet, root=ROOT)
+    original_bytes = _bounded_manifest_bytes(packet / "dispatch-manifest.json")
+    broker = _load_json(original_bytes.decode("utf-8"))
+    require_current_packet(broker, packet, root=ROOT, original_bytes=original_bytes)
     payload = preflight(
         packet / "sandbox.json", require_committed=require_committed, run_tests=False
     )

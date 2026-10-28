@@ -586,7 +586,6 @@ def test_qualified_mechanical_stop_receipts_and_fault_precedence(tmp_path: Path)
     # 3) Mechanical SUPERVISOR stops (wall/unit/lease/read-retry or mechanical terminal).
     for sup_err in (
         "whole-session wall cap reached",
-        "priced session unit cap reached",
         "retention lease elapsed",
         "read retry budget exhausted",
     ):
@@ -1074,6 +1073,7 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
 
     retained_ws = os.environ.get("CT_DRY_RUN_WORKSPACE")
     ws = Path(retained_ws) if retained_ws else tmp_path / "ws"
+    ws.mkdir(parents=True, exist_ok=False)
     broker_wt = ws / "broker"
     try:
         subprocess.run(
@@ -1442,19 +1442,24 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                 # on success. stdout is never written to ops/logs/<name>.log.
                 evidence = ws / "dry-run-evidence"
                 evidence.mkdir(exist_ok=True)
-                (evidence / f"{name}.stdout.txt").write_text(res.stdout)
-                (evidence / f"{name}.stderr.txt").write_text(res.stderr)
-                (evidence / f"{name}.command.json").write_text(
-                    json.dumps(
-                        {
-                            "argv": res.args,
-                            "cwd": str(broker_wt),
-                            "env": {k: dry_env[k] for k in ("OPS_DIR", "SNAKE_DQN_PYTHON", "PATH")},
-                            "returncode": res.returncode,
-                        },
-                        indent=2,
+                with (evidence / f"{name}.stdout.txt").open("x") as stream:
+                    stream.write(res.stdout)
+                with (evidence / f"{name}.stderr.txt").open("x") as stream:
+                    stream.write(res.stderr)
+                with (evidence / f"{name}.command.json").open("x") as stream:
+                    stream.write(
+                        json.dumps(
+                            {
+                                "argv": res.args,
+                                "cwd": str(broker_wt),
+                                "env": {
+                                    k: dry_env[k] for k in ("OPS_DIR", "SNAKE_DQN_PYTHON", "PATH")
+                                },
+                                "returncode": res.returncode,
+                            },
+                            indent=2,
+                        )
                     )
-                )
                 if res.returncode != 0:
                     diag = subprocess.run(
                         [
@@ -1792,6 +1797,11 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
         metadata={"allocation": alloc, "source_commit": ctrl.source_commit},
     )
 
+    (
+        Path(json.loads((packet_00 / "dispatch-manifest.json").read_text())["output_dir"])
+        / "exports/ct"
+    ).mkdir(parents=True)
+
     rec_00 = {
         "job_id": "tiny-ct-00",
         "commit": ctrl.source_commit,
@@ -1830,6 +1840,8 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
     validate_uploaded_ledger(
         packet_c1, copy.deepcopy(c1_manifest), ctrl_dict, require_committed=False
     )
+
+    (c1_out / "exports/ct").mkdir(parents=True)
 
     rec_c1 = {
         "job_id": "tiny-ct-c1",

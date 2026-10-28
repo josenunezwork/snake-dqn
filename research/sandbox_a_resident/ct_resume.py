@@ -34,6 +34,7 @@ import json
 import os
 import re
 import stat
+import tarfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
@@ -74,7 +75,6 @@ MECHANICAL_TERMINAL_REASONS: frozenset[str] = frozenset(
 MECHANICAL_SUPERVISOR_ERROR_MARKERS: tuple[str, ...] = (
     "whole-session wall cap reached",
     "whole-session deadline reached",
-    "priced session unit cap reached",
     "study reserve reached",
     "retention lease elapsed",
     "read retry budget exhausted",
@@ -204,10 +204,15 @@ def _descriptor(path: Path, *, runtime_path: str) -> dict[str, Any]:
         raise CTResumeRefused(f"symlinked export refused: {path.name}")
     if sidecar.stat().st_size > 1024 or complete.stat().st_size > 4096:
         raise CTResumeRefused(f"oversized sidecar refused: {path.name}")
-    words = sidecar.read_text().split()
-    expected = words[0].lower() if words else ""
+    raw_sidecar = sidecar.read_text()
+    words = raw_sidecar.split()
+    expected = words[0] if words else ""
     if not _is_hex(expected, 64):
         raise CTResumeRefused(f"malformed SHA-256 sidecar: {path.name}")
+    if raw_sidecar not in {expected + "\n", f"{expected}  {path.name}\n"}:
+        raise CTResumeRefused(f"malformed SHA-256 sidecar: {path.name}")
+    if complete.read_bytes() != b"complete\n":
+        raise CTResumeRefused(f"malformed completion marker: {path.name}")
     if _retained_digest(path) != expected:
         raise CTResumeRefused(f"corrupt export: {path.name}")
     return {"path": runtime_path, "size": path.stat().st_size, "sha256": expected}
@@ -218,6 +223,10 @@ def _refuse_if_fault_text(
 ) -> None:
     if not isinstance(value, str) or not value.strip():
         return
+    if re.search(r"\b[A-Za-z_][\w.]*?(?:Error|Exception):", value):
+        raise CTResumeRefused(
+            f"prior evidence records scientific/non-mechanical exception in {field_name}"
+        )
     lowered = value.lower()
     for marker in EXPLICIT_FAULT_EVIDENCE_MARKERS:
         if marker in lowered:
@@ -546,33 +555,126 @@ def _mechanical_supervisor_error(value: Any) -> bool:
         "whole-session deadline reached before CLI call",
         "study reserve reached during calibration",
         "retention lease elapsed; no further job",
-        "priced session unit cap reached during calibration",
-        "priced session unit cap reached while awaiting account broker",
-        "deadline reached while awaiting account broker",
-        "deadline reached during telemetry recovery",
-        "telemetry recovery exhausted",
-        "kernel remains busy/unknown after telemetry interruption",
-        "kernel remains busy/unknown after telemetry hiccup",
     }
     cause = value
     # Parse one repr wrapper, never strip a prefix or accept a compound cause.
-    match = re.fullmatch(r"(SupervisorError|Refused|ClassifiedFailure)\((.*)\)", value, re.S)
+    match = re.fullmatch(r"(SupervisorError|Refused)\((.*)\)", value, re.S)
     if match:
         try:
             cause = ast.literal_eval(match[2])
         except (ValueError, SyntaxError):
             return False
-    return isinstance(cause, str) and (
-        cause in causes
-        # Qualified CLI._call_once output observed with the offline provider.
-        # A single full cause only; trailing/appended faults cannot match.
-        or re.fullmatch(
-            r"colab (?:upload|exec) failed \(1\): "
-            r"TimeoutError: fake request deadline exceeded\n",
-            cause,
-        )
-        is not None
+    return isinstance(cause, str) and cause in causes
+
+
+def _observed_signal_line(value: Any, generation: str | None = None) -> bool:
+    """Exact observed benign lines; a mechanical reason never exempts arbitrary text."""
+    if isinstance(generation, str) and re.fullmatch(r"[0-9a-f]{32}", generation):
+        if value == (
+            f"STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/snake-cli/{generation}"
+            "/output/ct/stall-watchdog"
+        ):
+            return True
+    return (
+        value
+        in {
+            "CT_CHILD_READY",
+            "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/out/ct/stall-watchdog",
+            "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/session/output/ct/stall-watchdog",
+            (
+                "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/private/tmp/"
+                "astra-impl-ct6-producers-entrypoint-fixed/"
+                "child-ct-entrypoint/runtime-producer/output/ct/stall-watchdog"
+            ),
+            (
+                "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/private/tmp/"
+                "astra-impl-ct6-producers-entrypoint-main/"
+                "child-ct-entrypoint/runtime-producer/output/ct/stall-watchdog"
+            ),
+        }
+        if isinstance(value, str)
+        else False
     )
+
+
+def _scan_job_tail(value: Any, *, label: str, generation: str | None = None) -> None:
+    """Accept observed lines or closed C/T progress schemas, never arbitrary log text."""
+    if value in (None, ""):
+        return
+    if not isinstance(value, str):
+        raise CTResumeRefused(f"malformed job_log_tail: {label}")
+    allowed_strings = {
+        "schema": {"t34-cf-progress/v1", "t34-cf-sigusr1-marker/v1"},
+        "study": {"t34-cf-1028"},
+        "stage": {
+            "initializing",
+            "startup-self-checks-passed",
+            "stage-0001-collection-start",
+            "collection-progress",
+            "scoring-progress",
+            "stage-0001-published",
+            "stage-0002-scoring-start",
+            "stage-0002-scoring-progress",
+            "stage-0002-published",
+            "stage-0003-fit-start",
+            "stage-0003-published",
+            "stage-0004-evaluation-start",
+            "evaluation-progress",
+        },
+        "phase": {"collection", "branch", "fit", "evaluation"},
+        "topology_fixtures": {"PASS"},
+        "support_status": {"PASS"},
+        "status": {"PREEMPTED_SIGUSR1"},
+        "interrupted_phase": {
+            "stage-0001-collection",
+            "stage-0002-scoring",
+            "stage-0003-fit",
+            "stage-0004-evaluation",
+        },
+    }
+    numeric = {
+        "elapsed_sec",
+        "latest_durable_stage",
+        "forced_state_cases",
+        "charged_rows",
+        "eligible_deaths_observed",
+        "hero_deaths",
+        "retained_death_candidates",
+        "tick",
+        "total_ticks",
+        "anchors",
+        "roots",
+        "chunk_index",
+        "received_unix",
+        "shutdown_elapsed_sec",
+    }
+    for line in value.splitlines():
+        if not line or _observed_signal_line(line, generation):
+            continue
+        prefix, _, payload = line.partition(" ")
+        try:
+            row = _load_json(payload)
+            if prefix not in {"CT_PROGRESS", "CT_SIGUSR1_CLEAN_EXIT"} or not isinstance(row, dict):
+                raise ValueError("unknown line")
+            if row.get("study") != "t34-cf-1028" or row.get("schema") != (
+                "t34-cf-progress/v1" if prefix == "CT_PROGRESS" else "t34-cf-sigusr1-marker/v1"
+            ):
+                raise ValueError("unknown progress schema")
+            for key, item in row.items():
+                if key in allowed_strings and item in allowed_strings[key]:
+                    continue
+                if key in numeric and type(item) in (int, float) and 0 <= item < float("inf"):
+                    continue
+                if key == "forced_state_device" and item in {"cpu", "cuda"}:
+                    continue
+                if key == "within_15s_sla" and item is True:
+                    continue
+                if key == "allocation" and _is_hex(item, 64):
+                    continue
+                raise ValueError(f"unknown progress field {key}")
+        except (ValueError, TypeError):
+            _refuse_if_fault_text(line, field_name=label)
+            raise CTResumeRefused(f"unrecognized job_log_tail line in {label}: {line!r}") from None
 
 
 def _check_retained_receipt(record: Any, *, label: str) -> None:
@@ -598,11 +700,14 @@ def _check_retained_receipt(record: Any, *, label: str) -> None:
     error = record.get("error")
     _refuse_if_fault_text(error, field_name=label, check_supervisor_denylist=True)
     terminal = record.get("terminal")
+    if isinstance(terminal, Mapping) and terminal.get("returncode") == 124:
+        raise CTResumeRefused(f"{label} records watchdog timeout exit code 124")
     child_error = False
     if (
         record["failure_class"] == "CHILD_NONZERO_EXIT"
         and isinstance(terminal, Mapping)
         and terminal.get("reason") in MECHANICAL_TERMINAL_REASONS
+        and terminal.get("returncode") in {138, -10}
     ):
         # failures.terminal_failure formats this exact detail; supervisor records repr(exc).
         line = terminal.get("last_traceback_line") or terminal.get("last_error_line")
@@ -622,6 +727,7 @@ def _check_retained_receipt(record: Any, *, label: str) -> None:
     if record["failure_class"] == "CHILD_NONZERO_EXIT" and (
         not isinstance(terminal, Mapping)
         or terminal.get("reason") not in MECHANICAL_TERMINAL_REASONS
+        or terminal.get("returncode") not in {138, -10}
     ):
         raise CTResumeRefused(
             f"non-mechanical child failure: retained receipt lacks mechanical terminal: {label}"
@@ -695,12 +801,7 @@ def _scan_json_faults(
                 and not (
                     key in {"last_error_line", "last_traceback_line"}
                     and isinstance(item, str)
-                    and (
-                        item.startswith("STALL_WATCHDOG_DIAGNOSTICS sealed_dir=")
-                        or supervisor_transport
-                        and value.get("reason") in MECHANICAL_TERMINAL_REASONS
-                        and value.get("status") == "failed"
-                    )
+                    and _observed_signal_line(item, expected_generation or value.get("generation"))
                     and "\n" not in item
                 )
             ):
@@ -724,7 +825,9 @@ def _scan_json_faults(
             # Inventories name diagnostic files even when they are empty. Their
             # paths are checked by the export scanner; don't treat filenames as errors.
             if key == "job_log_tail":
-                _refuse_if_fault_text(item, field_name=name)
+                _scan_job_tail(
+                    item, label=name, generation=expected_generation or value.get("generation")
+                )
                 continue
             if key == "schema" and item == "colab-family-canary/v1":
                 continue
@@ -776,31 +879,62 @@ def _scan_json_faults(
 
 
 def _verify_staged_source_archive(path: Path, output_root: Path) -> None:
-    """Compare exact bytes to the admitted root seal, without a Git subprocess."""
+    """Verify every member against the root seal without Git or gzip metadata identity."""
     try:
-        plan = _load_json((path.parent / "source-plan.json").read_text())
+        plan_path = path.parent / "source-plan.json"
+        if plan_path.stat().st_size > 1024 * 1024:
+            raise ValueError("oversized source plan")
+        plan = _load_json(plan_path.read_text())
         manifest = _load_json((output_root / "manifest.json").read_text())
-        cache = _EVIDENCE_CACHE.get() or {}
-        binding = cache.get("source_archive_binding", {})
-        archive = binding.get("source_archive", {})
+        binding = (_EVIDENCE_CACHE.get() or {}).get("source_archive_binding", {})
+        expected = binding.get("source_files")
         commit = binding.get("source_commit")
         if (
-            not isinstance(plan, Mapping)
-            or not isinstance(manifest, Mapping)
-            or not isinstance(archive, Mapping)
+            not isinstance(expected, Mapping)
+            or not expected
             or not _is_hex(commit, 40)
             or manifest.get("commit") != commit
             or plan.get("commit") != commit
             or plan.get("fallback_archive") != path.name
             or plan.get("fallback_size") != path.stat().st_size
-            or archive.get("size") != path.stat().st_size
             or path.stat().st_size > 32 * 1024 * 1024
             or plan.get("fallback_sha256") != _retained_digest(path)
-            or archive.get("sha256") != _retained_digest(path)
-            or archive.get("plan_sha256") != _retained_digest(path.parent / "source-plan.json")
+            or not isinstance(plan.get("files"), Mapping)
+            or {k: v.get("sha256") for k, v in plan["files"].items()} != expected
         ):
-            raise ValueError("source plan/archive differs from sealed source_commit/size/SHA-256")
-    except (OSError, ValueError, KeyError, TypeError) as error:
+            raise ValueError(
+                "source plan/archive differs from sealed source_commit/files/size/SHA-256"
+            )
+        seen, total = set(), 0
+        with tarfile.open(path, "r:gz") as archive:
+            for member in archive:
+                name = member.name
+                if (
+                    name in seen
+                    or name not in expected
+                    or not member.isfile()
+                    or Path(name).is_absolute()
+                    or ".." in Path(name).parts
+                ):
+                    raise ValueError("foreign/duplicate/nonregular archive member")
+                seen.add(name)
+                total += member.size
+                row = plan["files"][name]
+                if (
+                    total > 32 * 1024 * 1024
+                    or member.size != row["size"]
+                    or f"{member.mode:04o}" != row["mode"]
+                ):
+                    raise ValueError("source member size/mode mismatch")
+                stream = archive.extractfile(member)
+                if (
+                    stream is None
+                    or hashlib.file_digest(stream, "sha256").hexdigest() != expected[name]
+                ):
+                    raise ValueError("source member SHA-256 mismatch")
+        if seen != set(expected):
+            raise ValueError("missing sealed source members")
+    except (OSError, ValueError, KeyError, TypeError, tarfile.TarError) as error:
         raise CTResumeRefused(
             f"unverified retained staged source archive: {path}: {error}"
         ) from error
@@ -1054,9 +1188,19 @@ def _check_attempt_base_fault_evidence(
     if cache is not None and key in cache:
         return
     if not base.exists():
-        return
+        raise CTResumeRefused(f"missing retained evidence scan root: {base}")
     if not base.is_dir():
         raise CTResumeRefused(f"retained evidence root is not a directory: {base}")
+    retained_receipt = None
+    receipt_path = base / "receipt.json"
+    if receipt_path.is_file():
+        _no_symlink_path(receipt_path)
+        if receipt_path.stat().st_size > 8 * 1024 * 1024:
+            raise CTResumeRefused(f"oversized retained receipt: {receipt_path}")
+        retained_receipt = _load_json(receipt_path.read_text())
+        _check_retained_receipt(retained_receipt, label=str(receipt_path))
+        expected_job_id = expected_job_id or retained_receipt.get("job_id")
+        expected_generation = expected_generation or retained_receipt.get("generation")
     for path in _retained_files(base):
         if _publication_sidecar(path):
             continue  # Sidecar bytes are not the payload's diagnostic content.
@@ -1072,6 +1216,8 @@ def _check_attempt_base_fault_evidence(
             output_root=base,
             expected_job_id=expected_job_id,
             expected_generation=expected_generation,
+            supervisor_receipt=retained_receipt,
+            supervisor_receipt_path=receipt_path,
         )
     if cache is not None:
         cache[key] = True
@@ -1079,13 +1225,18 @@ def _check_attempt_base_fault_evidence(
 
 def _candidate_search_roots(export_root: Path) -> list[Path]:
     roots = [export_root]
-    bound = (_EVIDENCE_CACHE.get() or {}).get("bound_output_dirs", set())
-    if export_root.name in {"ct", "exports"} and str(export_root.parent) in bound:
-        roots.append(export_root.parent)
-    if export_root.name == "ct" and export_root.parent.name == "exports":
-        if len(export_root.parents) >= 2 and str(export_root.parents[1]) in bound:
+    bound = {
+        os.path.normpath(raw)
+        for raw in (_EVIDENCE_CACHE.get() or {}).get("bound_output_dirs", set())
+    }
+    if export_root.name in {"ct", "exports"}:
+        parent = export_root.parent
+        if export_root.name == "ct" and parent.name == "exports":
+            parent = parent.parent
             roots.append(export_root.parent)
-            roots.append(export_root.parents[1])
+        if os.path.normpath(str(parent)) not in bound:
+            raise CTResumeRefused(f"unbound retained evidence scan root: {parent}")
+        roots.append(parent)
     return roots
 
 
@@ -1093,8 +1244,7 @@ def _check_attempt_output_dir_fault_evidence(output_dir: Path) -> None:
     """Scan an attempt's ``output_dir`` and its export subdirectories without climbing to parent."""
     if output_dir.is_symlink():
         raise CTResumeRefused(f"prior output_dir must not be a symlink: {output_dir}")
-    if output_dir.exists():
-        _check_attempt_base_fault_evidence(output_dir)
+    _check_attempt_base_fault_evidence(output_dir)
 
 
 def _check_single_root_fault_evidence(export_root: Path) -> None:
@@ -1843,6 +1993,7 @@ def _extract_prior_admitted_coverage(
     return prior_units_by_stage, prior_ledger_sha256, prior_output_dirs, prior_export_roots
 
 
+@_evidence_session
 def completion_packet(
     original_manifest: Mapping[str, Any],
     terminal_receipt: Mapping[str, Any],
@@ -1879,6 +2030,10 @@ def completion_packet(
         completion_index=completion_index,
         prior_packet_dir=prior_packet_dir,
     )
+
+    cache = _EVIDENCE_CACHE.get()
+    if cache is not None:
+        cache.setdefault("bound_output_dirs", set()).update(prior_output_dirs)
 
     # Inspect all bound prior attempt output/export directories for any scientific or runtime fault
     # before admitting mechanical continuation, even if an earlier export dir was omitted by caller.
@@ -2090,7 +2245,21 @@ def write_continuation_packet(
         if req.is_symlink() or not req.is_file():
             raise CTResumeRefused(f"prior packet lacks required file: {req.name}")
 
-    prior_manifest = _load_json(prior_manifest_path.read_text())
+    from research.sandbox_a_resident.ct_preflight import (
+        _bounded_manifest_bytes,
+        _check_lineage_graph,
+    )
+    from tools.ops.packet_supersession import require_current_packet
+
+    original_bytes = _bounded_manifest_bytes(prior_manifest_path)
+    prior_manifest = _load_json(original_bytes.decode("utf-8"))
+    require_current_packet(
+        prior_manifest,
+        prior_manifest_path,
+        root=Path(__file__).resolve().parents[2],
+        original_bytes=original_bytes,
+    )
+    _check_lineage_graph(prior, prior_manifest, _load_json(prior_control_path.read_text()))
     prior_manifest_sha = _retained_digest(prior_manifest_path)
     prior_sandbox = _load_json(prior_sandbox_path.read_text())
     prior_broker_binding = (

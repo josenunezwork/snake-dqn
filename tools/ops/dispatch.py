@@ -711,6 +711,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
             "sandbox-a-train01": "research.sandbox_a_resident.training_preflight",
             "t34-cf-1028": "research.sandbox_a_resident.ct_preflight",
         }
+        preflight_started = time.monotonic()
         command(
             [sys.executable, "-m", module_by_study[study], str(path.parent)],
             cwd=broker,
@@ -720,6 +721,13 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
                 else COMMAND_TIMEOUT_SECONDS
             ),
         )
+        if study == "t34-cf-1028":
+            print(
+                f"CT_HOST_PREFLIGHT_SECONDS={time.monotonic() - preflight_started:.6f} "
+                f"bound={SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS} "
+                f"outer={SANDBOX_OUTER_VALIDATE_TIMEOUT_SECONDS}",
+                flush=True,
+            )
 
 
 def validate(
@@ -755,7 +763,7 @@ def validate(
                 deadline=deadline,
                 timeout_seconds=timeout_seconds,
             )
-    except subprocess.SubprocessError as exc:
+    except (subprocess.SubprocessError, Refused) as exc:
         # Dry-run's temporary directory is removed by the caller. Keep the
         # underlying diagnostic in wrapper stderr before those bytes disappear.
         with log.open("rb") as stream:
@@ -763,6 +771,11 @@ def validate(
             stream.seek(max(0, stream.tell() - 65536))
             detail = stream.read().decode("utf-8", errors="replace")
         raise Refused(f"validation failed: {exc}\n{detail}") from exc
+    # Retain bounded phase timings after successful dry-run temp logs disappear.
+    with log.open(encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            if line.startswith("CT_HOST_PREFLIGHT_SECONDS="):
+                print(line.rstrip(), file=sys.stderr, flush=True)
 
 
 def register(ops: Path, log: Path, name: str) -> None:
@@ -1977,7 +1990,7 @@ def dispatch(args: argparse.Namespace) -> str:
     # Use this broker's registry even when the manifest is in a retired packet.
     from tools.ops.packet_supersession import require_current_packet
 
-    require_current_packet(value, manifest, root=HERE.parents[1])
+    require_current_packet(value, manifest, root=HERE.parents[1], original_bytes=original_bytes)
     small_config = getattr(args, "small_bench_config", None)
     if small_config is not None:
         from tools.small_bench_operator import configuration

@@ -128,7 +128,8 @@ def test_ct4_one_level_parent_scanned(tmp_path: Path) -> None:
     exports = tmp_path / "ct"
     exports.mkdir()
     (tmp_path / "state.json").write_text('{"status":"failed","returncode":7}')
-    ct_resume._check_single_root_fault_evidence(exports)  # Unbound shared parent is excluded.
+    with pytest.raises(ct_resume.CTResumeRefused, match="unbound retained evidence scan root"):
+        ct_resume._check_single_root_fault_evidence(exports)
 
     @ct_resume._evidence_session
     def scan_bound() -> None:
@@ -153,7 +154,7 @@ def _continuation_fixture(tmp_path: Path) -> tuple[Path, dict, dict, Path, dict]
     # Canonical output root has 0 stages; payloads are in a separately retained export root.
     exports = tmp_path / "external-exports"
     _write_tiny_initial_packet(initial, ctrl, _save_tiny_checkpoints(tmp_path), output)
-    output.mkdir()
+    (output / "exports/ct").mkdir(parents=True)
     (output / "state.json").write_text(
         json.dumps({"job_id": "tiny-ct-00", "generation": "g0", "status": "running"})
     )
@@ -442,3 +443,151 @@ def test_ct4_real_qualified_child_receipt_is_admitted(
         ct_resume._scan_retained_text(
             path, output_root=tmp_path, expected_job_id="ct0", expected_generation="g0"
         )
+
+
+@pytest.mark.parametrize("suffix", ["", "/"])
+def test_scan_root_binding_uses_normpath_and_never_skips_parent(
+    tmp_path: Path, suffix: str
+) -> None:
+    exports = tmp_path / "exports/ct"
+    exports.mkdir(parents=True)
+    (tmp_path / "state.json").write_text('{"status":"failed","returncode":7}')
+
+    @ct_resume._evidence_session
+    def scan() -> None:
+        ct_resume._EVIDENCE_CACHE.get()["bound_output_dirs"] = {str(tmp_path) + suffix}
+        ct_resume._check_single_root_fault_evidence(exports)
+
+    with pytest.raises(ct_resume.CTResumeRefused, match="non-mechanical|lacks matching job_id"):
+        scan()
+    with pytest.raises(ct_resume.CTResumeRefused, match="unbound retained evidence scan root"):
+        ct_resume._check_single_root_fault_evidence(exports)
+
+
+@pytest.mark.parametrize("failure", ["missing", "oversized", "sha", "retired"])
+def test_lineage_refuses_unverified_or_retired_parent(tmp_path: Path, failure: str) -> None:
+    import hashlib
+
+    from research.sandbox_a_resident import ct_preflight
+
+    packet, manifest, control, _, _ = _continuation_fixture(tmp_path)
+    comp = manifest["completion_attempt"]
+    parent = Path(comp["prior_manifest_path"])
+    if failure == "missing":
+        parent.unlink()
+        match = "unreadable lineage manifest"
+    elif failure == "oversized":
+        parent.write_bytes(b" " * (1024 * 1024 + 1))
+        match = "oversized lineage manifest"
+    elif failure == "sha":
+        comp["prior_manifest_sha256"] = "0" * 64
+        match = "prior manifest SHA-256 mismatch"
+    else:
+        row = json.loads(parent.read_text())
+        row["job_id"] = "sandbox-ct-cf-20261028-05"
+        parent.write_text(json.dumps(row))
+        comp["prior_manifest_sha256"] = hashlib.sha256(parent.read_bytes()).hexdigest()
+        match = "packet superseded"
+    (packet / "dispatch-manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match=match):
+        ct_preflight._check_lineage_graph(packet, manifest, control)
+
+
+def test_retired_root_writer_refuses_before_creating_packet(tmp_path: Path) -> None:
+    packet, manifest, _, _, _ = _continuation_fixture(tmp_path)
+    parent = Path(manifest["completion_attempt"]["prior_manifest_path"])
+    root = json.loads(parent.read_text())
+    root["job_id"] = "sandbox-ct-cf-20261028-05"
+    parent.write_text(json.dumps(root))
+    target = tmp_path / "retired-successor"
+    with pytest.raises(ValueError, match="packet superseded"):
+        ct_resume.write_continuation_packet(
+            target,
+            prior_packet_dir=parent.parent,
+            terminal_receipt={},
+            export_root=tmp_path,
+            completion_index=1,
+            job_id="fresh-id",
+            output_dir=tmp_path / "out",
+            supervisor_log_path=parent,
+        )
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("row", [{}, {"packet_dir": "old"}, {"job_ids": "old"}, None])
+def test_malformed_supersession_rows_refuse_cleanly(tmp_path: Path, row: object) -> None:
+    from tools.ops.packet_supersession import require_current_packet
+
+    registry = tmp_path / "tools/ops/packet-supersessions.json"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(
+        json.dumps({"schema": "snake-packet-supersessions/v1", "superseded": [row]})
+    )
+    with pytest.raises(ValueError, match="malformed packet supersession registry row"):
+        require_current_packet({}, tmp_path / "manifest.json", root=tmp_path, original_bytes=b"{}")
+
+
+def test_supersession_uses_original_loaded_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.ops.packet_supersession import require_current_packet
+
+    registry = tmp_path / "tools/ops/packet-supersessions.json"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(
+        json.dumps(
+            {
+                "schema": "snake-packet-supersessions/v1",
+                "superseded": [
+                    {
+                        "packet_dir": "old",
+                        "successor": "new",
+                        "reason": "retired",
+                        "job_ids": [],
+                        "manifest_sha256": "0" * 64,
+                    }
+                ],
+            }
+        )
+    )
+    monkeypatch.setattr(Path, "read_bytes", lambda *_: pytest.fail("manifest reread"))
+    require_current_packet({}, tmp_path / "missing.json", root=tmp_path, original_bytes=b"{}")
+
+
+def test_missing_scan_root_refuses(tmp_path: Path) -> None:
+    with pytest.raises(ct_resume.CTResumeRefused, match="missing retained evidence scan root"):
+        ct_resume._check_attempt_base_fault_evidence(tmp_path / "missing")
+
+
+def test_exact_generation_bound_signal_footer_without_caller_identity(tmp_path: Path) -> None:
+    generation = "a" * 32
+    footer = (
+        f"STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/snake-cli/{generation}"
+        "/output/ct/stall-watchdog"
+    )
+    terminal = {
+        "job_id": "ct0",
+        "generation": generation,
+        "status": "failed",
+        "reason": "timeout",
+        "returncode": 138,
+        "last_traceback_line": footer,
+        "job_log_tail": footer + "\n",
+    }
+    record = {
+        "job_id": "ct0",
+        "generation": generation,
+        "status": "INCOMPLETE",
+        "failure_class": "CHILD_NONZERO_EXIT",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "terminal": terminal,
+        "error": f"ClassifiedFailure('remote child exited 138: {footer}')",
+    }
+    (tmp_path / "receipt.json").write_text(json.dumps(record))
+    (tmp_path / "terminal.json").write_text(json.dumps(terminal))
+    ct_resume._check_attempt_base_fault_evidence(tmp_path)
+    terminal["last_traceback_line"] += "; LookupError: concealed science"
+    (tmp_path / "terminal.json").write_text(json.dumps(terminal))
+    with pytest.raises(ct_resume.CTResumeRefused, match="scientific/non-mechanical"):
+        ct_resume._check_attempt_base_fault_evidence(tmp_path)
