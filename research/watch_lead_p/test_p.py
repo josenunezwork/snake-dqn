@@ -715,7 +715,7 @@ def test_first_stop_in_real_spawn_pool_shutdown(tmp_path, signum, worker_error):
     script.write_text("""import os, signal, sys, time
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
-from research.watch_lead_p import run
+from research.watch_lead_p import run, resume
 base = Path(sys.argv[2])
 def work(index, arm):
     if sys.argv[4] == "True":
