@@ -1,0 +1,256 @@
+{
+  "PPO_recipe_unchanged": true,
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-16-broker.noindex",
+  "broker_seal": "d55064e9a03c4da8f8f6fede34bbcef0ba11e92d",
+  "colab_limits_pre_dispatch_checklist": {
+    "10_live_preflight_and_mac_host_discipline": {
+      "detail": "all local runs executed with nice -n 15, CPU, thread caps=1, zero background processes remaining; recent account balance ~998.58u covers 369.0u cap + active train01-15 129.0u cap (498.0u << 998.58u, assignments < 3); operator launches live dispatch under caffeinate on AC power",
+      "status": "PASS"
+    },
+    "1_staging_budget_300s_cap": {
+      "detail": "5 fixed inputs (21601760 B) + bootstrap.sh + source.py + 936230 B fallback source.tar.gz = 22555745 B across 8 uploads; T_stage,nom=26.79s (GitHub) / 36.08s (fallback, 12.0% of 300s, <120s target, <150s canary bar), T_stage,worst=45.67s (GitHub) / 62.47s (fallback, 20.8% of 300s, <210s target); no .pt snapshot uploaded",
+      "status": "PASS"
+    },
+    "2_spawn_only_launch_rpc": {
+      "detail": "sandbox_source_delivery=background-sparse-v1; 3 local measure_launch.py runs completed spawn RPC in 0.0256-0.0267s (<2.0s bound, <<60s EXEC_POLL_SECONDS) and verified all 192 archived files",
+      "status": "PASS"
+    },
+    "3_export_sizing_and_download_window": {
+      "detail": "max_export_bytes=2147483648 (2 GiB per file); each iteration-XXXX.pt is ~1.33 GB (<2 GiB); intermediate snapshots stream incrementally during 15s polls in parallel with ~37.2m 16-update GPU cadence; post-terminal final export (~1.335 GB, 5 files, T_dl,worst=14.65m at 1.66 MB/s) included in est_minutes=1380 and timeout_minutes=2760",
+      "status": "PASS"
+    },
+    "4_gpu_vram_ceiling_34gib": {
+      "detail": "A100 40GB peak prep VRAM (E360 sim + 16.224 GiB _ResidentArena + PopArt critic) = 22.57 GiB <= 34.0 GiB (57% of 39.56 GiB); PPO phase peak (E1024 x T256) = 10.4 GiB <= 34.0 GiB",
+      "status": "PASS"
+    },
+    "5_dual_clock_2x_timeout_and_unit_cap": {
+      "detail": "nominal A100 session = 21.75h (1305.15m), conservative base = 22.82h (1369.09m); frozen est_minutes=1380 (23.0h, base_seconds=82800), timeout_minutes=2760 (46.0h=2x, effective_seconds=165600), unit_cap=369.0 >= (2760/60)*8.0=368.0 (expected actual burn ~115.3u at 5.3u/h)",
+      "status": "PASS"
+    },
+    "6_heartbeat_and_stall_watchdog": {
+      "detail": "train_job.sh runs StallWatchdog (faulthandler dump + exit 124) with SANDBOX_A_STALL_TIMEOUT_SECONDS=900; collect, proxy evaluate, prep, and distribution screen emit progress lines <=60s",
+      "status": "PASS"
+    },
+    "7_resume_declaration": {
+      "detail": "resume={unit_kind: training-full-trajectory-snapshot, ledger_path: verified-ledger.json, skip_verified: true, max_outcome_blind_retries: 2} with empty hash-bound verified-ledger.json; no resume_exemption; no 256-frame ResidentTrainingTask CPU screen run",
+      "status": "PASS"
+    },
+    "8_clean_detached_checkouts": {
+      "detail": "snake-dqn-train01-16-runtime.noindex (5cad044f3d9725a0ddbb967998b82c6eb9cb7739) and snake-dqn-train01-16-broker.noindex (d55064e9a03c4da8f8f6fede34bbcef0ba11e92d) are clean detached worktrees with qualified transport tree 5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+      "status": "PASS"
+    },
+    "9_dry_run_admission": {
+      "detail": "PASS_DRY_RUN sandbox-a-train01-20261027-16 allocations=0 live_accounting=NOT_CHECKED; train01-attempt-16/{state,output} remain absent",
+      "status": "PASS"
+    }
+  },
+  "control_allocation_sha256": "10294d71ef32b9654f0713b9d0080ecf885531858a829beb6a97592032ab3218",
+  "dispatch_identity": "sandbox-a-train01-20261027-16",
+  "dry_run_output": "PASS_DRY_RUN sandbox-a-train01-20261027-16 allocations=0 live_accounting=NOT_CHECKED",
+  "fresh_start_from_b8_no_resume": true,
+  "independent_seed_domain": {
+    "aliases": 0,
+    "allocation_index": 1,
+    "audited_roots": 114299008,
+    "canonical_uint64_sha256": "1db80dc4dbe77ed16a04ac52c867e694cc1d9e53e626ebf32aea70fe5f6c12b5",
+    "cross_run_combined_distinct_indices_audited": 228596960,
+    "cross_run_effective_63bit_aliases": 0,
+    "engineering_96_frame0_health": {
+      "all_6_snakes_alive_at_spawn": true,
+      "hero_initial_length_range": [
+        1,
+        1
+      ],
+      "initial_food_count_range": [
+        300,
+        300
+      ],
+      "offset": 1600000000,
+      "worlds": 96
+    },
+    "excluded_intersection": 0,
+    "master_rng_canonical_index": 1000000001,
+    "master_rng_seed_low63": 2843919567036118882,
+    "monitor_proxy_bank_identical_to_train01_15": {
+      "count": 288,
+      "identical_to_train01_15": true,
+      "offset": 400000000,
+      "seeds_json_sha256": "a6aa701b6538a64386a2c1ccd0a1422eb9499f10638c2d5ad647214c7756a9e4"
+    },
+    "nomination_eval_bank_identical_to_train01_15": {
+      "count": 768,
+      "identical_to_train01_15": true,
+      "offset": 500000000,
+      "seeds_json_sha256": "0b7a532dc2e02bdebf9bafb3771e3d17224a4c20b6862570666c6ef95a704d82"
+    },
+    "registry_sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+    "train01_15_master_rng_seed_low63": 7865389310044696751,
+    "train_seed_offset": 1000000000
+  },
+  "launch_exec_bound": {
+    "bound_seconds": 2.0,
+    "files_verified": 192,
+    "runs": [
+      {
+        "completion_seconds": 0.0917370420647785,
+        "index": 0,
+        "launch_seconds": 0.02609570906497538,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.10117554198950529,
+        "index": 1,
+        "launch_seconds": 0.026653542066924274,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.0914392500417307,
+        "index": 2,
+        "launch_seconds": 0.025553292012773454,
+        "status": "completed"
+      }
+    ],
+    "source_tar_gz_bytes": 936230,
+    "status": "PASS"
+  },
+  "lint": {
+    "black": "PASS",
+    "flake8": "PASS",
+    "isort": "PASS"
+  },
+  "packet_file_sha256": {
+    "DISPATCH.txt": "1f0352ace18c64722a6e74a5f71f796c8d5a0fc63f574f41c097dc67a007543c",
+    "SEAL.json": "cc40a1ddac7e071c795459a9cd7c3d2e80bfa5c08e65e106635f7839946c8f89",
+    "control.json": "5b00f131521d2dcb96442911f847074b246c99ce86202f20e278d75e6af2050c",
+    "dispatch-manifest.json": "6c02ece326a720a344a9fda4ba539d6eaadb10356cd69fd4477b7481c5d97136",
+    "registry-check.json": "1ef696cc8c71ccd0328cfe307e47d9659f61806affea8d7b09b8cc6e0952832d",
+    "sandbox.json": "1e25eccb506ac1770423601592c0b4a11ff2b2289664c50844700e7e930d1650",
+    "verified-ledger.json": "aeb7d145514621d126c78f56044237fea40bd2cb0aea110ec6272ed090808ddb"
+  },
+  "packet_hashes": {
+    "control.json": "5b00f131521d2dcb96442911f847074b246c99ce86202f20e278d75e6af2050c",
+    "dispatch-manifest.json": "6c02ece326a720a344a9fda4ba539d6eaadb10356cd69fd4477b7481c5d97136",
+    "registry-check.json": "1ef696cc8c71ccd0328cfe307e47d9659f61806affea8d7b09b8cc6e0952832d",
+    "sandbox.json": "1e25eccb506ac1770423601592c0b4a11ff2b2289664c50844700e7e930d1650",
+    "verified-ledger.json": "aeb7d145514621d126c78f56044237fea40bd2cb0aea110ec6272ed090808ddb"
+  },
+  "prepared_not_dispatched": true,
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-16-runtime.noindex",
+  "runtime_pin": "5cad044f3d9725a0ddbb967998b82c6eb9cb7739",
+  "schema": "sandbox-a-train01-16-verification/v1",
+  "state_and_output_absent": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-16/output": false,
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-16/state": false
+  },
+  "test_counts": {
+    "broker_admission_suite": 276,
+    "combined_resident_and_sandbox_tools_suite": 398,
+    "frozen_cuda_semantics_preflight": 4,
+    "frozen_training_preflight": 326,
+    "scoped_sandbox_a_resident_suite": 310,
+    "tools_sandbox_suite": 88
+  },
+  "upload_staging_projection": {
+    "canary_bar_seconds": 150.0,
+    "design_target_nominal_seconds": 120.0,
+    "design_target_worst_seconds": 210.0,
+    "fallback_tarball_path": {
+      "file_count": 8,
+      "fraction_of_300s_cap_nominal": 0.1203,
+      "fraction_of_300s_cap_worst": 0.2083,
+      "nominal_seconds": 36.1,
+      "total_bytes": 22579515,
+      "worst_case_seconds": 62.5
+    },
+    "github_source_path": {
+      "file_count": 7,
+      "fraction_of_300s_cap_nominal": 0.1111,
+      "fraction_of_300s_cap_worst": 0.1922,
+      "nominal_seconds": 33.32,
+      "total_bytes": 21619515,
+      "worst_case_seconds": 57.65
+    },
+    "hard_cap_seconds": 300.0,
+    "measured_fallback_fraction_of_300s_cap_nominal": 0.1203,
+    "measured_fallback_fraction_of_300s_cap_worst": 0.2082,
+    "measured_fallback_nominal_seconds": 36.08,
+    "measured_fallback_total_bytes": 22555745,
+    "measured_fallback_worst_seconds": 62.47,
+    "measured_source_tar_gz_bytes": 936230,
+    "private_input_bytes": 21601760,
+    "private_input_count": 5,
+    "private_inputs": {
+      "b8-s3.pth": 6562005,
+      "champion.pth": 6898955,
+      "frp3-s12.pth": 6906247,
+      "registry.json": 1234356,
+      "verified-ledger.json": 197
+    },
+    "schema": "sandbox-a-train01-16-upload-projection/v1",
+    "skill_reference": "colab-limits \u00a73.1, \u00a74.1",
+    "status": "PASS",
+    "supervisor_pinned_files": {
+      "bootstrap.sh": 3244,
+      "fallback_source_tar_gz_estimate": 960000,
+      "source.py": 14511
+    }
+  },
+  "wall_time_and_2x_envelope_projection": {
+    "frozen_envelopes_2x_rule": {
+      "base_seconds": 82800,
+      "effective_seconds_2x": 165600,
+      "est_minutes_base": 1380,
+      "expected_nominal_units_at_5p3": 115.29,
+      "max_export_bytes_per_file": 2147483648,
+      "rate_units_per_hour_observed": 5.3,
+      "rate_units_per_hour_priced_ceiling": 8.0,
+      "timeout_minutes_effective_2x": 2760,
+      "unit_cap_base_at_8p0": 184.5,
+      "unit_cap_effective_2x": 369.0
+    },
+    "hardware": "NVIDIA A100-SXM4-40GB",
+    "phases_conservative_seconds": {
+      "alloc_warmup_launch_ratecal_stage_bootstrap": 290.0,
+      "cleanup_and_stop_verification": 60.0,
+      "compile_self_check_and_e32_startup_screen": 540.0,
+      "detached_h5000_e96_proxies_8x": 16800.0,
+      "e24_temperature_calibration": 1200.0,
+      "e360_gpu_resident_critic_prep": 6900.0,
+      "post_terminal_final_export_download_worst_1p66mbs": 879.2,
+      "ppo_learner_float64_kl_384x524288": 3072.0,
+      "ppo_rollout_collection_384x262144": 52224.0,
+      "snapshot_local_writes_26x": 180.0
+    },
+    "phases_nominal_seconds": {
+      "alloc_warmup_launch_ratecal_stage_bootstrap": 115.0,
+      "cleanup_and_stop_verification": 60.0,
+      "compile_self_check_and_e32_startup_screen": 500.0,
+      "detached_h5000_e96_proxies_8x": 16395.2,
+      "e24_temperature_calibration": 936.0,
+      "e360_gpu_resident_critic_prep": 6233.0,
+      "post_terminal_final_export_download": 371.7,
+      "ppo_learner_float64_kl_384x524288": 2496.0,
+      "ppo_rollout_collection_384x262144": 51072.0,
+      "snapshot_local_writes_26x": 130.0
+    },
+    "platform_24h_continuity_note": "Nominal single-session duration is 21.75 h (2.25 h below Colab Pro+ ~24 h continuous VM recycle window). Full-trajectory snapshots are exported and Mac-verified every 16 updates (~37.2 min cadence) with resume.max_outcome_blind_retries=2 in case of provider VM recycle.",
+    "schema": "sandbox-a-train01-16-wall-time-projection/v1",
+    "skill_reference": "colab-limits \u00a73.2.A, \u00a74.2, \u00a74.3, \u00a74.4, \u00a74.5",
+    "totals": {
+      "conservative_base_hours": 22.82,
+      "conservative_base_minutes": 1369.09,
+      "conservative_base_seconds": 82145.2,
+      "nominal_hours": 21.75,
+      "nominal_minutes": 1305.15,
+      "nominal_seconds": 78308.9
+    },
+    "vram_budget_gib": {
+      "a100_total_gib": 39.56,
+      "planning_ceiling_85pct_gib": 34.0,
+      "ppo_phase_peak_e1024_t256_rollout_plus_sim_gib": 10.4,
+      "prep_phase_peak_resident_arena_plus_sim_gib": 22.57,
+      "within_34gib_ceiling": true
+    }
+  }
+}
