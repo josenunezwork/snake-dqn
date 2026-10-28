@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from research.colab_cli.transfers import DOWNLOAD_CHUNK_BYTES
+from research.colab_cli.transfers import DOWNLOAD_CHUNK_BYTES, UPLOAD_CHUNK_BYTES
 from research.sandbox_a_resident.test_training_resume import manifest, receipt
 from research.sandbox_a_resident.training_resume import (
     ResumeRefused,
@@ -103,29 +103,45 @@ def test_duplicate_normalized_json_keys_refuse_even_when_equal(
         _scan_retained_text(path, output_root=tmp_path, expected_job_id="train-01")
 
 
-@pytest.mark.parametrize("name", [".transfer-abcd.1", ".transfer-stage/00000001.part"])
-def test_download_chunks_are_slices_at_their_real_offset(tmp_path: Path, name: str) -> None:
+@pytest.mark.parametrize(
+    "name,chunk_bytes,index",
+    [
+        (".transfer-abcd.1", DOWNLOAD_CHUNK_BYTES, 1),
+        (".transfer-abcd.2", DOWNLOAD_CHUNK_BYTES, 2),
+        (".transfer-stage/00000001.part", DOWNLOAD_CHUNK_BYTES, 1),
+        (".snake-transfer-stage/00000001.part", UPLOAD_CHUNK_BYTES, 1),
+    ],
+)
+def test_download_chunks_are_slices_at_their_real_offset(
+    tmp_path: Path, name: str, chunk_bytes: int, index: int
+) -> None:
     root = tmp_path / "exports/training"
     root.mkdir(parents=True)
     canonical = root / "iteration-0128.pt.xz"
-    content = b"a" * DOWNLOAD_CHUNK_BYTES + b"different second chunk"
+    offset = chunk_bytes * index
+    content = b"a" * offset + b"different later chunk"
     publish(canonical, lambda p: p.write_bytes(content))
     chunk = root / name
     chunk.parent.mkdir(exist_ok=True)
-    chunk.write_bytes(content[DOWNLOAD_CHUNK_BYTES:])
+    chunk.write_bytes(content[offset:])
     _check_output_root_fault_evidence(tmp_path)
     chunk.write_bytes(b"wrong second chunk")
     with pytest.raises(ResumeRefused, match="differs from verified payload"):
         _check_output_root_fault_evidence(tmp_path)
 
 
-def test_empty_staging_and_verified_json_prefix_are_scanned_safely(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "name", [".transfer-json", "proxy-0128.json.partial", "proxy-0128.json.tmp-a"]
+)
+def test_empty_staging_and_verified_json_prefix_are_scanned_safely(
+    tmp_path: Path, name: str
+) -> None:
     root = tmp_path / "exports/training"
     root.mkdir(parents=True)
     (root / "iteration-0128.pt.xz.partial").touch()
     canonical = root / "proxy-0128.json"
     publish(canonical, lambda p: p.write_text('{"status":"PASS","rows":12}\n'))
-    part = root / ".transfer-json"
+    part = root / name
     part.write_bytes(canonical.read_bytes()[:7])
     _check_output_root_fault_evidence(tmp_path)
     # Independent canonical scan is mandatory even if staged bytes match it.

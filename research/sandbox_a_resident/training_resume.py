@@ -1138,7 +1138,8 @@ class _RetainedTransport:
     verified whole-payload, prefix or offset-slice proof. Empty writes are inert.
     A nonempty truncated download without a verified local canonical copy is
     deliberately refused: the export digest cannot prove its preimage. Preserve
-    it and obtain independent recovery evidence; never delete it to gain admission.
+    it; a verified canonical payload is required to prove its bytes. A stop or
+    recovery certificate never waives this proof. Never delete it to gain admission.
     No temporary file becomes a ledger unit.
     """
 
@@ -1324,6 +1325,14 @@ class _RetainedTransport:
         if sidecar is not None:
             _publication_sidecar(path)
             return True
+        staged = re.fullmatch(r"(.+)" + STAGING_SUFFIX, path.name)
+        if staged and path.parent == training and model is None:
+            canonical = path.with_name(staged[1])
+            if path.stat().st_size == 0:
+                return True
+            if canonical.is_file() and Path(str(canonical) + ".sha256").is_file():
+                self.admit_payload(path, canonical)
+                return True
         if opaque:
             # The downloader uses anonymous .transfer-* names for sidecars too.
             # Only bounded recognizable sidecar bytes may bypass payload proof.

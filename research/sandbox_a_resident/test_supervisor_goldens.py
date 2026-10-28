@@ -114,6 +114,17 @@ def test_every_real_producer_case_has_scientific_fault_twin(tmp_path: Path, case
     original = GOLDENS / case
     root = tmp_path / case
     shutil.copytree(original / "output", root)
+    if case in {"clean-completion", "provider-loss-no-receipt"}:
+        manifest = json.loads((root / "manifest.json").read_text())
+        rec_path = root / "receipt.json"
+        rec = json.loads(rec_path.read_text()) if rec_path.exists() else None
+        resume._check_output_root_fault_evidence(
+            root,
+            expected_job_id=manifest["job_id"],
+            expected_generation=rec["generation"] if rec else None,
+            validated_receipt=rec,
+            allow_completed=case == "clean-completion",
+        )
     fault = root / "retained-scientific-diagnostic.log"
     fault.write_text("FloatingPointError: non-finite golden injected fault\n")
     # Every case, including completion/unexplained child/provider loss, must
@@ -125,6 +136,15 @@ def test_every_real_producer_case_has_scientific_fault_twin(tmp_path: Path, case
         _, receipt, manifest, manifest_hash = _evidence(case)
         with pytest.raises(resume.ResumeRefused, match="explicit scientific/non-mechanical fault"):
             resume.verify_mechanical_stop(receipt, manifest, manifest_hash, output_root=root)
+    elif case in {"clean-completion", "provider-loss-no-receipt"}:
+        with pytest.raises(resume.ResumeRefused, match="explicit scientific/non-mechanical fault"):
+            resume._check_output_root_fault_evidence(
+                root,
+                expected_job_id=manifest["job_id"],
+                expected_generation=rec["generation"] if rec else None,
+                validated_receipt=rec,
+                allow_completed=case == "clean-completion",
+            )
 
 
 def test_real_clean_completion_is_complete_and_cannot_be_continued() -> None:
