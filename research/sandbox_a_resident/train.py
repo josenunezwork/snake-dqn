@@ -17,6 +17,10 @@ import numpy as np
 import torch
 
 from research.sandbox_a_resident.training_acceptance import run_distribution_screen
+from research.sandbox_a_resident.training_compact import (
+    materialize_compact_resume,
+    verify_decoded_state,
+)
 from research.sandbox_a_resident.training_compile import TrainingCompile
 from research.sandbox_a_resident.training_cpu_reference import cpu_distribution_factory
 from research.sandbox_a_resident.training_learner import PPOConfig, PPORollout, PPOTrainer
@@ -45,6 +49,7 @@ from research.sandbox_a_resident.training_task import (
     seed_allocations,
 )
 from research.sandbox_a_resident.training_units import (
+    COMPACT_RESUME_FIELD,
     allocation,
     load_ledger,
     migration_source_control,
@@ -467,6 +472,16 @@ def run(
         predecessor = migration_source_control(ledger_payload, asdict(control))
         if predecessor != asdict(control):
             resume_source_control = predecessor
+        compact_manifest: dict[str, Any] | None = None
+        if COMPACT_RESUME_FIELD in ledger_payload:
+            # The allowlisted compact derivative is decoded into its
+            # byte-identical original before the ordinary ledger verification
+            # re-hashes it; the decoded state is checked tensor-by-tensor below.
+            if input_root is None:
+                raise ValueError("compact resume requires the uploaded input root")
+            emit("compact-resume-decode")
+            compact_manifest = materialize_compact_resume(ledger_payload, input_root)
+            emit("compact-resume-decoded", {"unit": compact_manifest["unit"]})
         verified = load_ledger(ledger, asdict(control), input_root=input_root)
         if verified:
             permitted = {
@@ -482,6 +497,13 @@ def run(
             # Decode durable metadata/RNG on CPU. Module, optimizer and task
             # loaders explicitly place their numerical state on the target device.
             state = torch.load(latest["exports"][0]["path"], map_location="cpu", weights_only=False)
+            if compact_manifest is not None:
+                if latest.get("id") != compact_manifest["unit"]:
+                    raise ValueError("compact resume unit is not the selected snapshot")
+                # Every decoded tensor and the non-tensor structure must equal
+                # the original snapshot's manifest before anything is restored.
+                verify_decoded_state(state, compact_manifest)
+                emit("compact-resume-verified", {"tensors": compact_manifest["tensor_count"]})
             if int(state.get("iteration", -1)) != int(latest["iteration"]):
                 raise ValueError("ledger descriptor and snapshot iteration differ")
             start = _restore(

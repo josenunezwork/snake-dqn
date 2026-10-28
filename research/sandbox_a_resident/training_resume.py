@@ -13,11 +13,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from research.sandbox_a_resident import training_units
 from research.sandbox_a_resident.training_units import (
+    COMPACT_DERIVATIVE_SUFFIX,
+    COMPACT_MANIFEST_SUFFIX,
+    COMPACT_RESUME_FIELD,
+    COMPACT_RESUME_SCHEMA,
     NAMESPACE,
     allocation,
     source_migration,
     unit_id,
+    validate_compact_resume,
 )
 from research.sandbox_a_resident.units import digest
 
@@ -234,6 +240,55 @@ def build_ledger(
         uploads,
         latest,
     )
+
+
+def attach_compact_resume(
+    ledger: Mapping[str, Any], uploads: list[dict[str, str]], export_root: Path
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Bind the allowlisted compact derivative in place of the full-state upload.
+
+    Torch-free: the derivative and manifest are verified by completion-last
+    sidecars and SHA-256 only, then the ledger gains a ``compact_resume`` entry
+    that must equal the frozen allowlist.  The original ``.pt`` payload upload is
+    replaced by the derivative and manifest; its ``.sha256``/``.complete``
+    sidecars stay uploaded so the runtime verifies the decoded original through
+    the ordinary ledger path.
+    """
+    successor = copy.deepcopy(dict(ledger))
+    units = successor.get("units")
+    if not isinstance(units, list) or len(units) != 1:
+        raise ResumeRefused("compact resume binds exactly one latest snapshot")
+    unit = units[0]
+    frozen = training_units.COMPACT_RESUME_ALLOWLIST.get(unit.get("id"))
+    if frozen is None:
+        raise ResumeRefused("snapshot is not allowlisted for compact resume")
+    original = unit["exports"][0]
+    if original != frozen["original"]:
+        raise ResumeRefused("ledger full-state export differs from the allowlisted original")
+    stem = Path(original["path"]).name
+    entry: dict[str, Any] = {
+        "schema": COMPACT_RESUME_SCHEMA,
+        "unit": unit["id"],
+        "original": dict(original),
+    }
+    records: list[dict[str, str]] = []
+    for role, suffix in (
+        ("derivative", COMPACT_DERIVATIVE_SUFFIX),
+        ("manifest", COMPACT_MANIFEST_SUFFIX),
+    ):
+        path = export_root / f"{stem}{suffix}"
+        destination = f"{original['path']}{suffix}"
+        entry[role] = _descriptor(path, runtime_path=destination)
+        records.append(
+            {"path": str(path.resolve()), "dest": destination, "sha256": entry[role]["sha256"]}
+        )
+    successor[COMPACT_RESUME_FIELD] = entry
+    validate_compact_resume(successor)
+    kept = [row for row in uploads if row["dest"] != original["path"]]
+    if len(kept) != len(uploads) - 1:
+        raise ResumeRefused("full-state upload record is missing or duplicated")
+    position = next(index for index, row in enumerate(uploads) if row["dest"] == original["path"])
+    return successor, kept[:position] + records + kept[position:]
 
 
 def verify_mechanical_stop(

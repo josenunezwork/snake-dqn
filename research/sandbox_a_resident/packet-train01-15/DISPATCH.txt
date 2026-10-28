@@ -1,0 +1,12 @@
+TRAIN-01-15: prepared only; operator dispatch required.
+Runtime pin: 5c0a101a85237e2ce563dcaa6429828126a37d04
+Compact lossless resume: train01-11 iteration-0000.pt (1,327,620,931 B) ships as a 8,804,064 B XZ derivative.
+Runtime decodes, verifies original SHA-256 and all 209 tensor hashes, then resumes; any mismatch refuses.
+Float64 log_softmax legal KL/entropy with torch.where masking and standard autograd; cache-independent probability validation.
+Source delivery: background-sparse-v1; qualified transport and its 300 s upload cap unchanged.
+Same seed allocation domain, reused exhaustive audit, 8h base/16h effective guard; no CUDA claims.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-15-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261027-15 /Users/josenunez/Projects/ml/snake-dqn-train01-15-broker.noindex/research/sandbox_a_resident/packet-train01-15/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-15-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-15-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-15-broker.noindex/research/sandbox_a_resident/packet-train01-15/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve detached checkouts and prior evidence.

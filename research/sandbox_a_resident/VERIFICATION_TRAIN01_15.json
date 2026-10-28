@@ -1,0 +1,118 @@
+{
+  "PPO_recipe_unchanged": true,
+  "astra_review_fixes": {
+    "compact_resume_and_admission_untouched": true,
+    "train01_14_major_opposite_dominant_kl_overflow": "FIXED: removed custom _anchored_normalization / _LegalCategoricalKL / _LegalCategoricalEntropy; masked_categorical_kl and masked_categorical_entropy cast legal-masked logits to float64 (illegal -inf), compute log_softmax, mask with torch.where so excluded entries contribute exact 0.0 without 0*inf in forward or autograd backward, differentiate via standard PyTorch autograd, and cast back to float32 while preserving non-finite legal-support NaN / learner-finite-check guards and Categorical._param probability validation"
+  },
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-15-broker.noindex",
+  "broker_seal": "a51380c1e1bd981936617952b1e4d2940a198342",
+  "compact_resume_evidence": {
+    "allowlist_equal": true,
+    "codec": {
+      "check": "sha256",
+      "container": "xz",
+      "filter": "lzma2",
+      "preset": 6,
+      "streams": 1
+    },
+    "derivative_bytes": 8804064,
+    "derivative_chunks_2mib": 5,
+    "derivative_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-11/output/exports/training/iteration-0000.pt.xz",
+    "derivative_sha256": "a25562d7e95e5dd486620dbe3eee3e7445396c8eb5f5f5f6f1f0f4fdda05fb7b",
+    "full_state_uploaded": false,
+    "manifest_bytes": 69385,
+    "manifest_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-11/output/exports/training/iteration-0000.pt.xz.manifest",
+    "manifest_sha256": "44c0b5d30e48ef3d3be370e30cc478b8ad0855ee2da236bdfaab4f9b5838efd5",
+    "original_bytes": 1327620931,
+    "original_sha256": "2b5478e895e7b2b68c02e3bd118612257ea4e97c0cfab727013d7e2143338ab6",
+    "original_tensors_verified": 209,
+    "upload_cap_seconds": 300,
+    "upload_projection": {
+      "derivative_nominal_fraction_of_cap": 0.02524995274543049,
+      "derivative_nominal_seconds": 7.574985823629147,
+      "derivative_worst_fraction_of_cap": 0.04842977245814134,
+      "derivative_worst_seconds": 14.528931737442402,
+      "target_fraction_of_cap": 0.25,
+      "whole_staging_nominal_fraction_of_cap": 0.18139059444739974,
+      "whole_staging_nominal_seconds": 54.417178334219926,
+      "whole_staging_worst_fraction_of_cap": 0.31844123326667545,
+      "whole_staging_worst_seconds": 95.53236998000264
+    }
+  },
+  "control_allocation_sha256": "b232ca1950dfbd4b704e3c0d9948c265b4c4e56248ee3ff6a6583c33d321667e",
+  "dispatch_identity": "sandbox-a-train01-20261027-15",
+  "dry_run_output": "PASS_DRY_RUN sandbox-a-train01-20261027-15 allocations=0 live_accounting=NOT_CHECKED",
+  "launch_exec_bound": {
+    "bound_seconds": 2.0,
+    "files_verified": 192,
+    "runs": [
+      {
+        "completion_seconds": 0.088497249991633,
+        "index": 0,
+        "launch_seconds": 0.026259792037308216,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.08837350003886968,
+        "index": 1,
+        "launch_seconds": 0.026450000004842877,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.087241290952079,
+        "index": 2,
+        "launch_seconds": 0.026340165990404785,
+        "status": "completed"
+      }
+    ],
+    "status": "PASS"
+  },
+  "lint": {
+    "black": "PASS",
+    "flake8": "PASS",
+    "isort": "PASS"
+  },
+  "packet_file_sha256": {
+    "DISPATCH.txt": "3401be9d23350041f674f3c748771ab522691660a3a7898e7b423af06098f415",
+    "SEAL.json": "5c3e975132df1639fd82fcb1f24f3a15c84b861201f921383f9f25b0df8f98de",
+    "control.json": "4ee9c3ae2654c547778c29f724bdacf120614f1ba913a029b261b7d9ed9ee384",
+    "dispatch-manifest.json": "65d3caffe216e07b740478d346bbc93b3058061763eacfee0f40d140c7408f20",
+    "registry-check.json": "c08fc1775ac2805786d2e4b151cbde58bebc554b38d652db12078fde4880b759",
+    "sandbox.json": "a701ab6c14d5ea49414b9a96bf8ba30eadd62f4007c4d5a6688da40c2c254e96",
+    "verified-ledger.json": "f5f9835320da987bb06a003e32f7d4be71561f49c6a86163b18546696a876e47"
+  },
+  "packet_hashes": {
+    "control.json": "4ee9c3ae2654c547778c29f724bdacf120614f1ba913a029b261b7d9ed9ee384",
+    "dispatch-manifest.json": "65d3caffe216e07b740478d346bbc93b3058061763eacfee0f40d140c7408f20",
+    "registry-check.json": "c08fc1775ac2805786d2e4b151cbde58bebc554b38d652db12078fde4880b759",
+    "sandbox.json": "a701ab6c14d5ea49414b9a96bf8ba30eadd62f4007c4d5a6688da40c2c254e96",
+    "verified-ledger.json": "f5f9835320da987bb06a003e32f7d4be71561f49c6a86163b18546696a876e47"
+  },
+  "prepared_not_dispatched": true,
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "resume_evidence": {
+    "from_packet": "packet-train01-11",
+    "from_source_commit": "e86e4b0bc8ea37550103b14652878d1b63f5b0e1",
+    "iteration_0000_actor_pth_sha256": "64c9c404946d4747239d4a339c06e3f72902e228513a5de09067cbb49594f519",
+    "iteration_0000_json_sha256": "2bd2111d7a3061797cf7d4c0c8a94e8114033aa03671ff9397bf868820a04541",
+    "iteration_0000_pt_sha256": "2b5478e895e7b2b68c02e3bd118612257ea4e97c0cfab727013d7e2143338ab6",
+    "iteration_0000_pt_xz_manifest_sha256": "44c0b5d30e48ef3d3be370e30cc478b8ad0855ee2da236bdfaab4f9b5838efd5",
+    "iteration_0000_pt_xz_sha256": "a25562d7e95e5dd486620dbe3eee3e7445396c8eb5f5f5f6f1f0f4fdda05fb7b",
+    "unit_id": "a100-dev/sandbox-a/train01/iteration-0000"
+  },
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-15-runtime.noindex",
+  "runtime_pin": "5c0a101a85237e2ce563dcaa6429828126a37d04",
+  "schema": "sandbox-a-train01-15-verification/v1",
+  "state_and_output_absent": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15/output": false,
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15/state": false
+  },
+  "test_counts": {
+    "broker_admission_suite": 276,
+    "combined_resident_and_sandbox_tools_suite": 395,
+    "frozen_cuda_semantics_preflight": 4,
+    "frozen_training_preflight": 323,
+    "scoped_sandbox_a_resident_suite": 307,
+    "tools_sandbox_suite": 88
+  }
+}

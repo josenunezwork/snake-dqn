@@ -110,6 +110,7 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
             "frozen-opponent",
             "training-export",
             "training-export-sidecar",
+            "training-export-derivative",
             "verified-ledger",
             "verified-unit",
             "registry",
@@ -141,7 +142,13 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
         else:
             raise ManifestError(f"inputs[{index}].kind is not admitted: {kind!r}")
         if (
-            kind in {"frozen-opponent", "training-export", "training-export-sidecar"}
+            kind
+            in {
+                "frozen-opponent",
+                "training-export",
+                "training-export-sidecar",
+                "training-export-derivative",
+            }
             and payload["study"] != "sandbox-a-train01"
         ):
             raise ManifestError("training inputs are exclusive to sandbox-a-train01")

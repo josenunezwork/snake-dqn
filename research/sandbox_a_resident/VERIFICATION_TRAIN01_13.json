@@ -1,0 +1,82 @@
+{
+  "PPO_recipe_unchanged": true,
+  "astra_review_fixes": {
+    "finding_1_major_post_latch_nonfinite_reference": "FIXED: _legal_log_probs and masked_categorical_kl/entropy preserve non-finite legal support as NaN; PPOTrainer.update verifies stop-minibatch reference/entropy finiteness after old_kl > kl_stop, emits learner-finite-check telemetry (finite=false), and raises FloatingPointError",
+    "finding_2_minor_legal_probability_underflow": "FIXED: masked_categorical_kl and masked_categorical_entropy evaluate legal log-probabilities in log-space with logsumexp (float64 internal, cast to input dtype), retaining exact tail contributions (KL=6.1096613044562024e-43, entropy=7.146622168056567e-44 for [0,-104] vs [0,-1000]; KL=6.813556296947354e-08 for [0,-104] vs [0,-1e38]) while keeping absent support (~legal) at exact 0.0",
+    "finding_3_minor_evidence_digest_label": "FIXED: preserved historical VERIFICATION_TRAIN01_12.json bytes, added sibling VERIFICATION_TRAIN01_12_ERRATUM.json, and separated control_allocation_sha256 from packet_file_sha256/packet_hashes in this document"
+  },
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-13-broker.noindex",
+  "broker_seal": "d905c5bd1d530cb92259e3a6afb9188001565812",
+  "control_allocation_sha256": "29206dc55a1386069ab739fc22cb4e2f9a92c7f4f5a2fbbab86c40b4aad136c5",
+  "dispatch_identity": "sandbox-a-train01-20261027-13",
+  "dry_run_output": "PASS_DRY_RUN sandbox-a-train01-20261027-13 allocations=0 live_accounting=NOT_CHECKED",
+  "launch_exec_bound": {
+    "bound_seconds": 2.0,
+    "files_verified": 191,
+    "runs": [
+      {
+        "completion_seconds": 0.26361466699745506,
+        "index": 0,
+        "launch_seconds": 0.002246874966658652,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.2614963750820607,
+        "index": 1,
+        "launch_seconds": 0.002059541060589254,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.25391770899295807,
+        "index": 2,
+        "launch_seconds": 0.002225250005722046,
+        "status": "completed"
+      }
+    ],
+    "status": "PASS"
+  },
+  "lint": {
+    "black": "PASS",
+    "flake8": "PASS",
+    "isort": "PASS"
+  },
+  "packet_file_sha256": {
+    "DISPATCH.txt": "bc5e59adbd17a7e19258faa777af803ee2741bee60145dd36907d096da57972b",
+    "SEAL.json": "c96198851b6f045a39e9176512d6799d7c9a7a455102b1dc8c1b10c15201e44a",
+    "control.json": "6752c8d5b9b1c4cfc60288421d0d4a498811ba79f353f0b6e914ca1cba7384d9",
+    "dispatch-manifest.json": "34905a60bc0558861bac44e52f26ba313b95af9cde501932d721c248bd762d27",
+    "registry-check.json": "c08fc1775ac2805786d2e4b151cbde58bebc554b38d652db12078fde4880b759",
+    "sandbox.json": "11ef4cd7f71949605ffdc1f497594e254b157e336eb74287d2f2b7bca3287abd",
+    "verified-ledger.json": "e8b6bffe0527a1da464a7d7101cf0026173cf4069da63a2c60c0f499c4626285"
+  },
+  "packet_hashes": {
+    "control.json": "6752c8d5b9b1c4cfc60288421d0d4a498811ba79f353f0b6e914ca1cba7384d9",
+    "dispatch-manifest.json": "34905a60bc0558861bac44e52f26ba313b95af9cde501932d721c248bd762d27",
+    "registry-check.json": "c08fc1775ac2805786d2e4b151cbde58bebc554b38d652db12078fde4880b759",
+    "sandbox.json": "11ef4cd7f71949605ffdc1f497594e254b157e336eb74287d2f2b7bca3287abd",
+    "verified-ledger.json": "e8b6bffe0527a1da464a7d7101cf0026173cf4069da63a2c60c0f499c4626285"
+  },
+  "prepared_not_dispatched": true,
+  "resume_evidence": {
+    "from_packet": "packet-train01-11",
+    "from_source_commit": "e86e4b0bc8ea37550103b14652878d1b63f5b0e1",
+    "iteration_0000_actor_pth_sha256": "64c9c404946d4747239d4a339c06e3f72902e228513a5de09067cbb49594f519",
+    "iteration_0000_json_sha256": "2bd2111d7a3061797cf7d4c0c8a94e8114033aa03671ff9397bf868820a04541",
+    "iteration_0000_pt_sha256": "2b5478e895e7b2b68c02e3bd118612257ea4e97c0cfab727013d7e2143338ab6",
+    "unit_id": "a100-dev/sandbox-a/train01/iteration-0000"
+  },
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-13-runtime.noindex",
+  "runtime_pin": "ab379fd8a910bab17f00dc80dc920fa97ab5dd18",
+  "schema": "sandbox-a-train01-13-verification/v1",
+  "state_and_output_absent": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-13/output": false,
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-13/state": false
+  },
+  "test_counts": {
+    "broker_admission_suite": 244,
+    "frozen_cuda_semantics_preflight": 4,
+    "frozen_training_preflight": 273,
+    "scoped_sandbox_a_resident_suite": 257
+  },
+  "train01_12_erratum": "research/sandbox_a_resident/VERIFICATION_TRAIN01_12_ERRATUM.json"
+}

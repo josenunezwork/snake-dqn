@@ -78,6 +78,111 @@ def categorical(logits: torch.Tensor, legal_mask: torch.Tensor) -> torch.distrib
     )
 
 
+def _probability_parameterized(distribution: torch.distributions.Categorical) -> bool:
+    """Return whether ``distribution`` was constructed from ``probs``.
+
+    PyTorch caches the complementary lazy property (``logits`` for a
+    probability-parameterized distribution, ``probs`` for a logits one) in the
+    instance dictionary on first read; the probability-to-logit cache clamps
+    zeros to epsilon.  The constructor's ``_param`` alias identifies the original
+    parameterization independently of which observational property was read.
+    """
+    parameter = getattr(distribution, "_param", None)
+    state = vars(distribution)
+    if parameter is not None and state.get("probs") is parameter:
+        return True
+    if parameter is not None and state.get("logits") is parameter:
+        return False
+    raise TypeError("categorical distribution lacks an identifiable constructor parameterization")
+
+
+def _legal_masked_logits64(
+    distribution: torch.distributions.Categorical, legal: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.dtype]:
+    """Return float64 logits masked to ``-inf`` off legal support and row finiteness.
+
+    Only finite logits on all canonical legal actions may produce valid
+    log-probabilities when ``exp()`` underflows ``float32``.  Any non-finite
+    legal logit, or any non-positive/non-finite legal probability when
+    ``distribution`` was constructed from ``probs``, marks the row non-finite so
+    callers never mask numerical failures to healthy zero.  The constructor
+    parameterization, not lazy-property cache state, selects which is validated.
+    """
+    if _probability_parameterized(distribution):
+        probs = vars(distribution)["probs"]
+        if probs.shape != legal.shape:
+            raise ValueError("distribution and legal_mask must share shape [..., 6]")
+        probs64 = probs.to(dtype=torch.float64)
+        usable = legal & (probs64 > 0.0) & torch.isfinite(probs64)
+        valid_row = (usable | ~legal).all(dim=-1)
+        safe_weights = torch.where(usable, probs64, torch.ones_like(probs64)).log()
+        return torch.where(legal, safe_weights, float("-inf")), valid_row, probs.dtype
+
+    raw_logits = vars(distribution)["logits"]
+    if raw_logits.shape != legal.shape:
+        raise ValueError("distribution and legal_mask must share shape [..., 6]")
+    valid_row = (torch.isfinite(raw_logits) | ~legal).all(dim=-1)
+    logits64 = raw_logits.to(dtype=torch.float64)
+    safe_logits = torch.where(
+        legal & torch.isfinite(logits64), logits64, torch.zeros_like(logits64)
+    )
+    return torch.where(legal, safe_logits, float("-inf")), valid_row, raw_logits.dtype
+
+
+def masked_categorical_kl(
+    reference: torch.distributions.Categorical,
+    distribution: torch.distributions.Categorical,
+    legal_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Return forward KL D_KL(reference || distribution) over canonical legal support.
+
+    PyTorch's ``_kl_categorical_categorical`` unconditionally overwrites terms
+    where ``q.probs == 0`` with ``+inf``, while probability-space masking
+    ``reference.probs > 0`` drops finite legal tail log-probabilities whose
+    ``float32`` ``exp()`` rounds to ``0.0`` and masks ``NaN`` probabilities to
+    healthy zero.  Promote masked logits to ``float64`` (illegal actions
+    ``-inf``), evaluate ``log_p = log_softmax(actor)`` and
+    ``log_q = log_softmax(reference)``, sum ``q * (log_q - log_p)`` over legal
+    actions via ``torch.where`` so masked entries contribute exact ``0.0``
+    without ``0 * inf``, let autograd differentiate, cast back to ``float32``
+    (input dtype), and return ``NaN`` on any row with non-finite legal support.
+    """
+    legal = canonical_legal_mask(legal_mask)
+    ref_masked, ref_valid, ref_dtype = _legal_masked_logits64(reference, legal)
+    act_masked, act_valid, act_dtype = _legal_masked_logits64(distribution, legal)
+    out_dtype = torch.promote_types(ref_dtype, act_dtype)
+    log_p_raw = torch.nn.functional.log_softmax(act_masked, dim=-1)
+    log_q_raw = torch.nn.functional.log_softmax(ref_masked, dim=-1)
+    zeros = torch.zeros_like(log_p_raw)
+    log_p = torch.where(legal, log_p_raw, zeros)
+    log_q = torch.where(legal, log_q_raw, zeros)
+    q = torch.where(legal, log_q.exp(), zeros)
+    kl = torch.where(legal, q * (log_q - log_p), zeros).sum(dim=-1).to(dtype=out_dtype)
+    return torch.where(ref_valid & act_valid, kl, torch.full_like(kl, float("nan")))
+
+
+def masked_categorical_entropy(
+    distribution: torch.distributions.Categorical,
+    legal_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Return Shannon entropy over canonical legal support via float64 log_softmax.
+
+    Promote masked logits to ``float64`` (illegal actions ``-inf``), evaluate
+    ``log_p = log_softmax(actor)``, sum ``-p * log_p`` over legal actions via
+    ``torch.where`` so masked entries contribute exact ``0.0`` without
+    ``0 * inf``, let autograd differentiate, cast back to ``float32`` (input
+    dtype), and return ``NaN`` on any row with non-finite legal support.
+    """
+    legal = canonical_legal_mask(legal_mask)
+    masked, valid, out_dtype = _legal_masked_logits64(distribution, legal)
+    log_p_raw = torch.nn.functional.log_softmax(masked, dim=-1)
+    zeros = torch.zeros_like(log_p_raw)
+    log_p = torch.where(legal, log_p_raw, zeros)
+    p = torch.where(legal, log_p.exp(), zeros)
+    entropy = torch.where(legal, -p * log_p, zeros).sum(dim=-1).to(dtype=out_dtype)
+    return torch.where(valid, entropy, torch.full_like(entropy, float("nan")))
+
+
 class B8Actor(nn.Module):
     """A fully trainable B8 trunk and six-logit head, initialized at B8 / temperature."""
 

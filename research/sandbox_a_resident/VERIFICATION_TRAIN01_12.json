@@ -1,0 +1,78 @@
+{
+  "PPO_recipe_unchanged": true,
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-12-broker.noindex",
+  "broker_seal": "54fd4367e3e30ada3a55ea9c81010defb7ddd9d4",
+  "dispatch_identity": "sandbox-a-train01-20261027-12",
+  "dry_run_output": "PASS_DRY_RUN sandbox-a-train01-20261027-12 allocations=0 live_accounting=NOT_CHECKED",
+  "launch_exec_bound": {
+    "bound_seconds": 2.0,
+    "files_verified": 191,
+    "runs": [
+      {
+        "completion_seconds": 0.08188858302310109,
+        "index": 0,
+        "launch_seconds": 0.02394370804540813,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.08906862500589341,
+        "index": 1,
+        "launch_seconds": 0.02351358300074935,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.08765429095365107,
+        "index": 2,
+        "launch_seconds": 0.02328287495765835,
+        "status": "completed"
+      }
+    ],
+    "status": "PASS"
+  },
+  "lint": {
+    "black": "PASS",
+    "flake8": "PASS",
+    "isort": "PASS"
+  },
+  "packet_hashes": {
+    "control.json": "3fb34ae01e71c82a19576fcf3932c2c5816f6533628f235d3946a2c1df311c7d",
+    "dispatch-manifest.json": "2c10ca4bb7562eaca488622afb8a3f1ad515ebbdb392632593ccb4a54043bd91",
+    "registry-check.json": "c08fc1775ac2805786d2e4b151cbde58bebc554b38d652db12078fde4880b759",
+    "sandbox.json": "b98e63de8e70ee9d8993e16bbbf0f879d6aa4705bcbe85b6ed840f820d43be92",
+    "verified-ledger.json": "79b5253e627edb0eb2d251490a58ab7217075b119880c9235912b053a3e6429d"
+  },
+  "prepared_not_dispatched": true,
+  "resume_evidence": {
+    "from_packet": "packet-train01-11",
+    "from_source_commit": "e86e4b0bc8ea37550103b14652878d1b63f5b0e1",
+    "iteration_0000_actor_pth_sha256": "64c9c404946d4747239d4a339c06e3f72902e228513a5de09067cbb49594f519",
+    "iteration_0000_json_sha256": "2bd2111d7a3061797cf7d4c0c8a94e8114033aa03671ff9397bf868820a04541",
+    "iteration_0000_pt_sha256": "2b5478e895e7b2b68c02e3bd118612257ea4e97c0cfab727013d7e2143338ab6",
+    "unit_id": "a100-dev/sandbox-a/train01/iteration-0000"
+  },
+  "root_cause": {
+    "actor_log_prob_action_2": -104.16975402832031,
+    "actor_prob_action_2_float32": 0.0,
+    "calibrated_temperature": 0.008439731318504158,
+    "first_nonfinite_term": "reference_kl",
+    "float32_exp_underflow_threshold": -103.97208404541016,
+    "mechanism": "PyTorch _kl_categorical_categorical sets t[(q.probs == 0)] = inf when a finite legal action log-prob crosses -103.97208404541016 (float32 exp underflow to 0.0) while reference.probs > 0 is a positive float32 subnormal",
+    "reference_log_prob_action_2": -100.76419067382812,
+    "reference_prob_action_2_float32": 1.6815581571897805e-44,
+    "true_actor_loss_float32": 0.09102977812290192,
+    "true_reference_kl_row0_float32": -4.2480675024831e-08
+  },
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-12-runtime.noindex",
+  "runtime_pin": "7b20a9664cb41b12827c67725dd7394d5aab2e26",
+  "schema": "sandbox-a-train01-12-verification/v1",
+  "state_and_output_absent": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-12/output": false,
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-12/state": false
+  },
+  "test_counts": {
+    "broker_admission_suite": 205,
+    "frozen_cuda_semantics_preflight": 4,
+    "frozen_training_preflight": 271,
+    "scoped_sandbox_a_resident_suite": 255
+  }
+}

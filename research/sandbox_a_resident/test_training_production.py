@@ -11,7 +11,11 @@ import torch
 
 from research.sandbox_a_resident import train
 from research.sandbox_a_resident.test_training_runner import Actor, Critic, Task
-from research.sandbox_a_resident.training_units import TRAIN01_07_SOURCE_COMMIT, source_migration
+from research.sandbox_a_resident.training_units import (
+    TRAIN01_07_SOURCE_COMMIT,
+    TRAIN01_11_SOURCE_COMMIT,
+    source_migration,
+)
 
 
 @pytest.fixture
@@ -429,3 +433,191 @@ def test_predecessor_iteration16_catches_up_diagnostic_once(production, tmp_path
         sum(row.get("proxy", {}).get("kind") == "diagnostic-update-16" for row in result["metrics"])
         == 1
     )
+
+
+def test_train01_11_iteration0_migration_skips_preparation_and_rebinds_proxy_cache(
+    production, tmp_path, monkeypatch
+):
+    control, prep_calls = production
+    predecessor = train.TrainControl("sandbox-a-train01", TRAIN01_11_SOURCE_COMMIT, 0)
+    for field in (
+        "worlds",
+        "outer_iterations",
+        "rollout_horizon",
+        "proxy_worlds_per_mix",
+        "proxy_horizon",
+        "compile_mode",
+    ):
+        object.__setattr__(predecessor, field, getattr(control, field))
+    execute(predecessor, tmp_path / "attempt11")
+    assert prep_calls == ["screen", "prepare"]
+    saved = tmp_path / "attempt11/iteration-0000.pt"
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(
+        json.dumps({"source_migration": source_migration(asdict(predecessor), asdict(control))})
+    )
+    monkeypatch.setattr(
+        train,
+        "load_ledger",
+        lambda *args, **kwargs: {0: {"iteration": 0, "exports": [{"path": str(saved)}]}},
+    )
+    eval_calls = []
+    monkeypatch.setattr(train, "evaluate", lambda *args: eval_calls.append(args) or {})
+    result = execute(control, tmp_path / "attempt12", ledger=ledger)
+    # Screen, preparation, and B8 baseline proxy are not repeated on attempt12.
+    assert prep_calls == ["screen", "prepare"]
+    assert eval_calls == []
+    migration = next(
+        row["proxy_cache_migration"] for row in result["metrics"] if "proxy_cache_migration" in row
+    )
+    assert migration["from_source_commit"] == TRAIN01_11_SOURCE_COMMIT
+    assert migration["to_source_commit"] == control.source_commit
+
+
+def _compact_resume_inputs(control, tmp_path, monkeypatch, *, manifest_edit=None):
+    """Encode the iteration-0 snapshot, allowlist it, and stage runtime inputs without the .pt."""
+    import shutil
+
+    from research.sandbox_a_resident import training_units
+    from research.sandbox_a_resident.training_compact import encode_snapshot
+    from research.sandbox_a_resident.training_resume import attach_compact_resume, build_ledger
+    from research.sandbox_a_resident.units import digest
+    from research.sandbox_a_resident.units import publish as publish_unit
+
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    for stem in ("iteration-0000.pt", "iteration-0000.json", "iteration-0000-actor.pth"):
+        for suffix in ("", ".sha256", ".complete"):
+            shutil.copy2(tmp_path / "full" / f"{stem}{suffix}", exports / f"{stem}{suffix}")
+    ledger, uploads, latest = build_ledger(exports, asdict(control))
+    assert latest == 0
+    unit = ledger["units"][0]["id"]
+    original = exports / "iteration-0000.pt"
+    encode_snapshot(original, unit=unit)
+    manifest_path = exports / "iteration-0000.pt.xz.manifest"
+    if manifest_edit is not None:
+        payload = json.loads(manifest_path.read_text())
+        manifest_edit(payload)
+        for suffix in ("", ".sha256", ".complete"):
+            Path(f"{manifest_path}{suffix}").unlink()
+        publish_unit(manifest_path, lambda path: path.write_text(json.dumps(payload)))
+
+    def bound(path, runtime):
+        return {"path": runtime, "size": path.stat().st_size, "sha256": digest(path)}
+
+    monkeypatch.setattr(
+        training_units,
+        "COMPACT_RESUME_ALLOWLIST",
+        {
+            unit: {
+                "original": ledger["units"][0]["exports"][0],
+                "derivative": bound(
+                    exports / "iteration-0000.pt.xz", "resume/iteration-0000.pt.xz"
+                ),
+                "manifest": bound(manifest_path, "resume/iteration-0000.pt.xz.manifest"),
+            }
+        },
+    )
+    ledger, uploads = attach_compact_resume(ledger, uploads, exports)
+    inputs = tmp_path / "inputs"
+    for row in uploads:
+        (inputs / row["dest"]).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(row["path"], inputs / row["dest"])
+    assert not (inputs / "resume/iteration-0000.pt").exists()
+    ledger_path = inputs / "verified-ledger.json"
+    ledger_path.write_text(json.dumps(ledger))
+    return original, ledger_path, inputs
+
+
+def test_compact_resume_decodes_verifies_and_resumes_from_decoded_state(
+    production, tmp_path, monkeypatch, capsys
+):
+    """The real ledger path decodes the derivative, verifies tensors, and restores that state."""
+    control, calls = production
+    execute(control, tmp_path / "full")
+    original, ledger_path, inputs = _compact_resume_inputs(control, tmp_path, monkeypatch)
+    loads, verified = [], []
+    original_load, original_verify = torch.load, train.verify_decoded_state
+
+    def recording_load(path, *args, **kwargs):
+        state = original_load(path, *args, **kwargs)
+        loads.append((str(path), state))
+        return state
+
+    def recording_verify(state, manifest):
+        verified.append((state, manifest["unit"]))
+        return original_verify(state, manifest)
+
+    restored = []
+    original_restore = train._restore
+
+    def recording_restore(state, *args, **kwargs):
+        restored.append(state)
+        return original_restore(state, *args, **kwargs)
+
+    monkeypatch.setattr(train.torch, "load", recording_load)
+    monkeypatch.setattr(train, "verify_decoded_state", recording_verify)
+    monkeypatch.setattr(train, "_restore", recording_restore)
+    result = execute(control, tmp_path / "resume", ledger=ledger_path, input_root=inputs)
+    decoded = inputs / "resume/iteration-0000.pt"
+    assert decoded.read_bytes() == original.read_bytes()
+    assert [path for path, _ in loads] == [str(decoded.resolve())]
+    # The exact object decoded from the derivative is verified and then restored.
+    assert verified[0][0] is loads[0][1] and restored == [loads[0][1]]
+    assert verified[0][1] == "a100-dev/sandbox-a/train01/iteration-0000"
+    assert calls == ["screen", "prepare"]
+    final = original_load(tmp_path / "full/iteration-0002.pt", weights_only=False)
+    resumed = original_load(tmp_path / "resume/iteration-0002.pt", weights_only=False)
+    assert final["metrics"] == resumed["metrics"]
+    assert sum("distribution_screen" in row for row in result["metrics"]) == 1
+    assert torch.equal(final["rng"]["collection"], resumed["rng"]["collection"])
+    assert torch.equal(final["rng"]["torch"], resumed["rng"]["torch"])
+    assert torch.equal(final["task"]["age"], resumed["task"]["age"])
+    stages = [
+        json.loads(line.removeprefix("TRAIN01_PROGRESS "))["stage"]
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("TRAIN01_PROGRESS ")
+    ]
+    compact_stages = [stage for stage in stages if stage.startswith("compact-resume")]
+    assert compact_stages == [
+        "compact-resume-decode",
+        "compact-resume-decoded",
+        "compact-resume-verified",
+    ]
+
+
+def test_compact_resume_refuses_tampered_derivative_before_restore(
+    production, tmp_path, monkeypatch
+):
+    from research.sandbox_a_resident.training_compact import CompactResumeRefused
+
+    control, _calls = production
+    execute(control, tmp_path / "full")
+    _original, ledger_path, inputs = _compact_resume_inputs(control, tmp_path, monkeypatch)
+    derivative = inputs / "resume/iteration-0000.pt.xz"
+    raw = bytearray(derivative.read_bytes())
+    raw[-20] ^= 0x01
+    derivative.write_bytes(bytes(raw))
+    monkeypatch.setattr(train, "_restore", lambda *a, **k: pytest.fail("restored tampered state"))
+    with pytest.raises(CompactResumeRefused, match="differs from its binding"):
+        execute(control, tmp_path / "tampered", ledger=ledger_path, input_root=inputs)
+    assert not (inputs / "resume/iteration-0000.pt").exists()
+
+
+def test_compact_resume_refuses_decoded_state_that_differs_from_manifest(
+    production, tmp_path, monkeypatch
+):
+    """A (re-allowlisted) manifest that disagrees with the original refuses before restore."""
+    from research.sandbox_a_resident.training_compact import CompactResumeRefused
+
+    def forge(payload):
+        payload["tensors"][0]["sha256"] = "0" * 64
+
+    control, _calls = production
+    execute(control, tmp_path / "full")
+    _original, ledger_path, inputs = _compact_resume_inputs(
+        control, tmp_path, monkeypatch, manifest_edit=forge
+    )
+    monkeypatch.setattr(train, "_restore", lambda *a, **k: pytest.fail("restored unverified state"))
+    with pytest.raises(CompactResumeRefused, match="decoded tensor differs"):
+        execute(control, tmp_path / "forged", ledger=ledger_path, input_root=inputs)

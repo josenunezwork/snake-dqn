@@ -17,9 +17,39 @@ from research.sandbox_a_resident.units import digest, publish, verified_descript
 NAMESPACE = "a100-dev/sandbox-a/train01"
 SCHEMA = "sandbox-a-train-ledger/v1"
 SOURCE_MIGRATION_SCHEMA = "sandbox-a-train-source-migration/v1"
-# Train01-08 may continue only exports produced by the frozen train01-07
-# implementation.  This is intentionally not a general source-trust list.
+# Explicit frozen predecessor pins whose verified snapshots may be migrated to a
+# source-only successor.  This is intentionally not a general source-trust list.
 TRAIN01_07_SOURCE_COMMIT = "152af938acc32da6aeea9fcb5a300f470d96c53c"
+TRAIN01_11_SOURCE_COMMIT = "e86e4b0bc8ea37550103b14652878d1b63f5b0e1"
+ALLOWED_MIGRATION_SOURCE_COMMITS = frozenset({TRAIN01_07_SOURCE_COMMIT, TRAIN01_11_SOURCE_COMMIT})
+
+COMPACT_RESUME_FIELD = "compact_resume"
+COMPACT_RESUME_SCHEMA = "sandbox-a-train-compact-resume/v1"
+COMPACT_DERIVATIVE_SUFFIX = ".xz"
+COMPACT_MANIFEST_SUFFIX = ".xz.manifest"
+# The only full-state snapshot that may be resumed through a compact transport
+# derivative: train01-11's verified post-preparation iteration-0000 export.
+# Every byte identity is frozen here, so neither a different snapshot nor a
+# re-encoded derivative/manifest can use this path without a new source pin.
+COMPACT_RESUME_ALLOWLIST: dict[str, dict[str, dict[str, Any]]] = {
+    f"{NAMESPACE}/iteration-0000": {
+        "original": {
+            "path": "resume/iteration-0000.pt",
+            "size": 1_327_620_931,
+            "sha256": "2b5478e895e7b2b68c02e3bd118612257ea4e97c0cfab727013d7e2143338ab6",
+        },
+        "derivative": {
+            "path": "resume/iteration-0000.pt.xz",
+            "size": 8_804_064,
+            "sha256": "a25562d7e95e5dd486620dbe3eee3e7445396c8eb5f5f5f6f1f0f4fdda05fb7b",
+        },
+        "manifest": {
+            "path": "resume/iteration-0000.pt.xz.manifest",
+            "size": 69_385,
+            "sha256": "44c0b5d30e48ef3d3be370e30cc478b8ad0855ee2da236bdfaab4f9b5838efd5",
+        },
+    }
+}
 
 
 def allocation(control: dict[str, Any]) -> str:
@@ -45,7 +75,7 @@ def source_migration(
     if (
         not isinstance(source_control.get("source_commit"), str)
         or not isinstance(target_control.get("source_commit"), str)
-        or source_control["source_commit"] != TRAIN01_07_SOURCE_COMMIT
+        or source_control["source_commit"] not in ALLOWED_MIGRATION_SOURCE_COMMITS
         or {key: value for key, value in source_control.items() if key != "source_commit"}
         != {key: value for key, value in target_control.items() if key != "source_commit"}
     ):
@@ -86,6 +116,49 @@ def unit_id(iteration: int) -> str:
     return f"{NAMESPACE}/iteration-{iteration:04d}"
 
 
+def validate_compact_resume(
+    payload: dict[str, Any], *, allowlist: dict[str, dict[str, dict[str, Any]]] | None = None
+) -> dict[str, Any] | None:
+    """Validate a ledger's compact-transport binding without opening any payload.
+
+    The entry must name an allowlisted unit, bind exactly its frozen original,
+    derivative and manifest descriptors (canonical relative runtime paths,
+    sizes and SHA-256s), and the ledger must contain exactly that unit whose
+    full-state export is the allowlisted original.  Returns ``None`` when the
+    ledger has no compact binding.
+    """
+    if COMPACT_RESUME_FIELD not in payload:
+        return None
+    entry = payload[COMPACT_RESUME_FIELD]
+    frozen = COMPACT_RESUME_ALLOWLIST if allowlist is None else allowlist
+    if not isinstance(entry, dict) or set(entry) != {
+        "schema",
+        "unit",
+        "original",
+        "derivative",
+        "manifest",
+    }:
+        raise ValueError("malformed compact resume binding")
+    expected = frozen.get(entry.get("unit")) if isinstance(entry.get("unit"), str) else None
+    if entry["schema"] != COMPACT_RESUME_SCHEMA or expected is None:
+        raise ValueError("compact resume unit is not allowlisted")
+    for role in ("original", "derivative", "manifest"):
+        if entry[role] != expected[role]:
+            raise ValueError(f"compact resume {role} differs from the frozen allowlist")
+    units = payload.get("units")
+    if (
+        not isinstance(units, list)
+        or len(units) != 1
+        or not isinstance(units[0], dict)
+        or units[0].get("id") != entry["unit"]
+        or not isinstance(units[0].get("exports"), list)
+        or not units[0]["exports"]
+        or units[0]["exports"][0] != entry["original"]
+    ):
+        raise ValueError("compact resume must bind the ledger's sole full-state export")
+    return entry
+
+
 def empty_ledger(control: dict[str, Any]) -> dict[str, Any]:
     """Return the first-attempt ledger; it contains no outcome information."""
     return {
@@ -102,6 +175,10 @@ def load_ledger(
     """Validate a Mac-verified immutable ledger and return iteration descriptors."""
     payload = json.loads(path.read_text())
     source_control = migration_source_control(payload, control)
+    # Validate the compact-transport binding against relative ledger paths
+    # before export paths are resolved below.  The runtime materializes the
+    # bound original before this call; the Mac checks its local original.
+    validate_compact_resume(payload)
     if (
         payload.get("schema") != SCHEMA
         or payload.get("namespace") != NAMESPACE

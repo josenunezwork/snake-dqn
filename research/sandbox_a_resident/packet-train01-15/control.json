@@ -1,0 +1,16 @@
+{
+  "allocation_index": 0,
+  "compile_mode": "default",
+  "outer_iterations": 384,
+  "proxy_horizon": 5000,
+  "proxy_interval": 64,
+  "proxy_worlds_per_mix": 96,
+  "rollout_horizon": 256,
+  "snapshot_interval": 16,
+  "source_commit": "5c0a101a85237e2ce563dcaa6429828126a37d04",
+  "study": "sandbox-a-train01",
+  "task_horizon": 5000,
+  "test_only": false,
+  "train_seed_offset": 0,
+  "worlds": 1024
+}

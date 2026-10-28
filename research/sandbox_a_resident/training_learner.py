@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Sequence
 
 import torch
 from torch import nn
@@ -14,6 +15,8 @@ from research.sandbox_a_resident.training_model import (
     actor_parameter_groups,
     canonical_legal_mask,
     categorical,
+    masked_categorical_entropy,
+    masked_categorical_kl,
     masked_logits,
 )
 
@@ -218,6 +221,37 @@ def critic_quality(
         "baseline_mse": float(baseline_mse),
         "passed": float(passed),
     }
+
+
+def _first_nonfinite_term(terms: Sequence[tuple[str, torch.Tensor]]) -> str | None:
+    """Return the first named tensor containing a non-finite value, or None."""
+    for name, tensor in terms:
+        if not torch.isfinite(tensor).all():
+            return name
+    return None
+
+
+def _emit_finite_check_telemetry(
+    *,
+    update: int,
+    first_nonfinite_term: str | None,
+    epoch: int | None = None,
+    minibatch: int | None = None,
+) -> str:
+    """Emit a single-line pre-update finite-check telemetry record."""
+    payload: dict[str, Any] = {
+        "stage": "learner-finite-check",
+        "update": int(update),
+        "finite": first_nonfinite_term is None,
+        "first_nonfinite_term": first_nonfinite_term,
+    }
+    if epoch is not None:
+        payload["epoch"] = int(epoch)
+    if minibatch is not None:
+        payload["minibatch"] = int(minibatch)
+    line = f"TRAIN01_PROGRESS {json.dumps(payload, sort_keys=True)}"
+    print(line, flush=True)
+    return line
 
 
 def _equal_mix_mean(
@@ -496,6 +530,7 @@ class PPOTrainer:
         actor_steps = 0
         first_stop_epoch, first_stop_minibatch = -1, -1
         used_kl_beta = self.kl_beta()
+        finite_check_emitted = False
         for _epoch in range(self.config.epochs):
             permutation = torch.randperm(n, device=actions.device)
             for start in range(0, n, self.config.minibatch):
@@ -523,6 +558,39 @@ class PPOTrainer:
                 log_ratio = new_logp - old_logp[index]
                 ratio = log_ratio.exp()
                 old_kl = _equal_mix_mean((ratio - 1.0) - log_ratio, mix_ids[index], full_mix_counts)
+                if not (
+                    torch.isfinite(old_kl)
+                    and torch.isfinite(logits).all()
+                    and torch.isfinite(distribution.logits.masked_fill(~masks[index], 0.0)).all()
+                    and torch.isfinite(new_logp).all()
+                    and torch.isfinite(old_logp[index]).all()
+                ):
+                    bad_term = (
+                        _first_nonfinite_term(
+                            (
+                                ("actor_logits", logits),
+                                (
+                                    "masked_logits",
+                                    distribution.logits.masked_fill(~masks[index], 0.0),
+                                ),
+                                ("new_logp", new_logp),
+                                ("old_logp", old_logp[index]),
+                                ("log_ratio", log_ratio),
+                                ("ratio", ratio),
+                                ("old_kl", old_kl),
+                            )
+                        )
+                        or "old_kl"
+                    )
+                    _emit_finite_check_telemetry(
+                        update=self.update_count + 1,
+                        first_nonfinite_term=bad_term,
+                        epoch=_epoch + 1,
+                        minibatch=start // self.config.minibatch + 1,
+                    )
+                    raise FloatingPointError(
+                        f"non-finite PPO actor loss: first_nonfinite_term={bad_term}"
+                    )
                 if diagnostics:
                     metrics["old_kl_tested"].append(old_kl.detach())
                     metrics["ratio_clip_fraction"].append(
@@ -533,31 +601,71 @@ class PPOTrainer:
                     first_stop_epoch = _epoch + 1
                     first_stop_minibatch = start // self.config.minibatch + 1
                     metrics["old_kl"].append(old_kl.detach())
+                    # The stop minibatch is the most useful saturation
+                    # observation.  Evaluate detached reference/entropy
+                    # quantities and verify finiteness before latching so a
+                    # non-finite reference can never be masked behind kl_stop.
+                    with torch.no_grad():
+                        stopped_distribution = categorical(logits.detach(), masks[index])
+                        stopped_reference_logits = self.actor.reference_logits(
+                            local[index], glob[index], scalars[index]
+                        )
+                        stopped_reference = categorical(stopped_reference_logits, masks[index])
+                        stopped_reference_kl = masked_categorical_kl(
+                            stopped_reference, stopped_distribution, masks[index]
+                        )
+                        stopped_entropy = masked_categorical_entropy(
+                            stopped_distribution, masks[index]
+                        )
+                        stopped_entropy_loss = _equal_mix_mean(
+                            stopped_entropy, mix_ids[index], full_mix_counts
+                        )
+                        stopped_reference_kl_loss = _equal_mix_mean(
+                            stopped_reference_kl, mix_ids[index], full_mix_counts
+                        )
+                    if not (
+                        torch.isfinite(raw_advantage[index]).all()
+                        and torch.isfinite(advantage[index]).all()
+                        and torch.isfinite(stopped_reference_logits).all()
+                        and torch.isfinite(
+                            stopped_reference.logits.masked_fill(~masks[index], 0.0)
+                        ).all()
+                        and torch.isfinite(stopped_reference_kl).all()
+                        and torch.isfinite(stopped_reference_kl_loss)
+                        and torch.isfinite(stopped_entropy).all()
+                        and torch.isfinite(stopped_entropy_loss)
+                    ):
+                        bad_term = (
+                            _first_nonfinite_term(
+                                (
+                                    ("gae_advantages", raw_advantage[index]),
+                                    ("advantage", advantage[index]),
+                                    ("reference_logits", stopped_reference_logits),
+                                    (
+                                        "reference_masked_logits",
+                                        stopped_reference.logits.masked_fill(~masks[index], 0.0),
+                                    ),
+                                    ("reference_kl", stopped_reference_kl),
+                                    ("reference_kl_loss", stopped_reference_kl_loss),
+                                    ("entropy", stopped_entropy),
+                                    ("entropy_loss", stopped_entropy_loss),
+                                )
+                            )
+                            or "reference_kl"
+                        )
+                        _emit_finite_check_telemetry(
+                            update=self.update_count + 1,
+                            first_nonfinite_term=bad_term,
+                            epoch=_epoch + 1,
+                            minibatch=start // self.config.minibatch + 1,
+                        )
+                        raise FloatingPointError(
+                            f"non-finite PPO actor loss: first_nonfinite_term={bad_term}"
+                        )
                     if diagnostics:
-                        # The stop minibatch is the most useful saturation
-                        # observation.  It receives detached reference/entropy
-                        # telemetry only; it remains excluded from learning.
                         with torch.no_grad():
-                            stopped_distribution = categorical(logits.detach(), masks[index])
-                            stopped_reference_logits = self.actor.reference_logits(
-                                local[index], glob[index], scalars[index]
-                            )
-                            stopped_reference = categorical(stopped_reference_logits, masks[index])
-                            stopped_reference_kl = torch.distributions.kl_divergence(
-                                stopped_reference, stopped_distribution
-                            )
-                            metrics["entropy"].append(
-                                _equal_mix_mean(
-                                    stopped_distribution.entropy(),
-                                    mix_ids[index],
-                                    full_mix_counts,
-                                ).detach()
-                            )
-                            metrics["reference_kl"].append(
-                                _equal_mix_mean(
-                                    stopped_reference_kl, mix_ids[index], full_mix_counts
-                                ).detach()
-                            )
+                            metrics["entropy"].append(stopped_entropy_loss.detach())
+                            metrics["reference_kl"].append(stopped_reference_kl_loss.detach())
                             self._add_mix_length_rates(
                                 diagnostic,
                                 "greedy_actor_reference_disagreement",
@@ -580,8 +688,8 @@ class PPOTrainer:
                         local[index], glob[index], scalars[index]
                     )
                 reference = categorical(reference_logits, masks[index])
-                reference_kl = torch.distributions.kl_divergence(reference, distribution)
-                entropy = distribution.entropy()
+                reference_kl = masked_categorical_kl(reference, distribution, masks[index])
+                entropy = masked_categorical_entropy(distribution, masks[index])
                 policy_loss = _equal_mix_mean(policy_terms, mix_ids[index], full_mix_counts)
                 entropy_loss = _equal_mix_mean(entropy, mix_ids[index], full_mix_counts)
                 reference_kl_loss = _equal_mix_mean(reference_kl, mix_ids[index], full_mix_counts)
@@ -590,8 +698,62 @@ class PPOTrainer:
                     - self.config.entropy_coef * entropy_loss
                     + used_kl_beta * reference_kl_loss
                 )
-                if not torch.isfinite(actor_loss):
-                    raise FloatingPointError("non-finite PPO actor loss")
+                if not (
+                    torch.isfinite(actor_loss)
+                    and torch.isfinite(policy_loss)
+                    and torch.isfinite(entropy_loss)
+                    and torch.isfinite(reference_kl_loss)
+                    and torch.isfinite(reference_logits).all()
+                    and torch.isfinite(reference.logits.masked_fill(~masks[index], 0.0)).all()
+                    and torch.isfinite(reference_kl).all()
+                    and torch.isfinite(entropy).all()
+                ):
+                    bad_term = (
+                        _first_nonfinite_term(
+                            (
+                                ("actor_logits", logits),
+                                (
+                                    "masked_logits",
+                                    distribution.logits.masked_fill(~masks[index], 0.0),
+                                ),
+                                ("new_logp", new_logp),
+                                ("old_logp", old_logp[index]),
+                                ("log_ratio", log_ratio),
+                                ("ratio", ratio),
+                                ("old_kl", old_kl),
+                                ("gae_advantages", raw_advantage[index]),
+                                ("advantage", advantage[index]),
+                                ("policy_terms", policy_terms),
+                                ("policy_loss", policy_loss),
+                                ("reference_logits", reference_logits),
+                                (
+                                    "reference_masked_logits",
+                                    reference.logits.masked_fill(~masks[index], 0.0),
+                                ),
+                                ("reference_kl", reference_kl),
+                                ("reference_kl_loss", reference_kl_loss),
+                                ("entropy", entropy),
+                                ("entropy_loss", entropy_loss),
+                                ("actor_loss", actor_loss),
+                            )
+                        )
+                        or "actor_loss"
+                    )
+                    _emit_finite_check_telemetry(
+                        update=self.update_count + 1,
+                        first_nonfinite_term=bad_term,
+                        epoch=_epoch + 1,
+                        minibatch=start // self.config.minibatch + 1,
+                    )
+                    raise FloatingPointError(
+                        f"non-finite PPO actor loss: first_nonfinite_term={bad_term}"
+                    )
+                if not finite_check_emitted:
+                    _emit_finite_check_telemetry(
+                        update=self.update_count + 1,
+                        first_nonfinite_term=None,
+                    )
+                    finite_check_emitted = True
                 self.actor_optimizer.zero_grad(set_to_none=True)
                 actor_loss.backward()
                 if diagnostics:
@@ -631,6 +793,11 @@ class PPOTrainer:
                     metrics[name].append(value.detach())
             if actor_stopped:
                 stopped_epochs += 1
+        if not finite_check_emitted:
+            _emit_finite_check_telemetry(
+                update=self.update_count + 1,
+                first_nonfinite_term=None,
+            )
         self.update_count += 1
         self.actor_rows += n
         result = {
