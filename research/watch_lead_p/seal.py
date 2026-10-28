@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
 import subprocess
 from pathlib import Path
 
 from research.bl_served_search.exports import digest
-from research.watch_lead_p.admission import exclusion_audit
+from research.watch_lead_p.admission import exclusion_audit, forecast_envelope
 from research.watch_lead_p.protocol import NAMESPACE, SEEDS, STUDY
 from research.watch_lead_p.resume import UNIT_SUFFIXES, empty_ledger, read_ledger
 from research.watch_lead_p.run import WORKERS
@@ -36,6 +35,7 @@ def seal(
     units_root: Path | None = None,
     revision: int = 0,
     retry_accounting: Path | None = None,
+    identity_suffix: str = "",
 ) -> None:
     broker = broker.expanduser().resolve()
     runtime = runtime.expanduser().resolve()
@@ -81,26 +81,43 @@ def seal(
     measured = json.loads(benchmark.read_text())
     if measured["fixture_index"] != 32 or not measured["excluded_from_all_32_sessions"]:
         raise ValueError("forecast requires the excluded natural fixture")
+    if not re.fullmatch(r"[a-z]?", identity_suffix):
+        raise ValueError("P identity suffix must be empty or one lowercase letter")
+    identity = f"sandbox-p-watch-lead-20261028-{attempt:02d}{identity_suffix}"
+    packet_name = f"packet-{attempt:02d}"
+    attempt_name = f"attempt-{attempt:02d}{identity_suffix}"
+    accounting = (
+        json.loads(retry_accounting.resolve().read_text())
+        if retry_accounting is not None
+        else {
+            "prepared_job_id": identity,
+            "envelope": {
+                "forecast_seconds": measured["projected_seconds"],
+                "rate_units_per_hour": 1.54,
+                "workers": WORKERS,
+                "base_reserve_units": 0,
+                "effective_reserve_units": 0,
+                "governing": "effective",
+                **forecast_envelope(measured["projected_seconds"], 1.54),
+            },
+        }
+    )
+    bound = accounting["envelope"]
+    derived = forecast_envelope(measured["projected_seconds"], bound["rate_units_per_hour"])
     if (
         measured["workers"] != WORKERS
-        or not math.isfinite(measured["projected_seconds"])
-        or not 0 < measured["projected_seconds"] <= 0.8 * 28800
+        or accounting["prepared_job_id"] != identity
+        or bound["forecast_seconds"] != measured["projected_seconds"]
+        or bound["workers"] != WORKERS
+        or any(bound[k] != v for k, v in derived.items())
+        or bound["effective_reserve_units"] != 2 * bound["base_reserve_units"]
+        or bound["governing"] != "effective"
     ):
+        raise ValueError("P retry accounting differs from refreshed effective forecast")
+    base_seconds = bound["base_minutes"] * 60
+    effective_seconds = bound["effective_minutes"] * 60
+    if not 0 < measured["projected_seconds"] <= 0.8 * effective_seconds:
         raise ValueError("measured forecast lacks 20% margin in the governing effective envelope")
-    accounting = None
-    if retry_accounting is not None:
-        accounting = json.loads(retry_accounting.resolve().read_text())
-        if (
-            accounting["prepared_job_id"] != f"sandbox-p-watch-lead-20261028-{attempt:02d}"
-            or accounting["envelope"]["forecast_seconds"] != measured["projected_seconds"]
-            or accounting["envelope"]["workers"] != WORKERS
-            or accounting["envelope"]["effective_minutes"] != 480
-            or accounting["envelope"]["effective_units"] != 12.32
-            or accounting["envelope"]["governing"] != "effective"
-        ):
-            raise ValueError("P retry accounting differs from refreshed effective forecast")
-    packet_name = f"packet-{attempt:02d}"
-    attempt_name = f"attempt-{attempt:02d}"
     relative = Path("research/watch_lead_p") / packet_name
     if revision:
         relative /= f"reseal-{revision:02d}"
@@ -112,8 +129,10 @@ def seal(
         json.loads(ledger.read_text()) if ledger else empty_ledger(ROOT),
     )
     write(packet / "exclusion-audit.json", exclusion_audit())
-    measured["receipt_path"] = str(benchmark)
-    measured["receipt_sha256"] = digest(benchmark)
+    # An already sealed forecast is copied byte-for-byte when resealing.
+    if "receipt_sha256" not in measured:
+        measured["receipt_path"] = str(benchmark)
+        measured["receipt_sha256"] = digest(benchmark)
     write(packet / "forecast.json", measured)
     kinds = [
         ("frozen-checkpoint", CHECKPOINTS / "b8_s3_t7_20261016.pth", "b8-s3.pth"),
@@ -137,7 +156,6 @@ def seal(
                     "dest": record["path"] + suffix,
                 }
             )
-    identity = f"sandbox-p-watch-lead-20261028-{attempt:02d}"
     manifest = {
         "job_id": identity,
         "commit": pin,
@@ -148,9 +166,9 @@ def seal(
             "gpu": "L4",
             "allowed_gpus": ["L4"],
             "min_vcpu": 12,
-            "est_minutes": math.ceil(measured["projected_seconds"] / 60),
+            "est_minutes": bound["base_minutes"],
         },
-        "timeout_minutes": 480,
+        "timeout_minutes": bound["effective_minutes"],
         "output_dir": str(ARTIFACTS / attempt_name / "output"),
         "max_export_bytes": 64 * 1024 * 1024,
         "lease_seconds": 180,
@@ -168,9 +186,9 @@ def seal(
             for suffix in ("", ".metadata.json")
         ],
         "budget": {
-            "unit_cap": 12.32,
-            "rate_units_per_hour": 1.54,
-            "reserve_units": 0,
+            "unit_cap": bound["effective_units"],
+            "rate_units_per_hour": bound["rate_units_per_hour"],
+            "reserve_units": bound["effective_reserve_units"],
             "other_assignments": {},
         },
         "resume": {
@@ -185,16 +203,16 @@ def seal(
         },
         "sandbox_source_delivery": "background-sparse-v1",
         "technical_envelope": {
-            "base_seconds": 14400,
-            "effective_seconds": 28800,
-            "base_unit_cap": 6.16,
-            "effective_unit_cap": 12.32,
-            "base_reserve_units": 0,
-            "effective_reserve_units": 0,
+            "base_seconds": base_seconds,
+            "effective_seconds": effective_seconds,
+            "base_unit_cap": bound["base_units"],
+            "effective_unit_cap": bound["effective_units"],
+            "base_reserve_units": bound["base_reserve_units"],
+            "effective_reserve_units": bound["effective_reserve_units"],
             "workers": WORKERS,
             "forecast_seconds": measured["projected_seconds"],
             "governing_envelope": "effective; base informational (owner 2x rule)",
-            "margin_seconds": 28800 - measured["projected_seconds"],
+            "margin_seconds": derived["margin_seconds"],
             "worker_nice_increment": 10,
         },
     }
@@ -212,7 +230,11 @@ def seal(
         + [{"kind": "worlds", "study": STUDY, "indices": list(range(32)), "seeds": list(SEEDS)}],
         "salt": NAMESPACE,
         "endpoint": {"kind": "steps", "value": 32 * 3 * 6000},
-        "timeout": {"base_seconds": 14400, "seconds": 28800, "purpose": "runaway-guard"},
+        "timeout": {
+            "base_seconds": base_seconds,
+            "seconds": effective_seconds,
+            "purpose": "runaway-guard",
+        },
         "excluded_studies": [
             "F5",
             "F4-fold-0",
@@ -256,7 +278,9 @@ def seal(
         f"Identity: {identity}\n"
         "Science: 32 complete paired 6000-frame Watch6 sessions; P48 sole primary.\n"
         f"Projected wall seconds: {measured['projected_seconds']:.3f}; "
-        "base/effective 14400/28800; effective governs, base informational (owner 2x).\n"
+        f"base/effective {base_seconds}/{effective_seconds}; "
+        f"cap {bound['effective_units']}; margin {derived['margin_seconds']:.3f}s; "
+        "effective governs, base informational (owner 2x).\n"
         "Eleven lower-priority arm workers, session cohorts of 11 with P0/P48/bare; "
         "each session W1/K1; L4 >=12 vCPUs.\n"
         "Only complete three-arm paired sessions are exported or resumed. CPU science only.\n"
@@ -285,6 +309,7 @@ if __name__ == "__main__":
     parser.add_argument("--ledger", type=Path)
     parser.add_argument("--units-root", type=Path)
     parser.add_argument("--retry-accounting", type=Path)
+    parser.add_argument("--identity-suffix", default="")
     args = parser.parse_args()
     seal(
         args.pin,
@@ -296,4 +321,5 @@ if __name__ == "__main__":
         args.units_root,
         args.revision,
         args.retry_accounting,
+        args.identity_suffix,
     )

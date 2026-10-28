@@ -209,19 +209,30 @@ def run_vm_fixture(
     # run_arm, publication, and ledger validation remain the real functions.
     script = tmp_path / "driver.py"
     script.write_text(r"""
-import json, os, sys
+import json, os, sys, time
 from functools import partial
 from pathlib import Path
 from research.watch_lead_p import run
 from research.watch_lead_p.protocol import FIXTURE_SEED
+from tools.sandbox.registry import world_seed
+from research.watch_lead_p.protocol import STUDY
 from research.watch_lead_p.resume import empty_ledger, read_ledger
-run.SEEDS = (FIXTURE_SEED,) * int(os.environ["P_FIXTURE_SESSIONS"])
+fixture_seeds = tuple(world_seed(STUDY, i) for i in range(32, 36))
+run.SEEDS = tuple(fixture_seeds[i % 4] for i in range(int(os.environ["P_FIXTURE_SESSIONS"])))
 run.WORKERS = int(os.environ["P_FIXTURE_WORKERS"])
 original_run_arm = run.run_arm
 def fixture_arm(seed, arm, **kw):
-    assert seed == FIXTURE_SEED
-    row = original_run_arm(seed, arm, frames=60, **kw)
+    assert seed in fixture_seeds
     base = Path(os.environ["P_VM_SCRATCH"])
+    # Each early task occupies its worker until all expected workers have a task.
+    # This barrier is engineering-only and does not alter production scheduling.
+    (base / ("ready-" + str(os.getpid()))).touch()
+    deadline = time.monotonic() + 90
+    expected = min(run.WORKERS, len(run.SEEDS) * 3)
+    while len(list(base.glob("ready-*"))) < expected:
+        assert time.monotonic() < deadline, "fixture worker startup barrier timed out"
+        time.sleep(0.02)
+    row = original_run_arm(seed, arm, frames=60, **kw)
     (base / ("worker-" + str(os.getpid()) + "-" + arm)).write_text("guarded real worker\n")
     assert os.getpriority(os.PRIO_PROCESS, 0) > os.getpriority(os.PRIO_PROCESS, os.getppid())
     return row
@@ -235,7 +246,7 @@ if __name__ == "__main__":
     run.main()
     assert (base / "run-output/inventory.json.complete").exists()
     unit = json.loads((base / "run-output/units/session-00.json").read_text())
-    assert all(r["seed"] == FIXTURE_SEED and r["frames"] == 60 for r in unit["arms"].values())
+    assert all(r["seed"] == run.SEEDS[0] and r["frames"] == 60 for r in unit["arms"].values())
     sys.argv = ["P", "smoke", "--output", str(base / "smoke.json")]
     run.main()
     if os.environ["P_FIXTURE_MATURE"] == "0":
@@ -287,7 +298,7 @@ if __name__ == "__main__":
     assert "VM_FIDELITY_PASS" in result.stdout
     assert not list(tmp_path.glob("violation-*"))
     worker_pids = {p.name.split("-")[1] for p in tmp_path.glob("worker-*")}
-    assert worker_pids
+    assert len(worker_pids) == min(workers, sessions * 3)
     assert all((tmp_path / f"guard-start-{pid}").exists() for pid in worker_pids)
     print(result.stdout.strip(), "workers=", sorted(worker_pids), "forbidden_accesses=0")
     value = json.loads(output.read_text())
@@ -416,6 +427,7 @@ def test_eleven_vs_twelve_workers_publish_identical_fixture_units(tmp_path):
         )
         units = sorted((root / "run-output/units").glob("session-??.json"))
         assert len(units) == 13
+        assert len({json.loads(p.read_text())["arms"]["bare"]["initial_state"] for p in units}) == 4
         records = []
         for unit in units:
             value = json.loads(unit.read_text())

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -16,33 +17,53 @@ ROOT = Path(__file__).resolve().parents[2]
 FRP3_SHA = "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
 
 
+def forecast_envelope(forecast: float, rate: float) -> dict:
+    """Derive the owner's two-times wall guard and upward-rounded priced cap."""
+    if not all(math.isfinite(v) and v > 0 for v in (forecast, rate)):
+        raise ValueError("P forecast and rate must be finite and positive")
+    estimate = math.ceil(forecast / 60)
+    timeout = 2 * estimate
+    return dict(
+        base_minutes=estimate,
+        effective_minutes=timeout,
+        base_units=forecast / 3600 * rate,
+        effective_units=math.ceil(timeout / 60 * rate * 100) / 100,
+        margin_seconds=timeout * 60 - forecast,
+    )
+
+
 def validate_reforecast_envelope(packet: dict, accounting: dict | None, payload: dict) -> None:
-    """Admit only the operator's pre-data 09c envelope beyond the legacy 480 minutes."""
-    if packet["timeout_minutes"] == 480:
-        return
+    """Bind identity, clocks and pricing to sealed accounting without attempt literals."""
     envelope = packet["technical_envelope"]
+    rate = packet["budget"]["rate_units_per_hour"]
+    expected = forecast_envelope(envelope["forecast_seconds"], rate)
     if (
-        packet["job_id"] != "sandbox-p-watch-lead-20261028-09c"
-        or packet["timeout_minutes"] != 570
-        or packet["requirements"]["est_minutes"] != 285
-        or packet["budget"]["unit_cap"] != 14.63
-        or packet["budget"]["rate_units_per_hour"] != 1.54
-        or packet["budget"]["reserve_units"] != 0
-        or envelope["base_seconds"] != 17100
-        or envelope["effective_seconds"] != 34200
-        or envelope["base_unit_cap"] != 7.312484270908601
-        or envelope["effective_unit_cap"] != 14.63
-        or envelope["base_reserve_units"] != 0
-        or envelope["effective_reserve_units"] != 0
+        accounting is None
+        or accounting["prepared_job_id"] != packet["job_id"]
+        or packet["timeout_minutes"] != expected["effective_minutes"]
+        or packet["requirements"]["est_minutes"] != expected["base_minutes"]
+        or packet["budget"]["unit_cap"] != expected["effective_units"]
+        or envelope["base_seconds"] != expected["base_minutes"] * 60
+        or envelope["effective_seconds"] != packet["timeout_minutes"] * 60
+        or envelope["base_unit_cap"] != expected["base_units"]
+        or envelope["effective_unit_cap"] != packet["budget"]["unit_cap"]
+        or envelope["effective_reserve_units"] != 2 * envelope["base_reserve_units"]
+        or packet["budget"]["reserve_units"] != envelope["effective_reserve_units"]
+        or envelope["margin_seconds"] != expected["margin_seconds"]
         or payload["timeout"]
-        != {"base_seconds": 17100, "seconds": 34200, "purpose": "runaway-guard"}
-        or accounting is None
-        or accounting["envelope"]["base_minutes"] != 285
-        or accounting["envelope"]["effective_minutes"] != 570
-        or accounting["envelope"]["base_units"] != envelope["base_unit_cap"]
-        or accounting["envelope"]["effective_units"] != 14.63
+        != {
+            "base_seconds": envelope["base_seconds"],
+            "seconds": envelope["effective_seconds"],
+            "purpose": "runaway-guard",
+        }
+        or any(accounting["envelope"][key] != value for key, value in expected.items())
+        or accounting["envelope"]["forecast_seconds"] != envelope["forecast_seconds"]
+        or accounting["envelope"]["rate_units_per_hour"] != rate
+        or accounting["envelope"]["base_reserve_units"] != envelope["base_reserve_units"]
+        or accounting["envelope"]["effective_reserve_units"] != envelope["effective_reserve_units"]
+        or accounting["envelope"]["governing"] != "effective"
     ):
-        raise ValueError("P envelope differs from the operator-authorized 09c reforecast")
+        raise ValueError("P envelope differs from the operator-authorized sealed accounting")
 
 
 def exclusion_audit() -> dict[str, Any]:

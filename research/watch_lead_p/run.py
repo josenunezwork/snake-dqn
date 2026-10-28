@@ -11,6 +11,7 @@ import os
 import signal
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import psutil
 
@@ -68,17 +69,33 @@ def worker(index: int, arm: str) -> dict:
     try:
         with uploaded_checkpoints():
             from src.core.game_config import get_config
-            from web.backend.session import _mechanics_v2_enabled
+            from web.backend import session
 
-            row = run_arm(SEEDS[index], arm, pulse=pulse)
             construction = construction_metadata()
+            reader = session._mechanics_v2_enabled()
+            if type(reader) is not bool or reader != construction["mechanics_v2"]:
+                raise ValueError("P worker effective mechanics differs from construction")
+            configs = []
+            game_state = session.GameState
+
+            def checked_game(*args: object, **kwargs: object) -> object:
+                # GameSession has a config_path, not a private AppConfig. Capture
+                # the immutable config at its actual GameState construction seam.
+                config = get_config()
+                if config.game.mechanics_version != construction["mechanics_version"]:
+                    raise ValueError("P worker session mechanics differs from construction")
+                configs.append(config)
+                return game_state(*args, **kwargs)
+
+            with patch.object(session, "GameState", checked_game):
+                row = run_arm(SEEDS[index], arm, pulse=pulse)
+            if len(configs) != 1:
+                raise ValueError("P worker must construct exactly one session game")
             effective = {
                 **construction,
-                "mechanics_v2": _mechanics_v2_enabled(),
-                "mechanics_version": get_config().game.mechanics_version,
+                "mechanics_v2": reader,
+                "mechanics_version": configs[0].game.mechanics_version,
             }
-            if effective != construction:
-                raise ValueError("P worker effective mechanics differs from construction")
             return {**row, "construction": effective}
     finally:
         faulthandler.cancel_dump_traceback_later()

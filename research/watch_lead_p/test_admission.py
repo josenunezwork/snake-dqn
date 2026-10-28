@@ -221,6 +221,7 @@ def completion_packet(tmp_path, monkeypatch, request, packet_source_repo):
     import shutil
 
     from research.watch_lead_p import resume, seal
+    from research.watch_lead_p.admission import forecast_envelope
     from research.watch_lead_p.protocol import ARMS, FRAMES
 
     repo = (tmp_path / "repo").resolve()
@@ -295,8 +296,10 @@ def completion_packet(tmp_path, monkeypatch, request, packet_source_repo):
                 "envelope": {
                     "forecast_seconds": 12000,
                     "workers": 11,
-                    "effective_minutes": 480,
-                    "effective_units": 12.32,
+                    "rate_units_per_hour": 1.54,
+                    "base_reserve_units": 0,
+                    "effective_reserve_units": 0,
+                    **forecast_envelope(12000, 1.54),
                     "governing": "effective",
                 },
             }
@@ -458,7 +461,7 @@ def test_dispatch_verifies_inventory_once_and_rejects_unsafe_admitted_paths(tmp_
     assert called == [inventory] * 3
 
 
-def test_seal_rejects_forecast_without_effective_margin_before_writing(tmp_path, monkeypatch):
+def test_seal_rejects_stale_accounting_before_writing(completion_packet, tmp_path):
     from research.watch_lead_p import seal
 
     benchmark = tmp_path / "benchmark.json"
@@ -472,11 +475,15 @@ def test_seal_rejects_forecast_without_effective_margin_before_writing(tmp_path,
             )
         )
     )
-    monkeypatch.setattr(seal, "ROOT", ROOT)
-    pin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    with pytest.raises(ValueError, match="governing effective envelope"):
-        seal.seal(pin, tmp_path, tmp_path, benchmark, 99)
-    assert not (ROOT / "research/watch_lead_p/packet-99").exists()
+    repo, packet, _, _ = completion_packet
+    accounting = json.loads((packet / "retry-accounting.json").read_text())
+    accounting["prepared_job_id"] = "sandbox-p-watch-lead-20261028-99"
+    stale = tmp_path / "stale-accounting.json"
+    stale.write_text(json.dumps(accounting))
+    pin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    with pytest.raises(ValueError, match="refreshed effective forecast"):
+        seal.seal(pin, tmp_path, tmp_path, benchmark, 99, retry_accounting=stale)
+    assert not (repo / "research/watch_lead_p/packet-99").exists()
 
 
 @pytest.mark.parametrize("count", [0, 32])
@@ -839,15 +846,29 @@ def test_truthful_refreshed_forecast_hits_qualified_transport_two_x_rule(tmp_pat
         supervisor.validate(manifest, repo=ROOT)
 
 
-@pytest.mark.parametrize("damage", [None, "timeout", "units", "estimate", "accounting", "sandbox"])
-def test_operator_reforecast_envelope_and_real_transport(tmp_path, monkeypatch, damage):
+@pytest.mark.parametrize(
+    "damage",
+    [
+        None,
+        "timeout",
+        "units",
+        "estimate",
+        "accounting",
+        "sandbox",
+        "identity",
+        "legacy",
+        "missing",
+    ],
+)
+@pytest.mark.parametrize("suffix", ["c", "d", "e"])
+def test_operator_reforecast_envelope_and_real_transport(tmp_path, monkeypatch, damage, suffix):
     from research.colab_cli import supervisor
     from research.watch_lead_p.admission import validate_reforecast_envelope
 
     packet = json.loads(
         (ROOT / "research/watch_lead_p/packet-09/reseal-02/dispatch-manifest.json").read_text()
     )
-    packet.update(job_id="sandbox-p-watch-lead-20261028-09c", timeout_minutes=570)
+    packet.update(job_id=f"sandbox-p-watch-lead-20261028-09{suffix}", timeout_minutes=570)
     packet["output_dir"] = str(tmp_path / "fresh-output")
     packet["budget"]["unit_cap"] = 14.63
     packet["technical_envelope"].update(
@@ -855,17 +876,29 @@ def test_operator_reforecast_envelope_and_real_transport(tmp_path, monkeypatch, 
         effective_seconds=34200,
         base_unit_cap=7.312484270908601,
         effective_unit_cap=14.63,
+        margin_seconds=34200 - packet["technical_envelope"]["forecast_seconds"],
     )
+    from research.watch_lead_p.admission import forecast_envelope
+
     accounting = {
+        "prepared_job_id": packet["job_id"],
         "envelope": dict(
-            base_minutes=285,
-            effective_minutes=570,
-            base_units=7.312484270908601,
-            effective_units=14.63,
-        )
+            forecast_seconds=packet["technical_envelope"]["forecast_seconds"],
+            rate_units_per_hour=1.54,
+            base_reserve_units=0,
+            effective_reserve_units=0,
+            governing="effective",
+            **forecast_envelope(packet["technical_envelope"]["forecast_seconds"], 1.54),
+        ),
     }
     payload = {"timeout": dict(base_seconds=17100, seconds=34200, purpose="runaway-guard")}
-    if damage == "timeout":
+    if damage == "identity":
+        accounting["prepared_job_id"] = "foreign-job"
+    elif damage == "legacy":
+        packet["timeout_minutes"] = 480
+    elif damage == "missing":
+        accounting = None
+    elif damage == "timeout":
         packet["timeout_minutes"] = 571
     elif damage == "units":
         packet["budget"]["unit_cap"] = 14.62
@@ -891,3 +924,55 @@ def test_operator_reforecast_envelope_and_real_transport(tmp_path, monkeypatch, 
                 supervisor.validate(packet, repo=ROOT)
         else:
             assert supervisor.validate(packet, repo=ROOT)["timeout_minutes"] == 570
+
+
+@pytest.mark.parametrize(
+    "forecast,estimate,cap", [(17094.119074851274, 285, 14.63), (12000, 200, 10.27)]
+)
+def test_forecast_envelope_derives_rounded_clocks_and_price(forecast, estimate, cap):
+    from research.watch_lead_p.admission import forecast_envelope
+
+    value = forecast_envelope(forecast, 1.54)
+    assert value["base_minutes"] == estimate
+    assert value["effective_minutes"] == 2 * estimate
+    assert value["effective_units"] == cap
+    assert value["margin_seconds"] == estimate * 120 - forecast
+
+
+@pytest.mark.parametrize("reader,version", [(False, 2), ("1", 2), (True, 1), (True, 2)])
+def test_worker_checks_reader_before_arm_and_captures_session_config(monkeypatch, reader, version):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from research.watch_lead_p import run
+    from src.core import game_config
+    from web.backend import session
+
+    monkeypatch.setattr(run, "lower_worker_priority", lambda: None)
+    monkeypatch.setattr(run, "uploaded_checkpoints", nullcontext)
+    monkeypatch.setattr(session, "_mechanics_v2_enabled", lambda: reader)
+    config = SimpleNamespace(game=SimpleNamespace(mechanics_version=version))
+    current = [config]
+    monkeypatch.setattr(game_config, "get_config", lambda: current[0])
+    monkeypatch.setattr(session, "GameState", lambda: object())
+    calls = []
+
+    def arm(*args, **kwargs):
+        calls.append("arm")
+        session.GameState()  # The real worker wraps the actual construction seam.
+        calls.append("tick")
+        # A later global change must not replace the captured construction config.
+        current[0] = SimpleNamespace(game=SimpleNamespace(mechanics_version=1))
+        return {"fixture": True}
+
+    monkeypatch.setattr(run, "run_arm", arm)
+    if reader is not True or version != 2:
+        with pytest.raises(ValueError, match="mechanics differs"):
+            run.worker(0, "P0")
+        assert "tick" not in calls
+        if reader is not True:
+            assert calls == []
+    else:
+        row = run.worker(0, "P0")
+        assert calls == ["arm", "tick"]
+        assert row["construction"]["mechanics_version"] == 2

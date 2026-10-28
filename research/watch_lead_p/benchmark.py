@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from research.bl_served_search.exports import export_json
+from research.watch_lead_p.admission import forecast_envelope
 from research.watch_lead_p.engine import submit
 from research.watch_lead_p.live import LiveWorld
 from research.watch_lead_p.protocol import FIXTURE_SEED, NAMESPACE
@@ -114,6 +115,7 @@ def main() -> None:
     p48 = max(s["seconds"] for s in samples if s["delay"] == 48)
     projected = project(bare_tick_seconds, p0, p48)
     forecast = projected["projected_seconds"]
+    envelope = forecast_envelope(forecast, 1.54)
     export_json(
         args.output,
         {
@@ -138,8 +140,10 @@ def main() -> None:
             "host_scaling": (
                 "Mac measurements; L4 host speed and eleven-worker contention unmeasured"
             ),
-            "base_seconds": 14400,
-            "effective_seconds": 28800,
+            "base_seconds": envelope["base_minutes"] * 60,
+            "effective_seconds": envelope["effective_minutes"] * 60,
+            "effective_unit_cap": envelope["effective_units"],
+            "margin_seconds": envelope["margin_seconds"],
         },
     )
     print(f"P_FORECAST seconds={forecast:.2f} hours={forecast/3600:.3f}", flush=True)
