@@ -156,7 +156,11 @@ def _validate_registry_inputs(payload: dict[str, Any], registry_path: Path) -> N
         # manifest validation has already rejected protected strings, before any
         # record path is opened by the registry loader/validator.
         validate_input(record, registry)
-    if payload["study"] == "sandbox-a-train01" or any(
+    if payload["study"] == "t34-watch-lead-1028":
+        from research.watch_lead_p.admission import validate_inputs
+
+        validate_inputs(payload, registry)
+    elif payload["study"] == "sandbox-a-train01" or any(
         r["kind"] == "frozen-opponent" for r in payload["inputs"]
     ):
         from .registry import TRAINING_OPPONENTS
@@ -250,7 +254,7 @@ def _verify_broker_binding(payload: dict[str, Any]) -> None:
     _assert_safe_path(Path(packet.get("output_dir", "")).resolve(), "broker output")
     script = packet.get("script", "")
     if not isinstance(script, str) or not script.startswith(
-        ("research/sandbox_b_heads/", "research/sandbox_a_resident/")
+        ("research/sandbox_b_heads/", "research/sandbox_a_resident/", "research/watch_lead_p/")
     ):
         raise PreflightError("broker script is outside sandbox packages")
     allowed = {
@@ -274,7 +278,8 @@ def _verify_broker_binding(payload: dict[str, Any]) -> None:
         seconds, payload["timeout"]["seconds"], abs_tol=1e-8
     ):
         raise PreflightError("broker timeout differs from sandbox timeout")
-    if packet.get("requirements", {}).get("gpu") != "A100":
+    gpu = "L4" if payload["study"] == "t34-watch-lead-1028" else "A100"
+    if packet.get("requirements", {}).get("gpu") != gpu:
         raise PreflightError("sandbox broker must request A100")
     commit = packet.get("commit", "")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
@@ -319,6 +324,8 @@ def run_focused_tests() -> None:
         "no:xdist",
         "tools/sandbox/tests",
         "research/sandbox_b_heads/tests",
+        "research/watch_lead_p/test_p.py",
+        "research/watch_lead_p/test_admission.py",
     ]
     completed = subprocess.run(command, cwd=REPO_ROOT, text=True, env=env, check=False)
     if completed.returncode:

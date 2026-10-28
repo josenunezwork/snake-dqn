@@ -150,6 +150,7 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
                 "training-export-derivative",
             }
             and payload["study"] != "sandbox-a-train01"
+            and not (kind == "frozen-opponent" and payload["study"] == "t34-watch-lead-1028")
         ):
             raise ManifestError("training inputs are exclusive to sandbox-a-train01")
 

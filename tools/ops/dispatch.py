@@ -49,6 +49,7 @@ NICE_FLOOR = 15
 COMMAND_TIMEOUT_SECONDS = 60.0
 SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS = 180.0
 SANDBOX_OUTPUT_ROOTS = {
+    "t34-watch-lead-1028": HERE.parents[1].parent / "snake-dqn-artifacts/t34-watch-lead-1028",
     "sandbox-b-heads-v1": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b-20261026",
     "sandbox-b-heads-v2": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b2-20261026",
     "sandbox-b-heads-v3": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b3-20261026",
@@ -597,6 +598,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         raise Refused("sandbox forbids canary, registered-study or unknown controls")
     sandbox_collector_directory(manifest)
     packages = {
+        "research/watch_lead_p/run_job.sh": "t34-watch-lead-1028",
         "research/sandbox_b_heads/run_job.sh": "sandbox-b-heads-v1",
         "research/sandbox_b_heads/run_b2.sh": "sandbox-b-heads-v2",
         "research/sandbox_b_heads/run_b3.sh": "sandbox-b-heads-v3",
@@ -626,6 +628,29 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
     if study in {"sandbox-b-heads-v1", "sandbox-b-heads-v2", "sandbox-b-heads-v3"}:
         allowed_env.add("SANDBOX_B_SALT")
         prefixes = ("src/", "tools/sandbox/", "research/sandbox_b_heads/")
+    elif study == "t34-watch-lead-1028":
+        # A finite, CPU-heavy product premise test, explicitly ruled on L4.
+        prefixes = (
+            "src/",
+            "web/backend/",
+            "configs/",
+            "tools/sandbox/",
+            "research/watch_lead_p/",
+            "research/bl_k1/",
+            "research/bl_served_search/",
+            "research/bl_mac_latency/",
+            "research/bl_evidence/",
+            "research/bl_paced_identity/",
+            "research/bl_ppo/",
+            "research/t34_shadow/",
+            "research/t34_pathb/",
+            "research/t15_mixed_roster_20261017/",
+            "research/t1_commitment_20261015/",
+            "research/t3_rollout_labels_20261015/",
+            "research/redesign_scope_20261007/",
+            "research/apex_veto_serving_20261001/",
+            "research/t34_speed_s2/",
+        )
     else:
         allowed_env.update({"SANDBOX_A_CONTROL_JSON", "SANDBOX_A_SOURCE_COMMIT", "MAX_JOBS"})
         prefixes = (
@@ -643,7 +668,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
             seconds = math.nan
         if not math.isfinite(seconds) or not 0 < seconds <= 900:
             raise Refused("TRAIN-01 stall timeout must be finite, positive and at most 900 seconds")
-    elif "sandbox_source_delivery" in manifest:
+    elif "sandbox_source_delivery" in manifest and study != "t34-watch-lead-1028":
         raise Refused("background source delivery is exclusive to TRAIN-01")
     delivery = manifest.get("sandbox_source_delivery")
     if "sandbox_source_delivery" in manifest and delivery != "background-sparse-v1":
@@ -652,6 +677,13 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         raise Refused("sandbox environment contains non-package controls")
     shared = {"research/a100_a2/model.py", "research/bl_residual/data.py"}
     for source in manifest.get("source_paths", []):
+        if study == "t34-watch-lead-1028":
+            admitted = json.loads(
+                (broker / "research/watch_lead_p/runtime-sources.json").read_text()
+            )
+            if source not in admitted:
+                raise Refused("P source is outside its frozen dependency inventory")
+            continue
         parts = Path(source).parts
         if (
             Path(source).is_absolute()
@@ -659,7 +691,8 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
             or (source not in shared and not source.startswith(prefixes))
         ):
             raise Refused("sandbox source is outside its engineering dependency closure")
-    if manifest.get("requirements", {}).get("allowed_gpus", ["A100"]) != ["A100"]:
+    permitted_gpu = "L4" if study == "t34-watch-lead-1028" else "A100"
+    if manifest.get("requirements", {}).get("allowed_gpus", ["A100"]) != [permitted_gpu]:
         raise Refused("sandbox permits only its adopted A100 assignment")
     path = preflight._assert_safe_path(admission["manifest_path"], "sandbox manifest")
     payload = preflight.preflight(path, run_tests=True)

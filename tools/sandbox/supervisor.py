@@ -39,7 +39,10 @@ def sandbox_admission_route() -> Iterator[None]:
         """Wrap only the qualified execution phase that owns source delivery."""
         if manifest.get("sandbox_source_delivery") != OPT_IN:
             return original_execute(self, cli, manifest, *args, **kwargs)
-        if manifest.get("script") != "research/sandbox_a_resident/train_job.sh":
+        if manifest.get("script") not in {
+            "research/sandbox_a_resident/train_job.sh",
+            "research/watch_lead_p/run_job.sh",
+        }:
             raise ValueError("background sparse source delivery is TRAIN-01 only")
         with background_sparse_route(cli):
             return original_execute(self, cli, manifest, *args, **kwargs)
