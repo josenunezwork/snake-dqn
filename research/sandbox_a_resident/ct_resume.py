@@ -463,6 +463,8 @@ def _check_retained_execution(
         raise CTResumeRefused(f"{label} records malformed returncode")
     if returncode == 124:
         raise CTResumeRefused(f"{label} records watchdog timeout exit code 124")
+    if reason in MECHANICAL_TERMINAL_REASONS and returncode not in (None, 138, -10):
+        raise CTResumeRefused(f"{label} records non-signal exit under a mechanical reason")
     if (returncode not in (None, 0) or status in {"failed", "stopped", "error"}) and (
         reason not in MECHANICAL_TERMINAL_REASONS
     ):
@@ -702,6 +704,12 @@ def _check_retained_receipt(record: Any, *, label: str) -> None:
     terminal = record.get("terminal")
     if isinstance(terminal, Mapping) and terminal.get("returncode") == 124:
         raise CTResumeRefused(f"{label} records watchdog timeout exit code 124")
+    if (
+        isinstance(terminal, Mapping)
+        and terminal.get("reason") in MECHANICAL_TERMINAL_REASONS
+        and terminal.get("returncode") not in (None, 138, -10)
+    ):
+        raise CTResumeRefused(f"{label} records non-signal exit under a mechanical reason")
     child_error = False
     if (
         record["failure_class"] == "CHILD_NONZERO_EXIT"

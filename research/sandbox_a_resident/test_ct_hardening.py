@@ -591,3 +591,22 @@ def test_exact_generation_bound_signal_footer_without_caller_identity(tmp_path: 
     (tmp_path / "terminal.json").write_text(json.dumps(terminal))
     with pytest.raises(ct_resume.CTResumeRefused, match="scientific/non-mechanical"):
         ct_resume._check_attempt_base_fault_evidence(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "failure_class", ["SUPERVISOR", "RPC_EXEC_POLL_TIMEOUT", "CHILD_NONZERO_EXIT"]
+)
+def test_structured_mechanical_reason_never_overrides_non_signal_exit(failure_class: str) -> None:
+    record = {
+        "status": "INCOMPLETE",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "failure_class": failure_class,
+        "terminal": {"reason": "timeout", "status": "failed", "returncode": 7},
+    }
+    with pytest.raises(ct_resume.CTResumeRefused, match="non-signal exit"):
+        ct_resume._check_retained_receipt(record, label="receipt")
+    with pytest.raises(ct_resume.CTResumeRefused, match="non-signal exit"):
+        ct_resume._scan_json_faults(
+            record["terminal"], label="poll.state", supervisor_transport=True
+        )
