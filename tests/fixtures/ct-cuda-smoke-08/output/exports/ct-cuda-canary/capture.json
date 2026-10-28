@@ -1,0 +1,66 @@
+{
+  "cuda": "12.6",
+  "device": "cuda",
+  "gpu": "NVIDIA A100-SXM4-40GB",
+  "peak_allocated_bytes": 309688832,
+  "probes": [
+    {
+      "name": "complete",
+      "returncode": 0,
+      "runtime": {
+        "device": "cuda:0",
+        "fixture_only": true,
+        "gpu": "NVIDIA A100-SXM4-40GB",
+        "peak_allocated_bytes": 148979712,
+        "peak_reserved_bytes": 165675008,
+        "total_vram_bytes": 42405855232
+      },
+      "stages": [
+        "collection-progress",
+        "completed",
+        "fit-progress",
+        "initializing",
+        "scoring-progress",
+        "stage-0001-collection-start",
+        "stage-0001-published",
+        "stage-0002-published",
+        "stage-0002-scoring-start",
+        "stage-0003-published",
+        "stage-0003-scoring-start",
+        "stage-0004-fit-start",
+        "startup-self-checks-passed"
+      ]
+    },
+    {
+      "checkpoint_bytes": 267434164,
+      "marker": {
+        "allocation": "d57981005102088cf2825f490e3dd4b10308fd229b0f66b92ce252e7964b7f73",
+        "interrupted_phase": "stage-0001-collection",
+        "latest_durable_stage": 1,
+        "received_unix": 1793226188.8417645,
+        "schema": "t34-cf-sigusr1-marker/v1",
+        "shutdown_elapsed_sec": 2.1895,
+        "status": "PREEMPTED_SIGUSR1",
+        "study": "t34-cf-1028",
+        "within_15s_sla": true
+      },
+      "name": "signal",
+      "returncode": 138,
+      "runtime": {
+        "device": "cuda:0",
+        "fixture_only": true,
+        "gpu": "NVIDIA A100-SXM4-40GB",
+        "peak_allocated_bytes": 309688832,
+        "peak_reserved_bytes": 329252864,
+        "total_vram_bytes": 42405855232
+      },
+      "signal_to_exit_seconds": 3.1692865770000935
+    }
+  ],
+  "qualification": "AWAITING_OPERATOR_CAPTURE_REVIEW",
+  "real_cuda": true,
+  "schema": "ct-cuda-fixture-capture/v1",
+  "science_data": false,
+  "source_commit": "d2302487ebecb1791bec1fb22cd9ab98209ad3d7",
+  "torch": "2.9.1+cu126"
+}

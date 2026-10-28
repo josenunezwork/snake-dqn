@@ -1,0 +1,15 @@
+{
+  "exports": [],
+  "job_log_tail": "Downloading cpython-3.12.16-linux-x86_64-gnu (download) (32.9MiB)\n Downloaded cpython-3.12.16-linux-x86_64-gnu (download)\nInstalled Python 3.12.16 in 989ms\n + cpython-3.12.16-linux-x86_64-gnu (python3.12)\nwarning: `/root/.local/bin` is not on your PATH. To use installed Python executables, run `export PATH=\"/root/.local/bin:$PATH\"` or `uv python update-shell`.\nwarning: The `--system` flag has no effect, `uv venv` always ignores virtual environments when finding a Python interpreter; did you mean `--no-managed-python`?\nUsing CPython 3.12.16\nCreating virtual environment with seed packages at: .venv\n + pip==26.2.2\nActivate with: source .venv/bin/activate\n2.9.1+cu126 12.6 (8, 0)\nCT_PROGRESS {\"elapsed_sec\": 0.0, \"latest_durable_stage\": 0, \"schema\": \"t34-cf-progress/v1\", \"stage\": \"initializing\", \"study\": \"t34-cf-1028\"}\n",
+  "state": {
+    "generation": "5de6e44e0c5d4e3e915aefb29983650b",
+    "job_id": "ct-cuda-smoke-20261028-08",
+    "max_export_bytes": 1073741824,
+    "pid": 1583,
+    "started_at": 1793225626.578132,
+    "status": "running",
+    "updated_at": 1793225883.3073256
+  },
+  "supervisor_log_tail": "",
+  "terminal": null
+}

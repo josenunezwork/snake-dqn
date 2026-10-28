@@ -1,0 +1,236 @@
+"""Exact benign bootstrap lines observed in immutable A100 capture ct-cuda-smoke-08.
+
+No pattern expansion or warning-class exemptions. Version/timing drift refuses."""
+
+BOOTSTRAP_LINES: frozenset[str] = frozenset(
+    [
+        " + cpython-3.12.16-linux-x86_64-gnu (python3.12)",
+        " + pip==26.2.2",
+        " Downloaded cpython-3.12.16-linux-x86_64-gnu (download)",
+        "2.9.1+cu126 12.6 (8, 0)",
+        "Activate with: source .venv/bin/activate",
+        "Creating virtual environment with seed packages at: .venv",
+        "Downloading cpython-3.12.16-linux-x86_64-gnu (download) (32.9MiB)",
+        "Installed Python 3.12.16 in 989ms",
+        "Using CPython 3.12.16",
+        (
+            "warning: The `--system` flag has no effect, `uv venv` always igno"
+            "res virtual environments when finding a Python interpreter; did y"
+            "ou mean `--no-managed-python`?"
+        ),
+        (
+            "warning: `/root/.local/bin` is not on your PATH. To use installed"
+            ' Python executables, run `export PATH="/root/.local/bin:$PATH"` o'
+            "r `uv python update-shell`."
+        ),
+    ]
+)
+
+CAPTURE_LABELS: frozenset[str] = frozenset(
+    [
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000000.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000001.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000002.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000003.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000004.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000005.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000006.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000007.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000008.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000009.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000010.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000011.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000012.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000013.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000014.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000015.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000016.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000017.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000018.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000019.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000020.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000021.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000022.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000023.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000024.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000025.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000026.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000027.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000028.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000029.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000030.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/"
+            "00000031.part"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/stage-0001.pt"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/stage-0001.pt.complete"
+        ),
+        (
+            "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cud"
+            "a-canary/signal/stage-0001.pt.sha256"
+        ),
+        "colab-family-canary/v1",
+        "ct-cuda-canary/capture.json",
+        "ct-cuda-canary/complete-control.json",
+        "ct-cuda-canary/complete-entrypoint.log",
+        "ct-cuda-canary/complete-ledger.json",
+        "ct-cuda-canary/complete/fixture-runtime.json",
+        "ct-cuda-canary/complete/progress-history.log",
+        "ct-cuda-canary/complete/progress.json",
+        "ct-cuda-canary/complete/stage-0001.json",
+        "ct-cuda-canary/complete/stage-0001.pt",
+        "ct-cuda-canary/complete/stage-0002.json",
+        "ct-cuda-canary/complete/stage-0002.pt",
+        "ct-cuda-canary/complete/stage-0003.json",
+        "ct-cuda-canary/complete/stage-0003.pt",
+        "ct-cuda-canary/complete/stage-0004.json",
+        "ct-cuda-canary/complete/stage-0004.pt",
+        "ct-cuda-canary/complete/stall-watchdog/faulthandler-stacks.log",
+        "ct-cuda-canary/complete/stall-watchdog/stall-watchdog.json",
+        "ct-cuda-canary/complete/summary.json",
+        "ct-cuda-canary/signal-control.json",
+        "ct-cuda-canary/signal-entrypoint.log",
+        "ct-cuda-canary/signal-ledger.json",
+        "ct-cuda-canary/signal/fixture-checkpoint-start",
+        "ct-cuda-canary/signal/fixture-runtime.json",
+        "ct-cuda-canary/signal/progress-history.log",
+        "ct-cuda-canary/signal/progress.json",
+        "ct-cuda-canary/signal/sigusr1-marker.json",
+        "ct-cuda-canary/signal/stage-0001.json",
+        "ct-cuda-canary/signal/stage-0001.pt",
+        "ct-cuda-canary/signal/stall-watchdog/faulthandler-stacks.log",
+        "ct-cuda-canary/signal/stall-watchdog/stall-watchdog.json",
+        "research/sandbox_a_resident/ct_cuda_canary_job.sh",
+    ]
+)

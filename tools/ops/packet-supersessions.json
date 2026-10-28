@@ -76,6 +76,14 @@
       "manifest_sha256": "5159f414ab68beebc1e33a1b1ca500db673e632c3e8246df5916688cb01c3c6a",
       "successor": "packet-ct-1028-07/reseal-02",
       "reason": "Preserve structured-exit seal; final source closes the source-plan JSON exemption while retaining metadata-independent member verification."
+    },
+    {
+      "packet_dir": "packet-ct-1028-07",
+      "job_ids": [
+        "sandbox-ct-cf-20261028-07"
+      ],
+      "successor": "packet-ct-1028-08",
+      "reason": "Real A100 capture closes bootstrap, signal-marker and history witness admission gaps; all packet-07 bytes remain immutable."
     }
   ]
 }

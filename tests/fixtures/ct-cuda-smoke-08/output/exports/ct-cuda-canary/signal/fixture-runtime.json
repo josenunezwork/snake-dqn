@@ -1,0 +1,1 @@
+{"device": "cuda:0", "fixture_only": true, "gpu": "NVIDIA A100-SXM4-40GB", "peak_allocated_bytes": 309688832, "peak_reserved_bytes": 329252864, "total_vram_bytes": 42405855232}

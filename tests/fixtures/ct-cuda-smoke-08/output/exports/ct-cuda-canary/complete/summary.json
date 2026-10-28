@@ -1,0 +1,1391 @@
+{
+  "allocation": "e234dd7ecfe582363444687e9397a6d53db0bf7173b2b4fa1c6e500a4541bea8",
+  "collection": {
+    "anchor_archive_bytes": 201988,
+    "anchor_rows_assessment": 3,
+    "anchor_rows_total": 16,
+    "anchor_rows_train": 13,
+    "charged_collection_rows": 72,
+    "collection_wall_sec": 5.586,
+    "ordinary_matching": {
+      "cross_mix_or_bin_spill_allowed": false,
+      "length_bin_edges": [
+        1,
+        600,
+        800,
+        1000,
+        1300,
+        1700
+      ],
+      "length_bin_labels": [
+        "[1,600)",
+        "[600,800)",
+        "[800,1000)",
+        "[1000,1300)",
+        "[1300,1700)",
+        "[1700,inf)"
+      ],
+      "partitions": {
+        "assessment": {
+          "achieved_ordinary_roots_total": 1,
+          "death_lookback_roots_total": 0,
+          "mode": "tiny_zero_death_smoke",
+          "partition_quota_cap": 1,
+          "per_mix_bin": {
+            "frozen": {
+              "[1,600)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 12,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1000,1300)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1300,1700)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1700,inf)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[600,800)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[800,1000)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              }
+            },
+            "mixed": {
+              "[1,600)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 12,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1000,1300)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1300,1700)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1700,inf)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[600,800)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[800,1000)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              }
+            },
+            "scripted": {
+              "[1,600)": {
+                "achieved_ordinary_roots": 1,
+                "available_candidates": 12,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 1,
+                "shortfall": 0
+              },
+              "[1000,1300)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1300,1700)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1700,inf)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[600,800)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[800,1000)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              }
+            }
+          },
+          "required_ordinary_roots_total": 1,
+          "shortfall_total": 0
+        },
+        "train": {
+          "achieved_ordinary_roots_total": 3,
+          "death_lookback_roots_total": 0,
+          "mode": "tiny_zero_death_smoke",
+          "partition_quota_cap": 3,
+          "per_mix_bin": {
+            "frozen": {
+              "[1,600)": {
+                "achieved_ordinary_roots": 1,
+                "available_candidates": 12,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 1,
+                "shortfall": 0
+              },
+              "[1000,1300)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1300,1700)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1700,inf)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[600,800)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[800,1000)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              }
+            },
+            "mixed": {
+              "[1,600)": {
+                "achieved_ordinary_roots": 1,
+                "available_candidates": 12,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 1,
+                "shortfall": 0
+              },
+              "[1000,1300)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1300,1700)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1700,inf)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[600,800)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[800,1000)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              }
+            },
+            "scripted": {
+              "[1,600)": {
+                "achieved_ordinary_roots": 1,
+                "available_candidates": 12,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 1,
+                "shortfall": 0
+              },
+              "[1000,1300)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1300,1700)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[1700,inf)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[600,800)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              },
+              "[800,1000)": {
+                "achieved_ordinary_roots": 0,
+                "available_candidates": 0,
+                "death_lookback_roots": 0,
+                "required_ordinary_roots": 0,
+                "shortfall": 0
+              }
+            }
+          },
+          "required_ordinary_roots_total": 3,
+          "shortfall_total": 0
+        }
+      }
+    },
+    "selected_death_lookback_roots": 0,
+    "selected_deaths_assessment": 0,
+    "selected_deaths_total": 0,
+    "selected_deaths_train": 0,
+    "selected_ordinary_roots_assessment": 1,
+    "selected_ordinary_roots_total": 4,
+    "selected_ordinary_roots_train": 3,
+    "snapshot_store_bytes": 67620,
+    "task_identity": {
+      "active_task_id": "t34-cf-v1-terminal-hero-skill-instep-refill",
+      "hero_respawn": false,
+      "in_step_refill_ordering": "per_slot_sequential_before_collision_and_corpse",
+      "mechanics_version": 1,
+      "opponent_respawn": true,
+      "separated_product_differences": [
+        "Watch6 uses mechanics_version=2 (size-ratio head-on wins, boost paid-tail food, capped corpse class).",
+        "Watch6 continuously respawns hero over 6,000-frame product sessions rather than terminal hero skill episodes.",
+        "Watch6 uses five FRP3-s12+v8 opponents rather than balanced scripted/frozen/mixed skill rosters."
+      ],
+      "separated_product_task_id": "watch6-v2-continuous-respawn-product",
+      "train01_packet15_modified": false,
+      "train_mode": false,
+      "v2_transfer_claim": false
+    },
+    "topology_spec": {
+      "disclaimer": "Dynamic-topology approximations only: time-expanded TTL<=arrival assumes unit-rate tail decay and ignores later food growth, future boosts, newly laid body segments, and opponent reactions; it is not exact future reachability. Diagnostic T-arm input only; authorizes no serving obs-spec change.",
+      "name": "dynamic-topology approximations",
+      "orientation": {
+        "action_summaries": "Hero ego-relative action order [0:left, 1:straight, 2:right, 3:boost_left, 4:boost_straight, 5:boost_right].",
+        "board_planes": "Canonical arena-aligned lattice (y in [0, grid_h), x in [0, grid_w)), +x Right/East, +y Down/South; hero head uniquely marked at own_ttl == 1.0."
+      },
+      "planes": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "wall_occupancy",
+            "rule": "1.0 (65535) if occupied by any living snake segment, 0.0 (0) if free; conv pads exterior border with 1.0 (wall)."
+          },
+          {
+            "index": 1,
+            "name": "own_ttl",
+            "rule": "clamp(own_ttl_steps(y, x) / max(1, hero_length), 0.0, 1.0) where own_ttl_steps = max(0, hero_length - hero_seg_count) + (hero_seg_count - k); hero head has 1.0 (65535), empty 0.0."
+          },
+          {
+            "index": 2,
+            "name": "enemy_ttl",
+            "rule": "clamp(max_{s in 1..5 alive} enemy_ttl_steps(s, y, x) / 1000.0, 0.0, 1.0), empty 0.0."
+          },
+          {
+            "index": 3,
+            "name": "food",
+            "rule": "0.0 (0) empty, 0.5 (32768) ambient food, 1.0 (65535) corpse-tagged food."
+          }
+        ],
+        "forward_scale": "float32 = uint16 / 65535.0 in [0.0, 1.0]",
+        "shape_production": [
+          4,
+          83,
+          145
+        ],
+        "storage_dtype": "uint16"
+      },
+      "schema": "dynamic-topology-approximations/v1",
+      "summaries": {
+        "bfs_horizon": 128,
+        "boost_treatment_3_5": "If hero not alive or hero_length < min_boost_length, missing-value sentinel = -1.0. Else step d=1 traverses c1 = head + dir(a) and c2 = head + 2*dir(a), popping pop1 = 2 + 1[boost_frames + 1 >= boost_length_cost_frames and hero_length > 1] own tail segments and 1 enemy tail segment. If c1 or c2 is out-of-bounds, enemy_ttl > 1, or own_ttl > pop1, value = 0.0. Else time-expanded BFS from (c2, d=1) up to d <= 128 with remaining own_ttl shifted by -(pop1 - 1).",
+        "count": 6,
+        "dtype": "float32",
+        "formula": "0.8 * (reachable_cells / (grid_h * grid_w)) + 0.2 * mean_{u in reachable}(min(arrival_step(u) - total_ttl(u), 128) / 128.0)",
+        "missing_value_rules": {
+          "illegal_boost_or_dead_boost": -1.0,
+          "immediate_step1_collision_or_dead_normal": 0.0
+        },
+        "normal_actions_0_2": "Step d=1 to c1 = head + dir(a). If c1 out-of-bounds or total_ttl(c1) > 1, value = 0.0. Else 4-neighbor time-expanded BFS from (c1, d=1) up to d <= 128 admitting neighbor u at step d iff in-bounds and max(own_ttl(u), enemy_ttl(u)) <= d."
+      }
+    },
+    "total_eligible_deaths_observed": 0,
+    "total_hero_deaths": 0
+  },
+  "evaluation": {
+    "arms": {
+      "frozen_phi": {
+        "d100_d300_separability": {
+          "auc_alone_buys_training": false,
+          "detached_linear_probe_auc": {
+            "both_classes_supported": false,
+            "ci95_two_sided": null,
+            "neg_roots": 1,
+            "neg_worlds": 0,
+            "pos_roots": 0,
+            "pos_worlds": 0,
+            "root_level_auc": null,
+            "world_grouped_auc": null
+          },
+          "policy_b8_surprise_auc_diagnostic": {
+            "both_classes_supported": false,
+            "ci95_two_sided": null,
+            "neg_roots": 1,
+            "neg_worlds": 0,
+            "pos_roots": 0,
+            "pos_worlds": 0,
+            "root_level_auc": null,
+            "world_grouped_auc": null
+          },
+          "probe_fitted_on_detached_train_only": false,
+          "t_arm_auc_bar": 0.83
+        },
+        "gate_d_ordinary_safety": {
+          "archive_flip_count": 0,
+          "archive_flip_max_bar": 0.01,
+          "archive_flip_rate": 0.0,
+          "archive_flip_world_bootstrap": {
+            "ci90_two_sided": [
+              0.0,
+              0.0
+            ],
+            "ci95_two_sided": [
+              0.0,
+              0.0
+            ],
+            "lb90_one_sided": 0.0,
+            "num_units": 3,
+            "num_worlds": 3,
+            "p_one_sided_gt_zero": 1.0,
+            "point_estimate": 0.0
+          },
+          "archive_rows": 3,
+          "searched_ordinary_flip_count": 0,
+          "searched_ordinary_lethal_flip_count": 0,
+          "searched_ordinary_lethal_flip_max_bar": 1,
+          "searched_ordinary_roots": 1,
+          "status": "PASS"
+        },
+        "rescue_retention": {
+          "causal_rescue_denominator": 0,
+          "exact_a_star_match_rate_diagnostic": 0.0,
+          "rate": 0.0,
+          "retained_count": 0,
+          "world_bootstrap": {
+            "ci90_two_sided": [
+              0.0,
+              0.0
+            ],
+            "ci95_two_sided": [
+              0.0,
+              0.0
+            ],
+            "lb90_one_sided": 0.0,
+            "num_units": 0,
+            "num_worlds": 0,
+            "p_one_sided_gt_zero": 1.0,
+            "point_estimate": 0.0
+          }
+        },
+        "train_telemetry": {
+          "anchor_batch_size": 4,
+          "final50_mean_losses": {
+            "forbidden_margin": 0.0,
+            "searched_kl": 3.8e-05,
+            "total_loss": 4e-05,
+            "weighted_anchor_kl": 2e-06
+          },
+          "head_lr": 0.0001,
+          "initial_step0_losses": {
+            "forbidden_margin": 0.0,
+            "searched_kl": 0.0,
+            "total_loss": 0.0,
+            "weighted_anchor_kl": 0.0
+          },
+          "minibatches": 2,
+          "searched_batch_size": 2,
+          "trunk_lr": 1e-05,
+          "wall_sec": 0.055
+        }
+      },
+      "full_bv8": {
+        "d100_d300_separability": {
+          "auc_alone_buys_training": false,
+          "detached_linear_probe_auc": {
+            "both_classes_supported": false,
+            "ci95_two_sided": null,
+            "neg_roots": 1,
+            "neg_worlds": 0,
+            "pos_roots": 0,
+            "pos_worlds": 0,
+            "root_level_auc": null,
+            "world_grouped_auc": null
+          },
+          "policy_b8_surprise_auc_diagnostic": {
+            "both_classes_supported": false,
+            "ci95_two_sided": null,
+            "neg_roots": 1,
+            "neg_worlds": 0,
+            "pos_roots": 0,
+            "pos_worlds": 0,
+            "root_level_auc": null,
+            "world_grouped_auc": null
+          },
+          "probe_fitted_on_detached_train_only": false,
+          "t_arm_auc_bar": 0.83
+        },
+        "gate_d_ordinary_safety": {
+          "archive_flip_count": 0,
+          "archive_flip_max_bar": 0.01,
+          "archive_flip_rate": 0.0,
+          "archive_flip_world_bootstrap": {
+            "ci90_two_sided": [
+              0.0,
+              0.0
+            ],
+            "ci95_two_sided": [
+              0.0,
+              0.0
+            ],
+            "lb90_one_sided": 0.0,
+            "num_units": 3,
+            "num_worlds": 3,
+            "p_one_sided_gt_zero": 1.0,
+            "point_estimate": 0.0
+          },
+          "archive_rows": 3,
+          "searched_ordinary_flip_count": 0,
+          "searched_ordinary_lethal_flip_count": 0,
+          "searched_ordinary_lethal_flip_max_bar": 1,
+          "searched_ordinary_roots": 1,
+          "status": "PASS"
+        },
+        "rescue_retention": {
+          "causal_rescue_denominator": 0,
+          "exact_a_star_match_rate_diagnostic": 0.0,
+          "rate": 0.0,
+          "retained_count": 0,
+          "world_bootstrap": {
+            "ci90_two_sided": [
+              0.0,
+              0.0
+            ],
+            "ci95_two_sided": [
+              0.0,
+              0.0
+            ],
+            "lb90_one_sided": 0.0,
+            "num_units": 0,
+            "num_worlds": 0,
+            "p_one_sided_gt_zero": 1.0,
+            "point_estimate": 0.0
+          }
+        },
+        "train_telemetry": {
+          "anchor_batch_size": 4,
+          "final50_mean_losses": {
+            "forbidden_margin": 0.0,
+            "searched_kl": 0.001184,
+            "total_loss": 0.001229,
+            "weighted_anchor_kl": 4.5e-05
+          },
+          "head_lr": 0.0001,
+          "initial_step0_losses": {
+            "forbidden_margin": 0.0,
+            "searched_kl": 0.0,
+            "total_loss": 0.0,
+            "weighted_anchor_kl": 0.0
+          },
+          "minibatches": 2,
+          "searched_batch_size": 2,
+          "trunk_lr": 1e-05,
+          "wall_sec": 0.053
+        }
+      },
+      "full_bv8_plus_topology": {
+        "d100_d300_separability": {
+          "auc_alone_buys_training": false,
+          "detached_linear_probe_auc": {
+            "both_classes_supported": false,
+            "ci95_two_sided": null,
+            "neg_roots": 1,
+            "neg_worlds": 0,
+            "pos_roots": 0,
+            "pos_worlds": 0,
+            "root_level_auc": null,
+            "world_grouped_auc": null
+          },
+          "policy_b8_surprise_auc_diagnostic": {
+            "both_classes_supported": false,
+            "ci95_two_sided": null,
+            "neg_roots": 1,
+            "neg_worlds": 0,
+            "pos_roots": 0,
+            "pos_worlds": 0,
+            "root_level_auc": null,
+            "world_grouped_auc": null
+          },
+          "probe_fitted_on_detached_train_only": false,
+          "t_arm_auc_bar": 0.83
+        },
+        "gate_d_ordinary_safety": {
+          "archive_flip_count": 0,
+          "archive_flip_max_bar": 0.01,
+          "archive_flip_rate": 0.0,
+          "archive_flip_world_bootstrap": {
+            "ci90_two_sided": [
+              0.0,
+              0.0
+            ],
+            "ci95_two_sided": [
+              0.0,
+              0.0
+            ],
+            "lb90_one_sided": 0.0,
+            "num_units": 3,
+            "num_worlds": 3,
+            "p_one_sided_gt_zero": 1.0,
+            "point_estimate": 0.0
+          },
+          "archive_rows": 3,
+          "searched_ordinary_flip_count": 0,
+          "searched_ordinary_lethal_flip_count": 0,
+          "searched_ordinary_lethal_flip_max_bar": 1,
+          "searched_ordinary_roots": 1,
+          "status": "PASS"
+        },
+        "rescue_retention": {
+          "causal_rescue_denominator": 0,
+          "exact_a_star_match_rate_diagnostic": 0.0,
+          "rate": 0.0,
+          "retained_count": 0,
+          "world_bootstrap": {
+            "ci90_two_sided": [
+              0.0,
+              0.0
+            ],
+            "ci95_two_sided": [
+              0.0,
+              0.0
+            ],
+            "lb90_one_sided": 0.0,
+            "num_units": 0,
+            "num_worlds": 0,
+            "p_one_sided_gt_zero": 1.0,
+            "point_estimate": 0.0
+          }
+        },
+        "train_telemetry": {
+          "anchor_batch_size": 4,
+          "final50_mean_losses": {
+            "forbidden_margin": 0.0,
+            "searched_kl": 0.001335,
+            "total_loss": 0.001386,
+            "weighted_anchor_kl": 5.1e-05
+          },
+          "head_lr": 0.0001,
+          "initial_step0_losses": {
+            "forbidden_margin": 0.0,
+            "searched_kl": 0.0,
+            "total_loss": 0.0,
+            "weighted_anchor_kl": 0.0
+          },
+          "minibatches": 2,
+          "searched_batch_size": 2,
+          "trunk_lr": 1e-05,
+          "wall_sec": 0.088
+        }
+      }
+    },
+    "gates": {
+      "gate_a_causal_rescue_existence": {
+        "held_out_causal_rescue_roots": 0,
+        "held_out_deaths": 0,
+        "pass_threshold": 0.25,
+        "rescuable_death_rate": 0.0,
+        "rescuable_held_out_deaths": 0,
+        "status": "FAIL_STOP_RESCUE_TARGET",
+        "stop_threshold": 0.15,
+        "world_bootstrap": {
+          "ci90_two_sided": [
+            0.0,
+            0.0
+          ],
+          "ci95_two_sided": [
+            0.0,
+            0.0
+          ],
+          "lb90_one_sided": 0.0,
+          "num_units": 0,
+          "num_worlds": 0,
+          "p_one_sided_gt_zero": 1.0,
+          "point_estimate": 0.0
+        }
+      },
+      "gate_b_selected_mass_benefit": {
+        "all_held_out_death_roots_mass_benefit": {
+          "ci90_two_sided": [
+            0.0,
+            0.0
+          ],
+          "ci95_two_sided": [
+            0.0,
+            0.0
+          ],
+          "lb90_one_sided": 0.0,
+          "num_units": 0,
+          "num_worlds": 0,
+          "p_one_sided_gt_zero": 1.0,
+          "point_estimate": 0.0
+        },
+        "causal_rescue_roots_mass_benefit_diagnostic": {
+          "ci90_two_sided": [
+            0.0,
+            0.0
+          ],
+          "ci95_two_sided": [
+            0.0,
+            0.0
+          ],
+          "lb90_one_sided": 0.0,
+          "num_units": 0,
+          "num_worlds": 0,
+          "p_one_sided_gt_zero": 1.0,
+          "point_estimate": 0.0
+        },
+        "lb90_threshold": 0.0,
+        "status": "FAIL"
+      },
+      "gate_c_bv8_rescue_retention": {
+        "frozen_phi_retention": 0.0,
+        "full_bv8_minus_frozen_phi": {
+          "ci90_two_sided": [
+            0.0,
+            0.0
+          ],
+          "ci95_two_sided": [
+            0.0,
+            0.0
+          ],
+          "lb90_one_sided": 0.0,
+          "num_units": 0,
+          "num_worlds": 0,
+          "p_one_sided_gt_zero": 1.0,
+          "point_estimate": 0.0
+        },
+        "full_bv8_retention": 0.0,
+        "full_bv8_status": "FAIL",
+        "min_gain_over_frozen_phi_pp": 0.15,
+        "min_retention_bar": 0.3
+      },
+      "gate_t_dynamic_topology": {
+        "auc_alone_buys_training": false,
+        "d100_d300_auc_gate_pass": true,
+        "d100_d300_world_grouped_auc": null,
+        "gate_d_pass": true,
+        "min_gain_over_full_bv8_pp": 0.15,
+        "retention_gate_pass": false,
+        "retention_rate": 0.0,
+        "status": "FAIL",
+        "topo_minus_frozen_phi": {
+          "ci90_two_sided": [
+            0.0,
+            0.0
+          ],
+          "ci95_two_sided": [
+            0.0,
+            0.0
+          ],
+          "lb90_one_sided": 0.0,
+          "num_units": 0,
+          "num_worlds": 0,
+          "p_one_sided_gt_zero": 1.0,
+          "point_estimate": 0.0
+        },
+        "topo_minus_full_bv8": {
+          "ci90_two_sided": [
+            0.0,
+            0.0
+          ],
+          "ci95_two_sided": [
+            0.0,
+            0.0
+          ],
+          "lb90_one_sided": 0.0,
+          "num_units": 0,
+          "num_worlds": 0,
+          "p_one_sided_gt_zero": 1.0,
+          "point_estimate": 0.0
+        }
+      }
+    },
+    "statistical_superiority_holm": {
+      "note": "Holm step-down (m=2, familywise one-sided alpha=0.10) applied only for statistical superiority claims across trainable arms.",
+      "topo_vs_full_bv8_paired_bootstrap": {
+        "ci90_two_sided": [
+          0.0,
+          0.0
+        ],
+        "ci95_two_sided": [
+          0.0,
+          0.0
+        ],
+        "lb90_one_sided": 0.0,
+        "num_units": 0,
+        "num_worlds": 0,
+        "p_one_sided_gt_zero": 1.0,
+        "point_estimate": 0.0
+      },
+      "vs_frozen_phi": {
+        "full_bv8": {
+          "holm_threshold": 0.05,
+          "p_holm_adjusted": 1.0,
+          "p_raw_one_sided": 1.0,
+          "rank": 1,
+          "statistically_superior": false
+        },
+        "full_bv8_plus_topology": {
+          "holm_threshold": 0.1,
+          "p_holm_adjusted": 1.0,
+          "p_raw_one_sided": 1.0,
+          "rank": 2,
+          "statistically_superior": false
+        }
+      }
+    },
+    "support": {
+      "held_out_anchor_rows": 3,
+      "held_out_deaths": 0,
+      "held_out_distinct_death_worlds": 0,
+      "held_out_ordinary_roots": 1,
+      "minimum_bars": {
+        "min_held_out_anchor_rows": 1,
+        "min_held_out_death_worlds": 0,
+        "min_held_out_deaths": 0,
+        "min_held_out_ordinary_roots": 1
+      },
+      "ordinary_matching": {
+        "cross_mix_or_bin_spill_allowed": false,
+        "length_bin_edges": [
+          1,
+          600,
+          800,
+          1000,
+          1300,
+          1700
+        ],
+        "length_bin_labels": [
+          "[1,600)",
+          "[600,800)",
+          "[800,1000)",
+          "[1000,1300)",
+          "[1300,1700)",
+          "[1700,inf)"
+        ],
+        "partitions": {
+          "assessment": {
+            "achieved_ordinary_roots_total": 1,
+            "death_lookback_roots_total": 0,
+            "partition_quota_cap": 1,
+            "per_mix_bin": {
+              "frozen": {
+                "[1,600)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1000,1300)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1300,1700)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1700,inf)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[600,800)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[800,1000)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                }
+              },
+              "mixed": {
+                "[1,600)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1000,1300)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1300,1700)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1700,inf)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[600,800)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[800,1000)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                }
+              },
+              "scripted": {
+                "[1,600)": {
+                  "achieved_ordinary_roots": 1,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1000,1300)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1300,1700)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1700,inf)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[600,800)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[800,1000)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                }
+              }
+            },
+            "required_ordinary_roots_total": 0,
+            "shortfall_total": 0,
+            "unmatched_in_zero_death_cell_total": 0
+          },
+          "train": {
+            "achieved_ordinary_roots_total": 3,
+            "death_lookback_roots_total": 0,
+            "partition_quota_cap": 3,
+            "per_mix_bin": {
+              "frozen": {
+                "[1,600)": {
+                  "achieved_ordinary_roots": 1,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1000,1300)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1300,1700)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1700,inf)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[600,800)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[800,1000)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                }
+              },
+              "mixed": {
+                "[1,600)": {
+                  "achieved_ordinary_roots": 1,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1000,1300)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1300,1700)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1700,inf)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[600,800)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[800,1000)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                }
+              },
+              "scripted": {
+                "[1,600)": {
+                  "achieved_ordinary_roots": 1,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1000,1300)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1300,1700)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[1700,inf)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[600,800)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                },
+                "[800,1000)": {
+                  "achieved_ordinary_roots": 0,
+                  "death_lookback_roots": 0,
+                  "required_ordinary_roots": 0,
+                  "shortfall": 0,
+                  "unmatched_in_zero_death_cell": 0
+                }
+              }
+            },
+            "required_ordinary_roots_total": 0,
+            "shortfall_total": 0,
+            "unmatched_in_zero_death_cell_total": 0
+          }
+        }
+      },
+      "per_mix": {
+        "assessment": {
+          "frozen": {
+            "anchor_rows": 1,
+            "death_events": 0,
+            "death_lookback_roots": 0,
+            "distinct_death_worlds": 0,
+            "ordinary_searched_roots": 0,
+            "worlds_allocated": 1
+          },
+          "mixed": {
+            "anchor_rows": 1,
+            "death_events": 0,
+            "death_lookback_roots": 0,
+            "distinct_death_worlds": 0,
+            "ordinary_searched_roots": 0,
+            "worlds_allocated": 1
+          },
+          "scripted": {
+            "anchor_rows": 1,
+            "death_events": 0,
+            "death_lookback_roots": 0,
+            "distinct_death_worlds": 0,
+            "ordinary_searched_roots": 1,
+            "worlds_allocated": 1
+          }
+        },
+        "train": {
+          "frozen": {
+            "anchor_rows": 4,
+            "death_events": 0,
+            "death_lookback_roots": 0,
+            "distinct_death_worlds": 0,
+            "ordinary_searched_roots": 1,
+            "worlds_allocated": 1
+          },
+          "mixed": {
+            "anchor_rows": 4,
+            "death_events": 0,
+            "death_lookback_roots": 0,
+            "distinct_death_worlds": 0,
+            "ordinary_searched_roots": 1,
+            "worlds_allocated": 1
+          },
+          "scripted": {
+            "anchor_rows": 5,
+            "death_events": 0,
+            "death_lookback_roots": 0,
+            "distinct_death_worlds": 0,
+            "ordinary_searched_roots": 1,
+            "worlds_allocated": 1
+          }
+        }
+      },
+      "reasons": [],
+      "status": "PASS",
+      "train_anchor_rows": 13,
+      "train_deaths": 0,
+      "train_distinct_death_worlds": 0,
+      "train_searched_roots": 3,
+      "whole_world_split_disjoint": true
+    },
+    "verdict": "STOP_RESCUE_TARGET_PROGRAM"
+  },
+  "fit": {
+    "assessment_tuned_lambda_grid": false,
+    "shared_schedule_seed": 31,
+    "train_anchor_rows": 13,
+    "train_searched_roots": 3,
+    "zero_residual_init_verification": {
+      "device": "cuda:0",
+      "exact_step0_b8_identity": {
+        "frozen_phi": true,
+        "full_bv8": true,
+        "full_bv8_plus_topology": true
+      },
+      "status": "PASS",
+      "t_arm_step1_encoder_grad_max": 0.0,
+      "t_arm_step1_head_grad_max": 0.3936440646648407,
+      "t_arm_step2_encoder_grad_max": 0.0018438315019011497
+    }
+  },
+  "resumed_stages": [],
+  "rng_consumer_inventory": [
+    {
+      "active_post_prepare": true,
+      "description": "In-step per-slot ambient food refill during step() when train_mode=False.",
+      "id": "sim_instep_food_refill",
+      "includes_action_id": false,
+      "owner": "CTDeviceSim._refill_food_rows",
+      "rekey_domain": "a100-dev/t34-cf-1028/branch-sim-rng/v1",
+      "state_fields": [
+        "sim.rng_key",
+        "sim.rng_counter"
+      ]
+    },
+    {
+      "active_post_prepare": true,
+      "description": "Pre-decision ambient food maintenance on branch steps h >= 1.",
+      "id": "sim_prepare_food_refill",
+      "includes_action_id": false,
+      "owner": "CTDeviceSim._maintain_food_impl",
+      "rekey_domain": "a100-dev/t34-cf-1028/branch-sim-rng/v1",
+      "state_fields": [
+        "sim.rng_key",
+        "sim.rng_counter"
+      ]
+    },
+    {
+      "active_post_prepare": true,
+      "description": "Non-terminal dead opponent respawn placement on branch steps h >= 1.",
+      "id": "sim_prepare_opponent_respawn",
+      "includes_action_id": false,
+      "owner": "CTDeviceSim.reset_fresh_worlds",
+      "rekey_domain": "a100-dev/t34-cf-1028/branch-sim-rng/v1",
+      "state_fields": [
+        "sim.rng_key",
+        "sim.rng_counter"
+      ]
+    },
+    {
+      "active_post_prepare": true,
+      "description": "Mixed-roster random_safe opponent tie-breaking on branch steps h >= 0.",
+      "id": "opponent_random_safe",
+      "includes_action_id": false,
+      "owner": "CTOpponentRuntime.actions",
+      "rekey_domain": "a100-dev/t34-cf-1028/branch-opp-rng/v1",
+      "state_fields": [
+        "opponents.rng_key",
+        "opponents.rng_step"
+      ]
+    }
+  ],
+  "schema": "t34-cf-summary/v1",
+  "scoring": {
+    "chunk_selection_freeze_sha256s": [
+      "0bd5ea62a3fcab1dde66c002b688bf68ae5bb5ebb1cb858fa811ec8a03e1f5fc",
+      "7cfcf5418a1488892846a52c215ed9a729cd74ff6f032114d4564f33713c4aad"
+    ],
+    "chunks": 2,
+    "total_charged_env_steps": 360,
+    "total_executed_sim_steps": 288,
+    "total_logical_branch_steps": 288,
+    "total_scoring_wall_sec": 2.224
+  },
+  "source_commit": "d2302487ebecb1791bec1fb22cd9ab98209ad3d7",
+  "startup_self_checks": {
+    "forced_state_determinism": {
+      "cases": {
+        "boost_mechanics": "PASS",
+        "corpse_ordering": "PASS",
+        "eat_and_death": "PASS",
+        "prepared_state_and_carry": "PASS",
+        "respawn_and_terminal_lock": "PASS",
+        "root_restoration": "PASS",
+        "simultaneous_contested_food": "PASS"
+      },
+      "device": "cuda:0",
+      "schema": "t34-cf-forced-state-determinism/v1",
+      "status": "PASS"
+    },
+    "topology_geometric_fixtures": {
+      "boost_pop2_clear_summary": 0.8214244842529297,
+      "schema": "t34-cf-topology-fixtures/v1",
+      "sealed_north_summary": 0.005010416731238365,
+      "status": "PASS",
+      "unwinding_south_summary": 0.8175420761108398
+    }
+  },
+  "study": "t34-cf-1028",
+  "task_separation": {
+    "active_task_id": "t34-cf-v1-terminal-hero-skill-instep-refill",
+    "hero_respawn": false,
+    "in_step_refill_ordering": "per_slot_sequential_before_collision_and_corpse",
+    "mechanics_version": 1,
+    "opponent_respawn": true,
+    "separated_product_differences": [
+      "Watch6 uses mechanics_version=2 (size-ratio head-on wins, boost paid-tail food, capped corpse class).",
+      "Watch6 continuously respawns hero over 6,000-frame product sessions rather than terminal hero skill episodes.",
+      "Watch6 uses five FRP3-s12+v8 opponents rather than balanced scripted/frozen/mixed skill rosters."
+    ],
+    "separated_product_task_id": "watch6-v2-continuous-respawn-product",
+    "train01_packet15_modified": false,
+    "train_mode": false,
+    "v2_transfer_claim": false
+  },
+  "topology_spec": {
+    "disclaimer": "Dynamic-topology approximations only: time-expanded TTL<=arrival assumes unit-rate tail decay and ignores later food growth, future boosts, newly laid body segments, and opponent reactions; it is not exact future reachability. Diagnostic T-arm input only; authorizes no serving obs-spec change.",
+    "name": "dynamic-topology approximations",
+    "orientation": {
+      "action_summaries": "Hero ego-relative action order [0:left, 1:straight, 2:right, 3:boost_left, 4:boost_straight, 5:boost_right].",
+      "board_planes": "Canonical arena-aligned lattice (y in [0, grid_h), x in [0, grid_w)), +x Right/East, +y Down/South; hero head uniquely marked at own_ttl == 1.0."
+    },
+    "planes": {
+      "channels": [
+        {
+          "index": 0,
+          "name": "wall_occupancy",
+          "rule": "1.0 (65535) if occupied by any living snake segment, 0.0 (0) if free; conv pads exterior border with 1.0 (wall)."
+        },
+        {
+          "index": 1,
+          "name": "own_ttl",
+          "rule": "clamp(own_ttl_steps(y, x) / max(1, hero_length), 0.0, 1.0) where own_ttl_steps = max(0, hero_length - hero_seg_count) + (hero_seg_count - k); hero head has 1.0 (65535), empty 0.0."
+        },
+        {
+          "index": 2,
+          "name": "enemy_ttl",
+          "rule": "clamp(max_{s in 1..5 alive} enemy_ttl_steps(s, y, x) / 1000.0, 0.0, 1.0), empty 0.0."
+        },
+        {
+          "index": 3,
+          "name": "food",
+          "rule": "0.0 (0) empty, 0.5 (32768) ambient food, 1.0 (65535) corpse-tagged food."
+        }
+      ],
+      "forward_scale": "float32 = uint16 / 65535.0 in [0.0, 1.0]",
+      "shape_production": [
+        4,
+        83,
+        145
+      ],
+      "storage_dtype": "uint16"
+    },
+    "schema": "dynamic-topology-approximations/v1",
+    "summaries": {
+      "bfs_horizon": 128,
+      "boost_treatment_3_5": "If hero not alive or hero_length < min_boost_length, missing-value sentinel = -1.0. Else step d=1 traverses c1 = head + dir(a) and c2 = head + 2*dir(a), popping pop1 = 2 + 1[boost_frames + 1 >= boost_length_cost_frames and hero_length > 1] own tail segments and 1 enemy tail segment. If c1 or c2 is out-of-bounds, enemy_ttl > 1, or own_ttl > pop1, value = 0.0. Else time-expanded BFS from (c2, d=1) up to d <= 128 with remaining own_ttl shifted by -(pop1 - 1).",
+      "count": 6,
+      "dtype": "float32",
+      "formula": "0.8 * (reachable_cells / (grid_h * grid_w)) + 0.2 * mean_{u in reachable}(min(arrival_step(u) - total_ttl(u), 128) / 128.0)",
+      "missing_value_rules": {
+        "illegal_boost_or_dead_boost": -1.0,
+        "immediate_step1_collision_or_dead_normal": 0.0
+      },
+      "normal_actions_0_2": "Step d=1 to c1 = head + dir(a). If c1 out-of-bounds or total_ttl(c1) > 1, value = 0.0. Else 4-neighbor time-expanded BFS from (c1, d=1) up to d <= 128 admitting neighbor u at step d iff in-bounds and max(own_ttl(u), enemy_ttl(u)) <= d."
+    }
+  },
+  "total_wall_sec": 364.859,
+  "verdict": "STOP_RESCUE_TARGET_PROGRAM"
+}

@@ -1,0 +1,4368 @@
+{
+  "accounting": {
+    "allocated_endpoint": "gpu-a100-s-usc1b0-3cy7nlb5aqflf",
+    "assignments": [
+      {
+        "endpoint": "gpu-a100-s-ass1c0-2y6u91cdmjrix",
+        "rate_units_per_hour": 5.3,
+        "session": "?",
+        "source": "broker.active"
+      }
+    ],
+    "baseline_balance_units": 943.35,
+    "baseline_rate_units_per_hour": 5.3,
+    "calibration": {
+      "interval_seconds": 5.0,
+      "observed_rate_units_per_hour": 5.3,
+      "priced_rate_units_per_hour": 8.0,
+      "required_stable_reads": 3,
+      "samples": [
+        {
+          "elapsed_seconds": 1.7271664999425411,
+          "sessions": {
+            "gpu-a100-s-ass1c0-2y6u91cdmjrix": "?",
+            "gpu-a100-s-usc1b0-3cy7nlb5aqflf": "snake-ct-cuda-smoke-20261028-08-5de6e44e0c5d"
+          },
+          "usage": {
+            "assignments": 2.0,
+            "balance": 943.35,
+            "rate": 10.6
+          }
+        },
+        {
+          "elapsed_seconds": 8.489956917008385,
+          "sessions": {
+            "gpu-a100-s-ass1c0-2y6u91cdmjrix": "?",
+            "gpu-a100-s-usc1b0-3cy7nlb5aqflf": "snake-ct-cuda-smoke-20261028-08-5de6e44e0c5d"
+          },
+          "usage": {
+            "assignments": 2.0,
+            "balance": 943.35,
+            "rate": 10.6
+          }
+        },
+        {
+          "elapsed_seconds": 15.3085820840206,
+          "sessions": {
+            "gpu-a100-s-ass1c0-2y6u91cdmjrix": "?",
+            "gpu-a100-s-usc1b0-3cy7nlb5aqflf": "snake-ct-cuda-smoke-20261028-08-5de6e44e0c5d"
+          },
+          "usage": {
+            "assignments": 2.0,
+            "balance": 943.35,
+            "rate": 10.6
+          }
+        }
+      ],
+      "stability_units_per_hour": 0.01,
+      "status": "PASS",
+      "timeout_seconds": 730.0
+    },
+    "declared_other_rate_units_per_hour": 5.3,
+    "integrated_accounted_other_units": 0.8470500304528493,
+    "last_crosscheck": {
+      "attributable_account_debit_units": 0.0029499695471734144,
+      "balance_crosscheck_status": "OK",
+      "balance_discrepancy_tolerance_units": 0.8933333333333333,
+      "balance_discrepancy_units": -0.8441000609056757,
+      "baseline_integrated_units": 0.8470500304528493,
+      "elapsed_seconds": 575.3547376660863,
+      "expected_account_debit_units": 1.6941000609056984,
+      "observed_account_debit_units": 0.8500000000000227,
+      "observed_elapsed_units": 0.8470500304528492,
+      "observed_rate_units_per_hour": 10.6,
+      "own_elapsed_units": 1.278566083702414,
+      "provider_transition_mismatch_polls": 0,
+      "provider_transition_status": "OK"
+    },
+    "observed_rate_units_per_hour": 5.3,
+    "own_rate_units_per_hour": 8.0,
+    "priced_rate_units_per_hour": 8.0,
+    "unaccounted_endpoints": [],
+    "unit_cap": 4.1
+  },
+  "canary_evidence": {
+    "commit": "d2302487ebecb1791bec1fb22cd9ab98209ad3d7",
+    "cuda_observations": [
+      {
+        "caller": "research/sandbox_a_resident/ct_mechanics.py:1290:forced_state_determinism_suite",
+        "cuda_decisions": 1,
+        "device": "cuda:0",
+        "operation": "Tensor.argmax",
+        "package": "research/sandbox_a_resident",
+        "pid": 2454,
+        "root": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b",
+        "shape": [
+          1,
+          6
+        ],
+        "version": 1
+      },
+      {
+        "caller": "research/sandbox_a_resident/ct_mechanics.py:1290:forced_state_determinism_suite",
+        "cuda_decisions": 1,
+        "device": "cuda:0",
+        "operation": "Tensor.argmax",
+        "package": "research/sandbox_a_resident",
+        "pid": 4156,
+        "root": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b",
+        "shape": [
+          1,
+          6
+        ],
+        "version": 1
+      }
+    ],
+    "device": "cuda",
+    "exports": [
+      "ct-cuda-canary/capture.json",
+      "ct-cuda-canary/complete-control.json",
+      "ct-cuda-canary/complete-entrypoint.log",
+      "ct-cuda-canary/complete-ledger.json",
+      "ct-cuda-canary/complete/fixture-runtime.json",
+      "ct-cuda-canary/complete/progress-history.log",
+      "ct-cuda-canary/complete/progress.json",
+      "ct-cuda-canary/complete/stage-0001.json",
+      "ct-cuda-canary/complete/stage-0001.pt",
+      "ct-cuda-canary/complete/stage-0002.json",
+      "ct-cuda-canary/complete/stage-0002.pt",
+      "ct-cuda-canary/complete/stage-0003.json",
+      "ct-cuda-canary/complete/stage-0003.pt",
+      "ct-cuda-canary/complete/stage-0004.json",
+      "ct-cuda-canary/complete/stage-0004.pt",
+      "ct-cuda-canary/complete/stall-watchdog/faulthandler-stacks.log",
+      "ct-cuda-canary/complete/stall-watchdog/stall-watchdog.json",
+      "ct-cuda-canary/complete/summary.json",
+      "ct-cuda-canary/signal-control.json",
+      "ct-cuda-canary/signal-entrypoint.log",
+      "ct-cuda-canary/signal-ledger.json",
+      "ct-cuda-canary/signal/fixture-checkpoint-start",
+      "ct-cuda-canary/signal/fixture-runtime.json",
+      "ct-cuda-canary/signal/progress-history.log",
+      "ct-cuda-canary/signal/progress.json",
+      "ct-cuda-canary/signal/sigusr1-marker.json",
+      "ct-cuda-canary/signal/stage-0001.json",
+      "ct-cuda-canary/signal/stage-0001.pt",
+      "ct-cuda-canary/signal/stall-watchdog/faulthandler-stacks.log",
+      "ct-cuda-canary/signal/stall-watchdog/stall-watchdog.json"
+    ],
+    "family": "research/sandbox_a_resident/ct_cuda_canary_job.sh",
+    "hardware": "A100",
+    "inputs": [
+      {
+        "dest": "b8-fixture.pth",
+        "sha256": "e19fb0c8fda8c5c01e2e45ffa65419d055f31d270faa806b4acadc21ca99b83f",
+        "size": 6560789,
+        "transport": "upload"
+      },
+      {
+        "dest": "champion-fixture.pth",
+        "sha256": "c02bc08b8a6c922ba7e7812d22a6417aacfb6a9a20114d1acee261dce6cf369b",
+        "size": 3389,
+        "transport": "upload"
+      },
+      {
+        "dest": "fixture-audit.json",
+        "sha256": "3518b7ad0e604639d100cc64a784ee04c2b7a00b92e24a5e42aafd28d17ac4a5",
+        "size": 2240,
+        "transport": "upload"
+      },
+      {
+        "dest": "frp3-fixture.pth",
+        "sha256": "867a981ad44b3ed99c29d974c81b3739ab064338658a6277698a2b8fb38fcab8",
+        "size": 3381,
+        "transport": "upload"
+      }
+    ],
+    "schema": "colab-family-canary/v1",
+    "source_delivery_seconds": 1.272237499943003,
+    "transfer_seconds": 14.078823542920873,
+    "transport_identity": {
+      "research/colab_cli/__init__.py": "624677cd409539df23ec6c1f21ad999059fe779715ee5eab0183b7b2498851f1",
+      "research/colab_cli/acceptance.py": "e01d4366baf7a4499fd0e26ef51264b6999e5e214157dba089a9c51f28df48d8",
+      "research/colab_cli/acceptance_faults.py": "c7796415189730f94fc9b9786c615699fd2d02a6bb2e0c6c48e6add85ff08fcb",
+      "research/colab_cli/acceptance_probe.py": "5fe350618270ecbb51ecdb44b16fc80a071d80633ac94679ba94541694251610",
+      "research/colab_cli/acceptance_probe.sh": "9e7163c63bda2a86c96fe2eabee9be538d77e8151c13422467fe497d55be9064",
+      "research/colab_cli/accounting.py": "0137488c4c7e1e3f8272782e3799741503e6c871e816d9d05950390b177de784",
+      "research/colab_cli/admission.py": "41085b9348efd6d4ccccb776d865b71ebfe8dc8b905ba39f34d4eb1cd3bef868",
+      "research/colab_cli/backup.py": "125b73b512c63e06f4b7656e52b534967510685314ab5b2c1b9fbbe4232239fe",
+      "research/colab_cli/bootstrap.sh": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+      "research/colab_cli/canary.py": "7c245573aca746749e7c79644eb70b4fd135cc6d47565b8ca4b6b75481fb96ea",
+      "research/colab_cli/canary_observer.py": "8fdba23c889de4d2403161e98345b963b731eecb2f931439b7cd4d3de3b0ce64",
+      "research/colab_cli/cli_guard.py": "fd41ea264860cd1dc215ac4f5c14acff31bd62210dcb7ba71ad7b4e231ecafdc",
+      "research/colab_cli/export_batches.py": "9f27d3bc5dde95b0b49dbcd4c2169b63e1546ad52902386d17d86974200a612d",
+      "research/colab_cli/failures.py": "fd92efd5700669ab331f88c6fe478f181757d3f76776a8d76ef298e43e45843f",
+      "research/colab_cli/inputs.py": "56cce4bd7a6c9487f52ac914c743f34051b5e818893c8e48ca0da9ff08f03ae1",
+      "research/colab_cli/launch.sh": "173b51e74e5c0b44c40d0d549b0d4a3a1dc1ab787baa68eb854ca0663b50ea79",
+      "research/colab_cli/policy.py": "df0853ea3ca984a1bcfb5c78a8890467b4a66047ea56d269af3cc736475254e3",
+      "research/colab_cli/release.py": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+      "research/colab_cli/runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+      "research/colab_cli/schema.py": "8be6acbdf24d37c5fe66565f5af95cf53b7ead69b8d33c2357fd04a0543053f7",
+      "research/colab_cli/source.py": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+      "research/colab_cli/supervisor.py": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+      "research/colab_cli/transfer_policy.py": "80ea77ecad3c83d70eb96e3351587a6ba397d850352ef72359df4008fef8652f",
+      "research/colab_cli/transfers.py": "4420a2ea861edcb6bb0a1d4e763aa994bce255f5dee9a2aaf3c2ff5ffbc81cf8"
+    },
+    "upload_elapsed_seconds": 26.488542375038378
+  },
+  "cleanup_error": null,
+  "cli_calls": [
+    {
+      "attempt": 1,
+      "command": "version",
+      "elapsed_seconds": 0.2762372500728816,
+      "ended_monotonic": 923937.691686416,
+      "operation": "control",
+      "started_monotonic": 923937.415458791,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999779195059
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.6296636660117656,
+      "ended_monotonic": 923938.58269525,
+      "operation": "control",
+      "started_monotonic": 923937.953038875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999699997716
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.6338400419335812,
+      "ended_monotonic": 923939.216673291,
+      "operation": "control",
+      "started_monotonic": 923938.582839583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999980420107
+    },
+    {
+      "attempt": 1,
+      "command": "new",
+      "elapsed_seconds": 3.245697290985845,
+      "ended_monotonic": 923942.46419525,
+      "operation": "control",
+      "started_monotonic": 923939.21850725,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 179.99999916704837
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.3380552500020713,
+      "ended_monotonic": 923945.213802833,
+      "operation": "control",
+      "started_monotonic": 923942.87575575,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999291962013
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.43072391697205603,
+      "ended_monotonic": 923945.652421791,
+      "operation": "PUT",
+      "started_monotonic": 923945.221698291,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999916693196
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.4203087920323014,
+      "ended_monotonic": 923946.07341375,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 923945.653106958,
+      "status": "failed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999937508255
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.9648065000073984,
+      "ended_monotonic": 923946.618501208,
+      "operation": "control",
+      "started_monotonic": 923945.653700666,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999993329402
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.1549543329747394,
+      "ended_monotonic": 923948.777023958,
+      "operation": "renewal",
+      "started_monotonic": 923947.622079125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.999999041087
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.9545218750135973,
+      "ended_monotonic": 923949.732163916,
+      "operation": "control",
+      "started_monotonic": 923948.7776505,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999920791015
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.7724180420627818,
+      "ended_monotonic": 923950.504600416,
+      "operation": "control",
+      "started_monotonic": 923949.732193333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999992500525
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.7368283329997212,
+      "ended_monotonic": 923956.252739958,
+      "operation": "control",
+      "started_monotonic": 923955.515921833,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999758298509
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 1.0146279589971527,
+      "ended_monotonic": 923957.267394583,
+      "operation": "control",
+      "started_monotonic": 923956.252776041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999908299651
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.9752917910227552,
+      "ended_monotonic": 923963.253700708,
+      "operation": "control",
+      "started_monotonic": 923962.278420125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999712500721
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.8322818749584258,
+      "ended_monotonic": 923964.0860145,
+      "operation": "control",
+      "started_monotonic": 923963.253744166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999825004488
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 11.13439758401364,
+      "ended_monotonic": 923975.226240208,
+      "operation": "mkdir",
+      "started_monotonic": 923964.091850291,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.99999904097058
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.4979324589949101,
+      "ended_monotonic": 923975.724949958,
+      "operation": "PUT",
+      "started_monotonic": 923975.227017791,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999787495472
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7987652500160038,
+      "ended_monotonic": 923976.524474083,
+      "operation": "verify",
+      "started_monotonic": 923975.725717666,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999375082552
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.4562597500625998,
+      "ended_monotonic": 923976.540370208,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 923976.084112166,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.9999990419019
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.4447856249753386,
+      "ended_monotonic": 923976.970115625,
+      "operation": "PUT",
+      "started_monotonic": 923976.525330333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999799998477
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8062764999922365,
+      "ended_monotonic": 923977.777037583,
+      "operation": "verify",
+      "started_monotonic": 923976.970769916,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999333987944
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8005129159428179,
+      "ended_monotonic": 923978.5823235,
+      "operation": "mkdir",
+      "started_monotonic": 923977.781818125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999998040962964
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.2590667919721454,
+      "ended_monotonic": 923979.843477583,
+      "operation": "PUT",
+      "started_monotonic": 923978.584412416,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999695795123
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.9630755829857662,
+      "ended_monotonic": 923981.550440666,
+      "operation": "PUT",
+      "started_monotonic": 923978.58736575,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.99999866692815
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.4386993329972029,
+      "ended_monotonic": 923981.989854416,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 923981.551155458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 59.999998999992386
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.7273494999390095,
+      "ended_monotonic": 923982.720519958,
+      "operation": "PUT",
+      "started_monotonic": 923981.993172083,
+      "status": "completed",
+      "thread": "colab-put_1",
+      "timeout_seconds": 119.99996849999297
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 1.2736400830326602,
+      "ended_monotonic": 923983.265126,
+      "operation": "PUT",
+      "started_monotonic": 923981.991486333,
+      "status": "completed",
+      "thread": "colab-put_0",
+      "timeout_seconds": 119.99999812501483
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8418437079526484,
+      "ended_monotonic": 923984.1108865,
+      "operation": "assemble",
+      "started_monotonic": 923983.269050125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999998333049007
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.4137154589407146,
+      "ended_monotonic": 923984.525258541,
+      "operation": "PUT",
+      "started_monotonic": 923984.111543416,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999895796645
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8081994999665767,
+      "ended_monotonic": 923985.334128458,
+      "operation": "verify",
+      "started_monotonic": 923984.525941208,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999208026566
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.4192985000554472,
+      "ended_monotonic": 923985.7541095,
+      "operation": "PUT",
+      "started_monotonic": 923985.334811291,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999829207081
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7632067919475958,
+      "ended_monotonic": 923986.518013791,
+      "operation": "verify",
+      "started_monotonic": 923985.754813416,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.99999958393164
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.40706379199400544,
+      "ended_monotonic": 923986.925652833,
+      "operation": "PUT",
+      "started_monotonic": 923986.518589333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999870790634
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.819936832995154,
+      "ended_monotonic": 923987.746320666,
+      "operation": "verify",
+      "started_monotonic": 923986.926390458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999998999992386
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.7947007920593023,
+      "ended_monotonic": 923988.544943916,
+      "operation": "PUT",
+      "started_monotonic": 923987.750243458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999854108319
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7625651669222862,
+      "ended_monotonic": 923989.308460208,
+      "operation": "verify",
+      "started_monotonic": 923988.545902166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.99999958393164
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8606864999746904,
+      "ended_monotonic": 923990.172634625,
+      "operation": "source-delivery-launch",
+      "started_monotonic": 923989.311954875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 29.999999374966137
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 0.4061439170036465,
+      "ended_monotonic": 923990.579366833,
+      "operation": "control",
+      "started_monotonic": 923990.173223208,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.13786516699474
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8137057080166414,
+      "ended_monotonic": 923991.395934125,
+      "operation": "control",
+      "started_monotonic": 923990.582235875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999945797026
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.6767363749677315,
+      "ended_monotonic": 923992.073611666,
+      "operation": "control",
+      "started_monotonic": 923991.396881041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999737495091
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.410815833020024,
+      "ended_monotonic": 923992.484473541,
+      "operation": "control",
+      "started_monotonic": 923992.073664458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999837495852
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7711066670017317,
+      "ended_monotonic": 923993.257717666,
+      "operation": "renewal",
+      "started_monotonic": 923992.486618083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999945797026
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 2.900076000019908,
+      "ended_monotonic": 924009.449413916,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924006.549361,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999679205939
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.2464653329225257,
+      "ended_monotonic": 924009.518492125,
+      "operation": "renewal",
+      "started_monotonic": 924008.27203075,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999654199928
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8188875409541652,
+      "ended_monotonic": 924025.344248083,
+      "operation": "renewal",
+      "started_monotonic": 924024.525367625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999908299651
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.8691755830077454,
+      "ended_monotonic": 924040.328083958,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924039.458909625,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999891698826
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 3.1946154170436785,
+      "ended_monotonic": 924043.550341083,
+      "operation": "renewal",
+      "started_monotonic": 924040.355732666,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999912502244
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.663894374971278,
+      "ended_monotonic": 924059.218071458,
+      "operation": "control",
+      "started_monotonic": 924058.554184458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999033298809
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.4158789999783039,
+      "ended_monotonic": 924059.633989375,
+      "operation": "control",
+      "started_monotonic": 924059.218117666,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999808403663
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.0812867910135537,
+      "ended_monotonic": 924060.71749875,
+      "operation": "renewal",
+      "started_monotonic": 924059.636219,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999954190571
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.4153244999470189,
+      "ended_monotonic": 924070.752085791,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924070.336762583,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999998917104676
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.7602797909639776,
+      "ended_monotonic": 924077.48910575,
+      "operation": "renewal",
+      "started_monotonic": 924075.728836125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999708298128
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.023181042051874,
+      "ended_monotonic": 924094.523061166,
+      "operation": "renewal",
+      "started_monotonic": 924092.499886083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999987919582
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.4412098750472069,
+      "ended_monotonic": 924101.2016375,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924100.760428916,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999891698826
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7626770409988239,
+      "ended_monotonic": 924110.297266666,
+      "operation": "renewal",
+      "started_monotonic": 924109.53459575,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999895796645
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.6477921250043437,
+      "ended_monotonic": 924125.95080225,
+      "operation": "control",
+      "started_monotonic": 924125.303016541,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999570799991
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.39892233395949006,
+      "ended_monotonic": 924126.349746208,
+      "operation": "control",
+      "started_monotonic": 924125.950830791,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999816599302
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7996187909739092,
+      "ended_monotonic": 924127.151362125,
+      "operation": "renewal",
+      "started_monotonic": 924126.3517515,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999916704837
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.745710292016156,
+      "ended_monotonic": 924131.954294083,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924131.208585333,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999920895789
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.9109367500059307,
+      "ended_monotonic": 924143.069962166,
+      "operation": "renewal",
+      "started_monotonic": 924142.159035041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999720801134
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8112452919594944,
+      "ended_monotonic": 924158.8929505,
+      "operation": "renewal",
+      "started_monotonic": 924158.081712916,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999987090705
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.4221533329691738,
+      "ended_monotonic": 924162.377385291,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924161.955233333,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999912502244
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7545753750018775,
+      "ended_monotonic": 924174.651066541,
+      "operation": "renewal",
+      "started_monotonic": 924173.896499416,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999929207843
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.5134733750019222,
+      "ended_monotonic": 924190.175862541,
+      "operation": "control",
+      "started_monotonic": 924189.662399083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999174999539
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.6240283749066293,
+      "ended_monotonic": 924190.799922791,
+      "operation": "control",
+      "started_monotonic": 924190.175904375,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999637505971
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.9001038329442963,
+      "ended_monotonic": 924191.703044666,
+      "operation": "renewal",
+      "started_monotonic": 924190.80295225,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999929207843
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.43676062498707324,
+      "ended_monotonic": 924192.818704625,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924192.38194525,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999854201451
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8125910420203581,
+      "ended_monotonic": 924207.527756583,
+      "operation": "renewal",
+      "started_monotonic": 924206.715173166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999912502244
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.42274825007189065,
+      "ended_monotonic": 924223.248348625,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924222.825601958,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999998999992386
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7838364170165733,
+      "ended_monotonic": 924223.323201,
+      "operation": "renewal",
+      "started_monotonic": 924222.539368583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999987919582
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.4385391660034657,
+      "ended_monotonic": 924240.765978083,
+      "operation": "renewal",
+      "started_monotonic": 924238.327446625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999929103069
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.6052194170188159,
+      "ended_monotonic": 924253.864056041,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924253.258837958,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999912502244
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.6505344579927623,
+      "ended_monotonic": 924256.42800625,
+      "operation": "control",
+      "started_monotonic": 924255.777480958,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999637505971
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.6328114999923855,
+      "ended_monotonic": 924257.060872625,
+      "operation": "control",
+      "started_monotonic": 924256.428067875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999729194678
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7923251669853926,
+      "ended_monotonic": 924257.855289625,
+      "operation": "renewal",
+      "started_monotonic": 924257.062975958,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999941606075
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.9154512920649722,
+      "ended_monotonic": 924273.782858583,
+      "operation": "renewal",
+      "started_monotonic": 924272.867413958,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999916693196
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.42905912501737475,
+      "ended_monotonic": 924284.297320666,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924283.868262791,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999891605694
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7685029999120161,
+      "ended_monotonic": 924289.562968166,
+      "operation": "renewal",
+      "started_monotonic": 924288.79447225,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999891605694
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8499119160696864,
+      "ended_monotonic": 924305.421427416,
+      "operation": "renewal",
+      "started_monotonic": 924304.57152225,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999649997335
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.45595683297142386,
+      "ended_monotonic": 924314.7565535,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924314.300597833,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999695899896
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.6935309580294415,
+      "ended_monotonic": 924321.125367958,
+      "operation": "control",
+      "started_monotonic": 924320.431844458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999304197263
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.6301020419923589,
+      "ended_monotonic": 924321.755491583,
+      "operation": "control",
+      "started_monotonic": 924321.125400833,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999770894647
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7685592080233619,
+      "ended_monotonic": 924322.526546333,
+      "operation": "renewal",
+      "started_monotonic": 924321.757993583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999945890158
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.764756332966499,
+      "ended_monotonic": 924338.293204958,
+      "operation": "renewal",
+      "started_monotonic": 924337.528455,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999937496614
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.42188395804259926,
+      "ended_monotonic": 924345.181948375,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924344.760066708,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999904097058
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7777144589927047,
+      "ended_monotonic": 924354.0823795,
+      "operation": "renewal",
+      "started_monotonic": 924353.304671041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999883398414
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8643020000308752,
+      "ended_monotonic": 924369.956592708,
+      "operation": "renewal",
+      "started_monotonic": 924369.092296708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999654199928
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.746135542052798,
+      "ended_monotonic": 924375.930721083,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924375.184587291,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999637505971
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.4603169169276953,
+      "ended_monotonic": 924385.422086916,
+      "operation": "control",
+      "started_monotonic": 924384.961776416,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999654095154
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.4451490000355989,
+      "ended_monotonic": 924385.867260875,
+      "operation": "control",
+      "started_monotonic": 924385.422118208,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999787495472
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7829985419521108,
+      "ended_monotonic": 924386.65226725,
+      "operation": "renewal",
+      "started_monotonic": 924385.869275333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999933398794
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8875022089341655,
+      "ended_monotonic": 924402.551203416,
+      "operation": "renewal",
+      "started_monotonic": 924401.663708291,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999908299651
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.46047529100906104,
+      "ended_monotonic": 924406.401129375,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924405.9406555,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999998833052814
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 1.065115625038743,
+      "ended_monotonic": 924418.620270125,
+      "operation": "renewal",
+      "started_monotonic": 924417.555161333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999808403663
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8062925420235842,
+      "ended_monotonic": 924434.437473458,
+      "operation": "renewal",
+      "started_monotonic": 924433.631187333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999679101165
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.4389253749977797,
+      "ended_monotonic": 924436.850994166,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924436.412070208,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999996915925294
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.4604122090386227,
+      "ended_monotonic": 924449.900302958,
+      "operation": "control",
+      "started_monotonic": 924449.439897166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999695806764
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.4345402920152992,
+      "ended_monotonic": 924450.334866208,
+      "operation": "control",
+      "started_monotonic": 924449.900333333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999787495472
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7606739579932764,
+      "ended_monotonic": 924451.09767425,
+      "operation": "renewal",
+      "started_monotonic": 924450.337007583,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999945797026
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7756425419356674,
+      "ended_monotonic": 924466.884859375,
+      "operation": "renewal",
+      "started_monotonic": 924466.109223166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999891605694
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.39983291702810675,
+      "ended_monotonic": 924467.253787916,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924466.853957208,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.999998583924025
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.9029474999988452,
+      "ended_monotonic": 924482.793787041,
+      "operation": "renewal",
+      "started_monotonic": 924481.8908475,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999982919544
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.47298166702967137,
+      "ended_monotonic": 924497.728803,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924497.255822708,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999691604171
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8537524589337409,
+      "ended_monotonic": 924498.655974083,
+      "operation": "renewal",
+      "started_monotonic": 924497.802230666,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999987919582
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.4794564580079168,
+      "ended_monotonic": 924514.145968875,
+      "operation": "control",
+      "started_monotonic": 924513.66651825,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999675003346
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.4256240410031751,
+      "ended_monotonic": 924514.571614083,
+      "operation": "control",
+      "started_monotonic": 924514.145997125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999824992847
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7761566250119358,
+      "ended_monotonic": 924515.3497755,
+      "operation": "renewal",
+      "started_monotonic": 924514.57362475,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999941699207
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8217313749482855,
+      "ended_monotonic": 924516.174591833,
+      "operation": "control",
+      "started_monotonic": 924515.3528665,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999941699207
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 0.5093000000342727,
+      "ended_monotonic": 924516.684426375,
+      "operation": "GET",
+      "started_monotonic": 924516.175126708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999870802276
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 2.0728690000250936,
+      "ended_monotonic": 924518.774386291,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 924516.701524958,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999904097058
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.2988367920042947,
+      "ended_monotonic": 924520.073695458,
+      "operation": "GET",
+      "started_monotonic": 924518.774858916,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999833293259
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.6426493329927325,
+      "ended_monotonic": 924522.721602,
+      "operation": "GET",
+      "started_monotonic": 924520.078953083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999783397652
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.2247577500529587,
+      "ended_monotonic": 924524.947722166,
+      "operation": "GET",
+      "started_monotonic": 924522.722964708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999749998096
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.2698875829810277,
+      "ended_monotonic": 924527.219281916,
+      "operation": "GET",
+      "started_monotonic": 924524.949394625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999775004108
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.47965062502771616,
+      "ended_monotonic": 924528.214628958,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924527.7349795,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999866599683
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.0929445419460535,
+      "ended_monotonic": 924529.313879583,
+      "operation": "GET",
+      "started_monotonic": 924527.220935291,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999968749471
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.1635329170385376,
+      "ended_monotonic": 924531.478974291,
+      "operation": "GET",
+      "started_monotonic": 924529.315441708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999749998096
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.136835915967822,
+      "ended_monotonic": 924533.617543416,
+      "operation": "GET",
+      "started_monotonic": 924531.480707875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999791698065
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.6157132079824805,
+      "ended_monotonic": 924536.234895083,
+      "operation": "GET",
+      "started_monotonic": 924533.619182208,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999795807526
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.20147733297199,
+      "ended_monotonic": 924538.437939708,
+      "operation": "GET",
+      "started_monotonic": 924536.23646275,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999829207081
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.0446970409248024,
+      "ended_monotonic": 924540.484152916,
+      "operation": "GET",
+      "started_monotonic": 924538.439456125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999849998858
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.9881316249957308,
+      "ended_monotonic": 924542.474112458,
+      "operation": "GET",
+      "started_monotonic": 924540.485981125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999795795884
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.137090165982954,
+      "ended_monotonic": 924544.612864833,
+      "operation": "GET",
+      "started_monotonic": 924542.475774875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999980829889
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.9643755829893053,
+      "ended_monotonic": 924546.578773166,
+      "operation": "GET",
+      "started_monotonic": 924544.614397833,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999854096677
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7845569590572268,
+      "ended_monotonic": 924547.363909041,
+      "operation": "renewal",
+      "started_monotonic": 924546.579359041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999920802657
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.9886193330166861,
+      "ended_monotonic": 924549.355529,
+      "operation": "GET",
+      "started_monotonic": 924547.366909958,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999766692054
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.0655830409377813,
+      "ended_monotonic": 924551.422665791,
+      "operation": "GET",
+      "started_monotonic": 924549.357083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999849998858
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.9841303749708459,
+      "ended_monotonic": 924553.410519458,
+      "operation": "GET",
+      "started_monotonic": 924551.426389416,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999978330452
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.069899417110719,
+      "ended_monotonic": 924555.481767291,
+      "operation": "GET",
+      "started_monotonic": 924553.411868166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999812489841
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.338810040964745,
+      "ended_monotonic": 924557.823261375,
+      "operation": "GET",
+      "started_monotonic": 924555.484451625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999770906288
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.5951424579834566,
+      "ended_monotonic": 924558.818086,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924558.222945583,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.9999958750559
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.074723916943185,
+      "ended_monotonic": 924559.89949175,
+      "operation": "GET",
+      "started_monotonic": 924557.824768041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999783292878
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.919274291023612,
+      "ended_monotonic": 924561.822672666,
+      "operation": "GET",
+      "started_monotonic": 924559.903398625,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.999997792067
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.079137625056319,
+      "ended_monotonic": 924563.903306541,
+      "operation": "GET",
+      "started_monotonic": 924561.82416925,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999820801895
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.8139393330784515,
+      "ended_monotonic": 924565.719978583,
+      "operation": "GET",
+      "started_monotonic": 924563.906039708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999779195059
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.113401749986224,
+      "ended_monotonic": 924567.834996708,
+      "operation": "GET",
+      "started_monotonic": 924565.721595333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999787495472
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.0411830830853432,
+      "ended_monotonic": 924569.879013125,
+      "operation": "GET",
+      "started_monotonic": 924567.837830375,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999737495091
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.8799273750046268,
+      "ended_monotonic": 924571.760420875,
+      "operation": "GET",
+      "started_monotonic": 924569.880493875,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999816704076
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.042317625018768,
+      "ended_monotonic": 924573.805631458,
+      "operation": "GET",
+      "started_monotonic": 924571.763314083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999978330452
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.015554584097117,
+      "ended_monotonic": 924575.822725916,
+      "operation": "GET",
+      "started_monotonic": 924573.807171666,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999820801895
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.8556777499616146,
+      "ended_monotonic": 924577.681308125,
+      "operation": "GET",
+      "started_monotonic": 924575.825630708,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999791593291
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.85448304109741,
+      "ended_monotonic": 924578.5363675,
+      "operation": "renewal",
+      "started_monotonic": 924577.68189075,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999912502244
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.120962291955948,
+      "ended_monotonic": 924580.659192333,
+      "operation": "GET",
+      "started_monotonic": 924578.538230333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999737506732
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 2.1157167080091313,
+      "ended_monotonic": 924582.776518791,
+      "operation": "GET",
+      "started_monotonic": 924580.660802333,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999779101927
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.9799499999498948,
+      "ended_monotonic": 924584.757777833,
+      "operation": "GET",
+      "started_monotonic": 924582.777828125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999745900277
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 1.063055916922167,
+      "ended_monotonic": 924585.822510583,
+      "operation": "GET",
+      "started_monotonic": 924584.759454958,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999812501483
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.7907224160153419,
+      "ended_monotonic": 924586.713755458,
+      "operation": "cleanup",
+      "started_monotonic": 924585.9230395,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999912502244
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 0.4297674580011517,
+      "ended_monotonic": 924587.143853291,
+      "operation": "GET",
+      "started_monotonic": 924586.714086125,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999216711149
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 0.4095253749983385,
+      "ended_monotonic": 924587.553439166,
+      "operation": "GET",
+      "started_monotonic": 924587.143914083,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999776239274
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.8012653749901801,
+      "ended_monotonic": 924588.450684666,
+      "operation": "control",
+      "started_monotonic": 924587.649425666,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.9999992500525
+    },
+    {
+      "attempt": 1,
+      "command": "download",
+      "elapsed_seconds": 0.423358750063926,
+      "ended_monotonic": 924588.874615916,
+      "operation": "GET",
+      "started_monotonic": 924588.451257541,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999854096677
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.476726624998264,
+      "ended_monotonic": 924589.298926958,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924588.822201958,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 59.99999908299651
+    },
+    {
+      "attempt": 1,
+      "command": "stop",
+      "elapsed_seconds": 0.8983847079798579,
+      "ended_monotonic": 924589.77708025,
+      "operation": "control",
+      "started_monotonic": 924588.878699458,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 74.99999837495852
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.4546433750074357,
+      "ended_monotonic": 924590.231727333,
+      "operation": "control",
+      "started_monotonic": 924589.777091041,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 59.99999770789873
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.6671892909798771,
+      "ended_monotonic": 924590.899220625,
+      "operation": "control",
+      "started_monotonic": 924590.232039,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999700009357
+    }
+  ],
+  "commit": "d2302487ebecb1791bec1fb22cd9ab98209ad3d7",
+  "contents_transfers": [
+    {
+      "bytes_per_second": 1094.1096942825025,
+      "direction": "upload",
+      "elapsed_seconds": 0.4304870000341907,
+      "ended_monotonic": 923945.6523415,
+      "operation": "PUT",
+      "remote": "/content/snake-cli-5de6e44e0c5d4e3e915aefb29983650b-release.json",
+      "size_bytes": 471,
+      "started_monotonic": 923945.221823583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": null,
+      "direction": "upload",
+      "elapsed_seconds": 0.4194861249998212,
+      "ended_monotonic": 923946.07332975,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": null,
+      "started_monotonic": 923945.65383775,
+      "status": "failed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 6518.112047881738,
+      "direction": "upload",
+      "elapsed_seconds": 0.49769012501928955,
+      "ended_monotonic": 923975.724876916,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/bootstrap.sh",
+      "size_bytes": 3244,
+      "started_monotonic": 923975.227183666,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 186.3998809529453,
+      "direction": "upload",
+      "elapsed_seconds": 0.4560088749276474,
+      "ended_monotonic": 923976.540312625,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 923976.084299208,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 32638.409172137035,
+      "direction": "upload",
+      "elapsed_seconds": 0.44459887500852346,
+      "ended_monotonic": 923976.97008325,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/source.py",
+      "size_bytes": 14511,
+      "started_monotonic": 923976.525481791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 1665983.6906862126,
+      "direction": "upload",
+      "elapsed_seconds": 1.258807040983811,
+      "ended_monotonic": 923979.8433845,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/inputs/.snake-transfer-f7425b6eed1e40b8a6cd7f8a807a79c3/00000000.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 923978.58457425,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 707806.7373899599,
+      "direction": "upload",
+      "elapsed_seconds": 2.9628878749208525,
+      "ended_monotonic": 923981.550414166,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/inputs/.snake-transfer-f7425b6eed1e40b8a6cd7f8a807a79c3/00000001.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 923978.587523416,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 193.8653769014213,
+      "direction": "upload",
+      "elapsed_seconds": 0.43844858405645937,
+      "ended_monotonic": 923981.989770583,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 923981.551316291,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 370491.01907723426,
+      "direction": "upload",
+      "elapsed_seconds": 0.726962290937081,
+      "ended_monotonic": 923982.720455958,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/inputs/.snake-transfer-f7425b6eed1e40b8a6cd7f8a807a79c3/00000003.part",
+      "size_bytes": 269333,
+      "started_monotonic": 923981.993489625,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "bytes_per_second": 1646848.4613057217,
+      "direction": "upload",
+      "elapsed_seconds": 1.273433499969542,
+      "ended_monotonic": 923983.265086916,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/inputs/.snake-transfer-f7425b6eed1e40b8a6cd7f8a807a79c3/00000002.part",
+      "size_bytes": 2097152,
+      "started_monotonic": 923981.991650833,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "bytes_per_second": 8195.346197431078,
+      "direction": "upload",
+      "elapsed_seconds": 0.41352737497072667,
+      "ended_monotonic": 923984.525200666,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/inputs/champion-fixture.pth",
+      "size_bytes": 3389,
+      "started_monotonic": 923984.111670166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 5344.865631171269,
+      "direction": "upload",
+      "elapsed_seconds": 0.41909379104617983,
+      "ended_monotonic": 923985.754052833,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/inputs/fixture-audit.json",
+      "size_bytes": 2240,
+      "started_monotonic": 923985.3349555,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 8309.944643319333,
+      "direction": "upload",
+      "elapsed_seconds": 0.40686191606801003,
+      "ended_monotonic": 923986.925593041,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/inputs/frp3-fixture.pth",
+      "size_bytes": 3381,
+      "started_monotonic": 923986.518726875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 1328953.6866149537,
+      "direction": "upload",
+      "elapsed_seconds": 0.794508499908261,
+      "ended_monotonic": 923988.544885166,
+      "operation": "PUT",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/source.tar.gz",
+      "size_bytes": 1055865,
+      "started_monotonic": 923987.750372,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 482.8469745408138,
+      "direction": "download",
+      "elapsed_seconds": 0.40592570800799876,
+      "ended_monotonic": 923990.579300083,
+      "operation": "control",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/.snake-source-delivery-terminal.json",
+      "size_bytes": 196,
+      "started_monotonic": 923990.173371083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 29.31448465931683,
+      "direction": "upload",
+      "elapsed_seconds": 2.8995904580224305,
+      "ended_monotonic": 924009.449327916,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924006.549733208,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 97.82077839589091,
+      "direction": "upload",
+      "elapsed_seconds": 0.8689360419521108,
+      "ended_monotonic": 924040.328009291,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924039.459068916,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 204.7718667443158,
+      "direction": "upload",
+      "elapsed_seconds": 0.4150960840051994,
+      "ended_monotonic": 924070.7520245,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924070.336923791,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 192.7485536313211,
+      "direction": "upload",
+      "elapsed_seconds": 0.44098904193378985,
+      "ended_monotonic": 924101.201581916,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924100.760588041,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 114.02335203943912,
+      "direction": "upload",
+      "elapsed_seconds": 0.7454613329609856,
+      "ended_monotonic": 924131.954220291,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924131.208753958,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 201.45587415936666,
+      "direction": "upload",
+      "elapsed_seconds": 0.42192862508818507,
+      "ended_monotonic": 924162.377315333,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924161.955381,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 194.74206018219334,
+      "direction": "upload",
+      "elapsed_seconds": 0.43647479091305286,
+      "ended_monotonic": 924192.818631458,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924192.38215175,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 201.18872953113245,
+      "direction": "upload",
+      "elapsed_seconds": 0.4224888749886304,
+      "ended_monotonic": 924223.248287333,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924222.825794375,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 140.52360456047253,
+      "direction": "upload",
+      "elapsed_seconds": 0.6048805840546265,
+      "ended_monotonic": 924253.863984958,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924253.259095916,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 198.2167488226531,
+      "direction": "upload",
+      "elapsed_seconds": 0.4288235000567511,
+      "ended_monotonic": 924284.297257,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924283.868426875,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 186.5990080473516,
+      "direction": "upload",
+      "elapsed_seconds": 0.45552225003484637,
+      "ended_monotonic": 924314.756470625,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924314.30094375,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 201.5867246788911,
+      "direction": "upload",
+      "elapsed_seconds": 0.42165475001093,
+      "ended_monotonic": 924345.181886666,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924344.760226583,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 114.00145786858275,
+      "direction": "upload",
+      "elapsed_seconds": 0.7456045000581071,
+      "ended_monotonic": 924375.930652,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924375.185041458,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 184.67523289685028,
+      "direction": "upload",
+      "elapsed_seconds": 0.4602674579946324,
+      "ended_monotonic": 924406.401076333,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924405.940802958,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 193.83682539778584,
+      "direction": "upload",
+      "elapsed_seconds": 0.43851316603831947,
+      "ended_monotonic": 924436.850939708,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924436.412421125,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 212.9197627843662,
+      "direction": "upload",
+      "elapsed_seconds": 0.3992114160209894,
+      "ended_monotonic": 924467.253742875,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924466.85452925,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 179.89417988176956,
+      "direction": "upload",
+      "elapsed_seconds": 0.4725000000325963,
+      "ended_monotonic": 924497.728735833,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924497.256230208,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 329091.97775318957,
+      "direction": "download",
+      "elapsed_seconds": 0.5091008329764009,
+      "ended_monotonic": 924516.6843545,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/.snake-export-batch-42548d6b816d486bb47e0298ee8de6f4.zip",
+      "size_bytes": 167541,
+      "started_monotonic": 924516.175249708,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 6459553.568128684,
+      "direction": "download",
+      "elapsed_seconds": 1.2986358749913052,
+      "ended_monotonic": 924520.073630041,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000000.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924518.774989625,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3174610.256933791,
+      "direction": "download",
+      "elapsed_seconds": 2.6424056249670684,
+      "ended_monotonic": 924522.721542083,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000001.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924520.079132083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3770949.832356037,
+      "direction": "download",
+      "elapsed_seconds": 2.2245345000410452,
+      "ended_monotonic": 924524.947663666,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000002.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924522.72312475,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3695979.205863751,
+      "direction": "download",
+      "elapsed_seconds": 2.269657791010104,
+      "ended_monotonic": 924527.219224833,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000003.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924524.9495625,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 177.315475132826,
+      "direction": "upload",
+      "elapsed_seconds": 0.4793715829728171,
+      "ended_monotonic": 924528.21453325,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924527.735156125,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 4008417.0830164556,
+      "direction": "download",
+      "elapsed_seconds": 2.092748290975578,
+      "ended_monotonic": 924529.313845458,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000004.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924527.221094875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3877682.0510510136,
+      "direction": "download",
+      "elapsed_seconds": 2.163304749992676,
+      "ended_monotonic": 924531.478912,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000005.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924529.315602541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3926119.1442026035,
+      "direction": "download",
+      "elapsed_seconds": 2.1366157500306144,
+      "ended_monotonic": 924533.61748525,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000006.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924531.480864333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3207273.9334959816,
+      "direction": "download",
+      "elapsed_seconds": 2.6154947079485282,
+      "ended_monotonic": 924536.234834666,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000007.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924533.619335,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3810826.0525947907,
+      "direction": "download",
+      "elapsed_seconds": 2.201257124892436,
+      "ended_monotonic": 924538.437885875,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000008.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924536.236624791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4103042.5880771563,
+      "direction": "download",
+      "elapsed_seconds": 2.044484750018455,
+      "ended_monotonic": 924540.484094458,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000009.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924538.439605125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4219851.684583872,
+      "direction": "download",
+      "elapsed_seconds": 1.9878916670568287,
+      "ended_monotonic": 924542.474054166,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000010.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924540.486158166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3925697.703521081,
+      "direction": "download",
+      "elapsed_seconds": 2.136845125001855,
+      "ended_monotonic": 924544.612801791,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000011.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924542.475952166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4270820.735450438,
+      "direction": "download",
+      "elapsed_seconds": 1.9641676669707522,
+      "ended_monotonic": 924546.578718666,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000012.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924544.614546916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4218782.07616727,
+      "direction": "download",
+      "elapsed_seconds": 1.9883956669364125,
+      "ended_monotonic": 924549.355453916,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000013.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924547.367052583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4061592.807453745,
+      "direction": "download",
+      "elapsed_seconds": 2.065349334036,
+      "ended_monotonic": 924551.422590208,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000014.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924549.357237541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4228348.904206826,
+      "direction": "download",
+      "elapsed_seconds": 1.9838968330295756,
+      "ended_monotonic": 924553.410447458,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000015.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924551.42654775,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4053142.5046772314,
+      "direction": "download",
+      "elapsed_seconds": 2.06965533294715,
+      "ended_monotonic": 924555.481698416,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000016.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924553.41204025,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3587052.2279781303,
+      "direction": "download",
+      "elapsed_seconds": 2.3385798329254612,
+      "ended_monotonic": 924557.823190291,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000017.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924555.484607625,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 142.9828935422515,
+      "direction": "upload",
+      "elapsed_seconds": 0.594476709025912,
+      "ended_monotonic": 924558.817972166,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924558.223488166,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "bytes_per_second": 4043591.9972520564,
+      "direction": "download",
+      "elapsed_seconds": 2.074543624999933,
+      "ended_monotonic": 924559.899463,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000018.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924557.824917166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4371261.973679591,
+      "direction": "download",
+      "elapsed_seconds": 1.919035749975592,
+      "ended_monotonic": 924561.822599541,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000019.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924559.903559875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4035119.5428929687,
+      "direction": "download",
+      "elapsed_seconds": 2.0788994999602437,
+      "ended_monotonic": 924563.9032315,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000020.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924561.82432725,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4625187.103573352,
+      "direction": "download",
+      "elapsed_seconds": 1.8136797089828178,
+      "ended_monotonic": 924565.719902083,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000021.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924563.906217791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3969714.0383071345,
+      "direction": "download",
+      "elapsed_seconds": 2.1131517079193145,
+      "ended_monotonic": 924567.834928125,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000022.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924565.721771958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4110184.1148653794,
+      "direction": "download",
+      "elapsed_seconds": 2.040932417032309,
+      "ended_monotonic": 924569.878957041,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000023.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924567.838018916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4462720.4583671065,
+      "direction": "download",
+      "elapsed_seconds": 1.8797072499291971,
+      "ended_monotonic": 924571.760360166,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000024.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924569.880648541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4107893.9377172724,
+      "direction": "download",
+      "elapsed_seconds": 2.0420702499104664,
+      "ended_monotonic": 924573.805569541,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000025.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924571.763495375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4162386.388192497,
+      "direction": "download",
+      "elapsed_seconds": 2.0153362080454826,
+      "ended_monotonic": 924575.822667125,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000026.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924573.8073265,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4521070.388936923,
+      "direction": "download",
+      "elapsed_seconds": 1.855447334004566,
+      "ended_monotonic": 924577.681247458,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000027.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924575.825795666,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3955507.925781508,
+      "direction": "download",
+      "elapsed_seconds": 2.1207410419592634,
+      "ended_monotonic": 924580.65913525,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000028.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924578.538389583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 3965324.596402654,
+      "direction": "download",
+      "elapsed_seconds": 2.115490874974057,
+      "ended_monotonic": 924582.776458083,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000029.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924580.660962583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 4237257.787855174,
+      "direction": "download",
+      "elapsed_seconds": 1.9797256669262424,
+      "ended_monotonic": 924584.75772075,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000030.part",
+      "size_bytes": 8388608,
+      "started_monotonic": 924582.777990833,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 6950668.630201987,
+      "direction": "download",
+      "elapsed_seconds": 1.0628209159476683,
+      "ended_monotonic": 924585.822451875,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/.snake-transfer-affd43290c6b45b490e782828a6bd66d/00000031.part",
+      "size_bytes": 7387316,
+      "started_monotonic": 924584.759626875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 151.3212233264437,
+      "direction": "download",
+      "elapsed_seconds": 0.42954979196656495,
+      "ended_monotonic": 924587.143790416,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/stage-0001.pt.sha256",
+      "size_bytes": 65,
+      "started_monotonic": 924586.714235916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 21.987964457701025,
+      "direction": "download",
+      "elapsed_seconds": 0.409314832999371,
+      "ended_monotonic": 924587.553381416,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/stage-0001.pt.complete",
+      "size_bytes": 9,
+      "started_monotonic": 924587.1440615,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 22230.086237652446,
+      "direction": "download",
+      "elapsed_seconds": 0.4231652499875054,
+      "ended_monotonic": 924588.874546375,
+      "operation": "GET",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/.snake-export-batch-e0b17828862d4609be2fab8818dd6e5a.zip",
+      "size_bytes": 9407,
+      "started_monotonic": 924588.451378,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 178.4043304145673,
+      "direction": "upload",
+      "elapsed_seconds": 0.47644583403598517,
+      "ended_monotonic": 924589.298844291,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 924588.822393916,
+      "status": "completed",
+      "thread": "colab-lease"
+    }
+  ],
+  "control_operations": [
+    {
+      "elapsed_seconds": 0.4307320410152897,
+      "ended_monotonic": 923945.652428166,
+      "operation": "PUT",
+      "started_monotonic": 923945.221696125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.42032074998132885,
+      "ended_monotonic": 923946.073426208,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 923945.653105458,
+      "status": "failed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.1562469999771565,
+      "ended_monotonic": 923948.777417,
+      "operation": "renewal",
+      "started_monotonic": 923947.62117,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 11.13534262496978,
+      "ended_monotonic": 923975.22652725,
+      "operation": "mkdir",
+      "started_monotonic": 923964.091184625,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.4979460419854149,
+      "ended_monotonic": 923975.724959583,
+      "operation": "PUT",
+      "started_monotonic": 923975.227013541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7996528329094872,
+      "ended_monotonic": 923976.524780958,
+      "operation": "verify",
+      "started_monotonic": 923975.725128125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.4562694579362869,
+      "ended_monotonic": 923976.540379458,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 923976.08411,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.44479170802515,
+      "ended_monotonic": 923976.970118208,
+      "operation": "PUT",
+      "started_monotonic": 923976.5253265,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.8071132079930976,
+      "ended_monotonic": 923977.777386708,
+      "operation": "verify",
+      "started_monotonic": 923976.9702735,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.8019564579008147,
+      "ended_monotonic": 923978.582651333,
+      "operation": "mkdir",
+      "started_monotonic": 923977.780694875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.2590784579515457,
+      "ended_monotonic": 923979.843486208,
+      "operation": "PUT",
+      "started_monotonic": 923978.58440775,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 2.963082999922335,
+      "ended_monotonic": 923981.550445208,
+      "operation": "PUT",
+      "started_monotonic": 923978.587362208,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 0.4387071249075234,
+      "ended_monotonic": 923981.989860958,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 923981.551153833,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.4392130420310423,
+      "ended_monotonic": 923981.989989083,
+      "operation": "renewal",
+      "started_monotonic": 923981.550776041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7274028329411522,
+      "ended_monotonic": 923982.720528208,
+      "operation": "PUT",
+      "started_monotonic": 923981.993125375,
+      "status": "completed",
+      "thread": "colab-put_1"
+    },
+    {
+      "elapsed_seconds": 1.273646582965739,
+      "ended_monotonic": 923983.265128083,
+      "operation": "PUT",
+      "started_monotonic": 923981.9914815,
+      "status": "completed",
+      "thread": "colab-put_0"
+    },
+    {
+      "elapsed_seconds": 0.8430086249718443,
+      "ended_monotonic": 923984.111173583,
+      "operation": "assemble",
+      "started_monotonic": 923983.268164958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.41372754191979766,
+      "ended_monotonic": 923984.525268458,
+      "operation": "PUT",
+      "started_monotonic": 923984.111540916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.8090577089460567,
+      "ended_monotonic": 923985.33448675,
+      "operation": "verify",
+      "started_monotonic": 923984.525429041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.4193079579854384,
+      "ended_monotonic": 923985.754116083,
+      "operation": "PUT",
+      "started_monotonic": 923985.334808125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7640335839241743,
+      "ended_monotonic": 923986.51829025,
+      "operation": "verify",
+      "started_monotonic": 923985.754256666,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.40707362501416355,
+      "ended_monotonic": 923986.925660333,
+      "operation": "PUT",
+      "started_monotonic": 923986.518586708,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.820784000097774,
+      "ended_monotonic": 923987.746596166,
+      "operation": "verify",
+      "started_monotonic": 923986.925812166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7947128330124542,
+      "ended_monotonic": 923988.544952833,
+      "operation": "PUT",
+      "started_monotonic": 923987.75024,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7632315420778468,
+      "ended_monotonic": 923989.308728583,
+      "operation": "verify",
+      "started_monotonic": 923988.545497041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.8618740830570459,
+      "ended_monotonic": 923990.172971791,
+      "operation": "source-delivery-launch",
+      "started_monotonic": 923989.311097708,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7718268749304116,
+      "ended_monotonic": 923993.258052958,
+      "operation": "renewal",
+      "started_monotonic": 923992.486226083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.9000870829913765,
+      "ended_monotonic": 924009.449442958,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924006.549355875,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.248030334012583,
+      "ended_monotonic": 924009.518777375,
+      "operation": "renewal",
+      "started_monotonic": 924008.270747041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.8196999999927357,
+      "ended_monotonic": 924025.344556,
+      "operation": "renewal",
+      "started_monotonic": 924024.524856,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.869183041038923,
+      "ended_monotonic": 924040.328090791,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924039.45890775,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 3.1953901670640334,
+      "ended_monotonic": 924043.550628958,
+      "operation": "renewal",
+      "started_monotonic": 924040.355238791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0819462499348447,
+      "ended_monotonic": 924060.717788333,
+      "operation": "renewal",
+      "started_monotonic": 924059.635842083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.41533229197375476,
+      "ended_monotonic": 924070.752092958,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924070.336760666,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.761964250006713,
+      "ended_monotonic": 924077.489596458,
+      "operation": "renewal",
+      "started_monotonic": 924075.727632208,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.0239896250423044,
+      "ended_monotonic": 924094.523359625,
+      "operation": "renewal",
+      "started_monotonic": 924092.49937,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.4412167500704527,
+      "ended_monotonic": 924101.201643791,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924100.760427041,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.7635342499706894,
+      "ended_monotonic": 924110.297547666,
+      "operation": "renewal",
+      "started_monotonic": 924109.534013416,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.8003787909401581,
+      "ended_monotonic": 924127.151666791,
+      "operation": "renewal",
+      "started_monotonic": 924126.351288,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7457197499461472,
+      "ended_monotonic": 924131.954303416,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924131.208583666,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.9125075000338256,
+      "ended_monotonic": 924143.070347,
+      "operation": "renewal",
+      "started_monotonic": 924142.1578395,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.8121276670135558,
+      "ended_monotonic": 924158.893290708,
+      "operation": "renewal",
+      "started_monotonic": 924158.081163041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.4221613749396056,
+      "ended_monotonic": 924162.377393125,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924161.95523175,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.7554013329790905,
+      "ended_monotonic": 924174.651349208,
+      "operation": "renewal",
+      "started_monotonic": 924173.895947875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.9011528340633959,
+      "ended_monotonic": 924191.703538625,
+      "operation": "renewal",
+      "started_monotonic": 924190.802385791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.43677008303347975,
+      "ended_monotonic": 924192.818712916,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924192.381942833,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.8134366249432787,
+      "ended_monotonic": 924207.528079791,
+      "operation": "renewal",
+      "started_monotonic": 924206.714643166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.4227572090458125,
+      "ended_monotonic": 924223.248357375,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924222.825600166,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.7846048750216141,
+      "ended_monotonic": 924223.323489208,
+      "operation": "renewal",
+      "started_monotonic": 924222.538884333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.439467875054106,
+      "ended_monotonic": 924240.766326791,
+      "operation": "renewal",
+      "started_monotonic": 924238.326858916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.6052305420162156,
+      "ended_monotonic": 924253.864067,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924253.258836458,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.7933176669757813,
+      "ended_monotonic": 924257.855886,
+      "operation": "renewal",
+      "started_monotonic": 924257.062568333,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.9162887920392677,
+      "ended_monotonic": 924273.783170708,
+      "operation": "renewal",
+      "started_monotonic": 924272.866881916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.42907233303412795,
+      "ended_monotonic": 924284.297333291,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924283.868260958,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.7693257499486208,
+      "ended_monotonic": 924289.563264875,
+      "operation": "renewal",
+      "started_monotonic": 924288.793939125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.8513669999083504,
+      "ended_monotonic": 924305.42173775,
+      "operation": "renewal",
+      "started_monotonic": 924304.57037075,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.4559689169982448,
+      "ended_monotonic": 924314.756561583,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924314.300592666,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.769185500103049,
+      "ended_monotonic": 924322.526848708,
+      "operation": "renewal",
+      "started_monotonic": 924321.757663208,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7656025419710204,
+      "ended_monotonic": 924338.293503333,
+      "operation": "renewal",
+      "started_monotonic": 924337.527900791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.4218913749791682,
+      "ended_monotonic": 924345.181956333,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924344.760064958,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.7785270409658551,
+      "ended_monotonic": 924354.082680916,
+      "operation": "renewal",
+      "started_monotonic": 924353.304153875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.8655822089640424,
+      "ended_monotonic": 924369.956893125,
+      "operation": "renewal",
+      "started_monotonic": 924369.091310916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7461495409952477,
+      "ended_monotonic": 924375.930729666,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924375.184580125,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.783682709094137,
+      "ended_monotonic": 924386.65257975,
+      "operation": "renewal",
+      "started_monotonic": 924385.868897041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.8882484170608222,
+      "ended_monotonic": 924402.551518375,
+      "operation": "renewal",
+      "started_monotonic": 924401.663269958,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.46048604196403176,
+      "ended_monotonic": 924406.401139708,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924405.940653666,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 1.0665862089954317,
+      "ended_monotonic": 924418.620638125,
+      "operation": "renewal",
+      "started_monotonic": 924417.554051916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.8075808329740539,
+      "ended_monotonic": 924434.437777333,
+      "operation": "renewal",
+      "started_monotonic": 924433.6301965,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.43893870897591114,
+      "ended_monotonic": 924436.85100325,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924436.412064541,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.7613872080110013,
+      "ended_monotonic": 924451.097995708,
+      "operation": "renewal",
+      "started_monotonic": 924450.3366085,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7763844589935616,
+      "ended_monotonic": 924466.8851315,
+      "operation": "renewal",
+      "started_monotonic": 924466.108747041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.3998367079766467,
+      "ended_monotonic": 924467.253791708,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924466.853955,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.9042152499314398,
+      "ended_monotonic": 924482.794158791,
+      "operation": "renewal",
+      "started_monotonic": 924481.889943541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.4729939589742571,
+      "ended_monotonic": 924497.728811,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924497.255817041,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.8546823340002447,
+      "ended_monotonic": 924498.65632675,
+      "operation": "renewal",
+      "started_monotonic": 924497.801644416,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7769288750132546,
+      "ended_monotonic": 924515.350174458,
+      "operation": "renewal",
+      "started_monotonic": 924514.573245583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5093156669754535,
+      "ended_monotonic": 924516.684439708,
+      "operation": "GET",
+      "started_monotonic": 924516.175124041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.0738217920297757,
+      "ended_monotonic": 924518.774668708,
+      "operation": "DOWNLOAD_SPLIT",
+      "started_monotonic": 924516.700846916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.2988513340242207,
+      "ended_monotonic": 924520.073707125,
+      "operation": "GET",
+      "started_monotonic": 924518.774855791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.642660874989815,
+      "ended_monotonic": 924522.721609625,
+      "operation": "GET",
+      "started_monotonic": 924520.07894875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.2247710830997676,
+      "ended_monotonic": 924524.947731208,
+      "operation": "GET",
+      "started_monotonic": 924522.722960125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.2699029999785125,
+      "ended_monotonic": 924527.219293125,
+      "operation": "GET",
+      "started_monotonic": 924524.949390125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.47966125002130866,
+      "ended_monotonic": 924528.214638625,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924527.734977375,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.0929557089693844,
+      "ended_monotonic": 924529.313885625,
+      "operation": "GET",
+      "started_monotonic": 924527.220929916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.1635481250705197,
+      "ended_monotonic": 924531.478985041,
+      "operation": "GET",
+      "started_monotonic": 924529.315436916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.136854040902108,
+      "ended_monotonic": 924533.617553916,
+      "operation": "GET",
+      "started_monotonic": 924531.480699875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.615727417054586,
+      "ended_monotonic": 924536.234905458,
+      "operation": "GET",
+      "started_monotonic": 924533.619178041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.201494416920468,
+      "ended_monotonic": 924538.437951208,
+      "operation": "GET",
+      "started_monotonic": 924536.236456791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.044711499940604,
+      "ended_monotonic": 924540.484162041,
+      "operation": "GET",
+      "started_monotonic": 924538.439450541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.9881466659717262,
+      "ended_monotonic": 924542.474121916,
+      "operation": "GET",
+      "started_monotonic": 924540.48597525,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.1371059579541907,
+      "ended_monotonic": 924544.612874541,
+      "operation": "GET",
+      "started_monotonic": 924542.475768583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.9643908749567345,
+      "ended_monotonic": 924546.578784,
+      "operation": "GET",
+      "started_monotonic": 924544.614393125,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7854287499794737,
+      "ended_monotonic": 924547.3642365,
+      "operation": "renewal",
+      "started_monotonic": 924546.57880775,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.9886352089233696,
+      "ended_monotonic": 924549.35554125,
+      "operation": "GET",
+      "started_monotonic": 924547.366906041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.0655969589715824,
+      "ended_monotonic": 924551.422674875,
+      "operation": "GET",
+      "started_monotonic": 924549.357077916,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.984146457980387,
+      "ended_monotonic": 924553.410530208,
+      "operation": "GET",
+      "started_monotonic": 924551.42638375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.069919125060551,
+      "ended_monotonic": 924555.481781,
+      "operation": "GET",
+      "started_monotonic": 924553.411861875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.338824291015044,
+      "ended_monotonic": 924557.823269541,
+      "operation": "GET",
+      "started_monotonic": 924555.48444525,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.5951587079325691,
+      "ended_monotonic": 924558.818097458,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924558.22293875,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 2.07473320805002,
+      "ended_monotonic": 924559.899495583,
+      "operation": "GET",
+      "started_monotonic": 924557.824762375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.9192892500432208,
+      "ended_monotonic": 924561.8226815,
+      "operation": "GET",
+      "started_monotonic": 924559.90339225,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.0791531250579283,
+      "ended_monotonic": 924563.903316625,
+      "operation": "GET",
+      "started_monotonic": 924561.8241635,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.813956416095607,
+      "ended_monotonic": 924565.719989791,
+      "operation": "GET",
+      "started_monotonic": 924563.906033375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.1134160408983007,
+      "ended_monotonic": 924567.835005416,
+      "operation": "GET",
+      "started_monotonic": 924565.721589375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.0411997080082074,
+      "ended_monotonic": 924569.879022916,
+      "operation": "GET",
+      "started_monotonic": 924567.837823208,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8799422919983044,
+      "ended_monotonic": 924571.760430875,
+      "operation": "GET",
+      "started_monotonic": 924569.880488583,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.0423329999903217,
+      "ended_monotonic": 924573.80564075,
+      "operation": "GET",
+      "started_monotonic": 924571.76330775,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.01556912495289,
+      "ended_monotonic": 924575.822734791,
+      "operation": "GET",
+      "started_monotonic": 924573.807165666,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.8556926669552922,
+      "ended_monotonic": 924577.681317208,
+      "operation": "GET",
+      "started_monotonic": 924575.825624541,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.8552889579441398,
+      "ended_monotonic": 924578.536634833,
+      "operation": "renewal",
+      "started_monotonic": 924577.681345875,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.1209775420138612,
+      "ended_monotonic": 924580.659203333,
+      "operation": "GET",
+      "started_monotonic": 924578.538225791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 2.115731249912642,
+      "ended_monotonic": 924582.776527416,
+      "operation": "GET",
+      "started_monotonic": 924580.660796166,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.979968750034459,
+      "ended_monotonic": 924584.75779025,
+      "operation": "GET",
+      "started_monotonic": 924582.7778215,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 1.0630718750180677,
+      "ended_monotonic": 924585.822520666,
+      "operation": "GET",
+      "started_monotonic": 924584.759448791,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.7915167500032112,
+      "ended_monotonic": 924586.714008125,
+      "operation": "cleanup",
+      "started_monotonic": 924585.922491375,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.4297792080324143,
+      "ended_monotonic": 924587.143863291,
+      "operation": "GET",
+      "started_monotonic": 924586.714084083,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.40953733399510384,
+      "ended_monotonic": 924587.553448375,
+      "operation": "GET",
+      "started_monotonic": 924587.143911041,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.4233677909942344,
+      "ended_monotonic": 924588.874622291,
+      "operation": "GET",
+      "started_monotonic": 924588.4512545,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.47673445800319314,
+      "ended_monotonic": 924589.298934583,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 924588.822200125,
+      "status": "completed",
+      "thread": "colab-lease"
+    }
+  ],
+  "elapsed_seconds": 653.4853503329214,
+  "endpoint": "gpu-a100-s-usc1b0-3cy7nlb5aqflf",
+  "error": null,
+  "exports": [
+    {
+      "path": "ct-cuda-canary/capture.json",
+      "sha256": "ac8f0d8256803a9f9f3e07d80c5b28169b6a9624a86737954b54d900453423f5",
+      "size": 1945
+    },
+    {
+      "path": "ct-cuda-canary/complete/fixture-runtime.json",
+      "sha256": "d198ef7ac474dfcae443936e39cedb5198fea9213e1cce8d3b6bad1a3bd48d88",
+      "size": 177
+    },
+    {
+      "path": "ct-cuda-canary/complete/progress-history.log",
+      "sha256": "c0234e76b4236f9d17f79a4a136c2a3ac1cdffb430cd8f74262d83e5f78b20ef",
+      "size": 9375
+    },
+    {
+      "path": "ct-cuda-canary/complete/progress.json",
+      "sha256": "4c3536d19efbcda60722356f5cc5ac07e99357061199f514821cfabaf65e5c84",
+      "size": 170
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0001.json",
+      "sha256": "ba8d301eff6798f38e0ed54f28b3e8252d4a7f0937bf1b67b040dd29ffbdda08",
+      "size": 619
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0001.pt",
+      "sha256": "c0841ab12dbb075624964a6505c85b3bd15ee547378e28af2b87b7b9b07df12a",
+      "size": 46833
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0002.json",
+      "sha256": "d285b58937f258c91a074bfbce93575edc69cd522b1302bc14c299dd80dd1d84",
+      "size": 695
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0002.pt",
+      "sha256": "eac9510b0b85f8e874f0c8d8e611cb7794b6c0e88fa821ba54c361910fd78e12",
+      "size": 8244
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0003.json",
+      "sha256": "8da35789546241d100f9296929807e170f41e9d82c2d4b66f0b61786280dd385",
+      "size": 695
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0003.pt",
+      "sha256": "a3f0486e9cb517fb43701875ca0ad31b3f6cb9f4632338a966400565b8760f9e",
+      "size": 8244
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0004.json",
+      "sha256": "ffbe423da57ec621dca8cc91300b6be2ca0d159ec2beb6da47d5f50c28b4cba0",
+      "size": 615
+    },
+    {
+      "path": "ct-cuda-canary/complete/stage-0004.pt",
+      "sha256": "d41ba629ee6937e85d3c1ba53042e4c658d6b39b5b31117209b1a59f7a862e86",
+      "size": 10199
+    },
+    {
+      "path": "ct-cuda-canary/complete/stall-watchdog/faulthandler-stacks.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "ct-cuda-canary/complete/stall-watchdog/stall-watchdog.json",
+      "sha256": "ec155ba4f6d3bf654cd995e24607312bd184f04d9bf98cce7a91668eda200b9f",
+      "size": 377
+    },
+    {
+      "path": "ct-cuda-canary/complete/summary.json",
+      "sha256": "368ebc6ecb8e89127251c2c588200db4b86ce55e91ef6f18053678a709767113",
+      "size": 48656
+    },
+    {
+      "path": "ct-cuda-canary/complete-control.json",
+      "sha256": "18a35348d2a8258a2f14e407d21947ed5a494c7815e1f419d4cb2590c5cff575",
+      "size": 966
+    },
+    {
+      "path": "ct-cuda-canary/complete-entrypoint.log",
+      "sha256": "c0234e76b4236f9d17f79a4a136c2a3ac1cdffb430cd8f74262d83e5f78b20ef",
+      "size": 9375
+    },
+    {
+      "path": "ct-cuda-canary/complete-ledger.json",
+      "sha256": "7c96213f7c38f27e655310eb3f7b6e483003da2701b418542789d0a450c64c0f",
+      "size": 176
+    },
+    {
+      "path": "ct-cuda-canary/signal/fixture-checkpoint-start",
+      "sha256": "ed1a545bb85e55816bbf9566b028b2a0bc456b88f49f6f266c0401048824194b",
+      "size": 6
+    },
+    {
+      "path": "ct-cuda-canary/signal/fixture-runtime.json",
+      "sha256": "5ce3a0d49672b6d7a8fd5a980560ed967bba5c6664017f4b9ee8b219988f1c12",
+      "size": 177
+    },
+    {
+      "path": "ct-cuda-canary/signal/progress-history.log",
+      "sha256": "12ad99c9ef0787f1a921c068fc5310ffd9ebbc7bf63dc13d16bab6b7a8c03ff2",
+      "size": 4742
+    },
+    {
+      "path": "ct-cuda-canary/signal/progress.json",
+      "sha256": "f736438e6e263dc897de2f3c296dbf16cceb0bca502ea0e15e76074a40103fc5",
+      "size": 190
+    },
+    {
+      "path": "ct-cuda-canary/signal/sigusr1-marker.json",
+      "sha256": "2bfb02efa6a6b337990a66ef15bbe7cf932c176bb6bf7f386f9a517fee8dfeda",
+      "size": 362
+    },
+    {
+      "path": "ct-cuda-canary/signal/stage-0001.json",
+      "sha256": "0e615198b8ddccf740f4cc665cd8e650fcc6b624805027e89623c257fa9f96c7",
+      "size": 621
+    },
+    {
+      "path": "ct-cuda-canary/signal/stage-0001.pt",
+      "sha256": "f57b6938d481dd9aa2dad99cd803513292db22fb4a3aa5286de2e4bed7b73824",
+      "size": 267434164
+    },
+    {
+      "path": "ct-cuda-canary/signal/stall-watchdog/faulthandler-stacks.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "ct-cuda-canary/signal/stall-watchdog/stall-watchdog.json",
+      "sha256": "b1cc238450b5c7ce7ba3930a9bbdc6ad5006021345792bcbb1dcefd830e1ff9f",
+      "size": 407
+    },
+    {
+      "path": "ct-cuda-canary/signal-control.json",
+      "sha256": "77259881a4be45d91473267aeb395da678bfbcad584176d77ca73864c0d0fb6b",
+      "size": 966
+    },
+    {
+      "path": "ct-cuda-canary/signal-entrypoint.log",
+      "sha256": "12ad99c9ef0787f1a921c068fc5310ffd9ebbc7bf63dc13d16bab6b7a8c03ff2",
+      "size": 4742
+    },
+    {
+      "path": "ct-cuda-canary/signal-ledger.json",
+      "sha256": "0e2d3308c60fa1dbe0b542dbd109fc864e74c14fa18313567a7c23948cd789ea",
+      "size": 176
+    }
+  ],
+  "failure_class": null,
+  "generation": "5de6e44e0c5d4e3e915aefb29983650b",
+  "job_id": "ct-cuda-smoke-20261028-08",
+  "manifest_sha256": "9d253213b021e209575435f995b89319df7d3d745a43abfeb0aef44647018eb6",
+  "session": "snake-ct-cuda-smoke-20261028-08-5de6e44e0c5d",
+  "status": "PASS",
+  "stop_verified": true,
+  "supervisor_sha256": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+  "terminal": {
+    "canary_observations": [
+      {
+        "caller": "research/sandbox_a_resident/ct_mechanics.py:1290:forced_state_determinism_suite",
+        "cuda_decisions": 1,
+        "device": "cuda:0",
+        "operation": "Tensor.argmax",
+        "package": "research/sandbox_a_resident",
+        "pid": 2454,
+        "root": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b",
+        "shape": [
+          1,
+          6
+        ],
+        "version": 1
+      },
+      {
+        "caller": "research/sandbox_a_resident/ct_mechanics.py:1290:forced_state_determinism_suite",
+        "cuda_decisions": 1,
+        "device": "cuda:0",
+        "operation": "Tensor.argmax",
+        "package": "research/sandbox_a_resident",
+        "pid": 4156,
+        "root": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b",
+        "shape": [
+          1,
+          6
+        ],
+        "version": 1
+      }
+    ],
+    "export_scanner": {
+      "inventory": [
+        {
+          "path": "ct-cuda-canary/capture.json",
+          "sha256": "ac8f0d8256803a9f9f3e07d80c5b28169b6a9624a86737954b54d900453423f5",
+          "size": 1945
+        },
+        {
+          "path": "ct-cuda-canary/complete/fixture-runtime.json",
+          "sha256": "d198ef7ac474dfcae443936e39cedb5198fea9213e1cce8d3b6bad1a3bd48d88",
+          "size": 177
+        },
+        {
+          "path": "ct-cuda-canary/complete/progress-history.log",
+          "sha256": "c0234e76b4236f9d17f79a4a136c2a3ac1cdffb430cd8f74262d83e5f78b20ef",
+          "size": 9375
+        },
+        {
+          "path": "ct-cuda-canary/complete/progress.json",
+          "sha256": "4c3536d19efbcda60722356f5cc5ac07e99357061199f514821cfabaf65e5c84",
+          "size": 170
+        },
+        {
+          "path": "ct-cuda-canary/complete/stage-0001.json",
+          "sha256": "ba8d301eff6798f38e0ed54f28b3e8252d4a7f0937bf1b67b040dd29ffbdda08",
+          "size": 619
+        },
+        {
+          "path": "ct-cuda-canary/complete/stage-0001.pt",
+          "sha256": "c0841ab12dbb075624964a6505c85b3bd15ee547378e28af2b87b7b9b07df12a",
+          "size": 46833
+        },
+        {
+          "path": "ct-cuda-canary/complete/stage-0002.json",
+          "sha256": "d285b58937f258c91a074bfbce93575edc69cd522b1302bc14c299dd80dd1d84",
+          "size": 695
+        },
+        {
+          "path": "ct-cuda-canary/complete/stage-0002.pt",
+          "sha256": "eac9510b0b85f8e874f0c8d8e611cb7794b6c0e88fa821ba54c361910fd78e12",
+          "size": 8244
+        },
+        {
+          "path": "ct-cuda-canary/complete/stage-0003.json",
+          "sha256": "8da35789546241d100f9296929807e170f41e9d82c2d4b66f0b61786280dd385",
+          "size": 695
+        },
+        {
+          "path": "ct-cuda-canary/complete/stage-0003.pt",
+          "sha256": "a3f0486e9cb517fb43701875ca0ad31b3f6cb9f4632338a966400565b8760f9e",
+          "size": 8244
+        },
+        {
+          "path": "ct-cuda-canary/complete/stage-0004.json",
+          "sha256": "ffbe423da57ec621dca8cc91300b6be2ca0d159ec2beb6da47d5f50c28b4cba0",
+          "size": 615
+        },
+        {
+          "path": "ct-cuda-canary/complete/stage-0004.pt",
+          "sha256": "d41ba629ee6937e85d3c1ba53042e4c658d6b39b5b31117209b1a59f7a862e86",
+          "size": 10199
+        },
+        {
+          "path": "ct-cuda-canary/complete/stall-watchdog/faulthandler-stacks.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "path": "ct-cuda-canary/complete/stall-watchdog/stall-watchdog.json",
+          "sha256": "ec155ba4f6d3bf654cd995e24607312bd184f04d9bf98cce7a91668eda200b9f",
+          "size": 377
+        },
+        {
+          "path": "ct-cuda-canary/complete/summary.json",
+          "sha256": "368ebc6ecb8e89127251c2c588200db4b86ce55e91ef6f18053678a709767113",
+          "size": 48656
+        },
+        {
+          "path": "ct-cuda-canary/complete-control.json",
+          "sha256": "18a35348d2a8258a2f14e407d21947ed5a494c7815e1f419d4cb2590c5cff575",
+          "size": 966
+        },
+        {
+          "path": "ct-cuda-canary/complete-entrypoint.log",
+          "sha256": "c0234e76b4236f9d17f79a4a136c2a3ac1cdffb430cd8f74262d83e5f78b20ef",
+          "size": 9375
+        },
+        {
+          "path": "ct-cuda-canary/complete-ledger.json",
+          "sha256": "7c96213f7c38f27e655310eb3f7b6e483003da2701b418542789d0a450c64c0f",
+          "size": 176
+        },
+        {
+          "path": "ct-cuda-canary/signal/fixture-checkpoint-start",
+          "sha256": "ed1a545bb85e55816bbf9566b028b2a0bc456b88f49f6f266c0401048824194b",
+          "size": 6
+        },
+        {
+          "path": "ct-cuda-canary/signal/fixture-runtime.json",
+          "sha256": "5ce3a0d49672b6d7a8fd5a980560ed967bba5c6664017f4b9ee8b219988f1c12",
+          "size": 177
+        },
+        {
+          "path": "ct-cuda-canary/signal/progress-history.log",
+          "sha256": "12ad99c9ef0787f1a921c068fc5310ffd9ebbc7bf63dc13d16bab6b7a8c03ff2",
+          "size": 4742
+        },
+        {
+          "path": "ct-cuda-canary/signal/progress.json",
+          "sha256": "f736438e6e263dc897de2f3c296dbf16cceb0bca502ea0e15e76074a40103fc5",
+          "size": 190
+        },
+        {
+          "path": "ct-cuda-canary/signal/sigusr1-marker.json",
+          "sha256": "2bfb02efa6a6b337990a66ef15bbe7cf932c176bb6bf7f386f9a517fee8dfeda",
+          "size": 362
+        },
+        {
+          "path": "ct-cuda-canary/signal/stage-0001.json",
+          "sha256": "0e615198b8ddccf740f4cc665cd8e650fcc6b624805027e89623c257fa9f96c7",
+          "size": 621
+        },
+        {
+          "path": "ct-cuda-canary/signal/stage-0001.pt",
+          "sha256": "f57b6938d481dd9aa2dad99cd803513292db22fb4a3aa5286de2e4bed7b73824",
+          "size": 267434164
+        },
+        {
+          "path": "ct-cuda-canary/signal/stall-watchdog/faulthandler-stacks.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "path": "ct-cuda-canary/signal/stall-watchdog/stall-watchdog.json",
+          "sha256": "b1cc238450b5c7ce7ba3930a9bbdc6ad5006021345792bcbb1dcefd830e1ff9f",
+          "size": 407
+        },
+        {
+          "path": "ct-cuda-canary/signal-control.json",
+          "sha256": "77259881a4be45d91473267aeb395da678bfbcad584176d77ca73864c0d0fb6b",
+          "size": 966
+        },
+        {
+          "path": "ct-cuda-canary/signal-entrypoint.log",
+          "sha256": "12ad99c9ef0787f1a921c068fc5310ffd9ebbc7bf63dc13d16bab6b7a8c03ff2",
+          "size": 4742
+        },
+        {
+          "path": "ct-cuda-canary/signal-ledger.json",
+          "sha256": "0e2d3308c60fa1dbe0b542dbd109fc864e74c14fa18313567a7c23948cd789ea",
+          "size": 176
+        }
+      ],
+      "name": "runtime._exports"
+    },
+    "exports": [
+      {
+        "path": "ct-cuda-canary/capture.json",
+        "sha256": "ac8f0d8256803a9f9f3e07d80c5b28169b6a9624a86737954b54d900453423f5",
+        "size": 1945
+      },
+      {
+        "path": "ct-cuda-canary/complete/fixture-runtime.json",
+        "sha256": "d198ef7ac474dfcae443936e39cedb5198fea9213e1cce8d3b6bad1a3bd48d88",
+        "size": 177
+      },
+      {
+        "path": "ct-cuda-canary/complete/progress-history.log",
+        "sha256": "c0234e76b4236f9d17f79a4a136c2a3ac1cdffb430cd8f74262d83e5f78b20ef",
+        "size": 9375
+      },
+      {
+        "path": "ct-cuda-canary/complete/progress.json",
+        "sha256": "4c3536d19efbcda60722356f5cc5ac07e99357061199f514821cfabaf65e5c84",
+        "size": 170
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0001.json",
+        "sha256": "ba8d301eff6798f38e0ed54f28b3e8252d4a7f0937bf1b67b040dd29ffbdda08",
+        "size": 619
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0001.pt",
+        "sha256": "c0841ab12dbb075624964a6505c85b3bd15ee547378e28af2b87b7b9b07df12a",
+        "size": 46833
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0002.json",
+        "sha256": "d285b58937f258c91a074bfbce93575edc69cd522b1302bc14c299dd80dd1d84",
+        "size": 695
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0002.pt",
+        "sha256": "eac9510b0b85f8e874f0c8d8e611cb7794b6c0e88fa821ba54c361910fd78e12",
+        "size": 8244
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0003.json",
+        "sha256": "8da35789546241d100f9296929807e170f41e9d82c2d4b66f0b61786280dd385",
+        "size": 695
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0003.pt",
+        "sha256": "a3f0486e9cb517fb43701875ca0ad31b3f6cb9f4632338a966400565b8760f9e",
+        "size": 8244
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0004.json",
+        "sha256": "ffbe423da57ec621dca8cc91300b6be2ca0d159ec2beb6da47d5f50c28b4cba0",
+        "size": 615
+      },
+      {
+        "path": "ct-cuda-canary/complete/stage-0004.pt",
+        "sha256": "d41ba629ee6937e85d3c1ba53042e4c658d6b39b5b31117209b1a59f7a862e86",
+        "size": 10199
+      },
+      {
+        "path": "ct-cuda-canary/complete/stall-watchdog/faulthandler-stacks.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      {
+        "path": "ct-cuda-canary/complete/stall-watchdog/stall-watchdog.json",
+        "sha256": "ec155ba4f6d3bf654cd995e24607312bd184f04d9bf98cce7a91668eda200b9f",
+        "size": 377
+      },
+      {
+        "path": "ct-cuda-canary/complete/summary.json",
+        "sha256": "368ebc6ecb8e89127251c2c588200db4b86ce55e91ef6f18053678a709767113",
+        "size": 48656
+      },
+      {
+        "path": "ct-cuda-canary/complete-control.json",
+        "sha256": "18a35348d2a8258a2f14e407d21947ed5a494c7815e1f419d4cb2590c5cff575",
+        "size": 966
+      },
+      {
+        "path": "ct-cuda-canary/complete-entrypoint.log",
+        "sha256": "c0234e76b4236f9d17f79a4a136c2a3ac1cdffb430cd8f74262d83e5f78b20ef",
+        "size": 9375
+      },
+      {
+        "path": "ct-cuda-canary/complete-ledger.json",
+        "sha256": "7c96213f7c38f27e655310eb3f7b6e483003da2701b418542789d0a450c64c0f",
+        "size": 176
+      },
+      {
+        "path": "ct-cuda-canary/signal/fixture-checkpoint-start",
+        "sha256": "ed1a545bb85e55816bbf9566b028b2a0bc456b88f49f6f266c0401048824194b",
+        "size": 6
+      },
+      {
+        "path": "ct-cuda-canary/signal/fixture-runtime.json",
+        "sha256": "5ce3a0d49672b6d7a8fd5a980560ed967bba5c6664017f4b9ee8b219988f1c12",
+        "size": 177
+      },
+      {
+        "path": "ct-cuda-canary/signal/progress-history.log",
+        "sha256": "12ad99c9ef0787f1a921c068fc5310ffd9ebbc7bf63dc13d16bab6b7a8c03ff2",
+        "size": 4742
+      },
+      {
+        "path": "ct-cuda-canary/signal/progress.json",
+        "sha256": "f736438e6e263dc897de2f3c296dbf16cceb0bca502ea0e15e76074a40103fc5",
+        "size": 190
+      },
+      {
+        "path": "ct-cuda-canary/signal/sigusr1-marker.json",
+        "sha256": "2bfb02efa6a6b337990a66ef15bbe7cf932c176bb6bf7f386f9a517fee8dfeda",
+        "size": 362
+      },
+      {
+        "path": "ct-cuda-canary/signal/stage-0001.json",
+        "sha256": "0e615198b8ddccf740f4cc665cd8e650fcc6b624805027e89623c257fa9f96c7",
+        "size": 621
+      },
+      {
+        "path": "ct-cuda-canary/signal/stage-0001.pt",
+        "sha256": "f57b6938d481dd9aa2dad99cd803513292db22fb4a3aa5286de2e4bed7b73824",
+        "size": 267434164
+      },
+      {
+        "path": "ct-cuda-canary/signal/stall-watchdog/faulthandler-stacks.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      {
+        "path": "ct-cuda-canary/signal/stall-watchdog/stall-watchdog.json",
+        "sha256": "b1cc238450b5c7ce7ba3930a9bbdc6ad5006021345792bcbb1dcefd830e1ff9f",
+        "size": 407
+      },
+      {
+        "path": "ct-cuda-canary/signal-control.json",
+        "sha256": "77259881a4be45d91473267aeb395da678bfbcad584176d77ca73864c0d0fb6b",
+        "size": 966
+      },
+      {
+        "path": "ct-cuda-canary/signal-entrypoint.log",
+        "sha256": "12ad99c9ef0787f1a921c068fc5310ffd9ebbc7bf63dc13d16bab6b7a8c03ff2",
+        "size": 4742
+      },
+      {
+        "path": "ct-cuda-canary/signal-ledger.json",
+        "sha256": "0e2d3308c60fa1dbe0b542dbd109fc864e74c14fa18313567a7c23948cd789ea",
+        "size": 176
+      }
+    ],
+    "finished_at": 1793226193.3389187,
+    "generation": "5de6e44e0c5d4e3e915aefb29983650b",
+    "job_id": "ct-cuda-smoke-20261028-08",
+    "last_traceback_line": "CT_SIGUSR1_CLEAN_EXIT {\"allocation\": \"d57981005102088cf2825f490e3dd4b10308fd229b0f66b92ce252e7964b7f73\", \"interrupted_phase\": \"stage-0001-collection\", \"latest_durable_stage\": 1, \"received_unix\": 1793226188.8417645, \"schema\": \"t34-cf-sigusr1-marker/v1\", \"shutdown_elapsed_sec\": 2.1895, \"status\": \"PREEMPTED_SIGUSR1\", \"study\": \"t34-cf-1028\", \"within_15s_sla\": true}",
+    "reason": null,
+    "returncode": 0,
+    "started_at": 1793225626.578132,
+    "status": "succeeded"
+  },
+  "transfers": [
+    {
+      "bytes_per_second": 2499.4093855400206,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-08-broker.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 1.2979066249681637,
+      "ended_monotonic": 923976.524804583,
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/bootstrap.sh",
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+      "size_bytes": 3244,
+      "started_monotonic": 923975.226897,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 11588.487309496923,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-08-broker.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 1.2521910420618951,
+      "ended_monotonic": 923977.777413708,
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/source.py",
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+      "size_bytes": 14511,
+      "started_monotonic": 923976.525222083,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 1035852.2626882432,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-08-broker.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 6.333711124956608,
+      "ended_monotonic": 923984.111237541,
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/inputs/b8-fixture.pth",
+      "sha256": "e19fb0c8fda8c5c01e2e45ffa65419d055f31d270faa806b4acadc21ca99b83f",
+      "size_bytes": 6560789,
+      "started_monotonic": 923977.777526166,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 2770.6411513006856,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-08-broker.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 1.223182582994923,
+      "ended_monotonic": 923985.334510041,
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/inputs/champion-fixture.pth",
+      "sha256": "c02bc08b8a6c922ba7e7812d22a6417aacfb6a9a20114d1acee261dce6cf369b",
+      "size_bytes": 3389,
+      "started_monotonic": 923984.111327083,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 1892.4005543157787,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-08-broker.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 1.1836817500879988,
+      "ended_monotonic": 923986.51830975,
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/inputs/fixture-audit.json",
+      "sha256": "3518b7ad0e604639d100cc64a784ee04c2b7a00b92e24a5e42aafd28d17ac4a5",
+      "size_bytes": 2240,
+      "started_monotonic": 923985.334627625,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 2752.7791994140593,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-08-broker.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 1.2282132910331711,
+      "ended_monotonic": 923987.746615,
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/inputs/frp3-fixture.pth",
+      "sha256": "867a981ad44b3ed99c29d974c81b3739ab064338658a6277698a2b8fb38fcab8",
+      "size_bytes": 3381,
+      "started_monotonic": 923986.51840125,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 677063.1302092546,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-08-broker.noindex/research/colab_cli/supervisor.py:1604",
+      "direction": "upload",
+      "elapsed_seconds": 1.5594779170351103,
+      "ended_monotonic": 923989.308766625,
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/source.tar.gz",
+      "sha256": "728852c4c6b41a1ae3e02c813b81139f8e0148408320c772615e77e06115d941",
+      "size_bytes": 1055865,
+      "started_monotonic": 923987.749288291,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 328823.15251601546,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-08-broker.noindex/research/colab_cli/export_batches.py:335",
+      "direction": "download",
+      "elapsed_seconds": 0.5095170419663191,
+      "ended_monotonic": 924516.684593125,
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/.snake-export-batch-42548d6b816d486bb47e0298ee8de6f4.zip",
+      "sha256": "ce827ebe9dcf769955b015901377fa3e8d24a97c27fb6af79f09bca778475740",
+      "size_bytes": 167541,
+      "started_monotonic": 924516.175075041,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 3819764.207292154,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-08-broker.noindex/research/colab_cli/supervisor.py:944",
+      "direction": "download",
+      "elapsed_seconds": 70.0132650830783,
+      "ended_monotonic": 924586.714040541,
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/output/ct-cuda-canary/signal/stage-0001.pt",
+      "sha256": "f57b6938d481dd9aa2dad99cd803513292db22fb4a3aa5286de2e4bed7b73824",
+      "size_bytes": 267434164,
+      "started_monotonic": 924516.70077425,
+      "status": "verified"
+    },
+    {
+      "bytes_per_second": 22210.117586348693,
+      "call_site": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-08-broker.noindex/research/colab_cli/export_batches.py:335",
+      "direction": "download",
+      "elapsed_seconds": 0.4235457089962438,
+      "ended_monotonic": 924588.87475375,
+      "remote": "/content/snake-cli/5de6e44e0c5d4e3e915aefb29983650b/.snake-export-batch-e0b17828862d4609be2fab8818dd6e5a.zip",
+      "sha256": "9129adfddb195194995375b2b7fbde07983da565df2cf2168997a2d449a27e16",
+      "size_bytes": 9407,
+      "started_monotonic": 924588.451206416,
+      "status": "verified"
+    }
+  ],
+  "usage_after": {
+    "assignments": 1.0,
+    "balance": 941.64,
+    "rate": 5.3
+  },
+  "usage_before": {
+    "assignments": 1.0,
+    "balance": 943.35,
+    "rate": 5.3
+  },
+  "warmup_seconds": 2.74526729201898
+}

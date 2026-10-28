@@ -1,0 +1,14 @@
+{
+  "assignments": [
+    {
+      "endpoint": "gpu-a100-s-ass1c0-2y6u91cdmjrix",
+      "rate_units_per_hour": 5.3,
+      "session": "?",
+      "source": "broker.active"
+    }
+  ],
+  "baseline_balance_units": 943.35,
+  "baseline_rate_units_per_hour": 5.3,
+  "declared_other_rate_units_per_hour": 5.3,
+  "unaccounted_endpoints": []
+}

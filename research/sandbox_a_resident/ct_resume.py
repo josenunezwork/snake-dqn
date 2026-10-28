@@ -39,6 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
+from research.sandbox_a_resident.ct_cuda_observed import BOOTSTRAP_LINES, CAPTURE_LABELS
 from research.sandbox_a_resident.ct_prepare import STUDY, ct_endpoint_steps, write_once
 from research.sandbox_a_resident.ct_progress import validate_progress
 from research.sandbox_a_resident.ct_units import (
@@ -442,6 +443,7 @@ def _check_retained_execution(
     expected_job_id: str | None,
     expected_generation: str | None,
     require_identity: bool = False,
+    fixture_completion: bool = False,
 ) -> None:
     """Validate execution facts independently of human-readable fault markers."""
     for key, expected in (
@@ -463,7 +465,7 @@ def _check_retained_execution(
     if reason is not None and not isinstance(reason, str):
         raise CTResumeRefused(f"{label} records malformed execution reason")
     returncode = record.get("returncode")
-    if returncode == 0 or status in {"completed", "succeeded"}:
+    if not fixture_completion and (returncode == 0 or status in {"completed", "succeeded"}):
         raise CTResumeRefused(f"{label} records completed status")
     if reason is not None and reason not in MECHANICAL_TERMINAL_REASONS:
         raise CTResumeRefused(f"{label} records non-mechanical reason: {reason!r}")
@@ -473,13 +475,24 @@ def _check_retained_execution(
         raise CTResumeRefused(f"{label} records watchdog timeout exit code 124")
     if reason in MECHANICAL_TERMINAL_REASONS and returncode not in (None, 138, -10):
         raise CTResumeRefused(f"{label} records non-signal exit under a mechanical reason")
+    fixture_signal = (
+        fixture_completion
+        and set(record)
+        == {"name", "returncode", "runtime", "checkpoint_bytes", "signal_to_exit_seconds", "marker"}
+        and record.get("name") == "signal"
+        and returncode == 138
+    )
+    if fixture_signal:
+        _validate_signal_marker(record["marker"])
     if (returncode not in (None, 0) or status in {"failed", "stopped", "error"}) and (
-        reason not in MECHANICAL_TERMINAL_REASONS
+        reason not in MECHANICAL_TERMINAL_REASONS and not fixture_signal
     ):
         raise CTResumeRefused(
             f"{label} records non-mechanical child failure or unexplained runtime failure"
         )
-    if status is not None and status not in {
+    if status is not None and status not in (
+        {"completed", "succeeded", "PASS"} if fixture_completion else set()
+    ) | {
         "running",
         "starting",
         "ready",
@@ -581,6 +594,12 @@ def _mechanical_supervisor_error(value: Any) -> bool:
 
 def _observed_signal_line(value: Any, generation: str | None = None) -> bool:
     """Exact observed benign lines; a mechanical reason never exempts arbitrary text."""
+    if isinstance(value, str) and value.startswith("CT_SIGUSR1_CLEAN_EXIT ") and "\n" not in value:
+        try:
+            _validate_signal_marker(_load_json(value.partition(" ")[2]))
+            return True
+        except (ValueError, TypeError, KeyError, RecursionError):
+            return False
     if isinstance(generation, str) and re.fullmatch(r"[0-9a-f]{32}", generation):
         if value == (
             f"STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/snake-cli/{generation}"
@@ -599,7 +618,43 @@ def _observed_signal_line(value: Any, generation: str | None = None) -> bool:
     )
 
 
-def _scan_job_tail(value: Any, *, label: str, generation: str | None = None) -> None:
+def _validate_signal_marker(row: Any) -> None:
+    """One closed real-producer marker; false/slow/malformed SLA never qualifies."""
+    if not isinstance(row, dict):
+        raise ValueError("malformed signal marker")
+    expected = {
+        "schema",
+        "study",
+        "allocation",
+        "status",
+        "interrupted_phase",
+        "latest_durable_stage",
+        "received_unix",
+        "shutdown_elapsed_sec",
+        "within_15s_sla",
+    }
+    if (
+        set(row) != expected
+        or row["schema"] != "t34-cf-sigusr1-marker/v1"
+        or row["study"] != "t34-cf-1028"
+        or row["status"] != "PREEMPTED_SIGUSR1"
+        or not _is_hex(row["allocation"], 64)
+        or not isinstance(row["interrupted_phase"], str)
+        or not re.fullmatch(r"stage-\d{4}-(collection|scoring|fit)", row["interrupted_phase"])
+        or row["within_15s_sla"] is not True
+        or type(row["shutdown_elapsed_sec"]) not in (int, float)
+        or not 0 <= row["shutdown_elapsed_sec"] < 15
+        or any(
+            type(row[k]) not in (int, float) or not 0 <= row[k] < float("inf")
+            for k in ("latest_durable_stage", "received_unix")
+        )
+    ):
+        raise ValueError("unqualified stop marker")
+
+
+def _scan_job_tail(
+    value: Any, *, label: str, generation: str | None = None, fixture_completion: bool = False
+) -> None:
     """Accept observed lines or closed C/T progress schemas, never arbitrary log text."""
     if value in (None, ""):
         return
@@ -610,7 +665,7 @@ def _scan_job_tail(value: Any, *, label: str, generation: str | None = None) -> 
     # discard a partial line: require its exact suffix in a fully validated,
     # retained producer history. An appended fault cannot obtain this witness.
     for index, line in enumerate(lines):
-        if not line or _observed_signal_line(line, generation):
+        if not line or line in BOOTSTRAP_LINES or _observed_signal_line(line, generation):
             continue
         prefix, _, payload = line.partition(" ")
         try:
@@ -618,38 +673,9 @@ def _scan_job_tail(value: Any, *, label: str, generation: str | None = None) -> 
             if not isinstance(row, dict):
                 raise ValueError("unknown line")
             if prefix == "CT_PROGRESS":
-                validate_progress(row)
+                validate_progress(row, fixture_completion=fixture_completion)
             elif prefix == "CT_SIGUSR1_CLEAN_EXIT":
-                expected = {
-                    "schema",
-                    "study",
-                    "allocation",
-                    "status",
-                    "interrupted_phase",
-                    "latest_durable_stage",
-                    "received_unix",
-                    "shutdown_elapsed_sec",
-                    "within_15s_sla",
-                }
-                if (
-                    set(row) != expected
-                    or row["schema"] != "t34-cf-sigusr1-marker/v1"
-                    or row["study"] != "t34-cf-1028"
-                    or row["status"] != "PREEMPTED_SIGUSR1"
-                    or not _is_hex(row["allocation"], 64)
-                    or not isinstance(row["interrupted_phase"], str)
-                    or not re.fullmatch(
-                        r"stage-\d{4}-(collection|scoring|fit)", row["interrupted_phase"]
-                    )
-                    or row["within_15s_sla"] is not True
-                    or type(row["shutdown_elapsed_sec"]) not in (int, float)
-                    or not 0 <= row["shutdown_elapsed_sec"] < 15
-                    or any(
-                        type(row[k]) not in (int, float) or not 0 <= row[k] < float("inf")
-                        for k in ("latest_durable_stage", "received_unix")
-                    )
-                ):
-                    raise ValueError("unqualified stop marker")
+                _validate_signal_marker(row)
             else:
                 raise ValueError("unknown line")
         except (ValueError, TypeError, RecursionError):
@@ -738,6 +764,7 @@ def _scan_json_faults(
     supervisor_transport: bool = False,
     supervisor_log: bool = False,
     require_execution_identity: bool = False,
+    fixture_completion: bool = False,
 ) -> None:
     """Inspect nested diagnostic fields, including error fields in snapshot headers."""
     if isinstance(value, Mapping):
@@ -746,7 +773,15 @@ def _scan_json_faults(
         )
         if receipt:
             _check_retained_receipt(value, label=label)
-        if "failure_class" in value and not receipt:
+        if (
+            "failure_class" in value
+            and not receipt
+            and not (
+                fixture_completion
+                and value.get("status") == "PASS"
+                and value["failure_class"] is None
+            )
+        ):
             raise CTResumeRefused(f"{label} records failure_class outside a qualified receipt")
         # These exact qualified transport records describe completed/failed
         # RPCs and transfers, never completion of the scientific child.
@@ -820,7 +855,12 @@ def _scan_json_faults(
             # Inventories name diagnostic files even when they are empty. Their
             # paths are checked by the export scanner; don't treat filenames as errors.
             if key == "job_log_tail":
-                _scan_job_tail(item, label=name, generation=expected_generation)
+                _scan_job_tail(
+                    item,
+                    label=name,
+                    generation=expected_generation,
+                    fixture_completion=fixture_completion,
+                )
                 continue
             if key == "schema" and item == "colab-family-canary/v1":
                 continue
@@ -832,6 +872,7 @@ def _scan_json_faults(
                     expected_generation=expected_generation,
                     supervisor_transport=supervisor_transport,
                     supervisor_log=supervisor_log,
+                    fixture_completion=fixture_completion,
                     require_execution_identity=(
                         key in {"state", "terminal"} and isinstance(item, Mapping)
                     ),
@@ -850,6 +891,7 @@ def _scan_json_faults(
             expected_job_id=expected_job_id,
             expected_generation=expected_generation,
             require_identity=require_execution_identity,
+            fixture_completion=fixture_completion,
         )
     elif isinstance(value, list):
         for index, item in enumerate(value):
@@ -860,8 +902,11 @@ def _scan_json_faults(
                 expected_generation=expected_generation,
                 supervisor_transport=supervisor_transport,
                 supervisor_log=supervisor_log,
+                fixture_completion=fixture_completion,
             )
     elif isinstance(value, str):
+        if fixture_completion and value in CAPTURE_LABELS:
+            return
         _refuse_if_fault_text(value, field_name=label, check_supervisor_denylist=supervisor_log)
         if (
             supervisor_log
@@ -1005,7 +1050,7 @@ def _scan_diagnostic_bytes(path: Path, *, json_mode: bool = False, collect: bool
             if not json_mode:
                 _refuse_if_fault_text(overlap + part, field_name=str(path))
             overlap = (overlap + part)[-256:]
-            if json_mode and collect:
+            if collect:
                 chunks.append(part)
     tail = decoder.decode(b"", final=True)
     if not bad_utf8:
@@ -1341,6 +1386,7 @@ def _scan_supervisor_log(
     generation: str | None,
     receipt: Mapping[str, Any] | None = None,
     receipt_path: Path | None = None,
+    fixture_completion: bool = False,
 ) -> None:
     """Apply execution validation to every structured host-log record, including nested facts."""
     _no_symlink_path(path)
@@ -1389,6 +1435,7 @@ def _scan_supervisor_log(
                     expected_generation=generation,
                     supervisor_transport=True,
                     supervisor_log=True,
+                    fixture_completion=fixture_completion,
                 )
                 for field in ("state", "terminal"):
                     item = record.get(field)

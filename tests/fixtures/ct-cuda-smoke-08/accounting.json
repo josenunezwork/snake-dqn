@@ -1,0 +1,16 @@
+{
+  "broker_records": [
+    {
+      "path": "/Users/josenunez/.config/colab-cli/snake/active-snake-sandbox-a-train01-20261028-15-c1-i0064-r6-3b090bbe2b1a.json",
+      "sha256": "d28d39bce70ff0d15e5059f7d07f350f28a77b701519f3f25b51cb44b8cd4aef"
+    }
+  ],
+  "manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/manifests/ct-cuda-smoke-20261028-08.live.json",
+  "manifest_sha256": "c5e679b83ea5b6bf4e1b7b02c0a7a1588271c633021df5a193efb645aa56fe9b",
+  "other_assignments": {
+    "gpu-a100-s-ass1c0-2y6u91cdmjrix": 5.3
+  },
+  "sessions_stdout": "\n[colab] A new version of Colab CLI is available: 0.7.5 (current: 0.7.4)\n[colab] Run 'colab update' to update.\n[colab] To silence this check, set \"enable_update_check\": false in ~/.config/colab-cli/settings.json\n\n[?] gpu-a100-s-ass1c0-2y6u91cdmjrix | Hardware: A100 | Shape: Standard | Variant: GPU\n",
+  "source_manifest": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/manifests/ct-cuda-smoke-20261028-08.json",
+  "source_manifest_sha256": "d35434a98e418d8668f84a753233a78576b182455ba845337fb8980b1b001a01"
+}

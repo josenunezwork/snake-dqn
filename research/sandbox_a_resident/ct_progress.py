@@ -92,7 +92,7 @@ def progress_inventory() -> dict[str, frozenset[str]]:
     return inventory
 
 
-def validate_progress(row: dict[str, Any]) -> None:
+def validate_progress(row: dict[str, Any], *, fixture_completion: bool = False) -> None:
     """Validate closed producer keys and typed values, without exposing values."""
     stage = row.get("stage")
     keys = next(
@@ -133,7 +133,7 @@ def validate_progress(row: dict[str, Any]) -> None:
                 "topology_fixtures": {"PASS"},
                 "support_status": {"PASS"},
                 # Completed outcomes are refused by fault/summary precedence.
-                "verdict": set(),
+                "verdict": ({"STOP_RESCUE_TARGET_PROGRAM"} if fixture_completion else set()),
             }
             if not isinstance(value, str) or value not in choices[key]:
                 raise ValueError("unqualified progress string")

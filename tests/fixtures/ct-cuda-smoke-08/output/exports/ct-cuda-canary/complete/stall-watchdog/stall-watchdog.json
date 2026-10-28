@@ -1,0 +1,1 @@
+{"counters": {"elapsed_sec": 364.86, "latest_durable_stage": 4, "schema": "t34-cf-progress/v1", "stage": "completed", "study": "t34-cf-1028", "verdict": "STOP_RESCUE_TARGET_PROGRAM"}, "deadline_monotonic_seconds": 1815.693093781, "pid": 2454, "progress_monotonic_seconds": 915.693093639, "schema": "sandbox-a-stall-watchdog/v1", "stage": "completed", "timeout_seconds": 900.0}

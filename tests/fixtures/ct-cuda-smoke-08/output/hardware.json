@@ -1,0 +1,8 @@
+{
+  "hardware": {
+    "compute_cap": "8.0",
+    "kind": "A100",
+    "name": "NVIDIA A100-SXM4-40GB"
+  },
+  "ready": true
+}

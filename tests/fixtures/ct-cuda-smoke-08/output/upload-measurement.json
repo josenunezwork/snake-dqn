@@ -1,0 +1,12 @@
+{
+  "elapsed_seconds": 26.488542375038378,
+  "input_transfer_seconds": {
+    "b8-fixture.pth": 6.33376483398024,
+    "champion-fixture.pth": 1.223233790951781,
+    "fixture-audit.json": 1.1837340840138495,
+    "frp3-fixture.pth": 1.2282593749696389
+  },
+  "setup_seconds": 11.135379999992438,
+  "source_delivery_seconds": 1.272237499943003,
+  "transfer_seconds": 14.078823542920873
+}
