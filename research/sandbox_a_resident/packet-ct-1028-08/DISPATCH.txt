@@ -1,0 +1,10 @@
+C/T-1028-08: locally resealed; independent Opus review pending; NOT DISPATCHED.
+Runtime pin: b7c9b6427f5611a06e126b1c6094ba6889b4b5b4
+Science, N, rules, checkpoint hashes and envelopes unchanged; only control.source_commit changes.
+Real excluded-fixture A100 capture admitted; checkpoint 267434164 bytes, marker2.1895s, independent exit3.169286577s, within_15s_sla=true, stop_verified=true.
+HOLD: cold initial startup gap355.51s exceeds <=60s progress rule; no relaxation. See CT_1028_08.md. No production VRAM/throughput qualification is claimed.
+Base720/effective1440 minutes; base96.5/effective193 units at8u/h; reserve0; empty initial ledger; at most2 manual completion attempts.
+Exact operator command (NOT RUN; use only after review and startup-gap disposition):
+PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin SNAKE_DQN_PYTHON=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 PYTHONDONTWRITEBYTECODE=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-08-broker.noindex/tools/ops/dispatch.sh sandbox-ct-cf-20261028-08 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-08-broker.noindex/research/sandbox_a_resident/packet-ct-1028-08/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-ct-1028-08-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-ct-1028-08-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-cf-1028/attempt-08/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-ct-1028-08-broker.noindex/research/sandbox_a_resident/packet-ct-1028-08/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve both detached checkouts and all prior evidence.
