@@ -156,8 +156,10 @@ def test_tiny_runner_end_to_end_and_compact_xz_continuation_resume(tmp_path: Pat
     assert (partial_export / "stage-0001.pt.xz").is_file()
     assert (partial_export / "stage-0001.pt.xz.manifest").is_file()
 
+    (partial_export / "exports/ct").mkdir(parents=True)
     orig_manifest = {
         "job_id": "sandbox-ct-cf-test-01",
+        "output_dir": str(partial_export),
         "commit": "a" * 40,
         "inputs": [
             {"path": str(b8_p), "dest": "b8-s3.pth", "sha256": digest(b8_p)},
@@ -337,28 +339,42 @@ def test_scientific_fault_precedence_over_rpc_timeout(tmp_path: Path) -> None:
     clean_dir = tmp_path / "clean_ct"
     (clean_dir / "stall-watchdog").mkdir(parents=True)
     (clean_dir / "stall-watchdog/faulthandler-stacks.log").write_bytes(b"")
-    verify_mechanical_stop(timeout_receipt, manifest, m_sha, export_root=clean_dir)
+    verify_mechanical_stop(
+        timeout_receipt, {**manifest, "output_dir": str(clean_dir)}, m_sha, export_root=clean_dir
+    )
 
     # Non-empty faulthandler-stacks.log MUST refuse continuation even under RPC_EXEC_POLL_TIMEOUT!
     stall_dir = tmp_path / "stall_ct"
     (stall_dir / "stall-watchdog").mkdir(parents=True)
     (stall_dir / "stall-watchdog/faulthandler-stacks.log").write_text("Thread 0x01 stack...\n")
     with pytest.raises(CTResumeRefused, match="faulthandler stack dump"):
-        verify_mechanical_stop(timeout_receipt, manifest, m_sha, export_root=stall_dir)
+        verify_mechanical_stop(
+            timeout_receipt,
+            {**manifest, "output_dir": str(stall_dir)},
+            m_sha,
+            export_root=stall_dir,
+        )
 
     # fault.json MUST refuse continuation even under RPC_EXEC_POLL_TIMEOUT!
     fault_dir = tmp_path / "fault_ct"
     fault_dir.mkdir()
     (fault_dir / "fault.json").write_text('{"status": "INVALID"}\n')
     with pytest.raises(CTResumeRefused, match="fault diagnostic present"):
-        verify_mechanical_stop(timeout_receipt, manifest, m_sha, export_root=fault_dir)
+        verify_mechanical_stop(
+            timeout_receipt,
+            {**manifest, "output_dir": str(fault_dir)},
+            m_sha,
+            export_root=fault_dir,
+        )
 
     # summary.json MUST refuse continuation even under RPC_EXEC_POLL_TIMEOUT!
     sum_dir = tmp_path / "sum_ct"
     sum_dir.mkdir()
     (sum_dir / "summary.json").write_text('{"verdict": "STOP"}\n')
     with pytest.raises(CTResumeRefused, match="scientific summary already present"):
-        verify_mechanical_stop(timeout_receipt, manifest, m_sha, export_root=sum_dir)
+        verify_mechanical_stop(
+            timeout_receipt, {**manifest, "output_dir": str(sum_dir)}, m_sha, export_root=sum_dir
+        )
 
 
 def test_sigusr1_graceful_fence_under_15s(tmp_path: Path) -> None:
@@ -518,7 +534,11 @@ def test_admission_exclusivity_for_ct_and_train01(tmp_path: Path) -> None:
 
 def test_qualified_mechanical_stop_receipts_and_fault_precedence(tmp_path: Path) -> None:
     """Fix 4 regression: admit normal qualified timeout/SIGUSR1 receipts; refuse faults."""
-    manifest = {"job_id": "sandbox-ct-cf-qual-01", "commit": "d" * 40}
+    manifest = {
+        "job_id": "sandbox-ct-cf-qual-01",
+        "commit": "d" * 40,
+        "output_dir": str(tmp_path / "clean_exports"),
+    }
     m_sha = "e" * 64
     clean_dir = tmp_path / "clean_exports"
     (clean_dir / "stall-watchdog").mkdir(parents=True)
@@ -666,6 +686,7 @@ def test_qualified_mechanical_stop_receipts_and_fault_precedence(tmp_path: Path)
             export_root=poll_fault_dir,
         )
 
+    manifest["output_dir"] = str(clean_dir)
     sup_log = tmp_path / "supervisor-fault.log"
     sup_log.write_text("INFO starting\nCUDA out of memory while allocating tensor\n")
     with pytest.raises(CTResumeRefused, match="cuda out of memory"):
@@ -1262,6 +1283,69 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
             check=True,
         )
 
+        if os.environ.get("CT_PREFLIGHT_SUBPROCESS") != "1":
+            ops_dir = ws / "ops"
+            ops_dir.mkdir(parents=True)
+            transport_tree = subprocess.check_output(
+                ["git", "-C", str(broker_wt), "rev-parse", "HEAD:research/colab_cli"],
+                text=True,
+            ).strip()
+            (ops_dir / "colab-cli-qualified.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "snake-dqn-colab-cli-qualified/v1",
+                        "tree_hash": transport_tree,
+                    }
+                )
+            )
+            shims = ws / "shims"
+            shims.mkdir()
+            (shims / "python3").symlink_to(Path(sys.executable))
+            (shims / "pmset").write_text("#!/bin/sh\necho \"Now drawing from 'AC Power'\"\n")
+            (shims / "pmset").chmod(0o755)
+            (shims / "ioreg").write_text("#!/bin/sh\necho '  \"AppleClamshellState\" = No'\n")
+            (shims / "ioreg").chmod(0o755)
+            (shims / "caffeinate").write_text('#!/bin/sh\nshift\nexec "$@"\n')
+            (shims / "caffeinate").chmod(0o755)
+
+            dry_env = dict(os.environ)
+            dry_env["OPS_DIR"] = str(ops_dir)
+            dry_env["SNAKE_DQN_PYTHON"] = str(Path(sys.executable))
+            dry_env["PATH"] = f"{shims}:{os.environ['PATH']}"
+
+            subprocess.run(
+                ["git", "-C", str(broker_wt), "add", str(prod_p0), str(prod_c1)], check=True
+            )
+            subprocess.run(
+                ["git", "-C", str(broker_wt), "commit", "-qm", "seal fresh c1 test packet"],
+                check=True,
+            )
+            fresh = subprocess.run(
+                [
+                    str(broker_wt / "tools/ops/dispatch.sh"),
+                    "sandbox-ct-cf-test-c1",
+                    str(prod_c1 / "dispatch-manifest.json"),
+                    "--broker",
+                    str(broker_wt),
+                    "--cwd",
+                    str(broker_wt),
+                    "--state-dir",
+                    str(art_root / "attempt-c1/state"),
+                    "--dry-run",
+                ],
+                cwd=broker_wt,
+                env=dry_env,
+                capture_output=True,
+                text=True,
+            )
+            evidence = ws / "dry-run-evidence"
+            evidence.mkdir()
+            (evidence / "fresh-c1.stdout.txt").write_text(fresh.stdout)
+            (evidence / "fresh-c1.stderr.txt").write_text(fresh.stderr)
+            assert fresh.returncode == 0, fresh.stdout + fresh.stderr
+            assert "PASS_DRY_RUN" in fresh.stdout
+            assert not (art_root / "attempt-c1/output").exists()
+
         publish_stage_snapshot(
             exp_c1,
             2,
@@ -1387,35 +1471,6 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
         # Run full tools/ops/dispatch.sh --dry-run on BOTH c1 and c2 at top level
         # (skip only inside nested ct_preflight subprocesses to avoid recursion).
         if os.environ.get("CT_PREFLIGHT_SUBPROCESS") != "1":
-            ops_dir = ws / "ops"
-            ops_dir.mkdir(parents=True)
-            transport_tree = subprocess.check_output(
-                ["git", "-C", str(broker_wt), "rev-parse", "HEAD:research/colab_cli"],
-                text=True,
-            ).strip()
-            (ops_dir / "colab-cli-qualified.json").write_text(
-                json.dumps(
-                    {
-                        "schema": "snake-dqn-colab-cli-qualified/v1",
-                        "tree_hash": transport_tree,
-                    }
-                )
-            )
-            shims = ws / "shims"
-            shims.mkdir()
-            (shims / "python3").symlink_to(Path(sys.executable))
-            (shims / "pmset").write_text("#!/bin/sh\necho \"Now drawing from 'AC Power'\"\n")
-            (shims / "pmset").chmod(0o755)
-            (shims / "ioreg").write_text("#!/bin/sh\necho '  \"AppleClamshellState\" = No'\n")
-            (shims / "ioreg").chmod(0o755)
-            (shims / "caffeinate").write_text('#!/bin/sh\nshift\nexec "$@"\n')
-            (shims / "caffeinate").chmod(0o755)
-
-            dry_env = dict(os.environ)
-            dry_env["OPS_DIR"] = str(ops_dir)
-            dry_env["SNAKE_DQN_PYTHON"] = str(Path(sys.executable))
-            dry_env["PATH"] = f"{shims}:{os.environ['PATH']}"
-
             for name, pkt, st_dir in (
                 ("sandbox-ct-cf-test-c1", prod_c1, art_root / "attempt-c1/state"),
                 ("sandbox-ct-cf-test-c2", prod_c2, art_root / "attempt-c2/state"),
@@ -1665,7 +1720,9 @@ def test_qualified_nested_poll_shapes_fault_precedence_and_all_polls_scan(tmp_pa
             "exports": [{"path": "ct/stage-0001.pt", "size": 4096, "sha256": "c" * 64}],
         },
         job_log=(
-            'CT_PROGRESS {"elapsed_sec": 60.0, "latest_durable_stage": 1, '
+            'CT_PROGRESS {"phase":"scoring_chunk_0_selection","slabs_completed":1,'
+            '"logical_branch_steps":42,"executed_sim_steps":42,"elapsed_sec": 60.0, '
+            '"latest_durable_stage": 1, '
             '"schema": "t34-cf-progress/v1", "stage": "scoring-progress", "study": "t34-cf-1028"}\n'
         ),
         compact=False,
@@ -1710,7 +1767,9 @@ def test_qualified_nested_poll_shapes_fault_precedence_and_all_polls_scan(tmp_pa
                 "exports": mech_exports,
             },
             job_log=(
-                'CT_PROGRESS {"elapsed_sec": 120.0, "latest_durable_stage": 1, '
+                'CT_PROGRESS {"phase":"scoring_chunk_0_scoring","slabs_completed":2,'
+                '"logical_branch_steps":84,"executed_sim_steps":84,"elapsed_sec": 120.0, '
+                '"latest_durable_stage": 1, '
                 '"schema": "t34-cf-progress/v1", "stage": "scoring-progress", '
                 '"study": "t34-cf-1028"}\n'
                 "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/out/ct/stall-watchdog\n"
@@ -1770,10 +1829,10 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
         require_committed=False,
     )
 
-    dir_s1 = tmp_path / "exports_s1"
-    dir_s2 = tmp_path / "exports_s2"
-    dir_s2_conflict = tmp_path / "exports_s2_conflict"
-    dir_s3 = tmp_path / "exports_s3"
+    dir_s1 = a0_out / "exports_s1"
+    dir_s2 = a0_out / "exports_s2"
+    dir_s2_conflict = a0_out / "exports_s2_conflict"
+    dir_s3 = tmp_path / "attempt_c1_out/exports_s3"
     publish_stage_snapshot(
         dir_s1,
         1,
@@ -1882,7 +1941,7 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
     minimal_c1_sha = hashlib.sha256(
         json.dumps(minimal_c1_manifest, sort_keys=True).encode("utf-8")
     ).hexdigest()
-    with pytest.raises(CTResumeRefused, match=r"omits previously verified stage\(s\) \[2\]"):
+    with pytest.raises(CTResumeRefused, match="unbound retained evidence scan root"):
         completion_packet(
             minimal_c1_manifest,
             {**rec_c1, "manifest_sha256": minimal_c1_sha},
@@ -2199,7 +2258,11 @@ def test_ct3_oversized_exception_export_obeys_recursive_cap(
     # No fault bundle fits the small cap, so publication must refuse atomically.
     if cap == 1024:
         assert not (output / "fault.json").exists()
-        assert sorted(p.name for p in output.iterdir()) == ["progress.json"]
+        assert sorted(p.name for p in output.iterdir()) == [
+            "fixture-runtime.json",
+            "progress-history.log",
+            "progress.json",
+        ]
     else:
         assert (output / "fault.json.complete").is_file()
         record = json.loads((output / "fault.json").read_text())

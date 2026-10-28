@@ -76,6 +76,14 @@ def _write_progress(output: Path, payload: Mapping[str, Any]) -> None:
     os.replace(tmp, output / "progress.json")
 
 
+def _print_progress(output: Path, line: str) -> None:
+    """Retain complete emitter lines so byte-truncated poll tails have a witness."""
+    with (output / "progress-history.log").open("a", encoding="utf-8") as stream:
+        stream.write(line + "\n")
+        stream.flush()
+    print(line, flush=True)
+
+
 def _stage_tail_reserve_bytes(control: CTControl) -> int:
     """Return reserved summary/diagnostic tail bytes under ``control.max_total_export_bytes``."""
     if int(control.max_total_export_bytes) >= 2 * TAIL_SUMMARY_AND_DIAGNOSTIC_RESERVE_BYTES:
@@ -137,8 +145,16 @@ def run_ct_experiment(
     input_root: Path | None = None,
     watchdog: StallWatchdog | None = None,
     test_inject_delay_per_tick_sec: float = 0.0,
+    progress_interval_seconds: float = 45.0,
+    fixture_stage_padding_bytes: int = 0,
 ) -> tuple[int, dict[str, Any]]:
     """Execute or resume C/T package; returns ``(exit_code, terminal_payload)``."""
+    if fixture_stage_padding_bytes and (
+        not control.tiny or not 0 < fixture_stage_padding_bytes <= 255 * 1024 * 1024
+    ):
+        raise ValueError("checkpoint padding is restricted to tiny fixtures, at most 255 MiB")
+    if not 0 <= progress_interval_seconds <= 60:
+        raise ValueError("progress interval must be between zero and 60 seconds")
     t_run0 = time.perf_counter()
     output.mkdir(parents=True, exist_ok=True)
     control_dict = control.to_dict()
@@ -166,7 +182,7 @@ def run_ct_experiment(
             **dict(extra or {}),
         }
         _write_progress(output, rec)
-        print(f"CT_PROGRESS {json.dumps(rec, sort_keys=True)}", flush=True)
+        _print_progress(output, f"CT_PROGRESS {json.dumps(rec, sort_keys=True)}")
         if watchdog is not None:
             watchdog.progress(stage_label, rec)
 
@@ -196,7 +212,7 @@ def run_ct_experiment(
             max_total_bytes=control.max_total_export_bytes,
             reserved_tail_bytes=_summary_tail_reserve_bytes(control),
         )
-        print(f"CT_SIGUSR1_CLEAN_EXIT {json.dumps(marker, sort_keys=True)}", flush=True)
+        _print_progress(output, f"CT_SIGUSR1_CLEAN_EXIT {json.dumps(marker, sort_keys=True)}")
         return SIGUSR1_EXIT_CODE, marker
 
     try:
@@ -286,6 +302,7 @@ def run_ct_experiment(
                 stop_requested=fence.stop_requested,
                 heartbeat=heartbeat,
                 log_progress=lambda info: emit("collection-progress", info),
+                progress_interval_seconds=progress_interval_seconds,
             )
             if collected_opt is None or fence.stop_requested():
                 return graceful_sigusr1_exit("stage-0001-collection")
@@ -301,10 +318,25 @@ def run_ct_experiment(
                 "dataset": collected.to_state_dict(),
                 "support_report": support_report,
             }
+            if fixture_stage_padding_bytes:
+                s1_payload["fixture_padding"] = torch.zeros(
+                    fixture_stage_padding_bytes, dtype=torch.uint8, device=dev
+                )
+                if dev.type == "cuda":
+                    torch.cuda.synchronize(dev)
+
+            def write_collection_snapshot(path: Path) -> None:
+                if fixture_stage_padding_bytes:
+                    # The canary controller signals during the real CUDA->host
+                    # torch.save + atomic SHA/completion-last publication.
+                    (output / "fixture-checkpoint-start").write_text("ready\n")
+                    time.sleep(0.25)  # fixture-only, deterministic controller rendezvous
+                torch.save(s1_payload, path)
+
             publish_stage_snapshot(
                 output,
                 1,
-                lambda p: torch.save(s1_payload, p),
+                write_collection_snapshot,
                 metadata={
                     **base_meta,
                     "phase": "collection",
@@ -325,6 +357,9 @@ def run_ct_experiment(
                     "anchors": collected.anchors.num_rows,
                 },
             )
+
+        if fence.stop_requested():
+            return graceful_sigusr1_exit("stage-0001-collection")
 
         # Ordered Gate 0: INVALID or INCOMPLETE_SUPPORT terminates immediately without extra runs.
         if support_report["status"] != "PASS":
@@ -397,6 +432,7 @@ def run_ct_experiment(
                 stop_requested=fence.stop_requested,
                 heartbeat=heartbeat,
                 log_progress=lambda info: emit("scoring-progress", info),
+                progress_interval_seconds=progress_interval_seconds,
             )
             if chunk_opt is None or fence.stop_requested():
                 return graceful_sigusr1_exit(f"stage-{stage_num:04d}-scoring")
@@ -442,6 +478,7 @@ def run_ct_experiment(
             stop_requested=fence.stop_requested,
             heartbeat=heartbeat,
             log_progress=lambda info: emit("fit-progress", info),
+            progress_interval_seconds=progress_interval_seconds,
         )
         if fit_opt is None or fence.stop_requested():
             return graceful_sigusr1_exit(f"stage-{final_stage:04d}-fit")
@@ -547,6 +584,16 @@ def run_ct_experiment(
                 pass
         raise
     finally:
+        if control.tiny:
+            facts = {"device": str(dev) if "dev" in locals() else device, "fixture_only": True}
+            if device.startswith("cuda") and torch.cuda.is_available():
+                facts.update(
+                    gpu=torch.cuda.get_device_name(),
+                    total_vram_bytes=torch.cuda.get_device_properties(0).total_memory,
+                    peak_allocated_bytes=torch.cuda.max_memory_allocated(),
+                    peak_reserved_bytes=torch.cuda.max_memory_reserved(),
+                )
+            (output / "fixture-runtime.json").write_text(json.dumps(facts, sort_keys=True) + "\n")
         fence.restore()
 
 
@@ -563,6 +610,8 @@ def main() -> int:
     parser.add_argument("--stall-timeout-seconds", type=float, default=900.0)
     parser.add_argument("--stall-diagnostics", type=Path, default=None)
     parser.add_argument("--test-delay-per-heartbeat", type=float, default=0.0)
+    parser.add_argument("--progress-interval-seconds", type=float, default=45.0)
+    parser.add_argument("--fixture-stage-padding-bytes", type=int, default=0)
     args = parser.parse_args()
 
     torch.set_num_threads(1)
@@ -586,6 +635,8 @@ def main() -> int:
             input_root=args.input_root,
             watchdog=watchdog,
             test_inject_delay_per_tick_sec=args.test_delay_per_heartbeat,
+            progress_interval_seconds=args.progress_interval_seconds,
+            fixture_stage_padding_bytes=args.fixture_stage_padding_bytes,
         )
         return code
     finally:

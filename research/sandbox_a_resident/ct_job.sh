@@ -15,7 +15,7 @@ diagnostics="$COLAB_CLI_ROOT/output/ct/stall-watchdog"
 
 seal_stall_diagnostics() {
   local payload
-  for payload in "$diagnostics/stall-watchdog.json" "$diagnostics/faulthandler-stacks.log"; do
+  for payload in "$diagnostics/stall-watchdog.json" "$diagnostics/faulthandler-stacks.log" "$COLAB_CLI_ROOT/output/ct/progress-history.log"; do
     if [[ ! -f "$payload" || -e "$payload.sha256" || -e "$payload.complete" ]]; then
       continue
     fi

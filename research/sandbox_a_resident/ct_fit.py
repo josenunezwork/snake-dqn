@@ -508,6 +508,7 @@ def fit_all_three_arms(
     stop_requested: Callable[[], bool] | None = None,
     heartbeat: Callable[[str], None] | None = None,
     log_progress: Callable[[dict[str, Any]], None] | None = None,
+    progress_interval_seconds: float = 45.0,
 ) -> tuple[dict[str, ArmEvaluationPredictions], dict[str, Any]] | None:
     """Train all 3 C/T arms on identical minibatch streams and evaluate predictions."""
     dev = torch.device("cuda:0" if str(device) == "cuda" else device)
@@ -635,7 +636,7 @@ def fit_all_three_arms(
 
             now = time.perf_counter()
             if log_progress is not None and (
-                now - last_log >= 45.0 or step + 1 == control.minibatches
+                now - last_log >= progress_interval_seconds or step + 1 == control.minibatches
             ):
                 last_log = now
                 log_progress(

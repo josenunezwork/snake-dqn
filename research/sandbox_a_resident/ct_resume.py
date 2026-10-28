@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
 from research.sandbox_a_resident.ct_prepare import STUDY, ct_endpoint_steps, write_once
+from research.sandbox_a_resident.ct_progress import validate_progress
 from research.sandbox_a_resident.ct_units import (
     COMPACT_DERIVATIVE_SUFFIX,
     COMPACT_MANIFEST_SUFFIX,
@@ -75,6 +76,7 @@ MECHANICAL_TERMINAL_REASONS: frozenset[str] = frozenset(
 MECHANICAL_SUPERVISOR_ERROR_MARKERS: tuple[str, ...] = (
     "whole-session wall cap reached",
     "whole-session deadline reached",
+    "priced session unit cap reached",
     "study reserve reached",
     "retention lease elapsed",
     "read retry budget exhausted",
@@ -223,10 +225,6 @@ def _refuse_if_fault_text(
 ) -> None:
     if not isinstance(value, str) or not value.strip():
         return
-    if re.search(r"\b[A-Za-z_][\w.]*?(?:Error|Exception):", value):
-        raise CTResumeRefused(
-            f"prior evidence records scientific/non-mechanical exception in {field_name}"
-        )
     lowered = value.lower()
     for marker in EXPLICIT_FAULT_EVIDENCE_MARKERS:
         if marker in lowered:
@@ -234,6 +232,16 @@ def _refuse_if_fault_text(
                 f"prior evidence records explicit scientific/non-mechanical fault "
                 f"in {field_name}: {marker!r}"
             )
+    if re.search(
+        r"\b[A-Za-z_][\w.]*?(?:Error|Exception):|"
+        r"^\s*[\w.]+(?:Error|Exception|Interrupt|Exit)\b|"
+        r"Traceback \(most recent call last\)|Exception in thread|^\s*[\w.]+:\s",
+        value,
+        re.M,
+    ):
+        raise CTResumeRefused(
+            f"prior evidence records scientific/non-mechanical exception in {field_name}"
+        )
     if check_supervisor_denylist:
         for marker in NON_MECHANICAL_SUPERVISOR_ERROR_MARKERS:
             if marker in lowered:
@@ -557,6 +565,8 @@ def _mechanical_supervisor_error(value: Any) -> bool:
         "whole-session deadline reached before CLI call",
         "study reserve reached during calibration",
         "retention lease elapsed; no further job",
+        "priced session unit cap reached during calibration",
+        "priced session unit cap reached while awaiting account broker",
     }
     cause = value
     # Parse one repr wrapper, never strip a prefix or accept a compound cause.
@@ -564,7 +574,7 @@ def _mechanical_supervisor_error(value: Any) -> bool:
     if match:
         try:
             cause = ast.literal_eval(match[2])
-        except (ValueError, SyntaxError):
+        except (ValueError, SyntaxError, RecursionError):
             return False
     return isinstance(cause, str) and cause in causes
 
@@ -583,16 +593,6 @@ def _observed_signal_line(value: Any, generation: str | None = None) -> bool:
             "CT_CHILD_READY",
             "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/out/ct/stall-watchdog",
             "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/session/output/ct/stall-watchdog",
-            (
-                "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/private/tmp/"
-                "astra-impl-ct6-producers-entrypoint-fixed/"
-                "child-ct-entrypoint/runtime-producer/output/ct/stall-watchdog"
-            ),
-            (
-                "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/private/tmp/"
-                "astra-impl-ct6-producers-entrypoint-main/"
-                "child-ct-entrypoint/runtime-producer/output/ct/stall-watchdog"
-            ),
         }
         if isinstance(value, str)
         else False
@@ -605,78 +605,65 @@ def _scan_job_tail(value: Any, *, label: str, generation: str | None = None) -> 
         return
     if not isinstance(value, str):
         raise CTResumeRefused(f"malformed job_log_tail: {label}")
-    allowed_strings = {
-        "schema": {"t34-cf-progress/v1", "t34-cf-sigusr1-marker/v1"},
-        "study": {"t34-cf-1028"},
-        "stage": {
-            "initializing",
-            "startup-self-checks-passed",
-            "stage-0001-collection-start",
-            "collection-progress",
-            "scoring-progress",
-            "stage-0001-published",
-            "stage-0002-scoring-start",
-            "stage-0002-scoring-progress",
-            "stage-0002-published",
-            "stage-0003-fit-start",
-            "stage-0003-published",
-            "stage-0004-evaluation-start",
-            "evaluation-progress",
-        },
-        "phase": {"collection", "branch", "fit", "evaluation"},
-        "topology_fixtures": {"PASS"},
-        "support_status": {"PASS"},
-        "status": {"PREEMPTED_SIGUSR1"},
-        "interrupted_phase": {
-            "stage-0001-collection",
-            "stage-0002-scoring",
-            "stage-0003-fit",
-            "stage-0004-evaluation",
-        },
-    }
-    numeric = {
-        "elapsed_sec",
-        "latest_durable_stage",
-        "forced_state_cases",
-        "charged_rows",
-        "eligible_deaths_observed",
-        "hero_deaths",
-        "retained_death_candidates",
-        "tick",
-        "total_ticks",
-        "anchors",
-        "roots",
-        "chunk_index",
-        "received_unix",
-        "shutdown_elapsed_sec",
-    }
-    for line in value.splitlines():
+    lines = value.splitlines()
+    # The qualified producer slices bytes, not lines (runtime._tail). Never
+    # discard a partial line: require its exact suffix in a fully validated,
+    # retained producer history. An appended fault cannot obtain this witness.
+    for index, line in enumerate(lines):
         if not line or _observed_signal_line(line, generation):
             continue
         prefix, _, payload = line.partition(" ")
         try:
             row = _load_json(payload)
-            if prefix not in {"CT_PROGRESS", "CT_SIGUSR1_CLEAN_EXIT"} or not isinstance(row, dict):
+            if not isinstance(row, dict):
                 raise ValueError("unknown line")
-            if row.get("study") != "t34-cf-1028" or row.get("schema") != (
-                "t34-cf-progress/v1" if prefix == "CT_PROGRESS" else "t34-cf-sigusr1-marker/v1"
-            ):
-                raise ValueError("unknown progress schema")
-            for key, item in row.items():
-                if key in allowed_strings and item in allowed_strings[key]:
-                    continue
-                if key in numeric and type(item) in (int, float) and 0 <= item < float("inf"):
-                    continue
-                if key == "forced_state_device" and item in {"cpu", "cuda"}:
-                    continue
-                if key == "within_15s_sla" and item is True:
-                    continue
-                if key == "allocation" and _is_hex(item, 64):
-                    continue
-                raise ValueError(f"unknown progress field {key}")
-        except (ValueError, TypeError):
+            if prefix == "CT_PROGRESS":
+                validate_progress(row)
+            elif prefix == "CT_SIGUSR1_CLEAN_EXIT":
+                expected = {
+                    "schema",
+                    "study",
+                    "allocation",
+                    "status",
+                    "interrupted_phase",
+                    "latest_durable_stage",
+                    "received_unix",
+                    "shutdown_elapsed_sec",
+                    "within_15s_sla",
+                }
+                if (
+                    set(row) != expected
+                    or row["schema"] != "t34-cf-sigusr1-marker/v1"
+                    or row["study"] != "t34-cf-1028"
+                    or row["status"] != "PREEMPTED_SIGUSR1"
+                    or not _is_hex(row["allocation"], 64)
+                    or not isinstance(row["interrupted_phase"], str)
+                    or not re.fullmatch(
+                        r"stage-\d{4}-(collection|scoring|fit)", row["interrupted_phase"]
+                    )
+                    or row["within_15s_sla"] is not True
+                    or type(row["shutdown_elapsed_sec"]) not in (int, float)
+                    or not 0 <= row["shutdown_elapsed_sec"] < 15
+                    or any(
+                        type(row[k]) not in (int, float) or not 0 <= row[k] < float("inf")
+                        for k in ("latest_durable_stage", "received_unix")
+                    )
+                ):
+                    raise ValueError("unqualified stop marker")
+            else:
+                raise ValueError("unknown line")
+        except (ValueError, TypeError, RecursionError):
             _refuse_if_fault_text(line, field_name=label)
-            raise CTResumeRefused(f"unrecognized job_log_tail line in {label}: {line!r}") from None
+            witnesses = (_EVIDENCE_CACHE.get() or {}).get("progress_history_lines", set())
+            if (
+                index == 0
+                and prefix not in {"CT_PROGRESS", "CT_SIGUSR1_CLEAN_EXIT"}
+                and len(value.encode("utf-8")) in {4096, 65536}
+                and any(known.endswith(line) for known in witnesses)
+            ):
+                continue
+            # Values can contain outcome-bearing counters. Keep refusals blind.
+            raise CTResumeRefused(f"unrecognized job_log_tail line in {label}") from None
 
 
 def _check_retained_receipt(record: Any, *, label: str) -> None:
@@ -809,7 +796,7 @@ def _scan_json_faults(
                 and not (
                     key in {"last_error_line", "last_traceback_line"}
                     and isinstance(item, str)
-                    and _observed_signal_line(item, expected_generation or value.get("generation"))
+                    and _observed_signal_line(item, expected_generation)
                     and "\n" not in item
                 )
             ):
@@ -833,9 +820,7 @@ def _scan_json_faults(
             # Inventories name diagnostic files even when they are empty. Their
             # paths are checked by the export scanner; don't treat filenames as errors.
             if key == "job_log_tail":
-                _scan_job_tail(
-                    item, label=name, generation=expected_generation or value.get("generation")
-                )
+                _scan_job_tail(item, label=name, generation=expected_generation)
                 continue
             if key == "schema" and item == "colab-family-canary/v1":
                 continue
@@ -917,6 +902,7 @@ def _verify_staged_source_archive(path: Path, output_root: Path) -> None:
             }
             or plan.get("version") != 1
             or not _is_hex(plan.get("tree"), 40)
+            or plan.get("tree") != binding.get("source_tree")
             or plan.get("paths")
             != sorted(
                 {_safe_path(raw) for raw in [*manifest["source_paths"], *_required(manifest)]}
@@ -977,7 +963,15 @@ def _verify_staged_source_archive(path: Path, output_root: Path) -> None:
                     raise ValueError("source member SHA-256 mismatch")
         if seen != set(expected) or total != plan["fallback_unpacked_size"]:
             raise ValueError("missing sealed source members or unpacked-size mismatch")
-    except (OSError, ValueError, KeyError, TypeError, tarfile.TarError) as error:
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        AttributeError,
+        RecursionError,
+        tarfile.TarError,
+    ) as error:
         raise CTResumeRefused(
             f"unverified retained staged source archive: {path}: {error}"
         ) from error
@@ -1039,7 +1033,22 @@ def _json_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _load_json(text: str | bytes) -> Any:
-    return json.loads(text, object_pairs_hook=_json_without_duplicates)
+    try:
+        value = json.loads(text, object_pairs_hook=_json_without_duplicates)
+    except RecursionError as error:
+        raise CTResumeRefused("excessively nested diagnostic JSON") from error
+    # JSON's C decoder and Python walkers have different recursion limits.
+    # Bound nesting iteratively before any recursive diagnostic inspection.
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        if depth > 128:
+            raise CTResumeRefused("excessively nested diagnostic JSON")
+        children = (
+            item.values() if isinstance(item, dict) else item if isinstance(item, list) else ()
+        )
+        pending.extend((child, depth + 1) for child in children if isinstance(child, (dict, list)))
+    return value
 
 
 def _verified_stage_payload(path: Path) -> bool:
@@ -1242,9 +1251,18 @@ def _check_attempt_base_fault_evidence(
             raise CTResumeRefused(f"oversized retained receipt: {receipt_path}")
         retained_receipt = _load_json(receipt_path.read_text())
         _check_retained_receipt(retained_receipt, label=str(receipt_path))
-        expected_job_id = expected_job_id or retained_receipt.get("job_id")
+        bound_job = (cache or {}).get("bound_output_jobs", {}).get(str(base))
+        expected_job_id = expected_job_id or bound_job
+        if expected_job_id is not None and retained_receipt.get("job_id") != expected_job_id:
+            raise CTResumeRefused("retained receipt belongs to foreign job_id")
         expected_generation = expected_generation or retained_receipt.get("generation")
-    for path in _retained_files(base):
+    retained_files = _retained_files(base)
+    for history in (p for p in retained_files if p.name == "progress-history.log"):
+        text = _scan_diagnostic_bytes(history)
+        _scan_job_tail(text, label=str(history), generation=expected_generation)
+        if cache is not None:
+            cache.setdefault("progress_history_lines", set()).update(text.splitlines())
+    for path in retained_files:
         if _publication_sidecar(path):
             continue  # Sidecar bytes are not the payload's diagnostic content.
         name = path.name.lower().lstrip(".")
@@ -1267,20 +1285,16 @@ def _check_attempt_base_fault_evidence(
 
 
 def _candidate_search_roots(export_root: Path) -> list[Path]:
-    roots = [export_root]
     bound = {
         os.path.normpath(raw)
         for raw in (_EVIDENCE_CACHE.get() or {}).get("bound_output_dirs", set())
     }
-    if export_root.name in {"ct", "exports"}:
-        parent = export_root.parent
-        if export_root.name == "ct" and parent.name == "exports":
-            parent = parent.parent
-            roots.append(export_root.parent)
-        if os.path.normpath(str(parent)) not in bound:
-            raise CTResumeRefused(f"unbound retained evidence scan root: {parent}")
-        roots.append(parent)
-    return roots
+    normalized = os.path.normpath(str(export_root))
+    parents = [Path(raw) for raw in bound if os.path.commonpath([raw, normalized]) == raw]
+    if not parents:
+        raise CTResumeRefused(f"unbound retained evidence scan root: {export_root}")
+    # Always scan the entire bound attempt, independent of the export basename.
+    return list(dict.fromkeys([min(parents, key=lambda p: len(p.parts)), export_root]))
 
 
 def _check_attempt_output_dir_fault_evidence(output_dir: Path) -> None:
@@ -1401,6 +1415,9 @@ def verify_mechanical_stop(
     cache = _EVIDENCE_CACHE.get()
     if cache is not None and isinstance(manifest.get("output_dir"), str):
         cache.setdefault("bound_output_dirs", set()).add(manifest["output_dir"])
+        cache.setdefault("bound_output_jobs", {})[manifest["output_dir"]] = manifest.get("job_id")
+    if receipt.get("job_id") != manifest.get("job_id"):
+        raise CTResumeRefused("prior receipt belongs to foreign job_id")
     _check_retained_receipt(receipt, label="receipt")
     assert_no_scientific_or_fault_precedence(export_root, receipt)
     if supervisor_log_path is not None:
@@ -2302,7 +2319,12 @@ def write_continuation_packet(
         root=Path(__file__).resolve().parents[2],
         original_bytes=original_bytes,
     )
-    _check_lineage_graph(prior, prior_manifest, _load_json(prior_control_path.read_text()))
+    _check_lineage_graph(
+        prior,
+        prior_manifest,
+        _load_json(prior_control_path.read_text()),
+        original_bytes=original_bytes,
+    )
     prior_manifest_sha = _retained_digest(prior_manifest_path)
     prior_sandbox = _load_json(prior_sandbox_path.read_text())
     prior_broker_binding = (

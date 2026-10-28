@@ -741,6 +741,7 @@ def collect_ct_dataset(
     stop_requested: Callable[[], bool] | None = None,
     heartbeat: Callable[[str], None] | None = None,
     log_progress: Callable[[dict[str, Any]], None] | None = None,
+    progress_interval_seconds: float = 45.0,
 ) -> CollectedCTDataset | None:
     """Run ``worlds x collection_ticks`` bare-B8 collection and freeze Stage-1 roots.
 
@@ -1101,7 +1102,7 @@ def collect_ct_dataset(
 
         now = time.perf_counter()
         if log_progress is not None and (
-            now - last_log >= 45.0 or tick + 1 == control.collection_ticks
+            now - last_log >= progress_interval_seconds or tick + 1 == control.collection_ticks
         ):
             last_log = now
             log_progress(

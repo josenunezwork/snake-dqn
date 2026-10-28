@@ -114,12 +114,26 @@ def _bounded_manifest_bytes(path: Path) -> bytes:
         raise ValueError(f"unreadable lineage manifest: {path}") from error
 
 
-def _check_lineage_graph(packet: Path, broker: dict[str, Any], control: dict[str, Any]) -> None:
+def _check_lineage_graph(
+    packet: Path,
+    broker: dict[str, Any],
+    control: dict[str, Any],
+    *,
+    original_bytes: bytes | None = None,
+) -> None:
     """Bound traversal before recursive admission, including malformed cyclic graphs."""
     visited: set[str] = set()
     indices: list[int] = []
     outputs: set[str] = set()
     current, manifest = packet, broker
+    raw_manifest = (
+        original_bytes
+        if original_bytes is not None
+        else _bounded_manifest_bytes(packet / "dispatch-manifest.json")
+    )
+    if _load_json(raw_manifest) != broker:
+        raise ValueError("lineage manifest differs from verified bytes")
+    output_jobs: dict[str, str] = {}
     while True:
         _no_symlink_path(current)
         canonical = current / "dispatch-manifest.json"
@@ -127,7 +141,6 @@ def _check_lineage_graph(packet: Path, broker: dict[str, Any], control: dict[str
         if identity in visited:
             raise ValueError("continuation lineage cycle detected")
         visited.add(identity)
-        raw_manifest = _bounded_manifest_bytes(canonical)
         require_current_packet(manifest, canonical, root=ROOT, original_bytes=raw_manifest)
         comp = manifest.get("completion_attempt")
         index = 0 if comp is None else comp.get("index") if isinstance(comp, dict) else None
@@ -138,6 +151,9 @@ def _check_lineage_graph(packet: Path, broker: dict[str, Any], control: dict[str
         indices.append(index)
         if isinstance(manifest.get("output_dir"), str):
             outputs.add(manifest["output_dir"])
+            if not isinstance(manifest.get("job_id"), str) or not manifest["job_id"]:
+                raise ValueError("lineage lacks job identity")
+            output_jobs[manifest["output_dir"]] = manifest["job_id"]
         if comp is None:
             break
         raw = comp.get("prior_manifest_path")
@@ -165,10 +181,22 @@ def _check_lineage_graph(packet: Path, broker: dict[str, Any], control: dict[str
         seal = _load_json((current / "SEAL.json").read_text())
         cache["source_archive_binding"] = {
             "source_commit": control["source_commit"],
+            "source_tree": seal.get("source_tree")
+            or (
+                subprocess.check_output(
+                    ["git", "rev-parse", f"{control['source_commit']}^{{tree}}"],
+                    cwd=ROOT,
+                    text=True,
+                    timeout=10,
+                ).strip()
+                if seal.get("source_sha256")
+                else None
+            ),
             "source_archive": seal.get("source_archive", {}),
             "source_files": seal.get("source_sha256", {}),
         }
         cache.setdefault("bound_output_dirs", set()).update(outputs)
+        cache.setdefault("bound_output_jobs", {}).update(output_jobs)
 
 
 @_evidence_session
@@ -178,9 +206,10 @@ def validate_uploaded_ledger(
     control: dict[str, Any],
     *,
     require_committed: bool = True,
+    manifest_bytes: bytes | None = None,
 ) -> None:
     """Verify relative runtime ledger paths (raw .pt or compact .pt.xz) against Mac uploads."""
-    _check_lineage_graph(packet, broker, control)
+    _check_lineage_graph(packet, broker, control, original_bytes=manifest_bytes)
     _verify_packet_components(packet, broker, require_committed=require_committed)
     if _load_json((packet / "control.json").read_text()) != control:
         raise ValueError("lineage control differs from frozen packet control")
@@ -497,7 +526,6 @@ def validate_packet(
     payload = preflight(
         packet / "sandbox.json", require_committed=require_committed, run_tests=False
     )
-    broker = _load_json((packet / "dispatch-manifest.json").read_text())
     control = _load_json((packet / "control.json").read_text())
     allocation_index = control.get("allocation_index", 0)
     seed_offset = control.get("seed_offset", 0)
@@ -564,7 +592,9 @@ def validate_packet(
         != digest(packet / "topology-manifest.json")
     ):
         raise ValueError("exhaustive C/T seed audit does not bind this allocation/registry")
-    validate_uploaded_ledger(packet, broker, control, require_committed=require_committed)
+    validate_uploaded_ledger(
+        packet, broker, control, require_committed=require_committed, manifest_bytes=original_bytes
+    )
     return check
 
 

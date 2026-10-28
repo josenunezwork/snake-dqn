@@ -26,6 +26,27 @@ MECHANICAL = tuple(
 )
 
 
+assert len(MECHANICAL) == 13, "real-producer goldens missing or incomplete"
+
+
+@pytest.fixture(autouse=True)
+def historical_fixture_paths_only_in_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    original = ct_resume._observed_signal_line
+    observed = {
+        "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/private/tmp/"
+        f"astra-impl-ct6-producers-{name}/child-ct-entrypoint/"
+        "runtime-producer/output/ct/stall-watchdog"
+        for name in ("entrypoint-fixed", "entrypoint-main")
+    }
+    monkeypatch.setattr(
+        ct_resume,
+        "_observed_signal_line",
+        lambda value, generation=None: original(value, generation)
+        or isinstance(value, str)
+        and value in observed,
+    )
+
+
 def _read(path: Path) -> dict:
     return json.loads(path.read_text())
 
@@ -39,6 +60,7 @@ def _write(path: Path, value: dict) -> None:
 def _source_binding(output: Path, control: dict) -> dict:
     archive = output / "staging/source.tar.gz"
     return {
+        "source_tree": _read(output / "staging/source-plan.json")["tree"],
         "source_commit": control["source_commit"],
         "source_files": {
             k: v["sha256"] for k, v in _read(output / "staging/source-plan.json")["files"].items()
@@ -74,6 +96,7 @@ def test_real_supervisor_mechanical_formats_and_compound_twins(
     @ct_resume._evidence_session
     def admit() -> None:
         ct_resume._EVIDENCE_CACHE.get()["source_archive_binding"] = _source_binding(output, control)
+        ct_resume._EVIDENCE_CACHE.get().setdefault("bound_output_dirs", set()).add(str(output))
         ct_resume.verify_mechanical_stop(
             receipt,
             manifest,
@@ -91,11 +114,14 @@ def test_real_supervisor_mechanical_formats_and_compound_twins(
         "rpc-exec-poll-timeout",
         "rpc-busy-timeout",
         "unit-runaway-guard",
-        "unit-cap-account-lock",
     }:
         with pytest.raises(
             ct_resume.CTResumeRefused,
-            match="unexplained retained receipt error|scientific/non-mechanical",
+            match=(
+                "scientific/non-mechanical exception"
+                if scenario in {"lease-renewal-timeout", "rpc-exec-poll-timeout"}
+                else "unexplained retained receipt error"
+            ),
         ):
             admit()
     else:
@@ -259,7 +285,10 @@ def test_lineage_graph_refuses_boundedly(tmp_path: Path, attack: str) -> None:
         )
         _rebind_forged_packet(other, other_broker)
         broker["completion_attempt"]["prior_manifest_path"] = str(other / "dispatch-manifest.json")
-        match = "^prior manifest SHA-256 mismatch in lineage$"
+        broker["completion_attempt"]["prior_manifest_sha256"] = ct_resume.digest(
+            other / "dispatch-manifest.json"
+        )
+        match = "^continuation lineage cycle detected$"
     else:
         broker["completion_attempt"]["index"] = 2
         match = r"^continuation index must equal prior index \+ 1$"
@@ -593,9 +622,6 @@ def test_regenerated_source_archive_metadata_is_not_identity(tmp_path: Path) -> 
 @pytest.mark.parametrize(
     "cause",
     [
-        "priced session unit cap reached",
-        "priced session unit cap reached during calibration",
-        "priced session unit cap reached while awaiting account broker",
         "deadline reached during telemetry recovery",
         "telemetry recovery exhausted",
         "kernel remains busy/unknown after telemetry interruption",

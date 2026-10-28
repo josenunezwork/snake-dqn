@@ -41,14 +41,20 @@ def require_current_packet(
             ):
                 raise ValueError("malformed packet supersession registry row")
         for row in rows:
-            if "manifest_sha256" in row:
-                if original_bytes is None:
-                    raise ValueError("packet retirement check requires loaded manifest bytes")
-                matches = hashlib.sha256(original_bytes).hexdigest() == row["manifest_sha256"]
-            else:
-                matches = (
-                    manifest.get("job_id") in row["job_ids"] or row["packet_dir"] in path.parts
+            # A hash is an additional identity, not an override of job/path rules.
+            packet_parts = Path(row["packet_dir"]).parts
+            parent_parts = (
+                path.parent.parts if path.name == "dispatch-manifest.json" else path.parts
+            )
+            matches = (
+                manifest.get("job_id") in row["job_ids"]
+                or tuple(parent_parts[-len(packet_parts) :]) == packet_parts
+                or (
+                    original_bytes is not None
+                    and "manifest_sha256" in row
+                    and hashlib.sha256(original_bytes).hexdigest() == row["manifest_sha256"]
                 )
+            )
             if matches:
                 raise ValueError(
                     f"packet superseded: {row['packet_dir']}; use {row['successor']} "

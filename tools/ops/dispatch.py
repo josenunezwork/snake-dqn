@@ -518,6 +518,11 @@ def require_no_control_priority_drift() -> None:
 def supervisor_launcher(broker: Path, manifest: dict[str, Any]) -> Path:
     """Use the explicit host admission adapter only for declared sandbox jobs."""
     collector = sandbox_collector_directory(manifest)
+    if manifest.get("script") == "research/sandbox_a_resident/ct_cuda_canary_job.sh":
+        from research.sandbox_a_resident.ct_canary_admission import require_smoke
+
+        require_smoke(manifest)
+        return broker / "tools/sandbox/launch.sh"
     if "sandbox_admission" in manifest:
         if broker.resolve() != HERE.parents[1]:
             raise Refused("sandbox adapter must run from the selected broker checkout")

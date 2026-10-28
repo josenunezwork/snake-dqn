@@ -334,6 +334,7 @@ def score_root_chunk(
     stop_requested: Callable[[], bool] | None = None,
     heartbeat: Callable[[str], None] | None = None,
     log_progress: Callable[[dict[str, Any]], None] | None = None,
+    progress_interval_seconds: float = 45.0,
 ) -> ScoredRootChunk | None:
     """Score one root chunk across 4 selection suffixes, freeze a*/F_sel, then 4 scoring suffixes.
 
@@ -531,7 +532,7 @@ def score_root_chunk(
                     mass_out[job.local_pos, job.action, job.suffix_offset] = mass_np[b_pos]
 
                 now = time.perf_counter()
-                if log_progress is not None and (now - last_log >= 45.0):
+                if log_progress is not None and (now - last_log >= progress_interval_seconds):
                     last_log = now
                     log_progress(
                         {

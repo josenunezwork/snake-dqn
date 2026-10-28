@@ -152,7 +152,7 @@ def _continuation_fixture(tmp_path: Path) -> tuple[Path, dict, dict, Path, dict]
     initial, successor = tmp_path / "p0", tmp_path / "c1"
     output = tmp_path / "a0"
     # Canonical output root has 0 stages; payloads are in a separately retained export root.
-    exports = tmp_path / "external-exports"
+    exports = output / "external-exports"
     _write_tiny_initial_packet(initial, ctrl, _save_tiny_checkpoints(tmp_path), output)
     (output / "exports/ct").mkdir(parents=True)
     (output / "state.json").write_text(
@@ -328,7 +328,7 @@ def test_ct4_no_stage_c1_refuses_before_missing_exports_can_be_omitted(tmp_path:
     with pytest.raises(ValueError, match="at least one verified stage"):
         validate_uploaded_ledger(packet, broker, control, require_committed=False)
     # The writer also refuses a true zero-stage stop, preserving the existing semantics.
-    empty = tmp_path / "empty-export"
+    empty = Path(kwargs["export_root"]).parent / "empty-export"
     empty.mkdir()
     with pytest.raises(ValueError, match="no complete verified stage"):
         ct_resume.write_continuation_packet(
