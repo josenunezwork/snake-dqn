@@ -607,3 +607,31 @@ def test_regenerated_source_archive_metadata_is_not_identity(tmp_path: Path) -> 
 )
 def test_unregistered_and_provider_reported_causes_are_not_mechanical(cause: str) -> None:
     assert not ct_resume._mechanical_supervisor_error(cause)
+
+
+@pytest.mark.parametrize("surface", ["plan-field", "member-field", "paths", "unpacked-size"])
+def test_source_plan_exemption_has_a_closed_producer_schema(tmp_path: Path, surface: str) -> None:
+    output = tmp_path / "output"
+    shutil.copytree(GOLDENS / "wall-cap/output", output)
+    binding = _source_binding(output, _read(GOLDENS / "control.json"))
+    path = output / "staging/source-plan.json"
+    plan = _read(path)
+    if surface == "plan-field":
+        plan["error"] = "LookupError: hidden diagnostic"
+    elif surface == "member-field":
+        next(iter(plan["files"].values()))["error"] = "LookupError: hidden diagnostic"
+    elif surface == "paths":
+        plan["paths"] = ["LookupError: hidden diagnostic"]
+    else:
+        plan["fallback_unpacked_size"] += 1
+    _write(path, plan)
+
+    @ct_resume._evidence_session
+    def admit() -> None:
+        ct_resume._EVIDENCE_CACHE.get()["source_archive_binding"] = binding
+        ct_resume._verify_staged_source_archive(output / "staging/source.tar.gz", output)
+
+    with pytest.raises(
+        ct_resume.CTResumeRefused, match="unqualified fields|unpacked-size mismatch"
+    ):
+        admit()

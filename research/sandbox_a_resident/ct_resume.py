@@ -895,8 +895,43 @@ def _verify_staged_source_archive(path: Path, output_root: Path) -> None:
         plan = _load_json(plan_path.read_text())
         manifest = _load_json((output_root / "manifest.json").read_text())
         binding = (_EVIDENCE_CACHE.get() or {}).get("source_archive_binding", {})
+        from research.colab_cli.source import _required, _safe_path
+
         expected = binding.get("source_files")
         commit = binding.get("source_commit")
+        if (
+            not isinstance(plan, Mapping)
+            or not isinstance(manifest, Mapping)
+            or not isinstance(manifest.get("source_paths"), list)
+            or set(plan)
+            != {
+                "version",
+                "commit",
+                "tree",
+                "paths",
+                "fallback_archive",
+                "fallback_sha256",
+                "fallback_size",
+                "fallback_unpacked_size",
+                "files",
+            }
+            or plan.get("version") != 1
+            or not _is_hex(plan.get("tree"), 40)
+            or plan.get("paths")
+            != sorted(
+                {_safe_path(raw) for raw in [*manifest["source_paths"], *_required(manifest)]}
+            )
+            or not isinstance(plan.get("files"), Mapping)
+            or any(
+                not isinstance(row, Mapping)
+                or set(row) != {"sha256", "size", "mode"}
+                or type(row.get("size")) is not int
+                or row["size"] < 0
+                or row.get("mode") not in {"0644", "0755"}
+                for row in plan["files"].values()
+            )
+        ):
+            raise ValueError("source plan contains unqualified fields or member descriptors")
         if (
             not isinstance(expected, Mapping)
             or not expected
@@ -940,8 +975,8 @@ def _verify_staged_source_archive(path: Path, output_root: Path) -> None:
                     or hashlib.file_digest(stream, "sha256").hexdigest() != expected[name]
                 ):
                     raise ValueError("source member SHA-256 mismatch")
-        if seen != set(expected):
-            raise ValueError("missing sealed source members")
+        if seen != set(expected) or total != plan["fallback_unpacked_size"]:
+            raise ValueError("missing sealed source members or unpacked-size mismatch")
     except (OSError, ValueError, KeyError, TypeError, tarfile.TarError) as error:
         raise CTResumeRefused(
             f"unverified retained staged source archive: {path}: {error}"
