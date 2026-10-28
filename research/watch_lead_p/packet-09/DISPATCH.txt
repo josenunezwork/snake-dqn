@@ -1,0 +1,18 @@
+P prepared for operator dispatch; no allocation performed.
+Runtime pin: 19fe0850a1be8f3dd9a89ba294711deaee12de8d
+Identity: sandbox-p-watch-lead-20261028-09
+Science: 32 complete paired 6000-frame Watch6 sessions; P48 sole primary.
+Projected wall seconds: 17094.119; base/effective 14400/28800; effective governs, base informational (owner 2x).
+Eleven lower-priority arm workers, session cohorts of 11 with P0/P48/bare; each session W1/K1; L4 >=12 vCPUs.
+Only complete three-arm paired sessions are exported or resumed. CPU science only.
+Inputs remain sealed; remote exports are diagnostics, never a terminal decision.
+One original + at most two manual completion attempts after verified mechanical failure,
+stop_verified and missing-unit accounting, fresh packet/output/receipt, same allocation and N.
+Never rerun verified units or infer timing/service qualification. No automatic expansion or O1.
+All commits local by owner instruction; source is delivered by sparse fallback.
+
+Offline validation:
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09-broker.noindex/tools/ops/dispatch.sh sandbox-p-watch-lead-20261028-09 /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09-broker.noindex/research/watch_lead_p/packet-09/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-watch-lead-1028/attempt-09/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09-broker.noindex/research/watch_lead_p/packet-09/DISPATCH.txt --dry-run
+
+Exact operator dispatch command:
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 SNAKE_DQN_DEVICE=cpu nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09-broker.noindex/tools/ops/dispatch.sh sandbox-p-watch-lead-20261028-09 /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09-broker.noindex/research/watch_lead_p/packet-09/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-watch-lead-1028/attempt-09/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-p-watch-lead-09-broker.noindex/research/watch_lead_p/packet-09/DISPATCH.txt
