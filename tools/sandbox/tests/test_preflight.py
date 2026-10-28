@@ -291,3 +291,67 @@ def test_snapshot_derivative_kind_is_admitted_only_for_train01() -> None:
     payload["inputs"][-1].pop("sha256")
     with pytest.raises(ManifestError):
         validate_manifest(payload)
+
+
+@pytest.mark.parametrize("damage", [None, "working", "missing", "symlink", "pin"])
+def test_batched_runtime_source_binding_uses_real_git(tmp_path, monkeypatch, damage):
+    import subprocess
+
+    from tools.sandbox import preflight
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    names = ["one file.py", "empty.py", "nested/code.py"]
+    for name, content in zip(names, [b"original\n", b"", b"binary\x00payload\n"]):
+        path = repo / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(content)
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "source fixture"],
+        cwd=repo,
+        check=True,
+    )
+    pin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    monkeypatch.setattr(preflight, "REPO_ROOT", repo)
+    monkeypatch.chdir(repo)
+    if damage == "working":
+        (repo / names[0]).write_bytes(b"changed!\n")
+    elif damage == "missing":
+        (repo / "untracked.py").write_text("untracked")
+        names.append("untracked.py")
+    elif damage == "symlink":
+        (repo / names[0]).unlink()
+        (repo / names[0]).symlink_to(repo / names[1])
+    elif damage == "pin":
+        pin = "0" * 40
+    if damage:
+        with pytest.raises(PreflightError):
+            preflight._verify_runtime_sources(pin, names)
+    else:
+        preflight._verify_runtime_sources(pin, names)
+
+
+@pytest.mark.parametrize("response", [b"wrong blob 0\n\n", b"", b"trailing"])
+def test_batched_runtime_source_binding_refuses_bad_response(tmp_path, monkeypatch, response):
+    import subprocess
+
+    from tools.sandbox import preflight
+
+    (tmp_path / "source.py").write_bytes(b"")
+    monkeypatch.setattr(preflight, "REPO_ROOT", tmp_path)
+    oid = b"1" * 40
+
+    def run(command, **kwargs):
+        if command[1] == "ls-tree":
+            data = b"100644 blob " + oid + b"\tsource.py\0"
+        elif response == b"trailing":
+            data = oid + b" blob 0\n\n" + response
+        else:
+            data = response
+        return subprocess.CompletedProcess(command, 0, stdout=data)
+
+    monkeypatch.setattr(preflight.subprocess, "run", run)
+    with pytest.raises(PreflightError):
+        preflight._verify_runtime_sources("2" * 40, ["source.py"])

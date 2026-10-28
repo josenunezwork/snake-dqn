@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib
+import io
 import json
 import math
 import os
@@ -287,14 +288,53 @@ def _verify_broker_binding(payload: dict[str, Any]) -> None:
     pinned_tree = _run(["git", "rev-parse", f"{commit}:research/colab_cli"])
     if pinned_tree != TRANSPORT_TREE:
         raise PreflightError("broker source pin changes qualified transport")
-    for source in packet.get("source_paths", []):
+    _verify_runtime_sources(commit, packet.get("source_paths", []))
+
+
+def _verify_runtime_sources(commit: str, sources: Sequence[str]) -> None:
+    """Compare every pinned source blob with working bytes using two Git reads."""
+    if not sources:
+        return
+    for source in sources:
         _assert_safe_path(source, "broker source")
-        relative = Path(source).as_posix()
-        pinned = subprocess.run(
-            ["git", "show", f"{commit}:{relative}"], cwd=REPO_ROOT, capture_output=True, check=False
-        )
-        if pinned.returncode or pinned.stdout != (REPO_ROOT / source).read_bytes():
+    tree = subprocess.run(
+        ["git", "ls-tree", "-r", "-z", commit],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if tree.returncode:
+        raise PreflightError("broker source pin cannot be read")
+    blobs = {}
+    for record in tree.stdout.split(b"\0"):
+        if record:
+            metadata, name = record.split(b"\t", 1)
+            _mode, kind, oid = metadata.split()
+            if kind == b"blob":
+                blobs[os.fsdecode(name)] = oid
+    relative = [Path(source).as_posix() for source in sources]
+    if any(name not in blobs for name in relative):
+        raise PreflightError("broker source is absent from committed runtime pin")
+    identities = [blobs[name] for name in relative]
+    batch = subprocess.run(
+        ["git", "cat-file", "--batch"],
+        input=b"\n".join(identities) + b"\n",
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if batch.returncode:
+        raise PreflightError("broker source blobs cannot be read")
+    stream = io.BytesIO(batch.stdout)
+    for source, oid in zip(sources, identities):
+        header = stream.readline().split()
+        if len(header) != 3 or header[:2] != [oid, b"blob"] or not header[2].isdigit():
+            raise PreflightError("broker source blob response differs from pinned identity")
+        content = stream.read(int(header[2]))
+        if stream.read(1) != b"\n" or content != (REPO_ROOT / source).read_bytes():
             raise PreflightError("broker source differs from committed runtime pin: " + source)
+    if stream.read():
+        raise PreflightError("broker source blob response has trailing bytes")
 
 
 def run_focused_tests() -> None:
