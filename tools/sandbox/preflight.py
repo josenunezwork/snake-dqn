@@ -156,22 +156,31 @@ def _validate_registry_inputs(payload: dict[str, Any], registry_path: Path) -> N
         # manifest validation has already rejected protected strings, before any
         # record path is opened by the registry loader/validator.
         validate_input(record, registry)
-    if payload["study"] == "sandbox-a-train01" or any(
+    if payload["study"] in {"sandbox-a-train01", "t34-cf-1028"} or any(
         r["kind"] == "frozen-opponent" for r in payload["inputs"]
     ):
         from .registry import TRAINING_OPPONENTS
 
         opponents = [r for r in payload["inputs"] if r["kind"] == "frozen-opponent"]
-        if payload["study"] != "sandbox-a-train01" or (
+        if payload["study"] not in {"sandbox-a-train01", "t34-cf-1028"} or (
             len(opponents) != 2 or {r["sha256"] for r in opponents} != TRAINING_OPPONENTS
         ):
             raise PreflightError("TRAIN-01 requires exactly the two canonical fixed opponents")
+        export_kinds = (
+            {
+                "training-export",
+                "training-export-sidecar",
+                "training-export-derivative",
+            }
+            if payload["study"] == "sandbox-a-train01"
+            else {
+                "ct-export",
+                "ct-export-sidecar",
+                "ct-export-derivative",
+            }
+        )
         kinds = {r["kind"] for r in payload["inputs"]}
-        if kinds - {
-            "training-export",
-            "training-export-sidecar",
-            "training-export-derivative",
-        } != {
+        if kinds - export_kinds != {
             "worlds",
             "frozen-checkpoint",
             "frozen-opponent",
@@ -307,11 +316,16 @@ def run_focused_tests() -> None:
             "PYTHONDONTWRITEBYTECODE": "1",
         }
     )
+    python_bin = (
+        REPO_ROOT / "venv/bin/python"
+        if (REPO_ROOT / "venv/bin/python").is_file()
+        else Path(sys.executable)
+    )
     command = [
         "nice",
         "-n",
         "15",
-        str(REPO_ROOT / "venv/bin/python"),
+        str(python_bin),
         "-m",
         "pytest",
         "-q",

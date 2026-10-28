@@ -54,6 +54,7 @@ SANDBOX_OUTPUT_ROOTS = {
     "sandbox-b-heads-v3": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b3-20261026",
     "sandbox-a": HERE.parents[1].parent / "snake-dqn-artifacts/sandbox-a-resident",
     "sandbox-a-train01": HERE.parents[1].parent / "snake-dqn-artifacts/sandbox-a-resident",
+    "t34-cf-1028": HERE.parents[1].parent / "snake-dqn-artifacts/t34-cf-1028",
 }
 P1_ATTEMPT2_RULING = "55b13197d9d92f8eeb1c895180f01993ca11908f51c74a60d9a67065a0550d13"
 CONTROL_INTERPRETER = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python")
@@ -602,12 +603,13 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         "research/sandbox_b_heads/run_b3.sh": "sandbox-b-heads-v3",
         "research/sandbox_a_resident/job.sh": "sandbox-a",
         "research/sandbox_a_resident/train_job.sh": "sandbox-a-train01",
+        "research/sandbox_a_resident/ct_job.sh": "t34-cf-1028",
     }
     study = packages.get(manifest.get("script"))
     if study is None:
         raise Refused("sandbox script is outside adopted development packages")
-    if "completion_attempt" in manifest and study != "sandbox-a-train01":
-        raise Refused("training completion metadata is exclusive to TRAIN-01")
+    if "completion_attempt" in manifest and study not in {"sandbox-a-train01", "t34-cf-1028"}:
+        raise Refused("training completion metadata is exclusive to TRAIN-01 and t34-cf-1028")
     output = preflight._assert_safe_path(manifest.get("output_dir", ""), "sandbox output")
     if not output.is_absolute() or not output.resolve().is_relative_to(SANDBOX_OUTPUT_ROOTS[study]):
         raise Refused("sandbox output must stay in its isolated development artifact root")
@@ -628,13 +630,15 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         prefixes = ("src/", "tools/sandbox/", "research/sandbox_b_heads/")
     else:
         allowed_env.update({"SANDBOX_A_CONTROL_JSON", "SANDBOX_A_SOURCE_COMMIT", "MAX_JOBS"})
+        if study == "t34-cf-1028":
+            allowed_env.add("SANDBOX_CT_CONTROL_JSON")
         prefixes = (
             "src/",
             "tools/sandbox/",
             "research/sandbox_a_resident/",
             "research/gpu_sim_spike/",
         )
-    if study == "sandbox-a-train01":
+    if study in {"sandbox-a-train01", "t34-cf-1028"}:
         allowed_env.add("SANDBOX_A_STALL_TIMEOUT_SECONDS")
         stall = env.get("SANDBOX_A_STALL_TIMEOUT_SECONDS", "900")
         try:
@@ -644,7 +648,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         if not math.isfinite(seconds) or not 0 < seconds <= 900:
             raise Refused("TRAIN-01 stall timeout must be finite, positive and at most 900 seconds")
     elif "sandbox_source_delivery" in manifest:
-        raise Refused("background source delivery is exclusive to TRAIN-01")
+        raise Refused("background source delivery is exclusive to TRAIN-01 and t34-cf-1028")
     delivery = manifest.get("sandbox_source_delivery")
     if "sandbox_source_delivery" in manifest and delivery != "background-sparse-v1":
         raise Refused("sandbox source delivery must select background-sparse-v1")
@@ -696,15 +700,15 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
     transfer_policy.transfer_limit(manifest)
     canary.job_device(manifest, broker)
     canary._exports(manifest)
-    if study in {"sandbox-a", "sandbox-a-train01"}:
+    if study in {"sandbox-a", "sandbox-a-train01", "t34-cf-1028"}:
         # Job A owns its control/seed recipe checker and focused tests.
-        module = (
-            "research.sandbox_a_resident.training_preflight"
-            if study == "sandbox-a-train01"
-            else "research.sandbox_a_resident.preflight"
-        )
+        module_by_study = {
+            "sandbox-a": "research.sandbox_a_resident.preflight",
+            "sandbox-a-train01": "research.sandbox_a_resident.training_preflight",
+            "t34-cf-1028": "research.sandbox_a_resident.ct_preflight",
+        }
         command(
-            [sys.executable, "-m", module, str(path.parent)],
+            [sys.executable, "-m", module_by_study[study], str(path.parent)],
             cwd=broker,
         )
 

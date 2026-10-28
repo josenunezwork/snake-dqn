@@ -189,6 +189,39 @@ def validate_input(record: dict, registry: dict | None = None) -> None:
             or not Path(str(original) + ".complete").is_file()
         ):
             raise ValueError("snapshot derivative lacks completion sidecars or its original")
+    elif kind == "ct-export":
+        if not re.fullmatch(r"stage-[0-9]{4}(?:\.pt|\.json)", path.name):
+            raise ValueError("canonical t34-cf-1028 exported stage snapshot path required")
+    elif kind == "ct-export-sidecar":
+        match = re.fullmatch(r"(stage-[0-9]{4}(?:\.pt|\.json))\.(sha256|complete)", path.name)
+        if match is None:
+            raise ValueError("canonical t34-cf-1028 stage snapshot sidecar path required")
+        payload = path.with_name(match.group(1))
+        payload_sha = Path(str(payload) + ".sha256")
+        payload_complete = Path(str(payload) + ".complete")
+        if (
+            not payload.is_file()
+            or not payload_sha.is_file()
+            or not payload_complete.is_file()
+            or payload_sha.read_text().strip() != digest(payload)
+        ):
+            raise ValueError("ct-export sidecar lacks a complete canonical payload")
+    elif kind == "ct-export-derivative":
+        match = re.fullmatch(r"(stage-[0-9]{4}\.pt)\.xz(?:\.manifest)?", path.name)
+        if match is None:
+            raise ValueError("canonical t34-cf-1028 stage snapshot derivative path required")
+        sidecar = Path(str(path) + ".sha256")
+        complete = Path(str(path) + ".complete")
+        original = path.with_name(match.group(1))
+        if (
+            not sidecar.is_file()
+            or not complete.is_file()
+            or sidecar.read_text().strip() != claimed
+            or not original.is_file()
+            or not Path(str(original) + ".sha256").is_file()
+            or not Path(str(original) + ".complete").is_file()
+        ):
+            raise ValueError("ct snapshot derivative lacks completion sidecars or its original")
     elif kind == "verified-ledger":
         value = json.loads(path.read_text())
         if not isinstance(value, dict) or not isinstance(value.get("units"), list):

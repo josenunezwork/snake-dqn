@@ -40,6 +40,13 @@
                 "enum": [
                   "closed-f0",
                   "frozen-checkpoint",
+                  "frozen-opponent",
+                  "training-export",
+                  "training-export-sidecar",
+                  "training-export-derivative",
+                  "ct-export",
+                  "ct-export-sidecar",
+                  "ct-export-derivative",
                   "verified-ledger",
                   "verified-unit",
                   "registry"
