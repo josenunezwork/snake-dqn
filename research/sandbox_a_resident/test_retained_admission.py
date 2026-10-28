@@ -154,7 +154,7 @@ STAGED_PAYLOADS = (
 
 
 @pytest.mark.parametrize("name", STAGED_PAYLOADS)
-@pytest.mark.parametrize("binding", ["publication", "poll"])
+@pytest.mark.parametrize("binding", ["publication", "poll", "qualified-poll"])
 def test_generated_transport_names_require_byte_proof(
     tmp_path: Path, name: str, binding: str
 ) -> None:
@@ -165,21 +165,16 @@ def test_generated_transport_names_require_byte_proof(
     if binding == "publication":
         publish(canonical, lambda p: p.write_bytes(content))
     else:
-        (tmp_path / "poll-1.json").write_text(
-            json.dumps(
-                {
-                    "job": "train-01",
-                    "generation": "g-1",
-                    "exports": [
-                        {
-                            "path": "training/iteration-0128.pt.xz",
-                            "size": len(content),
-                            "sha256": __import__("hashlib").sha256(content).hexdigest(),
-                        }
-                    ],
-                }
-            )
-        )
+        identity = {"job": "train-01", "generation": "g-1", "status": "running"}
+        record = identity if binding == "poll" else {"state": identity, "terminal": None}
+        record["exports"] = [
+            {
+                "path": "training/iteration-0128.pt.xz",
+                "size": len(content),
+                "sha256": __import__("hashlib").sha256(content).hexdigest(),
+            }
+        ]
+        (tmp_path / "poll-1.json").write_text(json.dumps(record))
     path = training / name
     path.parent.mkdir(parents=True, exist_ok=True)
     if path != canonical or binding != "publication":
@@ -298,8 +293,9 @@ def test_prior_packet_path_malformed_refuses(
         training_preflight._validate_continuation_stop(tmp_path, {"completion_attempt": {}})
 
 
+@pytest.mark.parametrize("explicit", [False, True])
 def test_symlink_above_checkout_is_not_walked(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, explicit: bool
 ) -> None:
     from research.sandbox_a_resident import training_preflight
 
@@ -318,6 +314,10 @@ def test_symlink_above_checkout_is_not_walked(
     )
     link = tmp_path / "mount"
     link.symlink_to(repo.parent, target_is_directory=True)
+    if explicit:
+        seal = json.loads((packet / "SEAL.json").read_text())
+        seal["prior_packet_path"] = str(link / "checkout/research/package/prior")
+        (packet / "SEAL.json").write_text(json.dumps(seal))
     monkeypatch.setattr(training_preflight, "verify_committed_manifest", lambda _: None)
     original = training_preflight._regular_packet_file
 
@@ -377,4 +377,76 @@ def test_deep_record_validation_is_iterative(tmp_path: Path) -> None:
     with pytest.raises(ResumeRefused):
         _scan_retained_text(
             path, output_root=tmp_path, expected_job_id="train-01", expected_generation="g-1"
+        )
+
+
+@pytest.mark.parametrize("conflict", ["job", "job_id", "generation", "failure_class", "nested"])
+def test_qualified_poll_state_never_excuses_other_scope_faults(
+    tmp_path: Path, conflict: str
+) -> None:
+    import hashlib
+
+    data = b"\xfd7zXZ\x00bound checkpoint"
+    path = tmp_path / "exports/training/.transfer-stage/data"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(data)
+    record = {
+        "state": {"job_id": "train-01", "generation": "g-1", "status": "running"},
+        "exports": [
+            {
+                "path": "training/iteration-0128.pt.xz",
+                "size": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }
+        ],
+    }
+    if conflict == "nested":
+        record["diagnostic"] = {"failure_class": "SUPERVISOR"}
+    else:
+        record[conflict] = "SUPERVISOR" if conflict == "failure_class" else "foreign"
+    (tmp_path / "poll-1.json").write_text(json.dumps(record))
+    with pytest.raises(ResumeRefused):
+        _check_output_root_fault_evidence(
+            tmp_path, expected_job_id="train-01", expected_generation="g-1"
+        )
+
+
+@pytest.mark.parametrize("failure", [False, True])
+@pytest.mark.parametrize("binding", ["publication", "qualified-poll"])
+def test_transport_json_is_bound_and_still_scanned(
+    tmp_path: Path, failure: bool, binding: str
+) -> None:
+    training = tmp_path / "exports/training"
+    directory = training / ".transfer-stage"
+    directory.mkdir(parents=True)
+    content = json.dumps(
+        {"failure_class": "CHILD_NONZERO_EXIT"} if failure else {"status": "PASS"}
+    ).encode()
+    data = directory / "data"
+    data.write_bytes(content)
+    if binding == "publication":
+        publish(training / "proxy-0128.json", lambda p: p.write_bytes(content))
+    else:
+        (tmp_path / "poll-1.json").write_text(
+            json.dumps(
+                {
+                    "state": {"job_id": "train-01", "generation": "g-1", "status": "running"},
+                    "exports": [
+                        {
+                            "path": "training/proxy-0128.json",
+                            "size": len(content),
+                            "sha256": digest(data),
+                        }
+                    ],
+                }
+            )
+        )
+    if failure:
+        with pytest.raises(ResumeRefused):
+            _check_output_root_fault_evidence(
+                tmp_path, expected_job_id="train-01", expected_generation="g-1"
+            )
+    else:
+        _check_output_root_fault_evidence(
+            tmp_path, expected_job_id="train-01", expected_generation="g-1"
         )

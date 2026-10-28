@@ -959,14 +959,17 @@ class _RetainedTransport:
                     expected_generation=self.generation,
                     supervisor_transport=True,
                 )
-                # A descriptor cannot authenticate bytes without matching both identities.
-                normal = _normalised_record(record, str(poll))
-                if (
-                    self.job is None
-                    or self.generation is None
-                    or normal.get("job_id") != self.job
-                    or normal.get("generation") != self.generation
-                ):
+                # Qualified saved polls put execution identity in state; event
+                # logs may put it at the root. Both scopes have already passed
+                # the SAME recursive validator, including every alias conflict.
+                identity_scopes = [record, record.get("state")]
+                matched = any(
+                    isinstance(scope, Mapping)
+                    and _normalised_record(scope, str(poll)).get("job_id") == self.job
+                    and _normalised_record(scope, str(poll)).get("generation") == self.generation
+                    for scope in identity_scopes
+                )
+                if self.job is None or self.generation is None or not matched:
                     continue
                 exports = record.get("exports", [])
                 if not isinstance(exports, list):
@@ -975,10 +978,12 @@ class _RetainedTransport:
                     if not isinstance(entry, Mapping):
                         raise ResumeRefused(f"malformed retained export descriptor: {poll}")
                     name, size, sha = entry.get("path"), entry.get("size"), entry.get("sha256")
-                    if not isinstance(name, str) or not re.fullmatch(
-                        "training/" + MODEL_NAME, name
-                    ):
+                    if not isinstance(name, str) or not name.startswith("training/"):
                         continue
+                    if Path(name).is_absolute() or any(
+                        part in {"", ".", ".."} for part in name.split("/")
+                    ):
+                        raise ResumeRefused(f"unsafe retained export path: {poll}")
                     if type(size) is not int or size < 0 or not _is_hex(sha, 64):
                         raise ResumeRefused(f"malformed retained model export binding: {poll}")
                     if name in bounds and bounds[name] != (size, sha):
@@ -987,18 +992,21 @@ class _RetainedTransport:
         self.bounds = bounds
         return bounds
 
-    def admit_payload(self, path: Path, payload: Path | None) -> str:
+    def admit_payload(self, path: Path, payload: Path | None) -> tuple[str, str]:
         if path.is_symlink() or not path.is_file():
             raise ResumeRefused(f"non-regular retained model transport partial: {path}")
         # A canonical complete publication is an independent hash binding.
         candidates = (
-            [payload]
-            if payload is not None
-            else sorted((self.root / "exports/training").glob("iteration-*"))
+            [payload] if payload is not None else sorted((self.root / "exports/training").iterdir())
         )
         verified = []
         for candidate in candidates:
-            if candidate is None or not re.fullmatch(MODEL_NAME, candidate.name):
+            if (
+                candidate is None
+                or not candidate.is_file()
+                or candidate.name.startswith(".")
+                or _sidecar_target(candidate) is not None
+            ):
                 continue
             if candidate not in self.verified:
                 sidecar = Path(str(candidate) + ".sha256")
@@ -1015,15 +1023,15 @@ class _RetainedTransport:
                             if block != original.read(len(block)):
                                 break
                         else:
-                            return self.verified[candidate]
+                            return self.verified[candidate], candidate.name
         matches = [
-            (size, sha)
+            (name, size, sha)
             for name, (size, sha) in self.bindings().items()
             if payload is None or name == f"training/{payload.name}"
         ]
-        for size, sha in matches:
+        for name, size, sha in matches:
             if path.stat().st_size == size and digest(path) == sha:
-                return sha
+                return sha, Path(name).name
         if verified:
             raise ResumeRefused(
                 f"retained model transport partial differs from verified payload: {path}"
@@ -1050,8 +1058,17 @@ class _RetainedTransport:
         sidecar = _sidecar_target(path)
         if staged_dir and path.name in {"sha256", "complete"}:
             # The staging directory must contain byte-proven model data.
-            expected = self.admit_payload(path.with_name("data"), None)
+            data = path.with_name("data")
+            expected, name = self.admit_payload(data, None)
             _sidecar_bytes(path, path.name, expected)
+            if not re.fullmatch(MODEL_NAME, name):
+                _scan_retained_text(
+                    data,
+                    output_root=self.root,
+                    expected_job_id=self.job,
+                    expected_generation=self.generation,
+                    _skip_transport=True,
+                )
             return True
         if sidecar is not None:
             _publication_sidecar(path)
@@ -1068,8 +1085,9 @@ class _RetainedTransport:
                 ):
                     return True
         if opaque or (model and path.parent == training):
-            self.admit_payload(path, path.with_name(model[1]) if model else None)
-            return True
+            _, name = self.admit_payload(path, path.with_name(model[1]) if model else None)
+            # Hash binding never excuses failure/identity signals in JSON/text.
+            return bool(re.fullmatch(MODEL_NAME, name))
         return False
 
 
@@ -1156,6 +1174,7 @@ def _scan_retained_text(
     expected_generation: str | None = None,
     validated_receipt: Mapping[str, Any] | None = None,
     transport: _RetainedTransport | None = None,
+    _skip_transport: bool = False,
 ) -> None:
     """Scan all text/JSON, including incomplete telemetry and unknown filenames.
 
@@ -1176,7 +1195,7 @@ def _scan_retained_text(
             raise ResumeRefused(f"retained staged executable differs from qualified source: {path}")
         return
     transport = transport or _RetainedTransport(output_root, expected_job_id, expected_generation)
-    if transport.admit(path):
+    if not _skip_transport and transport.admit(path):
         return
     model_metadata = _sidecar_target(path) is not None
     model_manifest = re.fullmatch(r"iteration-\d{4}\.pt\.xz\.manifest", path.name)

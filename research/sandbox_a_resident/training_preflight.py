@@ -97,17 +97,18 @@ def _validate_continuation_stop(packet: Path, broker: dict) -> None:
         raise ValueError("SEAL.json prior_packet_path must be an absolute path string")
     source_packet = Path(raw_source)
     try:
-        relative = source_packet.relative_to(checkout_root)
-        components = [
-            checkout_root.joinpath(*relative.parts[:i]) for i in range(1, len(relative.parts) + 1)
-        ]
-        if (
-            source_packet.name != prior_name
-            or ".." in relative.parts
-            or any(p.is_symlink() for p in components)
-            or (tracked and source_packet.resolve() != packet_dir.parent / prior_name)
-        ):
-            raise ValueError("SEAL.json prior_packet_path differs from prior_packet")
+        source_resolved = source_packet.resolve()
+        source_resolved.relative_to(checkout_root)
+        if source_packet.name != prior_name or ".." in source_packet.parts:
+            raise ValueError("prior packet path differs")
+        cursor = source_packet
+        while cursor.resolve() != checkout_root:
+            if cursor.is_symlink() or cursor == cursor.parent:
+                raise ValueError("symlink below checkout root")
+            cursor = cursor.parent
+        if tracked and source_resolved != packet_dir.parent / prior_name:
+            raise ValueError("tracked prior packet differs")
+        source_packet = source_resolved
     except (OSError, RuntimeError, ValueError) as error:
         raise ValueError("SEAL.json prior_packet_path differs from prior_packet") from error
     source_packet_manifest = source_packet / "dispatch-manifest.json"
