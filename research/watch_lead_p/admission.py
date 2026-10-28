@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from research.watch_lead_p.protocol import FIXTURE_SEED, NAMESPACE, SEEDS, STUDY
-from research.watch_lead_p.resume import empty_ledger, read_ledger, unit_id
+from research.watch_lead_p.resume import UNIT_SUFFIXES, empty_ledger, read_ledger, unit_id
 from tools.sandbox.registry import B8_SHA, DEFAULT_REGISTRY, digest, load_registry, world_seed
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -169,7 +169,7 @@ def validate_inputs(payload: dict, registry: dict) -> None:
         k: v for k, v in expected.items() if k != "units"
     }:
         raise ValueError("foreign namespace/allocation ledger")
-    if len(uploads) != 4 + 3 * len(ledger["units"]):
+    if len(uploads) != 4 + len(UNIT_SUFFIXES) * len(ledger["units"]):
         raise ValueError("P upload count differs from the sealed ledger")
     completion_root = ledger_path.parent
     if ledger != expected:
@@ -203,7 +203,7 @@ def validate_inputs(payload: dict, registry: dict) -> None:
                 completion_root = source.parent.parent
             if source != (completion_root / record["path"]).resolve():
                 raise ValueError("P completion sources must share the ledger root")
-            for suffix in ("", ".sha256", ".complete"):
+            for suffix in UNIT_SUFFIXES:
                 item = uploads.get(record["path"] + suffix)
                 if item is None:
                     raise ValueError("P missing completion sidecar destination")
@@ -221,7 +221,10 @@ def validate_inputs(payload: dict, registry: dict) -> None:
 
     indices = {record["allocation_index"] for record in ledger["units"]}
     expected_exports = ["watch-lead/inventory.json"] + [
-        f"watch-lead/units/session-{i:02d}.json" for i in range(32) if i not in indices
+        f"watch-lead/units/session-{i:02d}.json{suffix}"
+        for i in range(32)
+        if i not in indices
+        for suffix in ("", ".metadata.json")
     ]
     if packet.get("required_exports") != expected_exports:
         raise ValueError("P required exports differ from missing units")

@@ -293,7 +293,9 @@ def test_snapshot_derivative_kind_is_admitted_only_for_train01() -> None:
         validate_manifest(payload)
 
 
-@pytest.mark.parametrize("damage", [None, "working", "missing", "symlink", "pin"])
+@pytest.mark.parametrize(
+    "damage", [None, "working", "missing", "working-missing", "symlink", "pin"]
+)
 def test_batched_runtime_source_binding_uses_real_git(tmp_path, monkeypatch, damage):
     import subprocess
 
@@ -321,9 +323,13 @@ def test_batched_runtime_source_binding_uses_real_git(tmp_path, monkeypatch, dam
     elif damage == "missing":
         (repo / "untracked.py").write_text("untracked")
         names.append("untracked.py")
-    elif damage == "symlink":
+    elif damage == "working-missing":
         (repo / names[0]).unlink()
-        (repo / names[0]).symlink_to(repo / names[1])
+    elif damage == "symlink":
+        twin = repo / "identical-copy.py"
+        twin.write_bytes((repo / names[0]).read_bytes())
+        (repo / names[0]).unlink()
+        (repo / names[0]).symlink_to(twin)
     elif damage == "pin":
         pin = "0" * 40
     if damage:

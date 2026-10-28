@@ -8,7 +8,7 @@ import platform
 from pathlib import Path
 from typing import Any
 
-from research.bl_served_search.exports import digest, export_json, verify_export
+from research.bl_served_search.exports import digest, export_bytes, export_json, verify_export
 from research.watch_lead_p.protocol import (
     ARMS,
     DECISION_ORDER,
@@ -18,9 +18,57 @@ from research.watch_lead_p.protocol import (
     decision,
     statistics,
 )
+from research.watch_lead_p.uploaded import MECHANICS_V2
 
 ALLOCATION = "watch6-32x6000-v1"
-SCHEMA = "watch-lead-p-ledger/v1"
+SCHEMA = "watch-lead-p-ledger/v2"
+UNIT_SUFFIXES = (
+    "",
+    ".sha256",
+    ".complete",
+    ".metadata.json",
+    ".metadata.json.sha256",
+    ".metadata.json.complete",
+)
+
+
+def construction_metadata(root: Path | None = None) -> dict[str, str]:
+    """Bind construction separately from the unchanged scientific recipe."""
+    root = root if root is not None else Path(__file__).resolve().parents[2]
+    return {
+        "uploaded_sha256": digest(root / "research/watch_lead_p/uploaded.py"),
+        "mechanics_v2": MECHANICS_V2,
+    }
+
+
+def export_unit(path: Path, row: dict, index: int) -> dict:
+    """Publish outcome-free construction metadata, then the unit marker last."""
+    construction = construction_metadata()
+    row = {**row, "construction": construction}
+    payload = (json.dumps(row, sort_keys=True, allow_nan=False) + "\n").encode()
+    metadata = {
+        "unit_id": unit_id(index),
+        "construction": construction,
+        "size": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+    export_json(Path(str(path) + ".metadata.json"), metadata)
+    return export_bytes(path, payload)
+
+
+def verify_unit_metadata(path: Path, index: int, root: Path | None = None) -> None:
+    """Read only outcome-free metadata; hash sealed payload bytes without parsing."""
+    metadata = Path(str(path) + ".metadata.json")
+    verify_export(metadata)
+    value = json.loads(metadata.read_text())
+    expected = {
+        "unit_id": unit_id(index),
+        "construction": construction_metadata(root),
+        "size": path.stat().st_size,
+        "sha256": verify_export(path),
+    }
+    if value != expected:
+        raise ValueError("P unit construction/recipe metadata mismatch")
 
 
 def recipe_fingerprint(root: Path | None = None) -> str:
@@ -43,6 +91,7 @@ def empty_ledger(recipe_root: Path | None = None) -> dict[str, Any]:
         "namespace": NAMESPACE,
         "allocation": ALLOCATION,
         "recipe_sha256": recipe_fingerprint(recipe_root),
+        "construction": construction_metadata(recipe_root),
         "units": [],
     }
 
@@ -55,8 +104,12 @@ def read_ledger(path: Path, root: Path, recipe_root: Path | None = None) -> dict
         raise ValueError("outcome-free ledger schema differs")
     if not isinstance(value["units"], list):
         raise ValueError("ledger units must be a list")
-    if {k: value.get(k) for k in ("schema", "namespace", "allocation", "recipe_sha256")} != {
-        k: expected[k] for k in ("schema", "namespace", "allocation", "recipe_sha256")
+    if {
+        k: value.get(k)
+        for k in ("schema", "namespace", "allocation", "recipe_sha256", "construction")
+    } != {
+        k: expected[k]
+        for k in ("schema", "namespace", "allocation", "recipe_sha256", "construction")
     }:
         raise ValueError("foreign namespace/allocation ledger")
     found = {}
@@ -88,6 +141,7 @@ def read_ledger(path: Path, root: Path, recipe_root: Path | None = None) -> dict
             raise ValueError("unsafe resume path")
         if source.stat().st_size != record["size"] or verify_export(source) != record["sha256"]:
             raise ValueError("unverified resume unit")
+        verify_unit_metadata(source, index, recipe_root)
         found[index] = record
     return found
 
@@ -101,6 +155,7 @@ def make_ledger(paths: list[Path], output: Path) -> dict:
         if path.name != f"session-{index:02d}.json" or index in seen:
             raise ValueError("foreign/duplicate unit filename")
         seen.add(index)
+        verify_unit_metadata(path, index)
         value["units"].append(
             {
                 "unit_id": unit_id(index),
@@ -124,6 +179,9 @@ def aggregate(paths: list[Path], output: Path) -> dict:
     valid = True
     for path in paths:
         verify_export(path)
+        # Validate metadata before opening any scientific outcomes.
+        index = int(path.stem.removeprefix("session-"))
+        verify_unit_metadata(path, index)
         row = json.loads(path.read_text())
         index = row["allocation_index"]
         if row.get("unit_id") != unit_id(index) or index in rows:
@@ -132,6 +190,7 @@ def aggregate(paths: list[Path], output: Path) -> dict:
             row.get("namespace") != NAMESPACE
             or row.get("allocation") != ALLOCATION
             or row.get("recipe_sha256") != recipe_fingerprint()
+            or row.get("construction") != construction_metadata()
             or row.get("seed") != SEEDS[index]
             or set(row.get("arms", {})) != set(ARMS)
         ):

@@ -220,7 +220,6 @@ def completion_packet(tmp_path, monkeypatch, request, packet_source_repo):
     """Real committed miniature operator workflow; synthetic outcomes only."""
     import shutil
 
-    from research.bl_served_search.exports import export_json
     from research.watch_lead_p import resume, seal
     from research.watch_lead_p.protocol import ARMS, FRAMES
 
@@ -259,7 +258,7 @@ def completion_packet(tmp_path, monkeypatch, request, packet_source_repo):
             a: dict(initial_state="same", frames=FRAMES, seed=SEEDS[index], deaths=10, mass=100)
             for a in ARMS
         }
-        export_json(
+        resume.export_unit(
             path,
             dict(
                 namespace=resume.NAMESPACE,
@@ -270,6 +269,7 @@ def completion_packet(tmp_path, monkeypatch, request, packet_source_repo):
                 seed=SEEDS[index],
                 arms=arms,
             ),
+            index,
         )
         paths.append(path)
     ledger = tmp_path / "ledger.json"
@@ -315,6 +315,7 @@ def test_completion_packet_preflight_upload_skip_and_union(
     assert manifest["required_exports"] == [
         "watch-lead/inventory.json",
         "watch-lead/units/session-31.json",
+        "watch-lead/units/session-31.json.metadata.json",
     ]
     # Run the actual dispatch admission route with its recursive tests already
     # owned by the outer suite; all source, packet and input checks remain real.
@@ -357,7 +358,10 @@ def test_completion_packet_preflight_upload_skip_and_union(
     output = tmp_path / "completed"
     run.execute(staged / "verified-ledger.json", staged, output)
     assert sorted(called) == [(31, "P0"), (31, "P48"), (31, "bare")]
-    assert sorted(p.name for p in (output / "units").glob("*.json")) == ["session-31.json"]
+    assert sorted(p.name for p in (output / "units").glob("*.json")) == [
+        "session-31.json",
+        "session-31.json.metadata.json",
+    ]
     report = resume.aggregate(
         [*prior, output / "units/session-31.json"], tmp_path / "decision.json"
     )
@@ -451,13 +455,12 @@ def test_seal_rejects_forecast_above_base_before_writing(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("count", [0, 32])
 def test_sealer_refuses_empty_or_complete_completion_ledger(tmp_path, count):
-    from research.bl_served_search.exports import export_json
     from research.watch_lead_p import resume, seal
 
     paths = []
     for index in range(count):
         path = tmp_path / "units" / f"session-{index:02d}.json"
-        export_json(path, {"sealed": True})
+        resume.export_unit(path, {"sealed": True}, index)
         paths.append(path)
     ledger = tmp_path / "ledger.json"
     resume.make_ledger(paths, ledger)
@@ -492,7 +495,9 @@ def test_all_packets_validate_upload_destinations(
         payload["inputs"] = [r for r in payload["inputs"] if r["kind"] != "verified-unit"]
         manifest["inputs"] = manifest["inputs"][:4]
         manifest["required_exports"] = ["watch-lead/inventory.json"] + [
-            f"watch-lead/units/session-{i:02d}.json" for i in range(32)
+            f"watch-lead/units/session-{i:02d}.json{suffix}"
+            for i in range(32)
+            for suffix in ("", ".metadata.json")
         ]
         (packet / "verified-ledger.json").write_text(json.dumps(empty_ledger()))
     upload = manifest["inputs"][3]
@@ -700,7 +705,9 @@ def test_upload_aliases_counts_and_ledger_hash(completion_packet, monkeypatch, c
         payload["inputs"] = [r for r in payload["inputs"] if r["kind"] != "verified-unit"]
         manifest["inputs"] = manifest["inputs"][:4]
         manifest["required_exports"] = ["watch-lead/inventory.json"] + [
-            f"watch-lead/units/session-{i:02d}.json" for i in range(32)
+            f"watch-lead/units/session-{i:02d}.json{suffix}"
+            for i in range(32)
+            for suffix in ("", ".metadata.json")
         ]
         (packet / "verified-ledger.json").write_text(json.dumps(resume.empty_ledger(repo)))
     pristine = json.dumps(manifest)
@@ -755,7 +762,9 @@ def test_admission_ledger_uses_selected_recipe_root(
         payload["inputs"] = [r for r in payload["inputs"] if r["kind"] != "verified-unit"]
         manifest["inputs"] = manifest["inputs"][:4]
         manifest["required_exports"] = ["watch-lead/inventory.json"] + [
-            f"watch-lead/units/session-{i:02d}.json" for i in range(32)
+            f"watch-lead/units/session-{i:02d}.json{suffix}"
+            for i in range(32)
+            for suffix in ("", ".metadata.json")
         ]
         ledger["units"] = []
     if not stale:

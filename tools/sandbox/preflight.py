@@ -331,7 +331,14 @@ def _verify_runtime_sources(commit: str, sources: Sequence[str]) -> None:
         if len(header) != 3 or header[:2] != [oid, b"blob"] or not header[2].isdigit():
             raise PreflightError("broker source blob response differs from pinned identity")
         content = stream.read(int(header[2]))
-        if stream.read(1) != b"\n" or content != (REPO_ROOT / source).read_bytes():
+        path = REPO_ROOT / source
+        try:
+            if path.is_symlink():
+                raise PreflightError("broker source must be a regular file: " + source)
+            working = path.read_bytes()
+        except OSError as exc:
+            raise PreflightError("broker source is unavailable: " + source) from exc
+        if stream.read(1) != b"\n" or content != working:
             raise PreflightError("broker source differs from committed runtime pin: " + source)
     if stream.read():
         raise PreflightError("broker source blob response has trailing bytes")

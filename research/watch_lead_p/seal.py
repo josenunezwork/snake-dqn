@@ -12,7 +12,7 @@ from pathlib import Path
 from research.bl_served_search.exports import digest
 from research.watch_lead_p.admission import exclusion_audit
 from research.watch_lead_p.protocol import NAMESPACE, SEEDS, STUDY
-from research.watch_lead_p.resume import empty_ledger, read_ledger
+from research.watch_lead_p.resume import UNIT_SUFFIXES, empty_ledger, read_ledger
 from research.watch_lead_p.run import WORKERS
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -109,7 +109,7 @@ def seal(
         local = ROOT / path.relative_to(broker) if path.is_relative_to(broker) else path
         inputs.append({"kind": kind, "path": str(path), "sha256": digest(local), "dest": dest})
     for record in verified.values():
-        for suffix in ("", ".sha256", ".complete"):
+        for suffix in UNIT_SUFFIXES:
             path = (units_root / (record["path"] + suffix)).resolve()
             inputs.append(
                 {
@@ -144,7 +144,12 @@ def seal(
         },
         "requirements_file": "research/watch_lead_p/requirements.txt",
         "required_exports": ["watch-lead/inventory.json"]
-        + [f"watch-lead/units/session-{i:02d}.json" for i in range(32) if i not in verified],
+        + [
+            f"watch-lead/units/session-{i:02d}.json{suffix}"
+            for i in range(32)
+            if i not in verified
+            for suffix in ("", ".metadata.json")
+        ],
         "budget": {
             "unit_cap": 12.32,
             "rate_units_per_hour": 1.54,

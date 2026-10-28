@@ -19,6 +19,7 @@ from research.watch_lead_p.protocol import ARMS, FIXTURE_SEED, NAMESPACE, SEEDS
 from research.watch_lead_p.resume import (
     ALLOCATION,
     aggregate,
+    export_unit,
     make_ledger,
     read_ledger,
     recipe_fingerprint,
@@ -73,13 +74,13 @@ def publish(index: int, arms: dict, output: Path) -> dict:
         recipe_sha256=recipe_fingerprint(),
     )
     path = output / "units" / f"session-{index:02d}.json"
-    return {"allocation_index": index, **export_json(path, row)}
+    return {"allocation_index": index, **export_unit(path, row, index)}
 
 
 def execute(ledger: Path, inputs: Path, output: Path) -> None:
     """Skip verified sessions; assemble arm tasks into immutable whole-session units."""
     verified = read_ledger(ledger, inputs)
-    pending = [i for i in range(32) if i not in verified]
+    pending = [i for i in range(len(SEEDS)) if i not in verified]
     if not pending:
         raise ValueError("P completion has no missing units")
     output.mkdir(parents=True, exist_ok=False)

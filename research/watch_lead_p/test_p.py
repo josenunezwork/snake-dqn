@@ -243,7 +243,7 @@ def test_w1k1_fixed_submission_and_target_action(monkeypatch, arm, expected) -> 
 def test_resume_blind_integrity_foreign_namespace_and_duplicates(tmp_path: Path) -> None:
     inputs = tmp_path / "inputs"
     path = inputs / "units/session-00.json"
-    export_json(path, {"sealed": "content not parsed by ledger builder"})
+    resume.export_unit(path, {"sealed": "content not parsed by ledger builder"}, 0)
     ledger = tmp_path / "ledger.json"
     resume.make_ledger([path], ledger)
     assert list(resume.read_ledger(ledger, inputs)) == [0]
@@ -498,11 +498,14 @@ def test_stop_during_publish_retains_and_accounts_whole_session(tmp_path, monkey
 
     monkeypatch.setattr(run.concurrent.futures, "wait", wait)
     original = exports._publish
-    suffix = {"payload": ".json", "sidecar": ".sha256", "marker": ".complete"}
 
     def publish_part(path, data):
         original(path, data)
-        if "units" in path.parts and path.suffix == suffix.get(phase):
+        if path.name == {
+            "payload": "session-00.json",
+            "sidecar": "session-00.json.sha256",
+            "marker": "session-00.json.complete",
+        }.get(phase):
             os.kill(os.getpid(), signal.SIGUSR1)
             os.kill(os.getpid(), signal.SIGTERM)
 
@@ -562,7 +565,7 @@ def test_cohort_schedule_banks_twelve_units_before_later_cohort(tmp_path, monkey
 
     def wait(futures, **kw):
         if len(delivered) == 36:
-            assert len(list((tmp_path / "out/units").glob("*.complete"))) == 12
+            assert len(list((tmp_path / "out/units").glob("session-??.json.complete"))) == 12
             assert {i for i, a in delivered} == set(range(12))
             os.kill(os.getpid(), signal.SIGUSR1)
         future, index, arm = next(row for row in submitted if row[0] in futures)
@@ -746,3 +749,44 @@ if __name__ == "__main__":
     assert result.returncode == 0, result.stdout + result.stderr
     assert (tmp_path / "shutdown").exists()
     assert all(not psutil.pid_exists(int(pid)) for pid in (tmp_path / "pids").read_text().split())
+
+
+@pytest.mark.parametrize("change", ["adapter", "mechanics", "missing-metadata", "foreign-metadata"])
+def test_resume_refuses_changed_construction_without_opening_outcomes(
+    tmp_path, monkeypatch, change
+):
+    path = tmp_path / "units/session-00.json"
+    resume.export_unit(path, {"sealed": "must never parse outcomes"}, 0)
+    ledger = tmp_path / "verified-ledger.json"
+    resume.make_ledger([path], ledger)
+    before = json.loads(ledger.read_text())
+    assert before["construction"] == resume.construction_metadata()
+    metadata = Path(str(path) + ".metadata.json")
+    assert json.loads(metadata.read_text())["construction"] == before["construction"]
+    original_read = Path.read_text
+
+    def read_only_metadata(p, *args, **kwargs):
+        if p == path:
+            pytest.fail("resume opened scientific outcome payload")
+        return original_read(p, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_only_metadata)
+    if change == "adapter":
+        original_digest = resume.digest
+        monkeypatch.setattr(
+            resume, "digest", lambda p: "0" * 64 if p.name == "uploaded.py" else original_digest(p)
+        )
+    elif change == "mechanics":
+        monkeypatch.setattr(resume, "MECHANICS_V2", "0")
+    elif change == "missing-metadata":
+        metadata.unlink()
+    else:
+        value = json.loads(metadata.read_text())
+        value["construction"]["uploaded_sha256"] = "0" * 64
+        for suffix in ("", ".sha256", ".complete"):
+            Path(str(metadata) + suffix).unlink()
+        export_json(metadata, value)
+    with pytest.raises(ValueError):
+        resume.read_ledger(ledger, tmp_path)
+    with pytest.raises(ValueError):
+        resume.make_ledger([path], tmp_path / "refused-ledger.json")

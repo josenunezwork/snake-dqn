@@ -15,13 +15,17 @@ from unittest.mock import patch
 
 from research.bl_served_search.exports import digest
 
+MECHANICS_V2 = "1"
+
 
 @contextmanager
-def uploaded_checkpoints(inputs: Path | None = None) -> Iterator[None]:
+def uploaded_checkpoints(inputs: Path | None = None) -> Iterator[dict]:
     """Require exact uploaded B8/FRP3 files; never search or fall back."""
     from web.backend.served_checkpoint import (
         B8_S3_SHA256,
         FRP3_S12_SHA256,
+        NAME_B8_S3,
+        NAME_FRP3_S12,
         ServedCheckpointChoice,
     )
 
@@ -42,18 +46,43 @@ def uploaded_checkpoints(inputs: Path | None = None) -> Iterator[None]:
             or digest(path) != sha
         ):
             raise ValueError(f"P sealed uploaded checkpoint mismatch: {name}")
-        choices[name] = ServedCheckpointChoice(None, name, str(path), sha)
+        choices[name] = ServedCheckpointChoice(
+            requested=None if name == NAME_B8_S3 else NAME_FRP3_S12,
+            name=name,
+            path=str(path),
+            sha256=sha,
+        )
 
-    # P is an offline experiment, not a serving qualification. The registered
-    # uploaded FRP3 hash replaces the Mac strict-receipt lookup; wrapper source
-    # checks, installation and mixed-roster assertions remain authoritative.
+    # These are the exact GameSession construction calls. Reject new roles or
+    # arguments instead of silently supplying a different checkpoint to them.
+    def hero(*args: object, **kwargs: object) -> ServedCheckpointChoice:
+        from web.backend.session import DEFAULT_CHECKPOINT
+
+        if args or kwargs != {"champion_path": DEFAULT_CHECKPOINT}:
+            raise ValueError("unexpected P hero resolver arguments")
+        return choices[NAME_B8_S3]
+
+    def opponent(*args: object, **kwargs: object) -> ServedCheckpointChoice:
+        if args or kwargs:
+            raise ValueError("unexpected P opponent resolver arguments")
+        return choices[NAME_FRP3_S12]
+
+    def gated(*args: object, **kwargs: object) -> list[str]:
+        if args or kwargs:
+            raise ValueError("unexpected P v8 resolver arguments")
+        # Mac-side regression binds the complete original set, before patching.
+        return [FRP3_S12_SHA256]
+
     with (
-        patch("web.backend.session.resolve_served_checkpoint", return_value=choices["b8-s3"]),
-        patch("web.backend.session.resolve_mixed_watch_opponent", return_value=choices["frp3-s12"]),
+        patch("web.backend.session.resolve_served_checkpoint", side_effect=hero) as hero_binding,
         patch(
-            "web.backend.safety_veto_serving.v8_gated_checkpoint_sha256s",
-            return_value=[FRP3_S12_SHA256],
+            "web.backend.session.resolve_mixed_watch_opponent", side_effect=opponent
+        ) as opp_binding,
+        patch(
+            "web.backend.safety_veto_serving.v8_gated_checkpoint_sha256s", side_effect=gated
+        ) as v8_binding,
+        patch.dict(
+            os.environ, {"SNAKE_MECHANICS_V2": MECHANICS_V2, "COLAB_INPUT_DIR": str(inputs)}
         ),
-        patch.dict(os.environ, {"SNAKE_MECHANICS_V2": "1", "COLAB_INPUT_DIR": str(inputs)}),
     ):
-        yield
+        yield {"hero": hero_binding, "opponent": opp_binding, "v8": v8_binding}
