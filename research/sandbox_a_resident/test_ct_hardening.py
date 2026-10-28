@@ -391,3 +391,47 @@ def test_ct4_clean_incomplete_publications_refuse(tmp_path: Path, name: str) -> 
     (tmp_path / name).write_text(json.dumps(record) + "\n")
     with pytest.raises(ct_resume.CTResumeRefused, match="incomplete"):
         ct_resume._check_attempt_base_fault_evidence(tmp_path)
+
+
+@pytest.mark.parametrize("reason", ["timeout", "lease_expired", "release_credential_expiring"])
+@pytest.mark.parametrize(
+    "line",
+    [None, "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/session/output/ct/stall-watchdog"],
+)
+def test_ct4_real_qualified_child_receipt_is_admitted(
+    tmp_path: Path, reason: str, line: str | None
+) -> None:
+    from research.colab_cli.failures import terminal_failure
+
+    terminal = {
+        "job_id": "ct0",
+        "generation": "g0",
+        "status": "failed",
+        "reason": reason,
+        "returncode": 138,
+    }
+    if line is not None:
+        terminal["last_traceback_line"] = line
+    failure = terminal_failure(terminal, "g0")
+    assert failure is not None
+    record = {
+        "status": "INCOMPLETE",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "failure_class": "CHILD_NONZERO_EXIT",
+        "job_id": "ct0",
+        "generation": "g0",
+        "terminal": terminal,
+        "error": repr(failure),
+    }
+    path = tmp_path / "receipt.json"
+    path.write_text(json.dumps(record))
+    ct_resume._scan_retained_text(
+        path, output_root=tmp_path, expected_job_id="ct0", expected_generation="g0"
+    )
+    record["error"] += "; opaque failure"
+    path.write_text(json.dumps(record))
+    with pytest.raises(ct_resume.CTResumeRefused):
+        ct_resume._scan_retained_text(
+            path, output_root=tmp_path, expected_job_id="ct0", expected_generation="g0"
+        )

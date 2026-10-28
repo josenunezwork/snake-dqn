@@ -563,17 +563,24 @@ def _check_retained_receipt(record: Any, *, label: str) -> None:
     error = record.get("error")
     _refuse_if_fault_text(error, field_name=label, check_supervisor_denylist=True)
     terminal = record.get("terminal")
-    child_error = (
+    child_error = False
+    if (
         record["failure_class"] == "CHILD_NONZERO_EXIT"
         and isinstance(terminal, Mapping)
         and terminal.get("reason") in MECHANICAL_TERMINAL_REASONS
-        and isinstance(error, str)
-        and error
-        == (
+    ):
+        # failures.terminal_failure formats this exact detail; supervisor records repr(exc).
+        line = terminal.get("last_traceback_line") or terminal.get("last_error_line")
+        if not isinstance(line, str) or not line.strip():
+            line = terminal["reason"]
+        detail = (
+            f"remote child exited {terminal.get('returncode')}: {line.strip().splitlines()[-1]}"
+        )
+        legacy_detail = (
             f"remote child exited {terminal.get('returncode')}: "
             "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/out/ct/stall-watchdog"
         )
-    )
+        child_error = error in (detail, f"ClassifiedFailure({detail!r})", legacy_detail)
     if error not in (None, "") and not (_mechanical_supervisor_error(error) or child_error):
         raise CTResumeRefused(f"unexplained retained receipt error: {label}")
     terminal = record.get("terminal")
