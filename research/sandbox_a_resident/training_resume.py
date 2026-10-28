@@ -629,6 +629,8 @@ def _check_retained_execution(
     require_identity: bool = False,
 ) -> None:
     """Validate execution facts independently of human-readable fault markers."""
+    if "job_id" in record and "job" in record and record["job_id"] != record["job"]:
+        raise ResumeRefused(f"{label} records conflicting job/job_id identities")
     for key, expected in (
         ("job_id", expected_job_id),
         ("job", expected_job_id),
@@ -656,15 +658,6 @@ def _check_retained_execution(
         reason not in MECHANICAL_TERMINAL_REASONS
     ):
         raise ResumeRefused(f"{label} records unexplained/non-mechanical child or runtime failure")
-    # Supervisor receipts have their own envelope; verify_mechanical_stop
-    # validates its manifest binding and trigger before scanning retained files.
-    if status == "INCOMPLETE" and (
-        record.get("stop_verified") is True
-        and record.get("cleanup_error") is None
-        and record.get("failure_class")
-        in {"SUPERVISOR", "RPC_EXEC_POLL_TIMEOUT", "CHILD_NONZERO_EXIT"}
-    ):
-        return
     if status is not None and status not in {
         "running",
         "starting",
@@ -714,15 +707,17 @@ def _scan_json_faults(
     expected_generation: str | None = None,
     supervisor_transport: bool = False,
     require_execution_identity: bool = False,
+    validated_receipt_root: bool = False,
 ) -> None:
     """Inspect nested diagnostic fields, including error fields in snapshot headers."""
     if isinstance(value, Mapping):
         execution = (
             require_execution_identity
+            or value.get("status") == "INCOMPLETE"
             or any(key in value for key in ("returncode", "reason"))
             or ("status" in value and any(key in value for key in ("job", "job_id", "generation")))
         )
-        if execution:
+        if execution and not validated_receipt_root:
             _check_retained_execution(
                 value,
                 label=label,
@@ -732,6 +727,15 @@ def _scan_json_faults(
             )
         for key, item in value.items():
             name = f"{label}.{key}"
+            if key == "stop_verified" and item is False:
+                raise ResumeRefused(f"{name} records unverified stop")
+            if (
+                key == "status"
+                and isinstance(item, str)
+                and ("fail" in item.lower() or item.lower() in {"error", "crashed", "aborted"})
+                and not execution
+            ):
+                raise ResumeRefused(f"{name} records failed status without execution identity")
             mechanical_error = (
                 key == "error" and supervisor_transport and _mechanical_supervisor_error(item)
             )
@@ -793,18 +797,81 @@ def _retained_json_records(path: Path) -> list[Any]:
 
 
 def _publication_sidecar(path: Path) -> bool:
-    """Recognize only an intact completion-last payload's hash/marker sidecars."""
+    """Validate sidecar syntax even when completion-last publication is unfinished."""
     if path.suffix not in {".sha256", ".complete"}:
         return False
     payload = path.with_suffix("")
-    if not _complete(payload):
-        return False
     sidecar = Path(str(payload) + ".sha256")
-    if sidecar.read_text().strip() != digest(payload):
-        raise ResumeRefused(f"corrupt retained publication sidecar: {sidecar}")
-    if Path(str(payload) + ".complete").read_bytes() != b"complete\n":
-        raise ResumeRefused(f"malformed retained completion marker: {payload}")
-    return True
+    marker = Path(str(payload) + ".complete")
+    try:
+        if any(item.is_symlink() for item in (path, payload, sidecar, marker)):
+            raise ResumeRefused(f"symlinked retained publication sidecar: {path}")
+        expected = None
+        if sidecar.exists():
+            if sidecar.stat().st_size > 1024:
+                raise ResumeRefused(f"oversized retained publication sidecar: {sidecar}")
+            expected = sidecar.read_text(encoding="utf-8").strip()
+            if not _is_hex(expected, 64):
+                raise ResumeRefused(f"malformed retained publication sidecar: {sidecar}")
+        if marker.exists() and marker.read_bytes() != b"complete\n":
+            raise ResumeRefused(f"malformed retained completion marker: {payload}")
+        if not _complete(payload):
+            return False
+        if expected != digest(payload):
+            raise ResumeRefused(f"corrupt retained publication sidecar: {sidecar}")
+        return True
+    except (OSError, UnicodeError) as error:
+        raise ResumeRefused(f"unreadable retained publication sidecar: {path}") from error
+
+
+def _verify_model_transport_partial(path: Path, payload: Path, output_root: Path) -> None:
+    """Exempt only bytes proven against a hash-bound model, never by filename alone.
+
+    A truncated SHA-256 preimage cannot be verified from its final digest. Require
+    an exact prefix of an intact canonical publication, or the entire advertised
+    payload matching a retained immutable export descriptor. Neither is eligible
+    for checkpoint selection until the normal completion-last triple exists.
+    """
+    if path.is_symlink() or not path.is_file():
+        raise ResumeRefused(f"non-regular retained model transport partial: {path}")
+    if _publication_sidecar(Path(str(payload) + ".sha256")):
+        if path.stat().st_size <= payload.stat().st_size:
+            with path.open("rb") as partial, payload.open("rb") as original:
+                while block := partial.read(1024 * 1024):
+                    if block != original.read(len(block)):
+                        break
+                else:
+                    return
+        raise ResumeRefused(
+            f"retained model transport partial differs from verified payload: {path}"
+        )
+    matches = []
+    for poll in sorted(output_root.glob("poll-*.json*")):
+        if _publication_sidecar(poll):
+            continue
+        for record in _retained_json_records(poll):
+            if not isinstance(record, Mapping):
+                continue
+            exports = record.get("exports", [])
+            if not isinstance(exports, list):
+                raise ResumeRefused(f"malformed retained export inventory: {poll}")
+            for entry in exports:
+                if isinstance(entry, Mapping) and entry.get("path") == f"training/{payload.name}":
+                    matches.append((entry.get("size"), entry.get("sha256")))
+    size = path.stat().st_size
+    if (
+        matches
+        and all(
+            type(bound_size) is int
+            and bound_size == size
+            and _is_hex(bound_sha, 64)
+            and bound_sha == matches[0][1]
+            for bound_size, bound_sha in matches
+        )
+        and digest(path) == matches[0][1]
+    ):
+        return
+    raise ResumeRefused(f"unverifiable retained model transport partial: {path}")
 
 
 def _verify_staged_source_archive(path: Path, output_root: Path) -> None:
@@ -888,6 +955,7 @@ def _scan_retained_text(
     output_root: Path,
     expected_job_id: str | None = None,
     expected_generation: str | None = None,
+    validated_receipt: Mapping[str, Any] | None = None,
 ) -> None:
     """Scan all text/JSON, including incomplete telemetry and unknown filenames.
 
@@ -910,6 +978,10 @@ def _scan_retained_text(
     # Only canonical training/model payload names are exempt from text scanning.
     # Unexpected archives, including compressed diagnostics, refuse explicitly.
     model_payload = re.fullmatch(r"iteration-\d{4}(?:-actor\.pth|\.pt)(?:\.xz)?", path.name)
+    model_partial = re.fullmatch(
+        r"(iteration-\d{4}(?:-actor\.pth|\.pt)(?:\.xz)?)\.(?:partial|part|tmp[A-Za-z0-9._-]*)",
+        path.name,
+    )
     model_metadata = re.fullmatch(
         r"iteration-\d{4}(?:-actor\.pth|\.pt)(?:\.xz)?(?:\.manifest)?\.(?:sha256|complete)",
         path.name,
@@ -917,6 +989,9 @@ def _scan_retained_text(
     model_manifest = re.fullmatch(r"iteration-\d{4}\.pt\.xz\.manifest", path.name)
     in_training = path.parent == output_root / "exports/training"
     if model_payload and in_training:
+        return
+    if model_partial and in_training:
+        _verify_model_transport_partial(path, path.with_name(model_partial[1]), output_root)
         return
     if path == output_root / "staging/source.tar.gz":
         _verify_staged_source_archive(path, output_root)
@@ -942,9 +1017,11 @@ def _scan_retained_text(
         in_training and (model_metadata or model_manifest)
     ):
         raise ResumeRefused(f"unexpected retained binary payload: {path}")
+    publication_sidecar = path.suffix in {".sha256", ".complete"}
+    if publication_sidecar:
+        _publication_sidecar(path)
     is_json = (
-        any(suffix in {".json", ".jsonl"} for suffix in path.suffixes)
-        and not _publication_sidecar(path)
+        any(suffix in {".json", ".jsonl"} for suffix in path.suffixes) and not publication_sidecar
     ) or (in_training and model_manifest is not None)
     if is_json:
         for payload in _retained_json_records(path):
@@ -961,14 +1038,20 @@ def _scan_retained_text(
                     and (path.name.startswith("poll-") or path.name == "receipt.json")
                 ),
                 require_execution_identity=(execution_file and not path.name.startswith("poll-")),
+                validated_receipt_root=(
+                    path == output_root / "receipt.json"
+                    and validated_receipt is not None
+                    and payload == validated_receipt
+                ),
             )
         return
     with path.open(encoding="utf-8", errors="replace") as stream:
         overlap = ""
         while part := stream.read(65536):
             part = part.replace("\x00", "")
-            _refuse_if_fault_text(overlap + part, field_name=str(path))
-            overlap = part[-256:]
+            combined = overlap + part
+            _refuse_if_fault_text(combined, field_name=str(path))
+            overlap = combined[-256:]
 
 
 def _check_output_root_fault_evidence(
@@ -976,6 +1059,7 @@ def _check_output_root_fault_evidence(
     *,
     expected_job_id: str | None = None,
     expected_generation: str | None = None,
+    validated_receipt: Mapping[str, Any] | None = None,
 ) -> tuple[int, int]:
     """Scan ALL retained attempt telemetry and exports for scientific/non-mechanical faults.
 
@@ -996,6 +1080,7 @@ def _check_output_root_fault_evidence(
             output_root=output_root,
             expected_job_id=expected_job_id,
             expected_generation=expected_generation,
+            validated_receipt=validated_receipt,
         )
 
     terminal_file = output_root / "terminal.json"
@@ -1425,6 +1510,7 @@ def verify_mechanical_stop(
             output_root,
             expected_job_id=expected_job_id,
             expected_generation=expected_generation,
+            validated_receipt=receipt,
         )
     if supervisor_log_path is not None:
         _check_supervisor_log_fault_evidence(
@@ -1480,8 +1566,8 @@ def compute_retained_evidence_inventory(output_root: Path) -> dict[str, Any]:
     if output_root.is_symlink() or not output_root.is_dir():
         raise ResumeRefused(f"missing or symlinked output_root: {output_root}")
     poll_count, polls_sha256, first_poll, last_poll = _glob_inventory(output_root, "poll-*.json*")
-    spend_count, spend_sha256, _, _ = _glob_inventory(output_root, "spend-*.json")
-    usage_count, usage_sha256, _, _ = _glob_inventory(output_root, "usage-*.json")
+    spend_count, spend_sha256, _, _ = _glob_inventory(output_root, "spend-*.json*")
+    usage_count, usage_sha256, _, _ = _glob_inventory(output_root, "usage-*.json*")
     receipt_path = output_root / "receipt.json"
     terminal_path = output_root / "terminal.json"
     optional_files: dict[str, dict[str, Any] | None] = {}
@@ -1791,8 +1877,12 @@ def verify_host_enospc_recovery(
             rec_path.name.startswith("recovery-") and rec_path.suffix == ".json"
         ):
             raise ResumeRefused("recover_receipt must reside in output_root as recovery-*.json")
-        if set(resolved_output.glob("recovery-*.json")) != {rec_path.resolve()}:
-            raise ResumeRefused("unbound recovery-*.json retained in output_root")
+        if {
+            path.resolve()
+            for path in resolved_output.glob("recovery-*.json*")
+            if not _publication_sidecar(path)
+        } != {rec_path.resolve()}:
+            raise ResumeRefused("unbound recovery-*.json* retained in output_root")
         try:
             rec_payload = json.loads(rec_path.read_text())
         except (OSError, json.JSONDecodeError) as error:

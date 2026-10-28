@@ -42,8 +42,8 @@ def _validate_continuation_stop(packet: Path, broker: dict) -> None:
     recovery_file = packet / "recovery-evidence.json"
     tracked = (
         subprocess.run(
-            ["git", "ls-files", "--error-unmatch", "--", str(seal_file)],
-            cwd=ROOT,
+            ["git", "ls-files", "--error-unmatch", "--", "SEAL.json"],
+            cwd=packet,
             capture_output=True,
             check=False,
         ).returncode
@@ -74,10 +74,19 @@ def _validate_continuation_stop(packet: Path, broker: dict) -> None:
     if kind not in {"receipt", "supervisor_receipt", "host_enospc_recovery_certificate"}:
         raise ValueError("SEAL.json has unsupported prior_stop_evidence_kind")
     prior_name = seal.get("prior_packet")
-    if not isinstance(prior_name, str) or Path(prior_name).name != prior_name:
+    if (
+        not isinstance(prior_name, str)
+        or not prior_name
+        or prior_name in {".", ".."}
+        or Path(prior_name).name != prior_name
+    ):
         raise ValueError("SEAL.json prior_packet must be a packet name")
     source_packet = Path(seal.get("prior_packet_path", packet.parent / prior_name))
-    if source_packet.name != prior_name:
+    if (
+        source_packet.name != prior_name
+        or any(p.is_symlink() for p in (source_packet, *source_packet.parents))
+        or (tracked and source_packet.resolve() != (packet.parent / prior_name).resolve())
+    ):
         raise ValueError("SEAL.json prior_packet_path differs from prior_packet")
     source_packet_manifest = source_packet / "dispatch-manifest.json"
     for path in (source_packet_manifest, source_packet / "control.json"):

@@ -148,7 +148,11 @@ def prepare_completion(
         {
             "schema": "sandbox-a-train01-continuation-seal/v1",
             "prior_packet": original.name,
-            "prior_packet_path": str(original.resolve()),
+            **(
+                {}
+                if original.parent.resolve() == packet.parent.resolve()
+                else {"prior_packet_path": str(original.resolve())}
+            ),
             "prior_job_id": executed["job_id"],
             "prior_output_dir": str(receipt.parent.resolve()),
             "prior_executed_manifest_sha256": digest(executed_path),

@@ -55,6 +55,58 @@ def test_original_packet_seal_is_git_verified_without_continuation_proof(
         training_preflight._validate_continuation_stop(tmp_path, {"completion_attempt": {}})
 
 
+@pytest.mark.parametrize("prior_name", ["", ".", "..", "../packet", None])
+def test_review_r4_prior_packet_name_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, prior_name: str | None
+) -> None:
+    from research.sandbox_a_resident import training_preflight
+
+    (tmp_path / "SEAL.json").write_text(
+        json.dumps(
+            {
+                "schema": "sandbox-a-train01-continuation-seal/v1",
+                "prior_stop_evidence_kind": "supervisor_receipt",
+                "prior_packet": prior_name,
+            }
+        )
+    )
+    monkeypatch.setattr(training_preflight, "verify_committed_manifest", lambda _path: None)
+    with pytest.raises(ValueError, match="prior_packet must be a packet name"):
+        training_preflight._validate_continuation_stop(tmp_path, {"completion_attempt": {}})
+
+
+@pytest.mark.parametrize("symlink", [False, True])
+def test_review_r4_tracked_seal_refuses_external_or_symlinked_prior(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, symlink: bool
+) -> None:
+    from research.sandbox_a_resident import training_preflight
+
+    packet = tmp_path / "packet"
+    packet.mkdir()
+    foreign = tmp_path / "external/prior"
+    foreign.mkdir(parents=True)
+    source = foreign
+    if symlink:
+        source = tmp_path / "prior"
+        source.symlink_to(foreign, target_is_directory=True)
+    seal = packet / "SEAL.json"
+    seal.write_text(
+        json.dumps(
+            {
+                "schema": "sandbox-a-train01-continuation-seal/v1",
+                "prior_stop_evidence_kind": "supervisor_receipt",
+                "prior_packet": "prior",
+                "prior_packet_path": str(source),
+            }
+        )
+    )
+    subprocess.run(["git", "init", "-q", str(packet)], check=True)
+    subprocess.run(["git", "-C", str(packet), "add", "SEAL.json"], check=True)
+    monkeypatch.setattr(training_preflight, "verify_committed_manifest", lambda _path: None)
+    with pytest.raises(ValueError, match="prior_packet_path differs"):
+        training_preflight._validate_continuation_stop(packet, {"completion_attempt": {}})
+
+
 def _write_ten_line_sandbox(path: Path, sandbox: dict) -> None:
     lines = [
         ("{" if i == 0 else " ") + json.dumps(k) + ": " + json.dumps(v) + ("," if i < 9 else "}")
@@ -254,6 +306,64 @@ def _populate_attempt(
     }
     (output / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     return attempt_dir
+
+
+def test_review_r4_completion_seal_survives_clean_detached_checkout(
+    fixture_workspace: Path, tmp_path: Path
+) -> None:
+    """Use real Git binding checks in the relocated checkout, without monkeypatches."""
+    import sys
+
+    from research.sandbox_a_resident.training_completion import prepare_completion
+
+    repo = fixture_workspace / "snake-dqn-fixture"
+    package = repo / "research/sandbox_a_resident"
+    original = package / "packet-train01-15"
+    attempt = _populate_attempt(
+        tmp_path / "portable-attempt",
+        original,
+        [16],
+        receipt_overrides={"failure_class": "RPC_EXEC_POLL_TIMEOUT", "error": None},
+    )
+    successor = package / "packet-review-r4-portable"
+    prepare_completion(
+        original,
+        attempt / "output/receipt.json",
+        attempt / "output/exports/training",
+        successor,
+        index=1,
+        job_id="review-r4-portable",
+        output=tmp_path / "successor-output",
+    )
+    assert "prior_packet_path" not in json.loads((successor / "SEAL.json").read_text())
+    subprocess.run(["git", "-C", str(repo), "add", str(successor)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-qm", "portable completion fixture"], check=True
+    )
+    detached = tmp_path / "detached"
+    subprocess.run(
+        ["git", "-C", str(repo), "worktree", "add", "--detach", str(detached), "HEAD"], check=True
+    )
+    code = (
+        "import json; from pathlib import Path; "
+        "from research.sandbox_a_resident.training_preflight import _validate_continuation_stop; "
+        "p=Path('research/sandbox_a_resident/packet-review-r4-portable').resolve(); "
+        "_validate_continuation_stop(p,json.loads((p/'dispatch-manifest.json').read_text()))"
+    )
+    subprocess.run([sys.executable, "-c", code], cwd=detached, check=True)
+    # Tracked-file discovery uses the packet's checkout even if its seal vanishes.
+    (detached / "research/sandbox_a_resident/packet-review-r4-portable/SEAL.json").unlink()
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            code.replace("json.loads((p/'dispatch-manifest.json').read_text())", "{}"),
+        ],
+        cwd=detached,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0 and "continuation proof" in result.stderr
 
 
 def test_remaining_envelope_math_scales_updates_and_proxies_with_2x_rule() -> None:

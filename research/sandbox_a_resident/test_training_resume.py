@@ -1693,3 +1693,309 @@ def test_review_r3_source_archive_exception_requires_git_bytes(
             _scan_retained_text(archive_path, output_root=tmp_path)
     else:
         _scan_retained_text(archive_path, output_root=tmp_path)
+
+
+@pytest.mark.parametrize(
+    "failure_class", ["SUPERVISOR", "CHILD_NONZERO_EXIT", "RPC_EXEC_POLL_TIMEOUT"]
+)
+@pytest.mark.parametrize("location", ["status.json.partial", "supervisor.log", "nested.json"])
+def test_review_r4_incomplete_exemption_is_only_the_validated_receipt(
+    tmp_path: Path, failure_class: str, location: str
+) -> None:
+    from research.sandbox_a_resident.training_resume import (
+        _check_output_root_fault_evidence,
+        _check_supervisor_log_fault_evidence,
+    )
+
+    record = {**receipt(), "failure_class": failure_class}
+    path = tmp_path / location
+    path.write_text(json.dumps({"record": record} if location == "nested.json" else record))
+    with pytest.raises(ResumeRefused, match="unknown execution status"):
+        if location == "supervisor.log":
+            _check_supervisor_log_fault_evidence(path)
+        else:
+            _check_output_root_fault_evidence(tmp_path)
+
+
+@pytest.mark.parametrize("failure_class", ["SUPERVISOR", "CHILD_NONZERO_EXIT"])
+def test_review_r4_receiptless_enospc_never_excuses_incomplete_failure(
+    tmp_path: Path, failure_class: str
+) -> None:
+    from research.sandbox_a_resident.training_resume import (
+        compute_retained_evidence_inventory,
+        verify_host_enospc_recovery,
+    )
+    from research.sandbox_a_resident.units import digest
+
+    fx = _setup_enospc_fixture(tmp_path)
+    log = fx["sup_log"]
+    lines = log.read_text().splitlines()
+    lines.insert(
+        -2,
+        json.dumps(
+            {
+                **receipt(),
+                "job_id": fx["job_id"],
+                "generation": fx["gen"],
+                "failure_class": failure_class,
+            }
+        ),
+    )
+    log.write_text("\n".join(lines) + "\n")
+    cert = fx["base_cert"]
+    cert["supervisor_log"].update(
+        size=log.stat().st_size, sha256=digest(log), line_count=len(lines)
+    )
+    cert["retained_evidence"] = compute_retained_evidence_inventory(fx["output_root"])
+    cert_path = fx["write_cert"]("unexplained-incomplete.json", cert)
+    with pytest.raises(ResumeRefused, match="unknown execution status"):
+        verify_host_enospc_recovery(
+            cert_path,
+            fx["exec_manifest"],
+            fx["exec_manifest_sha"],
+            output_root=fx["output_root"],
+            source_control=fx["ctrl"],
+            now_unix_seconds=fx["captured_ts"] + 30,
+        )
+
+
+def test_review_r4_receipt_exception_is_exact_and_nonrecursive(tmp_path: Path) -> None:
+    rec = receipt()
+    path = tmp_path / "receipt.json"
+    path.write_text(json.dumps(rec))
+    verify_mechanical_stop(rec, manifest(), "b" * 64, output_root=tmp_path)
+    for mutated in ({**rec, "job_id": "foreign"}, {**rec, "nested": rec}):
+        path.write_text(json.dumps(mutated))
+        with pytest.raises(ResumeRefused):
+            verify_mechanical_stop(rec, manifest(), "b" * 64, output_root=tmp_path)
+    # A forged top-level envelope still goes through mechanical-trigger validation.
+    forged = {**rec, "failure_class": "CHILD_NONZERO_EXIT"}
+    path.write_text(json.dumps(forged))
+    with pytest.raises(ResumeRefused, match="lacks a mechanical"):
+        verify_mechanical_stop(forged, manifest(), "b" * 64, output_root=tmp_path)
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"job": "foreign", "generation": "g-1", "status": "running"},
+        {"job": "train-01", "job_id": "conflict", "status": "running"},
+        {"status": "failed"},
+        {"status": "crashed"},
+        {"status": "aborted"},
+        {"status": "INCOMPLETE", "failure_class": "CHILD_NONZERO_EXIT", "stop_verified": True},
+        {"stop_verified": False},
+    ],
+)
+def test_review_r4_alias_and_identityless_failures_refuse(tmp_path: Path, record: dict) -> None:
+    from research.sandbox_a_resident.training_resume import _check_output_root_fault_evidence
+
+    (tmp_path / "status.json.part").write_text(json.dumps({"diagnostic": record}))
+    with pytest.raises(ResumeRefused):
+        _check_output_root_fault_evidence(
+            tmp_path, expected_job_id="train-01", expected_generation="g-1"
+        )
+
+
+@pytest.mark.parametrize("suffix", [".partial", ".part", ".tmp", ".tmp123", ".tmp-a.b"])
+@pytest.mark.parametrize(
+    "name,magic",
+    [
+        ("iteration-0128.pt.xz", b"\xfd7zXZ\x00"),
+        ("iteration-0128-actor.pth", b"PK\x03\x04"),
+        ("iteration-0128.pt", b"PK\x03\x04"),
+    ],
+)
+def test_review_r4_model_partials_require_verified_bytes(
+    tmp_path: Path, suffix: str, name: str, magic: bytes
+) -> None:
+    from research.sandbox_a_resident.training_resume import _check_output_root_fault_evidence
+
+    training = tmp_path / "exports/training"
+    training.mkdir(parents=True)
+    content = magic + b"opaque model state" * 20
+    publish(training / name, lambda p: p.write_bytes(content))
+    partial = training / (name + suffix)
+    partial.write_bytes(content[:50])
+    _check_output_root_fault_evidence(tmp_path)
+    # Filename + magic alone cannot exempt a renamed fault diagnostic.
+    partial.write_bytes(magic + b"FloatingPointError: hidden diagnostic")
+    with pytest.raises(ResumeRefused, match="differs from verified payload"):
+        _check_output_root_fault_evidence(tmp_path)
+
+
+@pytest.mark.parametrize("tamper", ["none", "truncated", "changed", "unbound", "foreign-dir"])
+def test_review_r4_complete_transfer_can_match_poll_hash_without_final_publication(
+    tmp_path: Path, tamper: str
+) -> None:
+    import hashlib
+
+    from research.sandbox_a_resident.training_resume import _check_output_root_fault_evidence
+
+    training = tmp_path / ("other" if tamper == "foreign-dir" else "exports/training")
+    training.mkdir(parents=True)
+    data = b"\xfd7zXZ\x00opaque checkpoint bytes"
+    path = training / "iteration-0128.pt.xz.partial"
+    path.write_bytes(
+        data[:-1] if tamper == "truncated" else data + (b"x" if tamper == "changed" else b"")
+    )
+    entry = {
+        "path": "training/iteration-0128.pt.xz",
+        "size": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+    (tmp_path / "poll-000001.json").write_text(
+        json.dumps(
+            {
+                "job": "train-01",
+                "generation": "g-1",
+                "status": "running",
+                "exports": [] if tamper == "unbound" else [entry],
+            }
+        )
+    )
+    if tamper == "none":
+        _check_output_root_fault_evidence(
+            tmp_path, expected_job_id="train-01", expected_generation="g-1"
+        )
+    else:
+        with pytest.raises(ResumeRefused):
+            _check_output_root_fault_evidence(tmp_path)
+
+
+@pytest.mark.parametrize("sidecar", ["sha256", "complete"])
+def test_review_r4_unfinalized_json_sidecars_are_scanned_without_json_parse(
+    tmp_path: Path, sidecar: str
+) -> None:
+    import hashlib
+
+    from research.sandbox_a_resident.training_resume import _check_output_root_fault_evidence
+
+    payload = tmp_path / "proxy-0128.json"
+    payload.write_text('{"status": "PASS"}\n')
+    path = Path(str(payload) + "." + sidecar)
+    path.write_text(
+        hashlib.sha256(payload.read_bytes()).hexdigest() + "\n"
+        if sidecar == "sha256"
+        else "complete\n"
+    )
+    _check_output_root_fault_evidence(tmp_path)
+    payload.write_text('{"status": "failed"}\n')
+    with pytest.raises(ResumeRefused):
+        _check_output_root_fault_evidence(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "defect", ["utf8", "bad-sha", "bad-marker", "symlink-payload", "symlink-sha", "symlink-marker"]
+)
+def test_review_r4_publication_sidecars_fail_closed(tmp_path: Path, defect: str) -> None:
+    from research.sandbox_a_resident.training_resume import _publication_sidecar
+
+    payload = tmp_path / "proxy.json"
+    publish(payload, lambda p: p.write_text('{"healthy": true}\n'))
+    sha = Path(str(payload) + ".sha256")
+    marker = Path(str(payload) + ".complete")
+    if defect == "utf8":
+        sha.write_bytes(b"\xe2\x82")
+    elif defect == "bad-sha":
+        sha.write_text("0" * 64)
+    elif defect == "bad-marker":
+        marker.write_text("FloatingPointError\n")
+    else:
+        target = {"symlink-payload": payload, "symlink-sha": sha, "symlink-marker": marker}[defect]
+        saved = tmp_path / "saved"
+        target.rename(saved)
+        target.symlink_to(saved)
+    with pytest.raises(ResumeRefused):
+        _publication_sidecar(marker)
+
+
+@pytest.mark.parametrize("sidecar", ["sha256", "complete"])
+def test_review_r4_unfinalized_poll_sidecars_still_refuse(tmp_path: Path, sidecar: str) -> None:
+    from research.sandbox_a_resident.training_resume import _check_output_root_fault_evidence
+
+    (tmp_path / ("poll-001.json." + sidecar)).write_text(
+        "0" * 64 + "\n" if sidecar == "sha256" else "complete\n"
+    )
+    with pytest.raises(ResumeRefused):
+        _check_output_root_fault_evidence(tmp_path)
+
+
+@pytest.mark.parametrize("prefix", ["spend", "usage"])
+@pytest.mark.parametrize("suffix", [".json.partial", ".json.tmp1", ".jsonl"])
+def test_review_r4_accounting_variant_inventory_is_bound(
+    tmp_path: Path, prefix: str, suffix: str
+) -> None:
+    from research.sandbox_a_resident.training_resume import compute_retained_evidence_inventory
+
+    path = tmp_path / (prefix + "-0001" + suffix)
+    path.write_text('{"spent": 1}\n')
+    before = compute_retained_evidence_inventory(tmp_path)
+    assert before[prefix + "_count"] == 1
+    path.write_text('{"spent": 2}\n')
+    assert (
+        compute_retained_evidence_inventory(tmp_path)[prefix + "_sha256"]
+        != before[prefix + "_sha256"]
+    )
+
+
+@pytest.mark.parametrize("suffix", [".json.partial", ".json.tmp1", ".jsonl"])
+def test_review_r4_unbound_recovery_variants_refuse(tmp_path: Path, suffix: str) -> None:
+    from research.sandbox_a_resident.training_resume import (
+        compute_retained_evidence_inventory,
+        verify_host_enospc_recovery,
+    )
+
+    fx = _setup_enospc_fixture(tmp_path)
+    (fx["output_root"] / ("recovery-other" + suffix)).write_text('{"stop_verified": true}\n')
+    cert = fx["base_cert"]
+    cert["retained_evidence"] = compute_retained_evidence_inventory(fx["output_root"])
+    cert_path = fx["write_cert"]("unbound-recovery-variant.json", cert)
+    with pytest.raises(ResumeRefused, match="unbound recovery"):
+        verify_host_enospc_recovery(
+            cert_path,
+            fx["exec_manifest"],
+            fx["exec_manifest_sha"],
+            output_root=fx["output_root"],
+            source_control=fx["ctrl"],
+            now_unix_seconds=fx["captured_ts"] + 30,
+        )
+
+
+def test_review_r4_fault_marker_survives_multiple_nul_padded_chunks(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.training_resume import _scan_retained_text
+
+    path = tmp_path / "job.log.partial"
+    path.write_bytes(b"FloatingPoint" + b"\x00" * (65536 * 3) + b"Error: invalid learner\n")
+    with pytest.raises(ResumeRefused, match="explicit scientific/non-mechanical fault"):
+        _scan_retained_text(path, output_root=tmp_path)
+
+
+def test_review_r4_verified_transport_partial_never_enters_resume_ledger(tmp_path: Path) -> None:
+    import hashlib
+
+    training = tmp_path / "exports/training"
+    snapshot(training, 2)
+    data = b"PK\x03\x04checkpoint transfer without final publication"
+    (training / "iteration-0003.pt.partial").write_bytes(data)
+    (tmp_path / "poll-000001.json").write_text(
+        json.dumps(
+            {
+                "job": "train-01",
+                "generation": "g-1",
+                "status": "running",
+                "exports": [
+                    {
+                        "path": "training/iteration-0003.pt",
+                        "size": len(data),
+                        "sha256": hashlib.sha256(data).hexdigest(),
+                    }
+                ],
+            }
+        )
+    )
+    verify_mechanical_stop(receipt(), manifest(), "b" * 64, output_root=tmp_path)
+    ledger, uploads, latest = build_ledger(training, control())
+    assert latest == 2
+    assert [unit["iteration"] for unit in ledger["units"]] == [2]
+    assert all("0003" not in item["dest"] for item in uploads)

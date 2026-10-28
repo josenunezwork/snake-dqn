@@ -144,6 +144,7 @@ def test_prepare_completion_keeps_required_sidecars_and_preflights_successor(
     monkeypatch.setattr(training_preflight, "verify_committed_manifest", lambda _path: None)
     assert validate_packet(successor)["status"] == "PASS"
     seal = json.loads((successor / "SEAL.json").read_text())
+    assert "prior_packet_path" not in seal  # sibling packets remain portable across checkouts
     assert seal["prior_receipt_sha256"] == digest(receipt)
     saved_receipt = receipt.read_bytes()
     receipt.unlink()
