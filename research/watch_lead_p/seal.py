@@ -200,7 +200,7 @@ def seal(
     }
     if accounting is not None:
         write(packet / "retry-accounting.json", accounting)
-        manifest["mechanical_retry_accounting"] = {
+        manifest["technical_envelope"]["mechanical_retry_accounting"] = {
             "path": str(target / "retry-accounting.json"),
             "sha256": digest(packet / "retry-accounting.json"),
         }

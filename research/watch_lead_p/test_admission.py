@@ -287,7 +287,22 @@ def completion_packet(tmp_path, monkeypatch, request, packet_source_repo):
     )
     monkeypatch.setattr(seal, "ROOT", repo)
     monkeypatch.setattr(seal, "ARTIFACTS", tmp_path / "artifacts")
-    seal.seal(pin, repo, repo, forecast, 90, ledger, inputs)
+    accounting = tmp_path / "retry-accounting.json"
+    accounting.write_text(
+        json.dumps(
+            {
+                "prepared_job_id": "sandbox-p-watch-lead-20261028-90",
+                "envelope": {
+                    "forecast_seconds": 12000,
+                    "workers": 11,
+                    "effective_minutes": 480,
+                    "effective_units": 12.32,
+                    "governing": "effective",
+                },
+            }
+        )
+    )
+    seal.seal(pin, repo, repo, forecast, 90, ledger, inputs, retry_accounting=accounting)
     git("add", "research/watch_lead_p/packet-90")
     git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture completion packet")
     monkeypatch.setattr(preflight, "REPO_ROOT", repo)
@@ -312,6 +327,10 @@ def test_completion_packet_preflight_upload_skip_and_union(
 
     repo, packet, inputs, prior = completion_packet
     manifest = json.loads((packet / "dispatch-manifest.json").read_text())
+    assert "mechanical_retry_accounting" not in manifest
+    assert manifest["technical_envelope"]["mechanical_retry_accounting"]["path"] == str(
+        packet / "retry-accounting.json"
+    )
     assert manifest["required_exports"] == [
         "watch-lead/inventory.json",
         "watch-lead/units/session-31.json",

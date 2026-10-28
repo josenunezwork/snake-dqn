@@ -96,7 +96,7 @@ def validate_inputs(payload: dict, registry: dict) -> None:
         "verified-ledger.json",
     }
     packet = json.loads(packet_path.read_text())
-    accounting_ref = packet.get("mechanical_retry_accounting")
+    accounting_ref = packet.get("technical_envelope", {}).get("mechanical_retry_accounting")
     if accounting_ref is not None:
         expected_seal.add("retry-accounting.json")
         accounting_path = packet_path.parent / "retry-accounting.json"
