@@ -1461,6 +1461,11 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                             indent=2,
                         )
                     )
+                if name == "sandbox-ct-cf-test-c1":
+                    # c1 has already produced the canonical evidence consumed by c2.
+                    # Re-dispatch must refuse that used output; c2 remains fresh.
+                    assert res.returncode == 1 and "dispatch identity already used" in res.stderr
+                    continue
                 if res.returncode != 0:
                     diag = subprocess.run(
                         [
