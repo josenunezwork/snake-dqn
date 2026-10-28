@@ -172,8 +172,51 @@ def test_p_qualified_supervisor_exec_uses_source_adapter(monkeypatch) -> None:
     assert calls == ["cli"]
 
 
+@pytest.fixture(scope="module")
+def packet_source_repo(tmp_path_factory):
+    """Build one real Git template containing the complete tested dependency closure."""
+    import io
+    import shutil
+    import tarfile
+
+    repo = tmp_path_factory.mktemp("p-packet-source")
+    sources = json.loads((ROOT / "research/watch_lead_p/runtime-sources.json").read_text())
+    patterns = [
+        *sources,
+        "research/watch_lead_p/",
+        "research/colab_cli/",
+        "tools/ops/",
+        "tools/sandbox/",
+        ".gitignore",
+    ]
+    archive = subprocess.check_output(["git", "archive", "HEAD", "--", *patterns], cwd=ROOT)
+    with tarfile.open(fileobj=io.BytesIO(archive)) as source:
+        source.extractall(repo, filter="data")
+    # Preserve support for exercising uncommitted runtime fixes, once per suite.
+    for name in [*sources, "tools/ops/dispatch.py"]:
+        shutil.copy2(ROOT / name, repo / name)
+    subprocess.run(["git", "init", "--quiet", str(repo)], check=True)
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture sources"],
+        cwd=repo,
+        check=True,
+    )
+    from research.watch_lead_p.resume import recipe_fingerprint
+
+    assert recipe_fingerprint(repo) == recipe_fingerprint(ROOT)
+    assert all((repo / name).read_bytes() == (ROOT / name).read_bytes() for name in sources)
+    assert (
+        subprocess.check_output(
+            ["git", "rev-parse", "HEAD:research/colab_cli"], cwd=repo, text=True
+        ).strip()
+        == preflight.TRANSPORT_TREE
+    )
+    return repo
+
+
 @pytest.fixture
-def completion_packet(tmp_path, monkeypatch, request):
+def completion_packet(tmp_path, monkeypatch, request, packet_source_repo):
     """Real committed miniature operator workflow; synthetic outcomes only."""
     import shutil
 
@@ -186,30 +229,20 @@ def completion_packet(tmp_path, monkeypatch, request):
     # Retaining dozens of full clones previously exhausted the Mac disk.
     request.addfinalizer(lambda: shutil.rmtree(repo, ignore_errors=True))
     subprocess.run(
-        ["git", "clone", "--quiet", "--shared", "--no-checkout", str(ROOT), str(repo)],
+        [
+            "git",
+            "clone",
+            "--quiet",
+            "--shared",
+            "--no-checkout",
+            str(packet_source_repo),
+            str(repo),
+        ],
         check=True,
     )
-    # Keep the complete pinned Git tree, but materialize only this fixture's
-    # dependency closure. Full checkouts per case exceed dispatch's 180s guard.
-    sources = json.loads((ROOT / "research/watch_lead_p/runtime-sources.json").read_text())
-    patterns = [
-        *sources,
-        "research/watch_lead_p/",
-        "research/colab_cli/",
-        "tools/ops/",
-        "tools/sandbox/",
-        ".gitignore",
-    ]
-    subprocess.run(
-        ["git", "-C", str(repo), "sparse-checkout", "set", "--no-cone", "--stdin"],
-        input="".join(f"/{name}\n" for name in patterns),
-        text=True,
-        check=True,
-    )
+    # Each case still owns a fresh checkout and all mutable packet bytes, while
+    # Git traverses only the tested closure instead of the full research history.
     subprocess.run(["git", "-C", str(repo), "checkout", "--quiet", "--detach", "HEAD"], check=True)
-    # Exercise the current implementation before and after its eventual commit.
-    for name in [*sources, "tools/ops/dispatch.py"]:
-        shutil.copyfile(ROOT / name, repo / name)
 
     def git(*args):
         return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
