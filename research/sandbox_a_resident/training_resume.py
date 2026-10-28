@@ -49,6 +49,60 @@ NON_MECHANICAL_SUPERVISOR_ERROR_MARKERS = (
     "corrupt",
     "schema",
 )
+# Explicit scientific, preparation, distribution-screen, stall-watchdog, or
+# unhandled Python exception evidence always overrides any mechanical timeout,
+# lease, or wall-cap marker when a timeout races with a scientific fault.
+# Note: ``"nonfinite "`` keeps its trailing space so healthy progress lines
+# carrying ``"first_nonfinite_term": null`` never false-positive.
+EXPLICIT_FAULT_EVIDENCE_MARKERS = (
+    "keyboardinterrupt",
+    "missing required export",
+    "canary",
+    "corrupt",
+    "schemaerror",
+    "floatingpointerror",
+    "non-finite",
+    "nonfinite ",
+    '"finite": false',
+    '"finite":false',
+    "tripwire",
+    "preparationfailure",
+    "preparation-failed",
+    "failed preparation",
+    "distribution-screen-failed",
+    "material distribution gap",
+    "invalid initial food support",
+    "zero-update b8 greedy",
+    "greedy agreement failed",
+    "collector selected an illegal action",
+    "action collapse exceeds",
+    "compactresumerefused",
+    "resumerefused",
+    "stall watchdog",
+    "stallwatchdog",
+    "faulthandler",
+    "timeout (",
+    "traceback (most recent call last)",
+    "assertionerror",
+    "valueerror:",
+    "typeerror:",
+    "keyerror:",
+    "indexerror:",
+    "zerodivisionerror",
+    "arithmeticerror",
+    "overflowerror",
+    "memoryerror",
+    "cuda out of memory",
+    "cuda error",
+    "inductorerror",
+    "backendcompilerfailed",
+    "runtimeerror:",
+    "runtime supervisor failure",
+    "systemexit:",
+    "oserror:",
+    "filenotfounderror:",
+    "fileexistserror:",
+)
 
 
 class ResumeRefused(ValueError):
@@ -352,10 +406,120 @@ def attach_compact_resume(
     return successor, kept[:position] + records + kept[position:]
 
 
+def _refuse_if_fault_text(
+    value: Any, *, field_name: str, check_supervisor_denylist: bool = False
+) -> None:
+    if not isinstance(value, str) or not value.strip():
+        return
+    lowered = value.lower()
+    for marker in EXPLICIT_FAULT_EVIDENCE_MARKERS:
+        if marker in lowered:
+            raise ResumeRefused(
+                f"prior evidence records explicit scientific/non-mechanical fault "
+                f"in {field_name}: {marker!r}"
+            )
+    if check_supervisor_denylist:
+        for marker in NON_MECHANICAL_SUPERVISOR_ERROR_MARKERS:
+            if marker in lowered:
+                raise ResumeRefused(
+                    f"prior evidence records non-mechanical supervisor marker "
+                    f"in {field_name}: {marker!r}"
+                )
+
+
+def _refuse_if_fault_exports(exports: Any, *, source_name: str) -> None:
+    if not isinstance(exports, list):
+        return
+    for item in exports:
+        if not isinstance(item, Mapping):
+            continue
+        rel_path = str(item.get("path", "")).replace("\\", "/").lower()
+        size = item.get("size")
+        if rel_path.endswith("faulthandler-stacks.log") and isinstance(size, int) and size > 0:
+            raise ResumeRefused(
+                f"{source_name} exported non-empty faulthandler-stacks.log (stall watchdog fired)"
+            )
+        if "preparation-failed" in rel_path or "distribution-screen-failed" in rel_path:
+            raise ResumeRefused(f"{source_name} exported failed stage artifact: {rel_path}")
+
+
+def _check_terminal_fault_evidence(terminal: Mapping[str, Any], *, label: str) -> None:
+    if terminal.get("returncode") == 124:
+        raise ResumeRefused(f"{label} records watchdog timeout exit code 124")
+    _refuse_if_fault_text(
+        terminal.get("error"), field_name=f"{label}.error", check_supervisor_denylist=True
+    )
+    for key in ("last_traceback_line", "last_error_line", "job_log_tail"):
+        _refuse_if_fault_text(terminal.get(key), field_name=f"{label}.{key}")
+    _refuse_if_fault_exports(terminal.get("exports"), source_name=label)
+    scanner = terminal.get("export_scanner")
+    if isinstance(scanner, Mapping):
+        _refuse_if_fault_exports(scanner.get("inventory"), source_name=f"{label}.export_scanner")
+
+
+def _check_output_root_fault_evidence(output_root: Path) -> None:
+    if output_root.is_symlink() or not output_root.is_dir():
+        return
+    terminal_file = output_root / "terminal.json"
+    if terminal_file.is_file() and not terminal_file.is_symlink():
+        try:
+            persisted_terminal = json.loads(terminal_file.read_text())
+        except (OSError, json.JSONDecodeError) as error:
+            raise ResumeRefused(
+                "corrupt persisted terminal.json in prior output directory"
+            ) from error
+        if isinstance(persisted_terminal, Mapping):
+            if persisted_terminal.get("status") in {"completed", "succeeded"}:
+                raise ResumeRefused(
+                    "persisted terminal.json already completed; refusing continuation"
+                )
+            _check_terminal_fault_evidence(persisted_terminal, label="persisted_terminal")
+    stacks_path = output_root / "exports/training/stall-watchdog/faulthandler-stacks.log"
+    if stacks_path.is_file() and not stacks_path.is_symlink() and stacks_path.stat().st_size > 0:
+        raise ResumeRefused("exported faulthandler-stacks.log is non-empty (stall watchdog fired)")
+    progress_path = output_root / "exports/training/progress.json"
+    if progress_path.is_file() and not progress_path.is_symlink():
+        try:
+            progress = json.loads(progress_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            progress = None
+        if isinstance(progress, Mapping) and str(progress.get("stage", "")).lower().endswith(
+            "-failed"
+        ):
+            raise ResumeRefused(
+                f"exported progress.json records failed stage: {progress.get('stage')!r}"
+            )
+    for poll_path in sorted(output_root.glob("poll-*.json"))[-8:]:
+        if poll_path.is_symlink() or not poll_path.is_file():
+            continue
+        try:
+            poll_payload = json.loads(poll_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(poll_payload, Mapping):
+            continue
+        _refuse_if_fault_text(
+            poll_payload.get("job_log_tail"), field_name=f"{poll_path.name}.job_log_tail"
+        )
+        _refuse_if_fault_exports(poll_payload.get("exports"), source_name=poll_path.name)
+        poll_terminal = poll_payload.get("terminal")
+        if isinstance(poll_terminal, Mapping):
+            _check_terminal_fault_evidence(poll_terminal, label=f"{poll_path.name}.terminal")
+
+
 def verify_mechanical_stop(
-    receipt: Mapping[str, Any], manifest: Mapping[str, Any], manifest_sha256: str
+    receipt: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+    manifest_sha256: str,
+    *,
+    output_root: Path | None = None,
 ) -> None:
     """Require an exact, released mechanical stop before a manual successor.
+
+    Explicit scientific, preparation, distribution-screen, or stall-watchdog
+    failure evidence in ``receipt``, ``terminal``, exported inventories, or
+    ``output_root`` always takes precedence over any timeout/lease/wall-cap
+    marker and refuses continuation.
 
     Admits only mechanical timeout/recycle/poll terminations with verified VM
     release and clean cleanup:
@@ -363,12 +527,11 @@ def verify_mechanical_stop(
       mechanical timeout/lease reason),
     - ``SUPERVISOR`` when ``terminal.reason`` is a mechanical timeout/lease
       reason or ``terminal`` is absent and ``error`` names a host wall/unit/lease
-      cap or read-retry exhaustion (never ``KeyboardInterrupt`` or missing/corrupt
-      exports),
+      cap or read-retry exhaustion (never ``KeyboardInterrupt``, scientific
+      tripwires, or missing/corrupt exports),
     - ``CHILD_NONZERO_EXIT`` only when ``terminal.reason`` explicitly records a
-      mechanical VM timeout/lease/credential stop (refusing scientific tripwires,
-      ``StallWatchdog`` ``os._exit(1)``, and ordinary crashes where ``reason`` is
-      ``None``).
+      mechanical VM timeout/lease/credential stop and no conflicting scientific
+      or stall fault evidence is present.
     """
     terminal = receipt.get("terminal")
     if (
@@ -386,6 +549,10 @@ def verify_mechanical_stop(
         or receipt.get("cleanup_error") is not None
     ):
         raise ResumeRefused("prior receipt does not prove a verified released incomplete run")
+    _refuse_if_fault_text(
+        receipt.get("error"), field_name="receipt.error", check_supervisor_denylist=True
+    )
+    _refuse_if_fault_exports(receipt.get("exports"), source_name="receipt")
     terminal_reason: Any = None
     if terminal is not None:
         if (
@@ -394,14 +561,17 @@ def verify_mechanical_stop(
             or terminal.get("generation") != receipt.get("generation")
         ):
             raise ResumeRefused("terminal identity differs from the incomplete receipt")
-        if terminal.get("status") == "completed":
+        if terminal.get("status") in {"completed", "succeeded"}:
             raise ResumeRefused("prior terminal already completed; refusing continuation")
+        _check_terminal_fault_evidence(terminal, label="terminal")
         terminal_reason = terminal.get("reason")
         if (
             terminal.get("returncode") not in (None, 0)
             and terminal_reason not in MECHANICAL_TERMINAL_REASONS
         ):
             raise ResumeRefused("terminal records a non-mechanical child failure")
+    if output_root is not None:
+        _check_output_root_fault_evidence(output_root)
     failure_class = receipt.get("failure_class")
     if failure_class == "RPC_EXEC_POLL_TIMEOUT":
         if terminal is not None and terminal_reason not in MECHANICAL_TERMINAL_REASONS:
@@ -445,6 +615,7 @@ def completion_packet(
     successor_control: Mapping[str, Any] | None = None,
     compact_source_packet_id: str | None = None,
     allowlist_path: Path | None = None,
+    output_root: Path | None = None,
 ) -> ResumePacket:
     """Return a fresh, manually dispatchable successor manifest and its inputs.
 
@@ -453,7 +624,19 @@ def completion_packet(
     """
     if completion_index not in (1, 2):
         raise ResumeRefused("only two manual outcome-blind completion attempts are registered")
-    verify_mechanical_stop(terminal_receipt, original_manifest, original_manifest_sha256)
+    inferred_output_root = output_root
+    if (
+        inferred_output_root is None
+        and export_root.name == "training"
+        and export_root.parent.name == "exports"
+    ):
+        inferred_output_root = export_root.parents[1]
+    verify_mechanical_stop(
+        terminal_receipt,
+        original_manifest,
+        original_manifest_sha256,
+        output_root=inferred_output_root,
+    )
     if not job_id or job_id == original_manifest.get("job_id"):
         raise ResumeRefused("completion attempt requires a fresh job id")
     if str(output_dir) == original_manifest.get("output_dir") or not output_dir.is_absolute():

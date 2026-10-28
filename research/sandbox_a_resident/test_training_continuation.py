@@ -16,10 +16,16 @@ from research.sandbox_a_resident.training_compact import (
     verify_decoded_state,
 )
 from research.sandbox_a_resident.training_continuation import (
+    MAX_CONTINUATION_PRIVATE_INPUT_BYTES,
+    STAGING_DESIGN_NOMINAL_SECONDS,
+    STAGING_DESIGN_WORST_SECONDS,
+    STAGING_HARD_CAP_SECONDS,
     ContinuationRefused,
     _derive_identities,
     build_continuation_packet,
     compute_remaining_envelope,
+    compute_staging_projection,
+    encode_or_verify_compact_snapshot,
     run_dispatch_dry_run,
 )
 from research.sandbox_a_resident.training_units import (
@@ -221,10 +227,22 @@ def test_remaining_envelope_math_scales_updates_and_proxies_with_2x_rule() -> No
     assert env_192["remaining_updates"] == 192
     assert env_192["scheduled_proxy_updates"] == [256, 320, 384]
     assert env_192["proxy_count"] == 3
-    assert env_192["est_minutes"] == 600
-    assert env_192["timeout_minutes"] == 1200
-    assert env_192["unit_cap"] == 161.0
+    assert env_192["est_minutes"] == 840
+    assert env_192["timeout_minutes"] == 1680
+    assert env_192["unit_cap"] == 225.0
     assert env_192["unit_cap"] >= (env_192["timeout_minutes"] / 60.0) * 8.0
+
+    env_192_deferred = compute_remaining_envelope(192, deferred_proxy=True)
+    assert env_192_deferred["proxy_count"] == 4
+    assert env_192_deferred["est_minutes"] == 870
+    assert env_192_deferred["timeout_minutes"] == 1740
+
+    env_48 = compute_remaining_envelope(48)
+    assert env_48["remaining_updates"] == 336
+    assert env_48["scheduled_proxy_updates"] == [64, 128, 192, 256, 320, 384]
+    assert env_48["proxy_count"] == 6
+    assert env_48["timeout_minutes"] == 2 * env_48["est_minutes"]
+    assert env_48["unit_cap"] >= (env_48["timeout_minutes"] / 60.0) * 8.0
 
     env_176 = compute_remaining_envelope(176)
     assert env_176["remaining_updates"] == 208
@@ -544,3 +562,264 @@ def test_derive_identities_supports_train01_17_and_c1_c2_continuations() -> None
     assert slug_c2 == "train01-17-c2-i0320"
     assert suffix_c2 == "17-c2-i0320"
     assert job_c2 == "sandbox-a-train01-20261028-17-c2-i0320"
+
+
+def test_occupied_simulator_ring_periodic_state_and_67mb_staging_bounds(
+    fixture_workspace: Path, tmp_path: Path
+) -> None:
+    """Occupied periodic simulator-ring state round-trips and ~66.6 MB inputs pass staging."""
+    from research.sandbox_a_resident.training_resume import attach_compact_resume, build_ledger
+    from research.sandbox_a_resident.training_units import (
+        COMPACT_ALLOWLIST_SCHEMA,
+        register_compact_allowlist_entry,
+    )
+
+    repo = fixture_workspace / "snake-dqn-fixture"
+    source_packet = repo / "research/sandbox_a_resident/packet-train01-15"
+    src_control = json.loads((source_packet / "control.json").read_text())
+    dst_control = {**src_control, "source_commit": "f" * 40}
+
+    gen = torch.Generator().manual_seed(20261028)
+    worlds, snakes, ring_cap, food_cap = 64, 6, 512, 512
+    bodies = torch.zeros((worlds, snakes, ring_cap, 2), dtype=torch.int64)
+    head_idx = torch.randint(0, ring_cap, (worlds, snakes), generator=gen, dtype=torch.int64)
+    lengths = torch.randint(12, 110, (worlds, snakes), generator=gen, dtype=torch.int64)
+    for w in range(worlds):
+        for s in range(snakes):
+            length = int(lengths[w, s].item())
+            start_head = int(head_idx[w, s].item())
+            coords = torch.randint(1, 127, (length, 2), generator=gen, dtype=torch.int64)
+            slots = (start_head - torch.arange(length, dtype=torch.int64)) % ring_cap
+            bodies[w, s, slots] = coords
+    nonzero_body_fraction = float((bodies != 0).any(dim=-1).float().mean().item())
+    assert 0.10 <= nonzero_body_fraction <= 0.25
+
+    food_cells = torch.zeros((worlds, food_cap, 2), dtype=torch.int64)
+    food_present = torch.rand((worlds, food_cap), generator=gen) < 0.40
+    active_food = int(food_present.sum().item())
+    food_cells[food_present] = torch.randint(
+        1, 127, (active_food, 2), generator=gen, dtype=torch.int64
+    )
+    random_slots = torch.randint(
+        0, 6, (worlds, 3, ring_cap, 3), generator=gen, dtype=torch.int64
+    ) * (torch.rand((worlds, 3, ring_cap, 1), generator=gen) < 0.39).to(torch.int64)
+
+    periodic_state = {
+        "schema": "sandbox-a-train-state/v1",
+        "iteration": 48,
+        "actor": {
+            "trunk.weight": torch.randn((128, 64), generator=gen, dtype=torch.float32),
+            "head.weight": torch.randn((6, 128), generator=gen, dtype=torch.float32),
+            "_temperature": torch.tensor(0.00843973, dtype=torch.float32),
+        },
+        "critic": {
+            "trunk.weight": torch.randn((128, 64), generator=gen, dtype=torch.float32),
+            "mu": torch.tensor([0.125], dtype=torch.float64),
+            "sigma": torch.tensor([1.875], dtype=torch.float64),
+        },
+        "trainer": {
+            "actor_rows": 48 * 1024 * 256,
+            "exp_avg": torch.randn((128, 64), generator=gen, dtype=torch.float32),
+            "exp_avg_sq": torch.rand((128, 64), generator=gen, dtype=torch.float32),
+        },
+        "task": {
+            "sim": {
+                "bodies": bodies,
+                "head_idx": head_idx,
+                "lengths": lengths,
+                "food_cells": food_cells,
+                "food_present": food_present,
+            },
+            "groups": {2: {"random_slots": [random_slots, None]}},
+            "age": torch.randint(0, 4800, (worlds,), generator=gen, dtype=torch.int64),
+        },
+        "rng": {"torch": torch.get_rng_state(), "collection": gen.get_state()},
+        "metrics": [
+            {"iteration": 0, "preparation": {"stage": "ready"}},
+            {
+                "iteration": 16,
+                "collector_seconds": 204.78,
+                "proxy": {"kind": "diagnostic-update-16"},
+            },
+            {"iteration": 48, "collector_seconds": 204.30, "learner_seconds": 8.59},
+        ],
+        "preparation": {"stage": "ready", "temperature": 0.00843973},
+        "action_window": torch.randint(0, 6, (100_000,), generator=gen, dtype=torch.long),
+    }
+
+    exports = tmp_path / "exports"
+    exports.mkdir(parents=True)
+    publish_snapshot(
+        exports,
+        48,
+        lambda path: torch.save(periodic_state, path),
+        metadata={
+            "allocation": allocation(src_control),
+            "source_commit": src_control["source_commit"],
+            "prepare_phase": "ready",
+        },
+    )
+    publish(exports / "iteration-0048-actor.pth", lambda path: path.write_bytes(b"actor-0048"))
+
+    entry = encode_or_verify_compact_snapshot(
+        exports / "iteration-0048.pt",
+        source_packet_id="packet-train01-15",
+        iteration=48,
+        source_commit=src_control["source_commit"],
+    )
+    assert entry["derivative"]["size"] > 0
+    allowlist_path = tmp_path / "compact_allowlist.json"
+    allowlist_path.write_text(json.dumps({"schema": COMPACT_ALLOWLIST_SCHEMA, "entries": []}))
+    register_compact_allowlist_entry(entry, path=allowlist_path)
+
+    ledger, uploads, latest = build_ledger(
+        exports, dst_control, source_control=src_control, allowlist_path=allowlist_path
+    )
+    assert latest == 48
+    ledger, uploads = attach_compact_resume(
+        ledger,
+        uploads,
+        exports,
+        source_packet_id="packet-train01-15",
+        allowlist_path=allowlist_path,
+    )
+    vm_inputs = tmp_path / "vm-inputs"
+    for row in uploads:
+        target = vm_inputs / row["dest"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(row["path"], target)
+    decoded_manifest = materialize_compact_resume(ledger, vm_inputs, allowlist_path=allowlist_path)
+    assert (vm_inputs / "resume/iteration-0048.pt").read_bytes() == (
+        exports / "iteration-0048.pt"
+    ).read_bytes()
+    verify_decoded_state(
+        torch.load(vm_inputs / "resume/iteration-0048.pt", map_location="cpu", weights_only=False),
+        decoded_manifest,
+    )
+
+    # Reconstruct the exact ~66.60 MB 15-private-input periodic profile (e.g. real iteration-0048:
+    # 38,332,660 B .pt.xz + 93,518 B .pt.xz.manifest + fixed checkpoints) and verify staging PASS.
+    base_manifest = json.loads((source_packet / "dispatch-manifest.json").read_text())
+    fixed_inputs = [
+        row
+        for row in base_manifest["inputs"]
+        if not row["dest"].startswith("resume/") and row["dest"] != "verified-ledger.json"
+    ]
+    real_scale_dir = tmp_path / "real-scale-periodic"
+    real_scale_dir.mkdir()
+    real_pt_xz = real_scale_dir / "iteration-0048.pt.xz"
+    real_pt_xz.write_bytes(b"\xfd7zXZ\x00" + b"\x00" * (38_332_660 - 6))
+    real_manifest = real_scale_dir / "iteration-0048.pt.xz.manifest"
+    real_manifest.write_bytes(b" " * 93_518)
+    real_actor = real_scale_dir / "iteration-0048-actor.pth"
+    real_actor.write_bytes(b"\x00" * 6_574_173)
+    real_ledger = real_scale_dir / "verified-ledger.json"
+    real_ledger.write_text(json.dumps(ledger, indent=2, sort_keys=True) + "\n")
+
+    periodic_inputs = list(fixed_inputs) + [
+        {"dest": "verified-ledger.json", "path": str(real_ledger)}
+    ]
+    for row in uploads:
+        if row["dest"].endswith(".pt.xz"):
+            periodic_inputs.append({"dest": row["dest"], "path": str(real_pt_xz)})
+        elif row["dest"].endswith(".pt.xz.manifest"):
+            periodic_inputs.append({"dest": row["dest"], "path": str(real_manifest)})
+        elif row["dest"].endswith("-actor.pth"):
+            periodic_inputs.append({"dest": row["dest"], "path": str(real_actor)})
+        else:
+            periodic_inputs.append({"dest": row["dest"], "path": row["path"]})
+    assert len(periodic_inputs) == 15
+
+    projection = compute_staging_projection(
+        {"inputs": periodic_inputs},
+        repo,
+        source_tar_gz_bytes=1_000_000,
+    )
+    assert projection["status"] == "PASS"
+    assert projection["total_upload_file_count"] == 18
+    assert 66_000_000 < projection["private_input_bytes"] <= MAX_CONTINUATION_PRIVATE_INPUT_BYTES
+    assert projection["nominal_seconds"] <= STAGING_DESIGN_NOMINAL_SECONDS
+    assert projection["worst_case_seconds"] <= STAGING_DESIGN_WORST_SECONDS
+    assert projection["worst_case_seconds"] < STAGING_HARD_CAP_SECONDS
+
+    # Payloads exceeding MAX_CONTINUATION_PRIVATE_INPUT_BYTES (>100 MB or raw 1.34 GB) fail closed.
+    oversized = real_scale_dir / "oversized.pt.xz"
+    oversized.write_bytes(b"\x00" * (MAX_CONTINUATION_PRIVATE_INPUT_BYTES + 1))
+    bad_inputs = [
+        {
+            "dest": row["dest"],
+            "path": str(oversized) if row["dest"].endswith(".pt.xz") else row["path"],
+        }
+        for row in periodic_inputs
+    ]
+    with pytest.raises(ContinuationRefused, match="exceed .* whole-staging ceiling"):
+        compute_staging_projection({"inputs": bad_inputs}, repo, source_tar_gz_bytes=1_000_000)
+
+
+def test_continuation_builder_refuses_timeout_with_scientific_fault_or_poll_fault(
+    fixture_workspace: Path,
+) -> None:
+    repo = fixture_workspace / "snake-dqn-fixture"
+    artifacts = fixture_workspace / "snake-dqn-artifacts/sandbox-a-resident"
+    source_packet = repo / "research/sandbox_a_resident/packet-train01-15"
+
+    # Case 1: CHILD_NONZERO_EXIT with reason="timeout" AND explicit scientific tripwire traceback.
+    raced_attempt = _populate_attempt(
+        artifacts / "train01-attempt-15-timeout-race",
+        source_packet,
+        [48],
+        receipt_overrides={
+            "failure_class": "CHILD_NONZERO_EXIT",
+            "terminal": {
+                "job_id": "sandbox-a-train01-20261027-15",
+                "generation": "gen-fixture",
+                "status": "failed",
+                "returncode": 1,
+                "reason": "timeout",
+                "last_traceback_line": "FloatingPointError: non-finite loss tripwire",
+            },
+        },
+    )
+    with pytest.raises(ContinuationRefused, match="explicit scientific/non-mechanical fault"):
+        build_continuation_packet(
+            raced_attempt,
+            48,
+            repo_root=repo,
+            checkout_parent=fixture_workspace,
+            artifacts_root=artifacts,
+            date_tag="20261028",
+            skip_dry_run=True,
+        )
+
+    # Case 2: SUPERVISOR wall-cap receipt with terminal=None, but poll log records non-finite fault.
+    poll_fault_attempt = _populate_attempt(
+        artifacts / "train01-attempt-15-poll-fault",
+        source_packet,
+        [48],
+        receipt_overrides={
+            "failure_class": "SUPERVISOR",
+            "terminal": None,
+            "error": "SupervisorError('whole-session wall cap reached')",
+        },
+    )
+    (poll_fault_attempt / "output/poll-000042.json").write_text(
+        json.dumps(
+            {
+                "job_log_tail": (
+                    'TRAIN01_PROGRESS {"finite": false, ' '"first_nonfinite_term": "policy_loss"}\n'
+                ),
+                "exports": [],
+            }
+        )
+        + "\n"
+    )
+    with pytest.raises(ContinuationRefused, match="explicit scientific/non-mechanical fault"):
+        build_continuation_packet(
+            poll_fault_attempt,
+            48,
+            repo_root=repo,
+            checkout_parent=fixture_workspace,
+            artifacts_root=artifacts,
+            date_tag="20261028",
+            skip_dry_run=True,
+        )

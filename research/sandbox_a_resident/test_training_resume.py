@@ -11,6 +11,7 @@ from research.sandbox_a_resident.training_resume import (
     ResumeRefused,
     build_ledger,
     completion_packet,
+    verify_mechanical_stop,
 )
 from research.sandbox_a_resident.training_units import (
     TRAIN01_07_SOURCE_COMMIT,
@@ -544,3 +545,186 @@ def test_completion_packet_refuses_non_mechanical_or_unreleased_receipts(
             output_dir=Path("/tmp/train-01-refused-c1"),
             original_manifest_sha256="b" * 64,
         )
+
+
+@pytest.mark.parametrize(
+    "conflicting_receipt",
+    [
+        # Timeout race: CHILD_NONZERO_EXIT reason="timeout" + FloatingPointError tripwire
+        {
+            "failure_class": "CHILD_NONZERO_EXIT",
+            "terminal": {
+                "job_id": "train-01",
+                "generation": "g-1",
+                "status": "failed",
+                "returncode": 1,
+                "reason": "timeout",
+                "last_traceback_line": "FloatingPointError: non-finite loss tripwire",
+            },
+        },
+        # SUPERVISOR wall-cap error string combined with FloatingPointError tripwire
+        {
+            "failure_class": "SUPERVISOR",
+            "terminal": None,
+            "error": (
+                "SupervisorError('whole-session wall cap reached; "
+                "FloatingPointError: non-finite loss tripwire')"
+            ),
+        },
+        # Timeout race: CHILD_NONZERO_EXIT reason="timeout" + PreparationFailure
+        {
+            "failure_class": "CHILD_NONZERO_EXIT",
+            "terminal": {
+                "job_id": "train-01",
+                "generation": "g-1",
+                "status": "failed",
+                "returncode": 1,
+                "reason": "timeout",
+                "last_traceback_line": "PreparationFailure: critic holdout late EV below 0.10",
+            },
+        },
+        # SUPERVISOR wall-cap error string combined with PreparationFailure
+        {
+            "failure_class": "SUPERVISOR",
+            "terminal": None,
+            "error": (
+                "Refused('whole-session wall cap reached; "
+                "PreparationFailure: invalid calibrated temperature')"
+            ),
+        },
+        # Lease expiry race with action collapse RuntimeError
+        {
+            "failure_class": "CHILD_NONZERO_EXIT",
+            "terminal": {
+                "job_id": "train-01",
+                "generation": "g-1",
+                "status": "failed",
+                "returncode": -15,
+                "reason": "lease_expired",
+                "last_error_line": (
+                    "RuntimeError: action collapse exceeds 90 percent "
+                    "over a complete 100k-row window"
+                ),
+            },
+        },
+        # Stall watchdog returncode 124 despite timeout reason
+        {
+            "failure_class": "CHILD_NONZERO_EXIT",
+            "terminal": {
+                "job_id": "train-01",
+                "generation": "g-1",
+                "status": "failed",
+                "returncode": 124,
+                "reason": "timeout",
+            },
+        },
+        # RPC poll timeout with non-empty stall-watchdog faulthandler dump in receipt exports
+        {
+            "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+            "terminal": {
+                "job_id": "train-01",
+                "generation": "g-1",
+                "status": "failed",
+                "returncode": -15,
+                "reason": "timeout",
+            },
+            "exports": [
+                {"path": "training/stall-watchdog/faulthandler-stacks.log", "size": 512},
+            ],
+        },
+        # SUPERVISOR wall-cap stop with distribution-screen-failed in terminal job_log_tail
+        {
+            "failure_class": "SUPERVISOR",
+            "error": "SupervisorError('whole-session wall cap reached')",
+            "terminal": {
+                "job_id": "train-01",
+                "generation": "g-1",
+                "status": "failed",
+                "returncode": -15,
+                "reason": "timeout",
+                "job_log_tail": 'TRAIN01_PROGRESS {"stage": "distribution-screen-failed"}\n',
+            },
+        },
+    ],
+)
+def test_scientific_failure_evidence_takes_precedence_over_timeout_markers(
+    tmp_path: Path, conflicting_receipt: dict
+) -> None:
+    snapshot(tmp_path, 2)
+    observed = {**receipt(), **conflicting_receipt}
+    with pytest.raises(ResumeRefused, match="scientific|watchdog"):
+        verify_mechanical_stop(observed, manifest(), "b" * 64)
+    with pytest.raises(ResumeRefused, match="scientific|watchdog"):
+        completion_packet(
+            manifest(),
+            observed,
+            tmp_path,
+            control(),
+            completion_index=1,
+            job_id="train-01-scientific-refused",
+            output_dir=Path("/tmp/train-01-scientific-refused"),
+            original_manifest_sha256="b" * 64,
+        )
+
+
+def test_verify_mechanical_stop_inspects_output_root_telemetry_without_false_positives(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "attempt/output"
+    exports = output_root / "exports/training"
+    watchdog_dir = exports / "stall-watchdog"
+    watchdog_dir.mkdir(parents=True)
+    snapshot(exports, 2)
+
+    # Healthy run seals an empty 0-byte faulthandler-stacks.log and emits first_nonfinite_term=null
+    # and STALL_WATCHDOG_DIAGNOSTICS sealed_dir=... on clean exit.
+    (watchdog_dir / "faulthandler-stacks.log").write_bytes(b"")
+    (exports / "progress.json").write_text(json.dumps({"stage": "sigusr1-graceful-stop"}) + "\n")
+    (output_root / "poll-000100.json").write_text(
+        json.dumps(
+            {
+                "job_log_tail": (
+                    'TRAIN01_PROGRESS {"stage": "update", "first_nonfinite_term": null}\n'
+                    'TRAIN01_PROGRESS {"schema": "sandbox-a-train-sigusr1-checkpoint/v1"}\n'
+                    "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/out/stall-watchdog\n"
+                ),
+                "exports": [
+                    {"path": "training/stall-watchdog/faulthandler-stacks.log", "size": 0},
+                ],
+            }
+        )
+        + "\n"
+    )
+    clean_wall_cap = {
+        **receipt(),
+        "failure_class": "SUPERVISOR",
+        "terminal": None,
+        "error": "SupervisorError('whole-session wall cap reached')",
+    }
+    verify_mechanical_stop(clean_wall_cap, manifest(), "b" * 64, output_root=output_root)
+
+    # Non-empty faulthandler stack dump in output_root refuses continuation.
+    (watchdog_dir / "faulthandler-stacks.log").write_text("Thread 0x1 (most recent call first):\n")
+    with pytest.raises(ResumeRefused, match="faulthandler-stacks.log is non-empty"):
+        verify_mechanical_stop(clean_wall_cap, manifest(), "b" * 64, output_root=output_root)
+    (watchdog_dir / "faulthandler-stacks.log").write_bytes(b"")
+
+    # Failed progress stage in output_root refuses continuation.
+    (exports / "progress.json").write_text(json.dumps({"stage": "preparation-failed"}) + "\n")
+    with pytest.raises(ResumeRefused, match="progress.json records failed stage"):
+        verify_mechanical_stop(clean_wall_cap, manifest(), "b" * 64, output_root=output_root)
+    (exports / "progress.json").write_text(json.dumps({"stage": "update"}) + "\n")
+
+    # Explicit non-finite report in latest poll log refuses continuation.
+    (output_root / "poll-000101.json").write_text(
+        json.dumps(
+            {
+                "job_log_tail": (
+                    'TRAIN01_PROGRESS {"finite": false, ' '"first_nonfinite_term": "policy_loss"}\n'
+                ),
+            }
+        )
+        + "\n"
+    )
+    with pytest.raises(ResumeRefused, match="explicit scientific/non-mechanical fault"):
+        verify_mechanical_stop(clean_wall_cap, manifest(), "b" * 64, output_root=output_root)

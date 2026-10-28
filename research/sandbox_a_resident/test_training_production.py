@@ -14,6 +14,7 @@ from research.sandbox_a_resident.test_training_runner import Actor, Critic, Task
 from research.sandbox_a_resident.training_units import (
     TRAIN01_07_SOURCE_COMMIT,
     TRAIN01_11_SOURCE_COMMIT,
+    TRAIN01_15_SOURCE_COMMIT,
     source_migration,
 )
 
@@ -433,6 +434,144 @@ def test_predecessor_iteration16_catches_up_diagnostic_once(production, tmp_path
         sum(row.get("proxy", {}).get("kind") == "diagnostic-update-16" for row in result["metrics"])
         == 1
     )
+    migration_row = next(row for row in result["metrics"] if "proxy_cache_migration" in row)
+    assert "proxy" not in migration_row
+    learner_row = next(
+        row
+        for row in result["metrics"]
+        if row.get("iteration") == 16
+        and "proxy_cache_migration" not in row
+        and "monitoring_note" not in row
+    )
+    assert learner_row["proxy"]["kind"] == "diagnostic-update-16"
+
+
+def test_source_migration_at_completed_regular_boundary_does_not_repeat_proxy(
+    production, tmp_path, monkeypatch
+):
+    """Resuming a regular proxy checkpoint (e.g. u64) via source_migration must not re-evaluate."""
+    control, _calls = production
+    object.__setattr__(control, "outer_iterations", 65)
+    predecessor = train.TrainControl("sandbox-a-train01", TRAIN01_15_SOURCE_COMMIT, 0)
+    for field in (
+        "worlds",
+        "outer_iterations",
+        "rollout_horizon",
+        "proxy_worlds_per_mix",
+        "proxy_horizon",
+        "compile_mode",
+    ):
+        object.__setattr__(predecessor, field, getattr(control, field))
+    monkeypatch.setattr(train, "paired", lambda *args: {})
+    execute(predecessor, tmp_path / "attempt15")
+
+    saved = tmp_path / "attempt15/iteration-0064.pt"
+    saved_state = torch.load(saved, weights_only=False)
+    assert sum("proxy" in row and row.get("iteration") == 64 for row in saved_state["metrics"]) == 1
+
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(
+        json.dumps({"source_migration": source_migration(asdict(predecessor), asdict(control))})
+    )
+    monkeypatch.setattr(
+        train,
+        "load_ledger",
+        lambda *args, **kwargs: {64: {"iteration": 64, "exports": [{"path": str(saved)}]}},
+    )
+    eval_calls = []
+    monkeypatch.setattr(train, "evaluate", lambda *args: eval_calls.append(args) or {})
+    result = execute(control, tmp_path / "attempt15-c1", ledger=ledger)
+
+    assert eval_calls == []
+    assert sum("proxy" in row and row.get("iteration") == 64 for row in result["metrics"]) == 1
+    migration_row = next(row for row in result["metrics"] if "proxy_cache_migration" in row)
+    assert migration_row["iteration"] == 64
+    assert "proxy" not in migration_row
+
+
+def test_source_migration_at_deferred_regular_boundary_catches_up_once_on_learner_row(
+    production, tmp_path, monkeypatch
+):
+    """A SIGUSR1-deferred regular proxy catches up once on the learner row and not on c2."""
+    from research.sandbox_a_resident import training_units
+
+    control, _calls = production
+    object.__setattr__(control, "outer_iterations", 81)
+    predecessor = train.TrainControl("sandbox-a-train01", TRAIN01_15_SOURCE_COMMIT, 0)
+    c2_control = train.TrainControl("sandbox-a-train01", "d" * 40, 0)
+    for target in (predecessor, c2_control):
+        for field in (
+            "worlds",
+            "outer_iterations",
+            "rollout_horizon",
+            "proxy_worlds_per_mix",
+            "proxy_horizon",
+            "compile_mode",
+        ):
+            object.__setattr__(target, field, getattr(control, field))
+
+    monkeypatch.setattr(train, "paired", lambda *args: {})
+    execute(predecessor, tmp_path / "attempt15")
+
+    deferred_state = torch.load(tmp_path / "attempt15/iteration-0064.pt", weights_only=False)
+    for row in deferred_state["metrics"]:
+        if row.get("iteration") == 16:
+            row.pop("proxy", None)
+        if row.get("iteration") == 64 and "proxy" in row:
+            row.pop("proxy")
+            row["proxy_deferred_on_sigusr1"] = "regular"
+    deferred_pt = tmp_path / "deferred-iteration-0064.pt"
+    torch.save(deferred_state, deferred_pt)
+
+    c1_ledger = tmp_path / "c1-ledger.json"
+    c1_ledger.write_text(
+        json.dumps({"source_migration": source_migration(asdict(predecessor), asdict(control))})
+    )
+    monkeypatch.setattr(
+        train,
+        "load_ledger",
+        lambda *args, **kwargs: {64: {"iteration": 64, "exports": [{"path": str(deferred_pt)}]}},
+    )
+    c1_evals = []
+    monkeypatch.setattr(train, "evaluate", lambda *args: c1_evals.append(args) or {})
+    c1_result = execute(control, tmp_path / "attempt15-c1", ledger=c1_ledger)
+
+    assert len(c1_evals) == 1
+    assert sum("proxy" in row and row.get("iteration") == 64 for row in c1_result["metrics"]) == 1
+    migration_row = next(row for row in c1_result["metrics"] if "proxy_cache_migration" in row)
+    assert "proxy" not in migration_row
+    learner_row = next(
+        row
+        for row in c1_result["metrics"]
+        if row.get("iteration") == 64
+        and "proxy_cache_migration" not in row
+        and "monitoring_note" not in row
+    )
+    assert learner_row["proxy"]["kind"] == "regular"
+    assert "proxy_deferred_on_sigusr1" not in learner_row
+
+    # Chaining c1 -> c2 (same outer_iterations=81 endpoint) from c1's periodic iteration-0080
+    # snapshot makes zero proxy calls and does not duplicate monitoring_note.
+    monkeypatch.setattr(
+        training_units,
+        "allowed_migration_source_commits",
+        lambda **_kwargs: frozenset({TRAIN01_15_SOURCE_COMMIT, control.source_commit}),
+    )
+    c1_saved = tmp_path / "attempt15-c1/iteration-0080.pt"
+    c2_ledger = tmp_path / "c2-ledger.json"
+    c2_ledger.write_text(
+        json.dumps({"source_migration": source_migration(asdict(control), asdict(c2_control))})
+    )
+    monkeypatch.setattr(
+        train,
+        "load_ledger",
+        lambda *args, **kwargs: {80: {"iteration": 80, "exports": [{"path": str(c1_saved)}]}},
+    )
+    c2_evals = []
+    monkeypatch.setattr(train, "evaluate", lambda *args: c2_evals.append(args) or {})
+    c2_result = execute(c2_control, tmp_path / "attempt15-c2", ledger=c2_ledger)
+    assert c2_evals == []
+    assert sum("monitoring_note" in row for row in c2_result["metrics"]) == 1
 
 
 def test_train01_11_iteration0_migration_skips_preparation_and_rebinds_proxy_cache(

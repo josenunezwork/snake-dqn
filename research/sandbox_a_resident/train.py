@@ -298,6 +298,50 @@ def _durable_metrics(metrics: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+_METADATA_ONLY_ROW_KEYS = frozenset(
+    {
+        "distribution_screen",
+        "preparation",
+        "zero_update_b8_greedy",
+        "proxy_baseline",
+        "proxy_cache_migration",
+        "monitoring_note",
+    }
+)
+
+
+def _find_learner_metrics_row(
+    metrics: list[dict[str, Any]], iteration: int
+) -> dict[str, Any] | None:
+    """Locate the PPO learner row for ``iteration``, ignoring appended cache/note rows."""
+    if iteration <= 0:
+        return None
+    return next(
+        (
+            row
+            for row in reversed(metrics)
+            if row.get("iteration") == iteration
+            and not any(key in row for key in _METADATA_ONLY_ROW_KEYS)
+        ),
+        None,
+    )
+
+
+def _has_completed_proxy_at_iteration(
+    metrics: list[dict[str, Any]], iteration: int, *, kind: str | None = None
+) -> bool:
+    """Return whether any row for ``iteration`` already carries a completed proxy dict."""
+    for row in metrics:
+        if row.get("iteration") != iteration:
+            continue
+        proxy_payload = row.get("proxy")
+        if isinstance(proxy_payload, Mapping) and (
+            kind is None or proxy_payload.get("kind") == kind
+        ):
+            return True
+    return False
+
+
 def _load_task_state(task: Any, state: dict[str, Any]) -> None:
     if not hasattr(task, "load_state_dict"):
         raise TypeError("resident task must expose exact load_state_dict for durable resume")
@@ -935,13 +979,11 @@ def run(
         # post-update-16 weights but predates this detached check.  Measure it once
         # before collecting update 17, then persist it in the successor snapshot.
         # Once successor telemetry is present, a further resume never repeats it.
-        has_update16_proxy = any(
-            row.get("proxy", {}).get("kind") == "diagnostic-update-16" for row in metrics
+        has_update16_proxy = _has_completed_proxy_at_iteration(
+            metrics, DIAGNOSTIC_PROXY_UPDATE, kind="diagnostic-update-16"
         )
         if monitoring and resumed and start == DIAGNOSTIC_PROXY_UPDATE and not has_update16_proxy:
-            diagnostic_row = next(
-                (row for row in reversed(metrics) if row.get("iteration") == start), None
-            )
+            diagnostic_row = _find_learner_metrics_row(metrics, start)
             if diagnostic_row is None:
                 raise ValueError("resume snapshot lacks its update-16 metrics row")
             diagnostic_row["proxy"] = detached_proxy(start, "diagnostic-update-16")
@@ -949,25 +991,22 @@ def run(
         elif monitoring and resumed and start > DIAGNOSTIC_PROXY_UPDATE and not has_update16_proxy:
             # Do not backdate a diagnostic against later weights.  It was absent
             # from the predecessor bytes and is explicitly reported as missed.
-            metrics.append(
-                {
-                    "iteration": start,
-                    "monitoring_note": "update-16 diagnostic unavailable in predecessor snapshot",
-                }
-            )
+            missing_note = "update-16 diagnostic unavailable in predecessor snapshot"
+            if not any(row.get("monitoring_note") == missing_note for row in metrics):
+                metrics.append({"iteration": start, "monitoring_note": missing_note})
         resumed_proxy_kind = proxy_kind(start, control) if start > 0 else None
         if (
             monitoring
             and resumed
             and resumed_proxy_kind is not None
             and start != DIAGNOSTIC_PROXY_UPDATE
+            and not _has_completed_proxy_at_iteration(metrics, start)
         ):
-            resumed_row = next(
-                (row for row in reversed(metrics) if row.get("iteration") == start), None
-            )
-            if resumed_row is not None and "proxy" not in resumed_row:
-                resumed_row["proxy"] = detached_proxy(start, resumed_proxy_kind)
-                resumed_row.pop("proxy_deferred_on_sigusr1", None)
+            resumed_row = _find_learner_metrics_row(metrics, start)
+            if resumed_row is None:
+                raise ValueError(f"resume snapshot lacks its update-{start} metrics row")
+            resumed_row["proxy"] = detached_proxy(start, resumed_proxy_kind)
+            resumed_row.pop("proxy_deferred_on_sigusr1", None)
         if start == 0 and not resumed:
             initial = _snapshot_state(
                 0, control, actor, critic, trainer, task, generator, metrics, prep_state

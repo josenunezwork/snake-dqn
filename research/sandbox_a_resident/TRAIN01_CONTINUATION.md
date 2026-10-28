@@ -40,12 +40,15 @@ What `training_continuation` executes in one command:
    `SEAL.json`) at `broker_seal`.
 4. Preserves the source run's exact learning recipe, `allocation_index`, `train_seed_offset`, and
    shared `monitor` (`400,000,000`, `288` worlds) and `nomination` (`500,000,000`, `768` worlds)
-   evaluation banks and proxy schedule while sizing remaining-update base and `2x` effective
-   `est_minutes`, `timeout_minutes`, and `unit_cap`.
+   evaluation banks and proxy schedule (`64/128/192/256/320/384`, never repeating an already
+   completed `u16` or regular proxy across `source_migration`) while sizing remaining-update base
+   and `2x` effective `est_minutes`, `timeout_minutes`, and `unit_cap` from `train01-attempt-15`'s
+   measured steady-state A100 rollout/learner telemetry (`205.5/210.0 s` collect, `8.5/9.5 s`
+   learner).
 5. Runs a 3x local `background-sparse-v1` `< 2.0 s` launch-exec bound probe, verifies the 18-file
-   whole-staging projection (`< 120 s` nominal / `< 210 s` conservative, well inside the `300 s`
-   staging cap), runs `tools/ops/dispatch.sh --dry-run` (`PASS_DRY_RUN ... allocations=0`), and
-   verifies `state/` and `output/` remain absent.
+   whole-staging projection (`<= 100 MB` private inputs, `<= 120 s` nominal / `<= 210 s`
+   conservative, well inside the `300 s` staging cap), runs `tools/ops/dispatch.sh --dry-run`
+   (`PASS_DRY_RUN ... allocations=0`), and verifies `state/` and `output/` remain absent.
 
 ---
 
@@ -64,37 +67,56 @@ What `training_continuation` executes in one command:
     `compact_allowlist.json` so `train01-17` and `c1 -> c2` continuations migrate cleanly without
     recipe drift.
 - **Transport & Runtime Verification (`training_compact.py`, `training_preflight.py`, `train.py`):**
-  - Replaces the `~1.33 GB` raw `.pt` upload (`~812 s` nominal, exceeding `300 s` `UPLOAD_CAP`) with
-    `iteration-NNNN.pt.xz` (`~8.8–14 MB`) + `iteration-NNNN.pt.xz.manifest` (`~70 KB`), admitted as
-    `training-export-derivative` inputs alongside the original `.pt.{sha256,complete}`, `.json`, and
-    `-actor.pth` triples (`15` private files + `3` supervisor/source files = `18` uploads).
+  - Replaces the `~1.343 GB` raw `.pt` upload (`> 820 s` nominal, exceeding `300 s` `UPLOAD_CAP`) with
+    `iteration-NNNN.pt.xz` (`8.80 MB` at empty-ring `iteration-0000`; `38.33 MB` at steady-state
+    occupied-simulator-ring `iteration-0048`) + `iteration-NNNN.pt.xz.manifest` (`~70–94 KB`),
+    admitted as `training-export-derivative` inputs alongside the original `.pt.{sha256,complete}`,
+    `.json`, and `-actor.pth` triples (`15` private files + `3` supervisor/source files = `18`
+    uploads; `66.60 MB` private / `67.54 MB` total at `iteration-0048`, projecting `85.52 s` nominal
+    / `154.67 s` conservative inside the prospectively frozen `100 MB` / `120 s` / `210 s` bounds
+    anchored to `train01-attempt-{11,13,15}` `upload-measurement.json`).
   - At runtime startup, `materialize_compact_resume` stream-decodes `.pt.xz` create-only into a
     byte-identical `resume/iteration-NNNN.pt`, verifies exact original file size and SHA-256, runs
     ordinary `load_ledger` sidecar verification, loads the checkpoint on CPU, and runs
     `verify_decoded_state` over every tensor's dtype, shape, stride, storage offset, `requires_grad`,
     and contiguous byte SHA-256 plus canonical non-tensor structure before restoring any model,
     optimizer, simulator, opponent, or RNG state.
+  - On `source_migration`, `train.run` rebinds the cached B8 baseline metadata without masking the
+    resumed iteration's learner row: completed `u16` or regular (`64/128/192/256/320/384`) proxies
+    are detected across all matching rows and never re-evaluated, while a genuinely missing or
+    `SIGUSR1`-deferred proxy runs once and attaches directly to the learner row.
 
 ---
 
-## 3. Admitted Mechanical Terminal Receipts (`training_resume.py`)
+## 3. Admitted Mechanical Terminal Receipts & Scientific-Fault Precedence (`training_resume.py`)
 
-`verify_mechanical_stop` requires `status == "INCOMPLETE"`, matching `job_id`, `commit`, and
-`manifest_sha256`, `stop_verified is True`, and `cleanup_error is None`, and admits:
+`verify_mechanical_stop` checks explicit scientific, preparation, distribution-screen, and
+stall-watchdog fault evidence **before** admitting any mechanical timeout/lease/wall-cap marker
+across `receipt`, `terminal`, exported inventories, and `output_root` (`terminal.json`,
+`poll-*.json` `job_log_tail`, `stall-watchdog/faulthandler-stacks.log`, `progress.json`). Any
+conflicting `FloatingPointError`, non-finite loss/gradient, `PreparationFailure`,
+`distribution-screen-failed`, action-collapse / illegal-action tripwire, Python traceback, or
+non-empty `faulthandler-stacks.log` unconditionally refuses continuation even when a timeout marker
+is also present.
+
+Subject to zero conflicting fault evidence, `verify_mechanical_stop` requires
+`status == "INCOMPLETE"`, matching `job_id`, `commit`, and `manifest_sha256`,
+`stop_verified is True`, and `cleanup_error is None`, and admits:
 - `RPC_EXEC_POLL_TIMEOUT` (with `terminal is None` or `terminal.reason` in
   `{"timeout", "lease_expired", "release_credential_expiring"}`).
 - `SUPERVISOR` when `terminal.reason` is in `{"timeout", "lease_expired",
   "release_credential_expiring"}` OR `terminal is None` and `error` matches a mechanical host
   wall/unit/lease/poll marker (`whole-session wall cap reached`, `whole-session deadline reached`,
   `priced session unit cap reached`, `study reserve reached`, `retention lease elapsed`,
-  `read retry budget exhausted`) with zero non-mechanical markers (`KeyboardInterrupt`,
-  `missing required export`, `canary`, `corrupt`, `schema`).
+  `read retry budget exhausted`) with zero non-mechanical or scientific fault markers.
 - `CHILD_NONZERO_EXIT` **only** when `terminal.reason` explicitly records a mechanical VM stop in
-  `{"timeout", "lease_expired", "release_credential_expiring"}`.
+  `{"timeout", "lease_expired", "release_credential_expiring"}` and no conflicting fault evidence
+  exists.
 
-Refused closed: `terminal.status == "completed"`, scientific tripwires (`FloatingPointError`,
-`PreparationFailure`), `StallWatchdog` `os._exit(1)` (`reason: null`), `KeyboardInterrupt`,
-`FOREIGN_GENERATION`, `UPLOAD_CAP`, and `ACCOUNTING`.
+Refused closed: `terminal.status` in `{"completed", "succeeded"}`, scientific tripwires
+(`FloatingPointError`, `PreparationFailure`, action collapse, illegal action, distribution gap),
+timeout-plus-tripwire races, `StallWatchdog` `os._exit(1)` / non-empty `faulthandler-stacks.log` /
+exit `124`, `KeyboardInterrupt`, `FOREIGN_GENERATION`, `UPLOAD_CAP`, and `ACCOUNTING`.
 
 ---
 

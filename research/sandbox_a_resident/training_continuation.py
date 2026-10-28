@@ -85,6 +85,21 @@ SLUG_RE = re.compile(r"^train01-(?:11|15|16|17)-c[12]-[a-z0-9][a-z0-9_-]*$")
 SOURCE_PACKET_BASE_RE = re.compile(
     r"^packet-(train01-(?:11|15|16|17))(?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?$"
 )
+# Prospectively frozen whole-input staging bounds reconciled with measured
+# A100 upload-measurement.json anchors (train01-attempt-15 18-file compact
+# staging: 31,438,403 B in 57.91 s actual, 8,804,704 B .pt.xz in 6.87 s;
+# train01-attempt-13 212 chunks / 444.6 MB at 1,624,000 B/s sustained 2-worker
+# rate; train01-attempt-{10,11} conservative 810,734 B/s + 3.670 s/file bound).
+# Real occupied-simulator-ring periodic snapshots (e.g. iteration-0048.pt
+# 1.343 GB -> 38.33 MB .pt.xz, 66.60 MB across 15 private inputs) project
+# ~85.5 s nominal / ~154.7 s conservative; 100 MB private inputs project
+# ~105.9 s nominal / ~195.9 s conservative across 18 files, staying strictly
+# within the <= 120 s nominal and <= 210 s (< 300 s hard cap) bounds while
+# rejecting uncompressed ~1.34 GB snapshots (> 860 s nominal).
+MAX_CONTINUATION_PRIVATE_INPUT_BYTES = 100_000_000
+STAGING_HARD_CAP_SECONDS = 300.0
+STAGING_DESIGN_NOMINAL_SECONDS = 120.0
+STAGING_DESIGN_WORST_SECONDS = 210.0
 SINGLE_THREAD_ENV = {
     "CUDA_VISIBLE_DEVICES": "",
     "SNAKE_DQN_DEVICE": "cpu",
@@ -329,21 +344,25 @@ def compute_remaining_envelope(
     if outer_iterations not in remaining_snapshots:
         remaining_snapshots.append(outer_iterations)
 
+    # Calibrated from train01-attempt-15's measured steady-state A100 periodic
+    # exports (iteration-0016: 204.78 s collect / 7.39 s learner; iteration-0032:
+    # 207.20 s collect / 9.11 s learner; iteration-0048: 204.30 s collect /
+    # 8.59 s learner) plus ~38.3 MB periodic .pt.xz stage + decode startup.
     phases_nominal = {
-        "alloc_warmup_launch_ratecal_compact_stage_decode": 180.0,
+        "alloc_warmup_launch_ratecal_compact_stage_decode": 240.0,
         "compile_self_check_resumed": 90.0,
-        "ppo_rollout_collection": round(remaining_updates * 133.0, 2),
-        "ppo_learner_float64_kl": round(remaining_updates * 6.5, 2),
+        "ppo_rollout_collection": round(remaining_updates * 205.5, 2),
+        "ppo_learner_float64_kl": round(remaining_updates * 8.5, 2),
         "detached_h5000_e96_proxies": round(proxy_count * 2049.4, 2),
         "snapshot_local_writes": round(len(remaining_snapshots) * 5.0, 2),
         "post_terminal_final_export_download": 371.7,
         "cleanup_and_stop_verification": 60.0,
     }
     phases_conservative = {
-        "alloc_warmup_launch_ratecal_compact_stage_decode": 420.0,
+        "alloc_warmup_launch_ratecal_compact_stage_decode": 480.0,
         "compile_self_check_resumed": 150.0,
-        "ppo_rollout_collection": round(remaining_updates * 136.0, 2),
-        "ppo_learner_float64_kl": round(remaining_updates * 8.0, 2),
+        "ppo_rollout_collection": round(remaining_updates * 210.0, 2),
+        "ppo_learner_float64_kl": round(remaining_updates * 9.5, 2),
         "detached_h5000_e96_proxies": round(proxy_count * 2100.0, 2),
         "snapshot_local_writes": round(len(remaining_snapshots) * 7.0, 2),
         "post_terminal_final_export_download_worst_1p66mbs": 879.2,
@@ -404,11 +423,16 @@ def compute_staging_projection(
     total_bytes = private_bytes + bootstrap_bytes + source_py_bytes + source_tar_gz_bytes
     nominal_seconds = round(1.30 + (total_bytes / 1_635_817.0) + 2.193 * file_count + 3.45, 2)
     worst_seconds = round(1.82 + (total_bytes / 810_734.0) + 3.670 * file_count + 3.47, 2)
-    if private_bytes > 45_000_000:
+    if private_bytes > MAX_CONTINUATION_PRIVATE_INPUT_BYTES:
         raise ContinuationRefused(
-            f"private inputs ({private_bytes} B) exceed 45 MB whole-staging planning target"
+            f"private inputs ({private_bytes} B) exceed "
+            f"{MAX_CONTINUATION_PRIVATE_INPUT_BYTES} B whole-staging ceiling"
         )
-    if nominal_seconds > 120.0 or worst_seconds > 210.0 or worst_seconds >= 300.0:
+    if (
+        nominal_seconds > STAGING_DESIGN_NOMINAL_SECONDS
+        or worst_seconds > STAGING_DESIGN_WORST_SECONDS
+        or worst_seconds >= STAGING_HARD_CAP_SECONDS
+    ):
         raise ContinuationRefused(
             f"whole-staging projection exceeds target bounds: "
             f"nominal={nominal_seconds}s worst={worst_seconds}s"
@@ -417,10 +441,19 @@ def compute_staging_projection(
         "schema": "sandbox-a-train01-continuation-upload-projection/v1",
         "skill_reference": "colab-limits §3.1, §4.1",
         "status": "PASS",
-        "hard_cap_seconds": 300.0,
+        "hard_cap_seconds": STAGING_HARD_CAP_SECONDS,
         "canary_bar_seconds": 150.0,
-        "design_target_nominal_seconds": 120.0,
-        "design_target_worst_seconds": 210.0,
+        "design_target_nominal_seconds": STAGING_DESIGN_NOMINAL_SECONDS,
+        "design_target_worst_seconds": STAGING_DESIGN_WORST_SECONDS,
+        "max_private_input_bytes": MAX_CONTINUATION_PRIVATE_INPUT_BYTES,
+        "measured_calibration_anchors": {
+            "attempt_15_compact_18files_bytes": 31_438_403,
+            "attempt_15_compact_18files_elapsed_seconds": 57.91,
+            "attempt_15_pt_xz_8804704b_transfer_seconds": 6.87,
+            "attempt_13_sustained_2worker_chunk_bytes_per_second": 1_624_000,
+            "conservative_bytes_per_second": 810_734,
+            "conservative_per_file_overhead_seconds": 3.67,
+        },
         "private_input_count": private_count,
         "private_input_bytes": private_bytes,
         "private_inputs": dict(sorted(private_inputs.items())),
@@ -433,8 +466,8 @@ def compute_staging_projection(
         "total_upload_bytes": total_bytes,
         "nominal_seconds": nominal_seconds,
         "worst_case_seconds": worst_seconds,
-        "fraction_of_300s_cap_nominal": round(nominal_seconds / 300.0, 4),
-        "fraction_of_300s_cap_worst": round(worst_seconds / 300.0, 4),
+        "fraction_of_300s_cap_nominal": round(nominal_seconds / STAGING_HARD_CAP_SECONDS, 4),
+        "fraction_of_300s_cap_worst": round(worst_seconds / STAGING_HARD_CAP_SECONDS, 4),
     }
 
 
@@ -686,7 +719,12 @@ def build_continuation_packet(
         if executed_manifest.get(key) != frozen_source_manifest.get(key):
             raise ContinuationRefused(f"executed manifest differs from frozen source packet: {key}")
     try:
-        verify_mechanical_stop(receipt, executed_manifest, digest(executed_manifest_path))
+        verify_mechanical_stop(
+            receipt,
+            executed_manifest,
+            digest(executed_manifest_path),
+            output_root=output_root,
+        )
     except ResumeRefused as error:
         raise ContinuationRefused(str(error)) from error
 
@@ -877,6 +915,7 @@ def build_continuation_packet(
         successor_control=successor_control,
         compact_source_packet_id=source_packet_id,
         allowlist_path=runtime_allowlist,
+        output_root=output_root,
     )
 
     packet_dir = broker_checkout / "research/sandbox_a_resident" / packet_name
