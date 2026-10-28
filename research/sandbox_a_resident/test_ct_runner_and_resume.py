@@ -2230,6 +2230,7 @@ def _ct3_committed_admission_refusal_probes(packet: Path) -> None:
             "completion_attempt"
         ]["prior_output_dirs"][0]
     )
+    original_output_existed = original_output.exists()
     for attack in (
         "missing_reference_and_stage",
         "omitted_output_dirs",
@@ -2379,7 +2380,8 @@ def _ct3_committed_admission_refusal_probes(packet: Path) -> None:
             log.write_bytes(original_log)
         if attack == "nested_fault_rebound_inventory":
             fault.unlink()
-            original_output.rmdir()
+            if not original_output_existed:
+                original_output.rmdir()
     for path, data in {**files, **ancestor_files}.items():
         path.write_bytes(data)
     subprocess.run(["git", "add", "-A", str(packet), *map(str, ancestor_files)], check=True)
