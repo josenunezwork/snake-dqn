@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from research.sandbox_a_resident.training_prepare import STUDY, seed_allocations
-from research.sandbox_a_resident.training_resume import HOST_ENOSPC_RECOVERY_SCHEMA
+from research.sandbox_a_resident.training_resume import (
+    HOST_ENOSPC_RECOVERY_SCHEMA,
+    verify_host_enospc_recovery,
+)
 from research.sandbox_a_resident.training_units import (
     COMPACT_DERIVATIVE_SUFFIX,
     COMPACT_MANIFEST_SUFFIX,
@@ -213,12 +216,21 @@ def validate_packet(packet: Path) -> dict[str, Any]:
     for name in ("control.json", "registry-check.json", "verified-ledger.json"):
         verify_committed_manifest(packet / name)
     recovery_file = packet / "recovery-evidence.json"
+    seal_file = packet / "SEAL.json"
+    if seal_file.is_file():
+        seal_header = json.loads(seal_file.read_text())
+        if (
+            seal_header.get("prior_stop_evidence_kind") == "host_enospc_recovery_certificate"
+            and not recovery_file.is_file()
+        ):
+            raise ValueError(
+                "SEAL.json requires recovery-evidence.json; admission proof is missing"
+            )
     if recovery_file.exists() or recovery_file.is_symlink():
         verify_committed_manifest(recovery_file)
         recovery_payload = json.loads(recovery_file.read_text())
         if recovery_payload.get("schema") != HOST_ENOSPC_RECOVERY_SCHEMA:
             raise ValueError("recovery-evidence.json has unsupported schema")
-        seal_file = packet / "SEAL.json"
         if not seal_file.is_file():
             raise ValueError("recovery-evidence.json requires committed SEAL.json binding")
         verify_committed_manifest(seal_file)
@@ -231,6 +243,33 @@ def validate_packet(packet: Path) -> dict[str, Any]:
             or seal_payload.get("prior_recovery_evidence_sha256") != digest(recovery_file)
         ):
             raise ValueError("SEAL.json does not bind committed recovery-evidence.json")
+        # A committed digest establishes immutable bytes, not current eligibility.
+        # Re-open the original manifest/control and all bound release/fault evidence
+        # on every packet validation, including dispatch admission.
+        identities = recovery_payload["identities"]
+        if Path(identities["source_packet_id"]).name != identities["source_packet_id"]:
+            raise ValueError("recovery source_packet_id must be a packet name")
+        source_output = Path(identities["output_dir"])
+        source_packet = packet.parent / identities["source_packet_id"]
+        source_manifest_path = source_output / "manifest.json"
+        source_packet_manifest = source_packet / "dispatch-manifest.json"
+        if (
+            seal_payload.get("prior_executed_manifest_sha256") != digest(source_manifest_path)
+            or seal_payload.get("prior_packet") != source_packet.name
+            or seal_payload.get("prior_job_id") != identities["job_id"]
+        ):
+            raise ValueError("recovery evidence source identity differs from SEAL.json")
+        verify_committed_manifest(source_packet_manifest)
+        verify_committed_manifest(source_packet / "control.json")
+        verify_host_enospc_recovery(
+            recovery_file,
+            json.loads(source_manifest_path.read_text()),
+            digest(source_manifest_path),
+            output_root=source_output,
+            source_control=json.loads((source_packet / "control.json").read_text()),
+            source_packet_id=source_packet.name,
+            source_packet_manifest_sha256=digest(source_packet_manifest),
+        )
     check = json.loads((packet / "registry-check.json").read_text())
     expected = seed_allocations(control)
     registry = next(r for r in payload["inputs"] if r["kind"] == "registry")

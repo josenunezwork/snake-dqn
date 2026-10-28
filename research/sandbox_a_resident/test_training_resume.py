@@ -711,7 +711,7 @@ def test_verify_mechanical_stop_inspects_output_root_telemetry_without_false_pos
 
     # Failed progress stage in output_root refuses continuation.
     (exports / "progress.json").write_text(json.dumps({"stage": "preparation-failed"}) + "\n")
-    with pytest.raises(ResumeRefused, match="progress.json records failed stage"):
+    with pytest.raises(ResumeRefused, match=r"progress.json.*records failed stage"):
         verify_mechanical_stop(clean_wall_cap, manifest(), "b" * 64, output_root=output_root)
     (exports / "progress.json").write_text(json.dumps({"stage": "update"}) + "\n")
 
@@ -839,7 +839,9 @@ def test_scientific_failure_precedence_scans_all_retained_history_beyond_eight_p
     # Corrupt early poll or foreign generation early poll must also fail closed.
     saved_poll1 = (output_root / "poll-000001.json").read_text()
     (output_root / "poll-000001.json").write_text("{corrupt-json\n")
-    with pytest.raises(ResumeRefused, match="corrupt poll evidence"):
+    with pytest.raises(
+        ResumeRefused, match="corrupt poll evidence|explicit scientific/non-mechanical fault"
+    ):
         verify_mechanical_stop(clean_wall_cap, manifest(), "b" * 64, output_root=output_root)
     (output_root / "poll-000001.json").write_text(
         json.dumps({"job": "train-01", "generation": "f" * 32, "status": "running"}) + "\n"
@@ -957,6 +959,10 @@ def _setup_enospc_fixture(tmp_path: Path) -> dict:
         publish(target, lambda dst: dst.write_text(json.dumps(payload, sort_keys=True) + "\n"))
         return target
 
+    active_path.unlink()
+    recovery_path = output_root / "recovery-qualified.json"
+    recovery_path.write_text(json.dumps({"endpoint": endpoint, "stop_verified": True}) + "\n")
+
     base_cert = {
         "schema": HOST_ENOSPC_RECOVERY_SCHEMA,
         "original_attempt_state": {
@@ -1005,16 +1011,13 @@ def _setup_enospc_fixture(tmp_path: Path) -> dict:
                 "captured_unix_seconds": captured_ts,
             },
             "broker_reconciliation": {
-                "mode": "verified_disappearance_with_bound_stale_active",
+                "mode": "qualified_recover_receipt",
                 "account_root": str(account_root.resolve()),
-                "stale_active_record": {
-                    "path": str(active_path.resolve()),
-                    "size": active_path.stat().st_size,
-                    "sha256": digest(active_path),
+                "recover_receipt": {
+                    "path": str(recovery_path.resolve()),
+                    "size": recovery_path.stat().st_size,
+                    "sha256": digest(recovery_path),
                 },
-                "operator_reconcile_command": (
-                    f"python -m research.colab_cli.supervisor recover {active_path.resolve()}"
-                ),
             },
         },
         "resume_binding": {
@@ -1072,7 +1075,7 @@ def test_host_enospc_recovery_admits_valid_evidence_and_preserves_absent_receipt
     assert verified["original_supervisor_error"] == "UNKNOWN_UNAVAILABLE"
     assert verified["original_cleanup_error"] == "UNKNOWN_UNAVAILABLE"
     assert verified["post_hoc_release_verified"] is True
-    assert verified["stale_active_present_now"] is True
+    assert verified["stale_active_present_now"] is False
     assert verified["polls_scanned"] == 12
     assert not (fx["output_root"] / "receipt.json").exists()
 
@@ -1094,11 +1097,11 @@ def test_host_enospc_recovery_admits_valid_evidence_and_preserves_absent_receipt
     assert pkt.latest_iteration == 2
     assert not (fx["output_root"] / "receipt.json").exists()
 
-    # Simulating `supervisor recover` removing active-<session>.json WITHOUT recovery-*.json fails;
-    # WITH verified recovery-*.json in output_root, the same sealed certificate remains valid.
-    saved_active = fx["active_path"].read_bytes()
-    fx["active_path"].unlink()
-    with pytest.raises(ResumeRefused, match="without a verified recovery-"):
+    # A later arbitrary receipt cannot replace the exact sealed recovery proof.
+    (fx["output_root"] / "recovery-arbitrary.json").write_text(
+        json.dumps({"endpoint": fx["endpoint"], "stop_verified": True}) + "\n"
+    )
+    with pytest.raises(ResumeRefused, match="inventory/hashes drifted"):
         verify_host_enospc_recovery(
             cert_path,
             fx["exec_manifest"],
@@ -1107,20 +1110,6 @@ def test_host_enospc_recovery_admits_valid_evidence_and_preserves_absent_receipt
             source_control=fx["ctrl"],
             now_unix_seconds=now_ts,
         )
-    (fx["output_root"] / "recovery-abcd1234.json").write_text(
-        json.dumps({"endpoint": fx["endpoint"], "stop_verified": True}) + "\n"
-    )
-    verified_after_recover = verify_host_enospc_recovery(
-        cert_path,
-        fx["exec_manifest"],
-        fx["exec_manifest_sha"],
-        output_root=fx["output_root"],
-        source_control=fx["ctrl"],
-        now_unix_seconds=now_ts,
-    )
-    assert verified_after_recover["stale_active_present_now"] is False
-    fx["active_path"].write_bytes(saved_active)
-    (fx["output_root"] / "recovery-abcd1234.json").unlink()
 
 
 def test_host_enospc_recovery_refuses_wrong_identities_faults_stale_release_and_mutations(
@@ -1304,3 +1293,169 @@ def test_host_enospc_recovery_refuses_wrong_identities_faults_stale_release_and_
             source_control=fx["ctrl"],
             now_unix_seconds=now_ts,
         )
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "retained-child-nonzero",
+        "retained-state-runtime-failure",
+        "retained-output-log-tripwire",
+        "retained-partial-progress-fault",
+        "retained-failed-header-field",
+        "unhashed-recovery-receipt",
+        "nested-text-fault",
+        "truncated-partial-fault",
+        "unexplained-state-failed",
+        "foreign-terminal-generation",
+        "foreign-terminal-job",
+        "foreign-state-generation",
+        "mechanical-reason-with-fault",
+        "malformed-returncode",
+        "unbound-recovery-mode",
+        "missing-bound-recovery",
+        "mutated-bound-recovery",
+        "pending-reconciliation",
+    ],
+)
+def test_review_admission_probes_refuse(tmp_path: Path, case: str) -> None:
+    """Regression probes from astra-review-continuation3 plus adjacent refusal cases."""
+    import copy
+
+    from research.sandbox_a_resident.training_resume import (
+        compute_retained_evidence_inventory,
+        verify_host_enospc_recovery,
+    )
+
+    fx = _setup_enospc_fixture(tmp_path)
+    cert = copy.deepcopy(fx["base_cert"])
+    poll_path = fx["output_root"] / "poll-000001.json"
+    poll = json.loads(poll_path.read_text())
+    terminal = {
+        "job_id": fx["job_id"],
+        "generation": fx["gen"],
+        "status": "failed",
+        "returncode": 7,
+        "reason": None,
+        "last_traceback_line": "EXIT=7",
+        "exports": [],
+    }
+    if case == "retained-child-nonzero":
+        poll["terminal"] = terminal
+    elif case == "retained-state-runtime-failure":
+        poll["state"].update(status="failed", reason="runtime_error", returncode=7)
+    elif case == "unexplained-state-failed":
+        poll["state"].update(status="failed", reason=None, returncode=0)
+    elif case.startswith("foreign-terminal-"):
+        terminal.update(reason="timeout", returncode=-15)
+        terminal["generation" if case.endswith("generation") else "job_id"] = "foreign"
+        poll["terminal"] = terminal
+    elif case == "foreign-state-generation":
+        poll["state"]["generation"] = "foreign"
+    elif case == "malformed-returncode":
+        poll["state"].update(returncode="7")
+    elif case == "mechanical-reason-with-fault":
+        terminal.update(reason="timeout", error="FloatingPointError: non-finite loss tripwire")
+        poll["terminal"] = terminal
+    elif case in {"retained-output-log-tripwire", "nested-text-fault"}:
+        path = fx["exports"] / ("job.log" if case.startswith("retained") else "nested/notes.txt")
+        path.parent.mkdir(exist_ok=True)
+        path.write_text("FloatingPointError: non-finite loss tripwire\n")
+    elif case in {"retained-partial-progress-fault", "truncated-partial-fault"}:
+        text = json.dumps(
+            {"stage": "distribution-screen-failed", "error": "material distribution gap"}
+        )
+        (fx["exports"] / "progress.json.partial").write_text(
+            text if case.startswith("retained") else text[:-2]
+        )
+    elif case == "retained-failed-header-field":
+        (fx["exports"] / "calibrated-boundary.json").write_text(
+            json.dumps(
+                {
+                    "metadata": {"phase": "ppo"},
+                    "error": "FloatingPointError: non-finite loss tripwire",
+                }
+            )
+        )
+    elif case == "unhashed-recovery-receipt":
+        (fx["output_root"] / "recovery-arbitrary.json").write_text(
+            json.dumps({"endpoint": fx["endpoint"], "stop_verified": True})
+        )
+    elif case == "unbound-recovery-mode":
+        cert["release_evidence"]["broker_reconciliation"][
+            "mode"
+        ] = "verified_disappearance_with_bound_stale_active"
+    elif case == "pending-reconciliation":
+        fx["active_path"].write_text("{}")
+    else:
+        recovery = fx["output_root"] / "recovery-qualified.json"
+        if case == "missing-bound-recovery":
+            recovery.unlink()
+        elif case == "mutated-bound-recovery":
+            recovery.write_text(json.dumps({"endpoint": "foreign", "stop_verified": True}))
+    poll_path.write_text(json.dumps(poll))
+    # Rehash deliberately: refusal must come from semantic validation, not just drift.
+    cert["retained_evidence"] = compute_retained_evidence_inventory(fx["output_root"])
+    path = fx["write_cert"]("probe-certificate.json", cert)
+    with pytest.raises(ResumeRefused):
+        verify_host_enospc_recovery(
+            path,
+            fx["exec_manifest"],
+            fx["exec_manifest_sha"],
+            output_root=fx["output_root"],
+            source_control=fx["ctrl"],
+            source_packet_id="packet-train01-15",
+            source_packet_manifest_sha256=fx["src_pkt_sha"],
+            now_unix_seconds=fx["captured_ts"] + 30,
+        )
+
+
+def test_inventory_binds_every_retained_file(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.training_resume import compute_retained_evidence_inventory
+
+    fx = _setup_enospc_fixture(tmp_path)
+    path = fx["exports"] / "job.log.partial"
+    path.write_text("healthy progress")
+    inventory = compute_retained_evidence_inventory(fx["output_root"])
+    expected = {
+        str(p.relative_to(fx["output_root"])) for p in fx["output_root"].rglob("*") if p.is_file()
+    }
+    assert {row["path"] for row in inventory["files"]} == expected
+    path.write_text("changed progress")
+    assert compute_retained_evidence_inventory(fx["output_root"]) != inventory
+
+
+@pytest.mark.parametrize("reason", ["timeout", "lease_expired"])
+def test_host_enospc_recovery_keeps_narrow_mechanical_exception(
+    tmp_path: Path, reason: str
+) -> None:
+    from research.sandbox_a_resident.training_resume import (
+        compute_retained_evidence_inventory,
+        verify_host_enospc_recovery,
+    )
+
+    fx = _setup_enospc_fixture(tmp_path)
+    poll_path = fx["output_root"] / "poll-000001.json"
+    poll = json.loads(poll_path.read_text())
+    poll["terminal"] = {
+        "job_id": fx["job_id"],
+        "generation": fx["gen"],
+        "status": "failed",
+        "returncode": -15,
+        "reason": reason,
+        "last_traceback_line": None,
+    }
+    poll_path.write_text(json.dumps(poll))
+    cert = fx["base_cert"]
+    cert["retained_evidence"] = compute_retained_evidence_inventory(fx["output_root"])
+    cert_path = fx["write_cert"]("mechanical-cert.json", cert)
+    result = verify_host_enospc_recovery(
+        cert_path,
+        fx["exec_manifest"],
+        fx["exec_manifest_sha"],
+        output_root=fx["output_root"],
+        source_control=fx["ctrl"],
+        now_unix_seconds=fx["captured_ts"] + 30,
+    )
+    assert result["prior_attempt_status"] == "INCOMPLETE"
+    assert result["original_terminal_status"] == "UNKNOWN_UNAVAILABLE"

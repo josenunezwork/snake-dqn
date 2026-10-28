@@ -547,6 +547,7 @@ def build_host_enospc_recovery_certificate(
     *,
     account_status_capture_path: Path,
     certificate_output_path: Path,
+    recover_receipt_path: Path,
     supervisor_log_path: Path | None = None,
     state_dir: Path | None = None,
     account_root: Path | None = None,
@@ -617,45 +618,27 @@ def build_host_enospc_recovery_certificate(
     session = str(assignment["session"])
     endpoint = str(assignment["endpoint"])
     active_file = resolved_account_root / f"active-{session}.json"
-    if active_file.is_file() and not active_file.is_symlink():
-        python_cmd = os.path.abspath(sys.executable)
-        broker_reconciliation: dict[str, Any] = {
-            "mode": "verified_disappearance_with_bound_stale_active",
-            "account_root": str(resolved_account_root),
-            "stale_active_record": {
-                "path": str(active_file.resolve()),
-                "size": active_file.stat().st_size,
-                "sha256": digest(active_file),
-            },
-            "operator_reconcile_command": (
-                f"{python_cmd} -m research.colab_cli.supervisor recover {active_file.resolve()}"
-            ),
-        }
-    else:
-        recover_candidates = [
-            item
-            for item in sorted(output_root.glob("recovery-*.json"))
-            if item.is_file() and not item.is_symlink()
-        ]
-        matched_rec: Path | None = None
-        for rec_item in recover_candidates:
-            rec_obj = json.loads(rec_item.read_text())
-            if rec_obj.get("endpoint") == endpoint and rec_obj.get("stop_verified") is True:
-                matched_rec = rec_item.resolve()
-                break
-        if matched_rec is None:
-            raise ContinuationRefused(
-                "neither bound stale active record nor verified recovery-*.json found"
-            )
-        broker_reconciliation = {
-            "mode": "qualified_recover_receipt",
-            "account_root": str(resolved_account_root),
-            "recover_receipt": {
-                "path": str(matched_rec),
-                "size": matched_rec.stat().st_size,
-                "sha256": digest(matched_rec),
-            },
-        }
+    if active_file.exists() or active_file.is_symlink():
+        raise ContinuationRefused("qualified reconciliation required; active record still exists")
+    safe_path(recover_receipt_path)
+    if recover_receipt_path.is_symlink() or not recover_receipt_path.is_file():
+        raise ContinuationRefused("missing or symlinked qualified recovery receipt")
+    matched_rec = recover_receipt_path.resolve()
+    if matched_rec.parent != output_root.resolve() or not (
+        matched_rec.name.startswith("recovery-") and matched_rec.suffix == ".json"
+    ):
+        raise ContinuationRefused(
+            "explicit recovery receipt must be recovery-*.json in output_root"
+        )
+    broker_reconciliation = {
+        "mode": "qualified_recover_receipt",
+        "account_root": str(resolved_account_root),
+        "recover_receipt": {
+            "path": str(matched_rec),
+            "size": matched_rec.stat().st_size,
+            "sha256": digest(matched_rec),
+        },
+    }
 
     retained = compute_retained_evidence_inventory(output_root)
     verified_ledger, _uploads, latest = build_ledger(
@@ -1415,8 +1398,7 @@ def build_continuation_packet(
     committed_recovery_sha256: str | None = None
     if resolved_recovery is not None:
         packet_recovery_file = packet_dir / "recovery-evidence.json"
-        with packet_recovery_file.open("xb") as stream:
-            stream.write(resolved_recovery.read_bytes())
+        publish(packet_recovery_file, lambda dst: dst.write_bytes(resolved_recovery.read_bytes()))
         committed_recovery_sha256 = digest(packet_recovery_file)
         assert recovery_summary is not None
         if committed_recovery_sha256 != recovery_summary["certificate_sha256"]:
@@ -1616,6 +1598,7 @@ def build_continuation_packet(
             "account_status_capture_sha256": recovery_summary["account_status_capture_sha256"],
             "captured_at_utc": recovery_summary["captured_at_utc"],
             "broker_reconciliation_mode": recovery_summary["broker_reconciliation_mode"],
+            "recover_receipt": recovery_summary["recover_receipt"],
             "supervisor_log_sha256": recovery_summary["supervisor_log_sha256"],
             "polls_scanned": recovery_summary["polls_scanned"],
             "polls_sha256": recovery_summary["polls_sha256"],

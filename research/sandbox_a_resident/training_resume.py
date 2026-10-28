@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import re
+import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,7 +38,7 @@ from research.sandbox_a_resident.units import digest
 
 LEDGER_SCHEMA = "sandbox-a-train-ledger/v1"
 SNAPSHOT_SCHEMA = "sandbox-a-train-snapshot/v1"
-HOST_ENOSPC_RECOVERY_SCHEMA = "sandbox-a-train01-host-enospc-recovery/v1"
+HOST_ENOSPC_RECOVERY_SCHEMA = "sandbox-a-train01-host-enospc-recovery/v2"
 ACCOUNT_RELEASE_CAPTURE_SCHEMA = "sandbox-a-colab-account-release-capture/v1"
 HOST_ENOSPC_FAILURE_CLASS = "HOST_SUPERVISOR_RECEIPT_WRITE_ENOSPC"
 ENOSPC_RECEIPT_LINE_RE = re.compile(
@@ -617,6 +618,201 @@ def _check_terminal_fault_evidence(terminal: Mapping[str, Any], *, label: str) -
         _refuse_if_fault_exports(scanner.get("inventory"), source_name=f"{label}.export_scanner")
 
 
+def _check_retained_execution(
+    record: Mapping[str, Any],
+    *,
+    label: str,
+    expected_job_id: str | None,
+    expected_generation: str | None,
+    require_identity: bool = False,
+) -> None:
+    """Validate execution facts independently of human-readable fault markers."""
+    for key, expected in (
+        ("job_id", expected_job_id),
+        ("job", expected_job_id),
+        ("generation", expected_generation),
+    ):
+        if expected is not None and key in record and record[key] != expected:
+            raise ResumeRefused(f"{label} belongs to foreign {key}")
+    if require_identity:
+        for key, expected in (("job_id", expected_job_id), ("generation", expected_generation)):
+            if expected is not None and record.get(key) != expected:
+                raise ResumeRefused(f"{label} lacks matching {key} identity")
+    status = record.get("status")
+    reason = record.get("reason")
+    returncode = record.get("returncode")
+    if status in {"completed", "succeeded"}:
+        raise ResumeRefused(f"{label} records completed status")
+    if reason is not None and reason not in MECHANICAL_TERMINAL_REASONS:
+        raise ResumeRefused(f"{label} records non-mechanical reason: {reason!r}")
+    if returncode is not None and type(returncode) is not int:
+        raise ResumeRefused(f"{label} records malformed returncode")
+    if returncode == 124:
+        raise ResumeRefused(f"{label} records watchdog timeout exit code 124")
+    if (returncode not in (None, 0) or status in {"failed", "stopped", "error"}) and (
+        reason not in MECHANICAL_TERMINAL_REASONS
+    ):
+        raise ResumeRefused(f"{label} records unexplained/non-mechanical child or runtime failure")
+    if status is not None and status not in {
+        "running",
+        "starting",
+        "ready",
+        "failed",
+        "stopped",
+        "error",
+    }:
+        raise ResumeRefused(f"{label} records unknown execution status: {status!r}")
+
+
+def _retained_files(output_root: Path) -> list[Path]:
+    """Walk every retained file without following links or accepting special files."""
+    files = []
+    for path in sorted(output_root.rglob("*")):
+        mode = path.lstat().st_mode
+        if stat.S_ISLNK(mode) or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+            raise ResumeRefused(f"non-regular or symlinked retained evidence: {path}")
+        if stat.S_ISREG(mode):
+            files.append(path)
+    return files
+
+
+def _scan_json_faults(
+    value: Any,
+    *,
+    label: str,
+    expected_job_id: str | None = None,
+    expected_generation: str | None = None,
+) -> None:
+    """Inspect nested diagnostic fields, including error fields in snapshot headers."""
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            name = f"{label}.{key}"
+            mechanical_error = (
+                key == "error"
+                and isinstance(item, str)
+                and any(marker in item.lower() for marker in MECHANICAL_SUPERVISOR_ERROR_MARKERS)
+            )
+            if (
+                key in {"error", "exception", "last_error_line", "last_traceback_line"}
+                and item
+                and not mechanical_error
+            ):
+                raise ResumeRefused(
+                    f"{name} records explicit scientific/non-mechanical fault: {item!r}"
+                )
+            if (
+                key in {"state", "terminal"}
+                and isinstance(item, Mapping)
+                and any(field in item for field in ("status", "reason", "returncode"))
+            ):
+                _check_retained_execution(
+                    item,
+                    label=name,
+                    expected_job_id=expected_job_id,
+                    expected_generation=expected_generation,
+                    require_identity=True,
+                )
+            if key in {"phase", "prepare_phase", "stage"} and isinstance(item, str):
+                if item.lower().endswith("failed") or "failure" in item.lower():
+                    raise ResumeRefused(f"{name} records failed stage")
+            if (key == "finite" and item is False) or (key == "material_gaps" and item):
+                raise ResumeRefused(f"{name} records explicit scientific/non-mechanical fault")
+            # Inventories name diagnostic files even when they are empty. Their
+            # paths are checked by the export scanner; don't treat filenames as errors.
+            if key not in {"path", "dest", "sha256"}:
+                _scan_json_faults(
+                    item,
+                    label=name,
+                    expected_job_id=expected_job_id,
+                    expected_generation=expected_generation,
+                )
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _scan_json_faults(
+                item,
+                label=f"{label}[{index}]",
+                expected_job_id=expected_job_id,
+                expected_generation=expected_generation,
+            )
+    elif isinstance(value, str):
+        _refuse_if_fault_text(value, field_name=label)
+
+
+def _scan_retained_text(
+    path: Path,
+    *,
+    output_root: Path,
+    expected_job_id: str | None = None,
+    expected_generation: str | None = None,
+) -> None:
+    """Scan all text/JSON, including incomplete telemetry and unknown filenames.
+
+    Model payloads are binary and remain path/size/hash evidence. Text is streamed
+    with overlap so a fault marker split across read boundaries is still found.
+    Incomplete JSON refuses after scanning its retained text for explicit faults.
+    """
+    # Staged executable source contains exception definitions and canary checks,
+    # not observations. Inventory its bytes, but scan diagnostic files separately.
+    if path.parent == output_root / "staging" and path.name in {
+        "bootstrap.sh",
+        "source.py",
+        "runtime.py",
+        "release.py",
+    }:
+        qualified_source = Path(__file__).resolve().parents[1] / "colab_cli" / path.name
+        if digest(path) != digest(qualified_source):
+            raise ResumeRefused(f"retained staged executable differs from qualified source: {path}")
+        return
+    is_json = path.suffix == ".json" or path.name.endswith(".json.partial")
+    if is_json:
+        try:
+            text = path.read_text()
+            payload = json.loads(text)
+        except (UnicodeError, json.JSONDecodeError) as error:
+            if isinstance(error, json.JSONDecodeError):
+                _refuse_if_fault_text(text, field_name=str(path))
+            label = (
+                "corrupt poll evidence"
+                if path.name.startswith("poll-")
+                else "unreadable or partial retained JSON evidence"
+            )
+            raise ResumeRefused(f"{label}: {path}") from error
+        if path.name in {
+            "state.json",
+            "state.json.partial",
+            "terminal.json",
+            "terminal.json.partial",
+        }:
+            if not isinstance(payload, Mapping):
+                raise ResumeRefused(f"malformed retained execution record: {path}")
+            _check_retained_execution(
+                payload,
+                label=str(path),
+                expected_job_id=expected_job_id,
+                expected_generation=expected_generation,
+                require_identity=True,
+            )
+        _scan_json_faults(
+            payload,
+            label=str(path),
+            expected_job_id=expected_job_id,
+            expected_generation=expected_generation,
+        )
+        return
+    # Known model payload formats must never be interpreted as diagnostic text.
+    if any(suffix in {".pt", ".pth", ".xz", ".gz", ".zip"} for suffix in path.suffixes):
+        return
+    with path.open("rb") as stream:
+        sample = stream.read(8192)
+        if b"\x00" in sample:
+            return
+    with path.open(encoding="utf-8") as stream:
+        overlap = ""
+        while part := stream.read(65536):
+            _refuse_if_fault_text(overlap + part, field_name=str(path))
+            overlap = part[-256:]
+
+
 def _check_output_root_fault_evidence(
     output_root: Path,
     *,
@@ -636,6 +832,14 @@ def _check_output_root_fault_evidence(
     if not output_root.is_dir():
         raise ResumeRefused("prior output_root is not a directory")
 
+    for retained_file in _retained_files(output_root):
+        _scan_retained_text(
+            retained_file,
+            output_root=output_root,
+            expected_job_id=expected_job_id,
+            expected_generation=expected_generation,
+        )
+
     terminal_file = output_root / "terminal.json"
     if terminal_file.is_symlink():
         raise ResumeRefused("symlinked terminal.json in prior output directory")
@@ -650,6 +854,13 @@ def _check_output_root_fault_evidence(
             raise ResumeRefused("malformed persisted terminal.json in prior output directory")
         if persisted_terminal.get("status") in {"completed", "succeeded"}:
             raise ResumeRefused("persisted terminal.json already completed; refusing continuation")
+        _check_retained_execution(
+            persisted_terminal,
+            label="persisted_terminal",
+            expected_job_id=expected_job_id,
+            expected_generation=expected_generation,
+            require_identity=True,
+        )
         _check_terminal_fault_evidence(persisted_terminal, label="persisted_terminal")
 
     summary_base = output_root / "exports/training/summary.json"
@@ -756,6 +967,12 @@ def _check_output_root_fault_evidence(
         if not isinstance(poll_payload, Mapping):
             raise ResumeRefused(f"malformed poll evidence: {poll_path.name}")
         poll_count += 1
+        _check_retained_execution(
+            poll_payload,
+            label=poll_path.name,
+            expected_job_id=expected_job_id,
+            expected_generation=expected_generation,
+        )
         if poll_payload.get("status") in {"completed", "succeeded"}:
             raise ResumeRefused(f"{poll_path.name} records completed status")
         matched_this_poll = False
@@ -778,6 +995,13 @@ def _check_output_root_fault_evidence(
                 raise ResumeRefused(f"{poll_path.name}.state is malformed")
             if poll_state.get("status") in {"completed", "succeeded"}:
                 raise ResumeRefused(f"{poll_path.name}.state records completed status")
+            _check_retained_execution(
+                poll_state,
+                label=f"{poll_path.name}.state",
+                expected_job_id=expected_job_id,
+                expected_generation=expected_generation,
+                require_identity=True,
+            )
             if "job_id" in poll_state:
                 if expected_job_id is not None and poll_state["job_id"] != expected_job_id:
                     raise ResumeRefused(
@@ -824,6 +1048,13 @@ def _check_output_root_fault_evidence(
                 raise ResumeRefused(f"{poll_path.name}.terminal is malformed")
             if poll_terminal.get("status") in {"completed", "succeeded"}:
                 raise ResumeRefused(f"{poll_path.name}.terminal already completed")
+            _check_retained_execution(
+                poll_terminal,
+                label=f"{poll_path.name}.terminal",
+                expected_job_id=expected_job_id,
+                expected_generation=expected_generation,
+                require_identity=True,
+            )
             _check_terminal_fault_evidence(poll_terminal, label=f"{poll_path.name}.terminal")
     return poll_count, identity_matched_polls
 
@@ -832,6 +1063,7 @@ def _check_supervisor_log_fault_evidence(
     supervisor_log_path: Path,
     *,
     expected_job_id: str | None = None,
+    expected_generation: str | None = None,
     allow_terminal_receipt_enospc: bool = False,
     expected_output_root: Path | None = None,
 ) -> dict[str, Any]:
@@ -893,6 +1125,29 @@ def _check_supervisor_log_fault_evidence(
                 raise ResumeRefused(
                     f"supervisor log line {line_no} records completed run; refusing continuation"
                 )
+            _check_retained_execution(
+                record,
+                label=f"supervisor_log:{line_no}",
+                expected_job_id=expected_job_id,
+                expected_generation=expected_generation,
+            )
+            for key in ("state", "terminal"):
+                retained = record.get(key)
+                # Supervisor event logs use terminal:false as a presence flag;
+                # saved poll payloads carry the full terminal object instead.
+                if key == "terminal" and retained is False:
+                    continue
+                if retained is not None:
+                    if not isinstance(retained, Mapping):
+                        raise ResumeRefused(f"supervisor_log:{line_no}.{key} is malformed")
+                    _check_retained_execution(
+                        retained,
+                        label=f"supervisor_log:{line_no}.{key}",
+                        expected_job_id=expected_job_id,
+                        expected_generation=expected_generation,
+                        require_identity=True,
+                    )
+            _scan_json_faults(record, label=f"supervisor_log:{line_no}")
             _refuse_if_fault_text(
                 record.get("error"),
                 field_name=f"supervisor_log:{line_no}.error",
@@ -1072,6 +1327,14 @@ def compute_retained_evidence_inventory(output_root: Path) -> dict[str, Any]:
         else:
             optional_files[rel_path] = None
     return {
+        "files": [
+            {
+                "path": str(path.relative_to(output_root)),
+                "size": path.stat().st_size,
+                "sha256": digest(path),
+            }
+            for path in _retained_files(output_root)
+        ],
         "poll_count": poll_count,
         "first_poll": first_poll,
         "last_poll": last_poll,
@@ -1233,6 +1496,7 @@ def verify_host_enospc_recovery(
     log_audit = _check_supervisor_log_fault_evidence(
         sup_log_path,
         expected_job_id=job_id,
+        expected_generation=generation,
         allow_terminal_receipt_enospc=True,
         expected_output_root=resolved_output,
     )
@@ -1344,58 +1608,7 @@ def verify_host_enospc_recovery(
         raise ResumeRefused(f"unresolved broker pending record exists: {pending_file}")
     active_file = account_root / f"active-{session}.json"
     rec_mode = broker_rec.get("mode")
-    if rec_mode == "verified_disappearance_with_bound_stale_active":
-        stale_desc = broker_rec.get("stale_active_record")
-        reconcile_cmd = broker_rec.get("operator_reconcile_command")
-        if (
-            not isinstance(stale_desc, Mapping)
-            or not isinstance(stale_desc.get("path"), str)
-            or Path(stale_desc["path"]).resolve() != active_file.resolve()
-            or not isinstance(reconcile_cmd, str)
-            or "research.colab_cli.supervisor recover" not in reconcile_cmd
-        ):
-            raise ResumeRefused("malformed stale_active_record binding in broker_reconciliation")
-        if active_file.is_symlink():
-            raise ResumeRefused(f"symlinked broker active record: {active_file}")
-        if active_file.is_file():
-            _verified_regular_file(active_file, stale_desc, label="stale_active_record")
-            try:
-                active_payload = json.loads(active_file.read_text())
-            except (OSError, json.JSONDecodeError) as error:
-                raise ResumeRefused("unreadable broker active record") from error
-            if (
-                not isinstance(active_payload, Mapping)
-                or active_payload.get("endpoint") != endpoint
-                or active_payload.get("session") != session
-                or not isinstance(active_payload.get("output"), str)
-                or Path(active_payload["output"]).resolve() != resolved_output
-            ):
-                raise ResumeRefused("broker active record disagrees with certificate identities")
-        else:
-            recovery_files = [
-                item
-                for item in sorted(resolved_output.glob("recovery-*.json"))
-                if item.is_file() and not item.is_symlink()
-            ]
-            verified_recover = False
-            for rec_file in recovery_files:
-                try:
-                    rec_payload = json.loads(rec_file.read_text())
-                except (OSError, json.JSONDecodeError):
-                    continue
-                if (
-                    isinstance(rec_payload, Mapping)
-                    and rec_payload.get("endpoint") == endpoint
-                    and rec_payload.get("stop_verified") is True
-                ):
-                    verified_recover = True
-                    break
-            if not verified_recover:
-                raise ResumeRefused(
-                    "bound stale active record was removed without a verified "
-                    "recovery-*.json receipt"
-                )
-    elif rec_mode == "qualified_recover_receipt":
+    if rec_mode == "qualified_recover_receipt":
         if active_file.exists() or active_file.is_symlink():
             raise ResumeRefused(
                 "qualified_recover_receipt mode requires stale active record to be absent"
@@ -1405,10 +1618,12 @@ def verify_host_enospc_recovery(
             raise ResumeRefused("qualified_recover_receipt lacks recover_receipt descriptor")
         rec_path = Path(rec_desc["path"])
         _verified_regular_file(rec_path, rec_desc, label="recover_receipt")
-        if rec_path.resolve().parent != resolved_output or not rec_path.name.startswith(
-            "recovery-"
+        if rec_path.resolve().parent != resolved_output or not (
+            rec_path.name.startswith("recovery-") and rec_path.suffix == ".json"
         ):
             raise ResumeRefused("recover_receipt must reside in output_root as recovery-*.json")
+        if set(resolved_output.glob("recovery-*.json")) != {rec_path}:
+            raise ResumeRefused("unbound recovery-*.json retained in output_root")
         try:
             rec_payload = json.loads(rec_path.read_text())
         except (OSError, json.JSONDecodeError) as error:
@@ -1456,6 +1671,7 @@ def verify_host_enospc_recovery(
         "captured_at_utc": capture_payload.get("captured_at_utc"),
         "captured_unix_seconds": captured_ts,
         "broker_reconciliation_mode": rec_mode,
+        "recover_receipt": dict(rec_desc),
         "operator_reconcile_command": broker_rec.get("operator_reconcile_command"),
         "stale_active_present_now": active_file.is_file(),
         "supervisor_log_sha256": sup_log["sha256"],

@@ -1021,11 +1021,23 @@ def test_continuation_builder_admits_receipt_less_host_enospc_and_chains_compact
     }
     publish(capture_file, lambda dst: dst.write_text(json.dumps(capture_payload) + "\n"))
 
+    (account_root / f"active-{session}.json").unlink()
+    recovered = enospc_attempt / "output/recovery-qualified.json"
+    recovered.write_text(json.dumps({"endpoint": endpoint, "stop_verified": True}) + "\n")
+    # Freeze derivatives before inventory/certificate creation; later additions
+    # to the retained evidence set must invalidate admission.
+    encode_or_verify_compact_snapshot(
+        enospc_attempt / "output/exports/training/iteration-0064.pt",
+        source_packet_id="packet-train01-15",
+        iteration=64,
+        source_commit=json.loads((source_packet / "control.json").read_text())["source_commit"],
+    )
     cert_file = recovery_dir / "host-enospc-recovery-certificate.json"
     cert_summary = build_host_enospc_recovery_certificate(
         enospc_attempt,
         account_status_capture_path=capture_file,
         certificate_output_path=cert_file,
+        recover_receipt_path=recovered,
         supervisor_log_path=sup_log,
         account_root=account_root,
         source_packet=source_packet,
@@ -1069,6 +1081,43 @@ def test_continuation_builder_admits_receipt_less_host_enospc_and_chains_compact
     assert c1_seal["prior_release_proof"]["post_hoc_release_verified"] is True
     assert c1_seal["periodic_export_format"] == "compact"
     assert c1_seal["mac_storage_projection"]["status"] == "PASS"
+
+    # Review continuation3 preflight-revalidation probe: a valid seal cannot
+    # hide expired release evidence or a newly retained fault at dispatch time.
+    import sys
+
+    from research.sandbox_a_resident.training_continuation import (
+        _single_thread_process_env,
+        run_packet_validation,
+    )
+
+    stale = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import time; from pathlib import Path; "
+            "from research.sandbox_a_resident.training_preflight import validate_packet; "
+            f"time.time = lambda: {capture_payload['captured_unix_seconds'] + 172800!r}; "
+            f"validate_packet(Path({str(c1_packet_dir)!r}))",
+        ],
+        cwd=Path(c1_result["broker_checkout"]),
+        env=_single_thread_process_env(),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert stale.returncode != 0 and "stale account_status_capture" in stale.stderr
+    committed_certificate = c1_packet_dir / "recovery-evidence.json"
+    saved_certificate = committed_certificate.read_bytes()
+    committed_certificate.unlink()
+    with pytest.raises(ContinuationRefused, match="admission proof is missing"):
+        run_packet_validation(Path(c1_result["broker_checkout"]), c1_packet_dir)
+    committed_certificate.write_bytes(saved_certificate)
+    late_fault = enospc_attempt / "output/exports/training/job.log.partial"
+    late_fault.write_text("FloatingPointError: non-finite loss tripwire\n")
+    with pytest.raises(ContinuationRefused, match="inventory/hashes drifted"):
+        run_packet_validation(Path(c1_result["broker_checkout"]), c1_packet_dir)
+    late_fault.unlink()
 
     # Now simulate c1 running on Colab with compact-at-source periodic exports (zero raw .pt files)
     # and stopping mechanically at iteration-0128, then build c2 from c1's broker_checkout!
