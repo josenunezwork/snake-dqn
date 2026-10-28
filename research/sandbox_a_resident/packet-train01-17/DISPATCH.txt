@@ -1,0 +1,12 @@
+TRAIN-01-17: prepared only; operator dispatch required.
+Runtime pin: 09cfe9f4e8d17aac2f13be8c29aab87d218f8d81 (moved from train01-16 pin 5cad044f3d9725a0ddbb967998b82c6eb9cb7739 to include commit f80bcdeb SIGUSR1 <15 s checkpoint/marker path + compact v2 continuation tooling).
+Mechanical reseal of train01-16 (sandbox-a-train01-20261027-16, stopped at 7,215.45 s by RPC_EXEC_POLL_TIMEOUT on a foreground lease-renewal exec exceeding its remaining 25.014 s timeout; stop_verified=true; zero training snapshots exported — only distribution-screen and calibrated-boundary).
+Same PPO recipe & float64 log_softmax legal KL/entropy as train01-15/16; reuses train01-16's unconsumed independent seed domain (allocation_index=1, train_seed_offset=1000000000; starts fresh from B8 with empty verified-ledger.json).
+Monitor (400000000, 288 worlds) and nomination (500000000, 768 worlds) banks identical to train01-15; exhaustive 114,299,008-root seed audit + 228.6M cross-run disjointness audit PASS.
+Source delivery: background-sparse-v1 (spawn-only ~0.005 s < 2.0 s bound); 5 private inputs (21,601,751 B; 22,563,324 B across 8 fallback uploads = 36.09 s / 62.48 s = 12.0%/20.8% of 300 s upload cap); progress <=60 s; SIGUSR1 <15 s handler; faulthandler stall watchdog 900 s.
+Measured A100 wall-time projection: 21.75 h nominal (22.82 h conservative) -> 23.0 h base (1380 min) / 46.0 h 2x guard (2760 min), unit_cap=369.0 u.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-17-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261028-17 /Users/josenunez/Projects/ml/snake-dqn-train01-17-broker.noindex/research/sandbox_a_resident/packet-train01-17/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-17-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-17-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-17/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-17-broker.noindex/research/sandbox_a_resident/packet-train01-17/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve detached checkouts and prior evidence.
