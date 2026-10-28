@@ -7,6 +7,7 @@ envelope that says which completed full-state snapshot a payload belongs to.
 
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
 import json
@@ -571,26 +572,45 @@ def _verified_regular_file(path: Path, descriptor: Mapping[str, Any], *, label: 
 
 
 def _refuse_if_fault_text(
-    value: Any, *, field_name: str, check_supervisor_denylist: bool = False
+    value: Any,
+    *,
+    field_name: str,
+    check_supervisor_denylist: bool = False,
+    structured_exits: bool = False,
 ) -> None:
     if not isinstance(value, str) or not value.strip():
         return
     lowered = value.lower()
-    exit_signal = re.search(
-        r'\b(?:exit(?:[_ -]?code)?|return[_ -]?code)"?\s*[=:]\s*(-?\d+)\b', lowered
+    exit_signals = re.findall(
+        r"\b(?:exit(?:[_ -]?(?:code|status))?|return[_ -]?code|rc)['\"]?"
+        r"\s*[=:]\s*['\"]?(-?\d+)\b"
+        r"|\bexit(?:ed)? (?:with )?(?:code|status) ['\"]?(-?\d+)\b"
+        r"|\breturned non-zero exit status ['\"]?(-?\d+)\b",
+        lowered,
     )
-    if exit_signal and int(exit_signal[1]) != 0:
+    if not structured_exits and any(int(code) != 0 for row in exit_signals for code in row if code):
         raise ResumeRefused(
             f"prior evidence records explicit scientific/non-mechanical fault "
             f"in {field_name}: nonzero exit signal"
         )
     for marker in EXPLICIT_FAULT_EVIDENCE_MARKERS:
+        if marker == "canary" and value in {
+            "canary_observations",
+            "research/colab_cli/canary.py",
+            "research/colab_cli/canary_observer.py",
+        }:
+            continue  # Exact producer field/source names, not diagnostic messages.
         if marker in lowered:
             raise ResumeRefused(
                 f"prior evidence records explicit scientific/non-mechanical fault "
                 f"in {field_name}: {marker!r}"
             )
-    if re.search(r"\b[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception):", value):
+    if re.search(
+        r"\b[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception|Interrupt|Exit|Warning)\b[:(]"
+        r"|\b(?:GeneratorExit|KeyboardInterrupt|SystemExit)\b"
+        r"|\b[A-Z][A-Za-z0-9_.]*(?:Detected|Failure|Fault)\b[:(]",
+        value,
+    ):
         raise ResumeRefused(
             f"prior evidence records explicit scientific/non-mechanical fault in {field_name}"
         )
@@ -641,7 +661,15 @@ NON_FAILURE_STATUSES = frozenset(
 MECHANICAL_RECEIPT_CLASSES = frozenset(
     {"RPC_EXEC_POLL_TIMEOUT", "SUPERVISOR", "CHILD_NONZERO_EXIT", "ACCOUNTING"}
 )
-RECORD_KEY_ALIASES = {"job": "job_id", "return_code": "returncode", "exit_code": "returncode"}
+RECORD_KEY_ALIASES = {
+    "job": "job_id",
+    "jobid": "job_id",
+    "return_code": "returncode",
+    "exit_code": "returncode",
+    "exitcode": "returncode",
+    "exit_status": "returncode",
+    "rc": "returncode",
+}
 SCIENTIFIC_DATA_SCOPES = frozenset({"metrics", "metadata", "compile", "proxy", "proxy_baseline"})
 # Producer data vocabulary is explicit. Reasons are absent in native scientific
 # summaries; an execution stop reason inside metrics is never an exemption.
@@ -702,8 +730,11 @@ def _json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _json_loads(text: str) -> Any:
+    def refuse_constant(_: str) -> None:
+        raise ResumeRefused("non-finite JSON constant")
+
     try:
-        return json.loads(text, object_pairs_hook=_json_pairs)
+        return json.loads(text, object_pairs_hook=_json_pairs, parse_constant=refuse_constant)
     except RecursionError as error:
         raise ResumeRefused("retained JSON is too deeply nested") from error
 
@@ -734,6 +765,14 @@ def _check_mechanical_receipt_class(record: Mapping[str, Any]) -> None:
     ):
         return
     if failure == "ACCOUNTING":
+        if (
+            record.get("error")
+            == "AccountingError('supervised assignment disappeared from sessions')"
+        ):
+            raise ResumeRefused(
+                "ACCOUNTING receipt records assignment disappearance without a retained terminal; "
+                "not admissible"
+            )
         if terminal is None and record.get("error") in {
             "AccountingError('priced session unit cap reached')",
             'AccountingError("priced session unit cap reached")',
@@ -774,9 +813,12 @@ def _check_retained_execution(
     record = _normalised_record(record, label)
     for key, expected in (("job_id", expected_job_id), ("generation", expected_generation)):
         if key == "generation" and scientific_data and not require_identity:
-            # RL metadata may use integer generations, but run UUIDs remain bound.
+            # Metadata may use integer counters or hardware names ("Ampere").
+            # Run UUIDs remain bound in either case and with/without hyphens.
             if not isinstance(record.get(key), str) or not re.fullmatch(
-                r"[0-9a-f]{32}", record[key]
+                r"(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-"
+                r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+                record[key],
             ):
                 continue
         if key in record:
@@ -834,7 +876,7 @@ def _check_retained_execution(
         raise ResumeRefused(f"{label} records non-mechanical reason: {reason!r}")
     if returncode is not None and type(returncode) is not int:
         raise ResumeRefused(f"{label} records malformed returncode")
-    if returncode == 124 and not allow_validated_incomplete:
+    if returncode == 124:
         raise ResumeRefused(f"{label} records watchdog timeout exit code 124")
     if (
         not allow_validated_incomplete
@@ -856,6 +898,14 @@ def _check_retained_execution(
         ):
             raise ResumeRefused(f"{label} is not a validated mechanical receipt envelope")
         _check_mechanical_receipt_class(record)
+        terminal = record.get("terminal")
+        terminal_code = terminal.get("returncode") if isinstance(terminal, Mapping) else None
+        if "returncode" in record and (
+            type(returncode) is not int
+            or type(returncode) is not type(terminal_code)
+            or returncode != terminal_code
+        ):
+            raise ResumeRefused(f"{label} returncode differs from retained terminal returncode")
     elif calibration_stop:
         if status != "incomplete" or not _mechanical_supervisor_error(record.get("error")):
             raise ResumeRefused(f"{label} is not a validated calibration stop")
@@ -974,6 +1024,9 @@ def _scan_json_faults(
             calibration,
         ) = pending.pop()
         if isinstance(current, Mapping):
+            for raw_key in current:
+                if _record_key(raw_key) not in EXECUTION_KEYS:
+                    _refuse_if_fault_text(raw_key, field_name=f"{name} JSON key")
             if (
                 validated_receipt_root
                 and name == f"{label}.accounting.calibration"
@@ -1062,6 +1115,8 @@ def _scan_json_faults(
                 if (key == "finite" and item is False) or (key == "material_gaps" and item):
                     raise ResumeRefused(f"{field} records explicit scientific/non-mechanical fault")
                 # Inventory paths are data, but mappings/lists under any key still validate.
+                if mechanical_error:
+                    continue  # This exact producer error was validated above.
                 if key not in {"path", "dest", "sha256"} or not isinstance(item, str):
                     execution_child = key in {"state", "terminal"} and (
                         not data_scope
@@ -1098,6 +1153,8 @@ def _scan_json_faults(
             )
         elif isinstance(current, str):
             _refuse_if_fault_text(current, field_name=name)
+        elif isinstance(current, float) and not math.isfinite(current):
+            raise ResumeRefused(f"{name} records non-finite float")
 
 
 def _scan_last_diagnostic_line(
@@ -1139,17 +1196,99 @@ def _scan_diagnostic_lines(
                 expected_generation=expected_generation,
             )
         elif re.fullmatch(r"STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/[^\s]+", line):
+            _refuse_if_fault_text(line, field_name=label)
             continue
         else:
-            _refuse_if_fault_text(line, field_name=label)
-            # Exceptions need no membership in a growing marker denylist.
-            if re.search(r"\b[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception):", line):
-                raise ResumeRefused(f"{label} records explicit scientific/non-mechanical fault")
+            _scan_diagnostic_record_line(
+                line,
+                label=label,
+                expected_job_id=expected_job_id,
+                expected_generation=expected_generation,
+            )
+
+
+def _scan_diagnostic_record_line(
+    line: str,
+    *,
+    label: str,
+    expected_job_id: str | None,
+    expected_generation: str | None,
+    supervisor_transport: bool = False,
+    validated_receipt: Mapping[str, Any] | None = None,
+    allow_completed: bool = False,
+) -> Any:
+    """Check structured facts AND raw text, including timestamp-prefixed JSON.
+
+    Only values already checked by the structured scanner may be removed from
+    the raw pass: inventory paths and exact producer mechanical error strings.
+    Exit facts in complete JSON are checked structurally, never by a text hint.
+    """
+    stripped = line.strip()
+    if supervisor_transport and stripped == (
+        "!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!"
+    ):
+        return None  # Exact successful macOS test-wrapper banner in captured ops logs.
+    start = stripped.find("{")
+    candidate = (
+        stripped[start:]
+        if start >= 0
+        and (
+            not stripped.startswith(("{", "[", '"'))
+            or not stripped.startswith(("[{", '["'))
+            and re.match(r"^\[[^\]]*\]\s", stripped)
+        )
+        else stripped
+    )
+    if candidate != stripped:
+        _refuse_if_fault_text(stripped[:start], field_name=label)
+    scalar_json = candidate in {"NaN", "Infinity", "-Infinity"} or re.fullmatch(
+        r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", candidate
+    )
+    if not candidate.startswith(("{", "[", '"')) and not scalar_json:
+        _refuse_if_fault_text(stripped, field_name=label)
+        return None
+    try:
+        record = _json_loads(candidate)
+    except json.JSONDecodeError:
+        _check_truncated_execution_line(candidate, label=label)
+        _refuse_if_fault_text(stripped, field_name=label)
+        return None
+    _scan_log_record(
+        record,
+        label=label,
+        expected_job_id=expected_job_id,
+        expected_generation=expected_generation,
+        supervisor_transport=supervisor_transport,
+        validated_receipt=validated_receipt,
+        allow_completed=allow_completed,
+    )
+    raw = stripped
+    raw = raw.replace('"canary_observations"', '"observations"')
+    pending = [record]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, Mapping):
+            for key, value in item.items():
+                if isinstance(value, str) and (
+                    _record_key(key) in {"path", "dest", "sha256"}
+                    or _record_key(key) == "error"
+                    and (
+                        _mechanical_supervisor_error(value)
+                        or item.get("failure_class") == "CHILD_NONZERO_EXIT"
+                    )
+                ):
+                    raw = raw.replace(json.dumps(value), '""')
+                else:
+                    pending.append(value)
+        elif isinstance(item, list):
+            pending.extend(item)
+    _refuse_if_fault_text(raw, field_name=label, structured_exits=True)
+    return record
 
 
 def _check_truncated_execution_line(line: str, *, label: str) -> None:
     # Bracketed provider warnings are text; a damaged execution document is not.
-    if re.match(r"^\[[^\]]*\]\s", line):
+    if not line.startswith(("[{", '["')) and re.match(r"^\[[^\]]*\]\s", line):
         return
     if line.startswith(("{", "[", '"')) and any(
         _record_key(key) in EXECUTION_KEYS for key in re.findall(r'"([^"\\]+)"\s*:', line)
@@ -1159,6 +1298,8 @@ def _check_truncated_execution_line(line: str, *, label: str) -> None:
 
 def _retained_json_records(path: Path) -> list[Any]:
     """Execution JSON is one document; only explicit JSONL accepts many records."""
+    if path.stat().st_size > MAX_RETAINED_JSON_BYTES:
+        raise ResumeRefused(f"oversized retained diagnostic: {path}")
     text = path.read_text(encoding="utf-8", errors="replace")
     try:
         execution = path.name.startswith(("poll-", "state.json", "terminal.json", "receipt.json"))
@@ -1182,6 +1323,33 @@ def _retained_json_records(path: Path) -> list[Any]:
 
 STAGING_SUFFIX = r"\.(?:partial|part|tmp[A-Za-z0-9._-]*)"
 MODEL_NAME = r"iteration-\d{4}(?:-actor\.pth|\.pt)(?:\.xz)?"
+MAX_RETAINED_JSON_BYTES = 32 * 1024 * 1024
+
+
+def _scientific_publication_name(path: Path, root: Path) -> str | None:
+    canonical = re.sub(STAGING_SUFFIX + r"$", "", path.name)
+    parent = root / "exports/training"
+    if path.parent == parent and canonical in {"distribution-screen.json", "progress.json"}:
+        return canonical
+    if path.parent == parent / "stall-watchdog" and canonical == "stall-watchdog.json":
+        return canonical
+    return None
+
+
+def _check_scientific_publication(path: Path, root: Path, record: Any) -> None:
+    name = _scientific_publication_name(path, root)
+    if name is None:
+        return
+    if not isinstance(record, Mapping):
+        raise ResumeRefused(f"malformed scientific publication: {path}")
+    if name == "distribution-screen.json" and record.get("material_gaps"):
+        raise ResumeRefused("distribution-screen.json records material distribution gaps")
+    if name in {"progress.json", "stall-watchdog.json"} and str(
+        record.get("stage", "")
+    ).lower().endswith("-failed"):
+        raise ResumeRefused(f"{name} records failed stage")
+    if name == "progress.json" and record.get("error"):
+        raise ResumeRefused("progress.json records explicit scientific/non-mechanical fault")
 
 
 def _sidecar_target(path: Path) -> tuple[Path, str] | None:
@@ -1452,11 +1620,14 @@ class _RetainedTransport:
             canonical = path.with_name(staged[1])
             if path.stat().st_size == 0:
                 return True
+            if path.stat().st_size > MAX_RETAINED_JSON_BYTES:
+                raise ResumeRefused(f"oversized retained diagnostic: {path}")
             try:
                 record = _json_loads(path.read_text(encoding="utf-8"))
             except (UnicodeError, json.JSONDecodeError):
                 pass
             else:
+                _check_scientific_publication(path, self.root, record)
                 _scan_json_faults(
                     record,
                     label=str(path),
@@ -1592,6 +1763,8 @@ def _scan_retained_text(
     transport = transport or _RetainedTransport(output_root, expected_job_id, expected_generation)
     if not _skip_transport and transport.admit(path):
         return
+    if path.stat().st_size > MAX_RETAINED_JSON_BYTES:
+        raise ResumeRefused(f"oversized retained diagnostic: {path}")
     model_metadata = _sidecar_target(path) is not None
     model_manifest = re.fullmatch(r"iteration-\d{4}\.pt\.xz\.manifest", path.name)
     in_training = path.parent == output_root / "exports/training"
@@ -1620,7 +1793,7 @@ def _scan_retained_text(
     ):
         raise ResumeRefused(f"unexpected retained binary payload: {path}")
     publication_sidecar = _sidecar_target(path) is not None
-    if path.name.startswith("supervisor.log"):
+    if path == output_root / "supervisor.log":
         original_output = None
         manifest_path = output_root / "manifest.json"
         if manifest_path.is_file():
@@ -1656,6 +1829,7 @@ def _scan_retained_text(
                 is_json = True
     if is_json:
         for payload in _retained_json_records(path):
+            _check_scientific_publication(path, output_root, payload)
             execution_file = path.name.startswith(("state.json", "terminal.json", "poll-"))
             if execution_file and not isinstance(payload, Mapping):
                 raise ResumeRefused(f"malformed retained execution record: {path}")
@@ -1690,23 +1864,14 @@ def _scan_retained_text(
         with path.open(encoding="utf-8", errors="replace") as stream:
             for line in stream:
                 stripped = line.replace("\x00", "").strip()
-                if stripped.startswith(("{", "[", '"')):
-                    try:
-                        record = _json_loads(stripped)
-                    except json.JSONDecodeError:
-                        _check_truncated_execution_line(stripped, label=str(path))
-                    else:
-                        _scan_log_record(
-                            record,
-                            label=str(path),
-                            expected_job_id=expected_job_id,
-                            expected_generation=expected_generation,
-                            supervisor_transport=path.name.startswith("supervisor.log"),
-                            validated_receipt=validated_receipt,
-                            allow_completed=allow_completed,
-                        )
-                        continue
-                _refuse_if_fault_text(stripped, field_name=str(path))
+                _scan_diagnostic_record_line(
+                    stripped,
+                    label=str(path),
+                    expected_job_id=expected_job_id,
+                    expected_generation=expected_generation,
+                    validated_receipt=validated_receipt,
+                    allow_completed=allow_completed,
+                )
 
 
 def _scan_log_record(
@@ -1779,26 +1944,18 @@ def _check_output_root_fault_evidence(
 
     retained_files = _retained_files(output_root)
     training = output_root / "exports/training"
-    for path in (
-        training / "distribution-screen.json",
-        training / "progress.json",
-        training / "stall-watchdog/stall-watchdog.json",
-    ):
-        if not (path.is_symlink() or path.exists()):
-            continue
-        if path.is_symlink() or not path.is_file():
-            raise ResumeRefused(f"missing or symlinked scientific publication: {path}")
-        record = _retained_json_records(path)[0]
-        if not isinstance(record, Mapping):
-            raise ResumeRefused(f"malformed scientific publication: {path}")
-        if path.name == "distribution-screen.json" and record.get("material_gaps"):
-            raise ResumeRefused("distribution-screen.json records material distribution gaps")
-        if path.name in {"progress.json", "stall-watchdog.json"} and str(
-            record.get("stage", "")
-        ).lower().endswith("-failed"):
-            raise ResumeRefused(f"{path.name} records failed stage")
-        if path.name == "progress.json" and record.get("error"):
-            raise ResumeRefused("progress.json records explicit scientific/non-mechanical fault")
+    for path in retained_files:
+        if _scientific_publication_name(path, output_root) is not None:
+            if path.stat().st_size:
+                _check_scientific_publication(path, output_root, _retained_json_records(path)[0])
+        if (
+            not allow_completed
+            and path.parent == training
+            and re.fullmatch(
+                r"summary\.json(?:\.(?:sha256|complete))?(?:" + STAGING_SUFFIX + r")?", path.name
+            )
+        ):
+            raise ResumeRefused("exported summary.json already exists; prior run completed")
 
     transport = _RetainedTransport(output_root, expected_job_id, expected_generation)
     for retained_file in retained_files:
@@ -1877,6 +2034,8 @@ def _check_supervisor_log_fault_evidence(
     """Scan EVERY line of a supervisor log for scientific/non-mechanical fault evidence."""
     if supervisor_log_path.is_symlink() or not supervisor_log_path.is_file():
         raise ResumeRefused(f"missing or symlinked supervisor log: {supervisor_log_path}")
+    if supervisor_log_path.stat().st_size > MAX_RETAINED_JSON_BYTES:
+        raise ResumeRefused(f"oversized retained diagnostic: {supervisor_log_path}")
     try:
         raw_lines = (
             supervisor_log_path.read_text(encoding="utf-8", errors="replace")
@@ -1935,28 +2094,19 @@ def _check_supervisor_log_fault_evidence(
         if allow_terminal_receipt_enospc and idx in (enospc_line_index, exit_line_index):
             continue
         line_no = idx + 1
-        if stripped.startswith(("{", "[", '"')):
-            try:
-                record = _json_loads(stripped)
-            except json.JSONDecodeError:
-                _check_truncated_execution_line(stripped, label=f"supervisor_log:{line_no}")
-                _refuse_if_fault_text(stripped, field_name=f"supervisor_log:{line_no}")
-                continue
-            _scan_log_record(
-                record,
-                label=f"supervisor_log:{line_no}",
-                expected_job_id=expected_job_id,
-                expected_generation=expected_generation,
-                supervisor_transport=True,
-                validated_receipt=validated_receipt,
-                allow_completed=allow_completed,
-            )
-            if isinstance(record, Mapping):
-                normal = _normalised_record(record, f"supervisor_log:{line_no}")
-                if normal.get("job_id") == expected_job_id and expected_job_id is not None:
-                    matched_job_records += 1
-            continue
-        _refuse_if_fault_text(stripped, field_name=f"supervisor_log:{line_no}")
+        record = _scan_diagnostic_record_line(
+            stripped,
+            label=f"supervisor_log:{line_no}",
+            expected_job_id=expected_job_id,
+            expected_generation=expected_generation,
+            supervisor_transport=True,
+            validated_receipt=validated_receipt,
+            allow_completed=allow_completed,
+        )
+        if isinstance(record, Mapping):
+            normal = _normalised_record(record, f"supervisor_log:{line_no}")
+            if normal.get("job_id") == expected_job_id and expected_job_id is not None:
+                matched_job_records += 1
     return {
         "line_count": len(raw_lines),
         "matched_job_records": matched_job_records,
@@ -2009,9 +2159,22 @@ def verify_mechanical_stop(
         or receipt.get("cleanup_error") is not None
     ):
         raise ResumeRefused("prior receipt does not prove a verified released incomplete run")
-    _refuse_if_fault_text(
-        receipt.get("error"), field_name="receipt.error", check_supervisor_denylist=True
-    )
+    error_text = receipt.get("error")
+    if isinstance(error_text, str):
+        wrapper = re.fullmatch(
+            r"(?:Refused|SupervisorError|AccountingError|ClassifiedFailure)\((.*)\)", error_text
+        )
+        if wrapper:
+            try:
+                body = ast.literal_eval(wrapper[1])
+            except (ValueError, SyntaxError, RecursionError):
+                pass
+            else:
+                if isinstance(body, str):
+                    error_text = body
+    # Unwrapping is only a lexical fault check, never an admission exemption.
+    # The recursive scanner still requires the complete exact producer error.
+    _refuse_if_fault_text(error_text, field_name="receipt.error", check_supervisor_denylist=True)
     _refuse_if_fault_exports(receipt.get("exports"), source_name="receipt")
     terminal_reason: Any = None
     if terminal is not None:

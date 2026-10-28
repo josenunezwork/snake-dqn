@@ -57,6 +57,35 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _offline_spec_validator(runtime: Any, owned: Path) -> Callable[..., dict[str, Any]]:
+    """Keep native validation/defaults; project only the private Mac root path."""
+    real_validate = runtime._validate_spec
+
+    class ValidationRoot:
+        def resolve(self) -> ValidationRoot:
+            return self
+
+        def __str__(self) -> str:
+            return "/content/snake-cli/offline-capture"
+
+        def is_dir(self) -> bool:
+            return owned.is_dir()
+
+        def __truediv__(self, name: str) -> Path:
+            return owned / name
+
+    def validate(raw: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        def project(value: Any) -> Any:
+            return ValidationRoot() if str(value) == str(owned) else Path(value)
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(runtime, "Path", project)
+            result = real_validate(raw, **kwargs)
+        return {**result, "root": str(owned)}
+
+    return validate
+
+
 def _runtime_into_fake(
     root: Path, payload: dict[str, Any], scenario: str, mp: pytest.MonkeyPatch
 ) -> Callable[[], None] | None:
@@ -70,6 +99,12 @@ def _runtime_into_fake(
     runtime_path.write_bytes(
         subprocess.check_output(
             ["git", "show", f"{payload['manifest']['commit']}:research/colab_cli/runtime.py"],
+            cwd=REPO,
+        )
+    )
+    (root / "release.py").write_bytes(
+        subprocess.check_output(
+            ["git", "show", f"{payload['manifest']['commit']}:research/colab_cli/release.py"],
             cwd=REPO,
         )
     )
@@ -122,8 +157,7 @@ p.execute(c,Path(os.environ['COLAB_OUTPUT_DIR'])/'training',on_progress=boundary
         "release_endpoint": "offline-fake-endpoint",
         "post_terminal_timeout_seconds": 120,
     }
-    # Runtime remains retained while the real broker downloads the terminal.
-    mp.setattr(runtime, "_validate_spec", lambda raw: dict(raw))
+    mp.setattr(runtime, "_validate_spec", _offline_spec_validator(runtime, owned))
     mp.setattr(runtime, "_require_release_safety", lambda *_args: None)
     mp.setattr(runtime, "_release_credential_expiring", lambda *_args: False)
 
@@ -267,8 +301,35 @@ def _prefetch_before_host_loss(root: Path, payload: dict[str, Any], lose_host: A
 
 
 def capture_one(destination: Path, scenario: str) -> dict[str, Any]:
+    """Publish create-only; subprocesses can write only our private sibling."""
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".golden-capture-", dir=destination.parent) as work:
+        private = Path(work) / "payload"
+        try:
+            result = _capture_one(private, scenario)
+        except BaseException:
+            if private.exists():
+                failed = destination.with_name(destination.name + ".failed")
+                # Reserve create-only, even if a prior failed capture exists.
+                failed.mkdir()
+                for path in private.iterdir():
+                    path.rename(failed / path.name)
+            raise
+        # An exclusive directory reservation also protects a destination created
+        # by another caller while the producer was running. Never rename it.
+        destination.mkdir()
+        for path in private.iterdir():
+            path.rename(destination / path.name)
+        return result
+
+
+def _capture_one(destination: Path, scenario: str) -> dict[str, Any]:
     """Capture one actual receipt and retained output under an isolated fake account."""
     assert scenario in SCENARIOS
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(destination)
     if scenario in {
         "provider-loss-no-receipt",
         "provider-loss-after-download",
@@ -279,16 +340,15 @@ def capture_one(destination: Path, scenario: str) -> dict[str, Any]:
                 sys.executable,
                 "-m",
                 "research.sandbox_a_resident.capture_supervisor_goldens",
-                str(destination.parent),
+                str(destination),
                 "--scenario",
                 scenario,
+                "--exact-destination",
             ],
             env=env,
             cwd=REPO,
         )
         if result.returncode != 91:
-            if destination.exists():
-                destination.rename(destination.with_name(destination.name + ".failed"))
             raise RuntimeError(f"offline host loss child returned {result.returncode}")
         provenance = json.loads((destination / "provenance.json").read_text())
         scratch = Path(provenance["scratch_removed_by_parent"])
@@ -570,7 +630,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("destination", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
+    parser.add_argument("--exact-destination", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.exact_destination:
+        if not os.environ.get("GOLDEN_LOSS_CHILD") or not args.scenario:
+            parser.error("exact destination is private to the offline loss child")
+        _capture_one(args.destination, args.scenario)
+        return
     selected = [args.scenario] if args.scenario else SCENARIOS
     for scenario in selected:
         result = capture_one(args.destination / scenario, scenario)

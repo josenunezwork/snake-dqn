@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Iterator
@@ -85,7 +86,7 @@ def test_corrected_capture_inventory_and_native_policy(case: str) -> None:
             receipt["error"] == "AccountingError('supervised assignment disappeared from sessions')"
         )
         with pytest.raises(
-            resume.ResumeRefused, match="lacks the exact priced session runaway guard"
+            resume.ResumeRefused, match="assignment disappearance without a retained terminal"
         ):
             resume.verify_mechanical_stop(
                 receipt, manifest, hashlib.sha256(manifest_path.read_bytes()).hexdigest()
@@ -125,7 +126,16 @@ def test_loss_after_snapshot_and_partial_chunk_is_not_recovery_authority(tmp_pat
     assert (training / "iteration-0032.pt.xz").stat().st_size > 17 * 1024 * 1024
     assert (training / "iteration-0016.pt").is_file()
     assert (training / "iteration-0016.json.complete").read_text() == "complete\n"
-    assert list(training.glob(".transfer-*.*"))
+    chunks = list(training.glob(".transfer-*.1"))
+    assert len(chunks) == 1
+    native_chunk = chunks[0]
+    assert re.fullmatch(r"\.transfer-[A-Za-z0-9_-]+\.1", native_chunk.name)
+    content = (training / "iteration-0032.pt.xz").read_bytes()
+    assert native_chunk.read_bytes() == content[8 * 1024 * 1024 : 16 * 1024 * 1024]
+    # Name and bytes both came from the interrupted native downloader. The
+    # scanner must select the byte-offset proof on that exact retained file.
+    proven = resume._RetainedTransport(output, None, None).admit_payload(native_chunk, None)
+    assert proven == (hashlib.sha256(content).hexdigest(), "iteration-0032.pt.xz")
     assert not (output / "receipt.json").exists()
     assert result["receipt_sha256"] is None
     resume._check_output_root_fault_evidence(output)
@@ -147,7 +157,9 @@ def test_failed_capture_is_marked_failed(tmp_path: Path, monkeypatch: pytest.Mon
     root = tmp_path / "provider-loss-no-receipt"
 
     def failed(*args, **kwargs) -> subprocess.CompletedProcess:
-        root.mkdir()
+        child_destination = Path(args[0][3])
+        child_destination.mkdir()
+        (child_destination / "failed-producer.txt").write_text("owned private capture")
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(subprocess, "run", failed)

@@ -26,10 +26,17 @@ ELIGIBLE = (
     "calibration-reserve",
     "lease-renewal-timeout",
     "rpc-exec-poll-timeout",
-    "runtime-timeout",
-    "runtime-lease-expiry",
 )
-ALL_CASES = ("clean-completion", *ELIGIBLE, "child-nonzero", "provider-loss-no-receipt")
+# Retention was artificially held by the first harness; these are schema tests,
+# never proof that the qualified producer retains runtime self-release terminals.
+RETAINED_TERMINAL_NON_PRODUCER = ("runtime-timeout", "runtime-lease-expiry")
+ALL_CASES = (
+    "clean-completion",
+    *ELIGIBLE,
+    *RETAINED_TERMINAL_NON_PRODUCER,
+    "child-nonzero",
+    "provider-loss-no-receipt",
+)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -93,7 +100,9 @@ def test_golden_bytes_match_capture_inventory(case: str) -> None:
     )
     assert provenance["source_commit"] == "e971d41f1adbbdc3e6bf655f66f33cc3849c04e5"
     subprocess.run(
-        ["git", "merge-base", "--is-ancestor", provenance["source_commit"], "HEAD"], check=True
+        ["git", "merge-base", "--is-ancestor", provenance["source_commit"], "HEAD"],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
     )
 
     assert provenance["provider"].startswith("tests/fixtures/fake_colab.py")
@@ -186,9 +195,7 @@ def test_real_clean_completion_is_complete_and_cannot_be_continued() -> None:
 @pytest.mark.parametrize(
     "case,reason", [("runtime-timeout", "timeout"), ("runtime-lease-expiry", "lease_expired")]
 )
-def test_runtime_cpu_stop_has_real_proxy_snapshot_without_completed_summary(
-    case: str, reason: str
-) -> None:
+def test_nonproducer_retained_terminal_shape_has_proxy_snapshot(case: str, reason: str) -> None:
     output, receipt, _, _ = _evidence(case)
     assert receipt["terminal"]["reason"] == reason
     assert receipt["terminal"]["returncode"] != 0

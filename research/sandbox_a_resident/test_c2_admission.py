@@ -20,7 +20,7 @@ from research.sandbox_a_resident.units import digest, publish
 
 @pytest.mark.parametrize("code", [1, 137, 124])
 @pytest.mark.parametrize("alias", ["exit_code", "returncode", "exitCode", "returnCode"])
-def test_mechanical_receipt_exit_is_explained_by_its_terminal(
+def test_mechanical_receipt_exit_must_match_its_terminal(
     tmp_path: Path, code: int, alias: str
 ) -> None:
     rec = receipt()
@@ -35,10 +35,14 @@ def test_mechanical_receipt_exit_is_explained_by_its_terminal(
         },
         **{alias: code},
     )
-    verify_mechanical_stop(rec, manifest(), "b" * 64, output_root=tmp_path)
-    rec["terminal"]["error"] = "FloatingPointError injected twin"
-    with pytest.raises(ResumeRefused, match="scientific/non-mechanical fault"):
+    message = (
+        "receipt records watchdog timeout exit code 124"
+        if code == 124
+        else "receipt returncode differs from retained terminal returncode"
+    )
+    with pytest.raises(ResumeRefused) as caught:
         verify_mechanical_stop(rec, manifest(), "b" * 64, output_root=tmp_path)
+    assert str(caught.value) == message
 
 
 @pytest.mark.parametrize(
