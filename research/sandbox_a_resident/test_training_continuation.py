@@ -40,6 +40,21 @@ from tools.sandbox.registry import TRANSPORT_TREE, digest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_original_packet_seal_is_git_verified_without_continuation_proof(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from research.sandbox_a_resident import training_preflight
+
+    seal = tmp_path / "SEAL.json"
+    seal.write_text(json.dumps({"schema": "sandbox-a-train01-resident-prep-seal/v1"}))
+    verified = []
+    monkeypatch.setattr(training_preflight, "verify_committed_manifest", verified.append)
+    training_preflight._validate_continuation_stop(tmp_path, {})
+    assert verified == [seal]
+    with pytest.raises(ValueError, match="unsupported continuation"):
+        training_preflight._validate_continuation_stop(tmp_path, {"completion_attempt": {}})
+
+
 def _write_ten_line_sandbox(path: Path, sandbox: dict) -> None:
     lines = [
         ("{" if i == 0 else " ") + json.dumps(k) + ": " + json.dumps(v) + ("," if i < 9 else "}")
@@ -374,6 +389,36 @@ def test_continuation_builder_seals_train01_15_wall_timeout_and_verifies_launch_
         allowlist_path=allowlist_path,
     )
     assert list(verified) == [192]
+
+    # A receipt-backed c1 must reopen its bound stop proof on each preflight.
+    from research.sandbox_a_resident.training_continuation import run_packet_validation
+
+    prior_receipt = attempt_15 / "output/receipt.json"
+    saved_receipt = prior_receipt.read_bytes()
+    for mutation in (None, {"stop_verified": False}, {"failure_class": "CHILD_NONZERO_EXIT"}):
+        if mutation is None:
+            prior_receipt.unlink()
+        else:
+            prior_receipt.write_text(json.dumps({**json.loads(saved_receipt), **mutation}))
+        with pytest.raises(ContinuationRefused):
+            run_packet_validation(broker_checkout, packet_dir)
+        prior_receipt.write_bytes(saved_receipt)
+    retained_fault = attempt_15 / "output/exports/training/job.log"
+    retained_fault.write_text("FloatingPointError: non-finite loss tripwire\n")
+    with pytest.raises(ContinuationRefused, match="explicit scientific/non-mechanical fault"):
+        run_packet_validation(broker_checkout, packet_dir)
+    retained_fault.unlink()
+    seal_path = packet_dir / "SEAL.json"
+    saved_seal = seal_path.read_bytes()
+    seal = json.loads(saved_seal)
+    for mutation in (None, {"prior_stop_evidence_kind": "unknown"}):
+        if mutation is None:
+            seal_path.unlink()
+        else:
+            seal_path.write_text(json.dumps({**seal, **mutation}))
+        with pytest.raises(ContinuationRefused):
+            run_packet_validation(broker_checkout, packet_dir)
+        seal_path.write_bytes(saved_seal)
 
 
 def test_continuation_builder_supports_train01_16_child_timeout_and_c1_to_c2_chain(
@@ -1112,6 +1157,23 @@ def test_continuation_builder_admits_receipt_less_host_enospc_and_chains_compact
     committed_certificate.unlink()
     with pytest.raises(ContinuationRefused, match="admission proof is missing"):
         run_packet_validation(Path(c1_result["broker_checkout"]), c1_packet_dir)
+    seal_path = c1_packet_dir / "SEAL.json"
+    saved_seal = seal_path.read_bytes()
+    for mutation in ("missing", "dangling", "receipt", "unknown"):
+        if mutation == "missing":
+            seal_path.unlink()
+        elif mutation == "dangling":
+            seal_path.unlink()
+            seal_path.symlink_to(c1_packet_dir / "absent-seal.json")
+        else:
+            seal_path.write_text(
+                json.dumps({**json.loads(saved_seal), "prior_stop_evidence_kind": mutation})
+            )
+        with pytest.raises(ContinuationRefused):
+            run_packet_validation(Path(c1_result["broker_checkout"]), c1_packet_dir)
+        if seal_path.is_symlink():
+            seal_path.unlink()
+        seal_path.write_bytes(saved_seal)
     committed_certificate.write_bytes(saved_certificate)
     late_fault = enospc_attempt / "output/exports/training/job.log.partial"
     late_fault.write_text("FloatingPointError: non-finite loss tripwire\n")

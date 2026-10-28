@@ -143,6 +143,13 @@ def test_prepare_completion_keeps_required_sidecars_and_preflights_successor(
     monkeypatch.setattr(sandbox_preflight, "verify_committed_manifest", lambda *_args, **_kw: None)
     monkeypatch.setattr(training_preflight, "verify_committed_manifest", lambda _path: None)
     assert validate_packet(successor)["status"] == "PASS"
+    seal = json.loads((successor / "SEAL.json").read_text())
+    assert seal["prior_receipt_sha256"] == digest(receipt)
+    saved_receipt = receipt.read_bytes()
+    receipt.unlink()
+    with pytest.raises(ValueError, match="continuation proof"):
+        validate_packet(successor)
+    receipt.write_bytes(saved_receipt)
 
 
 def test_validate_packet_admits_independent_seed_domain_and_freezes_recipe(

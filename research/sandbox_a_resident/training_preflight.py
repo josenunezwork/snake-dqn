@@ -16,6 +16,7 @@ from research.sandbox_a_resident.training_prepare import STUDY, seed_allocations
 from research.sandbox_a_resident.training_resume import (
     HOST_ENOSPC_RECOVERY_SCHEMA,
     verify_host_enospc_recovery,
+    verify_mechanical_stop,
 )
 from research.sandbox_a_resident.training_units import (
     COMPACT_DERIVATIVE_SUFFIX,
@@ -28,6 +29,128 @@ from tools.sandbox.preflight import preflight, verify_committed_manifest
 from tools.sandbox.registry import digest
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _regular_packet_file(path: Path) -> None:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"missing or symlinked continuation proof: {path}")
+
+
+def _validate_continuation_stop(packet: Path, broker: dict) -> None:
+    """Reopen the committed seal and its underlying stop proof on every admission."""
+    seal_file = packet / "SEAL.json"
+    recovery_file = packet / "recovery-evidence.json"
+    tracked = (
+        subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", str(seal_file)],
+            cwd=ROOT,
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    )
+    if not (
+        tracked
+        or "completion_attempt" in broker
+        or seal_file.exists()
+        or seal_file.is_symlink()
+        or recovery_file.exists()
+        or recovery_file.is_symlink()
+    ):
+        return
+    _regular_packet_file(seal_file)
+    verify_committed_manifest(seal_file)
+    seal = json.loads(seal_file.read_text())
+    if (
+        "completion_attempt" not in broker
+        and seal.get("schema") == "sandbox-a-train01-resident-prep-seal/v1"
+        and not (recovery_file.exists() or recovery_file.is_symlink())
+    ):
+        return
+    if seal.get("schema") != "sandbox-a-train01-continuation-seal/v1":
+        raise ValueError("unsupported continuation SEAL.json schema")
+    kind = seal.get("prior_stop_evidence_kind")
+    # 'supervisor_receipt' is the existing builder's canonical spelling.
+    if kind not in {"receipt", "supervisor_receipt", "host_enospc_recovery_certificate"}:
+        raise ValueError("SEAL.json has unsupported prior_stop_evidence_kind")
+    prior_name = seal.get("prior_packet")
+    if not isinstance(prior_name, str) or Path(prior_name).name != prior_name:
+        raise ValueError("SEAL.json prior_packet must be a packet name")
+    source_packet = Path(seal.get("prior_packet_path", packet.parent / prior_name))
+    if source_packet.name != prior_name:
+        raise ValueError("SEAL.json prior_packet_path differs from prior_packet")
+    source_packet_manifest = source_packet / "dispatch-manifest.json"
+    for path in (source_packet_manifest, source_packet / "control.json"):
+        _regular_packet_file(path)
+        verify_committed_manifest(path)
+    source_frozen = json.loads(source_packet_manifest.read_text())
+    if kind == "host_enospc_recovery_certificate":
+        if not recovery_file.is_file() or recovery_file.is_symlink():
+            raise ValueError(
+                "SEAL.json requires recovery-evidence.json; admission proof is missing"
+            )
+        verify_committed_manifest(recovery_file)
+        recovery = json.loads(recovery_file.read_text())
+        if (
+            recovery.get("schema") != HOST_ENOSPC_RECOVERY_SCHEMA
+            or seal.get("prior_recovery_evidence_schema") != HOST_ENOSPC_RECOVERY_SCHEMA
+            or seal.get("prior_receipt_present") is not False
+            or seal.get("prior_receipt_sha256") is not None
+            or seal.get("prior_recovery_evidence_sha256") != digest(recovery_file)
+        ):
+            raise ValueError("SEAL.json does not bind committed recovery-evidence.json")
+        identities = recovery["identities"]
+        if identities["source_packet_id"] != prior_name:
+            raise ValueError("recovery evidence source packet differs from SEAL.json")
+        source_output = Path(identities["output_dir"])
+    else:
+        if recovery_file.exists() or recovery_file.is_symlink():
+            raise ValueError("receipt stop proof conflicts with recovery-evidence.json")
+        source_output = Path(seal.get("prior_output_dir", source_frozen["output_dir"]))
+    if not source_output.is_absolute() or any(
+        p.is_symlink() for p in (source_output, *source_output.parents)
+    ):
+        raise ValueError("prior output root must be an absolute path without symlinks")
+    source_manifest_path = source_output / "manifest.json"
+    _regular_packet_file(source_manifest_path)
+    source_manifest = json.loads(source_manifest_path.read_text())
+    if (
+        seal.get("prior_executed_manifest_sha256") != digest(source_manifest_path)
+        or seal.get("prior_job_id") != source_manifest.get("job_id")
+        or broker.get("completion_attempt", {}).get("prior_job_id") != seal.get("prior_job_id")
+    ):
+        raise ValueError("prior executed manifest identity differs from SEAL.json")
+    if kind == "host_enospc_recovery_certificate":
+        verify_host_enospc_recovery(
+            recovery_file,
+            source_manifest,
+            digest(source_manifest_path),
+            output_root=source_output,
+            source_control=json.loads((source_packet / "control.json").read_text()),
+            source_packet_id=source_packet.name,
+            source_packet_manifest_sha256=digest(source_packet_manifest),
+        )
+    else:
+        receipt_file = source_output / "receipt.json"
+        _regular_packet_file(receipt_file)
+        if seal.get("prior_receipt_present") is not True or seal.get(
+            "prior_receipt_sha256"
+        ) != digest(receipt_file):
+            raise ValueError("SEAL.json does not bind prior receipt")
+        log = seal.get("prior_supervisor_log")
+        log_path = None
+        if log is not None:
+            log_path = Path(log["path"])
+            _regular_packet_file(log_path)
+            if log.get("size") != log_path.stat().st_size or log.get("sha256") != digest(log_path):
+                raise ValueError("SEAL.json prior supervisor log binding differs")
+        verify_mechanical_stop(
+            json.loads(receipt_file.read_text()),
+            source_manifest,
+            digest(source_manifest_path),
+            output_root=source_output,
+            supervisor_log_path=log_path,
+        )
 
 
 def _verify_mac_compact_sidecars(path: Path) -> None:
@@ -215,61 +338,7 @@ def validate_packet(packet: Path) -> dict[str, Any]:
         raise ValueError("wrong finite actor endpoint")
     for name in ("control.json", "registry-check.json", "verified-ledger.json"):
         verify_committed_manifest(packet / name)
-    recovery_file = packet / "recovery-evidence.json"
-    seal_file = packet / "SEAL.json"
-    if seal_file.is_file():
-        seal_header = json.loads(seal_file.read_text())
-        if (
-            seal_header.get("prior_stop_evidence_kind") == "host_enospc_recovery_certificate"
-            and not recovery_file.is_file()
-        ):
-            raise ValueError(
-                "SEAL.json requires recovery-evidence.json; admission proof is missing"
-            )
-    if recovery_file.exists() or recovery_file.is_symlink():
-        verify_committed_manifest(recovery_file)
-        recovery_payload = json.loads(recovery_file.read_text())
-        if recovery_payload.get("schema") != HOST_ENOSPC_RECOVERY_SCHEMA:
-            raise ValueError("recovery-evidence.json has unsupported schema")
-        if not seal_file.is_file():
-            raise ValueError("recovery-evidence.json requires committed SEAL.json binding")
-        verify_committed_manifest(seal_file)
-        seal_payload = json.loads(seal_file.read_text())
-        if (
-            seal_payload.get("prior_stop_evidence_kind") != "host_enospc_recovery_certificate"
-            or seal_payload.get("prior_recovery_evidence_schema") != HOST_ENOSPC_RECOVERY_SCHEMA
-            or seal_payload.get("prior_receipt_present") is not False
-            or seal_payload.get("prior_receipt_sha256") is not None
-            or seal_payload.get("prior_recovery_evidence_sha256") != digest(recovery_file)
-        ):
-            raise ValueError("SEAL.json does not bind committed recovery-evidence.json")
-        # A committed digest establishes immutable bytes, not current eligibility.
-        # Re-open the original manifest/control and all bound release/fault evidence
-        # on every packet validation, including dispatch admission.
-        identities = recovery_payload["identities"]
-        if Path(identities["source_packet_id"]).name != identities["source_packet_id"]:
-            raise ValueError("recovery source_packet_id must be a packet name")
-        source_output = Path(identities["output_dir"])
-        source_packet = packet.parent / identities["source_packet_id"]
-        source_manifest_path = source_output / "manifest.json"
-        source_packet_manifest = source_packet / "dispatch-manifest.json"
-        if (
-            seal_payload.get("prior_executed_manifest_sha256") != digest(source_manifest_path)
-            or seal_payload.get("prior_packet") != source_packet.name
-            or seal_payload.get("prior_job_id") != identities["job_id"]
-        ):
-            raise ValueError("recovery evidence source identity differs from SEAL.json")
-        verify_committed_manifest(source_packet_manifest)
-        verify_committed_manifest(source_packet / "control.json")
-        verify_host_enospc_recovery(
-            recovery_file,
-            json.loads(source_manifest_path.read_text()),
-            digest(source_manifest_path),
-            output_root=source_output,
-            source_control=json.loads((source_packet / "control.json").read_text()),
-            source_packet_id=source_packet.name,
-            source_packet_manifest_sha256=digest(source_packet_manifest),
-        )
+    _validate_continuation_stop(packet, broker)
     check = json.loads((packet / "registry-check.json").read_text())
     expected = seed_allocations(control)
     registry = next(r for r in payload["inputs"] if r["kind"] == "registry")

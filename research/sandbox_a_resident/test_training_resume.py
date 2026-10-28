@@ -1459,3 +1459,237 @@ def test_host_enospc_recovery_keeps_narrow_mechanical_exception(
     )
     assert result["prior_attempt_status"] == "INCOMPLETE"
     assert result["original_terminal_status"] == "UNKNOWN_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "receipt.json.partial",
+        "poll-001280.json.partial",
+        "poll-001280.json.tmp123",
+        "status.json.part",
+        "status.jsonl",
+        "status.jsonl.partial",
+        "status.json.tmp123",
+    ],
+)
+@pytest.mark.parametrize("defect", ["failed", "completed", "foreign-job", "foreign-generation"])
+def test_review_r3_execution_filename_variants_refuse(
+    tmp_path: Path, name: str, defect: str
+) -> None:
+    from research.sandbox_a_resident.training_resume import _check_output_root_fault_evidence
+
+    record = {"job_id": "train-01", "generation": "gen", "status": "running"}
+    if defect == "failed":
+        record.update(status="failed", returncode=7, reason=None)
+    elif defect == "completed":
+        record.update(status="completed", returncode=0)
+    else:
+        record["job_id" if defect == "foreign-job" else "generation"] = "foreign"
+    text = json.dumps(record)
+    if ".jsonl" in Path(name).suffixes:
+        text = json.dumps({"message": "healthy first line"}) + "\n" + text
+    (tmp_path / name).write_text(text + "\n")
+    with pytest.raises(ResumeRefused):
+        _check_output_root_fault_evidence(
+            tmp_path, expected_job_id="train-01", expected_generation="gen"
+        )
+
+
+@pytest.mark.parametrize("suffix", [".json.tmp1", ".json.part", ".jsonl", ".jsonl.partial"])
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"stage": "prep-failed"},
+        {"finite": False},
+        {"material_gaps": [1]},
+        {"last_traceback_line": "EXIT=7"},
+    ],
+)
+def test_review_r3_structured_diagnostics_refuse(tmp_path: Path, suffix: str, record: dict) -> None:
+    from research.sandbox_a_resident.training_resume import _scan_retained_text
+
+    path = tmp_path / ("progress" + suffix)
+    path.write_text(json.dumps(record) + "\n")
+    with pytest.raises(ResumeRefused):
+        _scan_retained_text(path, output_root=tmp_path)
+
+
+@pytest.mark.parametrize("suffix", [".gz", ".xz", ".zip", ".bz2", ".partial", ""])
+def test_review_r3_compressed_diagnostics_refuse(tmp_path: Path, suffix: str) -> None:
+    import gzip
+
+    from research.sandbox_a_resident.training_resume import _scan_retained_text
+
+    path = tmp_path / ("job.log" + suffix)
+    path.write_bytes(gzip.compress(b"FloatingPointError: non-finite loss tripwire"))
+    with pytest.raises(ResumeRefused):
+        _scan_retained_text(path, output_root=tmp_path)
+
+
+@pytest.mark.parametrize("name", ["job.log", "job.log.partial", "diagnostic.txt", "stderr.err"])
+@pytest.mark.parametrize("prefix", [b"\x00", b"\xe2\x82"])
+def test_review_r3_binary_or_truncated_diagnostics_still_scan(
+    tmp_path: Path, name: str, prefix: bytes
+) -> None:
+    from research.sandbox_a_resident.training_resume import _scan_retained_text
+
+    path = tmp_path / name
+    path.write_bytes(prefix + b"FloatingPointError: non-finite loss tripwire\n\xe2\x82")
+    with pytest.raises(ResumeRefused, match="explicit scientific/non-mechanical fault"):
+        _scan_retained_text(path, output_root=tmp_path)
+
+
+@pytest.mark.parametrize("variant", [".partial", ".tmp123", ".part", "l", "l.partial"])
+def test_review_r3_any_receipt_variant_refuses_host_enospc(tmp_path: Path, variant: str) -> None:
+    from research.sandbox_a_resident.training_resume import verify_host_enospc_recovery
+
+    fx = _setup_enospc_fixture(tmp_path)
+    (fx["output_root"] / ("receipt.json" + variant)).write_text("{}\n")
+    cert = fx["write_cert"]("receipt-variant-cert.json", fx["base_cert"])
+    with pytest.raises(ResumeRefused, match="receipt.json"):
+        verify_host_enospc_recovery(
+            cert,
+            fx["exec_manifest"],
+            fx["exec_manifest_sha"],
+            output_root=fx["output_root"],
+            source_control=fx["ctrl"],
+            now_unix_seconds=fx["captured_ts"] + 30,
+        )
+
+
+@pytest.mark.parametrize("location", ["exports/calibrated-boundary.json", "supervisor.log"])
+def test_review_r3_compound_mechanical_error_refuses(tmp_path: Path, location: str) -> None:
+    from research.sandbox_a_resident.training_resume import (
+        _check_supervisor_log_fault_evidence,
+        _scan_retained_text,
+    )
+
+    path = tmp_path / location
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        json.dumps({"error": "unexplained scientific error; whole-session wall cap reached"})
+    )
+    with pytest.raises(ResumeRefused):
+        if path.name == "supervisor.log":
+            _check_supervisor_log_fault_evidence(path)
+        else:
+            _scan_retained_text(path, output_root=tmp_path)
+
+
+def test_review_r3_nested_supervisor_identity_refuses(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.training_resume import _check_supervisor_log_fault_evidence
+
+    path = tmp_path / "supervisor.log"
+    path.write_text(
+        json.dumps(
+            {
+                "job": "train-01",
+                "poll": {
+                    "terminal": {
+                        "job_id": "foreign",
+                        "generation": "gen",
+                        "status": "running",
+                    }
+                },
+            }
+        )
+    )
+    with pytest.raises(ResumeRefused, match="foreign job_id"):
+        _check_supervisor_log_fault_evidence(
+            path, expected_job_id="train-01", expected_generation="gen"
+        )
+
+
+def test_review_r3_required_identity_is_required_without_expected_values() -> None:
+    from research.sandbox_a_resident.training_resume import _check_retained_execution
+
+    with pytest.raises(ResumeRefused, match="identity"):
+        _check_retained_execution(
+            {"status": "running"},
+            label="terminal",
+            expected_job_id=None,
+            expected_generation=None,
+            require_identity=True,
+        )
+
+
+def test_review_r3_recovery_descriptor_accepts_noncanonical_prefix(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.training_resume import verify_host_enospc_recovery
+
+    fx = _setup_enospc_fixture(tmp_path)
+    cert = fx["base_cert"]
+    descriptor = cert["release_evidence"]["broker_reconciliation"]["recover_receipt"]
+    path = Path(descriptor["path"])
+    descriptor["path"] = str(path.parent / ".." / path.parent.name / path.name)
+    cert_path = fx["write_cert"]("noncanonical-cert.json", cert)
+    result = verify_host_enospc_recovery(
+        cert_path,
+        fx["exec_manifest"],
+        fx["exec_manifest_sha"],
+        output_root=fx["output_root"],
+        source_control=fx["ctrl"],
+        now_unix_seconds=fx["captured_ts"] + 30,
+    )
+    assert result["post_hoc_release_verified"] is True
+
+
+def test_review_r3_healthy_truncated_utf8_log_is_scanned(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.training_resume import _scan_retained_text
+
+    path = tmp_path / "job.log.partial"
+    path.write_bytes(b"healthy progress\x00\xe2\x82")
+    _scan_retained_text(path, output_root=tmp_path)
+
+
+def test_review_r3_partial_poll_requires_full_poll_structure(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.training_resume import _check_output_root_fault_evidence
+
+    (tmp_path / "poll-001280.json.tmp1").write_text(json.dumps({"state": "not-a-record"}))
+    with pytest.raises(ResumeRefused, match="state is malformed"):
+        _check_output_root_fault_evidence(tmp_path)
+
+
+@pytest.mark.parametrize("tamper", [False, True])
+def test_review_r3_source_archive_exception_requires_git_bytes(
+    tmp_path: Path, tamper: bool
+) -> None:
+    import hashlib
+    import io
+    import subprocess
+    import tarfile
+
+    from research.sandbox_a_resident.training_resume import _scan_retained_text
+    from research.sandbox_a_resident.units import digest
+
+    repo = Path(__file__).resolve().parents[2]
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    name = "src/core/game_config.py"
+    data = subprocess.check_output(["git", "show", f"{commit}:{name}"], cwd=repo)
+    if tamper:
+        data += b"\n# diagnostic hidden in source archive\n"
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    archive_path = staging / "source.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as archive:
+        member = tarfile.TarInfo(name)
+        member.size = len(data)
+        archive.addfile(member, io.BytesIO(data))
+    (tmp_path / "manifest.json").write_text(json.dumps({"commit": commit}))
+    # Even a self-consistent, rehashed forged source plan must fail against Git.
+    (staging / "source-plan.json").write_text(
+        json.dumps(
+            {
+                "commit": commit,
+                "fallback_archive": archive_path.name,
+                "fallback_sha256": digest(archive_path),
+                "fallback_size": archive_path.stat().st_size,
+                "files": {name: {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}},
+            }
+        )
+    )
+    if tamper:
+        with pytest.raises(ResumeRefused, match="pinned Git bytes"):
+            _scan_retained_text(archive_path, output_root=tmp_path)
+    else:
+        _scan_retained_text(archive_path, output_root=tmp_path)

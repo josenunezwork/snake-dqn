@@ -13,6 +13,8 @@ import json
 import math
 import re
 import stat
+import subprocess
+import tarfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -635,8 +637,9 @@ def _check_retained_execution(
         if expected is not None and key in record and record[key] != expected:
             raise ResumeRefused(f"{label} belongs to foreign {key}")
     if require_identity:
-        for key, expected in (("job_id", expected_job_id), ("generation", expected_generation)):
-            if expected is not None and record.get(key) != expected:
+        for key in ("job_id", "generation"):
+            value = record.get(key, record.get("job") if key == "job_id" else None)
+            if not isinstance(value, str) or not value.strip():
                 raise ResumeRefused(f"{label} lacks matching {key} identity")
     status = record.get("status")
     reason = record.get("reason")
@@ -653,6 +656,15 @@ def _check_retained_execution(
         reason not in MECHANICAL_TERMINAL_REASONS
     ):
         raise ResumeRefused(f"{label} records unexplained/non-mechanical child or runtime failure")
+    # Supervisor receipts have their own envelope; verify_mechanical_stop
+    # validates its manifest binding and trigger before scanning retained files.
+    if status == "INCOMPLETE" and (
+        record.get("stop_verified") is True
+        and record.get("cleanup_error") is None
+        and record.get("failure_class")
+        in {"SUPERVISOR", "RPC_EXEC_POLL_TIMEOUT", "CHILD_NONZERO_EXIT"}
+    ):
+        return
     if status is not None and status not in {
         "running",
         "starting",
@@ -676,21 +688,52 @@ def _retained_files(output_root: Path) -> list[Path]:
     return files
 
 
+def _mechanical_supervisor_error(value: Any) -> bool:
+    """Match only complete qualified transport causes, never compound errors."""
+    if not isinstance(value, str):
+        return False
+    causes = set(MECHANICAL_SUPERVISOR_ERROR_MARKERS) | {
+        "whole-session wall cap reached (including setup/export)",
+        "whole-session deadline reached before helper",
+        "whole-session deadline reached before CLI call",
+        "study reserve reached during calibration",
+        "retention lease elapsed; no further job",
+    }
+    return value in causes or any(
+        value == f"{wrapper}({cause!r})"
+        for wrapper in ("SupervisorError", "Refused")
+        for cause in causes
+    )
+
+
 def _scan_json_faults(
     value: Any,
     *,
     label: str,
     expected_job_id: str | None = None,
     expected_generation: str | None = None,
+    supervisor_transport: bool = False,
+    require_execution_identity: bool = False,
 ) -> None:
     """Inspect nested diagnostic fields, including error fields in snapshot headers."""
     if isinstance(value, Mapping):
+        execution = (
+            require_execution_identity
+            or any(key in value for key in ("returncode", "reason"))
+            or ("status" in value and any(key in value for key in ("job", "job_id", "generation")))
+        )
+        if execution:
+            _check_retained_execution(
+                value,
+                label=label,
+                expected_job_id=expected_job_id,
+                expected_generation=expected_generation,
+                require_identity=require_execution_identity,
+            )
         for key, item in value.items():
             name = f"{label}.{key}"
             mechanical_error = (
-                key == "error"
-                and isinstance(item, str)
-                and any(marker in item.lower() for marker in MECHANICAL_SUPERVISOR_ERROR_MARKERS)
+                key == "error" and supervisor_transport and _mechanical_supervisor_error(item)
             )
             if (
                 key in {"error", "exception", "last_error_line", "last_traceback_line"}
@@ -700,18 +743,6 @@ def _scan_json_faults(
                 raise ResumeRefused(
                     f"{name} records explicit scientific/non-mechanical fault: {item!r}"
                 )
-            if (
-                key in {"state", "terminal"}
-                and isinstance(item, Mapping)
-                and any(field in item for field in ("status", "reason", "returncode"))
-            ):
-                _check_retained_execution(
-                    item,
-                    label=name,
-                    expected_job_id=expected_job_id,
-                    expected_generation=expected_generation,
-                    require_identity=True,
-                )
             if key in {"phase", "prepare_phase", "stage"} and isinstance(item, str):
                 if item.lower().endswith("failed") or "failure" in item.lower():
                     raise ResumeRefused(f"{name} records failed stage")
@@ -719,12 +750,15 @@ def _scan_json_faults(
                 raise ResumeRefused(f"{name} records explicit scientific/non-mechanical fault")
             # Inventories name diagnostic files even when they are empty. Their
             # paths are checked by the export scanner; don't treat filenames as errors.
-            if key not in {"path", "dest", "sha256"}:
+            if key not in {"path", "dest", "sha256"} or not isinstance(item, str):
                 _scan_json_faults(
                     item,
                     label=name,
                     expected_job_id=expected_job_id,
                     expected_generation=expected_generation,
+                    require_execution_identity=(
+                        key in {"state", "terminal"} and isinstance(item, Mapping)
+                    ),
                 )
     elif isinstance(value, list):
         for index, item in enumerate(value):
@@ -736,6 +770,116 @@ def _scan_json_faults(
             )
     elif isinstance(value, str):
         _refuse_if_fault_text(value, field_name=label)
+
+
+def _retained_json_records(path: Path) -> list[Any]:
+    """Parse JSON and JSONL even when an atomic-write suffix was retained."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        if ".jsonl" in path.suffixes:
+            records = [json.loads(line) for line in text.splitlines() if line.strip()]
+            if not records:
+                raise ValueError("empty JSONL evidence")
+            return records
+        return [json.loads(text)]
+    except ValueError as error:
+        _refuse_if_fault_text(text, field_name=str(path))
+        label = (
+            "corrupt poll evidence"
+            if path.name.startswith("poll-")
+            else ("unreadable or partial retained JSON evidence")
+        )
+        raise ResumeRefused(f"{label}: {path}") from error
+
+
+def _publication_sidecar(path: Path) -> bool:
+    """Recognize only an intact completion-last payload's hash/marker sidecars."""
+    if path.suffix not in {".sha256", ".complete"}:
+        return False
+    payload = path.with_suffix("")
+    if not _complete(payload):
+        return False
+    sidecar = Path(str(payload) + ".sha256")
+    if sidecar.read_text().strip() != digest(payload):
+        raise ResumeRefused(f"corrupt retained publication sidecar: {sidecar}")
+    if Path(str(payload) + ".complete").read_bytes() != b"complete\n":
+        raise ResumeRefused(f"malformed retained completion marker: {payload}")
+    return True
+
+
+def _verify_staged_source_archive(path: Path, output_root: Path) -> None:
+    """Exempt the expected source archive only after checking pinned Git blobs."""
+    try:
+        plan = json.loads((path.parent / "source-plan.json").read_text())
+        manifest = json.loads((output_root / "manifest.json").read_text())
+        commit = manifest["commit"]
+        files = plan["files"]
+        if (
+            not _is_hex(commit, 40)
+            or not isinstance(files, dict)
+            or not files
+            or plan.get("commit") != commit
+            or plan.get("fallback_archive") != path.name
+            or plan.get("fallback_size") != path.stat().st_size
+            or path.stat().st_size > 32 * 1024 * 1024
+            or plan.get("fallback_sha256") != digest(path)
+        ):
+            raise ValueError("source plan binding differs")
+        tree = subprocess.run(
+            ["git", "ls-tree", "-rz", commit, "--", *files],
+            cwd=Path(__file__).resolve().parents[2],
+            capture_output=True,
+            check=True,
+            timeout=20,
+        ).stdout
+        blobs = {}
+        for row in tree.split(b"\x00"):
+            if row:
+                meta, name = row.split(b"\t", 1)
+                mode, kind, blob = meta.decode().split()
+                if kind != "blob" or mode not in {"100644", "100755"}:
+                    raise ValueError("source plan contains non-regular Git entry")
+                blobs[name.decode()] = blob
+        if set(blobs) != set(files):
+            raise ValueError("source plan differs from pinned Git inventory")
+        seen = set()
+        total = 0
+        with tarfile.open(path, "r|gz") as archive:
+            for member in archive:
+                total += member.size
+                if (
+                    not member.isfile()
+                    or member.name not in files
+                    or member.name in seen
+                    or member.size < 0
+                    or total > 32 * 1024 * 1024
+                ):
+                    raise ValueError("unexpected or oversized source archive member")
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise ValueError("unreadable source member")
+                data = stream.read()
+                blob = hashlib.sha1(f"blob {len(data)}\x00".encode() + data).hexdigest()
+                if (
+                    blob != blobs[member.name]
+                    or len(data) != files[member.name]["size"]
+                    or hashlib.sha256(data).hexdigest() != files[member.name]["sha256"]
+                ):
+                    raise ValueError("source archive differs from pinned Git bytes")
+                seen.add(member.name)
+        if seen != set(files):
+            raise ValueError("source archive omits pinned files")
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        tarfile.TarError,
+        subprocess.SubprocessError,
+    ) as error:
+        raise ResumeRefused(
+            f"unverified retained staged source archive: {path}: {error}"
+        ) from error
 
 
 def _scan_retained_text(
@@ -763,52 +907,66 @@ def _scan_retained_text(
         if digest(path) != digest(qualified_source):
             raise ResumeRefused(f"retained staged executable differs from qualified source: {path}")
         return
-    is_json = path.suffix == ".json" or path.name.endswith(".json.partial")
+    # Only canonical training/model payload names are exempt from text scanning.
+    # Unexpected archives, including compressed diagnostics, refuse explicitly.
+    model_payload = re.fullmatch(r"iteration-\d{4}(?:-actor\.pth|\.pt)(?:\.xz)?", path.name)
+    model_metadata = re.fullmatch(
+        r"iteration-\d{4}(?:-actor\.pth|\.pt)(?:\.xz)?(?:\.manifest)?\.(?:sha256|complete)",
+        path.name,
+    )
+    model_manifest = re.fullmatch(r"iteration-\d{4}\.pt\.xz\.manifest", path.name)
+    in_training = path.parent == output_root / "exports/training"
+    if model_payload and in_training:
+        return
+    if path == output_root / "staging/source.tar.gz":
+        _verify_staged_source_archive(path, output_root)
+        return
+    with path.open("rb") as stream:
+        header = stream.read(8)
+    if header.startswith(
+        (
+            b"\x1f\x8b",
+            b"\xfd7zXZ\x00",
+            b"PK\x03\x04",
+            b"BZh",
+            b"\x28\xb5\x2f\xfd",
+            b"7z\xbc\xaf\x27\x1c",
+        )
+    ):
+        raise ResumeRefused(f"unsupported retained diagnostic archive: {path}")
+    if any(
+        suffix in {".xz", ".gz", ".zip", ".bz2", ".zst", ".tar", ".7z"} for suffix in path.suffixes
+    ) and not (in_training and (model_metadata or model_manifest)):
+        raise ResumeRefused(f"unsupported retained diagnostic archive: {path}")
+    if any(suffix in {".pt", ".pth"} for suffix in path.suffixes) and not (
+        in_training and (model_metadata or model_manifest)
+    ):
+        raise ResumeRefused(f"unexpected retained binary payload: {path}")
+    is_json = (
+        any(suffix in {".json", ".jsonl"} for suffix in path.suffixes)
+        and not _publication_sidecar(path)
+    ) or (in_training and model_manifest is not None)
     if is_json:
-        try:
-            text = path.read_text()
-            payload = json.loads(text)
-        except (UnicodeError, json.JSONDecodeError) as error:
-            if isinstance(error, json.JSONDecodeError):
-                _refuse_if_fault_text(text, field_name=str(path))
-            label = (
-                "corrupt poll evidence"
-                if path.name.startswith("poll-")
-                else "unreadable or partial retained JSON evidence"
-            )
-            raise ResumeRefused(f"{label}: {path}") from error
-        if path.name in {
-            "state.json",
-            "state.json.partial",
-            "terminal.json",
-            "terminal.json.partial",
-        }:
-            if not isinstance(payload, Mapping):
+        for payload in _retained_json_records(path):
+            execution_file = path.name.startswith(("state.json", "terminal.json", "poll-"))
+            if execution_file and not isinstance(payload, Mapping):
                 raise ResumeRefused(f"malformed retained execution record: {path}")
-            _check_retained_execution(
+            _scan_json_faults(
                 payload,
                 label=str(path),
                 expected_job_id=expected_job_id,
                 expected_generation=expected_generation,
-                require_identity=True,
+                supervisor_transport=(
+                    path.parent == output_root
+                    and (path.name.startswith("poll-") or path.name == "receipt.json")
+                ),
+                require_execution_identity=(execution_file and not path.name.startswith("poll-")),
             )
-        _scan_json_faults(
-            payload,
-            label=str(path),
-            expected_job_id=expected_job_id,
-            expected_generation=expected_generation,
-        )
         return
-    # Known model payload formats must never be interpreted as diagnostic text.
-    if any(suffix in {".pt", ".pth", ".xz", ".gz", ".zip"} for suffix in path.suffixes):
-        return
-    with path.open("rb") as stream:
-        sample = stream.read(8192)
-        if b"\x00" in sample:
-            return
-    with path.open(encoding="utf-8") as stream:
+    with path.open(encoding="utf-8", errors="replace") as stream:
         overlap = ""
         while part := stream.read(65536):
+            part = part.replace("\x00", "")
             _refuse_if_fault_text(overlap + part, field_name=str(path))
             overlap = part[-256:]
 
@@ -957,13 +1115,15 @@ def _check_output_root_fault_evidence(
 
     poll_count = 0
     identity_matched_polls = 0
-    for poll_path in sorted(output_root.glob("poll-*.json")):
+    for poll_path in sorted(output_root.glob("poll-*.json*")):
+        if _publication_sidecar(poll_path):
+            continue
         if poll_path.is_symlink() or not poll_path.is_file():
             raise ResumeRefused(f"non-regular or symlinked poll evidence: {poll_path.name}")
-        try:
-            poll_payload = json.loads(poll_path.read_text())
-        except (OSError, json.JSONDecodeError) as error:
-            raise ResumeRefused(f"corrupt poll evidence: {poll_path.name}") from error
+        records = _retained_json_records(poll_path)
+        if len(records) != 1:
+            raise ResumeRefused(f"poll evidence must contain one complete poll: {poll_path.name}")
+        poll_payload = records[0]
         if not isinstance(poll_payload, Mapping):
             raise ResumeRefused(f"malformed poll evidence: {poll_path.name}")
         poll_count += 1
@@ -1071,7 +1231,11 @@ def _check_supervisor_log_fault_evidence(
     if supervisor_log_path.is_symlink() or not supervisor_log_path.is_file():
         raise ResumeRefused(f"missing or symlinked supervisor log: {supervisor_log_path}")
     try:
-        raw_lines = supervisor_log_path.read_text().splitlines()
+        raw_lines = (
+            supervisor_log_path.read_text(encoding="utf-8", errors="replace")
+            .replace("\x00", "")
+            .splitlines()
+        )
     except OSError as error:
         raise ResumeRefused(f"unreadable supervisor log: {supervisor_log_path}") from error
 
@@ -1147,7 +1311,13 @@ def _check_supervisor_log_fault_evidence(
                         expected_generation=expected_generation,
                         require_identity=True,
                     )
-            _scan_json_faults(record, label=f"supervisor_log:{line_no}")
+            _scan_json_faults(
+                record,
+                label=f"supervisor_log:{line_no}",
+                expected_job_id=expected_job_id,
+                expected_generation=expected_generation,
+                supervisor_transport=True,
+            )
             _refuse_if_fault_text(
                 record.get("error"),
                 field_name=f"supervisor_log:{line_no}.error",
@@ -1260,6 +1430,7 @@ def verify_mechanical_stop(
         _check_supervisor_log_fault_evidence(
             supervisor_log_path,
             expected_job_id=expected_job_id,
+            expected_generation=expected_generation,
         )
     failure_class = receipt.get("failure_class")
     if failure_class == "RPC_EXEC_POLL_TIMEOUT":
@@ -1277,10 +1448,7 @@ def verify_mechanical_stop(
             return
         error = receipt.get("error")
         if terminal is None and isinstance(error, str):
-            lowered = error.lower()
-            if any(marker in lowered for marker in MECHANICAL_SUPERVISOR_ERROR_MARKERS) and not any(
-                bad in lowered for bad in NON_MECHANICAL_SUPERVISOR_ERROR_MARKERS
-            ):
+            if _mechanical_supervisor_error(error):
                 return
         raise ResumeRefused(
             "SUPERVISOR receipt does not prove a mechanical wall/unit/lease/poll stop"
@@ -1293,6 +1461,8 @@ def verify_mechanical_stop(
 def _glob_inventory(output_root: Path, pattern: str) -> tuple[int, str, str | None, str | None]:
     rows: list[dict[str, Any]] = []
     for item in sorted(output_root.glob(pattern)):
+        if _publication_sidecar(item):
+            continue
         if item.is_symlink() or not item.is_file():
             raise ResumeRefused(f"non-regular or symlinked retained evidence file: {item.name}")
         rows.append({"name": item.name, "size": item.stat().st_size, "sha256": digest(item)})
@@ -1309,7 +1479,7 @@ def compute_retained_evidence_inventory(output_root: Path) -> dict[str, Any]:
     """Build a deterministic hash-bound inventory of all retained attempt telemetry."""
     if output_root.is_symlink() or not output_root.is_dir():
         raise ResumeRefused(f"missing or symlinked output_root: {output_root}")
-    poll_count, polls_sha256, first_poll, last_poll = _glob_inventory(output_root, "poll-*.json")
+    poll_count, polls_sha256, first_poll, last_poll = _glob_inventory(output_root, "poll-*.json*")
     spend_count, spend_sha256, _, _ = _glob_inventory(output_root, "spend-*.json")
     usage_count, usage_sha256, _, _ = _glob_inventory(output_root, "usage-*.json")
     receipt_path = output_root / "receipt.json"
@@ -1393,9 +1563,8 @@ def verify_host_enospc_recovery(
     ):
         raise ResumeRefused("unsupported or malformed host ENOSPC recovery certificate schema")
 
-    receipt_file = resolved_output / "receipt.json"
     terminal_file = resolved_output / "terminal.json"
-    if receipt_file.exists() or receipt_file.is_symlink():
+    if any(resolved_output.glob("receipt.json*")):
         raise ResumeRefused(
             "receipt.json exists in output_root; use ordinary receipt verification, "
             "not ENOSPC recovery"
@@ -1622,7 +1791,7 @@ def verify_host_enospc_recovery(
             rec_path.name.startswith("recovery-") and rec_path.suffix == ".json"
         ):
             raise ResumeRefused("recover_receipt must reside in output_root as recovery-*.json")
-        if set(resolved_output.glob("recovery-*.json")) != {rec_path}:
+        if set(resolved_output.glob("recovery-*.json")) != {rec_path.resolve()}:
             raise ResumeRefused("unbound recovery-*.json retained in output_root")
         try:
             rec_payload = json.loads(rec_path.read_text())

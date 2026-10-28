@@ -1612,6 +1612,16 @@ def build_continuation_packet(
         "packet_name": packet_name,
         "prior_packet": source_packet_id,
         "prior_job_id": executed_manifest["job_id"],
+        "prior_output_dir": str(output_root),
+        "prior_supervisor_log": (
+            {
+                "path": str(resolved_sup_log),
+                "size": resolved_sup_log.stat().st_size,
+                "sha256": digest(resolved_sup_log),
+            }
+            if resolved_sup_log is not None
+            else None
+        ),
         "prior_executed_manifest_sha256": digest(executed_manifest_path),
         "prior_stop_evidence_kind": prior_stop_kind,
         "prior_receipt_present": prior_receipt_present,

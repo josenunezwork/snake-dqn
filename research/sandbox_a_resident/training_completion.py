@@ -63,9 +63,10 @@ def prepare_completion(
     previous = manifest.get("completion_attempt", {}).get("index", 0)
     if index != previous + 1:
         raise ValueError("completion attempts must advance exactly once, at most two")
+    prior_receipt = json.loads(receipt.read_text())
     result = completion_packet(
         executed,
-        json.loads(receipt.read_text()),
+        prior_receipt,
         exports,
         control,
         completion_index=index,
@@ -142,6 +143,23 @@ def prepare_completion(
             )
             + "\n"
         )
+    write_once(
+        packet / "SEAL.json",
+        {
+            "schema": "sandbox-a-train01-continuation-seal/v1",
+            "prior_packet": original.name,
+            "prior_packet_path": str(original.resolve()),
+            "prior_job_id": executed["job_id"],
+            "prior_output_dir": str(receipt.parent.resolve()),
+            "prior_executed_manifest_sha256": digest(executed_path),
+            "prior_stop_evidence_kind": "supervisor_receipt",
+            "prior_receipt_present": True,
+            "prior_receipt_sha256": digest(receipt),
+            "prior_failure_class": prior_receipt.get("failure_class"),
+            "completion_attempt_index": index,
+            "resume_from_iteration": result.latest_iteration,
+        },
+    )
     print(
         f"PREPARED_MANUAL_COMPLETION index={index} "
         f"iteration={result.latest_iteration} allocations=0"
