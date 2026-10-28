@@ -1001,7 +1001,9 @@ def run_dispatch_dry_run(
         text=True,
         capture_output=True,
         check=False,
-        timeout=300,
+        # Both offline admission passes fit inside the 540s outer launcher
+        # window, with one minute for this dry-run process's own checks.
+        timeout=600,
     )
     output = completed.stdout.strip()
     if completed.returncode != 0 or "PASS_DRY_RUN" not in output or "allocations=0" not in output:

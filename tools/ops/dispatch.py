@@ -48,6 +48,12 @@ NICE_FLOOR = 15
 # suite on a busy Mac.
 COMMAND_TIMEOUT_SECONDS = 60.0
 SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS = 240.0
+# The host adapter admits before input hashing and the qualified validator
+# rechecks through its canary hook. Each pass retains its own 240s bound;
+# the outer launcher must cover both plus ordinary host overhead.
+SANDBOX_OUTER_VALIDATE_TIMEOUT_SECONDS = (
+    2 * SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS + COMMAND_TIMEOUT_SECONDS
+)
 SANDBOX_OUTPUT_ROOTS = {
     "sandbox-b-heads-v1": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b-20261026",
     "sandbox-b-heads-v2": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b2-20261026",
@@ -721,7 +727,7 @@ def validate(
         # Keep the venv shebang script, but resolve the ~/.local/bin alias.
         colab = colab.resolve()
     timeout_seconds = (
-        SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS
+        SANDBOX_OUTER_VALIDATE_TIMEOUT_SECONDS
         if "sandbox_admission" in packet
         else COMMAND_TIMEOUT_SECONDS
     )
