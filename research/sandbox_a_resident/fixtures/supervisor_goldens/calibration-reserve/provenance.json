@@ -1,0 +1,85 @@
+{
+  "schema": "sandbox-a-offline-supervisor-golden/v1",
+  "scenario": "calibration-reserve",
+  "source_sha256": {
+    "research/colab_cli/supervisor.py": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+    "research/colab_cli/runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+    "research/colab_cli/failures.py": "fd92efd5700669ab331f88c6fe478f181757d3f76776a8d76ef298e43e45843f",
+    "tests/fixtures/fake_colab.py": "cc0bb1a9b83932f7dedfcee9f333df741e9dcf91c84920cee21051653e04b304",
+    "tests/fixtures/fake_colab_helper.py": "ccbaf4592ff34a3abaaa6d15ffa6d4086db5ed266cb39f57b6b74dd302cdcfe0",
+    "tests/test_colab_cli_supervisor.py": "00ed9e50ffcb53edf5457850b9aab6bd97c25812a7c540ed007b88f246667ccf"
+  },
+  "source_commit": "e971d41f1adbbdc3e6bf655f66f33cc3849c04e5",
+  "provider": "tests/fixtures/fake_colab.py (subprocess; no account access)",
+  "receipt_fabricated": false,
+  "injections": [
+    "fake account balance becomes zero immediately after allocation"
+  ],
+  "broker_exception": "Refused(\"INCOMPLETE: Refused('study reserve reached during calibration'); receipt: /private/tmp/train01-goldens-6u3u003l/job-output/receipt.json\")",
+  "receipt_sha256": "166ebc895cd0254cf5b11a740792ac33889a1fbd9f43f69eba3d8420a7b698ec",
+  "receipt_error": "Refused('study reserve reached during calibration')",
+  "failure_class": "SUPERVISOR",
+  "admission_baseline_sha256": "c6aed498752109a8adadcc4ac4dfd84f902aaa96b955db28807a47f50df97473",
+  "files": {
+    "output/accounting-baseline.json": {
+      "size": 173,
+      "sha256": "9c24383ab9def869752ce1c5ff1b8e19ac075a999670227114bf82f840f81a2f"
+    },
+    "output/manifest.json": {
+      "size": 756,
+      "sha256": "202f13c1907efa5049c4829e20108116930256163c41d81aeb3a3bbaff54c086"
+    },
+    "output/rate-calibration-000.json": {
+      "size": 184,
+      "sha256": "3a3216580224db709c47e0b8caa599acc8be603044e8207c552cf8b1ec659fdb"
+    },
+    "output/rate-calibration.json": {
+      "size": 542,
+      "sha256": "31de1b6b913b44d0f052354f760db3bf346e600d14a437fd184d9fbd20dcd316"
+    },
+    "output/receipt.json": {
+      "size": 7178,
+      "sha256": "166ebc895cd0254cf5b11a740792ac33889a1fbd9f43f69eba3d8420a7b698ec"
+    },
+    "output/staging/bootstrap.sh": {
+      "size": 3244,
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4"
+    },
+    "output/staging/release.py": {
+      "size": 14677,
+      "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355"
+    },
+    "output/staging/runtime.py": {
+      "size": 30712,
+      "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036"
+    },
+    "output/staging/schema-validation.json": {
+      "size": 175,
+      "sha256": "c7303e58a0e2d5ce9bb70fb9ccaee8ad3cd9d76f73302c9fb11d52f9edaabe41"
+    },
+    "output/staging/source-plan.json": {
+      "size": 30910,
+      "sha256": "e0b3c04dac49bcef82f8578673e40f705a90194ec4a9434ed4e825286c6a45d7"
+    },
+    "output/staging/source.py": {
+      "size": 14511,
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f"
+    },
+    "output/staging/source.tar.gz": {
+      "size": 901912,
+      "sha256": "11727361764b6c64a6ca383a60a5a1dbb91aca9425857e8cb1458b532b27b5f5"
+    },
+    "output/warmup-measurement.json": {
+      "size": 64,
+      "sha256": "97edc79e0ad801de6dcd03d28fcf15c8d82bba59b0b8d3c2b08b92a42415ce32"
+    },
+    "pinned-commit.raw": {
+      "size": 254,
+      "sha256": "0e0ad6979edede365b369188f94c5e74ed1f3cb6c686d9845fbca42b0ce2cd10"
+    },
+    "supervisor.log": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

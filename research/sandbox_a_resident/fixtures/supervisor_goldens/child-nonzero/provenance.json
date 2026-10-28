@@ -1,0 +1,129 @@
+{
+  "schema": "sandbox-a-offline-supervisor-golden/v1",
+  "scenario": "child-nonzero",
+  "source_sha256": {
+    "research/colab_cli/supervisor.py": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+    "research/colab_cli/runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+    "research/colab_cli/failures.py": "fd92efd5700669ab331f88c6fe478f181757d3f76776a8d76ef298e43e45843f",
+    "tests/fixtures/fake_colab.py": "cc0bb1a9b83932f7dedfcee9f333df741e9dcf91c84920cee21051653e04b304",
+    "tests/fixtures/fake_colab_helper.py": "ccbaf4592ff34a3abaaa6d15ffa6d4086db5ed266cb39f57b6b74dd302cdcfe0",
+    "tests/test_colab_cli_supervisor.py": "00ed9e50ffcb53edf5457850b9aab6bd97c25812a7c540ed007b88f246667ccf"
+  },
+  "source_commit": "e971d41f1adbbdc3e6bf655f66f33cc3849c04e5",
+  "provider": "tests/fixtures/fake_colab.py (subprocess; no account access)",
+  "receipt_fabricated": false,
+  "injections": [
+    "existing fake runtime child terminal changed to failed/23, no mechanical reason"
+  ],
+  "broker_exception": "Refused(\"INCOMPLETE: ClassifiedFailure('remote child exited 23: no traceback line published'); receipt: /private/tmp/train01-goldens-jiytt1m7/job-output/receipt.json\")",
+  "receipt_sha256": "ff2cd9b60153e72da769164d84647714896a10a7f7e379f4f58d9a68d48565e3",
+  "receipt_error": "ClassifiedFailure('remote child exited 23: no traceback line published')",
+  "failure_class": "CHILD_NONZERO_EXIT",
+  "admission_baseline_sha256": "c6aed498752109a8adadcc4ac4dfd84f902aaa96b955db28807a47f50df97473",
+  "files": {
+    "output/accounting-baseline.json": {
+      "size": 173,
+      "sha256": "9c24383ab9def869752ce1c5ff1b8e19ac075a999670227114bf82f840f81a2f"
+    },
+    "output/hardware.json": {
+      "size": 5,
+      "sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74"
+    },
+    "output/input-hashes.json": {
+      "size": 430,
+      "sha256": "cfa4045d2f25ee179e5440e7f47e9eeefd6dfeaef1613552a327b229c2ad11e2"
+    },
+    "output/manifest.json": {
+      "size": 756,
+      "sha256": "0db0fa7266d093b0abffd04d22b452b550740054e04f8ef90333b04a5df7ca81"
+    },
+    "output/poll-000000.json": {
+      "size": 362,
+      "sha256": "8e77ab3624e24198ea7a96a30abbb9e8c0568196798a3702d55bdf9ba1e45d0b"
+    },
+    "output/rate-calibration-000.json": {
+      "size": 187,
+      "sha256": "2387183ee6d43b7135e42e0b0612ca3b210b6de630a5d3a1b45e3578a3cdf965"
+    },
+    "output/rate-calibration-001.json": {
+      "size": 187,
+      "sha256": "620c54b2ec5bb070ff981b22a93fc5848aac6ae6c69740b1479373f1080ce496"
+    },
+    "output/rate-calibration-002.json": {
+      "size": 188,
+      "sha256": "3b0989179da5525b2421f7167557f25383cfd4e4592e2c886afb8a0d25745bf4"
+    },
+    "output/rate-calibration.json": {
+      "size": 938,
+      "sha256": "3f7c8865f767c99a1ff8cefa7bfe2986d4277cc94ddba00330a93384a87a04a2"
+    },
+    "output/receipt.json": {
+      "size": 16996,
+      "sha256": "ff2cd9b60153e72da769164d84647714896a10a7f7e379f4f58d9a68d48565e3"
+    },
+    "output/source-delivery.json": {
+      "size": 138,
+      "sha256": "b2e991a39ed8654a685cb50fa58d982164e12ad686af887cea15e61d31af034a"
+    },
+    "output/spend-000000.json": {
+      "size": 502,
+      "sha256": "83900b8187919da6ca088afaa745ff486a530ce2b961662c86b7243a0d8d34dd"
+    },
+    "output/staging/bootstrap.sh": {
+      "size": 3244,
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4"
+    },
+    "output/staging/release.py": {
+      "size": 14677,
+      "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355"
+    },
+    "output/staging/runtime.py": {
+      "size": 30712,
+      "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036"
+    },
+    "output/staging/schema-validation.json": {
+      "size": 175,
+      "sha256": "5882768e582321d09535dd6d4b319ebfa403a8dcc197d7c573dc2df258edef7f"
+    },
+    "output/staging/source-plan.json": {
+      "size": 30910,
+      "sha256": "4ddfd371ab1fc96d436958ac8d2658091127dd46217c273f2973b0a2839ef008"
+    },
+    "output/staging/source.py": {
+      "size": 14511,
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f"
+    },
+    "output/staging/source.tar.gz": {
+      "size": 901912,
+      "sha256": "cce6624ba51e3f4500f12914dd2590163352453dde178fc14eca1ae9851d0380"
+    },
+    "output/terminal.json": {
+      "size": 187,
+      "sha256": "9076c9e91dd819d80d409da38c5990ea0bff5655e21ea8806ad8407e1e1f548d"
+    },
+    "output/upload-measurement.json": {
+      "size": 170,
+      "sha256": "fd3d4c11fb7b20b04b9ac8a07060de3d57f233735dd96cf5ee30f9a5950b05f0"
+    },
+    "output/usage-000000.json": {
+      "size": 62,
+      "sha256": "0606d4eb21388a79ef86fcea5f8583a50a7193475d477e87d577a653a439cd49"
+    },
+    "output/usage-allocated.json": {
+      "size": 62,
+      "sha256": "0606d4eb21388a79ef86fcea5f8583a50a7193475d477e87d577a653a439cd49"
+    },
+    "output/warmup-measurement.json": {
+      "size": 64,
+      "sha256": "97edc79e0ad801de6dcd03d28fcf15c8d82bba59b0b8d3c2b08b92a42415ce32"
+    },
+    "pinned-commit.raw": {
+      "size": 254,
+      "sha256": "08433fd3399e77b809745ce0fef181b8845a54a3ae72b6e21167fc16e1aebe96"
+    },
+    "supervisor.log": {
+      "size": 112,
+      "sha256": "efd6938405e89ad387b4ef3039b827dfa17bd540f8371d07a2b96f7bc4318026"
+    }
+  }
+}

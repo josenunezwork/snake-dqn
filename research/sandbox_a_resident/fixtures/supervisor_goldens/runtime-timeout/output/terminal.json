@@ -1,0 +1,88 @@
+{
+  "canary_observations": [],
+  "export_scanner": {
+    "inventory": [
+      {
+        "path": "training/distribution-screen.json",
+        "sha256": "e0f7e87afbe069653a67ca52151b197cce3b1de952b25214e713e87bd18bb354",
+        "size": 22
+      },
+      {
+        "path": "training/iteration-0000-actor.pth",
+        "sha256": "820e78c21f66d657b2d9cda5b8b7356835dabcf53029bb05343a451e8a94b7e7",
+        "size": 13
+      },
+      {
+        "path": "training/iteration-0000.json",
+        "sha256": "9da3e88e14d88ab73044ae486e98fa151a8bd3b67b24494f5cd26995c0efa85c",
+        "size": 938
+      },
+      {
+        "path": "training/iteration-0000.pt",
+        "sha256": "d9a3c77acf6a80335e99bf724f90693a81bcb12e5637df9b70b8d38b60345dc2",
+        "size": 23123
+      },
+      {
+        "path": "training/iteration-0016-actor.pth",
+        "sha256": "820e78c21f66d657b2d9cda5b8b7356835dabcf53029bb05343a451e8a94b7e7",
+        "size": 13
+      },
+      {
+        "path": "training/iteration-0016.json",
+        "sha256": "1fb05f1bfc4138a850048f2e8de58e5b0bf875852fba60e8718d946e9b4df788",
+        "size": 3378
+      },
+      {
+        "path": "training/iteration-0016.pt",
+        "sha256": "ea2a66de0f44c658a2ca4c792800ab1efd14bff37bf2728e31587f93c66f564c",
+        "size": 27475
+      }
+    ],
+    "name": "runtime._exports"
+  },
+  "exports": [
+    {
+      "path": "training/distribution-screen.json",
+      "sha256": "e0f7e87afbe069653a67ca52151b197cce3b1de952b25214e713e87bd18bb354",
+      "size": 22
+    },
+    {
+      "path": "training/iteration-0000-actor.pth",
+      "sha256": "820e78c21f66d657b2d9cda5b8b7356835dabcf53029bb05343a451e8a94b7e7",
+      "size": 13
+    },
+    {
+      "path": "training/iteration-0000.json",
+      "sha256": "9da3e88e14d88ab73044ae486e98fa151a8bd3b67b24494f5cd26995c0efa85c",
+      "size": 938
+    },
+    {
+      "path": "training/iteration-0000.pt",
+      "sha256": "d9a3c77acf6a80335e99bf724f90693a81bcb12e5637df9b70b8d38b60345dc2",
+      "size": 23123
+    },
+    {
+      "path": "training/iteration-0016-actor.pth",
+      "sha256": "820e78c21f66d657b2d9cda5b8b7356835dabcf53029bb05343a451e8a94b7e7",
+      "size": 13
+    },
+    {
+      "path": "training/iteration-0016.json",
+      "sha256": "1fb05f1bfc4138a850048f2e8de58e5b0bf875852fba60e8718d946e9b4df788",
+      "size": 3378
+    },
+    {
+      "path": "training/iteration-0016.pt",
+      "sha256": "ea2a66de0f44c658a2ca4c792800ab1efd14bff37bf2728e31587f93c66f564c",
+      "size": 27475
+    }
+  ],
+  "finished_at": 1793217265.249214,
+  "generation": "f01392d38125459a98afc904f90fbb4f",
+  "job_id": "fake-job",
+  "last_traceback_line": "TRAIN01_PROGRESS {\"iteration\": 16, \"stage\": \"iteration-complete\"}",
+  "reason": "timeout",
+  "returncode": -30,
+  "started_at": 1793217256.934989,
+  "status": "failed"
+}

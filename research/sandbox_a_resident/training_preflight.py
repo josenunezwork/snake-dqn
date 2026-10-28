@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -29,6 +30,28 @@ from tools.sandbox.preflight import preflight, verify_committed_manifest
 from tools.sandbox.registry import digest
 
 ROOT = Path(__file__).resolve().parents[2]
+LOGGER = logging.getLogger(__name__)
+
+
+def _packet_git(packet: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    """Probe the packet's checkout without inherited Git repository redirects.
+
+    Git also accepts index, object-store, config and discovery overrides. Remove
+    the whole Git environment namespace so the packet path alone selects the
+    repository; leave the caller's environment unchanged.
+    """
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    try:
+        return subprocess.run(
+            ["git", *arguments],
+            cwd=packet,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        raise ValueError(f"cannot inspect packet Git boundary: {error}") from error
 
 
 def _regular_packet_file(path: Path) -> None:
@@ -40,15 +63,7 @@ def _validate_continuation_stop(packet: Path, broker: dict) -> None:
     """Reopen the committed seal and its underlying stop proof on every admission."""
     seal_file = packet / "SEAL.json"
     recovery_file = packet / "recovery-evidence.json"
-    tracked = (
-        subprocess.run(
-            ["git", "ls-files", "--error-unmatch", "--", "SEAL.json"],
-            cwd=packet,
-            capture_output=True,
-            check=False,
-        ).returncode
-        == 0
-    )
+    tracked = _packet_git(packet, "ls-files", "--error-unmatch", "--", "SEAL.json").returncode == 0
     if not (
         tracked
         or "completion_attempt" in broker
@@ -82,16 +97,18 @@ def _validate_continuation_stop(packet: Path, broker: dict) -> None:
     ):
         raise ValueError("SEAL.json prior_packet must be a packet name")
     packet_dir = packet.resolve()
-    checkout = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        cwd=packet_dir,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    checkout_root = (
-        Path(checkout.stdout.strip()).resolve() if checkout.returncode == 0 else packet_dir.parent
-    )
+    checkout = _packet_git(packet_dir, "rev-parse", "--show-toplevel")
+    if checkout.returncode == 0:
+        checkout_root = Path(checkout.stdout.strip()).resolve()
+    else:
+        # Offline fixture packets can be outside a checkout. The fallback uses
+        # the packet's parent as a narrower boundary than a repository root.
+        checkout_root = packet_dir.parent
+        LOGGER.warning(
+            "packet Git root probe exited %s; restricting prior packet boundary to %s",
+            checkout.returncode,
+            checkout_root,
+        )
     raw_source = seal.get("prior_packet_path", str(packet_dir.parent / prior_name))
     if not isinstance(raw_source, str) or not raw_source or not Path(raw_source).is_absolute():
         raise ValueError("SEAL.json prior_packet_path must be an absolute path string")

@@ -1,0 +1,17 @@
+{
+  "exports": [],
+  "state": {
+    "generation": "52d6f6d1041746839bad5bd423bbe18c",
+    "job_id": "fake-job",
+    "max_export_bytes": 1048576,
+    "status": "succeeded"
+  },
+  "terminal": {
+    "exports": [],
+    "generation": "52d6f6d1041746839bad5bd423bbe18c",
+    "job_id": "fake-job",
+    "reason": null,
+    "returncode": 23,
+    "status": "failed"
+  }
+}

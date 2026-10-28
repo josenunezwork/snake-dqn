@@ -1,0 +1,89 @@
+{
+  "attempt": 9,
+  "baseline_head": "e971d41f1adbbdc3e6bf655f66f33cc3849c04e5",
+  "capture_kind": "byte-for-byte copy of real historical qualified-supervisor output and ops log",
+  "captured_utc": "2026-10-28T20:07:50.721580+00:00",
+  "files": {
+    "output/accounting-baseline.json": {
+      "sha256": "8282f255f39fa5ec95076ab5721c20a0aa01e3e09c29407c354efd7255b45df2",
+      "size": 174
+    },
+    "output/manifest.json": {
+      "sha256": "f716915341bd482ff4ce9246eb7ba7b3c1c9cf5dca0b5d733dd47ffa3da8f45e",
+      "size": 11372
+    },
+    "output/rate-calibration-000.json": {
+      "sha256": "a40cfe0322b3cbfc4a6407bd5a1ad7221993febed6a831bc230b62ead07fec33",
+      "size": 236
+    },
+    "output/rate-calibration-001.json": {
+      "sha256": "16cb3d38dcdf067393c11e284803d2020da271ab457d4e95bf31f4891a744127",
+      "size": 236
+    },
+    "output/rate-calibration-002.json": {
+      "sha256": "ae0ff97dd35102634bd58a5c27af83dbdbcc06024d07bd9a5dec77f729e68ccc",
+      "size": 237
+    },
+    "output/rate-calibration.json": {
+      "sha256": "632ef57a1d2ea49e20e253fc0c0e63ce3ad13c093c20375c7c5fbfeab21c6a5f",
+      "size": 1083
+    },
+    "output/receipt.json": {
+      "sha256": "88b6c03f06d0baa119acb954df9d2bca89e383c8884d09fa85bd1f348441a0ab",
+      "size": 40779
+    },
+    "output/staging/bootstrap.sh": {
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+      "size": 3244
+    },
+    "output/staging/release.py": {
+      "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+      "size": 14677
+    },
+    "output/staging/runtime.py": {
+      "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+      "size": 30712
+    },
+    "output/staging/schema-validation.json": {
+      "sha256": "58a5ec70aa7d3b76bf03a26c78a9b774a72f393eff115f150263a25c0c5304e1",
+      "size": 206
+    },
+    "output/staging/source-plan.json": {
+      "sha256": "c1ea15594b6e92bc2951489398238f793a6e73adf738c7c5bd10861fde9285e2",
+      "size": 40887
+    },
+    "output/staging/source.py": {
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+      "size": 14511
+    },
+    "output/staging/source.tar.gz": {
+      "sha256": "bb0d2b2a31c9c6e197d23cbb90b8307626eb681b087dcc8e838b96fd0aa432eb",
+      "size": 925149
+    },
+    "output/upload-measurement.json": {
+      "sha256": "d97d0e05418bf5b2d73409d71120395af4b39609d64c808dc6bd044aec720cc9",
+      "size": 424
+    },
+    "output/usage-allocated.json": {
+      "sha256": "d6e39cde1e57cd6d9625aebceb194fb4454a69e9edca12054e94c92da0b34dac",
+      "size": 62
+    },
+    "output/warmup-measurement.json": {
+      "sha256": "ed7a144666daaef39a94247481dc95a847a79c87a747dd6c2fb9a67bb49c22ef",
+      "size": 80
+    },
+    "pinned-commit.raw": {
+      "sha256": "ad0704e5e715cccff537cee048b33cea89eaa44a931edc0e23ef7429e2b41e08",
+      "size": 289
+    },
+    "supervisor.log": {
+      "sha256": "e9b0099ee784cecf65cc49cbf1dd11ecbfb1956a8ae1f291d3124f91ce28c5dc",
+      "size": 4601
+    }
+  },
+  "manifest_commit": "c8ab2e6feefc63ce866e1493bfd2f7f1bf3f64dd",
+  "original_output_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-09/output",
+  "original_supervisor_log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/sandbox-a-train01-20261027-09.log",
+  "receipt_fabricated": false,
+  "schema": "train01-historical-mechanical-fixture/v1"
+}

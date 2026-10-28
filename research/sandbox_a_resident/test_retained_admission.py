@@ -31,27 +31,45 @@ FILENAMES = (
 )
 
 
+JOB_ALIASES = ("job", "job_id", "JOB", "Job_ID", "jobId", "Job ID")
+
+
+def _write_and_scan(path: Path, root: Path, value: object) -> None:
+    path.write_text(json.dumps(value) + "\n")
+    _scan_retained_text(
+        path, output_root=root, expected_job_id="train-01", expected_generation="g-1"
+    )
+
+
+def _nested_record(record: dict, depth: int) -> dict:
+    value = record
+    for _ in range(depth):
+        value = {"nested": [value]}
+    return value
+
+
 @pytest.mark.parametrize("filename", FILENAMES)
 def test_generated_record_admission_matrix(tmp_path: Path, filename: str) -> None:
-    """Sweep filename x alias x value case x depth x identity/failure conflict."""
+    """Every filename/alias/case/depth cell admits its twin before its one defect."""
     path = tmp_path / filename
     path.parent.mkdir(parents=True, exist_ok=True)
+    defects = {
+        "foreign": "foreign job_id",
+        "conflict": "conflicting .* identities",
+        "generation": "foreign generation",
+        "failure_class": "non-receipt failure_class",
+        "incomplete": "unknown execution status|failed status",
+        "terminated": "unknown execution status|failed status",
+        "no_identity": "unknown execution status|failed status",
+    }
     cases = 0
     for alias, case, depth, defect in itertools.product(
-        ("job", "job_id", "JOB", "Job_ID"),
-        (str.lower, str.upper, str.title),
-        (0, 1, 4, 12),
-        (
-            "foreign",
-            "conflict",
-            "generation",
-            "failure_class",
-            "incomplete",
-            "terminated",
-            "no_identity",
-        ),
+        JOB_ALIASES, (str.lower, str.upper, str.title), (0, 1, 4, 12), defects
     ):
         record = {alias: "train-01", "generation": "g-1"}
+        if defect == "no_identity":
+            record = {"status": case("running")}
+        _write_and_scan(path, tmp_path, _nested_record(record, depth))
         if defect == "foreign":
             record[alias] = "foreign"
         elif defect == "conflict":
@@ -61,19 +79,94 @@ def test_generated_record_admission_matrix(tmp_path: Path, filename: str) -> Non
         elif defect == "failure_class":
             record["failure_class"] = case("CHILD_NONZERO_EXIT")
         elif defect == "no_identity":
-            record = {"status": case("cancelled")}
+            record["status"] = case("cancelled")
         else:
             record["status"] = " " + case(defect) + " "
-        value = record
-        for _ in range(depth):
-            value = {"nested": [value]}
-        path.write_text(json.dumps(value) + "\n")
-        with pytest.raises(ResumeRefused):
-            _scan_retained_text(
-                path, output_root=tmp_path, expected_job_id="train-01", expected_generation="g-1"
-            )
+        with pytest.raises(ResumeRefused, match=defects[defect]):
+            _write_and_scan(path, tmp_path, _nested_record(record, depth))
         cases += 1
-    assert cases == 336
+    assert cases == len(JOB_ALIASES) * 3 * 4 * len(defects)
+
+
+@pytest.mark.parametrize("alias", ["returncode", "exit_code", "exitCode", "returnCode"])
+@pytest.mark.parametrize("depth", [0, 1, 4, 12])
+@pytest.mark.parametrize("defect", ["nonzero", "watchdog", "malformed"])
+def test_generated_returncode_alias_twins(
+    tmp_path: Path, alias: str, depth: int, defect: str
+) -> None:
+    path = tmp_path / "arbitrary.json"
+    record = {"jobId": "train-01", "generation": "g-1", alias: 0}
+    _write_and_scan(path, tmp_path, _nested_record(record, depth))
+    values = {"nonzero": 1, "watchdog": 124, "malformed": "1"}
+    reasons = {
+        "nonzero": "unexplained/non-mechanical",
+        "watchdog": "watchdog timeout",
+        "malformed": "malformed returncode",
+    }
+    record[alias] = values[defect]
+    with pytest.raises(ResumeRefused, match=reasons[defect]):
+        _write_and_scan(path, tmp_path, _nested_record(record, depth))
+
+
+@pytest.mark.parametrize("alias", ["failure_class", "failureClass", "Failure Class"])
+@pytest.mark.parametrize("depth", [0, 1, 4, 12])
+def test_generated_failure_class_alias_twins(tmp_path: Path, alias: str, depth: int) -> None:
+    path = tmp_path / "arbitrary.json"
+    record = {"job": "train-01", "generation": "g-1", alias: ""}
+    _write_and_scan(path, tmp_path, _nested_record(record, depth))
+    record[alias] = "CHILD_NONZERO_EXIT"
+    with pytest.raises(ResumeRefused, match="non-receipt failure_class"):
+        _write_and_scan(path, tmp_path, _nested_record(record, depth))
+
+
+@pytest.mark.parametrize("context", ["metrics", "metadata"])
+def test_scientific_data_context_accepts_arbitrary_vocabulary(tmp_path: Path, context: str) -> None:
+    path = tmp_path / "exports/training/proxy-0128.json"
+    path.parent.mkdir(parents=True)
+    data = {"status": "measured", "reason": "food", "generation": "Ampere"}
+    _write_and_scan(path, tmp_path, {context: data})
+    # The same values are execution signals when moved out of the explicit data scope.
+    with pytest.raises(ResumeRefused, match="foreign generation"):
+        _write_and_scan(path, tmp_path, {"diagnostic": data})
+
+
+@pytest.mark.parametrize("context", ["metrics", "metadata"])
+@pytest.mark.parametrize(
+    "key,value,reason",
+    [
+        ("failureClass", "CHILD_NONZERO_EXIT", "non-receipt failure_class"),
+        ("exitCode", 1, "unexplained/non-mechanical"),
+        ("jobId", "foreign", "foreign job_id"),
+    ],
+)
+def test_scientific_data_context_never_hides_execution_faults(
+    tmp_path: Path, context: str, key: str, value: object, reason: str
+) -> None:
+    path = tmp_path / "exports/training/proxy-0128.json"
+    path.parent.mkdir(parents=True)
+    record = {"status": "measured", "reason": "food", "generation": "Ampere"}
+    _write_and_scan(path, tmp_path, {context: record})
+    record["diagnostic"] = {key: value}
+    with pytest.raises(ResumeRefused, match=reason):
+        _write_and_scan(path, tmp_path, {context: record})
+
+
+@pytest.mark.parametrize("context", ["metrics", "metadata"])
+@pytest.mark.parametrize("execution_scope", ["state", "terminal"])
+@pytest.mark.parametrize("defect", ["status", "generation"])
+def test_explicit_execution_scope_resets_scientific_vocabulary(
+    tmp_path: Path, context: str, execution_scope: str, defect: str
+) -> None:
+    path = tmp_path / "exports/training/proxy-0128.json"
+    path.parent.mkdir(parents=True)
+    record = {"job_id": "train-01", "generation": "g-1", "status": "running"}
+    _write_and_scan(path, tmp_path, {context: {execution_scope: record}})
+    record[defect] = "measured" if defect == "status" else "Ampere"
+    reason = (
+        "unknown execution status|failed status" if defect == "status" else "foreign generation"
+    )
+    with pytest.raises(ResumeRefused, match=reason):
+        _write_and_scan(path, tmp_path, {context: {execution_scope: record}})
 
 
 @pytest.mark.parametrize(
@@ -100,8 +193,9 @@ def test_generated_failure_states_never_depend_on_identity(tmp_path: Path, statu
     for case in (str.lower, str.upper, str.title):
         for identity in ({}, {"job": "train-01", "generation": "g-1"}):
             path = tmp_path / "arbitrary"
+            _write_and_scan(path, tmp_path, {"record": {**identity, "status": case("running")}})
             path.write_text(json.dumps({"record": {**identity, "status": case(status)}}))
-            with pytest.raises(ResumeRefused):
+            with pytest.raises(ResumeRefused, match="unknown execution status|failed status"):
                 _scan_retained_text(
                     path,
                     output_root=tmp_path,
@@ -116,8 +210,29 @@ def test_generated_failure_states_never_depend_on_identity(tmp_path: Path, statu
 @pytest.mark.parametrize("value", [[], {}, 123, True])
 def test_malformed_signals_refuse_without_crash(tmp_path: Path, key: str, value: object) -> None:
     path = tmp_path / "unusual"
-    path.write_text(json.dumps({key: value}))
-    with pytest.raises(ResumeRefused):
+    valid = {
+        "status": "running",
+        "reason": "timeout",
+        "failure_class": "",
+        "returncode": 0,
+        "job": "train-01",
+        "generation": "g-1",
+    }
+    baseline = {"job": "train-01", "generation": "g-1", key: valid[key]}
+    _write_and_scan(path, tmp_path, baseline)
+    baseline[key] = value
+    path.write_text(json.dumps(baseline))
+    reasons = {
+        "status": "malformed execution status",
+        "reason": "malformed execution reason",
+        "failure_class": "non-receipt failure_class",
+        "returncode": "malformed returncode",
+        "job": "foreign job_id",
+        "generation": "foreign generation",
+    }
+    if key == "returncode" and type(value) is int:
+        reasons[key] = "unexplained/non-mechanical"
+    with pytest.raises(ResumeRefused, match=reasons[key]):
         _scan_retained_text(
             path, output_root=tmp_path, expected_job_id="train-01", expected_generation="g-1"
         )
@@ -127,16 +242,26 @@ def test_mixed_log_and_validated_receipt_aliases_are_checked(tmp_path: Path) -> 
     from research.sandbox_a_resident.test_training_resume import manifest, receipt
 
     path = tmp_path / "strange.log"
+    path.write_text('progress\n{"job":"train-01"}\n')
+    _scan_retained_text(
+        path, output_root=tmp_path, expected_job_id="train-01", expected_generation="g-1"
+    )
     path.write_text('progress\n{"job":"foreign"}\n')
-    with pytest.raises(ResumeRefused):
+    with pytest.raises(ResumeRefused, match="foreign job_id"):
         _scan_retained_text(
             path, output_root=tmp_path, expected_job_id="train-01", expected_generation="g-1"
         )
     path.unlink()
-    for extra in ({"job": "foreign"}, {"diagnostic": {"failure_class": "SUPERVISOR"}}):
-        rec = {**receipt(), **extra}
+    for extra, reason in (
+        ({"job": "foreign"}, "conflicting .* identities"),
+        ({"diagnostic": {"failure_class": "SUPERVISOR"}}, "non-receipt failure_class"),
+    ):
+        baseline = receipt()
+        (tmp_path / "receipt.json").write_text(json.dumps(baseline))
+        verify_mechanical_stop(baseline, manifest(), "b" * 64, output_root=tmp_path)
+        rec = {**baseline, **extra}
         (tmp_path / "receipt.json").write_text(json.dumps(rec))
-        with pytest.raises(ResumeRefused):
+        with pytest.raises(ResumeRefused, match=reason):
             verify_mechanical_stop(rec, manifest(), "b" * 64, output_root=tmp_path)
 
 
@@ -183,7 +308,9 @@ def test_generated_transport_names_require_byte_proof(
         tmp_path, expected_job_id="train-01", expected_generation="g-1"
     )
     path.write_bytes(b"\xfd7zXZ\x00FloatingPointError renamed diagnostic")
-    with pytest.raises(ResumeRefused):
+    with pytest.raises(
+        ResumeRefused, match="transport partial|corrupt retained publication sidecar"
+    ):
         _check_output_root_fault_evidence(
             tmp_path, expected_job_id="train-01", expected_generation="g-1"
         )
@@ -193,8 +320,18 @@ def test_generated_transport_names_require_byte_proof(
 def test_generated_unbound_transport_names_refuse(tmp_path: Path, name: str) -> None:
     path = tmp_path / "exports/training" / name
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(b"\xfd7zXZ\x00unbound checkpoint")
-    with pytest.raises(ResumeRefused):
+    content = b"\xfd7zXZ\x00unbound checkpoint"
+    canonical = tmp_path / "exports/training/iteration-0128.pt.xz"
+    publish(canonical, lambda p: p.write_bytes(content))
+    path.write_bytes(content)
+    _check_output_root_fault_evidence(
+        tmp_path, expected_job_id="train-01", expected_generation="g-1"
+    )
+    Path(str(canonical) + ".complete").unlink()
+    Path(str(canonical) + ".sha256").unlink()
+    if path != canonical:
+        canonical.unlink()
+    with pytest.raises(ResumeRefused, match="unverifiable retained model transport partial"):
         _check_output_root_fault_evidence(
             tmp_path, expected_job_id="train-01", expected_generation="g-1"
         )
@@ -214,7 +351,9 @@ def test_generated_truncated_sidecars(tmp_path: Path, suffix: str, kind: str, le
         Path(str(payload) + ".sha256").write_text(digest(payload) + "\n")
     _check_output_root_fault_evidence(tmp_path)
     sidecar.write_bytes(b"FloatingPointError")
-    with pytest.raises(ResumeRefused):
+    with pytest.raises(
+        ResumeRefused, match="malformed retained .*sidecar|malformed retained completion"
+    ):
         _check_output_root_fault_evidence(tmp_path)
 
 
@@ -231,11 +370,11 @@ def test_supervisor_transfer_directory_sidecars_are_bound(tmp_path: Path, kind: 
     sidecar.write_bytes(digest(payload).encode()[:10] if kind == "sha256" else b"comp")
     _check_output_root_fault_evidence(tmp_path)
     (directory / "data").write_bytes(b"unbound")
-    with pytest.raises(ResumeRefused):
+    with pytest.raises(ResumeRefused, match="transport partial differs from verified payload"):
         _check_output_root_fault_evidence(tmp_path)
 
 
-@pytest.mark.parametrize("alias", ["job", "job_id"])
+@pytest.mark.parametrize("alias", JOB_ALIASES)
 @pytest.mark.parametrize("conflict", ["foreign", "alias", "generation", "failure_class"])
 def test_poll_binding_must_pass_the_same_record_validator(
     tmp_path: Path, alias: str, conflict: str
@@ -257,16 +396,27 @@ def test_poll_binding_must_pass_the_same_record_validator(
             }
         ],
     }
+    poll_path = tmp_path / "poll-1.json"
+    poll_path.write_text(json.dumps(record))
+    _check_output_root_fault_evidence(
+        tmp_path, expected_job_id="train-01", expected_generation="g-1"
+    )
     if conflict == "foreign":
         record[alias] = "foreign"
     elif conflict == "alias":
-        record["job_id" if alias == "job" else "job"] = "foreign"
+        record["job_id" if alias.lower() == "job" else "job"] = "foreign"
     elif conflict == "generation":
         record["generation"] = "foreign"
     else:
         record["failure_class"] = "CHILD_NONZERO_EXIT"
-    (tmp_path / "poll-1.json").write_text(json.dumps(record))
-    with pytest.raises(ResumeRefused):
+    poll_path.write_text(json.dumps(record))
+    reasons = {
+        "foreign": "foreign job_id",
+        "alias": "conflicting .* identities",
+        "generation": "foreign generation",
+        "failure_class": "non-receipt failure_class",
+    }
+    with pytest.raises(ResumeRefused, match=reasons[conflict]):
         _check_output_root_fault_evidence(
             tmp_path, expected_job_id="train-01", expected_generation="g-1"
         )
@@ -345,7 +495,7 @@ def test_anonymous_sidecar_transfers_require_recognizable_bytes(
     path.write_bytes(data)
     _check_output_root_fault_evidence(tmp_path)
     path.write_bytes(b"INCOMPLETE failure_class=CHILD_NONZERO_EXIT")
-    with pytest.raises(ResumeRefused):
+    with pytest.raises(ResumeRefused, match="unverifiable retained model transport partial"):
         _check_output_root_fault_evidence(tmp_path)
 
 
@@ -358,23 +508,30 @@ def test_hash_bound_unfinalized_canonical_is_not_a_resume_unit(tmp_path: Path) -
     _check_output_root_fault_evidence(tmp_path)
     assert not Path(str(payload) + ".complete").exists()
     payload.write_bytes(b"\xfd7zXZ\x00changed bytes")
-    with pytest.raises(ResumeRefused):
+    with pytest.raises(ResumeRefused, match="corrupt retained publication sidecar"):
         _check_output_root_fault_evidence(tmp_path)
 
 
 def test_deep_record_validation_is_iterative(tmp_path: Path) -> None:
     from research.sandbox_a_resident.training_resume import _scan_json_faults
 
+    baseline = {"job": "train-01"}
     record = {"job": "foreign"}
     for _ in range(2000):
+        baseline = {"nested": baseline}
         record = {"nested": record}
-    with pytest.raises(ResumeRefused):
+    _scan_json_faults(baseline, label="deep", expected_job_id="train-01", expected_generation="g-1")
+    with pytest.raises(ResumeRefused, match="foreign job_id"):
         _scan_json_faults(
             record, label="deep", expected_job_id="train-01", expected_generation="g-1"
         )
     path = tmp_path / "too-deep.json"
     path.write_text('{"nested":' * 2000 + '{"job":"foreign"}' + "}" * 2000)
-    with pytest.raises(ResumeRefused):
+    # Decoder depth support varies by Python: either a parse refusal or the
+    # foreign identity itself must be reported; no unrelated refusal is allowed.
+    with pytest.raises(
+        ResumeRefused, match="foreign job_id|unreadable or partial retained JSON evidence"
+    ):
         _scan_retained_text(
             path, output_root=tmp_path, expected_job_id="train-01", expected_generation="g-1"
         )
@@ -400,12 +557,24 @@ def test_qualified_poll_state_never_excuses_other_scope_faults(
             }
         ],
     }
+    poll_path = tmp_path / "poll-1.json"
+    poll_path.write_text(json.dumps(record))
+    _check_output_root_fault_evidence(
+        tmp_path, expected_job_id="train-01", expected_generation="g-1"
+    )
     if conflict == "nested":
         record["diagnostic"] = {"failure_class": "SUPERVISOR"}
     else:
         record[conflict] = "SUPERVISOR" if conflict == "failure_class" else "foreign"
-    (tmp_path / "poll-1.json").write_text(json.dumps(record))
-    with pytest.raises(ResumeRefused):
+    poll_path.write_text(json.dumps(record))
+    reasons = {
+        "job": "foreign job_id",
+        "job_id": "foreign job_id",
+        "generation": "foreign generation",
+        "failure_class": "non-receipt failure_class",
+        "nested": "non-receipt failure_class",
+    }
+    with pytest.raises(ResumeRefused, match=reasons[conflict]):
         _check_output_root_fault_evidence(
             tmp_path, expected_job_id="train-01", expected_generation="g-1"
         )
@@ -419,34 +588,41 @@ def test_transport_json_is_bound_and_still_scanned(
     training = tmp_path / "exports/training"
     directory = training / ".transfer-stage"
     directory.mkdir(parents=True)
-    content = json.dumps(
-        {"failure_class": "CHILD_NONZERO_EXIT"} if failure else {"status": "PASS"}
-    ).encode()
     data = directory / "data"
-    data.write_bytes(content)
-    if binding == "publication":
-        publish(training / "proxy-0128.json", lambda p: p.write_bytes(content))
-    else:
-        (tmp_path / "poll-1.json").write_text(
-            json.dumps(
-                {
-                    "state": {"job_id": "train-01", "generation": "g-1", "status": "running"},
-                    "exports": [
-                        {
-                            "path": "training/proxy-0128.json",
-                            "size": len(content),
-                            "sha256": digest(data),
-                        }
-                    ],
-                }
+
+    def retain(content: bytes) -> None:
+        data.write_bytes(content)
+        if binding == "publication":
+            for sidecar in (
+                training / "proxy-0128.json.sha256",
+                training / "proxy-0128.json.complete",
+            ):
+                sidecar.unlink(missing_ok=True)
+            (training / "proxy-0128.json").unlink(missing_ok=True)
+            publish(training / "proxy-0128.json", lambda p: p.write_bytes(content))
+        else:
+            (tmp_path / "poll-1.json").write_text(
+                json.dumps(
+                    {
+                        "state": {"job_id": "train-01", "generation": "g-1", "status": "running"},
+                        "exports": [
+                            {
+                                "path": "training/proxy-0128.json",
+                                "size": len(content),
+                                "sha256": digest(data),
+                            }
+                        ],
+                    }
+                )
             )
-        )
+
+    retain(json.dumps({"status": "PASS"}).encode())
+    _check_output_root_fault_evidence(
+        tmp_path, expected_job_id="train-01", expected_generation="g-1"
+    )
     if failure:
-        with pytest.raises(ResumeRefused):
+        retain(json.dumps({"failure_class": "CHILD_NONZERO_EXIT"}).encode())
+        with pytest.raises(ResumeRefused, match="non-receipt failure_class"):
             _check_output_root_fault_evidence(
                 tmp_path, expected_job_id="train-01", expected_generation="g-1"
             )
-    else:
-        _check_output_root_fault_evidence(
-            tmp_path, expected_job_id="train-01", expected_generation="g-1"
-        )

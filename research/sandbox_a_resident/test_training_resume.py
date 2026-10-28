@@ -1917,11 +1917,9 @@ def test_review_r4_unfinalized_poll_sidecars_never_authenticate_payloads(
     (tmp_path / ("poll-001.json." + sidecar)).write_text(
         "0" * 64 + "\n" if sidecar == "sha256" else "complete\n"
     )
-    if sidecar == "complete":
-        with pytest.raises(ResumeRefused):
-            _check_output_root_fault_evidence(tmp_path)
-    else:
-        # Recognizable unfinished sidecar, ignored as an export binding.
+    # Both complete publication records require their published payload. A full
+    # digest is permitted only with a matching staged sibling (covered by c2).
+    with pytest.raises(ResumeRefused, match="finalized publication|orphan full digest"):
         _check_output_root_fault_evidence(tmp_path)
 
 

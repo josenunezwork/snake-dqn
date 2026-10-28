@@ -1,0 +1,11 @@
+{
+  "elapsed_seconds": 1.250763125019148,
+  "sessions": {
+    "gpu-a100-s-usc1b0-2ttq49tixmxqv": "snake-sandbox-a-train01-20261027-09-1c47a2ed87a7"
+  },
+  "usage": {
+    "assignments": 1.0,
+    "balance": 1021.85,
+    "rate": 5.3
+  }
+}

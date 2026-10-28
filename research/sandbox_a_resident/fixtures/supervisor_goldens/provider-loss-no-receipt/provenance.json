@@ -1,0 +1,114 @@
+{
+  "schema": "sandbox-a-offline-supervisor-golden/v1",
+  "scenario": "provider-loss-no-receipt",
+  "source_sha256": {
+    "research/colab_cli/supervisor.py": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+    "research/colab_cli/runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+    "research/colab_cli/failures.py": "fd92efd5700669ab331f88c6fe478f181757d3f76776a8d76ef298e43e45843f",
+    "tests/fixtures/fake_colab.py": "cc0bb1a9b83932f7dedfcee9f333df741e9dcf91c84920cee21051653e04b304",
+    "tests/fixtures/fake_colab_helper.py": "ccbaf4592ff34a3abaaa6d15ffa6d4086db5ed266cb39f57b6b74dd302cdcfe0",
+    "tests/test_colab_cli_supervisor.py": "00ed9e50ffcb53edf5457850b9aab6bd97c25812a7c540ed007b88f246667ccf"
+  },
+  "source_commit": "e971d41f1adbbdc3e6bf655f66f33cc3849c04e5",
+  "provider": "tests/fixtures/fake_colab.py (subprocess; no account access)",
+  "receipt_fabricated": false,
+  "injections": [
+    "offline fake provider sessions removed, host process os._exit(91) before Broker finally"
+  ],
+  "receipt_sha256": null,
+  "receipt_error": null,
+  "failure_class": null,
+  "broker_exception": "host os._exit(91) before finally",
+  "scratch_removed_by_parent": "/private/tmp/train01-goldens-eq4aszm_",
+  "admission_baseline_sha256": "c6aed498752109a8adadcc4ac4dfd84f902aaa96b955db28807a47f50df97473",
+  "files": {
+    "output/accounting-baseline.json": {
+      "size": 173,
+      "sha256": "9c24383ab9def869752ce1c5ff1b8e19ac075a999670227114bf82f840f81a2f"
+    },
+    "output/hardware.json": {
+      "size": 5,
+      "sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74"
+    },
+    "output/input-hashes.json": {
+      "size": 430,
+      "sha256": "cfa4045d2f25ee179e5440e7f47e9eeefd6dfeaef1613552a327b229c2ad11e2"
+    },
+    "output/manifest.json": {
+      "size": 756,
+      "sha256": "1a725fd0d4f35dadaf7afa35ffb8a7195bd202f5aebadb35441128d000366551"
+    },
+    "output/rate-calibration-000.json": {
+      "size": 187,
+      "sha256": "c55ee5462ee9b184199c3dfd67667777b06a4a55a5587ed13d673c5b71f78f54"
+    },
+    "output/rate-calibration-001.json": {
+      "size": 187,
+      "sha256": "ab3c973831ad62d627c31de2dfb451f9fcf51a65e14a976fe1e7c38c21ae9e55"
+    },
+    "output/rate-calibration-002.json": {
+      "size": 188,
+      "sha256": "0a0d76f7ee9b6f0776384401c5fee2da78d5d13164674a6f163e2f1c55cb7183"
+    },
+    "output/rate-calibration.json": {
+      "size": 938,
+      "sha256": "6b88661ab3378b9607cad987adb5863c159cb90c8b1b83662417b2d245b01bd3"
+    },
+    "output/source-delivery.json": {
+      "size": 138,
+      "sha256": "690508ff722d5001fb25ada0bbe3a1e2d5d8f5f55b800cb0bedeeb1468cf7f33"
+    },
+    "output/staging/bootstrap.sh": {
+      "size": 3244,
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4"
+    },
+    "output/staging/release.py": {
+      "size": 14677,
+      "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355"
+    },
+    "output/staging/runtime.py": {
+      "size": 30712,
+      "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036"
+    },
+    "output/staging/schema-validation.json": {
+      "size": 175,
+      "sha256": "aac345ef60c877b473f3c1736e051fbefa3eb59c579c14945ece7f4c2c031383"
+    },
+    "output/staging/source-plan.json": {
+      "size": 30910,
+      "sha256": "dc86dea1b3e5f3d42b85b2d094e987d2de121a39c01bbf9f2d1b698dc243f4be"
+    },
+    "output/staging/source.py": {
+      "size": 14511,
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f"
+    },
+    "output/staging/source.tar.gz": {
+      "size": 901912,
+      "sha256": "f742456bbf5fd90c8696ec7c037fa802efd73bd64f6576bf5ed0c1e3e7c3b0cb"
+    },
+    "output/upload-measurement.json": {
+      "size": 170,
+      "sha256": "fd3d4c11fb7b20b04b9ac8a07060de3d57f233735dd96cf5ee30f9a5950b05f0"
+    },
+    "output/usage-allocated.json": {
+      "size": 62,
+      "sha256": "0606d4eb21388a79ef86fcea5f8583a50a7193475d477e87d577a653a439cd49"
+    },
+    "output/warmup-measurement.json": {
+      "size": 64,
+      "sha256": "97edc79e0ad801de6dcd03d28fcf15c8d82bba59b0b8d3c2b08b92a42415ce32"
+    },
+    "pinned-commit.raw": {
+      "size": 254,
+      "sha256": "a48e51e2e1b596b844d83daacea732bd09071fc2ce62dfe7546685d481eaf880"
+    },
+    "provider-sessions.json": {
+      "size": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "supervisor.log": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

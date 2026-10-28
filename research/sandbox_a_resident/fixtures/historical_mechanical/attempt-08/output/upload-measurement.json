@@ -1,0 +1,14 @@
+{
+  "elapsed_seconds": 59.06405170809012,
+  "input_transfer_seconds": {
+    "b8-s3.pth": 4.738715375075117,
+    "champion.pth": 6.090262833982706,
+    "frp3-s12.pth": 6.0346905830083415,
+    "registry.json": 1.4062246669782326,
+    "verified-ledger.json": 1.037389374920167
+  },
+  "setup_seconds": 0.7234693750506267,
+  "source_delivery_seconds": 0.0,
+  "staging_completed": false,
+  "transfer_seconds": 21.463070666999556
+}

@@ -1,0 +1,1159 @@
+{
+  "commit": "c8ab2e6feefc63ce866e1493bfd2f7f1bf3f64dd",
+  "fallback_archive": "source.tar.gz",
+  "fallback_sha256": "bb0d2b2a31c9c6e197d23cbb90b8307626eb681b087dcc8e838b96fd0aa432eb",
+  "fallback_size": 925149,
+  "fallback_unpacked_size": 3812943,
+  "files": {
+    "pyproject.toml": {
+      "mode": "0644",
+      "sha256": "e4f1a0471a12e638c2acc67719488abcbb94a74916ef870843c425c3501f710e",
+      "size": 2770
+    },
+    "research/colab_cli/bootstrap.sh": {
+      "mode": "0755",
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+      "size": 3244
+    },
+    "research/colab_cli/release.py": {
+      "mode": "0644",
+      "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+      "size": 14677
+    },
+    "research/colab_cli/runtime.py": {
+      "mode": "0644",
+      "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+      "size": 30712
+    },
+    "research/colab_cli/source.py": {
+      "mode": "0644",
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+      "size": 14511
+    },
+    "research/gpu_sim_spike/__init__.py": {
+      "mode": "0644",
+      "sha256": "fcb40cee284a61293cb72968cdfe17e4908f4d660e74ee65e8b0021e152bb0c1",
+      "size": 277
+    },
+    "research/gpu_sim_spike/anchors_device.py": {
+      "mode": "0644",
+      "sha256": "260070cd9614aca8a0f6b9606ce80ae829b54bdc8b61b1aaaeec4d43f10f4925",
+      "size": 3144
+    },
+    "research/gpu_sim_spike/device_policy.py": {
+      "mode": "0644",
+      "sha256": "fa265af4b53374a727b2dd341956dec97aa1834fcc6868bb9e4060b4b3d780a0",
+      "size": 14051
+    },
+    "research/gpu_sim_spike/device_sim.py": {
+      "mode": "0644",
+      "sha256": "64abaad2b717d751e1e996c7e43dfb64a8815de48b81f9fff1cc90512c7824dd",
+      "size": 48600
+    },
+    "research/gpu_sim_spike/ego_device.py": {
+      "mode": "0644",
+      "sha256": "121c1fbabd69bbf17fc1810c425ff7275202d7c765eb172c570e08a62752373e",
+      "size": 21426
+    },
+    "research/gpu_sim_spike/event_cuda.cpp": {
+      "mode": "0644",
+      "sha256": "52244527532e57ac815d5cbf3767b86706066489a4bc106e541be2a5f1ad3f11",
+      "size": 406
+    },
+    "research/gpu_sim_spike/event_cuda.cu": {
+      "mode": "0644",
+      "sha256": "0f00c2e6a1f4c99363c1417d40647d2f2e06e04b8bc80cad99eec78001d9c86b",
+      "size": 3538
+    },
+    "research/gpu_sim_spike/event_cuda.py": {
+      "mode": "0644",
+      "sha256": "72f18f07e102649c8a58e3bbfb7b6037fc0fa8b301a3d7d8ba04d04c3e332d9a",
+      "size": 8030
+    },
+    "research/gpu_sim_spike/flood_cuda.cpp": {
+      "mode": "0644",
+      "sha256": "b4f247dd2cdab558daa27a127c9df1b356b05d5ed03761a81516a42d3cc2b151",
+      "size": 1336
+    },
+    "research/gpu_sim_spike/flood_cuda.cu": {
+      "mode": "0644",
+      "sha256": "7faca38e79965aa43cd540e7e510529e6ef4105f6998ebfab583d8730d0d520d",
+      "size": 24264
+    },
+    "research/gpu_sim_spike/flood_cuda.py": {
+      "mode": "0644",
+      "sha256": "8c2a8b727e2eefebd28bb677066a59e473d1fe3a614c8e8b51784965abb3e7cf",
+      "size": 14511
+    },
+    "research/gpu_sim_spike/masks_device.py": {
+      "mode": "0644",
+      "sha256": "b2cd6e0008ae46b1a23708aeb3747b5c765f88105b04afc1e5aad8cb787afd1e",
+      "size": 4394
+    },
+    "research/gpu_sim_spike/move_cuda.cpp": {
+      "mode": "0644",
+      "sha256": "04d3dbd04ee2816b9628e8ea1a28dad8c5c0f763f705193f43d832b5891cb581",
+      "size": 521
+    },
+    "research/gpu_sim_spike/move_cuda.cu": {
+      "mode": "0644",
+      "sha256": "d1ccedf9713d12b9da2a300e7bf22fb66fbe2520e2cae089a1f3d429f8348eeb",
+      "size": 9959
+    },
+    "research/gpu_sim_spike/move_cuda.py": {
+      "mode": "0644",
+      "sha256": "fc6cbc7cae3cca9ecef51eb32f3e2a5bc21859c5b8c8cca97b028b9b044e579d",
+      "size": 8796
+    },
+    "research/gpu_sim_spike/r2_cache.py": {
+      "mode": "0644",
+      "sha256": "62b5e9ebf9b3ede98fc2d9280849ab71b69bc5dcd21b0b7c285614866c1c7100",
+      "size": 10915
+    },
+    "research/gpu_sim_spike/stage_timing.py": {
+      "mode": "0644",
+      "sha256": "3a9df1263bf3623ba5c9f37bf1fed19041fca9cf8ffa2487bdf9b6d873133f4c",
+      "size": 2253
+    },
+    "research/gpu_sim_spike/v8_device.py": {
+      "mode": "0644",
+      "sha256": "cc810b440aa7a1a5cfd9ad99c647b0e901092941bf353c726da5bf3cb26c3023",
+      "size": 26765
+    },
+    "research/gpu_sim_spike/v8_indexed.cpp": {
+      "mode": "0644",
+      "sha256": "247444b684def8624b2777cc192737611264148467a615586303e83be9a6597e",
+      "size": 558
+    },
+    "research/gpu_sim_spike/v8_indexed.cu": {
+      "mode": "0644",
+      "sha256": "c75ad8f2824ea96bbcd11a92ba88e85809339a20e6c474a448f1f14e49cefbc3",
+      "size": 8556
+    },
+    "research/gpu_sim_spike/v8_indexed.py": {
+      "mode": "0644",
+      "sha256": "06b349a401b9c8624bc75a9b0af372e327d29511cb9e753868c85b0dbb4d4239",
+      "size": 2862
+    },
+    "research/gpu_sim_spike/vector_device.py": {
+      "mode": "0644",
+      "sha256": "53562b769ba3764825b95fa3969a1c87354499e0bd51ebbf195b5c2fce9694dc",
+      "size": 39626
+    },
+    "research/gpu_sim_spike/vector_geometry.cpp": {
+      "mode": "0644",
+      "sha256": "c3161ad62ffaf9f78752ef269546e06bf6ab715067219b10a5e01b8508026e4f",
+      "size": 1152
+    },
+    "research/gpu_sim_spike/vector_geometry.cu": {
+      "mode": "0644",
+      "sha256": "fc9ac495e1a917ae2ec56dc8eb47766e4186337134bb32deb8cd8ee567813dc9",
+      "size": 19240
+    },
+    "research/gpu_sim_spike/vector_geometry.py": {
+      "mode": "0644",
+      "sha256": "5e22c79b783edfb8268649aef2052aeb6d8a7436d96b4d7c73e4982d463520d6",
+      "size": 11630
+    },
+    "research/sandbox_a_resident/__init__.py": {
+      "mode": "0644",
+      "sha256": "9a0705415e5dda3526074013d7f7a4e67977891009a7b36fc193e23dacd3c4e8",
+      "size": 79
+    },
+    "research/sandbox_a_resident/core.py": {
+      "mode": "0644",
+      "sha256": "9ef7dd7a2bb8366bf903d8f110b5b6b29fe209ca015f9b2218a5db110ca6ac3b",
+      "size": 35498
+    },
+    "research/sandbox_a_resident/device_sim.py": {
+      "mode": "0644",
+      "sha256": "fe403559f4cfd8692d750dc690735e160cc77bdd8ba4d5d7b11314749e21300d",
+      "size": 7570
+    },
+    "research/sandbox_a_resident/job.sh": {
+      "mode": "0644",
+      "sha256": "f659db9fb4906c805d72f78f6e60829de885d6dffebf5f12c541e65077125bb8",
+      "size": 958
+    },
+    "research/sandbox_a_resident/observation_tensor.py": {
+      "mode": "0644",
+      "sha256": "9856f5382070066bf9ea66cdad883b696fcb0e23e61f99b77ef512849d1c3304",
+      "size": 12606
+    },
+    "research/sandbox_a_resident/proof.py": {
+      "mode": "0644",
+      "sha256": "0cb85e8fe17aaa3d76ce95c611c51e03d08fbca2a35af61dfcfe9cf0908dfaab",
+      "size": 4875
+    },
+    "research/sandbox_a_resident/requirements.txt": {
+      "mode": "0644",
+      "sha256": "a8cb011aef6cec18444a823578e9029cb1c05d362f25dc227ecb20d8f82f5e62",
+      "size": 150
+    },
+    "research/sandbox_a_resident/run.py": {
+      "mode": "0644",
+      "sha256": "17b0e59ea00ae2e15ed9c532899a6a081a378796bc1ef5dda02c88e5261e497f",
+      "size": 24587
+    },
+    "research/sandbox_a_resident/runtime_tools.py": {
+      "mode": "0644",
+      "sha256": "4cdec26d7d8b65f1bca1618ff9606dfd528c5ca6e0fdfb0950252eb0f51d7baf",
+      "size": 8917
+    },
+    "research/sandbox_a_resident/stall_watchdog.py": {
+      "mode": "0644",
+      "sha256": "efacb30cd4effa9996c1a3e9c183cebebff7e0f23886f344d5b5f64fd7025533",
+      "size": 4582
+    },
+    "research/sandbox_a_resident/tensor_blocks.py": {
+      "mode": "0644",
+      "sha256": "6becdcdd938f429139473155f33264a7998e4584151662517fb0887a8d97e6b0",
+      "size": 14169
+    },
+    "research/sandbox_a_resident/train.py": {
+      "mode": "0644",
+      "sha256": "3f991ca78b1b7b01d33d60e57bc9bcada05167dc181e81e9d70a99a74b10de29",
+      "size": 39236
+    },
+    "research/sandbox_a_resident/train_job.sh": {
+      "mode": "0755",
+      "sha256": "25cf7946fde50ad4c5c5a3ac92542b1e5dd6da9d2cf03012e308aa130e746d0b",
+      "size": 2656
+    },
+    "research/sandbox_a_resident/training_acceptance.py": {
+      "mode": "0644",
+      "sha256": "c47a0950aae62720254bff675712860dc5ae9103cf00956ac7ea21062e1d1096",
+      "size": 16855
+    },
+    "research/sandbox_a_resident/training_compile.py": {
+      "mode": "0644",
+      "sha256": "12d1adfae70168488d1d39e368ec07a2c6ff0b7c25d3e5c309ef26fd41d525f6",
+      "size": 8581
+    },
+    "research/sandbox_a_resident/training_completion.py": {
+      "mode": "0644",
+      "sha256": "6328cd78e89d6865825179f9985c88ef33e6cdf10813b707b15f44c87fb38467",
+      "size": 6002
+    },
+    "research/sandbox_a_resident/training_cpu_reference.py": {
+      "mode": "0644",
+      "sha256": "4e0d280410c10e193502ed5ac6868088685b48f2bd1c425a4427290997e9084f",
+      "size": 12678
+    },
+    "research/sandbox_a_resident/training_learner.py": {
+      "mode": "0644",
+      "sha256": "aa266905188c17e408ad4ac34ec5ca91d826e8b5434cf2796432b4470744e74f",
+      "size": 30201
+    },
+    "research/sandbox_a_resident/training_model.py": {
+      "mode": "0644",
+      "sha256": "62b11d54377480dcc9585bbf359ba91cc9897c027e3b0520156459b92d336d47",
+      "size": 12184
+    },
+    "research/sandbox_a_resident/training_prep.py": {
+      "mode": "0644",
+      "sha256": "ccfc3737a1db4b5535d988e5910bff18387b72a40cd16294bbfabf6e2ce77600",
+      "size": 39189
+    },
+    "research/sandbox_a_resident/training_proxy.py": {
+      "mode": "0644",
+      "sha256": "31dfe20db8ad530f696e52d76d3f60ed5c51b594b430b873bc86ee3d72cc1d10",
+      "size": 8200
+    },
+    "research/sandbox_a_resident/training_resume.py": {
+      "mode": "0644",
+      "sha256": "293419c25db9b9d733f538a948d69b917aadfea42d9a587d64ee7d1316f6655d",
+      "size": 14989
+    },
+    "research/sandbox_a_resident/training_rosters.py": {
+      "mode": "0644",
+      "sha256": "0eeeb03be3ebf85fbbaed0b8393c698aa9e1c083b4f3bab0b0c961f987676f70",
+      "size": 17866
+    },
+    "research/sandbox_a_resident/training_sim.py": {
+      "mode": "0644",
+      "sha256": "50bbdf821180b910c421df1e3cb2dfa445736ac5a425d17e44db97f147996ab4",
+      "size": 7365
+    },
+    "research/sandbox_a_resident/training_task.py": {
+      "mode": "0644",
+      "sha256": "6ef528a7c849a59eb9501dfef135bb1e0349d3d994dd180e4b36565e710db52d",
+      "size": 19047
+    },
+    "research/sandbox_a_resident/training_units.py": {
+      "mode": "0644",
+      "sha256": "7d2fffd2103b99c8a1a0ff5cf6f052a67e1d6fb5e2ae6e59f678d0c7da5a8579",
+      "size": 8989
+    },
+    "research/sandbox_a_resident/units.py": {
+      "mode": "0644",
+      "sha256": "57de601ef7db341380832147b0fcf70b346fd58be0e2a4ce3fcb3eefa1f3b70d",
+      "size": 5836
+    },
+    "src/__init__.py": {
+      "mode": "0644",
+      "sha256": "a0f2f59c74c74f1717ec95ba18259ccea059279c987d743649ce0667e4d9e080",
+      "size": 50
+    },
+    "src/core/__init__.py": {
+      "mode": "0644",
+      "sha256": "2eba380d8760a6666aacd9560b44cb21613da737394ac8909baa4fcb5e57da75",
+      "size": 1145
+    },
+    "src/core/config_loader.py": {
+      "mode": "0644",
+      "sha256": "daa73b3bc69e3f172d6ebaab9dea5e3785ee7781721417958afedd3f7e234574",
+      "size": 25493
+    },
+    "src/core/device_manager.py": {
+      "mode": "0644",
+      "sha256": "2957fac215fb43f6f7793daa4dcbf1277bca543791a58eeac096d31085c1d427",
+      "size": 7322
+    },
+    "src/core/game_config.py": {
+      "mode": "0644",
+      "sha256": "e763c0f44f8d0263b10bbca188ab0ff60e5179be37fa8b05f244a1468f2122bb",
+      "size": 32098
+    },
+    "src/core/mechanics_constants.py": {
+      "mode": "0644",
+      "sha256": "d5d26a6398393081af399c804cf566ba275a88b36057ac2dbd289210ecab32f2",
+      "size": 7574
+    },
+    "src/core/reward_contract.py": {
+      "mode": "0644",
+      "sha256": "f0def93b39d51fcce38f0aff5f08b664ae4baaf68ace21689c88a7682761629a",
+      "size": 540
+    },
+    "src/core/reward_events.py": {
+      "mode": "0644",
+      "sha256": "55bc4264bf64fa8cf5f2cf00c80fd460dd9f174bf38e4fd70e8d03564fbebcf8",
+      "size": 4922
+    },
+    "src/core/runtime_contract.py": {
+      "mode": "0644",
+      "sha256": "2deb892c1d2166290b2a55c611a5ee09d6b218f84f5efecedb8444d76d40095f",
+      "size": 19289
+    },
+    "src/core/seeding.py": {
+      "mode": "0644",
+      "sha256": "4057c1697a230ce162654f659418e31c57fc6b902f9e2bc06a3d75961c0ac717",
+      "size": 3823
+    },
+    "src/core/world_runtime.py": {
+      "mode": "0644",
+      "sha256": "11afa758cd5bb02793628a1190da195e7665bb56daa3db322595a5e35e4bbaa6",
+      "size": 8830
+    },
+    "src/data/__init__.py": {
+      "mode": "0644",
+      "sha256": "b4268b3a6b9693573d2bc898d2f4c6192f6f11c21ad59a5a0264200ce93d77aa",
+      "size": 268
+    },
+    "src/data/memory_db_handler.py": {
+      "mode": "0644",
+      "sha256": "67bcb5106dd93bc144496068a8c1c90c95128b7fc198f6e51bfa54c7980082d7",
+      "size": 57534
+    },
+    "src/data/replay_contract.py": {
+      "mode": "0644",
+      "sha256": "73e211ce07d59e12c7bb01cb68cd67465d0c62406ce80657fe8a2579539ec82c",
+      "size": 22279
+    },
+    "src/data/replay_quality.py": {
+      "mode": "0644",
+      "sha256": "f9dbd6d9fe2f93a95e89cf762036b084d6f47cd8237c36f3be2edce42bcce2fb",
+      "size": 111229
+    },
+    "src/data/score_store.py": {
+      "mode": "0644",
+      "sha256": "ead944d482421dcac2afba60239e09fcf2bbad388109d77b779ae29b002b6b5c",
+      "size": 23395
+    },
+    "src/evaluation/__init__.py": {
+      "mode": "0644",
+      "sha256": "08a11304184d8710182a9b52be558c19f4252565544b6277146e3cfcfc87cad9",
+      "size": 192
+    },
+    "src/evaluation/anchors.py": {
+      "mode": "0644",
+      "sha256": "f013a8691a045d49f7b4c1fdd3f66372bf174d7fe8d789cdf31540dec2c556be",
+      "size": 3999
+    },
+    "src/evaluation/artifacts.py": {
+      "mode": "0644",
+      "sha256": "2f041934903e90c6cb6e4e561649f283c2b2cb5409f9a40259bc49930935f14b",
+      "size": 14465
+    },
+    "src/evaluation/metrics.py": {
+      "mode": "0644",
+      "sha256": "1a41c6c54ff13089901766702dbcaf81ea9a9df09d58d78f02431b651faeccf2",
+      "size": 6755
+    },
+    "src/evaluation/observation_probe.py": {
+      "mode": "0644",
+      "sha256": "0dac628c9f0bddcba04c6c91da9f8d155ff68da898d3de6d8c462da0d2e120ed",
+      "size": 17494
+    },
+    "src/evaluation/observation_probe_stats.py": {
+      "mode": "0644",
+      "sha256": "96be545bb6221f76afd8b975dbf67b063e8b0e869976b414bbe977a626bca186",
+      "size": 11149
+    },
+    "src/evaluation/protocol.py": {
+      "mode": "0644",
+      "sha256": "62658d1f444dde66df75efe800d35134930ccd60548412467e2f13cd66f022ee",
+      "size": 15154
+    },
+    "src/evaluation/safety_veto.py": {
+      "mode": "0644",
+      "sha256": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+      "size": 10673
+    },
+    "src/evaluation/safety_veto_v3.py": {
+      "mode": "0644",
+      "sha256": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+      "size": 17596
+    },
+    "src/evaluation/safety_veto_v4.py": {
+      "mode": "0644",
+      "sha256": "3f0881afb7ff8ff980c9b425ef40134f127cc90f1f40260aac39f2264ed44578",
+      "size": 23712
+    },
+    "src/evaluation/safety_veto_v5.py": {
+      "mode": "0644",
+      "sha256": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c",
+      "size": 21489
+    },
+    "src/evaluation/safety_veto_v6.py": {
+      "mode": "0644",
+      "sha256": "a6117cb98383f9f28bf8ebcf22d2ef63d7a03995734a36fb96bb1bf8bb1757d5",
+      "size": 30077
+    },
+    "src/evaluation/safety_veto_v7.py": {
+      "mode": "0644",
+      "sha256": "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980",
+      "size": 24456
+    },
+    "src/evaluation/safety_veto_v8.py": {
+      "mode": "0644",
+      "sha256": "faf3695fa9d60550f1f681c04b8c8aba0447fecaa34cd75f16f75efe91e4ac05",
+      "size": 18043
+    },
+    "src/evaluation/screen_stats.py": {
+      "mode": "0644",
+      "sha256": "1348ec781bb1b86e9fe763735cd053e0cbcf4a8ed59a4a2c2fbf9ae094e5eeb7",
+      "size": 41893
+    },
+    "src/evaluation/sequential_gate.py": {
+      "mode": "0644",
+      "sha256": "39eac8064dfb8c203da6187e9dbe7e1404faf6454a711b35b811168aa3edd4c3",
+      "size": 43800
+    },
+    "src/evaluation/sequential_phase_r.py": {
+      "mode": "0644",
+      "sha256": "07265f67c3bc4828fa32970f1aca47de2e6920cf4ebac30590adf86afcb5bce7",
+      "size": 43644
+    },
+    "src/evaluation/serving_episode.py": {
+      "mode": "0644",
+      "sha256": "279b8a883cd7c289b2d0d6cfa969a743b08c68996d6f7ec2e7f75756f947f9e8",
+      "size": 25553
+    },
+    "src/evaluation/strict_promotion.py": {
+      "mode": "0644",
+      "sha256": "96cf96cdc630edd7a4126d36058c9052cbf96dde09e56a643977fa4d343bfcba",
+      "size": 110819
+    },
+    "src/game/__init__.py": {
+      "mode": "0644",
+      "sha256": "0e87294b02cafe1bbd71c083e7b27ee625e5ba00b36e0ce51dc1e9ad995685f8",
+      "size": 2156
+    },
+    "src/game/ai_snake.py": {
+      "mode": "0644",
+      "sha256": "6228ebd197fa1a0d8de6488d40fc8857c7b49c1186f69b75483afcd737720ec9",
+      "size": 44445
+    },
+    "src/game/food_manager.py": {
+      "mode": "0644",
+      "sha256": "e9799516bd810420f6b6bc98082ec7741bdad774ed4532ed44990368eabb526e",
+      "size": 11904
+    },
+    "src/game/game_logic.py": {
+      "mode": "0644",
+      "sha256": "a8ddfca2a1c44bd5112c767e1a6f3505fed4a97b2454c4fd33defefe45e5f89c",
+      "size": 15123
+    },
+    "src/game/game_state.py": {
+      "mode": "0644",
+      "sha256": "112a5d550d050007acf74a2c2f9d2e1388e377d7ebfbedd26977490325f77d37",
+      "size": 37637
+    },
+    "src/game/game_state_factory.py": {
+      "mode": "0644",
+      "sha256": "d91b1e4b2c0557f5539a198f0d6947fe0ad992f462f2b3b4abe2ebf334502b91",
+      "size": 2524
+    },
+    "src/game/human_snake.py": {
+      "mode": "0644",
+      "sha256": "019323e9c82ac7f6c27b9ac09252f70e68cb556fe33c7921e66b1b549c3cb70b",
+      "size": 17002
+    },
+    "src/game/scripted_snake.py": {
+      "mode": "0644",
+      "sha256": "fd05622c3e1d8eb4c1cf9c9d5502d36fdcb99d4e63bad4ece4fa760c46c7424e",
+      "size": 10231
+    },
+    "src/game/snake.py": {
+      "mode": "0644",
+      "sha256": "e2b4887963efe59966f2278f07467421e4df9c7453536f56754fc8a7f8caee0f",
+      "size": 8268
+    },
+    "src/game/snake_factory.py": {
+      "mode": "0644",
+      "sha256": "e3821ffacc6ce1d02aa829415dc3db66ceeb3b82dd89baa065b76c3fa0835928",
+      "size": 13836
+    },
+    "src/game/snake_geometry.py": {
+      "mode": "0644",
+      "sha256": "d88876d697993f7e3379aeed8ede54c1889f101689bd8c54f668a963eaa9dbbf",
+      "size": 6005
+    },
+    "src/game/snake_reward.py": {
+      "mode": "0644",
+      "sha256": "8f4db4ff1e735f3c503e745b7ab7af4402f58669d37d37f30d43f58fbf3ffcd6",
+      "size": 15339
+    },
+    "src/game/snake_state.py": {
+      "mode": "0644",
+      "sha256": "bccd3eddc3a1dd6aa25d1beea6124b3e81f5f88427150b754c0d165b77e86e2e",
+      "size": 37683
+    },
+    "src/main.py": {
+      "mode": "0644",
+      "sha256": "dd904f39640d2980828c28f1e60bcff2a72f8287155dd2264c86c7b72ea22caa",
+      "size": 73723
+    },
+    "src/model/__init__.py": {
+      "mode": "0644",
+      "sha256": "28abd6fd65874ca9f93009f9763ca5528859a1a0c38febd1bec092813b4dda11",
+      "size": 745
+    },
+    "src/model/apex_network.py": {
+      "mode": "0644",
+      "sha256": "a40368a8d7b38764a4f8c1a88a59d13d97ee3c2daaaac1da63affe2638cf16d1",
+      "size": 8026
+    },
+    "src/model/base_network.py": {
+      "mode": "0644",
+      "sha256": "c9dc1667261eb99f4805f28dbb90727b071bec29d329e86eb094ca1c8b7ec5ca",
+      "size": 5201
+    },
+    "src/model/checkpoint_io.py": {
+      "mode": "0644",
+      "sha256": "27910d442d7e18124bf242561bbfab16c5f01bfec29d9d3eedd7cdf6d01a3d85",
+      "size": 1215
+    },
+    "src/model/checkpoint_manager.py": {
+      "mode": "0644",
+      "sha256": "d2cc7cd0eefa4286743b3b36d734e6a9f7d576af2abb4d7cd3298335335bbd73",
+      "size": 5351
+    },
+    "src/model/ego2s_network.py": {
+      "mode": "0644",
+      "sha256": "06b262b7ad4bc89ff4d46caff37090635fe32b81008fa91d5956b34d940345a9",
+      "size": 4727
+    },
+    "src/model/inference_agent.py": {
+      "mode": "0644",
+      "sha256": "66ceb5d2f3123d6a56f4c45923f2d8a2d85c3cca187ea56a3cbba484ac4c366a",
+      "size": 20657
+    },
+    "src/model/obs_spec.py": {
+      "mode": "0644",
+      "sha256": "863bad5420e696697dbf53ba77e537941efc3cbc2f85c5c01c6eb9e0bd01c451",
+      "size": 8362
+    },
+    "src/model/raster_network.py": {
+      "mode": "0644",
+      "sha256": "70aa22048e15c3859753cae0f2b4cf6ae011e3a2bbccee9b8304e9632871c915",
+      "size": 14824
+    },
+    "src/scripts/apex_train.py": {
+      "mode": "0644",
+      "sha256": "0f0154d16483ea1d2880d2b36a8510db1ef666be0e64aac540b2e3b962176cb7",
+      "size": 99427
+    },
+    "src/scripts/audit_replay.py": {
+      "mode": "0644",
+      "sha256": "21f5ed810d931cb06578f7355274c7596b00e23c40891aba4ae332ebbe3dec06",
+      "size": 15725
+    },
+    "src/scripts/bench_actor.py": {
+      "mode": "0644",
+      "sha256": "673563587f042201a7df7508626b8d387f9f560fc962e7bbb2dc6a1b1515e310",
+      "size": 7174
+    },
+    "src/scripts/bench_simd.py": {
+      "mode": "0644",
+      "sha256": "dbb564b5b189a0d9c033fb90956443d3b47ba959fe04825d9d0f6450df53c7ca",
+      "size": 6483
+    },
+    "src/scripts/ensemble_eval.py": {
+      "mode": "0644",
+      "sha256": "c131c059c35365f1b6969ce22a7bf8a9ca61a2c1f25f612225153d37986b35e7",
+      "size": 7026
+    },
+    "src/scripts/eval_cli.py": {
+      "mode": "0644",
+      "sha256": "ce9ecee3e612a5b31e49e2b8c3b07a6ee4a46ad57ed7ae1dc8ee4cd82d43f427",
+      "size": 4287
+    },
+    "src/scripts/eval_stats.py": {
+      "mode": "0644",
+      "sha256": "9329b02058dfba2852fa8fe8fdc51a378bf8766c566c3b214468cf20d0429e69",
+      "size": 26287
+    },
+    "src/scripts/evaluate_checkpoints.py": {
+      "mode": "0644",
+      "sha256": "39c166067474c78f1743c69df7e614abe12b755487e23c907102dfe631cc3391",
+      "size": 9928
+    },
+    "src/scripts/generate_experiences.py": {
+      "mode": "0755",
+      "sha256": "cdf8f57915d56c68e5c706335a7cdace61d42844ae97c66e7efd01d7f3818c0d",
+      "size": 113910
+    },
+    "src/scripts/migrate_replay_metadata.py": {
+      "mode": "0644",
+      "sha256": "ee05c8b478fe191a2ed17598ba8e84fb634c9a8d33cf9bf1265ec5363fa578c2",
+      "size": 12640
+    },
+    "src/scripts/obs_histogram_diff.py": {
+      "mode": "0644",
+      "sha256": "af3475d782a7f371c63a55bce7a5f7525aa6b54489c32fee54f0bd591ca4e65d",
+      "size": 14176
+    },
+    "src/scripts/observation_value_diagnostic.py": {
+      "mode": "0644",
+      "sha256": "66d32324a6c79bb8ad7842b549be58d633610ec5d9bb153ae8c7c63dd9c26ab6",
+      "size": 29257
+    },
+    "src/scripts/offline_train.py": {
+      "mode": "0644",
+      "sha256": "f783dd0c8ff8e24cb5de96126cac0954582425a069c4586934832584305b3e5c",
+      "size": 51689
+    },
+    "src/scripts/pqn_correctness_diagnostic.py": {
+      "mode": "0644",
+      "sha256": "5f471e07cb369852c326b50775f9fc493608123fb28a97dae84155b9a3fe8a52",
+      "size": 78019
+    },
+    "src/scripts/pqn_sampler_diagnostic.py": {
+      "mode": "0644",
+      "sha256": "dc3e1c8e8e34e84832a584cecf77f01712ec0cc7ddd4865ff173c4acddbf4ecf",
+      "size": 13434
+    },
+    "src/scripts/rate_pool.py": {
+      "mode": "0644",
+      "sha256": "f542d5ba5cfcc23785d67474c45fcb98b4c126b2e3299686df25a348b390e132",
+      "size": 16737
+    },
+    "src/scripts/rebase_checkpoint.py": {
+      "mode": "0644",
+      "sha256": "ed0f179c51a82ac74c1f30f0bffc5bed779780957cad18e6385d39c5c53100ea",
+      "size": 3559
+    },
+    "src/scripts/rl_diagnostic.py": {
+      "mode": "0644",
+      "sha256": "d9be8803959e6dc83d735c98031387b4bb54d276be873ca58693b3fd6123015e",
+      "size": 7981
+    },
+    "src/scripts/run_kill_diagnosis.py": {
+      "mode": "0644",
+      "sha256": "52a864178249565a8b136f3f1639ecb4f68e082849e0e875bba9c14e7c9fb77d",
+      "size": 10415
+    },
+    "src/scripts/serving_spot_check.py": {
+      "mode": "0644",
+      "sha256": "e3327782078fa07fb269332735607ea3c83cd48aebe5b7791027d9fec72db34e",
+      "size": 2366
+    },
+    "src/scripts/sweep.py": {
+      "mode": "0644",
+      "sha256": "7f2d51e2ff571a6519855265578375d6edbd18fafa5198d8378d5301365440c8",
+      "size": 14294
+    },
+    "src/scripts/tournament_eval.py": {
+      "mode": "0644",
+      "sha256": "05a2440a56463201c69c2f0e8c02fac616a4936899a54f62d244423b8b6795e6",
+      "size": 71075
+    },
+    "src/scripts/train_pqn.py": {
+      "mode": "0644",
+      "sha256": "2d2bee2a79329645288ff379dbccbea844c7d572fb5715d3e370c6e8a973d6bd",
+      "size": 61643
+    },
+    "src/scripts/widen_input.py": {
+      "mode": "0644",
+      "sha256": "e85e4dc7deb066a1bcec99c0c0cb272701a9dd1862841f24b5fb15099e6febfb",
+      "size": 5203
+    },
+    "src/simd_env/__init__.py": {
+      "mode": "0644",
+      "sha256": "79d97e065e845b05310c8b2578274d457c9886defc584c40bc1ac8ca37e79ac3",
+      "size": 1021
+    },
+    "src/simd_env/batch_sim.py": {
+      "mode": "0644",
+      "sha256": "beb0421be2e526b512b5fc44464042cb03786f5636518dd0e60cb90a2bb7caad",
+      "size": 78042
+    },
+    "src/simd_env/ego2s_policy.py": {
+      "mode": "0644",
+      "sha256": "8e5b048f353b69ebdf4a6f9718eb59eda926cf422afdb1e8d694c4289f1bb154",
+      "size": 6328
+    },
+    "src/simd_env/ego_live_adapter.py": {
+      "mode": "0644",
+      "sha256": "7173dbc69a91370ce77b5b590c17121178df78737da6553c2a034c76a61b76c9",
+      "size": 6507
+    },
+    "src/simd_env/ego_live_bv8.py": {
+      "mode": "0644",
+      "sha256": "7d0950e39170a1f583425ec3df00b545cfc313163012f52ea9fcd4ce2a693f74",
+      "size": 6101
+    },
+    "src/simd_env/ego_raster.py": {
+      "mode": "0644",
+      "sha256": "0a9dea5a3128435656dec4beeab5c8b4a6f6b600a5f4b63c82beb635dfaf10ad",
+      "size": 22036
+    },
+    "src/simd_env/ego_raster_b.py": {
+      "mode": "0644",
+      "sha256": "7de8197b98649486fa95e83eb8e7fa668a84b636d9e5915c811d0fd5f4e0d7c7",
+      "size": 10830
+    },
+    "src/simd_env/ego_raster_bv8.py": {
+      "mode": "0644",
+      "sha256": "2d62739d3fca32f5d6d8ca4f2f6eaf363dc05a9af1615419865e26a97aca7a67",
+      "size": 3596
+    },
+    "src/simd_env/ego_raster_nb.py": {
+      "mode": "0644",
+      "sha256": "cbbf17cb1e0fd31e0c25da7ccc5523bf04d63edf4fde6158e4d403706dd22558",
+      "size": 24150
+    },
+    "src/simd_env/eval_engine.py": {
+      "mode": "0644",
+      "sha256": "d6bae5b525e26a91259a7330e0b90d807c6124766fa47614d372bc98deaa582c",
+      "size": 56619
+    },
+    "src/simd_env/fast_anchors.py": {
+      "mode": "0644",
+      "sha256": "a25d5728e38cf694cf8b8fe6019678860f4ac0559b1dd52bc36ae3b4f74d96ac",
+      "size": 8299
+    },
+    "src/simd_env/featurizer.py": {
+      "mode": "0644",
+      "sha256": "9fe4af66917c1adeb350de3c27ef1c72cbc712c07a5cf61b2da23cb7562b6c1f",
+      "size": 45851
+    },
+    "src/simd_env/gpu_featurizer.py": {
+      "mode": "0644",
+      "sha256": "a1716892012ffe48db6ddcccc414a9e710d09902933637bf2cecc6524e4940ef",
+      "size": 41572
+    },
+    "src/simd_env/grid_scenarios.py": {
+      "mode": "0644",
+      "sha256": "24256f4fdcfdf5930f16cd9a0934074a673dc0b5368f5536251067a817a54750",
+      "size": 7377
+    },
+    "src/simd_env/grid_sim.py": {
+      "mode": "0644",
+      "sha256": "ae48ae8270610e5d617e1af6e6c6dc35e524750dec26f15499b05355e4a0de02",
+      "size": 48225
+    },
+    "src/simd_env/grid_sim_nb.py": {
+      "mode": "0644",
+      "sha256": "10544dffb6e5c9a86a103bca56163167bebd7db85b20c86f1c86330f57fcc4c3",
+      "size": 16612
+    },
+    "src/simd_env/live_adapter.py": {
+      "mode": "0644",
+      "sha256": "ec9ed8b7bfd6a8397ee36305b566c28cefed90ea64198050d8edbd2833a3dbd1",
+      "size": 7049
+    },
+    "src/simd_env/parity.py": {
+      "mode": "0644",
+      "sha256": "06896bb07b3ff07cd9d89c65dbfc6e39b78c484400c301adec0613d0c4945400",
+      "size": 39950
+    },
+    "src/simd_env/rng.py": {
+      "mode": "0644",
+      "sha256": "d5df755cfedd2bd27cf9c2e0cee61a696426c7892b4b30069c0afda9ebf09a08",
+      "size": 8381
+    },
+    "src/simd_env/t5_features.py": {
+      "mode": "0644",
+      "sha256": "97b12443c4e233e144abddf28d49f40fbddcee627d883801fac4b40d5c8da6d4",
+      "size": 9614
+    },
+    "src/simd_env/t8_features.py": {
+      "mode": "0644",
+      "sha256": "f2c052e7944711d929114e44e6f30e283bddb7addbe53bcd3afb085b39af035f",
+      "size": 9756
+    },
+    "src/simd_env/v8_nb.py": {
+      "mode": "0644",
+      "sha256": "3fdd85bcbad7ca63485ad4340619693b13c693684cb8adc8fc067c6531389eea",
+      "size": 67625
+    },
+    "src/simd_env/vector61_featurizer.py": {
+      "mode": "0644",
+      "sha256": "c1cbdd6373b52ad72dc707ab0f68208402e592638206a0ace56a77e2d035efbe",
+      "size": 36085
+    },
+    "src/simd_env/vector61_merged.py": {
+      "mode": "0644",
+      "sha256": "a40d64da7e84acf7a7679bddf7a78317ed147b867b147652b434bf59597df845",
+      "size": 15646
+    },
+    "src/simd_env/vector61_nb.py": {
+      "mode": "0644",
+      "sha256": "f433f87fe97d97af4e6600d804bd7b9e2534af348a4093f84c6304168bd57caa",
+      "size": 24874
+    },
+    "src/simd_env/vector61_policy.py": {
+      "mode": "0644",
+      "sha256": "d26b80d902759f6b8cf58f6b4324c1be3c1a92bf790ff05dd6992206a35f327f",
+      "size": 44823
+    },
+    "src/training/__init__.py": {
+      "mode": "0644",
+      "sha256": "5c07831c4da12f6f393839d80fb8257e197eccc249d42de14538b7155abe3d24",
+      "size": 2688
+    },
+    "src/training/action_mask.py": {
+      "mode": "0644",
+      "sha256": "3d64f6c928099532c2dddccd2a1d04e0f718bcf17d22839530abf37de49e55dc",
+      "size": 8772
+    },
+    "src/training/apex_actor.py": {
+      "mode": "0644",
+      "sha256": "8a447f1e920befcbdce1ea85645041d428c1c88704b6fd9fca5fea174d302355",
+      "size": 66005
+    },
+    "src/training/apex_buffer.py": {
+      "mode": "0644",
+      "sha256": "3a45c0101f74f30efc04511fe3b5e63c16ab260c8927120b273768146866cc0a",
+      "size": 76405
+    },
+    "src/training/apex_learner.py": {
+      "mode": "0644",
+      "sha256": "0588dd65843f9fb01cce414552469b08174754434f769fabb648ed23a7602c1c",
+      "size": 38522
+    },
+    "src/training/apex_policy.py": {
+      "mode": "0644",
+      "sha256": "8ea34bb1d1785dc1d2f89dc076b0d262f16065441de66fec75813613606bbcb8",
+      "size": 45014
+    },
+    "src/training/apex_recipe.py": {
+      "mode": "0644",
+      "sha256": "608c98a5c01c7bc08fe40189aa800bb1e8347cdcd21f3932dfa014a173cc30e1",
+      "size": 18542
+    },
+    "src/training/apex_runtime.py": {
+      "mode": "0644",
+      "sha256": "51ccce35d102649bc6fb558e72a6eff5a8a99ccd300fa1ae2555d30f6bc4418d",
+      "size": 11962
+    },
+    "src/training/base_buffer.py": {
+      "mode": "0644",
+      "sha256": "224d827d49d576647eb126627202395b9c85bda59355f4fca4b3f869ab489cd6",
+      "size": 10745
+    },
+    "src/training/base_dqn_policy.py": {
+      "mode": "0644",
+      "sha256": "57ab1a7af0d2b2315c0d91a24a331c26657c49cb976070fe2b57df3c84372ea1",
+      "size": 3986
+    },
+    "src/training/behavior_probes.py": {
+      "mode": "0644",
+      "sha256": "98cd8143c42923fbce85364fa7b1fafa8a92628fe8f29ac167ec121a9fb47212",
+      "size": 19397
+    },
+    "src/training/checkpoint_contract.py": {
+      "mode": "0644",
+      "sha256": "b261309117d98b4baa59fc57f0efc756626265c89fe99f644f9e5dadcc2c7855",
+      "size": 14187
+    },
+    "src/training/curriculum.py": {
+      "mode": "0644",
+      "sha256": "6ac2f5f07f683115ed14a1a41f348ec72bf285850fc021a95e1a378056a38725",
+      "size": 7950
+    },
+    "src/training/multistep_buffer.py": {
+      "mode": "0644",
+      "sha256": "b6b042fcb30835d1c1fe5140ed77c51173179099e62cd10ef538492359515ee4",
+      "size": 9951
+    },
+    "src/training/pqn_lifecycle.py": {
+      "mode": "0644",
+      "sha256": "cf03ea9781482c28740821a396e86ad1ff9fd3ecbbc6b7f5b36e67311093bcb7",
+      "size": 39543
+    },
+    "src/training/pqn_selfplay.py": {
+      "mode": "0644",
+      "sha256": "ac2dae81523901df3a0261d8aea17c201d2f2d7cf06fbf9fd57396da191db66c",
+      "size": 32430
+    },
+    "src/training/pqn_trainer.py": {
+      "mode": "0644",
+      "sha256": "8ab415337b5ee6d6a56dca0e546d527ea60f7b871a25be4e84bf6f10967b4dd0",
+      "size": 135789
+    },
+    "src/training/replay_buffer.py": {
+      "mode": "0644",
+      "sha256": "45920e06370a47d08e2e696cef837a192f64a3a08d79a0b7f0c5b35643586b4b",
+      "size": 21396
+    },
+    "src/training/resume_lineage.py": {
+      "mode": "0644",
+      "sha256": "37fea7d4585b796383b26e634919031dae161bc9b702bf5adb2ebd827eba3215",
+      "size": 2147
+    },
+    "src/training/rollout_policies.py": {
+      "mode": "0644",
+      "sha256": "22bbf5599b2763403cb9a2dfa902bd017f63be76ae5d2194d6e58cd2522b18bf",
+      "size": 6598
+    },
+    "src/training/sum_tree.py": {
+      "mode": "0644",
+      "sha256": "1c2474ced385cc59c2acf57189ed44caf877101be5205104c30c67d6efd0b754",
+      "size": 5334
+    },
+    "src/training/td_targets.py": {
+      "mode": "0644",
+      "sha256": "235b73ada6deb89ea26ac08ff0280423e9bc64fe77fa635eb356d2bdb26a937d",
+      "size": 7420
+    },
+    "src/training/tensorboard_logger.py": {
+      "mode": "0644",
+      "sha256": "19e85cd88cae9834492ea597118d961c2cc0eaf4ab255072fdef6b2fce9f8e07",
+      "size": 2891
+    },
+    "src/utils/__init__.py": {
+      "mode": "0644",
+      "sha256": "a31b65bdf6811d2246c17696554937ed3e56b19ad7b9b9d826d0ab655897b165",
+      "size": 295
+    },
+    "src/utils/nn_utils.py": {
+      "mode": "0644",
+      "sha256": "2c6dc76c733af8ba7751e2bbbc5289a4610ff5862649173272fd5d60e4556a6d",
+      "size": 692
+    },
+    "src/utils/tensor_utils.py": {
+      "mode": "0644",
+      "sha256": "efb910630dcf918bfa29ba51d14aa10447e22470fda40d0cea35a29cba2d3b11",
+      "size": 6251
+    }
+  },
+  "paths": [
+    "pyproject.toml",
+    "research/colab_cli/bootstrap.sh",
+    "research/colab_cli/release.py",
+    "research/colab_cli/runtime.py",
+    "research/colab_cli/source.py",
+    "research/gpu_sim_spike/__init__.py",
+    "research/gpu_sim_spike/anchors_device.py",
+    "research/gpu_sim_spike/device_policy.py",
+    "research/gpu_sim_spike/device_sim.py",
+    "research/gpu_sim_spike/ego_device.py",
+    "research/gpu_sim_spike/event_cuda.cpp",
+    "research/gpu_sim_spike/event_cuda.cu",
+    "research/gpu_sim_spike/event_cuda.py",
+    "research/gpu_sim_spike/flood_cuda.cpp",
+    "research/gpu_sim_spike/flood_cuda.cu",
+    "research/gpu_sim_spike/flood_cuda.py",
+    "research/gpu_sim_spike/masks_device.py",
+    "research/gpu_sim_spike/move_cuda.cpp",
+    "research/gpu_sim_spike/move_cuda.cu",
+    "research/gpu_sim_spike/move_cuda.py",
+    "research/gpu_sim_spike/r2_cache.py",
+    "research/gpu_sim_spike/stage_timing.py",
+    "research/gpu_sim_spike/v8_device.py",
+    "research/gpu_sim_spike/v8_indexed.cpp",
+    "research/gpu_sim_spike/v8_indexed.cu",
+    "research/gpu_sim_spike/v8_indexed.py",
+    "research/gpu_sim_spike/vector_device.py",
+    "research/gpu_sim_spike/vector_geometry.cpp",
+    "research/gpu_sim_spike/vector_geometry.cu",
+    "research/gpu_sim_spike/vector_geometry.py",
+    "research/sandbox_a_resident/__init__.py",
+    "research/sandbox_a_resident/core.py",
+    "research/sandbox_a_resident/device_sim.py",
+    "research/sandbox_a_resident/job.sh",
+    "research/sandbox_a_resident/observation_tensor.py",
+    "research/sandbox_a_resident/proof.py",
+    "research/sandbox_a_resident/requirements.txt",
+    "research/sandbox_a_resident/run.py",
+    "research/sandbox_a_resident/runtime_tools.py",
+    "research/sandbox_a_resident/stall_watchdog.py",
+    "research/sandbox_a_resident/tensor_blocks.py",
+    "research/sandbox_a_resident/train.py",
+    "research/sandbox_a_resident/train_job.sh",
+    "research/sandbox_a_resident/training_acceptance.py",
+    "research/sandbox_a_resident/training_compile.py",
+    "research/sandbox_a_resident/training_completion.py",
+    "research/sandbox_a_resident/training_cpu_reference.py",
+    "research/sandbox_a_resident/training_learner.py",
+    "research/sandbox_a_resident/training_model.py",
+    "research/sandbox_a_resident/training_prep.py",
+    "research/sandbox_a_resident/training_proxy.py",
+    "research/sandbox_a_resident/training_resume.py",
+    "research/sandbox_a_resident/training_rosters.py",
+    "research/sandbox_a_resident/training_sim.py",
+    "research/sandbox_a_resident/training_task.py",
+    "research/sandbox_a_resident/training_units.py",
+    "research/sandbox_a_resident/units.py",
+    "src/__init__.py",
+    "src/core/__init__.py",
+    "src/core/config_loader.py",
+    "src/core/device_manager.py",
+    "src/core/game_config.py",
+    "src/core/mechanics_constants.py",
+    "src/core/reward_contract.py",
+    "src/core/reward_events.py",
+    "src/core/runtime_contract.py",
+    "src/core/seeding.py",
+    "src/core/world_runtime.py",
+    "src/data/__init__.py",
+    "src/data/memory_db_handler.py",
+    "src/data/replay_contract.py",
+    "src/data/replay_quality.py",
+    "src/data/score_store.py",
+    "src/evaluation/__init__.py",
+    "src/evaluation/anchors.py",
+    "src/evaluation/artifacts.py",
+    "src/evaluation/metrics.py",
+    "src/evaluation/observation_probe.py",
+    "src/evaluation/observation_probe_stats.py",
+    "src/evaluation/protocol.py",
+    "src/evaluation/safety_veto.py",
+    "src/evaluation/safety_veto_v3.py",
+    "src/evaluation/safety_veto_v4.py",
+    "src/evaluation/safety_veto_v5.py",
+    "src/evaluation/safety_veto_v6.py",
+    "src/evaluation/safety_veto_v7.py",
+    "src/evaluation/safety_veto_v8.py",
+    "src/evaluation/screen_stats.py",
+    "src/evaluation/sequential_gate.py",
+    "src/evaluation/sequential_phase_r.py",
+    "src/evaluation/serving_episode.py",
+    "src/evaluation/strict_promotion.py",
+    "src/game/__init__.py",
+    "src/game/ai_snake.py",
+    "src/game/food_manager.py",
+    "src/game/game_logic.py",
+    "src/game/game_state.py",
+    "src/game/game_state_factory.py",
+    "src/game/human_snake.py",
+    "src/game/scripted_snake.py",
+    "src/game/snake.py",
+    "src/game/snake_factory.py",
+    "src/game/snake_geometry.py",
+    "src/game/snake_reward.py",
+    "src/game/snake_state.py",
+    "src/main.py",
+    "src/model/__init__.py",
+    "src/model/apex_network.py",
+    "src/model/base_network.py",
+    "src/model/checkpoint_io.py",
+    "src/model/checkpoint_manager.py",
+    "src/model/ego2s_network.py",
+    "src/model/inference_agent.py",
+    "src/model/obs_spec.py",
+    "src/model/raster_network.py",
+    "src/scripts/apex_train.py",
+    "src/scripts/audit_replay.py",
+    "src/scripts/bench_actor.py",
+    "src/scripts/bench_simd.py",
+    "src/scripts/ensemble_eval.py",
+    "src/scripts/eval_cli.py",
+    "src/scripts/eval_stats.py",
+    "src/scripts/evaluate_checkpoints.py",
+    "src/scripts/generate_experiences.py",
+    "src/scripts/migrate_replay_metadata.py",
+    "src/scripts/obs_histogram_diff.py",
+    "src/scripts/observation_value_diagnostic.py",
+    "src/scripts/offline_train.py",
+    "src/scripts/pqn_correctness_diagnostic.py",
+    "src/scripts/pqn_sampler_diagnostic.py",
+    "src/scripts/rate_pool.py",
+    "src/scripts/rebase_checkpoint.py",
+    "src/scripts/rl_diagnostic.py",
+    "src/scripts/run_kill_diagnosis.py",
+    "src/scripts/serving_spot_check.py",
+    "src/scripts/sweep.py",
+    "src/scripts/tournament_eval.py",
+    "src/scripts/train_pqn.py",
+    "src/scripts/widen_input.py",
+    "src/simd_env/__init__.py",
+    "src/simd_env/batch_sim.py",
+    "src/simd_env/ego2s_policy.py",
+    "src/simd_env/ego_live_adapter.py",
+    "src/simd_env/ego_live_bv8.py",
+    "src/simd_env/ego_raster.py",
+    "src/simd_env/ego_raster_b.py",
+    "src/simd_env/ego_raster_bv8.py",
+    "src/simd_env/ego_raster_nb.py",
+    "src/simd_env/eval_engine.py",
+    "src/simd_env/fast_anchors.py",
+    "src/simd_env/featurizer.py",
+    "src/simd_env/gpu_featurizer.py",
+    "src/simd_env/grid_scenarios.py",
+    "src/simd_env/grid_sim.py",
+    "src/simd_env/grid_sim_nb.py",
+    "src/simd_env/live_adapter.py",
+    "src/simd_env/parity.py",
+    "src/simd_env/rng.py",
+    "src/simd_env/t5_features.py",
+    "src/simd_env/t8_features.py",
+    "src/simd_env/v8_nb.py",
+    "src/simd_env/vector61_featurizer.py",
+    "src/simd_env/vector61_merged.py",
+    "src/simd_env/vector61_nb.py",
+    "src/simd_env/vector61_policy.py",
+    "src/training/__init__.py",
+    "src/training/action_mask.py",
+    "src/training/apex_actor.py",
+    "src/training/apex_buffer.py",
+    "src/training/apex_learner.py",
+    "src/training/apex_policy.py",
+    "src/training/apex_recipe.py",
+    "src/training/apex_runtime.py",
+    "src/training/base_buffer.py",
+    "src/training/base_dqn_policy.py",
+    "src/training/behavior_probes.py",
+    "src/training/checkpoint_contract.py",
+    "src/training/curriculum.py",
+    "src/training/multistep_buffer.py",
+    "src/training/pqn_lifecycle.py",
+    "src/training/pqn_selfplay.py",
+    "src/training/pqn_trainer.py",
+    "src/training/replay_buffer.py",
+    "src/training/resume_lineage.py",
+    "src/training/rollout_policies.py",
+    "src/training/sum_tree.py",
+    "src/training/td_targets.py",
+    "src/training/tensorboard_logger.py",
+    "src/utils/__init__.py",
+    "src/utils/nn_utils.py",
+    "src/utils/tensor_utils.py"
+  ],
+  "tree": "f335f08018a92879e49dda08f7bfe6f20208932a",
+  "version": 1
+}

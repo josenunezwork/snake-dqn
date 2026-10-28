@@ -1,0 +1,69 @@
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-train01-08-broker.noindex
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 139 items
+
+tools/sandbox/tests/test_admission.py .................................. [ 24%]
+......                                                                   [ 28%]
+tools/sandbox/tests/test_preflight.py .................                  [ 41%]
+tools/sandbox/tests/test_registry.py .............                       [ 50%]
+research/sandbox_b_heads/tests/test_b2_core.py .......                   [ 55%]
+research/sandbox_b_heads/tests/test_b2_job.py .....                      [ 58%]
+research/sandbox_b_heads/tests/test_b2_mechanisms.py ................... [ 72%]
+......                                                                   [ 76%]
+research/sandbox_b_heads/tests/test_b3.py .......                        [ 82%]
+research/sandbox_b_heads/tests/test_geometry_b3.py ........              [ 87%]
+research/sandbox_b_heads/tests/test_job.py .........                     [ 94%]
+research/sandbox_b_heads/tests/test_retrieval_b3.py ........             [100%]
+
+============================= 139 passed in 4.58s ==============================
+Exit: macOS OpenMP-isolated pytest finished
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!
+macOS pytest: restarting with a single OpenMP runtime
+........................................................................ [ 29%]
+........................................................................ [ 58%]
+........................................................................ [ 88%]
+.............................                                            [100%]
+245 passed in 17.75s
+Exit: macOS OpenMP-isolated pytest finished
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!
+PASS_TRAIN01_PREFLIGHT seeds=114299008 schema=PASS registry=PASS tests=PASS allocations=0
+macOS pytest: restarting with a single OpenMP runtime
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-train01-08-broker.noindex
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 139 items
+
+tools/sandbox/tests/test_admission.py .................................. [ 24%]
+......                                                                   [ 28%]
+tools/sandbox/tests/test_preflight.py .................                  [ 41%]
+tools/sandbox/tests/test_registry.py .............                       [ 50%]
+research/sandbox_b_heads/tests/test_b2_core.py .......                   [ 55%]
+research/sandbox_b_heads/tests/test_b2_job.py .....                      [ 58%]
+research/sandbox_b_heads/tests/test_b2_mechanisms.py ................... [ 72%]
+......                                                                   [ 76%]
+research/sandbox_b_heads/tests/test_b3.py .......                        [ 82%]
+research/sandbox_b_heads/tests/test_geometry_b3.py ........              [ 87%]
+research/sandbox_b_heads/tests/test_job.py .........                     [ 94%]
+research/sandbox_b_heads/tests/test_retrieval_b3.py ........             [100%]
+
+============================= 139 passed in 4.57s ==============================
+Exit: macOS OpenMP-isolated pytest finished
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!
+macOS pytest: restarting with a single OpenMP runtime
+........................................................................ [ 29%]
+........................................................................ [ 58%]
+........................................................................ [ 88%]
+.............................                                            [100%]
+245 passed in 17.70s
+Exit: macOS OpenMP-isolated pytest finished
+!!!!!!!!! _pytest.outcomes.Exit: macOS OpenMP-isolated pytest finished !!!!!!!!!
+PASS_TRAIN01_PREFLIGHT seeds=114299008 schema=PASS registry=PASS tests=PASS allocations=0
+OPS_ALLOCATION_SUCCESS calibration=/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-08/output/rate-calibration.json
+INCOMPLETE: Refused('kernel remains busy/unknown after telemetry hiccup'); receipt: /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-08/output/receipt.json
+EXIT=1

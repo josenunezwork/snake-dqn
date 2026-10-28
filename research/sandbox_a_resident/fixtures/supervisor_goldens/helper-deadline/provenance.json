@@ -1,0 +1,113 @@
+{
+  "schema": "sandbox-a-offline-supervisor-golden/v1",
+  "scenario": "helper-deadline",
+  "source_sha256": {
+    "research/colab_cli/supervisor.py": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+    "research/colab_cli/runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+    "research/colab_cli/failures.py": "fd92efd5700669ab331f88c6fe478f181757d3f76776a8d76ef298e43e45843f",
+    "tests/fixtures/fake_colab.py": "cc0bb1a9b83932f7dedfcee9f333df741e9dcf91c84920cee21051653e04b304",
+    "tests/fixtures/fake_colab_helper.py": "ccbaf4592ff34a3abaaa6d15ffa6d4086db5ed266cb39f57b6b74dd302cdcfe0",
+    "tests/test_colab_cli_supervisor.py": "00ed9e50ffcb53edf5457850b9aab6bd97c25812a7c540ed007b88f246667ccf"
+  },
+  "source_commit": "e971d41f1adbbdc3e6bf655f66f33cc3849c04e5",
+  "provider": "tests/fixtures/fake_colab.py (subprocess; no account access)",
+  "receipt_fabricated": false,
+  "injections": [
+    "at ready, expire CLI.deadline and invoke actual remaining_seconds"
+  ],
+  "broker_exception": "Refused(\"INCOMPLETE: Refused('whole-session deadline reached before helper'); receipt: /private/tmp/train01-goldens-qd1_gjy8/job-output/receipt.json\")",
+  "receipt_sha256": "aed09d3f14848765a07c34c058c93a897142a1a405e215e4a8b3aea14a43ac30",
+  "receipt_error": "Refused('whole-session deadline reached before helper')",
+  "failure_class": "SUPERVISOR",
+  "admission_baseline_sha256": "c6aed498752109a8adadcc4ac4dfd84f902aaa96b955db28807a47f50df97473",
+  "files": {
+    "output/accounting-baseline.json": {
+      "size": 173,
+      "sha256": "9c24383ab9def869752ce1c5ff1b8e19ac075a999670227114bf82f840f81a2f"
+    },
+    "output/hardware.json": {
+      "size": 5,
+      "sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74"
+    },
+    "output/input-hashes.json": {
+      "size": 430,
+      "sha256": "cfa4045d2f25ee179e5440e7f47e9eeefd6dfeaef1613552a327b229c2ad11e2"
+    },
+    "output/manifest.json": {
+      "size": 756,
+      "sha256": "b8e6635beae93e9bf3a4563de4a553907e412d134be75e6f58833860bdc6f43e"
+    },
+    "output/rate-calibration-000.json": {
+      "size": 187,
+      "sha256": "fa04d2af941d367375194ca76d1ab49706fdf31f9f74f2408f9dc50dbd592c90"
+    },
+    "output/rate-calibration-001.json": {
+      "size": 187,
+      "sha256": "6c592a78352ca17fb9ea10561b88c60eedfbb83f3d7f5dbba648fce6fcc2adb3"
+    },
+    "output/rate-calibration-002.json": {
+      "size": 188,
+      "sha256": "cbd57a91a8ce94a3714825c3f472bd3ec4a559ae2c06633678d719140af0ab30"
+    },
+    "output/rate-calibration.json": {
+      "size": 938,
+      "sha256": "81819c3af81adf68c1da165a2c4d19a546038876b93575b6f0268550c8d6cb32"
+    },
+    "output/receipt.json": {
+      "size": 15204,
+      "sha256": "aed09d3f14848765a07c34c058c93a897142a1a405e215e4a8b3aea14a43ac30"
+    },
+    "output/source-delivery.json": {
+      "size": 138,
+      "sha256": "d1fa2fdc39fd8e6c1feae694cfad7bdd3a9087a983a9d03cf861f76c44e9bf90"
+    },
+    "output/staging/bootstrap.sh": {
+      "size": 3244,
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4"
+    },
+    "output/staging/release.py": {
+      "size": 14677,
+      "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355"
+    },
+    "output/staging/runtime.py": {
+      "size": 30712,
+      "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036"
+    },
+    "output/staging/schema-validation.json": {
+      "size": 175,
+      "sha256": "4c1ccf205372ff8199b22da4779237923de11529f0ce0b94e85a30396897cb3d"
+    },
+    "output/staging/source-plan.json": {
+      "size": 30910,
+      "sha256": "e0b3c04dac49bcef82f8578673e40f705a90194ec4a9434ed4e825286c6a45d7"
+    },
+    "output/staging/source.py": {
+      "size": 14511,
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f"
+    },
+    "output/staging/source.tar.gz": {
+      "size": 901912,
+      "sha256": "11727361764b6c64a6ca383a60a5a1dbb91aca9425857e8cb1458b532b27b5f5"
+    },
+    "output/upload-measurement.json": {
+      "size": 170,
+      "sha256": "fd3d4c11fb7b20b04b9ac8a07060de3d57f233735dd96cf5ee30f9a5950b05f0"
+    },
+    "output/usage-allocated.json": {
+      "size": 62,
+      "sha256": "0606d4eb21388a79ef86fcea5f8583a50a7193475d477e87d577a653a439cd49"
+    },
+    "output/warmup-measurement.json": {
+      "size": 64,
+      "sha256": "97edc79e0ad801de6dcd03d28fcf15c8d82bba59b0b8d3c2b08b92a42415ce32"
+    },
+    "pinned-commit.raw": {
+      "size": 254,
+      "sha256": "0e0ad6979edede365b369188f94c5e74ed1f3cb6c686d9845fbca42b0ce2cd10"
+    },
+    "supervisor.log": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

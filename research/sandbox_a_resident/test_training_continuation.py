@@ -304,6 +304,12 @@ def _populate_attempt(
         "cleanup_error": None,
         **receipt_overrides,
     }
+    if receipt["failure_class"] == "CHILD_NONZERO_EXIT" and "error" not in receipt_overrides:
+        from research.colab_cli.failures import terminal_failure
+
+        # Match the qualified producer: child receipts name the actual child
+        # failure, rather than retaining this helper's default supervisor cap.
+        receipt["error"] = repr(terminal_failure(receipt["terminal"], receipt["generation"]))
     (output / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     return attempt_dir
 
