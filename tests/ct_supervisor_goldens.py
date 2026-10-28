@@ -97,8 +97,10 @@ def _runtime_tree(work: Path, stage_tree: Path, mode: str, manifest: dict) -> Pa
         (shim / "python").chmod(0o755)
         spec["command"] = ["bash", str(ROOT / "research/sandbox_a_resident/ct_job.sh")]
         spec["env"] = {
-            **manifest["env"], "COLAB_INPUT_DIR": str(inputs),
-            "PYTHONPATH": str(ROOT), "PATH": str(shim) + os.pathsep + os.environ["PATH"],
+            **manifest["env"],
+            "COLAB_INPUT_DIR": str(inputs),
+            "PYTHONPATH": str(ROOT),
+            "PATH": str(shim) + os.pathsep + os.environ["PATH"],
         }
         spec["timeout_seconds"] = 20
         spec["checkpoint_grace_seconds"] = 15
@@ -350,7 +352,8 @@ def build(
             shutil.copy2(work / "fake-state.json", captured / "provider-state.json")
             if (work / "runtime-producer").exists():
                 shutil.copytree(
-                    work / "runtime-producer", captured / "runtime-producer",
+                    work / "runtime-producer",
+                    captured / "runtime-producer",
                     ignore=shutil.ignore_patterns("inputs", "cpu-python"),
                 )
             receipt = json.loads((captured / "output/receipt.json").read_text())
