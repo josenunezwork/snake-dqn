@@ -665,6 +665,7 @@ RECORD_KEY_ALIASES = {
     "job": "job_id",
     "jobid": "job_id",
     "return_code": "returncode",
+    "exit": "returncode",
     "exit_code": "returncode",
     "exitcode": "returncode",
     "exit_status": "returncode",

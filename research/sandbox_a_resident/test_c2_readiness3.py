@@ -79,6 +79,19 @@ def test_scalar_json_log_line_nonfinite_twins(tmp_path: Path, token: str, name: 
     )
 
 
+@pytest.mark.parametrize("name", ["job.log", "supervisor.log"])
+def test_bare_exit_json_log_twins(tmp_path: Path, name: str) -> None:
+    path = tmp_path / name
+    path.write_text('{"exit":0}\n')
+    r._scan_retained_text(path, output_root=tmp_path)
+    path.write_text('{"exit":137}\n')
+    label = "supervisor_log:1" if name == "supervisor.log" else str(path)
+    refuses(
+        lambda: r._scan_retained_text(path, output_root=tmp_path),
+        f"{label} records unexplained/non-mechanical child or runtime failure",
+    )
+
+
 @pytest.mark.parametrize("surface", ["json", "log", "prefixed-log", "supervisor", "tail"])
 def test_fault_in_json_key_twins(tmp_path: Path, surface: str) -> None:
     path = tmp_path / ("supervisor.log" if surface == "supervisor" else "job.log")
@@ -112,7 +125,9 @@ def test_fault_in_json_key_twins(tmp_path: Path, surface: str) -> None:
     )
 
 
-@pytest.mark.parametrize("alias", ["returncode", "exit_code", "exitCode", "rc", "exit_status"])
+@pytest.mark.parametrize(
+    "alias", ["returncode", "exit_code", "exitCode", "rc", "exit_status", "exit"]
+)
 @pytest.mark.parametrize("code", [1, 137, 124, "-15", True, None])
 def test_receipt_exit_healthy_fault_twins(tmp_path: Path, alias: str, code: object) -> None:
     rec = receipt()
