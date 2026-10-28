@@ -1,0 +1,27 @@
+{
+  "checkpoint_grace_seconds": 15,
+  "command": [
+    "bash",
+    "/Users/josenunez/Projects/ml/snake-dqn-falsifier-ct/research/sandbox_a_resident/ct_job.sh"
+  ],
+  "env": {
+    "COLAB_CLI_REQUIREMENTS": "research/sandbox_a_resident/requirements.txt",
+    "COLAB_INPUT_DIR": "/private/tmp/astra-impl-ct6-producers-entrypoint-fixed/child-ct-entrypoint/runtime-producer/inputs",
+    "MAX_JOBS": "1",
+    "PATH": "/private/tmp/astra-impl-ct6-producers-entrypoint-fixed/child-ct-entrypoint/runtime-producer/cpu-python:/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path:/Users/josenunez/.local/bin:/Users/josenunez/.antigravity-ide/antigravity-ide/bin:/Users/josenunez/.local/bin:/opt/anaconda3/bin:/opt/anaconda3/condabin:/Users/josenunez/.local/bin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/Users/josenunez/.codex/tmp/arg0/codex-arg0GBxjFr:/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path:/Users/josenunez/.antigravity-ide/antigravity-ide/bin:/Users/josenunez/.local/bin:/opt/anaconda3/bin:/opt/anaconda3/condabin:/Library/Frameworks/Python.framework/Versions/3.12/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/josenunez/Library/pnpm:/Users/josenunez/.rbenv/shims",
+    "PYTHONPATH": "/Users/josenunez/Projects/ml/snake-dqn-falsifier-ct",
+    "SANDBOX_A_SOURCE_COMMIT": "1615dba5b9fa5bf03435c1488965a0e85f0110bb",
+    "SANDBOX_A_STALL_TIMEOUT_SECONDS": "900",
+    "SANDBOX_CT_CONTROL_JSON": "{\"allocation_index\": 0, \"alpha\": 0.15, \"anchor_archive_max_bytes\": 1610612736, \"anchor_batch_size\": 4, \"anchor_rows\": 16, \"bootstrap_resamples\": 50, \"bootstrap_seed\": 3432, \"branch_batch_size\": 16, \"branch_horizon\": 3, \"collection_ticks\": 12, \"fit_seed\": 20261028, \"forbidden_gap\": 0.5, \"head_lr\": 0.0001, \"logit_margin\": 0.25, \"lookbacks\": [2, 4], \"max_body_capacity\": 128, \"max_deaths\": 2, \"max_ordinary_roots\": 4, \"max_stage_export_bytes\": 268435456, \"max_total_export_bytes\": 402653184, \"min_death_length\": 1, \"min_held_out_anchor_rows\": 1, \"min_held_out_death_worlds\": 0, \"min_held_out_deaths\": 0, \"min_held_out_ordinary_roots\": 1, \"minibatches\": 2, \"reference_kl_beta\": 0.05, \"scoring_chunks\": 2, \"scoring_suffixes\": 4, \"searched_batch_size\": 2, \"seed_offset\": 0, \"selection_suffixes\": 4, \"snapshot_store_max_bytes\": 16777216, \"source_commit\": \"1615dba5b9fa5bf03435c1488965a0e85f0110bb\", \"study\": \"t34-cf-1028\", \"tiny\": true, \"trunk_lr\": 1e-05, \"worlds\": 6}",
+    "SNAKE_COLAB_CANARY": "1",
+    "SNAKE_COLAB_CANARY_PACKAGE": "research/sandbox_a_resident",
+    "SNAKE_DQN_DEVICE": "cuda"
+  },
+  "generation": "replaced-at-provider-boundary",
+  "job_id": "tiny-ct-00",
+  "lease_seconds": 180,
+  "max_export_bytes": 33554432,
+  "release_endpoint": "offline-only",
+  "root": "/private/tmp/astra-impl-ct6-producers-entrypoint-fixed/child-ct-entrypoint/runtime-producer",
+  "timeout_seconds": 20
+}

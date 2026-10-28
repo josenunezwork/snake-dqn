@@ -1,0 +1,84 @@
+{
+  "exports": [],
+  "job_log_tail": "CT_PROGRESS {\"elapsed_sec\": 0.0, \"latest_durable_stage\": 0, \"schema\": \"t34-cf-progress/v1\", \"stage\": \"initializing\", \"study\": \"t34-cf-1028\"}\nCT_PROGRESS {\"elapsed_sec\": 0.26, \"forced_state_cases\": 7, \"forced_state_device\": \"cpu\", \"latest_durable_stage\": 0, \"schema\": \"t34-cf-progress/v1\", \"stage\": \"startup-self-checks-passed\", \"study\": \"t34-cf-1028\", \"topology_fixtures\": \"PASS\"}\nCT_PROGRESS {\"elapsed_sec\": 0.29, \"latest_durable_stage\": 0, \"schema\": \"t34-cf-progress/v1\", \"stage\": \"stage-0001-collection-start\", \"study\": \"t34-cf-1028\"}\nCT_PROGRESS {\"charged_rows\": 72, \"elapsed_sec\": 1.14, \"eligible_deaths_observed\": 0, \"hero_deaths\": 0, \"latest_durable_stage\": 0, \"phase\": \"collection\", \"retained_death_candidates\": 0, \"schema\": \"t34-cf-progress/v1\", \"stage\": \"collection-progress\", \"study\": \"t34-cf-1028\", \"tick\": 12, \"total_ticks\": 12}\nCT_PROGRESS {\"anchors\": 16, \"elapsed_sec\": 1.44, \"latest_durable_stage\": 1, \"roots\": 4, \"schema\": \"t34-cf-progress/v1\", \"stage\": \"stage-0001-published\", \"study\": \"t34-cf-1028\", \"support_status\": \"PASS\"}\nCT_PROGRESS {\"chunk_index\": 0, \"elapsed_sec\": 1.44, \"latest_durable_stage\": 1, \"roots\": 2, \"schema\": \"t34-cf-progress/v1\", \"stage\": \"stage-0002-scoring-start\", \"study\": \"t34-cf-1028\"}\nCT_SIGUSR1_CLEAN_EXIT {\"allocation\": \"5c1801333923e32c90a7c1cea902f8a9e9c1cec88cfe6c463195db4112df0954\", \"interrupted_phase\": \"stage-0002-scoring\", \"latest_durable_stage\": 1, \"received_unix\": 1793216691.2722309, \"schema\": \"t34-cf-sigusr1-marker/v1\", \"shutdown_elapsed_sec\": 0.2994, \"status\": \"PREEMPTED_SIGUSR1\", \"study\": \"t34-cf-1028\", \"within_15s_sla\": true}\nSTALL_WATCHDOG_DIAGNOSTICS sealed_dir=/private/tmp/astra-impl-ct6-producers-entrypoint-fixed/child-ct-entrypoint/runtime-producer/output/ct/stall-watchdog\n",
+  "state": {
+    "generation": "20f31cb160494334afc29ad95056abd2",
+    "job_id": "tiny-ct-00",
+    "max_export_bytes": 33554432,
+    "pid": 74402,
+    "reason": "release_credential_expiring",
+    "returncode": 138,
+    "started_at": 1793216688.952988,
+    "status": "failed",
+    "updated_at": 1793216706.277003
+  },
+  "supervisor_log_tail": "",
+  "terminal": {
+    "canary_observations": [],
+    "export_scanner": {
+      "inventory": [
+        {
+          "path": "ct/sigusr1-marker.json",
+          "sha256": "619082c24e06f84bd7d9d4092391a1abfaa0bac3dfcb8f3c960dca43445fd142",
+          "size": 359
+        },
+        {
+          "path": "ct/stage-0001.json",
+          "sha256": "a7e4a9e49500c99daee1a82c51a81b330da161099d0c4c499e7ffd3246adb58f",
+          "size": 638
+        },
+        {
+          "path": "ct/stage-0001.pt",
+          "sha256": "cc68c6b56d36b2c4f9f8b9b4c8620a60d3885367453448415b35614f11806236",
+          "size": 46385
+        },
+        {
+          "path": "ct/stall-watchdog/faulthandler-stacks.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "path": "ct/stall-watchdog/stall-watchdog.json",
+          "sha256": "c7f82ce8256b96700616cedf4e01e78670381f39988d6dced7e563197d4d2484",
+          "size": 265
+        }
+      ],
+      "name": "runtime._exports"
+    },
+    "exports": [
+      {
+        "path": "ct/sigusr1-marker.json",
+        "sha256": "619082c24e06f84bd7d9d4092391a1abfaa0bac3dfcb8f3c960dca43445fd142",
+        "size": 359
+      },
+      {
+        "path": "ct/stage-0001.json",
+        "sha256": "a7e4a9e49500c99daee1a82c51a81b330da161099d0c4c499e7ffd3246adb58f",
+        "size": 638
+      },
+      {
+        "path": "ct/stage-0001.pt",
+        "sha256": "cc68c6b56d36b2c4f9f8b9b4c8620a60d3885367453448415b35614f11806236",
+        "size": 46385
+      },
+      {
+        "path": "ct/stall-watchdog/faulthandler-stacks.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      {
+        "path": "ct/stall-watchdog/stall-watchdog.json",
+        "sha256": "c7f82ce8256b96700616cedf4e01e78670381f39988d6dced7e563197d4d2484",
+        "size": 265
+      }
+    ],
+    "finished_at": 1793216706.2764318,
+    "generation": "20f31cb160494334afc29ad95056abd2",
+    "job_id": "tiny-ct-00",
+    "last_traceback_line": "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/private/tmp/astra-impl-ct6-producers-entrypoint-fixed/child-ct-entrypoint/runtime-producer/output/ct/stall-watchdog",
+    "reason": "release_credential_expiring",
+    "returncode": 138,
+    "started_at": 1793216688.952988,
+    "status": "failed"
+  }
+}

@@ -1,0 +1,1 @@
+{"counters": {"latest_durable_stage": 1}, "deadline_monotonic_seconds": 915911.378579833, "pid": 74408, "progress_monotonic_seconds": 915011.3785795, "schema": "sandbox-a-stall-watchdog/v1", "stage": "score:chunk=0:selection:slab=0:B=12", "timeout_seconds": 900.0}

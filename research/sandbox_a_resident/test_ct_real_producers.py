@@ -169,6 +169,23 @@ def test_scan_cache_dies_between_sessions_same_inode_and_size(tmp_path: Path) ->
         scan(tmp_path)
 
 
+def test_real_watchdog_sidecars_do_not_mask_a_nonempty_stack(tmp_path: Path) -> None:
+    capture = (
+        ROOT / "tests/fixtures/ct-supervisor-06-entrypoint/child-ct-entrypoint/output/exports/ct"
+    )
+    exports = tmp_path / "ct-output"
+    shutil.copytree(capture, exports)
+    ct_resume._check_attempt_base_fault_evidence(exports)
+    stack = exports / "stall-watchdog/faulthandler-stacks.log"
+    stack.chmod(0o600)
+    stack.write_text("watchdog diagnostic stacks\n")
+    sha = Path(str(stack) + ".sha256")
+    sha.chmod(0o600)
+    sha.write_text(ct_resume.digest(stack) + "  faulthandler-stacks.log\n")
+    with pytest.raises(ct_resume.CTResumeRefused, match="^non-empty faulthandler stack dump:"):
+        ct_resume._check_attempt_base_fault_evidence(exports)
+
+
 @pytest.mark.parametrize("attack", ["c3", "self-cycle", "two-cycle", "index-gap"])
 def test_lineage_graph_refuses_boundedly(tmp_path: Path, attack: str) -> None:
     packet, broker, control, _, _ = _continuation_fixture(tmp_path)
@@ -261,14 +278,19 @@ def test_superseded_packet_refuses_in_preflight_and_dispatch(tmp_path: Path, num
     assert not (tmp_path / "unused-state").exists()
 
 
-@pytest.mark.parametrize("scenario", ["child-timeout", "wall-cap"])
+@pytest.mark.parametrize("scenario", ["child-timeout", "wall-cap", "child-ct-entrypoint"])
 def test_actual_ct_tree_writes_and_commits_continuation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     scenario: str,
 ) -> None:
     """Real transferred C/T tree -> writer -> complete committed packet admission."""
-    capture = ROOT / "tests/fixtures/ct-supervisor-06-ct-bound" / scenario
+    corpus = (
+        "ct-supervisor-06-entrypoint"
+        if scenario == "child-ct-entrypoint"
+        else "ct-supervisor-06-ct-bound"
+    )
+    capture = ROOT / "tests/fixtures" / corpus / scenario
     repo = tmp_path / "repo"
     subprocess.run(
         ["git", "clone", "--quiet", "--shared", "--no-checkout", str(ROOT), str(repo)], check=True

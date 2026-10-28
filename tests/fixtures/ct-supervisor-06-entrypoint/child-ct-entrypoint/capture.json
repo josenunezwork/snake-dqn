@@ -1,0 +1,11 @@
+{
+  "boundary_injections": "offline provider, virtual clock, observer, runtime local release exemptions",
+  "error": "ClassifiedFailure('remote child exited 138: STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/private/tmp/astra-impl-ct6-producers-entrypoint-fixed/child-ct-entrypoint/runtime-producer/output/ct/stall-watchdog')",
+  "failure": "INCOMPLETE: ClassifiedFailure('remote child exited 138: STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/private/tmp/astra-impl-ct6-producers-entrypoint-fixed/child-ct-entrypoint/runtime-producer/output/ct/stall-watchdog'); receipt: /private/tmp/astra-impl-ct6-producers-entrypoint-fixed/child-ct-entrypoint/job-output/receipt.json",
+  "failure_class": "CHILD_NONZERO_EXIT",
+  "producer_commit": "1615dba5b9fa5bf03435c1488965a0e85f0110bb",
+  "scenario": "child-ct-entrypoint",
+  "status": "INCOMPLETE",
+  "stop_verified": true,
+  "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+}

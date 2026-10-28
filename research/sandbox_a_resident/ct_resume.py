@@ -785,7 +785,10 @@ def _verify_staged_source_archive(path: Path, output_root: Path) -> None:
         archive = binding.get("source_archive", {})
         commit = binding.get("source_commit")
         if (
-            not _is_hex(commit, 40)
+            not isinstance(plan, Mapping)
+            or not isinstance(manifest, Mapping)
+            or not isinstance(archive, Mapping)
+            or not _is_hex(commit, 40)
             or manifest.get("commit") != commit
             or plan.get("commit") != commit
             or plan.get("fallback_archive") != path.name
@@ -1047,6 +1050,8 @@ def _check_attempt_base_fault_evidence(
     if not base.is_dir():
         raise CTResumeRefused(f"retained evidence root is not a directory: {base}")
     for path in _retained_files(base):
+        if _publication_sidecar(path):
+            continue  # Sidecar bytes are not the payload's diagnostic content.
         name = path.name.lower().lstrip(".")
         if name.startswith("summary.json"):
             raise CTResumeRefused(f"scientific summary already present: {path}")
