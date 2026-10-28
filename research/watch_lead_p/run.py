@@ -7,6 +7,7 @@ import concurrent.futures
 import faulthandler
 import json
 import multiprocessing
+import os
 import signal
 import time
 from pathlib import Path
@@ -19,6 +20,7 @@ from research.watch_lead_p.protocol import ARMS, FIXTURE_SEED, NAMESPACE, SEEDS
 from research.watch_lead_p.resume import (
     ALLOCATION,
     aggregate,
+    construction_metadata,
     export_unit,
     make_ledger,
     read_ledger,
@@ -27,7 +29,7 @@ from research.watch_lead_p.resume import (
 )
 from research.watch_lead_p.uploaded import uploaded_checkpoints
 
-WORKERS = 12
+WORKERS = 11
 # Longest arm first within each cohort; complete sessions accrue throughout the run.
 ARM_ORDER = ("P0", "P48", "bare")
 
@@ -44,6 +46,15 @@ def task_schedule(pending: list[int], workers: int = WORKERS) -> list[tuple[int,
     ]
 
 
+def lower_worker_priority() -> None:
+    """Reserve scheduling preference for the coordinator and supervisor processes."""
+    parent = os.getpriority(os.PRIO_PROCESS, os.getppid())
+    target = min(19, parent + 10)
+    if target <= parent:
+        raise RuntimeError("P parent priority leaves no lower worker priority")
+    os.setpriority(os.PRIO_PROCESS, 0, target)
+
+
 def worker(index: int, arm: str) -> dict:
     """Compute one deterministic arm; only the coordinator publishes full units."""
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
@@ -55,7 +66,19 @@ def worker(index: int, arm: str) -> dict:
 
     try:
         with uploaded_checkpoints():
-            return run_arm(SEEDS[index], arm, pulse=pulse)
+            from src.core.game_config import get_config
+            from web.backend.session import _mechanics_v2_enabled
+
+            row = run_arm(SEEDS[index], arm, pulse=pulse)
+            construction = construction_metadata()
+            effective = {
+                **construction,
+                "mechanics_v2": _mechanics_v2_enabled(),
+                "mechanics_version": get_config().game.mechanics_version,
+            }
+            if effective != construction:
+                raise ValueError("P worker effective mechanics differs from construction")
+            return {**row, "construction": effective}
     finally:
         faulthandler.cancel_dump_traceback_later()
 
@@ -64,6 +87,8 @@ def publish(index: int, arms: dict, output: Path) -> dict:
     """Atomically publish exactly one complete, matched three-arm resume unit."""
     if set(arms) != set(ARMS) or len({r["initial_state"] for r in arms.values()}) != 1:
         raise ValueError("paired initial world mismatch/incomplete arms")
+    if any(r.get("construction") != construction_metadata() for r in arms.values()):
+        raise ValueError("P worker construction metadata mismatch")
     row = dict(
         namespace=NAMESPACE,
         seed=SEEDS[index],
@@ -101,13 +126,15 @@ def execute(ledger: Path, inputs: Path, output: Path) -> None:
 
     previous = {sig: signal.getsignal(sig) for sig in (signal.SIGUSR1, signal.SIGTERM)}
     pool = concurrent.futures.ProcessPoolExecutor(
-        max_workers=WORKERS, mp_context=multiprocessing.get_context("spawn")
+        max_workers=WORKERS,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=lower_worker_priority,
     )
     try:
         for sig in previous:
             signal.signal(sig, interrupt)
         futures = {}
-        for i, arm in task_schedule(pending):
+        for i, arm in task_schedule(pending, workers=WORKERS):
             # Finish registering an in-flight child before unwinding.
             defer_interrupt = True
             try:

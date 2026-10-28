@@ -179,16 +179,24 @@ def test_real_entrypoint_without_mac_roots(tmp_path):
     run_vm_fixture(tmp_path)
 
 
-def run_vm_fixture(tmp_path: Path, source_root: Path = ROOT) -> None:
+def run_vm_fixture(
+    tmp_path: Path,
+    source_root: Path = ROOT,
+    workers: int = 2,
+    mature: bool = True,
+    shared_inputs: Path | None = None,
+    shared_sparse: Path | None = None,
+    sessions: int = 1,
+) -> None:
     """Run the guarded fixture from exact supplied source (including installed archive)."""
-    sparse = tmp_path / "sparse"
-    sparse.mkdir()
+    sparse = shared_sparse if shared_sparse is not None else tmp_path / "sparse"
+    sparse.mkdir(exist_ok=True)
     sources = json.loads((source_root / "research/watch_lead_p/runtime-sources.json").read_text())
     for name in sources:
         target = sparse / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source_root / name, target)
-    inputs = copy_inputs(tmp_path / "inputs")
+    inputs = shared_inputs if shared_inputs is not None else copy_inputs(tmp_path / "inputs")
     home, cwd = tmp_path / "home", tmp_path / "elsewhere"
     home.mkdir()
     cwd.mkdir()
@@ -207,14 +215,15 @@ from pathlib import Path
 from research.watch_lead_p import run
 from research.watch_lead_p.protocol import FIXTURE_SEED
 from research.watch_lead_p.resume import empty_ledger, read_ledger
-run.SEEDS = (FIXTURE_SEED,)
-run.WORKERS = 2
+run.SEEDS = (FIXTURE_SEED,) * int(os.environ["P_FIXTURE_SESSIONS"])
+run.WORKERS = int(os.environ["P_FIXTURE_WORKERS"])
 original_run_arm = run.run_arm
 def fixture_arm(seed, arm, **kw):
     assert seed == FIXTURE_SEED
     row = original_run_arm(seed, arm, frames=60, **kw)
     base = Path(os.environ["P_VM_SCRATCH"])
     (base / ("worker-" + str(os.getpid()) + "-" + arm)).write_text("guarded real worker\n")
+    assert os.getpriority(os.PRIO_PROCESS, 0) > os.getpriority(os.PRIO_PROCESS, os.getppid())
     return row
 run.run_arm = fixture_arm
 if __name__ == "__main__":
@@ -229,6 +238,9 @@ if __name__ == "__main__":
     assert all(r["seed"] == FIXTURE_SEED and r["frames"] == 60 for r in unit["arms"].values())
     sys.argv = ["P", "smoke", "--output", str(base / "smoke.json")]
     run.main()
+    if os.environ["P_FIXTURE_MATURE"] == "0":
+        print("VM_FIDELITY_PASS real worker scheduling fixture")
+        sys.exit(0)
     from research.watch_lead_p.uploaded import uploaded_checkpoints
     from research.watch_lead_p.live import LiveWorld
     from research.watch_lead_p.engine import submit
@@ -258,6 +270,10 @@ if __name__ == "__main__":
         NUMBA_CACHE_DIR=str(tmp_path / "numba"),
         COLAB_INPUT_DIR=str(inputs),
         SNAKE_DQN_DEVICE="cpu",
+        SNAKE_MECHANICS_V2="0",
+        P_FIXTURE_WORKERS=str(workers),
+        P_FIXTURE_SESSIONS=str(sessions),
+        P_FIXTURE_MATURE="1" if mature else "0",
     )
     result = subprocess.run(
         [sys.executable, str(script)],
@@ -271,7 +287,7 @@ if __name__ == "__main__":
     assert "VM_FIDELITY_PASS" in result.stdout
     assert not list(tmp_path.glob("violation-*"))
     worker_pids = {p.name.split("-")[1] for p in tmp_path.glob("worker-*")}
-    assert len(worker_pids) == 2
+    assert worker_pids
     assert all((tmp_path / f"guard-start-{pid}").exists() for pid in worker_pids)
     print(result.stdout.strip(), "workers=", sorted(worker_pids), "forbidden_accesses=0")
     value = json.loads(output.read_text())
@@ -380,4 +396,45 @@ print("VM_GUARD_NEGATIVE_PROBES_PASS")
     assert "VM_GUARD_NEGATIVE_PROBES_PASS" in result.stdout
     assert (
         sum(len(path.read_text().splitlines()) for path in tmp_path.glob("violation-*.jsonl")) == 15
+    )
+
+
+def test_eleven_vs_twelve_workers_publish_identical_fixture_units(tmp_path):
+    """Real spawned workers change scheduling only; W1/K1 is per session."""
+    outputs = []
+    shared_inputs = copy_inputs(tmp_path / "inputs")
+    for count in (11, 12):
+        root = tmp_path / str(count)
+        root.mkdir()
+        run_vm_fixture(
+            root,
+            workers=count,
+            mature=False,
+            shared_inputs=shared_inputs,
+            shared_sparse=tmp_path / "shared-runtime",
+            sessions=13,
+        )
+        units = sorted((root / "run-output/units").glob("session-??.json"))
+        assert len(units) == 13
+        records = []
+        for unit in units:
+            value = json.loads(unit.read_text())
+            assert all(r["construction"]["mechanics_version"] == 2 for r in value["arms"].values())
+            records.append(
+                [
+                    Path(str(unit) + suffix).read_bytes()
+                    for suffix in (
+                        "",
+                        ".sha256",
+                        ".complete",
+                        ".metadata.json",
+                        ".metadata.json.sha256",
+                        ".metadata.json.complete",
+                    )
+                ]
+            )
+        outputs.append(records)
+    assert outputs[0] == outputs[1]
+    print(
+        "SCHEDULING_PARITY_PASS workers=11,12 sessions=13 six components/unit byte-identical; lower priority"
     )

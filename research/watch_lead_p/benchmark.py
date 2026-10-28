@@ -133,10 +133,10 @@ def main() -> None:
             ],
             "projection": (
                 "max observed inclusive root cost; P0 1200/P48 123 roots per session; "
-                "96 indivisible arm tasks, cohort-12 P0/P48/bare /12 workers +1200s setup/export"
+                "96 indivisible arm tasks, cohort-11 P0/P48/bare /11 workers +1200s setup/export"
             ),
             "host_scaling": (
-                "Mac measurements; L4 host speed and twelve-worker contention unmeasured"
+                "Mac measurements; L4 host speed and eleven-worker contention unmeasured"
             ),
             "base_seconds": 14400,
             "effective_seconds": 28800,

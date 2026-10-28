@@ -362,11 +362,11 @@ def test_forecast_quantizes_pairs_and_schedules_indivisible_arms():
     result = project(0.007326245693257079, 2.851223332923837, 3.2827097920235246)
     assert result["old_ten_worker_pair_seconds_corrected"] == pytest.approx(17028.4549056245)
     assert result["projected_seconds"] <= 14400
-    assert len(result["worker_loads_seconds"]) == 12
+    assert len(result["worker_loads_seconds"]) == 11
     assert result["projected_seconds"] == max(result["worker_loads_seconds"]) + 1200
     assert len(result["session_publication_seconds"]) == 32
-    assert result["session_publication_seconds"][11] < 0.4 * (result["projected_seconds"] - 1200)
-    assert result["session_publication_seconds"][23] < 0.8 * (result["projected_seconds"] - 1200)
+    assert result["session_publication_seconds"][10] < 0.4 * (result["projected_seconds"] - 1200)
+    assert result["session_publication_seconds"][21] < 0.8 * (result["projected_seconds"] - 1200)
 
 
 def test_recipe_ignores_transport_but_binds_science(monkeypatch):
@@ -469,7 +469,10 @@ if __name__=="__main__":
         log.close()
 
 
-@pytest.mark.parametrize("phase", ["payload", "sidecar", "marker", "returned"])
+@pytest.mark.parametrize(
+    "phase",
+    ["payload", "sidecar", "marker", "returned", "metadata", "metadata-sidecar", "metadata-marker"],
+)
 def test_stop_during_publish_retains_and_accounts_whole_session(tmp_path, monkeypatch, phase):
     import os
     import signal
@@ -480,7 +483,11 @@ def test_stop_during_publish_retains_and_accounts_whole_session(tmp_path, monkey
     ledger = tmp_path / "ledger.json"
     ledger.write_text(json.dumps(resume.empty_ledger()))
     monkeypatch.setattr(run, "read_ledger", lambda *a: {i: {} for i in range(2, 32)})
-    monkeypatch.setattr(run, "worker", lambda i, a: {"initial_state": "same"})
+    monkeypatch.setattr(
+        run,
+        "worker",
+        lambda i, a: {"initial_state": "same", "construction": resume.construction_metadata()},
+    )
 
     class Pool(concurrent.futures.ThreadPoolExecutor):
         def __init__(self, **kw):
@@ -505,6 +512,9 @@ def test_stop_during_publish_retains_and_accounts_whole_session(tmp_path, monkey
             "payload": "session-00.json",
             "sidecar": "session-00.json.sha256",
             "marker": "session-00.json.complete",
+            "metadata": "session-00.json.metadata.json",
+            "metadata-sidecar": "session-00.json.metadata.json.sha256",
+            "metadata-marker": "session-00.json.metadata.json.complete",
         }.get(phase):
             os.kill(os.getpid(), signal.SIGUSR1)
             os.kill(os.getpid(), signal.SIGTERM)
@@ -537,7 +547,7 @@ def test_stop_during_publish_retains_and_accounts_whole_session(tmp_path, monkey
     assert not (output / "inventory.json").exists()
 
 
-def test_cohort_schedule_banks_twelve_units_before_later_cohort(tmp_path, monkeypatch):
+def test_cohort_schedule_banks_eleven_units_before_later_cohort(tmp_path, monkeypatch):
     import os
     import signal
 
@@ -556,7 +566,9 @@ def test_cohort_schedule_banks_twelve_units_before_later_cohort(tmp_path, monkey
 
         def submit(self, fn, index, arm):
             future = concurrent.futures.Future()
-            future.set_result({"initial_state": f"world-{index}"})
+            future.set_result(
+                {"initial_state": f"world-{index}", "construction": resume.construction_metadata()}
+            )
             submitted.append((future, index, arm))
             return future
 
@@ -564,9 +576,9 @@ def test_cohort_schedule_banks_twelve_units_before_later_cohort(tmp_path, monkey
             pass
 
     def wait(futures, **kw):
-        if len(delivered) == 36:
-            assert len(list((tmp_path / "out/units").glob("session-??.json.complete"))) == 12
-            assert {i for i, a in delivered} == set(range(12))
+        if len(delivered) == 33:
+            assert len(list((tmp_path / "out/units").glob("session-??.json.complete"))) == 11
+            assert {i for i, a in delivered} == set(range(11))
             os.kill(os.getpid(), signal.SIGUSR1)
         future, index, arm = next(row for row in submitted if row[0] in futures)
         delivered.append((index, arm))
@@ -577,7 +589,7 @@ def test_cohort_schedule_banks_twelve_units_before_later_cohort(tmp_path, monkey
     with pytest.raises(InterruptedError):
         run.execute(ledger, tmp_path, tmp_path / "out")
     inventory = json.loads((tmp_path / "out/interruption.json").read_text())
-    assert [r["allocation_index"] for r in inventory["completed"]] == list(range(12))
+    assert [r["allocation_index"] for r in inventory["completed"]] == list(range(11))
     assert [(i, a) for _, i, a in submitted] == run.task_schedule(list(range(32)))
 
 
@@ -635,7 +647,9 @@ def test_first_stop_at_completion_or_teardown(tmp_path, monkeypatch, signum, pha
             if phase == "worker-error":
                 future.set_exception(ValueError("original worker failure"))
             else:
-                future.set_result({"initial_state": "same"})
+                future.set_result(
+                    {"initial_state": "same", "construction": resume.construction_metadata()}
+                )
             submitted.append(future)
             return future
 
@@ -708,7 +722,7 @@ def work(index, arm):
         if arm == "P0":
             raise ValueError("original worker failure")
         time.sleep(60)
-    return {"initial_state": "same"}
+    return {"initial_state": "same", "construction": resume.construction_metadata()}
 Original = run.concurrent.futures.ProcessPoolExecutor
 class Pool(Original):
     def shutdown(self, *args, **kwargs):
@@ -777,7 +791,10 @@ def test_resume_refuses_changed_construction_without_opening_outcomes(
             resume, "digest", lambda p: "0" * 64 if p.name == "uploaded.py" else original_digest(p)
         )
     elif change == "mechanics":
-        monkeypatch.setattr(resume, "MECHANICS_V2", "0")
+        original = resume.construction_metadata
+        monkeypatch.setattr(
+            resume, "construction_metadata", lambda *a: {**original(*a), "mechanics_version": 1}
+        )
     elif change == "missing-metadata":
         metadata.unlink()
     else:
@@ -790,3 +807,162 @@ def test_resume_refuses_changed_construction_without_opening_outcomes(
         resume.read_ledger(ledger, tmp_path)
     with pytest.raises(ValueError):
         resume.make_ledger([path], tmp_path / "refused-ledger.json")
+
+
+def test_aggregate_checks_entire_metadata_union_before_any_outcome(tmp_path, monkeypatch):
+    first = tmp_path / "session-00.json"
+    late = tmp_path / "session-01.json"
+    for index, path in enumerate((first, late)):
+        resume.export_unit(path, {"allocation_index": index}, index)
+    Path(str(late) + ".metadata.json.complete").unlink()
+    original = Path.read_text
+
+    def read(path, *args, **kwargs):
+        if path in (first, late):
+            pytest.fail("aggregate opened an outcome before validating all metadata")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    with pytest.raises(ValueError, match="export component"):
+        resume.aggregate([first, late], tmp_path / "decision.json")
+
+
+def test_aggregate_refuses_payload_index_different_from_filename(tmp_path):
+    path = tmp_path / "session-00.json"
+    resume.export_unit(path, {"allocation_index": 1}, 0)
+    with pytest.raises(ValueError, match="filename/allocation"):
+        resume.aggregate([path], tmp_path / "decision.json")
+
+
+@pytest.mark.parametrize("phase", ["metadata", "metadata-sidecar", "metadata-marker"])
+def test_interrupted_metadata_is_missing_and_completion_republishes(tmp_path, monkeypatch, phase):
+    import os
+    import signal
+
+    from research.bl_ppo import exports
+    from research.watch_lead_p import run
+
+    monkeypatch.setattr(run, "read_ledger", lambda *a: {i: {} for i in range(1, 32)})
+    monkeypatch.setattr(
+        run,
+        "worker",
+        lambda *a: {"initial_state": "same", "construction": resume.construction_metadata()},
+    )
+
+    class Pool(concurrent.futures.ThreadPoolExecutor):
+        def __init__(self, **kw):
+            super().__init__(max_workers=1)
+            self._processes = {}
+
+    monkeypatch.setattr(run.concurrent.futures, "ProcessPoolExecutor", Pool)
+    original = exports._publish
+    target = (
+        "session-00.json.metadata.json"
+        + {"metadata": "", "metadata-sidecar": ".sha256", "metadata-marker": ".complete"}[phase]
+    )
+
+    def interrupt(path, data):
+        original(path, data)
+        if path.name == target:
+            os.kill(os.getpid(), signal.SIGUSR1)
+            # Model failure before the deferred signal's publication critical section ends.
+            raise InterruptedError("mechanical interruption during metadata publication")
+
+    monkeypatch.setattr(exports, "_publish", interrupt)
+    output = tmp_path / "original"
+    with pytest.raises(InterruptedError):
+        run.execute(tmp_path / "ledger", tmp_path, output)
+    inventory = json.loads((output / "interruption.json").read_text())
+    assert inventory["completed"] == []
+    assert 0 not in inventory["skipped"]
+    assert not list((output / "units").glob("session-??.json.complete"))
+    assert not (output / "inventory.json").exists()
+    ledger = tmp_path / "empty.json"
+    assert resume.make_ledger([], ledger)["units"] == []
+    monkeypatch.setattr(exports, "_publish", original)
+    fresh = tmp_path / "completion"
+    run.execute(ledger, tmp_path, fresh)
+    unit = fresh / "units/session-00.json"
+    assert exports.verify_export(unit)
+    resume.verify_unit_metadata(unit, 0)
+    inventory = json.loads((fresh / "inventory.json").read_text())
+    assert [r["allocation_index"] for r in inventory["completed"]] == [0]
+    assert all("metadata" not in Path(r["path"]).name for r in inventory["completed"])
+
+
+@pytest.mark.parametrize("batched", [False, True])
+def test_real_export_download_preserves_metadata_and_union(tmp_path, batched):
+    """Run qualified scanner/collector/download/publication; only provider IO is local."""
+    import shutil
+
+    from research.colab_cli.runtime import _exports
+    from research.colab_cli.supervisor import collect_exports
+
+    remote = tmp_path / "vm"
+    paths = []
+    for index in range(32):
+        path = remote / f"output/watch-lead/units/session-{index:02d}.json"
+        arms = {
+            a: dict(
+                initial_state="same",
+                frames=protocol.FRAMES,
+                seed=protocol.SEEDS[index],
+                deaths=10,
+                mass=100,
+            )
+            for a in protocol.ARMS
+        }
+        resume.export_unit(
+            path,
+            dict(
+                namespace=protocol.NAMESPACE,
+                allocation=resume.ALLOCATION,
+                unit_id=resume.unit_id(index),
+                allocation_index=index,
+                recipe_sha256=resume.recipe_fingerprint(),
+                construction=resume.construction_metadata(),
+                seed=protocol.SEEDS[index],
+                arms=arms,
+            ),
+            index,
+        )
+        paths.append(path)
+    inventory = _exports(remote, 64 * 1024 * 1024)
+    assert len(inventory) == 64  # Every unit payload and metadata payload, each with sidecars.
+
+    class LocalContents:
+        session = "offline-fixture"
+        renew = None
+        verified_exports = {}
+
+        def call(self, *args, **kwargs):
+            assert args[0] == "download"
+            shutil.copyfile(args[-2], args[-1])
+            return ""
+
+        def recoverable_rpc(self, code, **kwargs):
+            scope = {}
+            exec(code, scope)
+            return scope["result"]
+
+    cli = LocalContents()
+    downloaded = tmp_path / "mac"
+    if batched:
+        collect_exports(cli, str(remote), inventory, downloaded, 64 * 1024 * 1024)
+    else:
+        for entry in inventory:
+            collect_exports(cli, str(remote), [entry], downloaded, 64 * 1024 * 1024)
+    recovered = sorted((downloaded / "exports/watch-lead/units").glob("session-??.json"))
+    assert len(recovered) == 32
+    for source, target in zip(paths, recovered):
+        for suffix in resume.UNIT_SUFFIXES:
+            assert (
+                Path(str(source) + suffix).read_bytes() == Path(str(target) + suffix).read_bytes()
+            )
+    ledger = downloaded / "verified-ledger.json"
+    assert len(resume.make_ledger(recovered, ledger)["units"]) == 32
+    assert len(resume.read_ledger(ledger, downloaded / "exports/watch-lead")) == 32
+    assert (
+        resume.aggregate(recovered, downloaded / "decision.json")["decision"]
+        == "STOP this delayed controller"
+    )

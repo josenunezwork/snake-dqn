@@ -18,7 +18,6 @@ from research.watch_lead_p.protocol import (
     decision,
     statistics,
 )
-from research.watch_lead_p.uploaded import MECHANICS_V2
 
 ALLOCATION = "watch6-32x6000-v1"
 SCHEMA = "watch-lead-p-ledger/v2"
@@ -32,12 +31,14 @@ UNIT_SUFFIXES = (
 )
 
 
-def construction_metadata(root: Path | None = None) -> dict[str, str]:
+def construction_metadata(root: Path | None = None) -> dict[str, Any]:
     """Bind construction separately from the unchanged scientific recipe."""
     root = root if root is not None else Path(__file__).resolve().parents[2]
     return {
         "uploaded_sha256": digest(root / "research/watch_lead_p/uploaded.py"),
-        "mechanics_v2": MECHANICS_V2,
+        "mechanics_reader_sha256": digest(root / "web/backend/session.py"),
+        "mechanics_v2": True,
+        "mechanics_version": 2,
     }
 
 
@@ -177,13 +178,21 @@ def aggregate(paths: list[Path], output: Path) -> dict:
         raise FileExistsError(output)
     rows = {}
     valid = True
+    verified_paths = []
+    seen = set()
+    # First validate the complete union without parsing any outcome payload.
     for path in paths:
-        verify_export(path)
-        # Validate metadata before opening any scientific outcomes.
         index = int(path.stem.removeprefix("session-"))
+        if path.name != f"session-{index:02d}.json" or index in seen:
+            raise ValueError("foreign/duplicate unit filename")
+        seen.add(index)
+        verify_export(path)
         verify_unit_metadata(path, index)
+        verified_paths.append((path, index))
+    for path, index in verified_paths:
         row = json.loads(path.read_text())
-        index = row["allocation_index"]
+        if type(row.get("allocation_index")) is not int or row["allocation_index"] != index:
+            raise ValueError("paired session filename/allocation index mismatch")
         if row.get("unit_id") != unit_id(index) or index in rows:
             raise ValueError("foreign/duplicate paired session")
         if (

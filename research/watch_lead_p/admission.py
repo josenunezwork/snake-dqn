@@ -87,14 +87,30 @@ def validate_inputs(payload: dict, registry: dict) -> None:
 
     verify_committed_manifest(packet_path.parent / "seal.json")
     seal = json.loads((packet_path.parent / "seal.json").read_text())
-    if set(seal) != {
+    expected_seal = {
         "DISPATCH.txt",
         "dispatch-manifest.json",
         "exclusion-audit.json",
         "forecast.json",
         "sandbox.json",
         "verified-ledger.json",
-    }:
+    }
+    packet = json.loads(packet_path.read_text())
+    accounting_ref = packet.get("mechanical_retry_accounting")
+    if accounting_ref is not None:
+        expected_seal.add("retry-accounting.json")
+        accounting_path = packet_path.parent / "retry-accounting.json"
+        if accounting_ref != {"path": str(accounting_path), "sha256": digest(accounting_path)}:
+            raise ValueError("P retry accounting binding differs")
+        accounting = json.loads(accounting_path.read_text())
+        if (
+            accounting["prepared_job_id"] != packet["job_id"]
+            or accounting["envelope"]["forecast_seconds"]
+            != packet["technical_envelope"]["forecast_seconds"]
+            or accounting["envelope"]["governing"] != "effective"
+        ):
+            raise ValueError("P retry accounting/forecast differs")
+    if set(seal) != expected_seal:
         raise ValueError("P packet seal is incomplete")
     for name, checksum in seal.items():
         path = packet_path.parent / name
@@ -121,7 +137,7 @@ def validate_inputs(payload: dict, registry: dict) -> None:
     if (
         packet["device"] != "cpu"
         or packet["requirements"]["min_vcpu"] != 12
-        or packet["technical_envelope"]["workers"] != 12
+        or packet["technical_envelope"]["workers"] != 11
         or packet["timeout_minutes"] != 480
     ):
         raise ValueError("P worker/device/envelope differs from forecast")

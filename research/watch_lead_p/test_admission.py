@@ -280,7 +280,7 @@ def completion_packet(tmp_path, monkeypatch, request, packet_source_repo):
             dict(
                 fixture_index=32,
                 excluded_from_all_32_sessions=True,
-                workers=12,
+                workers=11,
                 projected_seconds=12000,
             )
         )
@@ -345,7 +345,14 @@ def test_completion_packet_preflight_upload_skip_and_union(
 
     def arm_worker(index, arm):
         called.append((index, arm))
-        return dict(initial_state="same", frames=FRAMES, seed=SEEDS[index], deaths=10, mass=100)
+        return dict(
+            initial_state="same",
+            frames=FRAMES,
+            seed=SEEDS[index],
+            deaths=10,
+            mass=100,
+            construction=resume.construction_metadata(),
+        )
 
     monkeypatch.setattr(run, "worker", arm_worker)
 
@@ -432,7 +439,7 @@ def test_dispatch_verifies_inventory_once_and_rejects_unsafe_admitted_paths(tmp_
     assert called == [inventory] * 3
 
 
-def test_seal_rejects_forecast_above_base_before_writing(tmp_path, monkeypatch):
+def test_seal_rejects_forecast_without_effective_margin_before_writing(tmp_path, monkeypatch):
     from research.watch_lead_p import seal
 
     benchmark = tmp_path / "benchmark.json"
@@ -441,14 +448,14 @@ def test_seal_rejects_forecast_above_base_before_writing(tmp_path, monkeypatch):
             dict(
                 fixture_index=32,
                 excluded_from_all_32_sessions=True,
-                workers=12,
-                projected_seconds=14401,
+                workers=11,
+                projected_seconds=23041,
             )
         )
     )
     monkeypatch.setattr(seal, "ROOT", ROOT)
     pin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    with pytest.raises(ValueError, match="base envelope"):
+    with pytest.raises(ValueError, match="governing effective envelope"):
         seal.seal(pin, tmp_path, tmp_path, benchmark, 99)
     assert not (ROOT / "research/watch_lead_p/packet-99").exists()
 
@@ -797,3 +804,17 @@ def test_seal_revision_preserves_original_packet(completion_packet, tmp_path):
     assert {p.name: digest(p) for p in original.iterdir() if p.is_file()} == hashes
     with pytest.raises(FileExistsError):
         seal.seal(pin, repo, repo, tmp_path / "benchmark.json", 90, revision=1)
+
+
+def test_truthful_refreshed_forecast_hits_qualified_transport_two_x_rule(tmp_path):
+    """Keep the unresolved operational conflict visible; never understate est_minutes."""
+    from research.colab_cli import supervisor
+
+    manifest = json.loads(
+        (ROOT / "research/watch_lead_p/packet-08/dispatch-manifest.json").read_text()
+    )
+    manifest["requirements"]["est_minutes"] = 285
+    manifest["timeout_minutes"] = 480
+    manifest["output_dir"] = str(tmp_path / "unused")
+    with pytest.raises(supervisor.Refused, match="2x measured estimate"):
+        supervisor.validate(manifest, repo=ROOT)

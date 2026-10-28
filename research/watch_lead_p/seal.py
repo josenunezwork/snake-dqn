@@ -35,6 +35,7 @@ def seal(
     ledger: Path | None = None,
     units_root: Path | None = None,
     revision: int = 0,
+    retry_accounting: Path | None = None,
 ) -> None:
     broker = broker.expanduser().resolve()
     runtime = runtime.expanduser().resolve()
@@ -80,8 +81,24 @@ def seal(
     measured = json.loads(benchmark.read_text())
     if measured["fixture_index"] != 32 or not measured["excluded_from_all_32_sessions"]:
         raise ValueError("forecast requires the excluded natural fixture")
-    if measured["workers"] != WORKERS or math.ceil(measured["projected_seconds"] / 60) > 240:
-        raise ValueError("measured forecast does not fit the ruled base envelope")
+    if (
+        measured["workers"] != WORKERS
+        or not math.isfinite(measured["projected_seconds"])
+        or not 0 < measured["projected_seconds"] <= 0.8 * 28800
+    ):
+        raise ValueError("measured forecast lacks 20% margin in the governing effective envelope")
+    accounting = None
+    if retry_accounting is not None:
+        accounting = json.loads(retry_accounting.resolve().read_text())
+        if (
+            accounting["prepared_job_id"] != f"sandbox-p-watch-lead-20261028-{attempt:02d}"
+            or accounting["envelope"]["forecast_seconds"] != measured["projected_seconds"]
+            or accounting["envelope"]["workers"] != WORKERS
+            or accounting["envelope"]["effective_minutes"] != 480
+            or accounting["envelope"]["effective_units"] != 12.32
+            or accounting["envelope"]["governing"] != "effective"
+        ):
+            raise ValueError("P retry accounting differs from refreshed effective forecast")
     packet_name = f"packet-{attempt:02d}"
     attempt_name = f"attempt-{attempt:02d}"
     relative = Path("research/watch_lead_p") / packet_name
@@ -176,10 +193,17 @@ def seal(
             "effective_reserve_units": 0,
             "workers": WORKERS,
             "forecast_seconds": measured["projected_seconds"],
+            "governing_envelope": "effective; base informational (owner 2x rule)",
+            "margin_seconds": 28800 - measured["projected_seconds"],
+            "worker_nice_increment": 10,
         },
     }
-    if manifest["requirements"]["est_minutes"] > 240:
-        raise ValueError("measured forecast does not fit the ruled base envelope")
+    if accounting is not None:
+        write(packet / "retry-accounting.json", accounting)
+        manifest["mechanical_retry_accounting"] = {
+            "path": str(target / "retry-accounting.json"),
+            "sha256": digest(packet / "retry-accounting.json"),
+        }
     write(packet / "dispatch-manifest.json", manifest)
     sandbox = {
         "schema": "standing-a100-development-sandbox/v1",
@@ -232,8 +256,8 @@ def seal(
         f"Identity: {identity}\n"
         "Science: 32 complete paired 6000-frame Watch6 sessions; P48 sole primary.\n"
         f"Projected wall seconds: {measured['projected_seconds']:.3f}; "
-        "base/effective 14400/28800.\n"
-        "Twelve arm workers, session cohorts of 12 with P0/P48/bare; "
+        "base/effective 14400/28800; effective governs, base informational (owner 2x).\n"
+        "Eleven lower-priority arm workers, session cohorts of 11 with P0/P48/bare; "
         "each session W1/K1; L4 >=12 vCPUs.\n"
         "Only complete three-arm paired sessions are exported or resumed. CPU science only.\n"
         "Inputs remain sealed; remote exports are diagnostics, never a terminal decision.\n"
@@ -260,6 +284,7 @@ if __name__ == "__main__":
     parser.add_argument("--revision", type=int, default=0)
     parser.add_argument("--ledger", type=Path)
     parser.add_argument("--units-root", type=Path)
+    parser.add_argument("--retry-accounting", type=Path)
     args = parser.parse_args()
     seal(
         args.pin,
@@ -270,4 +295,5 @@ if __name__ == "__main__":
         args.ledger,
         args.units_root,
         args.revision,
+        args.retry_accounting,
     )

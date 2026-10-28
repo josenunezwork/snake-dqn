@@ -1,7 +1,8 @@
 """Test-only sitecustomize: persist a VM path guard in every spawned interpreter.
 
-Copied into an isolated PYTHONPATH by test_uploaded; never shipped or installed
-in production. Every interpreter reports startup and forbidden access by PID.
+Included in the runtime archive as test support. Activated only when copied
+into an isolated PYTHONPATH by test_uploaded; never installed in production.
+Every interpreter reports startup and forbidden access by PID.
 """
 
 import json
