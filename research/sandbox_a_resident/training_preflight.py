@@ -81,13 +81,35 @@ def _validate_continuation_stop(packet: Path, broker: dict) -> None:
         or Path(prior_name).name != prior_name
     ):
         raise ValueError("SEAL.json prior_packet must be a packet name")
-    source_packet = Path(seal.get("prior_packet_path", packet.parent / prior_name))
-    if (
-        source_packet.name != prior_name
-        or any(p.is_symlink() for p in (source_packet, *source_packet.parents))
-        or (tracked and source_packet.resolve() != (packet.parent / prior_name).resolve())
-    ):
-        raise ValueError("SEAL.json prior_packet_path differs from prior_packet")
+    packet_dir = packet.resolve()
+    checkout = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=packet_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    checkout_root = (
+        Path(checkout.stdout.strip()).resolve() if checkout.returncode == 0 else packet_dir.parent
+    )
+    raw_source = seal.get("prior_packet_path", str(packet_dir.parent / prior_name))
+    if not isinstance(raw_source, str) or not raw_source or not Path(raw_source).is_absolute():
+        raise ValueError("SEAL.json prior_packet_path must be an absolute path string")
+    source_packet = Path(raw_source)
+    try:
+        relative = source_packet.relative_to(checkout_root)
+        components = [
+            checkout_root.joinpath(*relative.parts[:i]) for i in range(1, len(relative.parts) + 1)
+        ]
+        if (
+            source_packet.name != prior_name
+            or ".." in relative.parts
+            or any(p.is_symlink() for p in components)
+            or (tracked and source_packet.resolve() != packet_dir.parent / prior_name)
+        ):
+            raise ValueError("SEAL.json prior_packet_path differs from prior_packet")
+    except (OSError, RuntimeError, ValueError) as error:
+        raise ValueError("SEAL.json prior_packet_path differs from prior_packet") from error
     source_packet_manifest = source_packet / "dispatch-manifest.json"
     for path in (source_packet_manifest, source_packet / "control.json"):
         _regular_packet_file(path)

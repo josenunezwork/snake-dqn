@@ -1875,9 +1875,7 @@ def test_review_r4_unfinalized_json_sidecars_are_scanned_without_json_parse(
     payload.write_text('{"status": "PASS"}\n')
     path = Path(str(payload) + "." + sidecar)
     path.write_text(
-        hashlib.sha256(payload.read_bytes()).hexdigest() + "\n"
-        if sidecar == "sha256"
-        else "complete\n"
+        hashlib.sha256(payload.read_bytes()).hexdigest() + "\n" if sidecar == "sha256" else "comp"
     )
     _check_output_root_fault_evidence(tmp_path)
     payload.write_text('{"status": "failed"}\n')
@@ -1911,13 +1909,19 @@ def test_review_r4_publication_sidecars_fail_closed(tmp_path: Path, defect: str)
 
 
 @pytest.mark.parametrize("sidecar", ["sha256", "complete"])
-def test_review_r4_unfinalized_poll_sidecars_still_refuse(tmp_path: Path, sidecar: str) -> None:
+def test_review_r4_unfinalized_poll_sidecars_never_authenticate_payloads(
+    tmp_path: Path, sidecar: str
+) -> None:
     from research.sandbox_a_resident.training_resume import _check_output_root_fault_evidence
 
     (tmp_path / ("poll-001.json." + sidecar)).write_text(
         "0" * 64 + "\n" if sidecar == "sha256" else "complete\n"
     )
-    with pytest.raises(ResumeRefused):
+    if sidecar == "complete":
+        with pytest.raises(ResumeRefused):
+            _check_output_root_fault_evidence(tmp_path)
+    else:
+        # Recognizable unfinished sidecar, ignored as an export binding.
         _check_output_root_fault_evidence(tmp_path)
 
 
