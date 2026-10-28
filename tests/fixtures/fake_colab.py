@@ -678,6 +678,11 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
                 "terminal": runtime["terminal"],
                 "exports": runtime["terminal"].get("exports", []),
             }
+            # C/T producer goldens inject the *real* runtime.read_state result
+            # at the provider boundary, including nonterminal export inventories.
+            # The broker, runtime encoders and transfer verification stay unmodified.
+            if "ct_read_state" in runtime:
+                runtime_value = runtime["ct_read_state"]
             # Normal broker polling imports runtime.read_state directly. The
             # acceptance observer wraps that value with its own probe JSON.
             value: dict[str, Any] = runtime_value

@@ -1,0 +1,11 @@
+{
+  "boundary_injections": "offline provider, virtual clock, observer, runtime local release exemptions",
+  "error": "Refused('study reserve reached')",
+  "failure": "INCOMPLETE: Refused('study reserve reached'); receipt: /private/tmp/astra-impl-ct6-producers/study-reserve/job-output/receipt.json",
+  "failure_class": "SUPERVISOR",
+  "producer_commit": "286c7fdea8b765cd5647d2cbdb4ff38d4804a31f",
+  "scenario": "study-reserve",
+  "status": "INCOMPLETE",
+  "stop_verified": true,
+  "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+}

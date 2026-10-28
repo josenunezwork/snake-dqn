@@ -1,0 +1,15 @@
+{
+  "attributable_account_debit_units": 1079.3,
+  "balance_crosscheck_status": "WARNING_UNEXPLAINED_DEBIT",
+  "balance_discrepancy_tolerance_units": 0.58,
+  "balance_discrepancy_units": 1079.1651,
+  "baseline_integrated_units": 0.0,
+  "elapsed_seconds": 71.0,
+  "expected_account_debit_units": 0.1349,
+  "observed_account_debit_units": 1079.3,
+  "observed_elapsed_units": 0.1349,
+  "observed_rate_units_per_hour": 6.84,
+  "own_elapsed_units": 0.1349,
+  "provider_transition_mismatch_polls": 0,
+  "provider_transition_status": "OK"
+}

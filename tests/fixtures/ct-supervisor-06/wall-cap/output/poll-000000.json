@@ -1,0 +1,12 @@
+{
+  "exports": [],
+  "job_log_tail": "",
+  "state": {
+    "generation": "a5ce8d809cf9478a8b170770722a7100",
+    "job_id": "fake-job",
+    "max_export_bytes": 33554432,
+    "status": "running"
+  },
+  "supervisor_log_tail": "",
+  "terminal": null
+}

@@ -1,0 +1,1 @@
+{"job": "fake-job", "elapsed": 11.0, "status": "lease_expired_after_terminal", "terminal": true, "exports": 3, "job_log_tail": "CT_CHILD_READY\n"}

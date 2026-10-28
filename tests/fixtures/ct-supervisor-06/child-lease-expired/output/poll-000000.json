@@ -1,0 +1,64 @@
+{
+  "exports": [],
+  "job_log_tail": "CT_CHILD_READY\n",
+  "state": {
+    "generation": "bc3cac15d0d7428b8ad95d6a5edd3c62",
+    "job_id": "fake-job",
+    "max_export_bytes": 33554432,
+    "pid": 83517,
+    "reason": "lease_expired",
+    "returncode": 138,
+    "started_at": 1793215474.297754,
+    "status": "failed",
+    "updated_at": 1793215475.7613802
+  },
+  "supervisor_log_tail": "",
+  "terminal": {
+    "canary_observations": [],
+    "export_scanner": {
+      "inventory": [
+        {
+          "path": "ct/sigusr1-marker.json",
+          "sha256": "6e21dc00c03c10eabb4b3164e7a6999f24f4019e3ba65fe205dd95b4c843086f",
+          "size": 357
+        },
+        {
+          "path": "ct/stage-0001.json",
+          "sha256": "c14d1d779a3889daff24ac4b8c7c5c84ae046882e8ec9d9e0c7eec3423158a23",
+          "size": 584
+        },
+        {
+          "path": "ct/stage-0001.pt",
+          "sha256": "fec1c7a3843e4527c89894db1891a7862b916db57efc5703912f28e3fc85a5de",
+          "size": 47025
+        }
+      ],
+      "name": "runtime._exports"
+    },
+    "exports": [
+      {
+        "path": "ct/sigusr1-marker.json",
+        "sha256": "6e21dc00c03c10eabb4b3164e7a6999f24f4019e3ba65fe205dd95b4c843086f",
+        "size": 357
+      },
+      {
+        "path": "ct/stage-0001.json",
+        "sha256": "c14d1d779a3889daff24ac4b8c7c5c84ae046882e8ec9d9e0c7eec3423158a23",
+        "size": 584
+      },
+      {
+        "path": "ct/stage-0001.pt",
+        "sha256": "fec1c7a3843e4527c89894db1891a7862b916db57efc5703912f28e3fc85a5de",
+        "size": 47025
+      }
+    ],
+    "finished_at": 1793215475.7608042,
+    "generation": "bc3cac15d0d7428b8ad95d6a5edd3c62",
+    "job_id": "fake-job",
+    "last_traceback_line": "CT_CHILD_READY",
+    "reason": "lease_expired",
+    "returncode": 138,
+    "started_at": 1793215474.297754,
+    "status": "failed"
+  }
+}
