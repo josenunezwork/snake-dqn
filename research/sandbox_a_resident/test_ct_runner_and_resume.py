@@ -1190,8 +1190,8 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
 
         _seal_initial_packet(prod_p0)
         prod_ctrl = json.loads((prod_p0 / "control.json").read_text())
-        exp_a0 = art_root / "attempt-00-prior/exports/ct"
-        exp_c1 = art_root / "attempt-c1-prior/exports/ct"
+        exp_a0 = art_root / "attempt-00/output/exports/ct"
+        exp_c1 = art_root / "attempt-c1/output/exports/ct"
         publish_stage_snapshot(
             exp_a0,
             1,
@@ -1203,17 +1203,6 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                 "support_status": "PASS",
             },
         )
-        publish_stage_snapshot(
-            exp_c1,
-            2,
-            lambda dst: torch.save({"kind": "scoring_chunk", "chunk": torch.tensor([0])}, dst),
-            metadata={
-                "kind": "scoring_chunk",
-                "chunk_idx": 0,
-                "allocation": allocation(prod_ctrl),
-                "source_commit": impl_pin,
-            },
-        )
 
         publish_stage_snapshot(
             exp_a0,
@@ -1221,15 +1210,6 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
             lambda dst: dst.write_bytes(b"prior verified stage 2"),
             metadata={"allocation": allocation(prod_ctrl), "source_commit": impl_pin},
         )
-        # Completion 2 adds stage 3 while retaining admitted [1, 2].
-        for old in list(exp_c1.glob("stage-0002*")):
-            old.rename(old.with_name(old.name.replace("0002", "0003")))
-        header = exp_c1 / "stage-0003.json"
-        info = json.loads(header.read_text())
-        info["stage"], info["id"] = 3, unit_id(3)
-        info["snapshot"]["id"] = unit_id(3)
-        header.write_text(json.dumps(info))
-        Path(str(header) + ".sha256").write_text(digest(header) + "\n")
 
         rec_p0 = ws / "receipt-p0.json"
         rec_p0.write_text(
@@ -1281,6 +1261,27 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
             cwd=broker_wt,
             check=True,
         )
+
+        publish_stage_snapshot(
+            exp_c1,
+            2,
+            lambda dst: torch.save({"kind": "scoring_chunk", "chunk": torch.tensor([0])}, dst),
+            metadata={
+                "kind": "scoring_chunk",
+                "chunk_idx": 0,
+                "allocation": allocation(prod_ctrl),
+                "source_commit": impl_pin,
+            },
+        )
+        # Completion 2 adds stage 3 while retaining admitted [1, 2].
+        for old in list(exp_c1.glob("stage-0002*")):
+            old.rename(old.with_name(old.name.replace("0002", "0003")))
+        header = exp_c1 / "stage-0003.json"
+        info = json.loads(header.read_text())
+        info["stage"], info["id"] = 3, unit_id(3)
+        info["snapshot"]["id"] = unit_id(3)
+        header.write_text(json.dumps(info))
+        Path(str(header) + ".sha256").write_text(digest(header) + "\n")
 
         rec_c1 = ws / "receipt-c1.json"
         rec_c1.write_text(
