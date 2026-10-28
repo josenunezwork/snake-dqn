@@ -138,6 +138,53 @@ def test_ordinary_validation_retains_standard_host_timeout(
     assert captured["timeout_seconds"] == dispatch.COMMAND_TIMEOUT_SECONDS
 
 
+def test_ct_nested_preflight_uses_its_bounded_test_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A passing C/T suite over 60 seconds must not hit the generic host limit."""
+    packet = json.loads(
+        (
+            ROOT / "research/sandbox_a_resident/packet-ct-1028-06/reseal-01/dispatch-manifest.json"
+        ).read_text()
+    )
+    output_root = tmp_path / "ct-artifacts"
+    monkeypatch.setitem(dispatch.SANDBOX_OUTPUT_ROOTS, "t34-cf-1028", output_root)
+    packet["output_dir"] = str(output_root / "output")
+    bound = tmp_path / "broker-manifest.json"
+    bound.write_text(json.dumps(packet))
+    monkeypatch.setattr(
+        preflight,
+        "preflight",
+        lambda *_a, **_k: {
+            "study": "t34-cf-1028",
+            "outputs": {"broker_manifest": {"path": str(bound)}},
+        },
+    )
+    calls = []
+    monkeypatch.setattr(dispatch, "command", lambda argv, **kwargs: calls.append((argv, kwargs)))
+    dispatch.require_sandbox_admission(packet, ROOT)
+    assert len(calls) == 1
+    assert calls[0][0][1:3] == ["-m", "research.sandbox_a_resident.ct_preflight"]
+    assert calls[0][1]["timeout_seconds"] == 180
+
+
+def test_validation_error_preserves_nested_stderr_before_temporary_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    manifest = tmp_path / "job.json"
+    manifest.write_text("{}")
+
+    def fail(argv: list[str], **kwargs: object) -> None:
+        kwargs["stdout"].write("C/T preflight timed out after 60 seconds\n")
+        raise subprocess.CalledProcessError(1, argv)
+
+    monkeypatch.setattr(dispatch, "command", fail)
+    with pytest.raises(dispatch.Refused, match="C/T preflight timed out after 60 seconds"):
+        dispatch.validate(ROOT, tmp_path, tmp_path / "state", manifest, tmp_path / "diagnostic.log")
+
+
 def test_extended_sandbox_timeout_still_respects_allocation_deadline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -714,6 +714,11 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         command(
             [sys.executable, "-m", module_by_study[study], str(path.parent)],
             cwd=broker,
+            timeout_seconds=(
+                SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS
+                if study == "t34-cf-1028"
+                else COMMAND_TIMEOUT_SECONDS
+            ),
         )
 
 
@@ -732,23 +737,32 @@ def validate(
         if "sandbox_admission" in packet
         else COMMAND_TIMEOUT_SECONDS
     )
-    with log.open("x") as stream:
-        command(
-            [
-                str(supervisor_launcher(broker, packet)),
-                "--state-dir",
-                str(state),
-                "--colab",
-                str(colab),
-                "validate",
-                str(manifest),
-            ],
-            cwd=cwd,
-            stdout=stream,
-            stderr=subprocess.STDOUT,
-            deadline=deadline,
-            timeout_seconds=timeout_seconds,
-        )
+    try:
+        with log.open("x") as stream:
+            command(
+                [
+                    str(supervisor_launcher(broker, packet)),
+                    "--state-dir",
+                    str(state),
+                    "--colab",
+                    str(colab),
+                    "validate",
+                    str(manifest),
+                ],
+                cwd=cwd,
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+                deadline=deadline,
+                timeout_seconds=timeout_seconds,
+            )
+    except subprocess.SubprocessError as exc:
+        # Dry-run's temporary directory is removed by the caller. Keep the
+        # underlying diagnostic in wrapper stderr before those bytes disappear.
+        with log.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, stream.tell() - 65536))
+            detail = stream.read().decode("utf-8", errors="replace")
+        raise Refused(f"validation failed: {exc}\n{detail}") from exc
 
 
 def register(ops: Path, log: Path, name: str) -> None:
