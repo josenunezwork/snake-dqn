@@ -1,0 +1,114 @@
+{
+  "aliases": 0,
+  "allocations": [
+    {
+      "count": 2100020,
+      "offset": 0,
+      "phase": "training"
+    },
+    {
+      "count": 1024,
+      "offset": 10000000,
+      "phase": "validation"
+    },
+    {
+      "count": 522444,
+      "offset": 20000000,
+      "phase": "assessment"
+    },
+    {
+      "count": 39,
+      "offset": 950000000,
+      "phase": "training"
+    },
+    {
+      "count": 1024,
+      "offset": 960000000,
+      "phase": "validation"
+    },
+    {
+      "count": 39,
+      "offset": 970000000,
+      "phase": "assessment"
+    },
+    {
+      "count": 39,
+      "offset": 951000000,
+      "phase": "training"
+    },
+    {
+      "count": 1024,
+      "offset": 961000000,
+      "phase": "validation"
+    },
+    {
+      "count": 39,
+      "offset": 971000000,
+      "phase": "assessment"
+    }
+  ],
+  "canonical_uint64_sha256": "c614547495ad92cc3e5bc32772d9958158b3f975a30261e99788e0ca63d68924",
+  "count": 2625692,
+  "effective_seed_bits": 63,
+  "excluded_intersection": 0,
+  "fixture_bootstrap_seed": 131,
+  "fixture_checkpoint_init_seed": 31,
+  "fixture_fit_seed": 31,
+  "fixture_ranges": [
+    {
+      "count": 39,
+      "offset": 950000000,
+      "phase": "training"
+    },
+    {
+      "count": 1024,
+      "offset": 960000000,
+      "phase": "validation"
+    },
+    {
+      "count": 39,
+      "offset": 970000000,
+      "phase": "assessment"
+    },
+    {
+      "count": 39,
+      "offset": 951000000,
+      "phase": "training"
+    },
+    {
+      "count": 1024,
+      "offset": 961000000,
+      "phase": "validation"
+    },
+    {
+      "count": 39,
+      "offset": 971000000,
+      "phase": "assessment"
+    }
+  ],
+  "namespace": "a100-dev/t34-cf-1028/",
+  "registry_sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+  "schema": "t34-cf-seed-audit/v1",
+  "science_data": false,
+  "science_ranges": [
+    {
+      "count": 2100020,
+      "offset": 0,
+      "phase": "training"
+    },
+    {
+      "count": 1024,
+      "offset": 10000000,
+      "phase": "validation"
+    },
+    {
+      "count": 522444,
+      "offset": 20000000,
+      "phase": "assessment"
+    }
+  ],
+  "status": "PASS",
+  "study": "t34-cf-1028",
+  "train01_excluded_intersection": 0,
+  "train01_protected_count": 1056
+}

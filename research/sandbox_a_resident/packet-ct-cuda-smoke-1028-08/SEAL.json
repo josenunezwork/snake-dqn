@@ -1,0 +1,37 @@
+{
+  "base_effective_envelopes": {
+    "base_reserve_units": 0.05,
+    "base_timeout_minutes": 15,
+    "base_unit_cap": 2.05,
+    "effective_reserve_units": 0.1,
+    "effective_timeout_minutes": 30,
+    "effective_unit_cap": 4.1,
+    "estimate_minutes": 15,
+    "rate_units_per_hour": 8.0
+  },
+  "broker": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-08-broker.noindex",
+  "dispatch_txt_sha256": "4d59aa737a51c36ecd7db46c81c1559d4ae54e76ec462490f0507b0f0370488f",
+  "fixture_audit_sha256": "3518b7ad0e604639d100cc64a784ee04c2b7a00b92e24a5e42aafd28d17ac4a5",
+  "manifest_sha256": "d35434a98e418d8668f84a753233a78576b182455ba845337fb8980b1b001a01",
+  "review_status": "AWAITING_OPUS_REVIEW_AND_OPERATOR_CUDA_CAPTURE",
+  "runtime": "/Users/josenunez/Projects/ml/snake-dqn-ct-cuda-1028-08-runtime.noindex",
+  "schema": "ct-cuda-smoke-preparation/v1",
+  "science_packet_resealed": false,
+  "scope": "random fixture checkpoints, disjoint excluded seed ranges, actual ct_run CUDA complete and SIGUSR1 CLI subprocesses; no science outputs admitted",
+  "source_archive": {
+    "sha256": "dc69389f7cbc703e4ed81a2801bab9829bd7b8798da11ec5fb0dc0190df8b36d",
+    "size": 1055865
+  },
+  "source_commit": "d2302487ebecb1791bec1fb22cd9ab98209ad3d7",
+  "source_plan_sha256": "91c5fa3a8b344dc1209447743157e70e02cf961b17b941c8f56639e9e79df871",
+  "source_tree": "a4272325b6ddf702be4c8a3ea11baf9fa8ed2cff",
+  "staging": {
+    "canary_bar_seconds": 150,
+    "hard_cap_seconds": 300,
+    "nominal_seconds": 25.313539165444546,
+    "private_bytes": 6569799,
+    "total_bytes": 7643419,
+    "uploads": 7,
+    "worst_seconds": 40.407776558032594
+  }
+}

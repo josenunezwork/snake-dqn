@@ -416,6 +416,23 @@ def test_actual_ct_tree_writes_and_commits_continuation(
     shutil.copytree(capture / "initial-packet", packet)
     shutil.copytree(capture / "output", output)
     old_manifest = _read(output / "manifest.json")
+    # Preserve the historical runtime source pin while exercising today's
+    # admission code. ct_run now also retains progress history, so checking
+    # today's ct_run bytes against a historical pin is not a valid fixture.
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "restore",
+            "--source",
+            old_manifest["commit"],
+            "--staged",
+            "--worktree",
+            "research/sandbox_a_resident/ct_run.py",
+        ],
+        check=True,
+    )
     old_packet = str(
         Path(
             next(
