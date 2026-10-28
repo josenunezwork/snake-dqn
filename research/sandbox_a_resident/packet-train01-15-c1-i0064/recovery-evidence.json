@@ -1,0 +1,98 @@
+{
+  "identities": {
+    "assignment_record": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15/state/sandbox-a-train01-20261027-15/assignment.json",
+      "sha256": "cad3a576f0283274ffbe3511f4be68580c3249a61ee2d98bd93be72217422b29",
+      "size": 277
+    },
+    "control_allocation": "b232ca1950dfbd4b704e3c0d9948c265b4c4e56248ee3ff6a6583c33d321667e",
+    "endpoint": "gpu-a100-s-usc1f0-daxh0l6srg6p",
+    "executed_manifest_sha256": "ed565420d75c5b2af48ae109c07c45df37ad147d9d9d2b62275f347a86b1acc9",
+    "generation": "59e68cce673b46b1960ab9eb9287337b",
+    "job_id": "sandbox-a-train01-20261027-15",
+    "namespace": "a100-dev/sandbox-a/train01",
+    "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15/output",
+    "session": "snake-sandbox-a-train01-20261027-15-59e68cce673b",
+    "source_commit": "5c0a101a85237e2ce563dcaa6429828126a37d04",
+    "source_packet_id": "packet-train01-15",
+    "source_packet_manifest_sha256": "65d3caffe216e07b740478d346bbc93b3058061763eacfee0f40d140c7408f20",
+    "study": "sandbox-a-train01"
+  },
+  "original_attempt_state": {
+    "failure_class": "HOST_SUPERVISOR_RECEIPT_WRITE_ENOSPC",
+    "original_cleanup_error": "UNKNOWN_UNAVAILABLE",
+    "original_receipt_present": false,
+    "original_supervisor_error": "UNKNOWN_UNAVAILABLE",
+    "original_terminal_status": "UNKNOWN_UNAVAILABLE",
+    "post_hoc_release_verified": true,
+    "prior_attempt_status": "INCOMPLETE"
+  },
+  "release_evidence": {
+    "account_status_capture": {
+      "captured_at_utc": "2026-10-28T13:32:48Z",
+      "captured_unix_seconds": 1793194368.980417,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-15-enospc-recovery-20261028/account-release-status.json",
+      "sha256": "a3ed1d081880ffeceb593fb00710320146b1a072653d09113937ff7b6d96a9be",
+      "size": 108007
+    },
+    "broker_reconciliation": {
+      "account_root": "/Users/josenunez/.config/colab-cli/snake",
+      "mode": "verified_disappearance_with_bound_stale_active",
+      "operator_reconcile_command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.colab_cli.supervisor recover /Users/josenunez/.config/colab-cli/snake/active-snake-sandbox-a-train01-20261027-15-59e68cce673b.json",
+      "stale_active_record": {
+        "path": "/Users/josenunez/.config/colab-cli/snake/active-snake-sandbox-a-train01-20261027-15-59e68cce673b.json",
+        "sha256": "5547efe8cf38e80a3b67652335f1bafaadd452890d3bde2d7e81088aa04d27a5",
+        "size": 526
+      }
+    }
+  },
+  "resume_binding": {
+    "latest_eligible_iteration": 64,
+    "latest_eligible_unit": "a100-dev/sandbox-a/train01/iteration-0064",
+    "latest_full_state_sha256": "a0c31e8a1555a1971cda2a80fd19b77ab485b550630abeac14b8fd5ba746c8d5",
+    "latest_full_state_size": 1343234243,
+    "verified_snapshot_iterations": [
+      16,
+      32,
+      48,
+      64
+    ]
+  },
+  "retained_evidence": {
+    "first_poll": "poll-000000.json",
+    "last_poll": "poll-001278.json",
+    "optional_files": {
+      "accounting-baseline.json": {
+        "sha256": "8cb921ae48ee473d112b16c1a9522e35f9b342d88845c5fdf4f72cdaeeab881a",
+        "size": 173
+      },
+      "exports/training/calibrated-boundary.json": null,
+      "exports/training/distribution-screen.json": null,
+      "exports/training/progress.json": null,
+      "exports/training/stall-watchdog/faulthandler-stacks.log": null,
+      "exports/training/stall-watchdog/stall-watchdog.json": null,
+      "exports/training/summary.json": null,
+      "rate-calibration.json": {
+        "sha256": "a47fb8c587b29f224755ce50bfba05b2b72ce349a5170569163c5a4acf12998c",
+        "size": 1078
+      }
+    },
+    "poll_count": 1279,
+    "polls_sha256": "bfcb61d767ae9901a789346f742864e6417ec79374692cdf10d5de5520740180",
+    "receipt_present": false,
+    "spend_count": 320,
+    "spend_sha256": "378ae8dd992fee597dc5086c8266cb61512e8e1319786ccf0e6b69441ada00ee",
+    "terminal_present": false,
+    "usage_count": 321,
+    "usage_sha256": "3e3a81ba6fa0cbbbcb0b00ea1891cae0c32e8fb4fb06553c750b15207628aa56"
+  },
+  "schema": "sandbox-a-train01-host-enospc-recovery/v1",
+  "supervisor_log": {
+    "line_count": 1428,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/sandbox-a-train01-20261027-15.log",
+    "sha256": "d85a92595128ffcfbac2cf768762fd5f262ad74c5d23d425b5a9e1e1c64f71e4",
+    "size": 5892075,
+    "terminal_enospc_line": "[Errno 28] No space left on device: '/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15/output/.receipt-ihix0kmn'",
+    "terminal_exit_line": "EXIT=1"
+  }
+}
