@@ -1,0 +1,86 @@
+{
+  "bare_tick_seconds": 0.007326245693257079,
+  "base_seconds": 14400,
+  "effective_seconds": 28800,
+  "excluded_from_all_32_sessions": true,
+  "fixture": "natural actual Watch6 L>=600; no geometry or future action tape",
+  "fixture_index": 32,
+  "host_scaling": "Mac measurements; L4 host speed and ten-worker contention unmeasured",
+  "min_vcpu": 12,
+  "projected_seconds": 13862.7639244996,
+  "projection": "max observed inclusive root cost; P0 1200/P48 123 roots per session; 32 pairs/10 workers +1200s setup/export",
+  "receipt_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-watch-lead-1028/engineering-01/benchmark.json",
+  "receipt_sha256": "a10803c92529a287f7aa7a4b5460170cdd495096eb72abea8bc7419e174f79e4",
+  "samples": [
+    {
+      "branches": 1,
+      "certificate": true,
+      "delay": 0,
+      "drop": null,
+      "frame": 2161,
+      "index": 0,
+      "length": 600,
+      "root_bytes": 8394106,
+      "seconds": 2.705560000031255
+    },
+    {
+      "branches": 1,
+      "certificate": true,
+      "delay": 48,
+      "drop": null,
+      "frame": 2161,
+      "index": 0,
+      "length": 600,
+      "root_bytes": 8394106,
+      "seconds": 3.116019916953519
+    },
+    {
+      "branches": 1,
+      "certificate": true,
+      "delay": 0,
+      "drop": null,
+      "frame": 2166,
+      "index": 1,
+      "length": 603,
+      "root_bytes": 8394285,
+      "seconds": 2.740342375007458
+    },
+    {
+      "branches": 1,
+      "certificate": true,
+      "delay": 48,
+      "drop": null,
+      "frame": 2166,
+      "index": 1,
+      "length": 603,
+      "root_bytes": 8394285,
+      "seconds": 3.076670291949995
+    },
+    {
+      "branches": 1,
+      "certificate": true,
+      "delay": 0,
+      "drop": null,
+      "frame": 2171,
+      "index": 2,
+      "length": 603,
+      "root_bytes": 8394368,
+      "seconds": 2.851223332923837
+    },
+    {
+      "branches": 1,
+      "certificate": true,
+      "delay": 48,
+      "drop": null,
+      "frame": 2171,
+      "index": 2,
+      "length": 603,
+      "root_bytes": 8394368,
+      "seconds": 3.2827097920235246
+    }
+  ],
+  "seed": 7886337691721480313,
+  "warmup_frames": 2161,
+  "warmup_seconds": 13.48332995804958,
+  "workers": 10
+}
