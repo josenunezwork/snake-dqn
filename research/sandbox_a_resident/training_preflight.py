@@ -109,7 +109,23 @@ def validate_packet(packet: Path) -> dict[str, Any]:
     payload = preflight(packet / "sandbox.json", run_tests=False)
     broker = json.loads((packet / "dispatch-manifest.json").read_text())
     control = json.loads((packet / "control.json").read_text())
-    default = asdict(TrainControl(study=STUDY, source_commit=broker["commit"], allocation_index=0))
+    allocation_index = control.get("allocation_index", 0)
+    train_seed_offset = control.get("train_seed_offset", 0)
+    if (
+        type(allocation_index) is not int
+        or allocation_index < 0
+        or type(train_seed_offset) is not int
+        or train_seed_offset < 0
+    ):
+        raise ValueError("TRAIN-01 seed domain requires nonnegative integer allocation/offset")
+    default = asdict(
+        TrainControl(
+            study=STUDY,
+            source_commit=broker["commit"],
+            allocation_index=allocation_index,
+            train_seed_offset=train_seed_offset,
+        )
+    )
     if control != default or control != json.loads(broker["env"]["SANDBOX_A_CONTROL_JSON"]):
         raise ValueError("TRAIN-01 control differs from frozen production recipe")
     if payload["study"] != STUDY or broker["script"] != "research/sandbox_a_resident/train_job.sh":

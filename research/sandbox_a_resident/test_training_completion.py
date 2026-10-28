@@ -143,3 +143,124 @@ def test_prepare_completion_keeps_required_sidecars_and_preflights_successor(
     monkeypatch.setattr(sandbox_preflight, "verify_committed_manifest", lambda *_args, **_kw: None)
     monkeypatch.setattr(training_preflight, "verify_committed_manifest", lambda _path: None)
     assert validate_packet(successor)["status"] == "PASS"
+
+
+def test_validate_packet_admits_independent_seed_domain_and_freezes_recipe(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    from dataclasses import asdict
+
+    from research.sandbox_a_resident.train import TrainControl
+    from research.sandbox_a_resident.training_prepare import STUDY, seed_allocations
+    from research.sandbox_a_resident.training_units import empty_ledger
+
+    root = Path(__file__).parent
+    repo = root.parents[1]
+    work = Path(tempfile.mkdtemp(prefix=".test-train-domain-", dir=repo))
+    request.addfinalizer(lambda: shutil.rmtree(work, ignore_errors=True))
+    packet = work / "packet"
+    shutil.copytree(root / "packet-train01", packet)
+    broker_path = packet / "dispatch-manifest.json"
+    broker = json.loads(broker_path.read_text())
+    broker["source_paths"] = ["src/core/game_config.py"]
+    control = asdict(
+        TrainControl(
+            study=STUDY,
+            source_commit=broker["commit"],
+            allocation_index=1,
+            train_seed_offset=1_000_000_000,
+        )
+    )
+    (packet / "control.json").write_text(json.dumps(control, indent=2, sort_keys=True) + "\n")
+    ledger = empty_ledger(control)
+    ledger_path = packet / "verified-ledger.json"
+    ledger_path.write_text(json.dumps(ledger, indent=2, sort_keys=True) + "\n")
+    allocations = seed_allocations(control)
+    registry_path = repo / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json"
+    check = {
+        "schema": "sandbox-a-train-seed-audit/v1",
+        "status": "PASS",
+        "study": STUDY,
+        "allocations": allocations,
+        "count": sum(row["count"] for row in allocations),
+        "canonical_uint64_sha256": "b" * 64,
+        "registry_sha256": digest(registry_path),
+        "effective_seed_bits": 63,
+        "aliases": 0,
+        "excluded_intersection": 0,
+    }
+    check_path = packet / "registry-check.json"
+    check_path.write_text(json.dumps(check, indent=2, sort_keys=True) + "\n")
+    primary = repo.parent / "snake-dqn"
+    source_paths = {
+        "b8-s3.pth": str(primary / "saved_snakes/b8_s3_t7_20261016.pth"),
+        "frp3-s12.pth": str(primary / "saved_snakes/frp3_m3_s12_u60000_20261005.pth"),
+        "champion.pth": str(primary / "saved_snakes/champion_a5_freespace_20261005.pth"),
+    }
+    source_paths["champion.pth"] = str(primary / "saved_snakes/champion_a5_freespace_20260621.pth")
+    source_paths["registry.json"] = str(registry_path)
+    source_paths["verified-ledger.json"] = str(ledger_path)
+    for row in broker["inputs"]:
+        row["path"] = source_paths[row["dest"]]
+        row["sha256"] = digest(Path(row["path"]))
+    broker["env"]["SANDBOX_A_CONTROL_JSON"] = json.dumps(control, sort_keys=True)
+    broker["sandbox_a"] = {
+        "seed_allocations": allocations,
+        "seed_audit_sha256": digest(check_path),
+    }
+    broker["sandbox_admission"]["manifest_path"] = str(packet / "sandbox.json")
+    broker_path.write_text(json.dumps(broker, indent=2, sort_keys=True) + "\n")
+    sandbox = json.loads((packet / "sandbox.json").read_text())
+    roots = [row["offset"] for row in allocations]
+    from tools.sandbox.registry import world_seed
+
+    sandbox["inputs"] = [
+        {
+            "kind": "worlds",
+            "study": STUDY,
+            "indices": roots,
+            "seeds": [world_seed(STUDY, i) for i in roots],
+        }
+    ] + [
+        {
+            "kind": (
+                "frozen-checkpoint"
+                if row["dest"] == "b8-s3.pth"
+                else (
+                    "registry"
+                    if row["dest"] == "registry.json"
+                    else (
+                        "verified-ledger"
+                        if row["dest"] == "verified-ledger.json"
+                        else "frozen-opponent"
+                    )
+                )
+            ),
+            "path": row["path"],
+            "sha256": row["sha256"],
+        }
+        for row in broker["inputs"]
+    ]
+    sandbox["outputs"]["broker_manifest"] = {
+        "path": str(broker_path),
+        "sha256": digest(broker_path),
+    }
+    (packet / "sandbox.json").write_text(
+        "\n".join(
+            ("{" if i == 0 else " ")
+            + json.dumps(k)
+            + ": "
+            + json.dumps(v)
+            + ("," if i < 9 else "}")
+            for i, (k, v) in enumerate(sandbox.items())
+        )
+        + "\n"
+    )
+    monkeypatch.setattr(sandbox_preflight, "verify_committed_manifest", lambda *_args, **_kw: None)
+    monkeypatch.setattr(training_preflight, "verify_committed_manifest", lambda _path: None)
+    assert validate_packet(packet)["status"] == "PASS"
+
+    tampered = dict(control, proxy_worlds_per_mix=64)
+    (packet / "control.json").write_text(json.dumps(tampered, indent=2, sort_keys=True) + "\n")
+    with pytest.raises(ValueError, match="frozen production recipe"):
+        validate_packet(packet)

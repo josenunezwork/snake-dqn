@@ -64,17 +64,30 @@ class TrainingTaskConfig:
 
 
 def seed_allocations(control: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return the finite, audited canonical-index ranges for every TRAIN-01 phase."""
+    """Return the finite, audited canonical-index ranges for every TRAIN-01 phase.
+
+    ``train_seed_offset`` shifts the non-evaluation training, preparation and
+    startup-screen domains so an independent replication run has disjoint
+    worlds, calibration bank, critic-preparation cohorts and PPO rollouts while
+    keeping ``monitor`` (proxy) and ``nomination`` (eval) banks identical.
+    """
+    raw_offset = control.get("train_seed_offset", 0)
+    if type(raw_offset) is not int or raw_offset < 0:
+        raise ValueError("train_seed_offset must be a nonnegative integer")
     worlds = int(control["worlds"])
     ticks = int(control["outer_iterations"]) * int(control["rollout_horizon"])
-    return [
-        {"phase": "train", "offset": 0, "count": (ticks + 1) * worlds},
-        {"phase": "calibration", "offset": 200_000_000, "count": 5_242_880 + worlds},
-        {"phase": "critic", "offset": 300_000_000, "count": 8_388_608 + worlds},
+    rows = [
+        {"phase": "train", "offset": raw_offset, "count": (ticks + 1) * worlds},
+        {"phase": "calibration", "offset": 200_000_000 + raw_offset, "count": 5_242_880 + worlds},
+        {"phase": "critic", "offset": 300_000_000 + raw_offset, "count": 8_388_608 + worlds},
         {"phase": "monitor", "offset": 400_000_000, "count": 3 * 96},
         {"phase": "nomination", "offset": 500_000_000, "count": 3 * 256},
-        {"phase": "engineering", "offset": 600_000_000, "count": 3 * 32},
+        {"phase": "engineering", "offset": 600_000_000 + raw_offset, "count": 3 * 32},
     ]
+    ordered = sorted(rows, key=lambda row: row["offset"])
+    if any(a["offset"] + a["count"] > b["offset"] for a, b in zip(ordered, ordered[1:])):
+        raise ValueError("train_seed_offset overlaps a fixed or shifted seed allocation")
+    return rows
 
 
 class TaskStep(NamedTuple):

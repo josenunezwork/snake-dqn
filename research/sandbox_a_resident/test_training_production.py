@@ -621,3 +621,93 @@ def test_compact_resume_refuses_decoded_state_that_differs_from_manifest(
     monkeypatch.setattr(train, "_restore", lambda *a, **k: pytest.fail("restored unverified state"))
     with pytest.raises(CompactResumeRefused, match="decoded tensor differs"):
         execute(control, tmp_path / "forged", ledger=ledger_path, input_root=inputs)
+
+
+def test_independent_replication_seed_domain_shifts_training_and_keeps_proxy_bank_identical(
+    production, tmp_path, monkeypatch
+):
+    base_control, _calls = production
+    rep_control = train.TrainControl(
+        "sandbox-a-train01",
+        base_control.source_commit,
+        allocation_index=1,
+        train_seed_offset=1_000_000_000,
+    )
+    for field in (
+        "worlds",
+        "outer_iterations",
+        "rollout_horizon",
+        "proxy_worlds_per_mix",
+        "proxy_horizon",
+        "compile_mode",
+    ):
+        object.__setattr__(rep_control, field, getattr(base_control, field))
+    assert train._seed(rep_control, rep_control.allocation_index) != train._seed(
+        base_control, base_control.allocation_index
+    )
+    assert train.allocation(asdict(rep_control)) != train.allocation(asdict(base_control))
+
+    original_task = train.ResidentTrainingTask
+    original_prepare = train.prepare
+    task_configs = []
+    cpu_offsets = []
+    device_screen_roots = []
+    proxy_configs = []
+
+    def make_task(config, **kwargs):
+        task_configs.append(config)
+        created = original_task(config, **kwargs)
+        created.proxy_factory = lambda _opponents, _allocations: (
+            lambda _mix, _worlds, _horizon, seed: SimpleNamespace(seed=seed)
+        )
+        return created
+
+    def preparation(factory, *args, **kwargs):
+        factory("calibration")
+        factory("refit")
+        return original_prepare(factory, *args, **kwargs)
+
+    def capture_cpu_factory(*_args, root_offset=600_000_000, **_kwargs):
+        cpu_offsets.append(root_offset)
+        return None
+
+    def capture_screen(**kwargs):
+        for mix in ("scripted", "frozen", "mixed"):
+            created = kwargs["device_factory"](mix, 32, 5000)
+            device_screen_roots.append(created.seed)
+        return {"material_gaps": []}
+
+    def capture_evaluate(_actor, _make_task, config, *_args, **_kwargs):
+        proxy_configs.append(config)
+        return {}
+
+    monkeypatch.setattr(train, "ResidentTrainingTask", make_task)
+    monkeypatch.setattr(train, "prepare", preparation)
+    monkeypatch.setattr(train, "cpu_distribution_factory", capture_cpu_factory)
+    monkeypatch.setattr(train, "run_distribution_screen", capture_screen)
+    monkeypatch.setattr(train, "evaluate", capture_evaluate)
+    monkeypatch.setattr(train, "paired", lambda *args: {})
+
+    execute(rep_control, tmp_path / "rep")
+    assert cpu_offsets == [1_600_000_000]
+    assert device_screen_roots == [1_600_000_000, 1_600_000_032, 1_600_000_064]
+    assert [c.allocation_phase_offset for c in task_configs[:3]] == [
+        1_000_000_000,
+        1_200_000_000,
+        1_300_000_000,
+    ]
+    assert proxy_configs and all(cfg.seed_base == 400_000_000 for cfg in proxy_configs)
+
+    # Foreign ledger/snapshot from base_control must be refused by rep_control.
+    execute(base_control, tmp_path / "base")
+    base_state = torch.load(tmp_path / "base/iteration-0000.pt", weights_only=False)
+    with pytest.raises(ValueError, match="foreign snapshot allocation"):
+        train._restore(
+            base_state,
+            rep_control,
+            train.B8Actor(Path("b8")),
+            train.ClockedPopArtCritic(None),
+            train.PPOTrainer(None, None, None),
+            train.ResidentTrainingTask(task_configs[0]),
+            torch.Generator(),
+        )

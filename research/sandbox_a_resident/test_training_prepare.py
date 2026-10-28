@@ -17,6 +17,56 @@ def test_seed_universe_covers_one_frame_deaths_and_stays_disjoint() -> None:
     assert all(a["offset"] + a["count"] < b["offset"] for a, b in zip(rows, rows[1:]))
 
 
+def test_independent_replication_seed_offset_is_disjoint_and_preserves_proxy_eval_banks() -> None:
+    base = seed_allocations(
+        {"worlds": 1024, "outer_iterations": 384, "rollout_horizon": 256, "train_seed_offset": 0}
+    )
+    rep = seed_allocations(
+        {
+            "worlds": 1024,
+            "outer_iterations": 384,
+            "rollout_horizon": 256,
+            "train_seed_offset": 1_000_000_000,
+        }
+    )
+    base_by_phase = {row["phase"]: row for row in base}
+    rep_by_phase = {row["phase"]: row for row in rep}
+    assert (
+        rep_by_phase["monitor"]
+        == base_by_phase["monitor"]
+        == {
+            "phase": "monitor",
+            "offset": 400_000_000,
+            "count": 288,
+        }
+    )
+    assert (
+        rep_by_phase["nomination"]
+        == base_by_phase["nomination"]
+        == {
+            "phase": "nomination",
+            "offset": 500_000_000,
+            "count": 768,
+        }
+    )
+    for phase in ("train", "calibration", "critic", "engineering"):
+        a, b = base_by_phase[phase], rep_by_phase[phase]
+        assert a["count"] == b["count"]
+        assert a["offset"] + a["count"] <= b["offset"]
+    ordered = sorted(rep, key=lambda row: row["offset"])
+    assert all(a["offset"] + a["count"] <= b["offset"] for a, b in zip(ordered, ordered[1:]))
+    for bad in (-1, True, 200_000_000, 400_000_000, 500_000_000):
+        with pytest.raises(ValueError):
+            seed_allocations(
+                {
+                    "worlds": 1024,
+                    "outer_iterations": 384,
+                    "rollout_horizon": 256,
+                    "train_seed_offset": bad,
+                }
+            )
+
+
 def test_exhaustive_seed_audit_rejects_effective_exclusion(monkeypatch, tmp_path) -> None:
     registry_path = tmp_path / "registry.json"
     registry_path.write_text("{}")

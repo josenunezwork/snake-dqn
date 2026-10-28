@@ -127,14 +127,40 @@ def prepare(
     registry: Path,
     *,
     seed_audit: Path | None = None,
+    allocation_index: int = 0,
+    train_seed_offset: int = 0,
+    job_id: str = "sandbox-a-train01-20261027-01",
+    output_dir: Path | None = None,
+    est_minutes: int = 480,
+    timeout_minutes: int = 960,
+    unit_cap: float = 129.0,
+    sandbox_source_delivery: str | None = None,
+    stall_timeout_seconds: int | None = None,
 ) -> None:
     """Create a finite training packet and ten-line adopted sandbox manifest."""
     from research.sandbox_a_resident.train import TrainControl
 
+    if (
+        type(est_minutes) is not int
+        or est_minutes < 1
+        or type(timeout_minutes) is not int
+        or timeout_minutes != 2 * est_minutes
+    ):
+        raise ValueError("timeout_minutes must equal 2x integer est_minutes")
+    base_seconds = est_minutes * 60
+    effective_seconds = timeout_minutes * 60
+    resolved_output = ARTIFACT_ROOT / "output" if output_dir is None else output_dir
     commit = subprocess.check_output(
         ["git", "rev-parse", "--verify", f"{commit}^{{commit}}"], cwd=ROOT, text=True
     ).strip()
-    control = asdict(TrainControl(study=STUDY, source_commit=commit, allocation_index=0))
+    control = asdict(
+        TrainControl(
+            study=STUDY,
+            source_commit=commit,
+            allocation_index=allocation_index,
+            train_seed_offset=train_seed_offset,
+        )
+    )
     for name, path in checkpoints.items():
         validate_input(
             {
@@ -174,8 +200,19 @@ def prepare(
             "sha256": digest(packet / "verified-ledger.json"),
         },
     ]
-    manifest = {
-        "job_id": "sandbox-a-train01-20261027-01",
+    env = {
+        "SANDBOX_A_CONTROL_JSON": json.dumps(control, sort_keys=True),
+        "SANDBOX_A_SOURCE_COMMIT": commit,
+        "SNAKE_DQN_DEVICE": "cuda",
+        "MAX_JOBS": "1",
+        "COLAB_CLI_REQUIREMENTS": "research/sandbox_a_resident/requirements.txt",
+    }
+    if stall_timeout_seconds is not None:
+        if type(stall_timeout_seconds) is not int or not 0 < stall_timeout_seconds <= 900:
+            raise ValueError("stall_timeout_seconds must be an integer in 1..900")
+        env["SANDBOX_A_STALL_TIMEOUT_SECONDS"] = str(stall_timeout_seconds)
+    manifest: dict[str, Any] = {
+        "job_id": job_id,
         "commit": commit,
         "script": "research/sandbox_a_resident/train_job.sh",
         "device": "cuda",
@@ -184,23 +221,17 @@ def prepare(
             "gpu": "A100",
             "allowed_gpus": ["A100"],
             "min_vcpu": 2,
-            "est_minutes": 480,
+            "est_minutes": est_minutes,
         },
-        "timeout_minutes": 960,
-        "output_dir": str(ARTIFACT_ROOT / "output"),
+        "timeout_minutes": timeout_minutes,
+        "output_dir": str(resolved_output),
         "max_export_bytes": 2 * 1024**3,
         "inputs": uploads,
-        "env": {
-            "SANDBOX_A_CONTROL_JSON": json.dumps(control, sort_keys=True),
-            "SANDBOX_A_SOURCE_COMMIT": commit,
-            "SNAKE_DQN_DEVICE": "cuda",
-            "MAX_JOBS": "1",
-            "COLAB_CLI_REQUIREMENTS": "research/sandbox_a_resident/requirements.txt",
-        },
+        "env": env,
         "required_exports": ["training/summary.json"],
         "budget": {
             "rate_units_per_hour": 8.0,
-            "unit_cap": 129.0,
+            "unit_cap": float(unit_cap),
             "reserve_units": 0,
             "other_assignments": {},
         },
@@ -221,11 +252,15 @@ def prepare(
             "seed_audit_sha256": digest(packet / "registry-check.json"),
         },
         "technical_envelope": {
-            "base_seconds": 28800,
-            "effective_seconds": 57600,
+            "base_seconds": base_seconds,
+            "effective_seconds": effective_seconds,
             "endpoint": "100663296 actor rows plus bounded preparation and proxy",
         },
     }
+    if sandbox_source_delivery is not None:
+        if sandbox_source_delivery != "background-sparse-v1":
+            raise ValueError("sandbox_source_delivery must be background-sparse-v1")
+        manifest["sandbox_source_delivery"] = sandbox_source_delivery
     write_once(packet / "dispatch-manifest.json", manifest)
     roots = [row["offset"] for row in allocations]
     inputs = [
@@ -254,7 +289,11 @@ def prepare(
         "inputs": inputs,
         "salt": f"a100-dev/{STUDY}/",
         "endpoint": {"kind": "steps", "value": 100_663_296},
-        "timeout": {"base_seconds": 28800, "seconds": 57600, "purpose": "runaway-guard"},
+        "timeout": {
+            "base_seconds": base_seconds,
+            "seconds": effective_seconds,
+            "purpose": "runaway-guard",
+        },
         "excluded_studies": [
             "F5",
             "F4-fold-0",
@@ -292,6 +331,15 @@ def main() -> int:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--checkpoint-dir", required=True, type=Path)
     parser.add_argument("--seed-audit", type=Path)
+    parser.add_argument("--allocation-index", type=int, default=0)
+    parser.add_argument("--train-seed-offset", type=int, default=0)
+    parser.add_argument("--job-id", default="sandbox-a-train01-20261027-01")
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--est-minutes", type=int, default=480)
+    parser.add_argument("--timeout-minutes", type=int, default=960)
+    parser.add_argument("--unit-cap", type=float, default=129.0)
+    parser.add_argument("--sandbox-source-delivery")
+    parser.add_argument("--stall-timeout-seconds", type=int)
     args = parser.parse_args()
     prepare(
         args.packet.resolve(),
@@ -303,6 +351,15 @@ def main() -> int:
         },
         ROOT / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
         seed_audit=args.seed_audit,
+        allocation_index=args.allocation_index,
+        train_seed_offset=args.train_seed_offset,
+        job_id=args.job_id,
+        output_dir=None if args.output_dir is None else args.output_dir.resolve(),
+        est_minutes=args.est_minutes,
+        timeout_minutes=args.timeout_minutes,
+        unit_cap=args.unit_cap,
+        sandbox_source_delivery=args.sandbox_source_delivery,
+        stall_timeout_seconds=args.stall_timeout_seconds,
     )
     return 0
 

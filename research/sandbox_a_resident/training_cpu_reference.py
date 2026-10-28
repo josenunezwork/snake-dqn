@@ -26,11 +26,13 @@ _ROOT = "a100-dev/sandbox-a-train01"
 _ROOT_OFFSET = 600_000_000
 
 
-def _seed(mix: str, world: int, episode: int = 0) -> int:
-    """Public root: ``600000000 + mixOrdinal*32 + world`` for first lives."""
+def _seed(mix: str, world: int, episode: int = 0, *, root_offset: int = _ROOT_OFFSET) -> int:
+    """Public root: ``root_offset + mixOrdinal*32 + world`` for first lives."""
     if mix not in MIX_IDS or not 0 <= world < 32 or episode < 0:
         raise ValueError("CPU roots require a known mix, world in [0, 32), and nonnegative life")
-    index = _ROOT_OFFSET + MIX_IDS[mix] * 32 + world + episode * 96
+    if type(root_offset) is not int or root_offset < 0:
+        raise ValueError("CPU root_offset must be a nonnegative integer")
+    index = root_offset + MIX_IDS[mix] * 32 + world + episode * 96
     return int.from_bytes(hashlib.sha256(f"{_ROOT}/{index}".encode()).digest()[:8], "big")
 
 
@@ -166,13 +168,16 @@ class _CpuShard:
     horizon: int
     checkpoint_paths: Mapping[str, str]
     inference_device: torch.device | str = "cpu"
+    root_offset: int = _ROOT_OFFSET
 
     def __post_init__(self) -> None:
         from src.simd_env.batch_sim import BatchSimConfig
         from src.simd_env.grid_sim import GridBatchSim
 
         worlds = len(self.rosters)
-        self.seeds = [_seed(self.mix, index) for index in range(worlds)]
+        self.seeds = [
+            _seed(self.mix, index, root_offset=self.root_offset) for index in range(worlds)
+        ]
         self.sim = GridBatchSim(
             BatchSimConfig(
                 num_envs=worlds,
@@ -257,6 +262,7 @@ class CpuRosterTask:
         *,
         checkpoint_paths: Mapping[str, str] | None = None,
         inference_device: torch.device | str = "cpu",
+        root_offset: int = _ROOT_OFFSET,
         seed: int = 0,
     ) -> None:
         del seed  # Kept for legacy direct smoke callers; factory roots are fixed.
@@ -277,7 +283,12 @@ class CpuRosterTask:
                 }
             }
         self._shard = _CpuShard(
-            mix, proxy_rosters(mix, worlds), horizon, checkpoint_paths, self.inference_device
+            mix,
+            proxy_rosters(mix, worlds),
+            horizon,
+            checkpoint_paths,
+            self.inference_device,
+            root_offset=root_offset,
         )
 
     def observe(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -288,9 +299,17 @@ class CpuRosterTask:
 
 
 def cpu_distribution_factory(
-    checkpoint_paths: Mapping[str, str], *, inference_device: torch.device | str = "cpu"
+    checkpoint_paths: Mapping[str, str],
+    *,
+    inference_device: torch.device | str = "cpu",
+    root_offset: int = _ROOT_OFFSET,
 ):
     """Return the CPU callback accepted by the distribution screen."""
     return lambda mix, worlds, horizon: CpuRosterTask(
-        mix, worlds, horizon, checkpoint_paths=checkpoint_paths, inference_device=inference_device
+        mix,
+        worlds,
+        horizon,
+        checkpoint_paths=checkpoint_paths,
+        inference_device=inference_device,
+        root_offset=root_offset,
     )

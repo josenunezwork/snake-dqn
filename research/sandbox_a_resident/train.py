@@ -92,8 +92,15 @@ class TrainControl:
     def __post_init__(self) -> None:
         if self.study != "sandbox-a-train01" or len(self.source_commit) != 40:
             raise ValueError("foreign TRAIN-01 control identity")
+        if type(self.allocation_index) is not int or self.allocation_index < 0:
+            raise ValueError("allocation_index must be a nonnegative integer")
+        if type(self.train_seed_offset) is not int or self.train_seed_offset < 0:
+            raise ValueError("train_seed_offset must be a nonnegative integer")
         if self.outer_iterations < 1 or self.worlds < 3 or self.rollout_horizon < 1:
             raise ValueError("positive finite training endpoint required")
+        train_capacity = (self.outer_iterations * self.rollout_horizon + 1) * self.worlds
+        if self.allocation_index >= train_capacity:
+            raise ValueError("allocation_index must lie inside the audited train allocation")
 
         if self.task_horizon != 5000 or self.snapshot_interval < 1 or self.proxy_interval < 1:
             raise ValueError("TRAIN-01 requires H5000 and positive cadences")
@@ -112,6 +119,7 @@ class TrainControl:
             or self.proxy_horizon != 5000
         ):
             raise ValueError("production TRAIN-01 recipe is frozen")
+        seed_allocations(asdict(self))
 
     @property
     def actor_rows(self) -> int:
@@ -527,13 +535,19 @@ def run(
         proxy_factory = task.proxy_factory(opponents, list(audited_allocations.values()))
         os.environ.setdefault("SNAKE_CKPT_DIR", str(frp3.parent))
         cpu_actor = copy.deepcopy(actor.reference).to(dev).eval()
+        engineering_offset = int(audited_allocations["engineering"]["offset"])
         emit("distribution-screen-start")
         screen = run_distribution_screen(
             cpu_factory=cpu_distribution_factory(
-                {FRP3_S12_SHA256: frp3, CHAMPION_SHA256: champion}, inference_device=dev
+                {FRP3_S12_SHA256: frp3, CHAMPION_SHA256: champion},
+                inference_device=dev,
+                root_offset=engineering_offset,
             ),
             device_factory=lambda mix, worlds, horizon: proxy_factory(
-                mix, worlds, horizon, 600_000_000 + ("scripted", "frozen", "mixed").index(mix) * 32
+                mix,
+                worlds,
+                horizon,
+                engineering_offset + ("scripted", "frozen", "mixed").index(mix) * 32,
             ),
             cpu_actor=cpu_actor,
             device_actor=actor.reference,
@@ -676,7 +690,7 @@ def run(
         proxy = ProxyConfig(
             horizon=control.proxy_horizon,
             worlds_per_mix=control.proxy_worlds_per_mix,
-            seed_base=400_000_000,
+            seed_base=int(audited_allocations["monitor"]["offset"]),
         )
 
         def cache_identity(source_commit: str) -> str:
