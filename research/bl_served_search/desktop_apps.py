@@ -9,11 +9,14 @@ identity is permanently ineligible for the rest of this registry attempt.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
 import re
+import resource
 import subprocess
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -22,11 +25,15 @@ from research.bl_k1.m1_background import SYSTEM_EXECUTABLE_ROOTS
 from research.bl_paced_identity.events import canonical_bytes
 
 POLICY = "classified-desktop-v1"
-DEFAULT_REGISTRY = Path(__file__).with_name("DESKTOP_APP_REGISTRY_20261027_02.json")
+DEFAULT_REGISTRY = Path(__file__).with_name("DESKTOP_APP_REGISTRY_20261027_03.json")
+PROTECTED_MACOS_SERVICE_ROOTS = (*SYSTEM_EXECUTABLE_ROOTS, "/Library/Apple/System/")
 _WORKLOAD_NAMES = frozenset(
     {"python", "python3", "node", "pytest", "uv", "codex", "claude", "codex-exec", "agy"}
 )
-_WORKLOAD_TEXT = re.compile(r"(?:^|/)(?:Projects|research)(?:/|$)")
+_WORKLOAD_TEXT = re.compile(
+    r"(?:^|/)(?:Projects|research|codex-cli|claude-code|cua_node|\.codex|artifact-sessions)(?:/|$)"
+    r"|--utility-sub-type=node\.mojom\.NodeService"
+)
 _ELIGIBLE_ROLES = frozenset(
     {
         "ordinary_mail_ui",
@@ -37,6 +44,12 @@ _ELIGIBLE_ROLES = frozenset(
     }
 )
 _UNSET = object()
+_VERIFICATION_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+
+def clear_verification_cache() -> None:
+    """Clear the process-local codesign/spctl verification cache (for cold-cache tests)."""
+    _VERIFICATION_CACHE.clear()
 
 
 def _sha256(path: Path) -> str:
@@ -172,6 +185,67 @@ def _extract_display_argv(
     return ""
 
 
+def _path_bounded_in_text(target: str, text: str) -> bool:
+    """Match an exact executable path token inside whitespace/flag-delimited display text."""
+    if not target or not text or target not in text:
+        return False
+    start = 0
+    while True:
+        idx = text.find(target, start)
+        if idx < 0:
+            return False
+        before_ok = idx == 0 or text[idx - 1].isspace() or text[idx - 1] in {'"', "'", "="}
+        end = idx + len(target)
+        after_ok = end == len(text) or text[end].isspace() or text[end] in {'"', "'"}
+        if before_ok and after_ok:
+            return True
+        start = idx + 1
+
+
+def _is_non_ui_agent_helper(command: str, verified_ui_command: bool) -> bool:
+    """Enforce workload precedence on non-UI helpers of AI/agent desktop bundles."""
+    if not command or verified_ui_command:
+        return False
+    name = Path(command).name.lower()
+    if name in {"codex (renderer)", "claude helper (renderer)"}:
+        return False
+    if name.startswith(
+        (
+            "codex ",
+            "codex-",
+            "codex_",
+            "codexdock",
+            "codexcomputeruse",
+            "claude helper",
+            "claude-",
+        )
+    ):
+        return True
+    if command.startswith(
+        (
+            "/Applications/ChatGPT.app/Contents/Resources/",
+            "/Applications/Codex.app/Contents/Resources/",
+            "/Applications/Claude.app/Contents/Resources/",
+            "/Applications/Claude.app/Contents/Helpers/",
+        )
+    ):
+        return True
+    return False
+
+
+_DISPLAY_JSON_FLAG_RE = re.compile(r"--[A-Za-z0-9_.-]+=\{.*?\}(?=\s+--|\s*$)")
+_DISPLAY_SPACE_PATH_FLAG_RE = re.compile(
+    r"--(?:user-data-dir|app-path|resources-dir-path)=.*?(?=\s+--|\s*$)"
+)
+
+
+def _sanitize_display_remainder(rem_display: str) -> str:
+    """Strip flag payloads whose values contain spaces after _WORKLOAD_TEXT has scanned raw text."""
+    cleaned = _DISPLAY_JSON_FLAG_RE.sub("", rem_display)
+    cleaned = _DISPLAY_SPACE_PATH_FLAG_RE.sub("", cleaned)
+    return cleaned.replace("Application Support/", "Application_Support/")
+
+
 def _intrinsic_workload_reason(
     row: Mapping[str, Any], reg_dict: Mapping[str, Any], verified: Mapping[str, Any]
 ) -> str | None:
@@ -234,18 +308,20 @@ def _intrinsic_workload_reason(
     }
     if command and command in exclusions:
         return "workload_exclusion"
-    if any(tok in exclusions for tok in (*argv_tokens, *display_text.split(), *ancestor_commands)):
+    if any(tok in exclusions for tok in (*argv_tokens, *ancestor_commands)):
+        return "workload_exclusion"
+    if display_text and any(_path_bounded_in_text(excl, display_text) for excl in exclusions):
+        return "workload_exclusion"
+    if any(_path_bounded_in_text(excl, anc) for anc in ancestor_commands for excl in exclusions):
         return "workload_exclusion"
 
+    verified_ui_command = isinstance(verified, Mapping) and bool(command) and command in verified
     if command:
         path = Path(command)
         if ".." not in path.parts:
-            verified_gui_main = (
-                isinstance(verified, Mapping)
-                and command in verified
-                and path.name in {"Claude", "Codex"}
-            )
-            if (_is_workload_name(path.name) and not verified_gui_main) or _WORKLOAD_TEXT.search(
+            if _is_non_ui_agent_helper(command, verified_ui_command):
+                return "workload_exclusion"
+            if (_is_workload_name(path.name) and not verified_ui_command) or _WORKLOAD_TEXT.search(
                 command
             ):
                 return "workload_exclusion"
@@ -254,39 +330,49 @@ def _intrinsic_workload_reason(
         if text and _WORKLOAD_TEXT.search(text):
             return "workload_exclusion"
 
+    verified_keys = tuple(verified.keys()) if isinstance(verified, Mapping) else ()
     for anc_cmd in ancestor_commands:
-        for tok in anc_cmd.split():
+        if isinstance(verified, Mapping) and anc_cmd in verified:
+            continue
+        anc_direct = Path(anc_cmd)
+        if ".." not in anc_direct.parts:
+            if _is_non_ui_agent_helper(anc_cmd, False) or _is_workload_name(anc_direct.name):
+                return "workload_exclusion"
+        rem_anc = anc_cmd
+        for v_cmd in verified_keys:
+            if isinstance(v_cmd, str) and v_cmd and rem_anc.startswith(v_cmd):
+                tail = rem_anc[len(v_cmd) :]
+                if not tail or tail[0].isspace():
+                    rem_anc = tail.strip()
+                    break
+        for tok in _sanitize_display_remainder(rem_anc).split():
+            if tok.startswith("-"):
+                continue
             anc_path = Path(tok)
             if ".." in anc_path.parts:
                 continue
-            anc_verified = (
-                isinstance(verified, Mapping)
-                and tok in verified
-                and anc_path.name in {"Claude", "Codex"}
-            )
+            anc_verified = isinstance(verified, Mapping) and tok in verified
             if _is_workload_name(anc_path.name) and not anc_verified:
                 return "workload_exclusion"
 
-    enrolled_command = isinstance(verified, Mapping) and bool(command) and command in verified
-    extra_tokens: list[str] = list(argv_tokens[1:] if enrolled_command else argv_tokens)
+    extra_tokens: list[str] = list(argv_tokens[1:] if verified_ui_command else argv_tokens)
     if display_text:
-        rem_display = (
-            display_text[len(command) :].strip()
-            if command and display_text.startswith(command)
-            else display_text
-        )
-        extra_tokens.extend(rem_display.split())
+        norm_argv = " ".join(" ".join(argv_tokens).split())
+        norm_disp = " ".join(display_text.split())
+        if not argv_tokens or norm_argv != norm_disp:
+            rem_display = (
+                display_text[len(command) :].strip()
+                if command and display_text.startswith(command)
+                else display_text
+            )
+            extra_tokens.extend(_sanitize_display_remainder(rem_display).split())
     for tok in extra_tokens:
         if tok.startswith("-"):
             continue
         tok_path = Path(tok)
         if ".." in tok_path.parts:
             continue
-        tok_verified = (
-            isinstance(verified, Mapping)
-            and tok in verified
-            and tok_path.name in {"Claude", "Codex"}
-        )
+        tok_verified = isinstance(verified, Mapping) and tok in verified
         if _is_workload_name(tok_path.name) and not tok_verified:
             return "workload_exclusion"
 
@@ -440,7 +526,7 @@ def _resolve_executable_evidence(
     recorded = row.get("executable_status")
     if not isinstance(recorded, str) and isinstance(classification, Mapping):
         recorded = classification.get("executable_status")
-    if isinstance(recorded, str) and recorded:
+    if isinstance(recorded, str) and recorded and recorded != "workload":
         if recorded == "ok":
             if not valid_verified or not isinstance(identity, Mapping):
                 return "unenrolled_or_unverified_executable", command, None
@@ -623,7 +709,7 @@ def classify_row(
 
     is_system = (
         workload_reason is None
-        and command.startswith(SYSTEM_EXECUTABLE_ROOTS)
+        and command.startswith(PROTECTED_MACOS_SERVICE_ROOTS)
         and ".." not in Path(command).parts
         and canonical_command not in verified
     )
@@ -1185,6 +1271,78 @@ class DesktopRegistry:
         self._binding_history: dict[tuple[int, str, int, str], dict[str, Any]] = {}
         self._revoked_bindings: dict[tuple[int, str, int, str], str] = {}
         self._revoked_processes: dict[tuple[int, str], str] = {}
+        self._tool_invocations: int = 0
+        self._verification_cpu: dict[str, Any] = self._empty_verification_cpu()
+
+    @staticmethod
+    def _empty_verification_cpu() -> dict[str, Any]:
+        return {
+            "outside_observation_window": True,
+            "cache_hit": False,
+            "source": "unverified",
+            "tool_invocations": 0,
+            "wall_seconds": 0.0,
+            "self_cpu_seconds": 0.0,
+            "children_cpu_seconds": 0.0,
+            "daemon_cpu_seconds": 0.0,
+            "total_cpu_seconds": 0.0,
+            "initial_verification": None,
+            "reverify_count": 0,
+            "reverify_wall_seconds": 0.0,
+            "reverify_self_cpu_seconds": 0.0,
+            "reverify_children_cpu_seconds": 0.0,
+            "reverify_total_cpu_seconds": 0.0,
+            "reverify_events": [],
+        }
+
+    @staticmethod
+    def _parse_ps_cpu_seconds(value: str) -> float:
+        days = 0
+        if "-" in value:
+            day_str, value = value.split("-", 1)
+            days = int(day_str)
+        parts = value.split(":")
+        if len(parts) not in (2, 3):
+            raise ValueError("invalid ps TIME")
+        total = 0.0
+        for part in parts:
+            total = total * 60.0 + float(part)
+        return total + days * 86400.0
+
+    def _daemon_verification_cpu_seconds(self) -> float | None:
+        """Read cumulative ps CPU seconds of syspolicyd + trustd during real signature checks."""
+        if self._runner is not subprocess.run:
+            return None
+        try:
+            proc = subprocess.run(
+                ["ps", "-Ao", "time=,comm="],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+                env={**os.environ, "LC_ALL": "C"},
+            )
+        except OSError:
+            return None
+        if proc.returncode != 0:
+            return None
+        total = 0.0
+        for line in proc.stdout.splitlines():
+            fields = line.strip().split(None, 1)
+            if len(fields) != 2:
+                continue
+            comm = fields[1].strip()
+            if comm in {
+                "/usr/libexec/syspolicyd",
+                "/usr/libexec/trustd",
+                "syspolicyd",
+                "trustd",
+            }:
+                try:
+                    total += self._parse_ps_cpu_seconds(fields[0])
+                except ValueError:
+                    continue
+        return total
 
     @staticmethod
     def _verify_seal(path: Path) -> None:
@@ -1200,38 +1358,67 @@ class DesktopRegistry:
         ):
             raise ValueError("desktop registry digest sidecar mismatch")
 
-    def _load(self) -> dict[str, Any]:
-        raw = json.loads(self.path.read_text(encoding="utf-8"))
-        self._raw_registry = raw
-        self._registry_inputs = [
-            {"path": self.path.name, "sha256": hashlib.sha256(self.path.read_bytes()).hexdigest()}
-        ]
+    def _load_chain(self, path: Path, seen: set[Path]) -> dict[str, Any]:
+        resolved = path.resolve(strict=True)
+        if resolved in seen:
+            raise ValueError("desktop registry extension cycle")
+        seen.add(resolved)
+        if self.require_seal:
+            self._verify_seal(resolved)
+        raw_bytes = resolved.read_bytes()
+        raw_sha = hashlib.sha256(raw_bytes).hexdigest()
+        raw = json.loads(raw_bytes.decode("utf-8"))
+        self._registry_inputs.append({"path": resolved.name, "sha256": raw_sha})
         base_name = raw.get("extends")
-        if base_name:
-            if not isinstance(base_name, str) or Path(base_name).name != base_name:
-                raise ValueError("desktop registry extension has invalid base name")
-            base_path = self.path.with_name(base_name)
-            if self.require_seal:
-                self._verify_seal(base_path)
-            base_bytes = base_path.read_bytes()
-            if hashlib.sha256(base_bytes).hexdigest() != raw.get("base_registry_sha256"):
-                raise ValueError("desktop registry extension base digest mismatch")
-            base = json.loads(base_bytes)
-            self._registry_inputs.append(
-                {"path": base_path.name, "sha256": hashlib.sha256(base_bytes).hexdigest()}
-            )
-            raw = {
-                **base,
-                "applications": [
-                    *base.get("applications", []),
-                    *raw.get("additional_applications", []),
-                ],
-                "signed_identities": {
-                    **base.get("signed_identities", {}),
-                    **raw.get("signed_identities", {}),
-                },
-                "extension": {"path": base_name, "sha256": raw["base_registry_sha256"]},
-            }
+        if not base_name:
+            return raw
+        if not isinstance(base_name, str) or Path(base_name).name != base_name:
+            raise ValueError("desktop registry extension has invalid base name")
+        base_path = resolved.with_name(base_name)
+        base_bytes = base_path.read_bytes()
+        if hashlib.sha256(base_bytes).hexdigest() != raw.get("base_registry_sha256"):
+            raise ValueError("desktop registry extension base digest mismatch")
+        base = self._load_chain(base_path, seen)
+        merged_exclusions = list(base.get("workload_exclusions", []))
+        seen_exclusions = {
+            item.get("exact_executable")
+            for item in merged_exclusions
+            if isinstance(item, Mapping) and isinstance(item.get("exact_executable"), str)
+        }
+        for item in raw.get("additional_workload_exclusions", []):
+            if isinstance(item, Mapping):
+                exact = item.get("exact_executable")
+                if isinstance(exact, str) and exact in seen_exclusions:
+                    continue
+                if isinstance(exact, str):
+                    seen_exclusions.add(exact)
+            merged_exclusions.append(item)
+        merged = {
+            **base,
+            "applications": [
+                *base.get("applications", []),
+                *raw.get("additional_applications", []),
+            ],
+            "signed_identities": {
+                **base.get("signed_identities", {}),
+                **raw.get("signed_identities", {}),
+            },
+            "workload_exclusions": merged_exclusions,
+            "extension": {"path": base_name, "sha256": raw["base_registry_sha256"]},
+        }
+        for drop_key in (
+            "extends",
+            "base_registry_sha256",
+            "additional_applications",
+            "additional_workload_exclusions",
+        ):
+            merged.pop(drop_key, None)
+        return merged
+
+    def _load(self) -> dict[str, Any]:
+        self._raw_registry = json.loads(self.path.read_text(encoding="utf-8"))
+        self._registry_inputs: list[dict[str, str]] = []
+        raw = self._load_chain(self.path, set())
         if raw.get("policy") != POLICY or not isinstance(raw.get("applications"), list):
             raise ValueError("desktop registry has wrong policy or applications")
         if type(raw.get("owner_uid")) is not int or raw["owner_uid"] < 0:
@@ -1252,6 +1439,7 @@ class DesktopRegistry:
         return raw
 
     def _run(self, argv: list[str]) -> str:
+        self._tool_invocations += 1
         result = self._runner(argv, capture_output=True, text=True, check=False, timeout=30)
         if result.returncode:
             raise ValueError(f"identity tool failed: {argv[0]}")
@@ -1354,8 +1542,110 @@ class DesktopRegistry:
             },
         }
 
-    def verify_all(self) -> dict[str, Any]:
-        """Verify every sealed entry off tick and discard stale PID bindings."""
+    def _reset_session_state(self) -> None:
+        self._history.clear()
+        self._history_log.clear()
+        self._last_observation_ns = None
+        self._proc_last_observation_ns.clear()
+        self._bindings.clear()
+        self._binding_history.clear()
+        self._revoked_bindings.clear()
+        self._revoked_processes.clear()
+
+    def _cache_key(self) -> tuple[Any, ...]:
+        closure_ids = tuple(
+            id(cell.cell_contents) for cell in (getattr(self._runner, "__closure__", None) or ())
+        )
+        return (
+            self._runner is subprocess.run,
+            id(self._runner),
+            getattr(self._runner, "__code__", None),
+            closure_ids,
+            hashlib.sha256(canonical_bytes(self.registry)).hexdigest(),
+            tuple(str(root) for root in self._trusted_roots),
+        )
+
+    def _validate_cached_identities(
+        self, cached_verified: Mapping[str, Any]
+    ) -> dict[str, dict[str, Any]] | None:
+        validated: dict[str, dict[str, Any]] = {}
+        for app in self.registry["applications"]:
+            for role in app["executables"]:
+                bundle, executable = self._entry_paths(app, role)
+                plist = self._plist(bundle)
+                for key, plist_key in (
+                    ("bundle_id", "CFBundleIdentifier"),
+                    ("version", "CFBundleShortVersionString"),
+                    ("build", "CFBundleVersion"),
+                ):
+                    if app.get(key) != plist.get(plist_key):
+                        raise ValueError(f"desktop registry {app['id']} {key} mismatch")
+                exe_str = str(executable)
+                entry = cached_verified.get(exe_str)
+                if not _valid_verified_identity(exe_str, entry, self.registry):
+                    return None
+                stat = executable.stat()
+                current_file = {
+                    "device": stat.st_dev,
+                    "inode": stat.st_ino,
+                    "size": stat.st_size,
+                    "mtime_ns": stat.st_mtime_ns,
+                    "ctime_ns": stat.st_ctime_ns,
+                }
+                if _sha256(executable) != role.get("sha256"):
+                    raise ValueError(f"desktop registry {app['id']} executable digest mismatch")
+                if current_file != entry.get("file_identity"):
+                    return None
+                validated[exe_str] = copy.deepcopy(dict(entry))
+        return validated
+
+    @staticmethod
+    def _rusage_cpu_seconds(usage: resource.struct_rusage) -> float:
+        return float(usage.ru_utime) + float(usage.ru_stime)
+
+    def verify_all(self, *, outside_observation_window: bool = True) -> dict[str, Any]:
+        """Verify every sealed entry off tick (cached) and discard stale PID bindings."""
+        cache_key = self._cache_key()
+        cached = _VERIFICATION_CACHE.get(cache_key)
+        if isinstance(cached, Mapping) and isinstance(cached.get("verified"), Mapping):
+            wall_start = time.perf_counter_ns()
+            self_before = self._rusage_cpu_seconds(resource.getrusage(resource.RUSAGE_SELF))
+            try:
+                validated = self._validate_cached_identities(cached["verified"])
+            except BaseException:
+                _VERIFICATION_CACHE.pop(cache_key, None)
+                raise
+            if validated is not None:
+                wall_s = max(0.0, (time.perf_counter_ns() - wall_start) / 1e9)
+                self_cpu_s = max(
+                    0.0,
+                    self._rusage_cpu_seconds(resource.getrusage(resource.RUSAGE_SELF))
+                    - self_before,
+                )
+                self._verified = validated
+                self._reset_session_state()
+                self._verification_cpu = {
+                    **self._empty_verification_cpu(),
+                    "outside_observation_window": bool(outside_observation_window),
+                    "cache_hit": True,
+                    "source": "process_cache",
+                    "tool_invocations": 0,
+                    "wall_seconds": wall_s,
+                    "self_cpu_seconds": self_cpu_s,
+                    "children_cpu_seconds": 0.0,
+                    "daemon_cpu_seconds": 0.0,
+                    "total_cpu_seconds": self_cpu_s,
+                    "initial_verification": copy.deepcopy(cached.get("initial_verification")),
+                }
+                return self.read_export()
+            _VERIFICATION_CACHE.pop(cache_key, None)
+
+        daemon_before = self._daemon_verification_cpu_seconds()
+        wall_start = time.perf_counter_ns()
+        self_before = self._rusage_cpu_seconds(resource.getrusage(resource.RUSAGE_SELF))
+        child_before = self._rusage_cpu_seconds(resource.getrusage(resource.RUSAGE_CHILDREN))
+        tools_before = self._tool_invocations
+
         verified: dict[str, dict[str, Any]] = {}
         checked_bundles: set[str] = set()
         for app in self.registry["applications"]:
@@ -1370,15 +1660,147 @@ class DesktopRegistry:
                         raise ValueError("desktop registry bundle lacks trusted spctl assessment")
                     checked_bundles.add(evidence["bundle_path"])
                 verified[evidence["executable"]] = evidence
+
+        tools_used = self._tool_invocations - tools_before
+        self_cpu_s = max(
+            0.0,
+            self._rusage_cpu_seconds(resource.getrusage(resource.RUSAGE_SELF)) - self_before,
+        )
+        child_cpu_s = max(
+            0.0,
+            self._rusage_cpu_seconds(resource.getrusage(resource.RUSAGE_CHILDREN)) - child_before,
+        )
+        wall_s = max(0.0, (time.perf_counter_ns() - wall_start) / 1e9)
+        daemon_after = self._daemon_verification_cpu_seconds()
+        daemon_cpu_s = (
+            max(0.0, daemon_after - daemon_before)
+            if daemon_before is not None and daemon_after is not None
+            else 0.0
+        )
+        total_cpu_s = self_cpu_s + child_cpu_s + daemon_cpu_s
+        initial_summary = {
+            "outside_observation_window": bool(outside_observation_window),
+            "tool_invocations": tools_used,
+            "wall_seconds": wall_s,
+            "self_cpu_seconds": self_cpu_s,
+            "children_cpu_seconds": child_cpu_s,
+            "daemon_cpu_seconds": daemon_cpu_s,
+            "total_cpu_seconds": total_cpu_s,
+        }
         self._verified = verified
-        self._history.clear()
-        self._history_log.clear()
-        self._last_observation_ns = None
-        self._bindings.clear()
-        self._binding_history.clear()
-        self._revoked_bindings.clear()
-        self._revoked_processes.clear()
+        self._reset_session_state()
+        self._verification_cpu = {
+            **self._empty_verification_cpu(),
+            "outside_observation_window": bool(outside_observation_window),
+            "cache_hit": False,
+            "source": "cold_verify_all",
+            "tool_invocations": tools_used,
+            "wall_seconds": wall_s,
+            "self_cpu_seconds": self_cpu_s,
+            "children_cpu_seconds": child_cpu_s,
+            "daemon_cpu_seconds": daemon_cpu_s,
+            "total_cpu_seconds": total_cpu_s,
+            "initial_verification": copy.deepcopy(initial_summary),
+        }
+        _VERIFICATION_CACHE[cache_key] = {
+            "verified": copy.deepcopy(verified),
+            "initial_verification": copy.deepcopy(initial_summary),
+        }
         return self.read_export()
+
+    def load_preverified(
+        self,
+        preverified: Mapping[str, Any],
+        *,
+        outside_observation_window: bool = True,
+    ) -> dict[str, Any]:
+        """Adopt pre-verified identities across a monitor boundary without spctl calls."""
+        expected_sha = hashlib.sha256(canonical_bytes(self.registry)).hexdigest()
+        if (
+            not isinstance(preverified, Mapping)
+            or preverified.get("policy") != POLICY
+            or preverified.get("registry_sha256") != expected_sha
+            or not isinstance(preverified.get("verified"), Mapping)
+        ):
+            raise ValueError("preverified desktop evidence does not match sealed registry")
+        wall_start = time.perf_counter_ns()
+        self_before = self._rusage_cpu_seconds(resource.getrusage(resource.RUSAGE_SELF))
+        validated = self._validate_cached_identities(preverified["verified"])
+        if validated is None:
+            return self.verify_all(outside_observation_window=outside_observation_window)
+        wall_s = max(0.0, (time.perf_counter_ns() - wall_start) / 1e9)
+        self_cpu_s = max(
+            0.0,
+            self._rusage_cpu_seconds(resource.getrusage(resource.RUSAGE_SELF)) - self_before,
+        )
+        prior_cpu = (
+            preverified.get("verification_cpu")
+            if isinstance(preverified.get("verification_cpu"), Mapping)
+            else {}
+        )
+        initial_summary = copy.deepcopy(prior_cpu.get("initial_verification") or prior_cpu or None)
+        self._verified = validated
+        self._reset_session_state()
+        self._verification_cpu = {
+            **self._empty_verification_cpu(),
+            "outside_observation_window": bool(outside_observation_window),
+            "cache_hit": True,
+            "source": "preverified_handoff",
+            "tool_invocations": 0,
+            "wall_seconds": wall_s,
+            "self_cpu_seconds": self_cpu_s,
+            "children_cpu_seconds": 0.0,
+            "daemon_cpu_seconds": 0.0,
+            "total_cpu_seconds": self_cpu_s,
+            "initial_verification": initial_summary,
+        }
+        _VERIFICATION_CACHE[self._cache_key()] = {
+            "verified": copy.deepcopy(validated),
+            "initial_verification": copy.deepcopy(initial_summary),
+        }
+        return self.read_export()
+
+    def _record_reverify_event(
+        self,
+        *,
+        pid: int | None,
+        birth: str | None,
+        command: str,
+        trigger: str,
+        wall_seconds: float,
+        self_cpu_seconds: float,
+        children_cpu_seconds: float = 0.0,
+        tool_invocations: int = 0,
+    ) -> None:
+        total_s = self_cpu_seconds + children_cpu_seconds
+        self._verification_cpu["reverify_count"] = (
+            int(self._verification_cpu.get("reverify_count", 0)) + 1
+        )
+        self._verification_cpu["reverify_wall_seconds"] = (
+            float(self._verification_cpu.get("reverify_wall_seconds", 0.0)) + wall_seconds
+        )
+        self._verification_cpu["reverify_self_cpu_seconds"] = (
+            float(self._verification_cpu.get("reverify_self_cpu_seconds", 0.0)) + self_cpu_seconds
+        )
+        self._verification_cpu["reverify_children_cpu_seconds"] = (
+            float(self._verification_cpu.get("reverify_children_cpu_seconds", 0.0))
+            + children_cpu_seconds
+        )
+        self._verification_cpu["reverify_total_cpu_seconds"] = (
+            float(self._verification_cpu.get("reverify_total_cpu_seconds", 0.0)) + total_s
+        )
+        self._verification_cpu["reverify_events"].append(
+            {
+                "pid": pid,
+                "birth": birth,
+                "command": command,
+                "trigger": trigger,
+                "wall_seconds": wall_seconds,
+                "self_cpu_seconds": self_cpu_seconds,
+                "children_cpu_seconds": children_cpu_seconds,
+                "tool_invocations": tool_invocations,
+            }
+        )
 
     def _workload_reason(self, row: Mapping[str, Any]) -> str | None:
         return _intrinsic_workload_reason(row, self.registry, self._verified)
@@ -1390,6 +1812,9 @@ class DesktopRegistry:
         uid: int,
         admit: bool,
         already_bound: bool,
+        pid: int | None = None,
+        birth: str | None = None,
+        reverify_trigger: str | None = None,
     ) -> tuple[str, str, dict[str, Any] | None]:
         try:
             command_path = Path(command)
@@ -1417,14 +1842,32 @@ class DesktopRegistry:
         except OSError:
             return "executable_replaced", resolved, dict(identity)
         if current_file != identity["file_identity"]:
-            if current_file["size"] != identity["file_identity"].get("size"):
-                return "executable_replaced", resolved, dict(identity)
+            wall_start = time.perf_counter_ns()
+            self_before = self._rusage_cpu_seconds(resource.getrusage(resource.RUSAGE_SELF))
             try:
-                if _sha256(Path(resolved)) != identity.get("sha256"):
+                if current_file["size"] != identity["file_identity"].get("size"):
                     return "executable_replaced", resolved, dict(identity)
-            except OSError:
-                return "executable_replaced", resolved, dict(identity)
+                try:
+                    if _sha256(Path(resolved)) != identity.get("sha256"):
+                        return "executable_replaced", resolved, dict(identity)
+                except OSError:
+                    return "executable_replaced", resolved, dict(identity)
+            finally:
+                self._record_reverify_event(
+                    pid=pid,
+                    birth=birth,
+                    command=resolved,
+                    trigger="file_identity_changed",
+                    wall_seconds=max(0.0, (time.perf_counter_ns() - wall_start) / 1e9),
+                    self_cpu_seconds=max(
+                        0.0,
+                        self._rusage_cpu_seconds(resource.getrusage(resource.RUSAGE_SELF))
+                        - self_before,
+                    ),
+                )
         elif admit and not already_bound and uid == self.permitted_uid:
+            wall_start = time.perf_counter_ns()
+            self_before = self._rusage_cpu_seconds(resource.getrusage(resource.RUSAGE_SELF))
             try:
                 if _sha256(Path(resolved)) != identity.get("sha256"):
                     return "executable_replaced", resolved, dict(identity)
@@ -1440,6 +1883,19 @@ class DesktopRegistry:
                     return "executable_replaced", resolved, dict(identity)
             except OSError:
                 return "executable_replaced", resolved, dict(identity)
+            finally:
+                self._record_reverify_event(
+                    pid=pid,
+                    birth=birth,
+                    command=resolved,
+                    trigger=reverify_trigger or "new_pid_birth",
+                    wall_seconds=max(0.0, (time.perf_counter_ns() - wall_start) / 1e9),
+                    self_cpu_seconds=max(
+                        0.0,
+                        self._rusage_cpu_seconds(resource.getrusage(resource.RUSAGE_SELF))
+                        - self_before,
+                    ),
+                )
         return "ok", resolved, dict(identity)
 
     def normalize_row(
@@ -1473,7 +1929,7 @@ class DesktopRegistry:
         argv_display = _extract_display_argv(row, argv_list, argv_status)
         workload_reason = _intrinsic_workload_reason(row, self.registry, self._verified)
         try:
-            _, _, uid, command = self._key(row)
+            pid, birth, uid, command = self._key(row)
         except ValueError:
             executable_status = (
                 "workload" if workload_reason is not None else "desktop_process_identity_missing"
@@ -1482,7 +1938,11 @@ class DesktopRegistry:
             override_status = row.get("executable_status")
             if workload_reason is not None:
                 executable_status = "workload"
-            elif isinstance(override_status, str) and override_status:
+            elif (
+                isinstance(override_status, str)
+                and override_status
+                and override_status != "workload"
+            ):
                 executable_status = override_status
             else:
                 already_bound = bool(
@@ -1494,11 +1954,19 @@ class DesktopRegistry:
                     and history_before.get("argv_status") == argv_status
                     and history_before.get("argv_display") == argv_display
                 )
+                reverify_trigger = (
+                    "exec"
+                    if history_before is not None and history_before.get("command") != command
+                    else ("new_pid_birth" if history_before is None else "rebind")
+                )
                 executable_status, _, _ = self._probe_executable(
                     command,
                     uid=uid,
                     admit=admit,
                     already_bound=already_bound,
+                    pid=pid,
+                    birth=birth,
+                    reverify_trigger=reverify_trigger,
                 )
 
         normalized: dict[str, Any] = {
@@ -1778,6 +2246,7 @@ class DesktopRegistry:
             "registry_inputs": self._registry_inputs,
             "registry": self.registry,
             "verified": dict(self._verified),
+            "verification_cpu": copy.deepcopy(self._verification_cpu),
             "process_history": [dict(self._history[key]) for key in sorted(self._history)],
             "history_log": [dict(entry) for entry in self._history_log],
             "bindings": [

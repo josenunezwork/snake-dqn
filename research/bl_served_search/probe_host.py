@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import copy
 import multiprocessing as mp
 import os
 import platform
 import time
+from collections.abc import Mapping
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Callable
 
-from research.bl_k1.m1_background import SYSTEM_EXECUTABLE_ROOTS
 from research.bl_mac_latency import host
 from research.bl_paced_identity.record import export_json
+from research.bl_served_search.desktop_apps import PROTECTED_MACOS_SERVICE_ROOTS
 from research.mac_lease import held
 
 THREAD_ENV = (
@@ -213,7 +215,7 @@ def foreign_load(
                 violation or (kind not in background_kinds and cpu >= HEAVY_PERCENT)
             ):
                 rows.append(row)
-        elif command.startswith(SYSTEM_EXECUTABLE_ROOTS) and ".." not in Path(command).parts:
+        elif command.startswith(PROTECTED_MACOS_SERVICE_ROOTS) and ".." not in Path(command).parts:
             background.append(row)
         # A point-sampled owned helper (notably ps itself) may have exited
         # before children() runs. Its sampled parent still proves ownership.
@@ -246,7 +248,7 @@ def preflight(*, classified: bool = False, desktop_registry: Path | None = None)
         from research.bl_served_search.desktop_apps import DesktopRegistry
 
         classifier = DesktopRegistry(desktop_registry)
-        classifier.verify_all()
+        classifier.verify_all(outside_observation_window=True)
         classified = True
     observation = host.snapshot(
         process_policy=lambda screen: foreign_load(
@@ -267,6 +269,7 @@ def preflight(*, classified: bool = False, desktop_registry: Path | None = None)
                 "desktop_registry": registry_export.get("registry"),
                 "desktop_registry_sha256": registry_export.get("registry_sha256"),
                 "desktop_registry_evidence": registry_export,
+                "verification_cpu": registry_export.get("verification_cpu"),
             }
         )
     return result
@@ -310,11 +313,20 @@ def _monitor(
     heartbeat: Any,
     classified: bool = False,
     desktop_registry: str | None = None,
+    preverified_desktop: Mapping[str, Any] | None = None,
 ) -> None:
     """Sample in an independent interpreter; shell/RSS work never holds tick GIL."""
     if classified:
         _monitor_classified(
-            owner_pid, output, seconds, ready, stop, failed, heartbeat, desktop_registry
+            owner_pid,
+            output,
+            seconds,
+            ready,
+            stop,
+            failed,
+            heartbeat,
+            desktop_registry,
+            preverified_desktop,
         )
         return
     observations = []
@@ -370,6 +382,7 @@ def _monitor_classified(
     failed: Any,
     heartbeat: Any,
     desktop_registry: str | None = None,
+    preverified_desktop: Mapping[str, Any] | None = None,
 ) -> None:
     """Keep one-second CPU deltas separate from ten-second full host snapshots."""
     from research.bl_served_search import host_load
@@ -385,7 +398,12 @@ def _monitor_classified(
             from research.bl_served_search.desktop_apps import DesktopRegistry
 
             classifier = DesktopRegistry(Path(desktop_registry))
-            classifier.verify_all()
+            if preverified_desktop is not None:
+                classifier.load_preverified(preverified_desktop, outside_observation_window=True)
+            else:
+                classifier.verify_all(outside_observation_window=True)
+            # Begin the timed observation window strictly after pre-admission verification.
+            started = time.monotonic()
         previous = None
         next_host = started
         # One original attempt only. Count and lifetime both bound memory/export.
@@ -463,6 +481,11 @@ def _monitor_classified(
                     None if registry_export is None else registry_export.get("registry_sha256")
                 ),
                 "desktop_registry_evidence": registry_export,
+                **(
+                    {"verification_cpu": registry_export.get("verification_cpu")}
+                    if registry_export is not None
+                    else {}
+                ),
                 "cpu_method": (
                     "ps cumulative user+system TIME deltas (10ms resolution), PID+lstart; "
                     "perf_counter_ns capture midpoints; non-atomic capture brackets retained; "
@@ -483,11 +506,25 @@ class HostMonitor:
         *,
         classified: bool = False,
         desktop_registry: Path | None = None,
+        preverified_desktop: Mapping[str, Any] | None = None,
     ) -> None:
         self.output, self.seconds = Path(output), seconds
         self.desktop_registry = None if desktop_registry is None else Path(desktop_registry)
+        self.receipt: dict[str, Any] = {}
+        preverified_payload: dict[str, Any] | None = None
         if self.desktop_registry is not None:
             classified = True
+            if preverified_desktop is not None:
+                preverified_payload = dict(preverified_desktop)
+            else:
+                from research.bl_served_search.desktop_apps import DesktopRegistry
+
+                preverified_payload = DesktopRegistry(self.desktop_registry).verify_all(
+                    outside_observation_window=True
+                )
+            self.receipt["verification_cpu"] = copy.deepcopy(
+                preverified_payload.get("verification_cpu")
+            )
         context = mp.get_context("spawn")
         self.ready, self.stop, self.failed = context.Event(), context.Event(), context.Event()
         self.heartbeat = context.Value("d", 0.0, lock=False)
@@ -503,10 +540,10 @@ class HostMonitor:
                 self.heartbeat,
                 classified,
                 None if self.desktop_registry is None else str(self.desktop_registry),
+                preverified_payload,
             ),
             name="served-tick-host-monitor",
         )
-        self.receipt: dict[str, Any] = {}
 
     def check(self) -> None:
         """Refuse lost monitor or any contaminated sample; never restart a cell."""

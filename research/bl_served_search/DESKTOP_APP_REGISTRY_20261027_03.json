@@ -1,0 +1,21 @@
+{
+  "schema": "served-tick-desktop-registry-extension/v1",
+  "policy": "classified-desktop-v1",
+  "extends": "DESKTOP_APP_REGISTRY_20261027_02.json",
+  "base_registry_sha256": "9c41d66eb83d252dbca695128dc512cb953ab78c8ea848e8649454aa9716b403",
+  "signed_identities": {
+    "6ae7793a116dba5988e93886090307a897f273657f4c9f5ce3c97ba4fe4c3bab": {"cdhash": "f369bd153061ffee03f4018bc1298cbe36d8b610", "signing_authorities": ["Developer ID Application: OpenAI OpCo, LLC (2DC432GLL2)", "Developer ID Certification Authority", "Apple Root CA"], "designated_requirement": "designated => identifier \"com.openai.codex.helper.renderer\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"2DC432GLL2\""}
+  },
+  "additional_applications": [
+    {"id": "chatgpt-codex-renderer-20261027", "display_name": "ChatGPT Codex Framework Renderer", "bundle_path": "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/156.0.8078.48/Helpers/Codex (Renderer).app", "bundle_id": "com.openai.codex.helper.renderer", "version": "156.0.8078.48", "build": "8078.48", "team_identifier": "2DC432GLL2", "executables": [{"role": "remote_chat_renderer", "relative_executable_path": "Contents/MacOS/Codex (Renderer)", "sha256": "6ae7793a116dba5988e93886090307a897f273657f4c9f5ce3c97ba4fe4c3bab", "designated_requirement": "identifier \"com.openai.codex.helper.renderer\""}]}
+  ],
+  "additional_workload_exclusions": [
+    {"description": "Bundled ChatGPT Codex CLI binary remains an agent workload", "exact_executable": "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"},
+    {"description": "Bundled ChatGPT Codex code-mode host helper remains an agent workload", "exact_executable": "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex-code-mode-host"},
+    {"description": "Bundled ChatGPT computer-use Node runtime remains an agent workload", "exact_executable": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"},
+    {"description": "Bundled ChatGPT computer-use Node REPL helper remains an agent workload", "exact_executable": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"},
+    {"description": "ChatGPT Codex Framework non-UI Service helper remains an agent workload", "exact_executable": "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/156.0.8078.48/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service)"},
+    {"description": "Claude non-UI Node/utility helper remains an agent workload", "exact_executable": "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper"},
+    {"description": "Claude Code disclaimer launcher helper remains an agent workload", "exact_executable": "/Applications/Claude.app/Contents/Helpers/disclaimer"}
+  ]
+}

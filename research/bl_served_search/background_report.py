@@ -700,7 +700,10 @@ def _replay_identity(
     row: Mapping[str, Any], registry_evidence: Mapping[str, Any]
 ) -> dict[str, Any]:
     """Apply workload and system precedence before sealed desktop admission."""
-    from research.bl_k1.m1_background import SYSTEM_EXECUTABLE_ROOTS
+    from research.bl_served_search.desktop_apps import (
+        PROTECTED_MACOS_SERVICE_ROOTS,
+        classify_exported,
+    )
     from research.bl_served_search.host_load import _workload_kind
 
     command = row.get("command")
@@ -718,14 +721,13 @@ def _replay_identity(
     ):
         return {"kind": "agent_workload", "reason": "workload_exclusion"}
     workload = _workload_kind(command, registry_evidence)
-    from research.bl_served_search.desktop_apps import classify_exported
 
     enrolled = classify_exported(dict(row), dict(registry_evidence))
     if enrolled.get("kind") == "agent_workload" or workload == "agent_workload":
         return {"kind": "agent_workload", "reason": "workload_precedence"}
     if enrolled.get("identity_binding_changed") or workload == "unknown":
         return {**enrolled, "kind": "unknown"}
-    if command.startswith(SYSTEM_EXECUTABLE_ROOTS) and ".." not in Path(command).parts:
+    if command.startswith(PROTECTED_MACOS_SERVICE_ROOTS) and ".." not in Path(command).parts:
         return {"kind": "macos_service", "reason": "system_executable"}
     return enrolled
 
@@ -1046,7 +1048,11 @@ def desktop_overall(host_evidence: Mapping[str, Any]) -> dict[str, Any]:
     for application in applications:
         application.pop("affected_tick_count")
         application["observed_interval_count"] = len(application["sample_indexes"])
-    return {
+    reg_ev = host_evidence.get("desktop_registry_evidence")
+    verification_cpu = host_evidence.get("verification_cpu") or (
+        reg_ev.get("verification_cpu") if isinstance(reg_ev, Mapping) else None
+    )
+    summary: dict[str, Any] = {
         "load_policy": DESKTOP_POLICY,
         "sample_count": len(samples),
         "samples": samples,
@@ -1056,6 +1062,9 @@ def desktop_overall(host_evidence: Mapping[str, Any]) -> dict[str, Any]:
         "applications": applications,
         "coverage_complete_count": sum(sample["coverage_complete"] for sample in samples),
     }
+    if verification_cpu is not None:
+        summary["verification_cpu"] = dict(verification_cpu)
+    return summary
 
 
 def _validate_desktop_guard(samples: Sequence[Mapping[str, Any]]) -> None:

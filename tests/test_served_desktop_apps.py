@@ -2579,3 +2579,884 @@ def test_point_sequence_checks_enforce_event_time_validity_and_reject_future_adm
         ],
     )
     background_report.validate_desktop_host(host_valid_unval_5)
+
+
+def test_sealed_registry_03_enrolls_chatgpt_codex_renderer_and_preserves_prior_registries():
+    """Registry 03 seals ChatGPT's Codex Framework Renderer helper without mutating 01 or 02."""
+    from research.bl_served_search.desktop_apps import DEFAULT_REGISTRY
+
+    reg_dir = Path(__file__).parents[1] / "research/bl_served_search"
+    reg_01 = reg_dir / "DESKTOP_APP_REGISTRY_20261027.json"
+    reg_02 = reg_dir / "DESKTOP_APP_REGISTRY_20261027_02.json"
+    reg_03 = reg_dir / "DESKTOP_APP_REGISTRY_20261027_03.json"
+
+    assert DEFAULT_REGISTRY == reg_03.resolve(strict=True)
+    sha_01 = hashlib.sha256(reg_01.read_bytes()).hexdigest()
+    sha_02 = hashlib.sha256(reg_02.read_bytes()).hexdigest()
+    sha_03 = hashlib.sha256(reg_03.read_bytes()).hexdigest()
+    assert sha_01 == "e0182427f94b8b2fafafb21cb3294a3f1a4047a8be5908eb9a81b80b96a6d286"
+    assert sha_02 == "9c41d66eb83d252dbca695128dc512cb953ab78c8ea848e8649454aa9716b403"
+    for path, expected_sha in ((reg_01, sha_01), (reg_02, sha_02), (reg_03, sha_03)):
+        assert (path.parent / f"{path.name}.complete").read_text(encoding="utf-8") == "complete\n"
+        sidecar = (path.parent / f"{path.name}.sha256").read_text(encoding="utf-8").strip().split()
+        assert sidecar == [expected_sha, path.name]
+
+    registry = DesktopRegistry(DEFAULT_REGISTRY, uid=501)
+    export = registry.read_export()
+    assert export["registry_inputs"] == [
+        {"path": "DESKTOP_APP_REGISTRY_20261027_03.json", "sha256": sha_03},
+        {"path": "DESKTOP_APP_REGISTRY_20261027_02.json", "sha256": sha_02},
+        {"path": "DESKTOP_APP_REGISTRY_20261027.json", "sha256": sha_01},
+    ]
+
+    apps_by_id = {app["id"]: app for app in export["registry"]["applications"]}
+    assert "chatgpt-codex-renderer-20261027" in apps_by_id
+    renderer_app = apps_by_id["chatgpt-codex-renderer-20261027"]
+    assert renderer_app["bundle_id"] == "com.openai.codex.helper.renderer"
+    assert renderer_app["team_identifier"] == "2DC432GLL2"
+    assert renderer_app["bundle_path"] == (
+        "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/"
+        "Versions/156.0.8078.48/Helpers/Codex (Renderer).app"
+    )
+    assert len(renderer_app["executables"]) == 1
+    role = renderer_app["executables"][0]
+    assert role["role"] == "remote_chat_renderer"
+    assert role["relative_executable_path"] == "Contents/MacOS/Codex (Renderer)"
+    assert role["sha256"] in export["registry"]["signed_identities"]
+
+    all_roles = {
+        exe["role"] for app in export["registry"]["applications"] for exe in app["executables"]
+    }
+    assert all("gpu" not in r and "service" not in r and "plugin" not in r for r in all_roles)
+
+
+def test_chatgpt_codex_renderer_admits_while_codex_cli_and_non_ui_helpers_are_workloads(
+    enrolled, tmp_path
+):
+    """Enrolled ChatGPT Codex (Renderer) UI helper admits as desktop_renderer with Electron flags,
+    while codex CLI binaries and non-UI helpers classify as agent_workload."""
+    from research.bl_served_search.desktop_apps import classify_row
+
+    base_registry, base_row, base_exe, _ = enrolled
+    chatgpt_bundle = (
+        tmp_path
+        / "Applications"
+        / "ChatGPT.app"
+        / "Contents"
+        / "Frameworks"
+        / "Codex Framework.framework"
+        / "Versions"
+        / "156.0.8078.48"
+        / "Helpers"
+        / "Codex (Renderer).app"
+    )
+    renderer_exe = chatgpt_bundle / "Contents" / "MacOS" / "Codex (Renderer)"
+    renderer_exe.parent.mkdir(parents=True)
+    renderer_exe.write_bytes(base_exe.read_bytes())
+    with (chatgpt_bundle / "Contents" / "Info.plist").open("wb") as out:
+        plistlib.dump(
+            {
+                "CFBundleIdentifier": "com.openai.codex.helper.renderer",
+                "CFBundleShortVersionString": "156.0.8078.48",
+                "CFBundleVersion": "8078.48",
+            },
+            out,
+        )
+
+    reg_path = _write_registry(tmp_path, executable=renderer_exe, bundle=chatgpt_bundle)
+    payload = json.loads(reg_path.read_text(encoding="utf-8"))
+    payload["applications"][0].update(
+        {
+            "id": "chatgpt-codex-renderer-test",
+            "display_name": "ChatGPT desktop (Codex UI renderer)",
+            "bundle_id": "com.openai.codex.helper.renderer",
+            "version": "156.0.8078.48",
+            "build": "8078.48",
+        }
+    )
+    payload["applications"][0]["executables"][0].update(
+        {
+            "role": "remote_chat_renderer",
+            "designated_requirement": 'designated => identifier "com.openai.codex.helper.renderer"',
+        }
+    )
+    payload["workload_exclusions"].extend(
+        [
+            {
+                "exact_executable": (
+                    "/Applications/ChatGPT.app/Contents/Resources/CodexCLI.app/Contents/MacOS/codex"
+                )
+            },
+            {"exact_executable": "/Applications/Codex.app/Contents/Resources/codex"},
+        ]
+    )
+    reg_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def runner(argv, **_kwargs):
+        if argv[0].endswith("codesign") and "-dv" in argv:
+            return subprocess.CompletedProcess(
+                argv, 0, "TeamIdentifier=TEAM\nCDHash=abc\nAuthority=Test Authority", ""
+            )
+        if argv[0].endswith("codesign") and "-dr" in argv:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                'designated => identifier "com.openai.codex.helper.renderer"',
+                "",
+            )
+        return subprocess.CompletedProcess(argv, 0, "accepted", "")
+
+    reg = DesktopRegistry(
+        reg_path,
+        uid=501,
+        runner=runner,
+        trusted_roots=[tmp_path / "Applications"],
+        require_seal=False,
+    )
+    reg.verify_all(outside_observation_window=True)
+
+    electron_argv = [
+        str(renderer_exe),
+        "--type=renderer",
+        "--user-data-dir=/Users/josenunez/Library/Application Support/Codex",
+        '--desktop-managed-config={"allowDevTools":false}',
+        "--app-path=/Applications/ChatGPT.app/Contents/Resources/app.asar",
+        "--field-trial-handle=1718379636,r,1234,5678,262144",
+    ]
+    renderer_row = {
+        **base_row,
+        "pid": 19017,
+        "birth": "Tue Oct 27 07:33:01 2026",
+        "command": str(renderer_exe),
+        "argv": electron_argv,
+        "argv_display": " ".join(electron_argv),
+    }
+    decision = reg.admit_process(renderer_row)
+    assert decision["kind"] == "desktop_renderer"
+    assert decision["reason"] == "enrolled_verified_ui_role"
+    assert decision["role"] == "remote_chat_renderer"
+    assert reg.classify(renderer_row) == decision
+    assert classify_exported(renderer_row, reg.read_export()) == decision
+
+    # Unenrolled Codex (Renderer) at a different path does NOT inherit admission.
+    unenrolled_renderer = (
+        tmp_path
+        / "Applications"
+        / "OtherChat.app"
+        / "Contents"
+        / "Helpers"
+        / "Codex (Renderer).app"
+        / "Contents"
+        / "MacOS"
+        / "Codex (Renderer)"
+    )
+    unenrolled_renderer.parent.mkdir(parents=True)
+    unenrolled_renderer.write_bytes(base_exe.read_bytes())
+    unenrolled_decision = reg.admit_process(
+        {
+            **base_row,
+            "pid": 19018,
+            "birth": "unenrolled-renderer",
+            "command": str(unenrolled_renderer),
+        }
+    )
+    assert unenrolled_decision["kind"] == "unknown"
+    assert unenrolled_decision["reason"] == "unenrolled_or_unverified_executable"
+
+    # Workload precedence still applies to codex CLI binaries, non-UI helpers, and tainted args.
+    workload_commands = [
+        "/Applications/ChatGPT.app/Contents/Resources/CodexCLI.app/Contents/MacOS/codex",
+        "/Applications/Codex.app/Contents/Resources/codex",
+        "/Applications/ChatGPT.app/Contents/Resources/codex-code-mode-host",
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl",
+        (
+            "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/"
+            "Versions/156.0.8078.48/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service)"
+        ),
+        (
+            "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/"
+            "Versions/156.0.8078.48/Helpers/Codex (GPU).app/Contents/MacOS/Codex (GPU)"
+        ),
+        (
+            "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/"
+            "Versions/156.0.8078.48/Helpers/Codex (Plugin).app/Contents/MacOS/Codex (Plugin)"
+        ),
+        (
+            "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/"
+            "Contents/MacOS/Claude Helper"
+        ),
+        (
+            "/Applications/Claude.app/Contents/Frameworks/Claude Helper (Plugin).app/"
+            "Contents/MacOS/Claude Helper (Plugin)"
+        ),
+        "/Applications/Claude.app/Contents/Helpers/disclaimer",
+        "/usr/local/bin/codex",
+    ]
+    for idx, cmd in enumerate(workload_commands, start=20000):
+        w_row = {
+            "pid": idx,
+            "birth": f"w-{idx}",
+            "uid": 501,
+            "command": cmd,
+            "argv": [cmd],
+            "argv_display": cmd,
+        }
+        assert reg.admit_process(w_row)["kind"] == "agent_workload"
+        kind, _, reason = classify_row(None, w_row, reg.read_export())
+        assert kind == "agent_workload"
+        assert reason == "workload_exclusion"
+        assert host_load.process_kind(cmd, desktop_classifier=reg, row=w_row) == "agent_workload"
+
+    tainted_renderer = {
+        **renderer_row,
+        "pid": 19999,
+        "birth": "tainted-renderer",
+        "argv": [*electron_argv, "--cwd=/Users/josenunez/Projects/ml/snake-dqn"],
+        "argv_display": " ".join([*electron_argv, "--cwd=/Users/josenunez/Projects/ml/snake-dqn"]),
+    }
+    assert reg.admit_process(tainted_renderer)["kind"] == "agent_workload"
+
+
+def test_protected_macos_services_and_bare_comm_pidpath_resolution(enrolled, monkeypatch):
+    """Protected macOS services under /usr/libexec, /System, and /Library/Apple/System classify as
+    macos_service, and bare ps comm names upgrade only when libproc pidpath + birth/uid match."""
+    import time as time_mod
+    from types import SimpleNamespace
+
+    import psutil
+
+    from research.bl_served_search.desktop_apps import classify_row
+
+    reg, *_ = enrolled
+    protected_paths = [
+        "/usr/libexec/syspolicyd",
+        "/usr/libexec/trustd",
+        "/usr/libexec/endpointsecurityd",
+        "/Library/Apple/System/Library/CoreServices/XProtect.bundle/Contents/MacOS/XProtect",
+        (
+            "/Library/Apple/System/Library/CoreServices/XProtect.bundle/Contents/XPCServices/"
+            "XProtectPluginService.xpc/Contents/MacOS/XProtectPluginService"
+        ),
+        (
+            "/Library/Apple/System/Library/PrivateFrameworks/MobileDevice.framework/"
+            "Versions/A/Resources/deviceinterfaced"
+        ),
+        (
+            "/Library/Apple/System/Library/PrivateFrameworks/RemotePairing.framework/"
+            "Versions/A/Resources/RemotePairingDataVaultHelper"
+        ),
+        (
+            "/Library/Apple/System/Library/PrivateFrameworks/RemotePairing.framework/"
+            "Versions/A/Resources/remotepairingd"
+        ),
+    ]
+    for idx, cmd in enumerate(protected_paths, start=300):
+        svc_row = {
+            "pid": idx,
+            "ppid": 1,
+            "uid": 0,
+            "birth": "Mon Oct 26 12:00:00 2026",
+            "command": cmd,
+            "argv": [],
+            "argv_display": cmd,
+            "identity_observation_error": "argv_identity_unavailable",
+            "cpu_percent": 175.4,
+        }
+        kind, _, reason = classify_row(None, svc_row, reg.read_export())
+        assert kind == "macos_service"
+        assert reason == "system_executable_root"
+        assert reg.classify(svc_row)["kind"] == "macos_service"
+        assert host_load.process_kind(cmd) == "macos_service"
+        assert background_report._replay_identity(svc_row, reg.read_export())["kind"] == (
+            "macos_service"
+        )
+
+    # Point guard (probe_host.foreign_load) must treat 175.4% syspolicyd / XProtect as macos_service
+    # (0 foreign workload/unknown point violations).
+    monkeypatch.setattr(
+        probe_host,
+        "_desktop_point_inventory",
+        lambda: (
+            setattr(
+                probe_host,
+                "_LAST_POINT_CAPTURE_BRACKET",
+                (900_000_000, 1_100_000_000, 1_000_000_000),
+            )
+            or [
+                {
+                    "pid": 359,
+                    "ppid": 1,
+                    "uid": 0,
+                    "birth": "Mon Oct 26 12:00:00 2026",
+                    "command": "/usr/libexec/syspolicyd",
+                    "argv": [],
+                    "argv_display": "/usr/libexec/syspolicyd",
+                    "identity_observation_error": "argv_identity_unavailable",
+                    "cpu_percent": 175.4,
+                    "rss_kb": 40960,
+                    "state": "R",
+                    "name": "syspolicyd",
+                },
+                {
+                    "pid": 96339,
+                    "ppid": 1,
+                    "uid": 0,
+                    "birth": "Mon Oct 26 12:00:00 2026",
+                    "command": (
+                        "/Library/Apple/System/Library/CoreServices/XProtect.bundle/"
+                        "Contents/XPCServices/XProtectPluginService.xpc/Contents/MacOS/"
+                        "XProtectPluginService"
+                    ),
+                    "argv": [],
+                    "argv_display": "XProtectPluginService",
+                    "identity_observation_error": "argv_identity_unavailable",
+                    "cpu_percent": 35.0,
+                    "rss_kb": 20480,
+                    "state": "R",
+                    "name": "XProtectPluginService",
+                },
+            ]
+        ),
+    )
+    point_screen: dict = {"foreign_processes": [], "probe_exempt_pids": []}
+    assert (
+        probe_host.foreign_load(
+            point_screen,
+            owner_pid=999_999,
+            classified=True,
+            desktop_classifier=reg,
+            admit_desktop=True,
+        )
+        == []
+    )
+    assert [p["kind"] for p in point_screen["classified_processes"]] == [
+        "macos_service",
+        "macos_service",
+    ]
+
+    # Test bare-comm resolution via _resolve_protected_service_path with birth/uid bracketing.
+    fixed_epoch = 1_761_500_000.0
+    fixed_birth = " ".join(time_mod.ctime(fixed_epoch).split())
+    fake_procs = {
+        312: (fixed_epoch, 0, "/usr/libexec/endpointsecurityd"),
+        1936: (
+            fixed_epoch,
+            501,
+            (
+                "/System/Library/PrivateFrameworks/CloudPhotoLibrary.framework/"
+                "Versions/A/Support/cloudphotod"
+            ),
+        ),
+        777: (
+            fixed_epoch,
+            0,
+            "/Library/Apple/System/Library/CoreServices/XProtect.bundle/Contents/MacOS/XProtect",
+        ),
+        888: (fixed_epoch, 501, "/opt/homebrew/Cellar/node/25.6.1/bin/node"),
+        999: (fixed_epoch + 5.0, 0, "/usr/libexec/autofsd"),
+    }
+
+    class FakeProc:
+        def __init__(self, pid: int):
+            self._epoch, self._uid, _ = fake_procs[pid]
+
+        def create_time(self) -> float:
+            return self._epoch
+
+        def uids(self):
+            return SimpleNamespace(effective=self._uid)
+
+    monkeypatch.setattr(psutil, "Process", FakeProc)
+    monkeypatch.setattr(host_load, "_proc_pidpath", lambda pid: fake_procs[pid][2])
+
+    es_row = {"pid": 312, "uid": 0, "birth": fixed_birth, "command": "endpointsecurityd"}
+    host_load._resolve_protected_service_path(es_row)
+    assert es_row["command"] == "/usr/libexec/endpointsecurityd"
+
+    cp_row = {"pid": 1936, "uid": 501, "birth": fixed_birth, "command": "cloudphotod"}
+    host_load._resolve_protected_service_path(cp_row)
+    assert cp_row["command"] == fake_procs[1936][2]
+
+    xp_row = {"pid": 777, "uid": 0, "birth": fixed_birth, "command": "XProtect"}
+    host_load._resolve_protected_service_path(xp_row)
+    assert xp_row["command"] == fake_procs[777][2]
+
+    # Non-system binary (homebrew node) and birth-mismatched PID must NOT be rewritten.
+    node_row = {"pid": 888, "uid": 501, "birth": fixed_birth, "command": "node"}
+    host_load._resolve_protected_service_path(node_row)
+    assert node_row["command"] == "node"
+
+    raced_row = {"pid": 999, "uid": 0, "birth": fixed_birth, "command": "autofsd"}
+    host_load._resolve_protected_service_path(raced_row)
+    assert raced_row["command"] == "autofsd"
+
+
+def test_verification_cached_outside_window_reverify_on_new_pid_or_exec_and_cpu_recorded(
+    enrolled, tmp_path, monkeypatch
+):
+    """codesign/spctl verification runs once outside the observation window, hits cache/preverified
+    handoff with 0 tool calls during observation, re-verifies only on new (pid,birth)/exec/file
+    change, and records verification_cpu separately."""
+    from types import SimpleNamespace
+
+    from research.bl_mac_latency import host as mac_host
+    from research.bl_paced_identity.record import read_export
+    from research.bl_served_search.desktop_apps import clear_verification_cache
+
+    clear_verification_cache()
+    paired_reg, row_a, row_b = _paired_enrolled_registry(enrolled, tmp_path)
+    base_runner = paired_reg._runner
+    tool_calls: list[list[str]] = []
+
+    def counting_runner(argv, **kwargs):
+        tool_calls.append(list(argv))
+        return base_runner(argv, **kwargs)
+
+    clear_verification_cache()
+    reg1 = DesktopRegistry(
+        paired_reg.path,
+        uid=501,
+        runner=counting_runner,
+        trusted_roots=[tmp_path / "Applications"],
+        require_seal=False,
+    )
+    exp1 = reg1.verify_all(outside_observation_window=True)
+    cold_calls = len(tool_calls)
+    assert cold_calls == 8  # 2 apps * (3 codesign + 1 spctl)
+    vcpu1 = exp1["verification_cpu"]
+    assert vcpu1["outside_observation_window"] is True
+    assert vcpu1["cache_hit"] is False
+    assert vcpu1["source"] == "cold_verify_all"
+    assert vcpu1["tool_invocations"] == cold_calls
+    assert vcpu1["initial_verification"]["tool_invocations"] == cold_calls
+    assert vcpu1["reverify_count"] == 0
+
+    # Second DesktopRegistry instance in same process hits _VERIFICATION_CACHE with 0 tool calls.
+    reg2 = DesktopRegistry(
+        paired_reg.path,
+        uid=501,
+        runner=counting_runner,
+        trusted_roots=[tmp_path / "Applications"],
+        require_seal=False,
+    )
+    exp2 = reg2.verify_all(outside_observation_window=True)
+    assert len(tool_calls) == cold_calls
+    vcpu2 = exp2["verification_cpu"]
+    assert vcpu2["outside_observation_window"] is True
+    assert vcpu2["cache_hit"] is True
+    assert vcpu2["source"] == "process_cache"
+    assert vcpu2["tool_invocations"] == 0
+    assert vcpu2["initial_verification"]["tool_invocations"] == cold_calls
+
+    # Spawned monitor handoff via load_preverified performs 0 codesign/spctl calls.
+    reg3 = DesktopRegistry(
+        paired_reg.path,
+        uid=501,
+        runner=counting_runner,
+        trusted_roots=[tmp_path / "Applications"],
+        require_seal=False,
+    )
+    exp3 = reg3.load_preverified(exp1, outside_observation_window=True)
+    assert len(tool_calls) == cold_calls
+    vcpu3 = exp3["verification_cpu"]
+    assert vcpu3["outside_observation_window"] is True
+    assert vcpu3["cache_hit"] is True
+    assert vcpu3["source"] == "preverified_handoff"
+    assert vcpu3["tool_invocations"] == 0
+    assert vcpu3["initial_verification"]["tool_invocations"] == cold_calls
+
+    # Initial (pid=101, birth="b1") admission records 1 new_pid_birth re-verification;
+    # steady-state subsequent observations perform 0 re-verifications and 0 tool calls.
+    p1 = {**row_a, "pid": 101, "birth": "b1", "argv": [row_a["command"]]}
+    assert reg3.admit_process(p1)["kind"] == "desktop_app"
+    assert reg3.read_export()["verification_cpu"]["reverify_count"] == 1
+    assert reg3.read_export()["verification_cpu"]["reverify_events"][-1]["trigger"] == (
+        "new_pid_birth"
+    )
+    for step in range(1, 4):
+        assert reg3.classify({**p1, "observation_ns": step * 1_000_000_000})["kind"] == (
+            "desktop_app"
+        )
+    s01 = host_load.cpu_interval(
+        _cpu_inventory(4, p1, 1.0),
+        _cpu_inventory(5, p1, 1.05),
+        owner_pid=999_999,
+        desktop_classifier=reg3,
+    )
+    assert s01["processes"][0]["kind"] == "desktop_app"
+    assert reg3.read_export()["verification_cpu"]["reverify_count"] == 1
+    assert len(tool_calls) == cold_calls
+
+    # New (pid=202, birth="b2") triggers re-verification ("new_pid_birth").
+    p2 = {**row_a, "pid": 202, "birth": "b2", "argv": [row_a["command"]]}
+    assert reg3.admit_process(p2)["kind"] == "desktop_app"
+    assert reg3.read_export()["verification_cpu"]["reverify_count"] == 2
+    assert [e["trigger"] for e in reg3.read_export()["verification_cpu"]["reverify_events"]] == [
+        "new_pid_birth",
+        "new_pid_birth",
+    ]
+
+    # Exec transition on (pid=101, birth="b1") to second enrolled executable triggers "exec"
+    # re-verification and permanently revokes (101, "b1").
+    p1_exec = {**row_b, "pid": 101, "birth": "b1", "argv": [row_b["command"]]}
+    exec_decision = reg3.admit_process(p1_exec)
+    assert exec_decision["kind"] == "unknown"
+    assert exec_decision["identity_binding_changed"] is True
+    assert reg3.read_export()["verification_cpu"]["reverify_count"] == 3
+    assert reg3.read_export()["verification_cpu"]["reverify_events"][-1]["trigger"] == "exec"
+    assert len(tool_calls) == cold_calls
+
+    # Exercise probe_host._monitor_classified with preverified_desktop: 0 codesign/spctl calls
+    # during the observation window, and host.json + desktop_overall record verification_cpu.
+    sealed_reg_path = tmp_path / "sealed_monitor_registry.json"
+    sealed_bytes = paired_reg.path.read_bytes()
+    sealed_sha = hashlib.sha256(sealed_bytes).hexdigest()
+    sealed_reg_path.write_bytes(sealed_bytes)
+    (tmp_path / "sealed_monitor_registry.json.sha256").write_text(
+        f"{sealed_sha}  sealed_monitor_registry.json\n", encoding="utf-8"
+    )
+    (tmp_path / "sealed_monitor_registry.json.complete").write_text("complete\n", encoding="utf-8")
+
+    def fail_if_called(argv, **_kwargs):
+        raise AssertionError(f"codesign/spctl must not run inside observation window: {argv}")
+
+    pre_reg = DesktopRegistry(
+        sealed_reg_path,
+        uid=501,
+        runner=counting_runner,
+        trusted_roots=[tmp_path / "Applications"],
+    )
+    pre_export = pre_reg.verify_all(outside_observation_window=True)
+
+    orig_init = DesktopRegistry.__init__
+
+    def patched_init(self, path=sealed_reg_path, **kwargs):
+        kwargs.setdefault("uid", 501)
+        kwargs.setdefault("runner", fail_if_called)
+        kwargs.setdefault("trusted_roots", [tmp_path / "Applications"])
+        orig_init(self, path, **kwargs)
+
+    monkeypatch.setattr(DesktopRegistry, "__init__", patched_init)
+    monkeypatch.setattr(
+        probe_host,
+        "_desktop_point_inventory",
+        lambda: (
+            setattr(
+                probe_host,
+                "_LAST_POINT_CAPTURE_BRACKET",
+                (500_000_000, 600_000_000, 550_000_000),
+            )
+            or [
+                {
+                    **p1,
+                    "ppid": 1,
+                    "cpu_percent": 1.0,
+                    "rss_kb": 2048,
+                    "state": "S",
+                    "name": "Mail",
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        mac_host,
+        "snapshot",
+        lambda process_policy: {
+            "schema": "bl-mac-host/v1",
+            "monotonic_ns": 550_000_000,
+            "process_screen": (lambda s: (process_policy(s), s)[1])(
+                {"foreign_processes": [], "probe_exempt_pids": []}
+            ),
+            "quiet": True,
+        },
+    )
+    monkeypatch.setattr(probe_host, "_owned_inventory", lambda _pid: [])
+    cpu_captures = iter(
+        [
+            _cpu_inventory(1, p1, 1.0),
+            _cpu_inventory(2, p1, 1.05),
+        ]
+    )
+    monkeypatch.setattr(host_load, "capture_cpu", lambda: next(cpu_captures))
+
+    class FakeEvent:
+        def __init__(self, initial: bool = False):
+            self._flag = initial
+
+        def is_set(self) -> bool:
+            return self._flag
+
+        def set(self) -> None:
+            self._flag = True
+
+    stop_event = FakeEvent(False)
+
+    def stop_on_first_sleep(_seconds: float) -> None:
+        stop_event.set()
+
+    monkeypatch.setattr(probe_host.time, "sleep", stop_on_first_sleep)
+    out_dir = tmp_path / "monitor-out"
+    out_dir.mkdir()
+    failed_event = FakeEvent(False)
+    probe_host._monitor_classified(
+        owner_pid=999_999,
+        output=str(out_dir),
+        seconds=30.0,
+        ready=FakeEvent(False),
+        stop=stop_event,
+        failed=failed_event,
+        heartbeat=SimpleNamespace(value=0.0),
+        desktop_registry=str(sealed_reg_path),
+        preverified_desktop=pre_export,
+    )
+    assert not failed_event.is_set()
+    exported_host = read_export(out_dir / "host.json")
+    assert exported_host["status"] == "COMPLETE"
+    assert exported_host["verification_cpu"]["outside_observation_window"] is True
+    assert exported_host["verification_cpu"]["cache_hit"] is True
+    assert exported_host["verification_cpu"]["source"] == "preverified_handoff"
+    assert exported_host["verification_cpu"]["tool_invocations"] == 0
+    overall = background_report.desktop_overall(exported_host)
+    assert overall["verification_cpu"]["source"] == "preverified_handoff"
+    assert overall["verification_cpu"]["tool_invocations"] == 0
+
+    # Tampering binary bytes on disk invalidates cache and fails closed on verify_all.
+    Path(row_a["command"]).write_bytes(b"corrupted on disk")
+    monkeypatch.setattr(DesktopRegistry, "__init__", orig_init)
+    reg_bad = DesktopRegistry(
+        paired_reg.path,
+        uid=501,
+        runner=counting_runner,
+        trusted_roots=[tmp_path / "Applications"],
+        require_seal=False,
+    )
+    with pytest.raises(ValueError, match="executable digest mismatch"):
+        reg_bad.verify_all(outside_observation_window=True)
+
+
+def test_replay_actual_host_desktop_13_rows_through_classify_row():
+    """Replay every recorded row from host-desktop-13/host.json through classify_row against
+    sealed registry 03: verify the exact historical abort trigger (PID 19017 Codex (Renderer) at
+    21.58% in cpu_samples[7]) now classifies as desktop_renderer, codex CLI & non-UI helpers remain
+    agent_workload, protected services classify as macos_service, and LoadGuard passes."""
+    from research.bl_served_search.desktop_apps import (
+        DEFAULT_REGISTRY,
+        classify_row,
+        decision_from_history,
+    )
+
+    host_13_path = Path(
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/served-tick-20261026/"
+        "host-desktop-13/host.json"
+    )
+    if not host_13_path.is_file():
+        pytest.skip("host-desktop-13 artifact not present on this machine")
+
+    raw_host = json.loads(host_13_path.read_text(encoding="utf-8"))
+    assert raw_host["status"] == "INVALID"
+    assert (
+        raw_host["reason"]
+        == "RuntimeError: foreign workload/unknown heavy load; attempt contaminated"
+    )
+    assert len(raw_host["cpu_samples"]) == 8
+
+    # 1. Confirm exact historical abort row in raw host-desktop-13 evidence.
+    non_bg_heavy_by_sample = [
+        [
+            (p["pid"], p["command"], p["kind"], p["cpu_percent"])
+            for p in sample["processes"]
+            if p["kind"] not in host_load.DESKTOP_BACKGROUND_KINDS and p["cpu_percent"] >= 20.0
+        ]
+        for sample in raw_host["cpu_samples"]
+    ]
+    assert non_bg_heavy_by_sample[:7] == [[], [], [], [], [], [], []]
+    assert len(non_bg_heavy_by_sample[7]) == 1
+    abort_pid, abort_cmd, abort_old_kind, abort_cpu = non_bg_heavy_by_sample[7][0]
+    assert abort_pid == 19017
+    assert abort_cmd == (
+        "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/"
+        "Versions/156.0.8078.48/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer)"
+    )
+    assert abort_old_kind == "agent_workload"
+    assert abort_cpu == pytest.approx(21.57585152310386)
+
+    # Confirm syspolicyd (175.5% in obs[0] -> 0.0% in obs[1]) and trustd (22.7% in obs[0] -> 0.0%
+    # in obs[1]) were already macos_service in raw host-desktop-13.
+    obs0_by_pid = {
+        p["pid"]: p for p in raw_host["observations"][0]["process_screen"]["classified_processes"]
+    }
+    obs1_by_pid = {
+        p["pid"]: p for p in raw_host["observations"][1]["process_screen"]["classified_processes"]
+    }
+    assert obs0_by_pid[702]["command"] == "/usr/libexec/syspolicyd"
+    assert obs0_by_pid[702]["kind"] == "macos_service"
+    assert obs0_by_pid[702]["cpu_percent"] == pytest.approx(175.5)
+    assert obs1_by_pid[702]["cpu_percent"] == pytest.approx(0.0)
+    assert obs0_by_pid[22017]["command"] == "/usr/libexec/trustd"
+    assert obs0_by_pid[22017]["kind"] == "macos_service"
+    assert obs0_by_pid[22017]["cpu_percent"] == pytest.approx(22.7)
+    assert obs1_by_pid[22017]["cpu_percent"] == pytest.approx(0.0)
+
+    # 2. Verify sealed registry 03 outside the observation window and replay all rows
+    # through classify_row.
+    reg = DesktopRegistry(DEFAULT_REGISTRY)
+    reg_export = reg.verify_all(outside_observation_window=True)
+    assert reg_export["verification_cpu"]["outside_observation_window"] is True
+
+    events: list[tuple[int, str, int, dict]] = []
+    for idx, obs in enumerate(raw_host["observations"]):
+        obs_ns = int(obs["process_screen"]["observation_ns"])
+        events.append((obs_ns, "point", idx, obs))
+    for idx, sample in enumerate(raw_host["cpu_samples"]):
+        events.append((int(sample["end_ns"]), "interval", idx, sample))
+    events.sort(key=lambda item: item[0])
+
+    strip_keys = {
+        "kind",
+        "classification",
+        "history_before",
+        "history_after",
+        "sequence",
+        "previous_classification",
+    }
+    history_by_proc: dict[tuple[int, str], dict] = {}
+    replayed_points: dict[int, list[dict]] = {}
+    replayed_samples: dict[int, dict] = {}
+
+    for _ts, event_kind, idx, payload in events:
+        if event_kind == "point":
+            exempt = set(payload["process_screen"].get("probe_exempt_pids", ()))
+            replayed_rows = []
+            for raw_proc in payload["process_screen"]["classified_processes"]:
+                if raw_proc["pid"] in exempt:
+                    continue
+                clean_row = {k: v for k, v in raw_proc.items() if k not in strip_keys}
+                clean_row["admit"] = True
+                pkey = (clean_row["pid"], clean_row["birth"])
+                prior = history_by_proc.get(pkey)
+                new_kind, new_hist, reason = classify_row(prior, clean_row, reg_export)
+                history_by_proc[pkey] = new_hist
+                replayed_rows.append(
+                    {
+                        **clean_row,
+                        "kind": new_kind,
+                        "classification": decision_from_history(new_kind, new_hist, reason),
+                    }
+                )
+            replayed_points[idx] = replayed_rows
+        else:
+            totals = {
+                "background": 0.0,
+                "workload": 0.0,
+                "unknown": 0.0,
+                "macos_service": 0.0,
+                "desktop_renderer": 0.0,
+                "desktop_app": 0.0,
+            }
+            replayed_procs = []
+            for raw_proc in payload["processes"]:
+                clean_row = {k: v for k, v in raw_proc.items() if k not in strip_keys}
+                clean_row["admit"] = "interval_transition" not in raw_proc
+                pkey = (clean_row["pid"], clean_row["birth"])
+                prior = history_by_proc.get(pkey)
+                new_kind, new_hist, reason = classify_row(prior, clean_row, reg_export)
+                history_by_proc[pkey] = new_hist
+                cpu_pct = float(clean_row["cpu_percent"])
+                if new_kind in host_load.DESKTOP_BACKGROUND_KINDS:
+                    totals["background"] += cpu_pct
+                    totals[new_kind] += cpu_pct
+                elif new_kind == "agent_workload":
+                    totals["workload"] += cpu_pct
+                else:
+                    totals["unknown"] += cpu_pct
+                replayed_procs.append(
+                    {
+                        **clean_row,
+                        "kind": new_kind,
+                        "classification": decision_from_history(new_kind, new_hist, reason),
+                    }
+                )
+            replayed_samples[idx] = {
+                **payload,
+                "background_cpu_percent": totals["background"],
+                "service_cpu_percent": totals["macos_service"],
+                "renderer_cpu_percent": totals["desktop_renderer"],
+                "desktop_app_cpu_percent": totals["desktop_app"],
+                "workload_cpu_percent": totals["workload"],
+                "unknown_cpu_percent": totals["unknown"],
+                "processes": replayed_procs,
+            }
+
+    # 3. Verify PID 19017 (and all ChatGPT Codex (Renderer) rows) now classify as desktop_renderer.
+    replayed_s7_by_pid = {p["pid"]: p for p in replayed_samples[7]["processes"]}
+    p19017 = replayed_s7_by_pid[19017]
+    assert p19017["kind"] == "desktop_renderer"
+    assert p19017["classification"]["reason"] == "enrolled_verified_ui_role"
+    assert p19017["classification"]["entry"] == "chatgpt-codex-renderer-20261027"
+    assert p19017["classification"]["role"] == "remote_chat_renderer"
+    assert p19017["cpu_percent"] == pytest.approx(21.57585152310386)
+
+    all_replayed_rows = [
+        *(r for rows in replayed_points.values() for r in rows),
+        *(r for s in replayed_samples.values() for r in s["processes"]),
+    ]
+    codex_renderer_rows = [r for r in all_replayed_rows if r["command"] == abort_cmd]
+    assert codex_renderer_rows
+    assert all(r["kind"] == "desktop_renderer" for r in codex_renderer_rows)
+
+    # 4. Verify codex CLI and non-UI helpers in host-desktop-13 remain agent_workload.
+    expected_workloads = {
+        "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+        "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex-code-mode-host",
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl",
+        (
+            "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/"
+            "Versions/156.0.8078.48/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service)"
+        ),
+        (
+            "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/"
+            "Contents/MacOS/Claude Helper"
+        ),
+        "/Applications/Claude.app/Contents/Helpers/disclaimer",
+    }
+    seen_workloads = set()
+    for row in all_replayed_rows:
+        if row["command"] in expected_workloads:
+            assert row["kind"] == "agent_workload", row
+            assert row["classification"]["reason"] == "workload_exclusion"
+            seen_workloads.add(row["command"])
+    assert seen_workloads == expected_workloads
+
+    # 5. Verify syspolicyd, trustd, and /Library/Apple/System/* rows classify as macos_service.
+    seen_apple_system = set()
+    for row in all_replayed_rows:
+        if row["command"] in {"/usr/libexec/syspolicyd", "/usr/libexec/trustd"} or row[
+            "command"
+        ].startswith("/Library/Apple/System/"):
+            assert row["kind"] == "macos_service", row
+            assert row["classification"]["reason"] == "system_executable_root"
+            if row["command"].startswith("/Library/Apple/System/"):
+                seen_apple_system.add(Path(row["command"]).name)
+    assert {
+        "XProtectPluginService",
+        "deviceinterfaced",
+        "RemotePairingDataVaultHelper",
+        "remotepairingd",
+    } <= seen_apple_system
+
+    # 6. Verify point guard and LoadGuard pass across all replayed observations and samples.
+    for idx, rows in sorted(replayed_points.items()):
+        point_heavy = [
+            r
+            for r in rows
+            if r["kind"] not in host_load.DESKTOP_BACKGROUND_KINDS and r["cpu_percent"] >= 20.0
+        ]
+        assert (
+            point_heavy == []
+        ), f"unexpected point guard violation in observation {idx}: {point_heavy}"
+
+    guard = host_load.LoadGuard(desktop_policy=True)
+    for idx in range(len(raw_host["cpu_samples"])):
+        guard.check(replayed_samples[idx])

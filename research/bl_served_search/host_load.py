@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import math
 import os
+import platform
 import re
 import subprocess
 import time
 from pathlib import Path
 from typing import Any
 
-from research.bl_k1.m1_background import SYSTEM_EXECUTABLE_ROOTS
+from research.bl_served_search.desktop_apps import PROTECTED_MACOS_SERVICE_ROOTS
 
 POLICY = "classified-v1"
 DESKTOP_POLICY = "classified-desktop-v1"
@@ -44,7 +47,7 @@ def _argv_changed(old: dict[str, Any], row: dict[str, Any]) -> bool:
         isinstance(cmd, str)
         and cmd == old.get("command")
         and row.get("uid") == old.get("uid")
-        and cmd.startswith(SYSTEM_EXECUTABLE_ROOTS)
+        and cmd.startswith(PROTECTED_MACOS_SERVICE_ROOTS)
         and ".." not in Path(cmd).parts
         and _workload_kind(cmd) is None
         and (old_status != "ok" or row_status != "ok")
@@ -59,8 +62,20 @@ def _workload_kind(command: str, desktop_classifier: Any | None = None) -> str |
     name = path.name.lower()
     if ".." in path.parts:
         return "unknown"
+    non_gui_bundle_tree = any(
+        marker in command
+        for marker in (
+            "/codex-cli/",
+            "/claude-code/",
+            "/cua_node/",
+            "/.codex/",
+            "/Contents/Resources/",
+            "/Application Support/",
+        )
+    )
     verified_gui_candidate = (
         desktop_classifier is not None
+        and not non_gui_bundle_tree
         and name in {"claude", "codex"}
         and command.startswith(("/Applications/", "/Users/"))
         and ".app/Contents/MacOS/" in command
@@ -71,6 +86,7 @@ def _workload_kind(command: str, desktop_classifier: Any | None = None) -> str |
         or name in {"codex-exec", "agy", "node", "pytest", "uv"}
         or "/Projects/" in command
         or "/research/" in command
+        or non_gui_bundle_tree
     ):
         return "agent_workload"
     return None
@@ -101,7 +117,7 @@ def _kind_from_evidence(command: str, desktop_classifier: Any | None, evidence: 
         return "agent_workload"
     if evidence.get("identity_binding_changed") or workload == "unknown":
         return "unknown"
-    if command.startswith(SYSTEM_EXECUTABLE_ROOTS):
+    if command.startswith(PROTECTED_MACOS_SERVICE_ROOTS):
         return "macos_service"
     if desktop_classifier is not None:
         return str(evidence.get("kind", "unknown"))
@@ -160,6 +176,70 @@ def _cpu_seconds(value: str) -> float:
     if not math.isfinite(total) or total < 0:
         raise ValueError("invalid ps CPU time")
     return total
+
+
+_LIBPROC: Any | None = None
+_LIBPROC_LOADED = False
+
+
+def _proc_pidpath(pid: int) -> str | None:
+    """Resolve canonical kernel executable path via libproc.proc_pidpath on Darwin."""
+    global _LIBPROC, _LIBPROC_LOADED
+    if platform.system() != "Darwin" or pid <= 0:
+        return None
+    if not _LIBPROC_LOADED:
+        _LIBPROC_LOADED = True
+        try:
+            _LIBPROC = ctypes.CDLL(ctypes.util.find_library("proc") or "/usr/lib/libproc.dylib")
+        except OSError:
+            _LIBPROC = None
+    if _LIBPROC is None:
+        return None
+    buf = ctypes.create_string_buffer(4096)
+    try:
+        nbytes = int(_LIBPROC.proc_pidpath(ctypes.c_int(pid), buf, ctypes.c_uint32(4096)))
+    except Exception:
+        return None
+    if nbytes <= 0:
+        return None
+    try:
+        return buf.raw[:nbytes].decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _resolve_protected_service_path(row: dict[str, Any]) -> None:
+    """Resolve bare ps comm names for SIP/root protected macOS services with birth bracketing."""
+    command = row.get("command")
+    if not isinstance(command, str) or not command or command.startswith("/"):
+        return
+    import psutil
+
+    try:
+        pid = int(row["pid"])
+        before = psutil.Process(pid)
+        birth = before.create_time()
+        uid = before.uids().effective
+        pidpath = _proc_pidpath(pid)
+        after = psutil.Process(pid)
+        if (
+            not pidpath
+            or birth != after.create_time()
+            or (row.get("uid") is not None and uid != row.get("uid"))
+            or after.uids().effective != uid
+            or " ".join(time.ctime(birth).split()) != row.get("birth")
+            or _proc_pidpath(pid) != pidpath
+        ):
+            return
+    except (psutil.Error, OSError, ValueError, KeyError):
+        return
+    if (
+        pidpath.startswith(PROTECTED_MACOS_SERVICE_ROOTS)
+        and ".." not in Path(pidpath).parts
+        and Path(pidpath).name == command
+        and _workload_kind(pidpath) is None
+    ):
+        row["command"] = pidpath
 
 
 def capture_argv(row: dict[str, Any]) -> dict[str, Any]:
@@ -237,6 +317,7 @@ def capture_process_table(metric: str) -> tuple[int, int, list[dict[str, Any]]]:
             "argv_display": argv_display,
             "observation_ns": midpoint,
         }
+        _resolve_protected_service_path(row)
         row.update(capture_argv(row))
         rows.append(row)
     if not rows:
