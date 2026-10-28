@@ -1,0 +1,12 @@
+C/T-1028-09: locally resealed; independent Argon review pending; NOT DISPATCHED.
+Runtime pin: cc13381217a81238b8911539b4c7e5f5170fbb7c
+Science, N, rules, checkpoint hashes and base/effective envelopes unchanged; only control.source_commit changes.
+Cadence qualified: prior C/T startup HOLD resolved by retained real A100 smoke09, host-observed maximum17.3s, child receive maximum15.026077066s versus60s; parent heartbeat maximum15.000527399s versus30s.
+Provider/bootstrap before first C/T line180.1s is separately disclosed; no provider-bootstrap heartbeat claim.
+SIGUSR1 checkpoint267434164bytes; marker2.1947s, independent exit3.096602841s, within_15s_sla=true, stop_verified=true.
+Base720/effective1440minutes; base96.5/effective193units at8u/h; reserve0; empty initial ledger; at most2 manual completion attempts.
+No production VRAM/throughput qualification is claimed. See CT_1028_09.md and byte-bound golden liveness.json.
+Exact operator command (NOT RUN; use after independent Argon review):
+PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin SNAKE_DQN_PYTHON=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 PYTHONDONTWRITEBYTECODE=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-09-broker.noindex/tools/ops/dispatch.sh sandbox-ct-cf-20261028-09 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-09-broker.noindex/research/sandbox_a_resident/packet-ct-1028-09/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-ct-1028-09-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-ct-1028-09-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-cf-1028/attempt-09/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-ct-1028-09-broker.noindex/research/sandbox_a_resident/packet-ct-1028-09/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve both detached checkouts and all prior evidence.
