@@ -1,0 +1,105 @@
+{
+  "budget": {
+    "other_assignments": {},
+    "rate_units_per_hour": 8.0,
+    "reserve_units": 0,
+    "unit_cap": 1
+  },
+  "canary": {
+    "family": "research/sandbox_a_resident/ct_job.sh",
+    "mode": "probe",
+    "schema": "colab-family-canary/v1"
+  },
+  "commit": "763015bd1e7e6e621300c7ff21b47a7c681173a7",
+  "device": "cuda",
+  "env": {
+    "COLAB_CLI_REQUIREMENTS": "research/sandbox_a_resident/requirements.txt",
+    "MAX_JOBS": "1",
+    "SANDBOX_A_SOURCE_COMMIT": "763015bd1e7e6e621300c7ff21b47a7c681173a7",
+    "SANDBOX_A_STALL_TIMEOUT_SECONDS": "900",
+    "SANDBOX_CT_CONTROL_JSON": "{\"allocation_index\": 0, \"alpha\": 0.15, \"anchor_archive_max_bytes\": 1610612736, \"anchor_batch_size\": 4, \"anchor_rows\": 16, \"bootstrap_resamples\": 50, \"bootstrap_seed\": 3432, \"branch_batch_size\": 16, \"branch_horizon\": 3, \"collection_ticks\": 12, \"fit_seed\": 20261028, \"forbidden_gap\": 0.5, \"head_lr\": 0.0001, \"logit_margin\": 0.25, \"lookbacks\": [2, 4], \"max_body_capacity\": 128, \"max_deaths\": 2, \"max_ordinary_roots\": 4, \"max_stage_export_bytes\": 268435456, \"max_total_export_bytes\": 402653184, \"min_death_length\": 1, \"min_held_out_anchor_rows\": 1, \"min_held_out_death_worlds\": 0, \"min_held_out_deaths\": 0, \"min_held_out_ordinary_roots\": 1, \"minibatches\": 2, \"reference_kl_beta\": 0.05, \"scoring_chunks\": 2, \"scoring_suffixes\": 4, \"searched_batch_size\": 2, \"seed_offset\": 0, \"selection_suffixes\": 4, \"snapshot_store_max_bytes\": 16777216, \"source_commit\": \"763015bd1e7e6e621300c7ff21b47a7c681173a7\", \"study\": \"t34-cf-1028\", \"tiny\": true, \"trunk_lr\": 1e-05, \"worlds\": 6}",
+    "SNAKE_COLAB_CANARY": "1",
+    "SNAKE_COLAB_CANARY_PACKAGE": "research/sandbox_a_resident",
+    "SNAKE_DQN_DEVICE": "cuda"
+  },
+  "inputs": [
+    {
+      "dest": "b8-s3.pth",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/b8_s3_t7_20261016.pth",
+      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+    },
+    {
+      "dest": "frp3-s12.pth",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth",
+      "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+    },
+    {
+      "dest": "champion.pth",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+      "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+    },
+    {
+      "dest": "registry.json",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-falsifier-ct/tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
+      "sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c"
+    },
+    {
+      "dest": "verified-ledger.json",
+      "path": "/private/tmp/astra-impl-ct6-producers-ct-bound/child-timeout/initial-packet/verified-ledger.json",
+      "sha256": "11f8c3df6d9aef69a7f112faba91dba89d316fe964be1d51598833af8e33bd7e"
+    }
+  ],
+  "job_id": "tiny-ct-00",
+  "max_export_bytes": 1073741824,
+  "output_dir": "/private/tmp/astra-impl-ct6-producers-ct-bound/child-timeout/job-output",
+  "required_exports": [
+    "ct/summary.json"
+  ],
+  "requirements": {
+    "allowed_gpus": [
+      "A100"
+    ],
+    "est_minutes": 1,
+    "gpu": "A100",
+    "min_vcpu": 2
+  },
+  "requirements_file": "research/sandbox_a_resident/requirements.txt",
+  "resume": {
+    "ledger_path": "verified-ledger.json",
+    "max_outcome_blind_retries": 2,
+    "skip_verified": true,
+    "unit_kind": "ct-stage-snapshot"
+  },
+  "sandbox_a": {
+    "seed_allocations": [
+      {
+        "count": 39,
+        "offset": 0,
+        "phase": "training"
+      },
+      {
+        "count": 1024,
+        "offset": 10000000,
+        "phase": "validation"
+      },
+      {
+        "count": 39,
+        "offset": 20000000,
+        "phase": "assessment"
+      }
+    ],
+    "seed_audit_sha256": "594bc1bbd0e033988b6ebf16adc9c94695ea3ab80b0db89dd8d940002e72c282",
+    "topology_manifest_sha256": "e6cd47a8e1c1841afcce34779287f6a4ba0d5ac1c3b6bc3e38c20626f892bfdd"
+  },
+  "sandbox_admission": {
+    "manifest_path": "/private/tmp/astra-impl-ct6-producers-ct-bound/child-timeout/initial-packet/sandbox.json",
+    "schema": "standing-a100-development-sandbox-admission/v1"
+  },
+  "sandbox_execution": "tiny C/T continuation test",
+  "sandbox_source_delivery": "background-sparse-v1",
+  "script": "research/sandbox_a_resident/ct_job.sh",
+  "source_paths": [
+    "research/sandbox_a_resident/ct_run.py"
+  ],
+  "timeout_minutes": 3
+}

@@ -1,0 +1,10 @@
+{
+  "schema": "snake-packet-supersessions/v1",
+  "superseded": [
+    {"packet_dir":"packet-ct-1028-01","job_ids":["sandbox-ct-cf-20261028-01"],"successor":"packet-ct-1028-06","reason":"Superseded admission implementation; evidence retained immutable."},
+    {"packet_dir":"packet-ct-1028-02","job_ids":["sandbox-ct-cf-20261028-02"],"successor":"packet-ct-1028-06","reason":"Superseded admission implementation; evidence retained immutable."},
+    {"packet_dir":"packet-ct-1028-03","job_ids":["sandbox-ct-cf-20261028-03"],"successor":"packet-ct-1028-06","reason":"Superseded admission implementation; evidence retained immutable."},
+    {"packet_dir":"packet-ct-1028-04","job_ids":["sandbox-ct-cf-20261028-04"],"successor":"packet-ct-1028-06","reason":"Superseded admission implementation; evidence retained immutable."},
+    {"packet_dir":"packet-ct-1028-05","job_ids":["sandbox-ct-cf-20261028-05"],"successor":"packet-ct-1028-06","reason":"Includes original and reseal-01; real-producer false refusals and log fault bypass."}
+  ]
+}

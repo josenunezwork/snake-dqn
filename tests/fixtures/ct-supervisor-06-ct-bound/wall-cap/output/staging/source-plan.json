@@ -1,0 +1,67 @@
+{
+  "commit": "763015bd1e7e6e621300c7ff21b47a7c681173a7",
+  "fallback_archive": "source.tar.gz",
+  "fallback_sha256": "1b95ed1d77465a5f752e30c90999ce5c965a38732f8c6f48c2785c21327c027f",
+  "fallback_size": 27320,
+  "fallback_unpacked_size": 101354,
+  "files": {
+    "pyproject.toml": {
+      "mode": "0644",
+      "sha256": "e4f1a0471a12e638c2acc67719488abcbb94a74916ef870843c425c3501f710e",
+      "size": 2770
+    },
+    "research/colab_cli/bootstrap.sh": {
+      "mode": "0755",
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+      "size": 3244
+    },
+    "research/colab_cli/canary_observer.py": {
+      "mode": "0644",
+      "sha256": "8fdba23c889de4d2403161e98345b963b731eecb2f931439b7cd4d3de3b0ce64",
+      "size": 8319
+    },
+    "research/colab_cli/release.py": {
+      "mode": "0644",
+      "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+      "size": 14677
+    },
+    "research/colab_cli/runtime.py": {
+      "mode": "0644",
+      "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+      "size": 30712
+    },
+    "research/colab_cli/source.py": {
+      "mode": "0644",
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f",
+      "size": 14511
+    },
+    "research/sandbox_a_resident/ct_job.sh": {
+      "mode": "0755",
+      "sha256": "7ff8568141a7408bba4d17498c2f445a54f5555e67bc78fb57bab3f8df06935c",
+      "size": 2518
+    },
+    "research/sandbox_a_resident/ct_run.py": {
+      "mode": "0644",
+      "sha256": "159ea8c4cedd850d44858ce338ca929ebc58d662d916ea0dcbf082960566c154",
+      "size": 24453
+    },
+    "research/sandbox_a_resident/requirements.txt": {
+      "mode": "0644",
+      "sha256": "a8cb011aef6cec18444a823578e9029cb1c05d362f25dc227ecb20d8f82f5e62",
+      "size": 150
+    }
+  },
+  "paths": [
+    "pyproject.toml",
+    "research/colab_cli/bootstrap.sh",
+    "research/colab_cli/canary_observer.py",
+    "research/colab_cli/release.py",
+    "research/colab_cli/runtime.py",
+    "research/colab_cli/source.py",
+    "research/sandbox_a_resident/ct_job.sh",
+    "research/sandbox_a_resident/ct_run.py",
+    "research/sandbox_a_resident/requirements.txt"
+  ],
+  "tree": "acefe500a89043b4b5d9efdfd9f791949f87a32b",
+  "version": 1
+}

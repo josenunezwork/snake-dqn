@@ -1,0 +1,28 @@
+{
+  "exports": [
+    {
+      "path": "ct/sigusr1-marker.json",
+      "sha256": "27744a98690c860c5594358b364cc079600479b901a1ca2726ffb65a6573c927",
+      "size": 358
+    },
+    {
+      "path": "ct/stage-0001.json",
+      "sha256": "2b5acfd19f6aafcfb939fb1ca5009ea8373fe982e1673ae09d2f929a6b813de7",
+      "size": 593
+    },
+    {
+      "path": "ct/stage-0001.pt",
+      "sha256": "5950139db8e4a5c42274dad80b8fedfa81116f0aaa57be3638fbb64ca5c11abe",
+      "size": 46385
+    }
+  ],
+  "generation": "075613f78eb14c58b1068e04479a10af",
+  "job_id": "tiny-ct-00",
+  "max_export_bytes": 33554432,
+  "pid": 35158,
+  "reason": "timeout",
+  "returncode": 138,
+  "started_at": 1793216210.5256152,
+  "status": "failed",
+  "updated_at": 1793216212.005363
+}

@@ -1,0 +1,11 @@
+{
+  "boundary_injections": "offline provider, virtual clock, observer, runtime local release exemptions",
+  "error": "Refused('kernel remains busy/unknown after telemetry hiccup')",
+  "failure": "INCOMPLETE: Refused('kernel remains busy/unknown after telemetry hiccup'); receipt: /private/tmp/astra-impl-ct6-producers-exports/rpc-busy-timeout/job-output/receipt.json",
+  "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+  "producer_commit": "763015bd1e7e6e621300c7ff21b47a7c681173a7",
+  "scenario": "rpc-busy-timeout",
+  "status": "INCOMPLETE",
+  "stop_verified": true,
+  "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+}

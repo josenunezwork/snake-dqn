@@ -1,0 +1,11 @@
+{
+  "boundary_injections": "offline provider, virtual clock, observer, runtime local release exemptions",
+  "error": "Refused('colab upload failed (1): TimeoutError: fake request deadline exceeded\\n')",
+  "failure": "INCOMPLETE: Refused('colab upload failed (1): TimeoutError: fake request deadline exceeded\\n'); receipt: /private/tmp/astra-impl-ct6-producers-exports/lease-renewal-timeout/job-output/receipt.json",
+  "failure_class": "SUPERVISOR",
+  "producer_commit": "763015bd1e7e6e621300c7ff21b47a7c681173a7",
+  "scenario": "lease-renewal-timeout",
+  "status": "INCOMPLETE",
+  "stop_verified": true,
+  "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+}

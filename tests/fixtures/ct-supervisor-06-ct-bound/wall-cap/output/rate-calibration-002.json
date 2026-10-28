@@ -1,0 +1,11 @@
+{
+  "elapsed_seconds": 10.064999999999992,
+  "sessions": {
+    "gpu-a100-fake-0001": "snake-tiny-ct-00-ef6d7c3ee57d"
+  },
+  "usage": {
+    "assignments": 1.0,
+    "balance": 1178.3,
+    "rate": 8.0
+  }
+}

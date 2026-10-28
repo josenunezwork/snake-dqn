@@ -1,0 +1,11 @@
+{
+  "boundary_injections": "offline provider, virtual clock, observer, runtime local release exemptions",
+  "error": "ClassifiedFailure('remote child exited 138: CT_CHILD_READY')",
+  "failure": "INCOMPLETE: ClassifiedFailure('remote child exited 138: CT_CHILD_READY'); receipt: /private/tmp/astra-impl-ct6-producers-ct-bound/child-timeout/job-output/receipt.json",
+  "failure_class": "CHILD_NONZERO_EXIT",
+  "producer_commit": "763015bd1e7e6e621300c7ff21b47a7c681173a7",
+  "scenario": "child-timeout",
+  "status": "INCOMPLETE",
+  "stop_verified": true,
+  "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+}

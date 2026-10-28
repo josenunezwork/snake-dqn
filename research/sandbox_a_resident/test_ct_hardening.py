@@ -128,8 +128,15 @@ def test_ct4_one_level_parent_scanned(tmp_path: Path) -> None:
     exports = tmp_path / "ct"
     exports.mkdir()
     (tmp_path / "state.json").write_text('{"status":"failed","returncode":7}')
-    with pytest.raises(ct_resume.CTResumeRefused):
+    ct_resume._check_single_root_fault_evidence(exports)  # Unbound shared parent is excluded.
+
+    @ct_resume._evidence_session
+    def scan_bound() -> None:
+        ct_resume._EVIDENCE_CACHE.get()["bound_output_dirs"] = {str(tmp_path)}
         ct_resume._check_single_root_fault_evidence(exports)
+
+    with pytest.raises(ct_resume.CTResumeRefused):
+        scan_bound()
 
 
 def _continuation_fixture(tmp_path: Path) -> tuple[Path, dict, dict, Path, dict]:

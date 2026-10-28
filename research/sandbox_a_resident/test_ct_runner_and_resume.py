@@ -601,7 +601,10 @@ def test_qualified_mechanical_stop_receipts_and_fault_precedence(tmp_path: Path)
     for bogus_cls in ("SESSION_LOST", "WALL_CLOCK_TIMEOUT", "SIGUSR1_PREEMPTED"):
         with pytest.raises(
             CTResumeRefused,
-            match="not a qualified mechanical trigger|non-resumable retained receipt",
+            match=(
+                f"^prior receipt failure_class {bogus_cls!r} "
+                "is not a qualified mechanical trigger$"
+            ),
         ):
             verify_mechanical_stop(
                 _base_receipt(failure_class=bogus_cls),
@@ -655,6 +658,7 @@ def test_qualified_mechanical_stop_receipts_and_fault_precedence(tmp_path: Path)
             }
         )
     )
+    manifest["output_dir"] = str(tmp_path / "poll_fault_out")
     with pytest.raises(CTResumeRefused, match="explicit scientific/non-mechanical fault"):
         verify_mechanical_stop(
             _base_receipt(failure_class="RPC_EXEC_POLL_TIMEOUT"),
@@ -698,6 +702,31 @@ def _seal_initial_packet(packet: Path) -> None:
             **{key: digest(packet / name) for key, name in bindings.items()},
         },
     )
+
+
+def _rebind_forged_packet(packet: Path, broker: dict) -> None:
+    """Keep forged packets complete so only the intended semantic guard refuses."""
+    (packet / "dispatch-manifest.json").write_text(json.dumps(broker))
+    sandbox_path = packet / "sandbox.json"
+    sandbox = json.loads(sandbox_path.read_text())
+    sandbox["outputs"]["broker_manifest"] = {
+        "path": str(packet / "dispatch-manifest.json"),
+        "sha256": digest(packet / "dispatch-manifest.json"),
+    }
+    uploads = {row["dest"]: row for row in broker["inputs"]}
+    for row in sandbox["inputs"]:
+        if row.get("kind") == "verified-ledger":
+            row.update(
+                path=uploads["verified-ledger.json"]["path"],
+                sha256=uploads["verified-ledger.json"]["sha256"],
+            )
+    sandbox_path.write_text(json.dumps(sandbox))
+    seal = json.loads((packet / "SEAL.json").read_text())
+    seal.update(
+        manifest_sha256=digest(packet / "dispatch-manifest.json"),
+        ledger_sha256=digest(packet / "verified-ledger.json"),
+    )
+    (packet / "SEAL.json").write_text(json.dumps(seal))
 
 
 def _write_tiny_initial_packet(
@@ -1043,7 +1072,8 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
     ):
         return
 
-    ws = tmp_path / "ws"
+    retained_ws = os.environ.get("CT_DRY_RUN_WORKSPACE")
+    ws = Path(retained_ws) if retained_ws else tmp_path / "ws"
     broker_wt = ws / "broker"
     try:
         subprocess.run(
@@ -1403,6 +1433,23 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                     text=True,
                     check=False,
                 )
+                # Preserve the wrapper's stderr AND its validation logs, even
+                # on success. stdout is never written to ops/logs/<name>.log.
+                evidence = ws / "dry-run-evidence"
+                evidence.mkdir(exist_ok=True)
+                (evidence / f"{name}.stdout.txt").write_text(res.stdout)
+                (evidence / f"{name}.stderr.txt").write_text(res.stderr)
+                (evidence / f"{name}.command.json").write_text(
+                    json.dumps(
+                        {
+                            "argv": res.args,
+                            "cwd": str(broker_wt),
+                            "env": {k: dry_env[k] for k in ("OPS_DIR", "SNAKE_DQN_PYTHON", "PATH")},
+                            "returncode": res.returncode,
+                        },
+                        indent=2,
+                    )
+                )
                 if res.returncode != 0:
                     diag = subprocess.run(
                         [
@@ -1427,7 +1474,8 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                     )
                 assert f"PASS_DRY_RUN {name} allocations=0" in res.stdout
     finally:
-        shutil.rmtree(ws, ignore_errors=True)
+        if not retained_ws:
+            shutil.rmtree(ws, ignore_errors=True)
 
 
 def test_qualified_nested_poll_shapes_fault_precedence_and_all_polls_scan(tmp_path: Path) -> None:
@@ -1452,6 +1500,7 @@ def test_qualified_nested_poll_shapes_fault_precedence_and_all_polls_scan(tmp_pa
     astra_attempt = tmp_path / "astra_attempt_01"
     astra_export_root = astra_attempt / "exports" / "ct"
     astra_export_root.mkdir(parents=True)
+    manifest["output_dir"] = str(astra_attempt)
     (astra_attempt / "poll-000001.json").write_text(
         json.dumps(
             {
@@ -1497,6 +1546,7 @@ def test_qualified_nested_poll_shapes_fault_precedence_and_all_polls_scan(tmp_pa
 
     def _attempt_with_polls(name: str, polls: list[dict[str, object]]) -> Path:
         att = tmp_path / name
+        manifest["output_dir"] = str(att)
         exp = att / "exports" / "ct"
         exp.mkdir(parents=True)
         for idx, p_obj in enumerate(polls, start=1):
@@ -1920,9 +1970,8 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
     ]
     forged_broker["completion_attempt"]["verified_stages"] = [1, 3]
     forged_broker["completion_attempt"]["ledger_sha256"] = forged_lsha
-    with pytest.raises(
-        ValueError, match="omits previously verified stage|mandatory component|canonical"
-    ):
+    _rebind_forged_packet(forged_drop_dir, forged_broker)
+    with pytest.raises(ValueError, match="^continuation ledger omits previously verified stage 2$"):
         validate_uploaded_ledger(forged_drop_dir, forged_broker, ctrl_dict, require_committed=False)
 
     # Even if an attacker ALSO edits completion_attempt.prior_verified_units/stages, on-disk
@@ -1932,9 +1981,10 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
     forged_broker_2["completion_attempt"]["prior_verified_units"] = [
         u for u in forged_broker_2["completion_attempt"]["prior_verified_units"] if u["stage"] != 2
     ]
+    _rebind_forged_packet(forged_drop_dir, forged_broker_2)
     with pytest.raises(
         ValueError,
-        match="differs from bound prior verified-ledger.json|mandatory component|canonical",
+        match="^prior_verified_units differs from bound prior verified-ledger.json$",
     ):
         validate_uploaded_ledger(
             forged_drop_dir, forged_broker_2, ctrl_dict, require_committed=False
@@ -1962,9 +2012,10 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
         *conf_uploads,
     ]
     conf_broker["completion_attempt"]["ledger_sha256"] = conf_lsha
+    _rebind_forged_packet(forged_conf_dir, conf_broker)
     with pytest.raises(
         ValueError,
-        match="conflicts with previously verified stage-0002|mandatory component|canonical",
+        match="^continuation ledger conflicts with previously verified stage-0002$",
     ):
         validate_uploaded_ledger(forged_conf_dir, conf_broker, ctrl_dict, require_committed=False)
 

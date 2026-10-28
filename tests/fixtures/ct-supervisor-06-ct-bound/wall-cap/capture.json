@@ -1,0 +1,11 @@
+{
+  "boundary_injections": "offline provider, virtual clock, observer, runtime local release exemptions",
+  "error": "Refused('whole-session wall cap reached (including setup/export)')",
+  "failure": "INCOMPLETE: Refused('whole-session wall cap reached (including setup/export)'); receipt: /private/tmp/astra-impl-ct6-producers-ct-bound/wall-cap/job-output/receipt.json",
+  "failure_class": "SUPERVISOR",
+  "producer_commit": "763015bd1e7e6e621300c7ff21b47a7c681173a7",
+  "scenario": "wall-cap",
+  "status": "INCOMPLETE",
+  "stop_verified": true,
+  "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+}

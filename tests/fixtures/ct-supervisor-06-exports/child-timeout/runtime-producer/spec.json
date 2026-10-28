@@ -1,0 +1,16 @@
+{
+  "checkpoint_grace_seconds": 0.5,
+  "command": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "-c",
+    "import os,shutil,signal,time; from pathlib import Path; out=Path(os.environ['COLAB_OUTPUT_DIR'])/'ct'; shutil.copytree('/private/tmp/astra-impl-ct6-producers-exports/ct-output',out); signal.signal(signal.SIGUSR1,lambda *_:exit(138)); print('CT_CHILD_READY',flush=True); time.sleep(60)"
+  ],
+  "env": {},
+  "generation": "replaced-at-provider-boundary",
+  "job_id": "fake-job",
+  "lease_seconds": 180,
+  "max_export_bytes": 33554432,
+  "release_endpoint": "offline-only",
+  "root": "/private/tmp/astra-impl-ct6-producers-exports/child-timeout/runtime-producer",
+  "timeout_seconds": 0.8
+}

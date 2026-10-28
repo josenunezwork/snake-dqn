@@ -1,0 +1,11 @@
+{
+  "boundary_injections": "offline provider, virtual clock, observer, runtime local release exemptions",
+  "error": "Refused('priced session unit cap reached while awaiting account broker')",
+  "failure": "INCOMPLETE: Refused('priced session unit cap reached while awaiting account broker'); receipt: /private/tmp/astra-impl-ct6-producers-exports/unit-cap-account-lock/job-output/receipt.json",
+  "failure_class": "SUPERVISOR",
+  "producer_commit": "763015bd1e7e6e621300c7ff21b47a7c681173a7",
+  "scenario": "unit-cap-account-lock",
+  "status": "INCOMPLETE",
+  "stop_verified": true,
+  "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+}

@@ -1,0 +1,274 @@
+{
+  "accounting": {
+    "allocated_endpoint": null,
+    "assignments": [],
+    "baseline_balance_units": 1178.3,
+    "baseline_rate_units_per_hour": 0.0,
+    "calibration": {
+      "error": "Refused('study reserve reached during calibration')",
+      "interval_seconds": 5.0,
+      "observed_rate_units_per_hour": null,
+      "priced_rate_units_per_hour": 6.84,
+      "required_stable_reads": 3,
+      "samples": [
+        {
+          "elapsed_seconds": 0.0,
+          "sessions": {
+            "gpu-cpu-fake-0001": "snake-fake-job-86aada5670db"
+          },
+          "usage": {
+            "assignments": 1.0,
+            "balance": 99.0,
+            "rate": 6.84
+          }
+        }
+      ],
+      "stability_units_per_hour": 0.01,
+      "status": "INCOMPLETE",
+      "timeout_seconds": 730.0
+    },
+    "declared_other_rate_units_per_hour": 0,
+    "integrated_accounted_other_units": 0.0,
+    "last_crosscheck": null,
+    "observed_rate_units_per_hour": null,
+    "own_rate_units_per_hour": 6.84,
+    "priced_rate_units_per_hour": 6.84,
+    "unaccounted_endpoints": [],
+    "unit_cap": 1.0
+  },
+  "cleanup_error": null,
+  "cli_calls": [
+    {
+      "attempt": 1,
+      "command": "version",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 0.0,
+      "operation": "control",
+      "started_monotonic": 0.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 120.0
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 0.0,
+      "operation": "control",
+      "started_monotonic": 0.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 120.0
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 0.0,
+      "operation": "control",
+      "started_monotonic": 0.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 120.0
+    },
+    {
+      "attempt": 1,
+      "command": "new",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 0.0,
+      "operation": "control",
+      "started_monotonic": 0.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 180.0
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 0.0,
+      "operation": "control",
+      "started_monotonic": 0.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 30.0
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 0.0,
+      "operation": "PUT",
+      "started_monotonic": 0.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 120.0
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 0.0,
+      "operation": "control",
+      "started_monotonic": 0.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 120.0
+    },
+    {
+      "attempt": 1,
+      "command": "upload",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 0.0,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 0.0,
+      "status": "completed",
+      "thread": "colab-lease",
+      "timeout_seconds": 60.0
+    },
+    {
+      "attempt": 1,
+      "command": "exec",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 1.0,
+      "operation": "renewal",
+      "started_monotonic": 1.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 120.0
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 1.0,
+      "operation": "control",
+      "started_monotonic": 1.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 120.0
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 1.0,
+      "operation": "control",
+      "started_monotonic": 1.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 120.0
+    },
+    {
+      "attempt": 1,
+      "command": "stop",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 1.0,
+      "operation": "control",
+      "started_monotonic": 1.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 75.0
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 1.0,
+      "operation": "control",
+      "started_monotonic": 1.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 60.0
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 1.0,
+      "operation": "control",
+      "started_monotonic": 1.0,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 120.0
+    }
+  ],
+  "commit": "763015bd1e7e6e621300c7ff21b47a7c681173a7",
+  "contents_transfers": [
+    {
+      "bytes_per_second": 225000000000.0,
+      "direction": "upload",
+      "elapsed_seconds": 1e-09,
+      "ended_monotonic": 0.0,
+      "operation": "PUT",
+      "remote": "/content/snake-cli-86aada5670db4e89abde7a9777107e4e-release.json",
+      "size_bytes": 225,
+      "started_monotonic": 0.0,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "bytes_per_second": 85000000000.0,
+      "direction": "upload",
+      "elapsed_seconds": 1e-09,
+      "ended_monotonic": 0.0,
+      "operation": "renewal-heartbeat",
+      "remote": "/content/snake-cli/86aada5670db4e89abde7a9777107e4e/lease-heartbeat.json",
+      "size_bytes": 85,
+      "started_monotonic": 0.0,
+      "status": "completed",
+      "thread": "colab-lease"
+    }
+  ],
+  "control_operations": [
+    {
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 0.0,
+      "operation": "PUT",
+      "started_monotonic": 0.0,
+      "status": "completed",
+      "thread": "MainThread"
+    },
+    {
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 0.0,
+      "operation": "renewal-heartbeat",
+      "started_monotonic": 0.0,
+      "status": "completed",
+      "thread": "colab-lease"
+    },
+    {
+      "elapsed_seconds": 0.0,
+      "ended_monotonic": 1.0,
+      "operation": "renewal",
+      "started_monotonic": 1.0,
+      "status": "completed",
+      "thread": "MainThread"
+    }
+  ],
+  "elapsed_seconds": 1.0,
+  "endpoint": "gpu-cpu-fake-0001",
+  "error": "Refused('study reserve reached during calibration')",
+  "exports": [],
+  "failure_class": "SUPERVISOR",
+  "generation": "86aada5670db4e89abde7a9777107e4e",
+  "job_id": "fake-job",
+  "manifest_sha256": "8f16d32321a104f75ef98f156dd2be156e4099547d8f0ecbdc82986f2d7997cb",
+  "session": "snake-fake-job-86aada5670db",
+  "status": "INCOMPLETE",
+  "stop_verified": true,
+  "supervisor_sha256": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+  "terminal": null,
+  "transfers": [],
+  "usage_after": {
+    "assignments": 0.0,
+    "balance": 99.0,
+    "rate": 0.0
+  },
+  "usage_before": {
+    "assignments": 0.0,
+    "balance": 1178.3,
+    "rate": 0.0
+  },
+  "warmup_seconds": 0
+}

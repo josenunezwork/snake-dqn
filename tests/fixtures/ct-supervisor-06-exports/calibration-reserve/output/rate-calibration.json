@@ -1,0 +1,23 @@
+{
+  "error": "Refused('study reserve reached during calibration')",
+  "interval_seconds": 5.0,
+  "observed_rate_units_per_hour": null,
+  "priced_rate_units_per_hour": 6.84,
+  "required_stable_reads": 3,
+  "samples": [
+    {
+      "elapsed_seconds": 0.0,
+      "sessions": {
+        "gpu-cpu-fake-0001": "snake-fake-job-86aada5670db"
+      },
+      "usage": {
+        "assignments": 1.0,
+        "balance": 99.0,
+        "rate": 6.84
+      }
+    }
+  ],
+  "stability_units_per_hour": 0.01,
+  "status": "INCOMPLETE",
+  "timeout_seconds": 730.0
+}

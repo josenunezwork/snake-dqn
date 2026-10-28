@@ -1,0 +1,38 @@
+{
+  "exports": [
+    {
+      "path": "client-job.bin",
+      "sha256": "095b746c3a23191ffd7c7bab6057206f1ea49a6422f41416111b6360c7e4134f",
+      "size": 4096
+    },
+    {
+      "path": "ct/sigusr1-marker.json",
+      "sha256": "27744a98690c860c5594358b364cc079600479b901a1ca2726ffb65a6573c927",
+      "size": 358
+    },
+    {
+      "path": "ct/stage-0001.json",
+      "sha256": "2b5acfd19f6aafcfb939fb1ca5009ea8373fe982e1673ae09d2f929a6b813de7",
+      "size": 593
+    },
+    {
+      "path": "ct/stage-0001.pt",
+      "sha256": "5950139db8e4a5c42274dad80b8fedfa81116f0aaa57be3638fbb64ca5c11abe",
+      "size": 46385
+    },
+    {
+      "path": "intentional-child-failure.json",
+      "sha256": "f66b1a441411b76f2cca0f390b87aa2c29c117ba1bfc0dbaa134bdc397b0358a",
+      "size": 16
+    }
+  ],
+  "job_log_tail": "",
+  "state": {
+    "generation": "ef6d7c3ee57d4058b3b2b4142f374577",
+    "job_id": "tiny-ct-00",
+    "max_export_bytes": 33554432,
+    "status": "running"
+  },
+  "supervisor_log_tail": "",
+  "terminal": null
+}

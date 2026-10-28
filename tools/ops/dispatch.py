@@ -1960,6 +1960,10 @@ def dispatch(args: argparse.Namespace) -> str:
             raise Refused(f"{dispatch_txt} has BLOCK/HOLD instructions: {blocked}")
     original_bytes = manifest.read_bytes()
     value = json.loads(original_bytes)
+    # Use this broker's registry even when the manifest is in a retired packet.
+    from tools.ops.packet_supersession import require_current_packet
+
+    require_current_packet(value, manifest, root=HERE.parents[1])
     small_config = getattr(args, "small_bench_config", None)
     if small_config is not None:
         from tools.small_bench_operator import configuration

@@ -14,12 +14,14 @@ from typing import Any
 
 from research.sandbox_a_resident.ct_prepare import STUDY, ct_endpoint_steps
 from research.sandbox_a_resident.ct_resume import (
+    _EVIDENCE_CACHE,
     _check_attempt_base_fault_evidence,
     _check_attempt_output_dir_fault_evidence,
     _check_single_root_fault_evidence,
     _evidence_session,
     _extract_prior_admitted_coverage,
     _is_hex,
+    _load_json,
     _no_symlink_path,
     _scan_retained_text,
     retained_inventory,
@@ -38,6 +40,7 @@ from research.sandbox_a_resident.ct_units import (
     load_ledger,
     validate_compact_resume,
 )
+from tools.ops.packet_supersession import require_current_packet
 from tools.sandbox.preflight import preflight, verify_committed_manifest
 from tools.sandbox.registry import digest
 
@@ -49,6 +52,7 @@ CT_FOCUSED_TESTS: tuple[str, ...] = (
     "research/sandbox_a_resident/test_ct_runner_and_resume.py",
     CT_CUDA_SEMANTICS_TEST,
     "research/sandbox_a_resident/test_ct_hardening.py",
+    "research/sandbox_a_resident/test_ct_real_producers.py",
     "tools/sandbox/tests/test_source_delivery.py",
 )
 
@@ -76,9 +80,9 @@ def _verify_packet_components(
             raise ValueError(f"packet lacks mandatory component: {path}")
         if require_committed:
             verify_committed_manifest(path)
-    if json.loads((packet / "dispatch-manifest.json").read_text()) != broker:
+    if _load_json((packet / "dispatch-manifest.json").read_text()) != broker:
         raise ValueError("loaded prior manifest differs from canonical dispatch-manifest.json")
-    seal = json.loads((packet / "SEAL.json").read_text())
+    seal = _load_json((packet / "SEAL.json").read_text())
     if not isinstance(seal, dict):
         raise ValueError("malformed mandatory SEAL.json")
     if seal.get("manifest_sha256") != digest(packet / "dispatch-manifest.json"):
@@ -97,6 +101,56 @@ def _verify_packet_components(
             raise ValueError("initial SEAL.json lacks packet component bindings")
 
 
+def _check_lineage_graph(packet: Path, broker: dict[str, Any], control: dict[str, Any]) -> None:
+    """Bound traversal before recursive admission, including malformed cyclic graphs."""
+    visited: set[Path] = set()
+    indices: list[int] = []
+    outputs: set[str] = set()
+    current, manifest = packet, broker
+    while True:
+        _no_symlink_path(current)
+        canonical = current / "dispatch-manifest.json"
+        if canonical in visited:
+            raise ValueError("continuation lineage cycle detected")
+        visited.add(canonical)
+        comp = manifest.get("completion_attempt")
+        index = 0 if comp is None else comp.get("index") if isinstance(comp, dict) else None
+        if type(index) is not int or index < 0:
+            raise ValueError("malformed completion_attempt metadata")
+        if index > 2 or len(indices) > 2:
+            raise ValueError("continuation lineage exceeds two completion attempts")
+        indices.append(index)
+        if isinstance(manifest.get("output_dir"), str):
+            outputs.add(manifest["output_dir"])
+        if comp is None:
+            break
+        raw = comp.get("prior_manifest_path")
+        if not isinstance(raw, str):
+            raise ValueError("continuation requires absolute prior_manifest_path")
+        path = Path(raw)
+        _no_symlink_path(path)
+        if path.name != "dispatch-manifest.json":
+            raise ValueError("prior_manifest_path must name canonical dispatch-manifest.json")
+        if path in visited:
+            raise ValueError("continuation lineage cycle detected")
+        manifest = _load_json(path.read_text())
+        if not isinstance(manifest, dict):
+            raise ValueError("malformed prior manifest")
+        current = path.parent
+    if any(index != prior + 1 for index, prior in zip(indices, indices[1:])):
+        raise ValueError("continuation index must equal prior index + 1")
+    cache = _EVIDENCE_CACHE.get()
+    if cache is not None:
+        if not (current / "SEAL.json").is_file():
+            raise ValueError(f"packet lacks mandatory component: {current / 'SEAL.json'}")
+        seal = _load_json((current / "SEAL.json").read_text())
+        cache["source_archive_binding"] = {
+            "source_commit": control["source_commit"],
+            "source_archive": seal.get("source_archive", {}),
+        }
+        cache.setdefault("bound_output_dirs", set()).update(outputs)
+
+
 @_evidence_session
 def validate_uploaded_ledger(
     packet: Path,
@@ -106,12 +160,13 @@ def validate_uploaded_ledger(
     require_committed: bool = True,
 ) -> None:
     """Verify relative runtime ledger paths (raw .pt or compact .pt.xz) against Mac uploads."""
+    _check_lineage_graph(packet, broker, control)
     _verify_packet_components(packet, broker, require_committed=require_committed)
-    if json.loads((packet / "control.json").read_text()) != control:
+    if _load_json((packet / "control.json").read_text()) != control:
         raise ValueError("lineage control differs from frozen packet control")
     ledger_file = packet / "verified-ledger.json"
     actual_ledger_sha = digest(ledger_file)
-    ledger = json.loads(ledger_file.read_text())
+    ledger = _load_json(ledger_file.read_text())
     compact_by_unit = validate_compact_resume(ledger)
     uploads = {row["dest"]: row for row in broker["inputs"]}
     if len(uploads) != len(broker["inputs"]):
@@ -216,7 +271,7 @@ def validate_uploaded_ledger(
             or digest(pm_path) != comp["prior_manifest_sha256"]
         ):
             raise ValueError("prior_manifest_path missing, symlinked, or SHA-256 mismatched")
-        prior_broker = json.loads(pm_path.read_text())
+        prior_broker = _load_json(pm_path.read_text())
         if (
             not isinstance(prior_broker, dict)
             or prior_broker.get("job_id") != comp["prior_job_id"]
@@ -250,7 +305,7 @@ def validate_uploaded_ledger(
         for path in (proof_file, seal_file):
             if path.is_symlink() or not path.is_file():
                 raise ValueError("continuation requires provenance.json and SEAL.json")
-        proof, seal = json.loads(proof_file.read_text()), json.loads(seal_file.read_text())
+        proof, seal = _load_json(proof_file.read_text()), _load_json(seal_file.read_text())
         proof_sha = digest(proof_file)
         if (
             proof.get("schema") != "t34-cf-continuation-provenance/v1"
@@ -414,11 +469,13 @@ def validate_packet(
 ) -> dict[str, Any]:
     """Bind C/T runtime controls to committed seed audit and frozen topology contract."""
     _no_symlink_path(packet)
+    broker = _load_json((packet / "dispatch-manifest.json").read_text())
+    require_current_packet(broker, packet, root=ROOT)
     payload = preflight(
         packet / "sandbox.json", require_committed=require_committed, run_tests=False
     )
-    broker = json.loads((packet / "dispatch-manifest.json").read_text())
-    control = json.loads((packet / "control.json").read_text())
+    broker = _load_json((packet / "dispatch-manifest.json").read_text())
+    control = _load_json((packet / "control.json").read_text())
     allocation_index = control.get("allocation_index", 0)
     seed_offset = control.get("seed_offset", 0)
     if (
@@ -442,7 +499,7 @@ def validate_packet(
             tiny=False,
         )
     default = default_ctrl.to_dict()
-    if control != default or control != json.loads(broker["env"]["SANDBOX_CT_CONTROL_JSON"]):
+    if control != default or control != _load_json(broker["env"]["SANDBOX_CT_CONTROL_JSON"]):
         raise ValueError("C/T control differs from frozen production recipe")
     if payload["study"] != STUDY or broker["script"] != "research/sandbox_a_resident/ct_job.sh":
         raise ValueError("wrong C/T study or entrypoint")
@@ -459,11 +516,11 @@ def validate_packet(
     ):
         verify_committed_manifest(packet / name, require_committed=require_committed)
 
-    topology_manifest = json.loads((packet / "topology-manifest.json").read_text())
+    topology_manifest = _load_json((packet / "topology-manifest.json").read_text())
     if topology_manifest != dict(TOPOLOGY_SPEC):
         raise ValueError("topology-manifest.json differs from frozen TOPOLOGY_SPEC")
 
-    check = json.loads((packet / "registry-check.json").read_text())
+    check = _load_json((packet / "registry-check.json").read_text())
     expected = ct_seed_allocations(default_ctrl)
     registry = next(r for r in payload["inputs"] if r["kind"] == "registry")
     if (
