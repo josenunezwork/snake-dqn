@@ -826,7 +826,7 @@ def test_seal_revision_preserves_original_packet(completion_packet, tmp_path):
 
 
 def test_truthful_refreshed_forecast_hits_qualified_transport_two_x_rule(tmp_path):
-    """Keep the unresolved operational conflict visible; never understate est_minutes."""
+    """Preserve the historical refusal; the truthful estimate must not be understated."""
     from research.colab_cli import supervisor
 
     manifest = json.loads(
@@ -837,3 +837,57 @@ def test_truthful_refreshed_forecast_hits_qualified_transport_two_x_rule(tmp_pat
     manifest["output_dir"] = str(tmp_path / "unused")
     with pytest.raises(supervisor.Refused, match="2x measured estimate"):
         supervisor.validate(manifest, repo=ROOT)
+
+
+@pytest.mark.parametrize("damage", [None, "timeout", "units", "estimate", "accounting", "sandbox"])
+def test_operator_reforecast_envelope_and_real_transport(tmp_path, monkeypatch, damage):
+    from research.colab_cli import supervisor
+    from research.watch_lead_p.admission import validate_reforecast_envelope
+
+    packet = json.loads(
+        (ROOT / "research/watch_lead_p/packet-09/reseal-02/dispatch-manifest.json").read_text()
+    )
+    packet.update(job_id="sandbox-p-watch-lead-20261028-09c", timeout_minutes=570)
+    packet["output_dir"] = str(tmp_path / "fresh-output")
+    packet["budget"]["unit_cap"] = 14.63
+    packet["technical_envelope"].update(
+        base_seconds=17100,
+        effective_seconds=34200,
+        base_unit_cap=7.312484270908601,
+        effective_unit_cap=14.63,
+    )
+    accounting = {
+        "envelope": dict(
+            base_minutes=285,
+            effective_minutes=570,
+            base_units=7.312484270908601,
+            effective_units=14.63,
+        )
+    }
+    payload = {"timeout": dict(base_seconds=17100, seconds=34200, purpose="runaway-guard")}
+    if damage == "timeout":
+        packet["timeout_minutes"] = 571
+    elif damage == "units":
+        packet["budget"]["unit_cap"] = 14.62
+    elif damage == "estimate":
+        packet["requirements"]["est_minutes"] = 284
+    elif damage == "accounting":
+        accounting["envelope"]["effective_minutes"] = 480
+    elif damage == "sandbox":
+        payload["timeout"]["seconds"] = 28800
+    if damage:
+        with pytest.raises(ValueError, match="operator-authorized"):
+            validate_reforecast_envelope(packet, accounting, payload)
+    else:
+        validate_reforecast_envelope(packet, accounting, payload)
+    # The qualified validator independently enforces the estimate and pricing.
+    if damage in (None, "units"):
+        packet.pop("sandbox_admission")
+        # This envelope fixture has no target-platform canary; the full packet dry-run
+        # exercises real sandbox admission separately. All pricing guards remain real.
+        monkeypatch.setattr("research.colab_cli.canary.check", lambda *args: None)
+        if damage:
+            with pytest.raises(supervisor.Refused, match="priced above unit cap"):
+                supervisor.validate(packet, repo=ROOT)
+        else:
+            assert supervisor.validate(packet, repo=ROOT)["timeout_minutes"] == 570

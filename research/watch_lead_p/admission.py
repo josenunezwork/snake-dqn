@@ -16,6 +16,35 @@ ROOT = Path(__file__).resolve().parents[2]
 FRP3_SHA = "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
 
 
+def validate_reforecast_envelope(packet: dict, accounting: dict | None, payload: dict) -> None:
+    """Admit only the operator's pre-data 09c envelope beyond the legacy 480 minutes."""
+    if packet["timeout_minutes"] == 480:
+        return
+    envelope = packet["technical_envelope"]
+    if (
+        packet["job_id"] != "sandbox-p-watch-lead-20261028-09c"
+        or packet["timeout_minutes"] != 570
+        or packet["requirements"]["est_minutes"] != 285
+        or packet["budget"]["unit_cap"] != 14.63
+        or packet["budget"]["rate_units_per_hour"] != 1.54
+        or packet["budget"]["reserve_units"] != 0
+        or envelope["base_seconds"] != 17100
+        or envelope["effective_seconds"] != 34200
+        or envelope["base_unit_cap"] != 7.312484270908601
+        or envelope["effective_unit_cap"] != 14.63
+        or envelope["base_reserve_units"] != 0
+        or envelope["effective_reserve_units"] != 0
+        or payload["timeout"]
+        != {"base_seconds": 17100, "seconds": 34200, "purpose": "runaway-guard"}
+        or accounting is None
+        or accounting["envelope"]["base_minutes"] != 285
+        or accounting["envelope"]["effective_minutes"] != 570
+        or accounting["envelope"]["base_units"] != envelope["base_unit_cap"]
+        or accounting["envelope"]["effective_units"] != 14.63
+    ):
+        raise ValueError("P envelope differs from the operator-authorized 09c reforecast")
+
+
 def exclusion_audit() -> dict[str, Any]:
     """Audit registry metadata and canonical TRAIN-01 monitor/nomination identities."""
     registry = load_registry()
@@ -96,6 +125,7 @@ def validate_inputs(payload: dict, registry: dict) -> None:
         "verified-ledger.json",
     }
     packet = json.loads(packet_path.read_text())
+    accounting = None
     accounting_ref = packet.get("technical_envelope", {}).get("mechanical_retry_accounting")
     if accounting_ref is not None:
         expected_seal.add("retry-accounting.json")
@@ -138,9 +168,9 @@ def validate_inputs(payload: dict, registry: dict) -> None:
         packet["device"] != "cpu"
         or packet["requirements"]["min_vcpu"] != 12
         or packet["technical_envelope"]["workers"] != 11
-        or packet["timeout_minutes"] != 480
     ):
         raise ValueError("P worker/device/envelope differs from forecast")
+    validate_reforecast_envelope(packet, accounting, payload)
     if packet["resume"] != {
         "unit_kind": "paired-Watch6-session",
         "ledger_path": "verified-ledger.json",
