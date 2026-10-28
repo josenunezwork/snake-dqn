@@ -46,6 +46,11 @@ on_exit() {
   exit "$status"
 }
 trap on_exit EXIT
+# The runtime signals the entire process group. Keep this shell alive while
+# Python handles its SIGUSR1 fence; otherwise EXIT seals watchdog bytes that
+# the still-running child can mutate. Bash defers this trap until the foreground
+# command returns, so the EXIT publication follows the child's watchdog.close().
+trap ':' USR1
 
 set +e
 nice -n 15 python -m research.sandbox_a_resident.ct_run \

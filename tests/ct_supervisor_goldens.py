@@ -48,6 +48,7 @@ SCENARIOS = (
     "child-lease-expired",
     "child-credential-expiring",
     "child-nonmechanical-exit",
+    "child-ct-entrypoint",
 )
 
 
@@ -55,7 +56,7 @@ def _json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
-def _runtime_tree(work: Path, stage_tree: Path, mode: str, job_id: str) -> Path:
+def _runtime_tree(work: Path, stage_tree: Path, mode: str, manifest: dict) -> Path:
     """Actual runtime.supervise child and actual completed-export scanner."""
     root = work / "runtime-producer"
     root.mkdir()
@@ -68,7 +69,7 @@ def _runtime_tree(work: Path, stage_tree: Path, mode: str, job_id: str) -> Path:
         + ("exit(7)" if mode == "child-nonmechanical-exit" else "time.sleep(60)")
     )
     spec = {
-        "job_id": job_id,
+        "job_id": manifest["job_id"],
         "generation": "replaced-at-provider-boundary",
         "root": str(root),
         "command": [sys.executable, "-c", command],
@@ -79,6 +80,28 @@ def _runtime_tree(work: Path, stage_tree: Path, mode: str, job_id: str) -> Path:
         "max_export_bytes": 32 * 1024 * 1024,
         "release_endpoint": "offline-only",
     }
+    if mode == "child-ct-entrypoint":
+        inputs = root / "inputs"
+        inputs.mkdir()
+        for row in manifest["inputs"]:
+            shutil.copyfile(row["path"], inputs / row["dest"])
+        shim = root / "cpu-python"
+        shim.mkdir()
+        (shim / "python").write_text(
+            f"#!{sys.executable}\nimport os,sys\na=sys.argv[1:]\n"
+            "if a[:2]==['-m','research.sandbox_a_resident.ct_run']:\n"
+            "    a[a.index('--device')+1]='cpu'\n"
+            "    a+=['--test-delay-per-heartbeat','0.15']\n"
+            f"os.execv({sys.executable!r},[{sys.executable!r},*a])\n"
+        )
+        (shim / "python").chmod(0o755)
+        spec["command"] = ["bash", str(ROOT / "research/sandbox_a_resident/ct_job.sh")]
+        spec["env"] = {
+            **manifest["env"], "COLAB_INPUT_DIR": str(inputs),
+            "PYTHONPATH": str(ROOT), "PATH": str(shim) + os.pathsep + os.environ["PATH"],
+        }
+        spec["timeout_seconds"] = 20
+        spec["checkpoint_grace_seconds"] = 15
     _json(root / "spec.json", spec)
     # Same local process/release boundary exemptions as test_colab_cli_runtime.
     with pytest.MonkeyPatch.context() as patch:
@@ -88,7 +111,7 @@ def _runtime_tree(work: Path, stage_tree: Path, mode: str, job_id: str) -> Path:
         patch.setattr(
             runtime,
             "_release_credential_expiring",
-            lambda *_: mode == "child-credential-expiring"
+            lambda *_: mode in {"child-credential-expiring", "child-ct-entrypoint"}
             and (root / "output/ct/stage-0001.pt.complete").exists(),
         )
         assert runtime.supervise(spec) != 0
@@ -226,7 +249,7 @@ def build(
                 state = json.loads((work / "fake-state.json").read_text())
                 remote = work / "remote" / cli.session / context["root"].lstrip("/")
                 if scenario.startswith("child-"):
-                    actual = _runtime_tree(work, stage_tree, scenario, manifest["job_id"])
+                    actual = _runtime_tree(work, stage_tree, scenario, manifest)
                     for name in ("state.json", "terminal.json", "lease.json"):
                         data = json.loads((actual / name).read_text())
                         data["generation"] = generation
@@ -326,7 +349,10 @@ def build(
             shutil.copy2(work / "fake-calls.jsonl", captured / "provider-calls.jsonl")
             shutil.copy2(work / "fake-state.json", captured / "provider-state.json")
             if (work / "runtime-producer").exists():
-                shutil.copytree(work / "runtime-producer", captured / "runtime-producer")
+                shutil.copytree(
+                    work / "runtime-producer", captured / "runtime-producer",
+                    ignore=shutil.ignore_patterns("inputs", "cpu-python"),
+                )
             receipt = json.loads((captured / "output/receipt.json").read_text())
             _json(
                 captured / "capture.json",

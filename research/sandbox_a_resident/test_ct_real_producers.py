@@ -283,6 +283,7 @@ def test_actual_ct_tree_writes_and_commits_continuation(
             "--no-cone",
             "/tools/",
             "/research/colab_cli/",
+            "/research/sandbox_a_resident/ct_run.py",
         ],
         check=True,
     )
@@ -316,6 +317,7 @@ def test_actual_ct_tree_writes_and_commits_continuation(
     # Rebind path relocation and the observed normalized producer manifest;
     # all C/T stage bytes, logs and numerical controls remain the golden bytes.
     sandbox = _read(packet / "sandbox.json")
+    sandbox["timeout"] = {"base_seconds": 90, "seconds": 180, "purpose": "runaway-guard"}
     sandbox["outputs"]["paths"] = [str(output)]
     sandbox["outputs"]["broker_manifest"].update(
         path=str(packet / "dispatch-manifest.json"),
@@ -378,6 +380,10 @@ def test_actual_ct_tree_writes_and_commits_continuation(
         check=True,
     )
     monkeypatch.setattr(sandbox_preflight, "REPO_ROOT", repo)
+    # _run's default cwd was captured when the real module was imported. Route
+    # its real Git checks to this private clone along with REPO_ROOT.
+    original_run = sandbox_preflight._run
+    monkeypatch.setattr(sandbox_preflight, "_run", lambda command: original_run(command, cwd=repo))
     monkeypatch.setattr(ct_preflight, "ROOT", repo)
     ct_preflight.validate_packet(successor, require_committed=True, allow_tiny=True)
     with log.open("a") as stream:
