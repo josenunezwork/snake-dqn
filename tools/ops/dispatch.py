@@ -630,26 +630,46 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         prefixes = ("src/", "tools/sandbox/", "research/sandbox_b_heads/")
     elif study == "t34-watch-lead-1028":
         # A finite, CPU-heavy product premise test, explicitly ruled on L4.
+        inventory = broker / "research/watch_lead_p/runtime-sources.json"
+        preflight.verify_committed_manifest(inventory)
+        admitted = json.loads(inventory.read_text())
         prefixes = (
             "src/",
             "web/backend/",
             "configs/",
             "tools/sandbox/",
             "research/watch_lead_p/",
-            "research/bl_k1/",
-            "research/bl_served_search/",
-            "research/bl_mac_latency/",
+            "research/apex_safety_20260926/",
+            "research/apex_veto_serving_20261001/",
+            "research/apex_veto_strict_20260927/",
+            "research/b8_death_census_20261014/",
             "research/bl_evidence/",
+            "research/bl_k1/",
+            "research/bl_mac_latency/",
             "research/bl_paced_identity/",
             "research/bl_ppo/",
-            "research/t34_shadow/",
-            "research/t34_pathb/",
+            "research/bl_served_search/",
+            "research/compute/",
+            "research/phase0_search_20261019/",
+            "research/redesign_m2_20261008/",
+            "research/redesign_m3c_20261008/",
+            "research/redesign_scope_20261007/",
+            "research/redesign_t7_phase_r_20261016/",
+            "research/s1_mature_20261018/",
+            "research/sandbox_b_heads/",
             "research/t15_mixed_roster_20261017/",
             "research/t1_commitment_20261015/",
-            "research/t3_rollout_labels_20261015/",
-            "research/redesign_scope_20261007/",
-            "research/apex_veto_serving_20261001/",
+            "research/t2_screen_20261015/",
+            "research/t33_batched_teacher/",
+            "research/t34_exit_b8/",
+            "research/t34_pathb/",
+            "research/t34_shadow/",
             "research/t34_speed_s2/",
+            "research/t3_rollout_labels_20261015/",
+            "research/t3_screen_20261015/",
+            "research/t4e_return_20261016/",
+            "research/t4f_return_20261016/",
+            "research/watch_lead_p/",
         )
     else:
         allowed_env.update({"SANDBOX_A_CONTROL_JSON", "SANDBOX_A_SOURCE_COMMIT", "MAX_JOBS"})
@@ -676,14 +696,16 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
     if set(env) - allowed_env:
         raise Refused("sandbox environment contains non-package controls")
     shared = {"research/a100_a2/model.py", "research/bl_residual/data.py"}
+    if study == "t34-watch-lead-1028":
+        shared = {
+            "requirements.txt",
+            "research/published_ledger.py",
+            "research/fixed_search.py",
+            "research/mac_lease.py",
+        }
     for source in manifest.get("source_paths", []):
-        if study == "t34-watch-lead-1028":
-            admitted = json.loads(
-                (broker / "research/watch_lead_p/runtime-sources.json").read_text()
-            )
-            if source not in admitted:
-                raise Refused("P source is outside its frozen dependency inventory")
-            continue
+        if study == "t34-watch-lead-1028" and source not in admitted:
+            raise Refused("P source is outside its frozen dependency inventory")
         parts = Path(source).parts
         if (
             Path(source).is_absolute()

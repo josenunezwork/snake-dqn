@@ -12,7 +12,8 @@ from pathlib import Path
 from research.bl_served_search.exports import digest
 from research.watch_lead_p.admission import exclusion_audit
 from research.watch_lead_p.protocol import NAMESPACE, SEEDS, STUDY
-from research.watch_lead_p.resume import empty_ledger
+from research.watch_lead_p.resume import empty_ledger, read_ledger
+from research.watch_lead_p.run import WORKERS
 
 ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS = ROOT.parent / "snake-dqn-artifacts/t34-watch-lead-1028"
@@ -25,7 +26,15 @@ def write(path: Path, data: object) -> None:
         handle.write("\n")
 
 
-def seal(pin: str, broker: Path, runtime: Path, benchmark: Path, attempt: int = 1) -> None:
+def seal(
+    pin: str,
+    broker: Path,
+    runtime: Path,
+    benchmark: Path,
+    attempt: int = 1,
+    ledger: Path | None = None,
+    units_root: Path | None = None,
+) -> None:
     if (
         not re.fullmatch(r"[0-9a-f]{40}", pin)
         or subprocess.check_output(
@@ -36,16 +45,26 @@ def seal(pin: str, broker: Path, runtime: Path, benchmark: Path, attempt: int = 
         raise ValueError("P runtime pin must be an existing full commit SHA")
     if type(attempt) is not int or not 1 <= attempt <= 99:
         raise ValueError("fresh packet attempt must be 1..99")
+    if (ledger is None) != (units_root is None):
+        raise ValueError("completion requires both ledger and units root")
+    verified = read_ledger(ledger, units_root) if ledger is not None else {}
+    if ledger is not None and not 0 < len(verified) < 32:
+        raise ValueError("completion requires 1..31 verified units")
+    measured = json.loads(benchmark.read_text())
+    if measured["fixture_index"] != 32 or not measured["excluded_from_all_32_sessions"]:
+        raise ValueError("forecast requires the excluded natural fixture")
+    if measured["workers"] != WORKERS or math.ceil(measured["projected_seconds"] / 60) > 240:
+        raise ValueError("measured forecast does not fit the ruled base envelope")
     packet_name = f"packet-{attempt:02d}"
     attempt_name = f"attempt-{attempt:02d}"
     packet = ROOT / "research/watch_lead_p" / packet_name
     packet.mkdir(exist_ok=False)
     target = broker / "research/watch_lead_p" / packet_name
-    write(packet / "verified-ledger.json", empty_ledger())
+    write(
+        packet / "verified-ledger.json",
+        json.loads(ledger.read_text()) if ledger else empty_ledger(),
+    )
     write(packet / "exclusion-audit.json", exclusion_audit())
-    measured = json.loads(benchmark.read_text())
-    if measured["fixture_index"] != 32 or not measured["excluded_from_all_32_sessions"]:
-        raise ValueError("forecast requires the excluded natural fixture")
     measured["receipt_path"] = str(benchmark)
     measured["receipt_sha256"] = digest(benchmark)
     write(packet / "forecast.json", measured)
@@ -59,6 +78,18 @@ def seal(pin: str, broker: Path, runtime: Path, benchmark: Path, attempt: int = 
     for kind, path, dest in kinds:
         local = ROOT / path.relative_to(broker) if path.is_relative_to(broker) else path
         inputs.append({"kind": kind, "path": str(path), "sha256": digest(local), "dest": dest})
+    for record in verified.values():
+        for suffix in ("", ".sha256", ".complete"):
+            path = (units_root / (record["path"] + suffix)).resolve()
+            inputs.append(
+                {
+                    "kind": "verified-unit",
+                    "study": STUDY,
+                    "path": str(path),
+                    "sha256": digest(path),
+                    "dest": record["path"] + suffix,
+                }
+            )
     identity = f"sandbox-p-watch-lead-20261028-{attempt:02d}"
     manifest = {
         "job_id": identity,
@@ -85,7 +116,7 @@ def seal(pin: str, broker: Path, runtime: Path, benchmark: Path, attempt: int = 
         },
         "requirements_file": "research/watch_lead_p/requirements.txt",
         "required_exports": ["watch-lead/inventory.json"]
-        + [f"watch-lead/units/session-{i:02d}.json" for i in range(32)],
+        + [f"watch-lead/units/session-{i:02d}.json" for i in range(32) if i not in verified],
         "budget": {
             "unit_cap": 12.32,
             "rate_units_per_hour": 1.54,
@@ -110,7 +141,7 @@ def seal(pin: str, broker: Path, runtime: Path, benchmark: Path, attempt: int = 
             "effective_unit_cap": 12.32,
             "base_reserve_units": 0,
             "effective_reserve_units": 0,
-            "workers": 10,
+            "workers": WORKERS,
             "forecast_seconds": measured["projected_seconds"],
         },
     }
@@ -120,7 +151,7 @@ def seal(pin: str, broker: Path, runtime: Path, benchmark: Path, attempt: int = 
     sandbox = {
         "schema": "standing-a100-development-sandbox/v1",
         "study": STUDY,
-        "inputs": [{k: r[k] for k in ("kind", "path", "sha256")} for r in inputs]
+        "inputs": [{k: v for k, v in r.items() if k != "dest"} for r in inputs]
         + [{"kind": "worlds", "study": STUDY, "indices": list(range(32)), "seeds": list(SEEDS)}],
         "salt": NAMESPACE,
         "endpoint": {"kind": "steps", "value": 32 * 3 * 6000},
@@ -166,7 +197,8 @@ def seal(pin: str, broker: Path, runtime: Path, benchmark: Path, attempt: int = 
         "Science: 32 complete paired 6000-frame Watch6 sessions; P48 sole primary.\n"
         f"Projected wall seconds: {measured['projected_seconds']:.3f}; "
         "base/effective 14400/28800.\n"
-        "Ten independent session processes, each W1/K1; L4 host >=12 vCPUs. CPU science only.\n"
+        "Twelve arm workers, longest arm first, each session W1/K1; L4 >=12 vCPUs.\n"
+        "Only complete three-arm paired sessions are exported or resumed. CPU science only.\n"
         "Inputs remain sealed; remote exports are diagnostics, never a terminal decision.\n"
         "One original + at most two manual completion attempts after verified mechanical failure,\n"
         "stop_verified and missing-unit accounting, fresh packet/output/receipt, "
@@ -188,5 +220,15 @@ if __name__ == "__main__":
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--benchmark", type=Path, required=True)
     parser.add_argument("--attempt", type=int, default=1)
+    parser.add_argument("--ledger", type=Path)
+    parser.add_argument("--units-root", type=Path)
     args = parser.parse_args()
-    seal(args.pin, args.broker, args.runtime, args.benchmark, args.attempt)
+    seal(
+        args.pin,
+        args.broker,
+        args.runtime,
+        args.benchmark,
+        args.attempt,
+        args.ledger,
+        args.units_root,
+    )

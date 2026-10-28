@@ -83,7 +83,17 @@ def validate_inputs(payload: dict, registry: dict) -> None:
     packet_path = Path(payload["outputs"]["broker_manifest"]["path"])
     from tools.sandbox.preflight import verify_committed_manifest
 
+    verify_committed_manifest(packet_path.parent / "seal.json")
     seal = json.loads((packet_path.parent / "seal.json").read_text())
+    if set(seal) != {
+        "DISPATCH.txt",
+        "dispatch-manifest.json",
+        "exclusion-audit.json",
+        "forecast.json",
+        "sandbox.json",
+        "verified-ledger.json",
+    }:
+        raise ValueError("P packet seal is incomplete")
     for name, checksum in seal.items():
         path = packet_path.parent / name
         verify_committed_manifest(path)
@@ -96,7 +106,7 @@ def validate_inputs(payload: dict, registry: dict) -> None:
     if (
         packet["device"] != "cpu"
         or packet["requirements"]["min_vcpu"] != 12
-        or packet["technical_envelope"]["workers"] != 10
+        or packet["technical_envelope"]["workers"] != 12
         or packet["timeout_minutes"] != 480
     ):
         raise ValueError("P worker/device/envelope differs from forecast")
@@ -108,6 +118,8 @@ def validate_inputs(payload: dict, registry: dict) -> None:
     }:
         raise ValueError("P resume declaration differs")
     ledger_path = Path(kinds["verified-ledger"][0]["path"])
+    if ledger_path.resolve() != (packet_path.parent / "verified-ledger.json").resolve():
+        raise ValueError("P ledger must belong to the sealed packet")
     # Admission checks first attempt without opening any outcomes. Completion
     # packets must preserve the same namespace and pass read_ledger offline.
     ledger = json.loads(ledger_path.read_text())
@@ -122,7 +134,14 @@ def validate_inputs(payload: dict, registry: dict) -> None:
             k: expected[k] for k in expected if k != "units"
         }:
             raise ValueError("foreign P completion allocation/recipe")
-        uploads = {r["dest"]: r for r in packet["inputs"]}
+        if not 0 < len(ledger["units"]) < 32:
+            raise ValueError("P completion requires 1..31 verified units")
+        uploads = {}
+        for item in packet["inputs"]:
+            dest = item.get("dest")
+            if not isinstance(dest, str) or not dest or dest in uploads:
+                raise ValueError("P missing/duplicate upload destination")
+            uploads[dest] = item
         admitted = {(r["path"], r["sha256"]) for r in kinds["verified-unit"]}
         used = set()
         indices = set()
@@ -133,12 +152,16 @@ def validate_inputs(payload: dict, registry: dict) -> None:
             indices.add(index)
             if record["path"] != f"units/session-{index:02d}.json":
                 raise ValueError("foreign P completion path")
-            upload = uploads[record["path"]]
+            upload = uploads.get(record["path"])
+            if upload is None:
+                raise ValueError("P missing completion upload destination")
             source = Path(upload["path"])
             if source.stat().st_size != record["size"] or verify_export(source) != record["sha256"]:
                 raise ValueError("unverified P completion unit")
             for suffix in ("", ".sha256", ".complete"):
-                item = uploads[record["path"] + suffix]
+                item = uploads.get(record["path"] + suffix)
+                if item is None:
+                    raise ValueError("P missing completion sidecar destination")
                 pair = (item["path"], item["sha256"])
                 if pair not in admitted:
                     raise ValueError("unadmitted P completion payload/sidecar")
@@ -147,3 +170,10 @@ def validate_inputs(payload: dict, registry: dict) -> None:
             raise ValueError("unreferenced P completion upload")
     if not ledger["units"] and kinds["verified-unit"]:
         raise ValueError("unreferenced P resume payloads")
+
+    indices = {record["allocation_index"] for record in ledger["units"]}
+    expected_exports = ["watch-lead/inventory.json"] + [
+        f"watch-lead/units/session-{i:02d}.json" for i in range(32) if i not in indices
+    ]
+    if packet.get("required_exports") != expected_exports:
+        raise ValueError("P required exports differ from missing units")

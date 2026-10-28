@@ -270,3 +270,187 @@ def test_partial_union_does_not_take_a_look(tmp_path, monkeypatch) -> None:
     result = resume.aggregate([], tmp_path / "invalid.json")
     assert result["decision"] == "INVALID/INCOMPLETE"
     assert result["P48_primary"] == result["P0_descriptive_only"] == {}
+
+
+class BranchWorld:
+    """Deterministic transition seam; search/exact-stop/chooser remain real."""
+
+    def __init__(self, deaths, log=None):
+        self.deaths = deaths
+        self.log = [] if log is None else log
+        self.action = None
+        self.frame = 0
+        self.respawn_timer = 2
+
+    def clone(self):
+        return BranchWorld(self.deaths, self.log)
+
+    def step(self, forced=None):
+        if forced is not None:
+            self.action = forced
+        self.frame += 1
+        self.log.append((self.action, self.frame))
+        return {"death": self.frame == self.deaths.get(self.action)}
+
+
+def _proposal(q=None):
+    return {"bare": 1, "mask": [True, True, True, True, False, False], "q": q or [3, 0, 4, 4, 0, 0]}
+
+
+@pytest.mark.parametrize("q,chosen", [([3, 0, 4, 4, 0, 0], 2), ([5, 0, 4, 4, 0, 0], 0)])
+def test_search_bare_death_rescue_q_then_index(q, chosen):
+    world = BranchWorld({1: 2})
+    result = search(world, _proposal(q))
+    assert result["chosen"] == chosen
+    assert result["evaluation_order"] == [1, chosen]
+    assert result["outcomes"][1] == {"survives": False, "frames_survived": 1}
+    assert result["outcomes"][chosen] == {"survives": True, "frames_survived": 300}
+
+
+def test_search_all_die_chooser_and_rescue_only_fallback():
+    world = BranchWorld({0: 5, 1: 1, 2: 8, 3: 12})
+    result = search(world, _proposal())
+    assert result["branches_evaluated"] == 4
+    assert result["chosen"] == 1
+    assert result["outcomes"][3] == {"survives": False, "frames_survived": 11}
+
+
+def test_h300_fatal_transition_stops_before_respawn():
+    world = BranchWorld({0: 300, 1: 2, 2: 1, 3: 3})
+    result = search(world, _proposal())
+    assert result["outcomes"][0] == {"survives": False, "frames_survived": 299}
+    assert max(t for a, t in world.log if a == 1) == 2
+    assert max(t for a, t in world.log if a == 0) == 300
+
+
+def test_constructor_preserves_external_rng():
+    import random
+
+    import numpy as np
+    import torch
+
+    from research.watch_lead_p.live import rng_state, set_rng
+
+    before = rng_state()
+    expected = (random.random(), np.random.random(), torch.rand(3))
+    set_rng(before)
+    LiveWorld(protocol.FIXTURE_SEED)
+    actual = (random.random(), np.random.random(), torch.rand(3))
+    assert actual[:2] == expected[:2]
+    assert torch.equal(actual[2], expected[2])
+    set_rng(before)
+
+
+@pytest.mark.parametrize("action", [-1, 6])
+def test_forced_action_bounds(action):
+    world = LiveWorld(protocol.FIXTURE_SEED)
+    with pytest.raises(ValueError, match="index out of range"):
+        world.step(action)
+
+
+def test_forced_dead_nonacting_tick_refused():
+    world = LiveWorld(protocol.FIXTURE_SEED)
+    world.hero.die()
+    world.hero.respawn_timer = 100
+    with pytest.raises(ValueError, match="non-acting"):
+        world.step(1)
+
+
+def test_forecast_quantizes_pairs_and_schedules_indivisible_arms():
+    from research.watch_lead_p.benchmark import project
+
+    result = project(0.007326245693257079, 2.851223332923837, 3.2827097920235246)
+    assert result["old_ten_worker_pair_seconds_corrected"] == pytest.approx(17028.4549056245)
+    assert result["projected_seconds"] <= 14400
+    assert len(result["worker_loads_seconds"]) == 12
+    assert result["projected_seconds"] == max(result["worker_loads_seconds"]) + 1200
+
+
+def test_recipe_ignores_transport_but_binds_science(monkeypatch):
+    original = resume.digest
+    before = resume.recipe_fingerprint()
+    monkeypatch.setattr(resume, "digest", lambda p: "0" * 64 if p.name == "run.py" else original(p))
+    assert resume.recipe_fingerprint() == before
+    monkeypatch.setattr(
+        resume, "digest", lambda p: "0" * 64 if p.name == "live.py" else original(p)
+    )
+    assert resume.recipe_fingerprint() != before
+
+
+@pytest.mark.parametrize("during_submit", [False, True])
+def test_signal_pair_reaps_spawned_workers(tmp_path, during_submit):
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    import psutil
+
+    root = Path(__file__).resolve().parents[2]
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(json.dumps(resume.empty_ledger()))
+    script = tmp_path / "signal_probe.py"
+    script.write_text("""import os,sys,time,signal
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from research.watch_lead_p import run
+base=Path(sys.argv[2])
+def slow(index, arm):
+    (base / ("active-"+str(os.getpid()))).write_text("started")
+    time.sleep(60)
+Original=run.concurrent.futures.ProcessPoolExecutor
+class Pool(Original):
+    def submit(self,*a,**k):
+        result=super().submit(*a,**k)
+        (base / "pids").write_text(" ".join(str(p.pid) for p in self._processes.values()))
+        if sys.argv[3]=="True":
+            os.kill(os.getpid(),signal.SIGUSR1)
+        return result
+    def shutdown(self,*a,**k):
+        time.sleep(.3)
+        return super().shutdown(*a,**k)
+run.worker=slow
+run.concurrent.futures.ProcessPoolExecutor=Pool
+if __name__=="__main__":
+    try:
+        run.execute(base/"ledger.json",base,base/"out")
+    except InterruptedError:
+        pass
+""")
+    log = (tmp_path / "log").open("w")
+    proc = subprocess.Popen(
+        [sys.executable, str(script), str(root), str(tmp_path), str(during_submit)],
+        stdout=log,
+        stderr=log,
+    )
+    try:
+        deadline = time.monotonic() + 30
+        marker = tmp_path / "out/interruption.json.complete"
+        while time.monotonic() < deadline:
+            if during_submit:
+                ready = (tmp_path / "pids").exists()
+            else:
+                ready = len(list(tmp_path.glob("active-*"))) >= 2
+            if ready:
+                break
+            if proc.poll() is not None:
+                pytest.fail((tmp_path / "log").read_text())
+            time.sleep(0.02)
+        else:
+            pytest.fail("workers did not start")
+        if not during_submit:
+            proc.send_signal(signal.SIGUSR1)
+        time.sleep(0.03)
+        if proc.poll() is None:
+            proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=20)
+        assert proc.returncode == 0, (tmp_path / "log").read_text()
+        assert marker.exists()
+        assert json.loads((tmp_path / "out/interruption.json").read_text())["completed"] == []
+        for pid in (tmp_path / "pids").read_text().split():
+            assert not psutil.pid_exists(int(pid)), f"unreaped worker {pid}"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        log.close()

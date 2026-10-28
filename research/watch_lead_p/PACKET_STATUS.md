@@ -1,22 +1,26 @@
 # P packet status
 
-Use **packet-03**, identity `sandbox-p-watch-lead-20261028-03`. Its runtime pin is
-`f97838ebdc5d3315a95f173c623f717fc115d223`. No packet has been dispatched and none
-of the 32 scientific sessions has been run. Packet numbering here records
-pre-dispatch packaging revisions, not completion attempts or extra data looks.
+**Packet-03 is REJECTED and must not be dispatched.** The operator supplied an
+independent Argon review with one blocker, three major and three minor findings.
+No packet has been dispatched; none of the 32 scientific sessions has run.
 
-Packet-01 is preserved unchanged and **must not be dispatched**. Its offline
-dispatch dry-run passed, but an independent extracted-sparse-bundle check found
-that the root requirements file and a dynamically loaded serving schema had not
-been included. The final dependency inventory includes both; gameplay, seeds,
-roster, scheduler, statistics, N and the measured fixture engine did not change.
+Packet-04 is the replacement preparation. Runtime/admission fixes, regression
+coverage, corrected forecast and fresh clean detached checkouts are recorded in
+VERIFICATION.md and its sealed DISPATCH.txt. Packet numbering denotes packaging
+revisions before dispatch, not scientific attempts or extra data looks. The first
+scientific attempt still has an empty ledger; later completion packets require
+1–31 verified units. N, allocation, namespace and the one terminal look stay fixed.
 
-An uncommitted packet-02 draft had an incorrectly transcribed source pin. It was
-caught before commit, checkout or dispatch and archived unchanged outside Git at
+The implementer has received no independent acceptance review of packet-04.
+Offline tests, source binding and a dry-run do not supply that verdict. The
+operator's rejected packet-03 review supersedes earlier acceptance claims in the
+old verification note. No independent review is requested or invented here.
+
+Packet-01 and packet-03 remain byte-for-byte preserved. Packet-01 omitted root
+requirements and a dynamic schema in its sparse bundle. The uncommitted packet-02
+draft had an incorrect pin and remains archived outside Git at
 `snake-dqn-artifacts/t34-watch-lead-1028/engineering-01/invalid-uncommitted-draft-02/`.
-The sealer now rejects an invalid or absent full commit pin before creating any
-packet files, and packet-03 takes its pin directly from Git.
 
-The source and script/input digests in packet-03 are authoritative. Operator
-dispatch and fresh account/hardware checks remain separate from local tests,
-review, packet sealing and an allocation-free dry-run.
+Only packet-04's source/script/input digests and seal govern its preparation.
+Operator dispatch and fresh account/hardware checks remain separate from local
+implementation, tests, sealing and allocation-free validation.

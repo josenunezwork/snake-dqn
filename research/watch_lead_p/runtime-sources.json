@@ -141,6 +141,7 @@
   "research/watch_lead_p/run.py",
   "research/watch_lead_p/run_job.sh",
   "research/watch_lead_p/runtime-sources.json",
+  "research/watch_lead_p/science-sources.json",
   "research/watch_lead_p/seal.py",
   "research/watch_lead_p/test_admission.py",
   "research/watch_lead_p/test_p.py",

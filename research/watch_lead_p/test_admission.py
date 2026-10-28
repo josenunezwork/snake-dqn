@@ -45,6 +45,7 @@ def test_registry_exclusion_audit() -> None:
 
 @pytest.mark.parametrize("change", [None, "gpu", "output", "source", "env"])
 def test_p_route_is_narrow(tmp_path, monkeypatch, change) -> None:
+    monkeypatch.setattr(preflight, "verify_committed_manifest", lambda *a: None)
     # This route-only fixture inherits B's historical pin. The launch test
     # below and the sealed packet dry-run check the real P entrypoint pin.
     monkeypatch.setattr("research.colab_cli.canary.job_device", lambda *a: "cpu")
@@ -164,3 +165,245 @@ def test_p_qualified_supervisor_exec_uses_source_adapter(monkeypatch) -> None:
             == "bound-execute"
         )
     assert calls == ["cli"]
+
+
+@pytest.fixture
+def completion_packet(tmp_path, monkeypatch):
+    """Real committed miniature operator workflow; synthetic outcomes only."""
+    import shutil
+
+    from research.bl_served_search.exports import export_json
+    from research.watch_lead_p import resume, seal
+    from research.watch_lead_p.protocol import ARMS, FRAMES
+
+    repo = (tmp_path / "repo").resolve()
+    subprocess.run(["git", "clone", "--quiet", "--shared", str(ROOT), str(repo)], check=True)
+    # Exercise the current implementation before and after its eventual commit.
+    sources = json.loads((ROOT / "research/watch_lead_p/runtime-sources.json").read_text())
+    for name in [*sources, "tools/ops/dispatch.py"]:
+        shutil.copyfile(ROOT / name, repo / name)
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+
+    git("add", "research/watch_lead_p", "tools/ops/dispatch.py")
+    git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", "fixture sources")
+    pin = git("rev-parse", "HEAD")
+    inputs = tmp_path / "inputs"
+    paths = []
+    for index in range(31):
+        path = inputs / "units" / f"session-{index:02d}.json"
+        arms = {
+            a: dict(initial_state="same", frames=FRAMES, seed=SEEDS[index], deaths=10, mass=100)
+            for a in ARMS
+        }
+        export_json(
+            path,
+            dict(
+                namespace=resume.NAMESPACE,
+                allocation=resume.ALLOCATION,
+                unit_id=resume.unit_id(index),
+                allocation_index=index,
+                recipe_sha256=resume.recipe_fingerprint(),
+                seed=SEEDS[index],
+                arms=arms,
+            ),
+        )
+        paths.append(path)
+    ledger = tmp_path / "ledger.json"
+    resume.make_ledger(paths, ledger)
+    forecast = tmp_path / "benchmark.json"
+    forecast.write_text(
+        json.dumps(
+            dict(
+                fixture_index=32,
+                excluded_from_all_32_sessions=True,
+                workers=12,
+                projected_seconds=12000,
+            )
+        )
+    )
+    monkeypatch.setattr(seal, "ROOT", repo)
+    monkeypatch.setattr(seal, "ARTIFACTS", tmp_path / "artifacts")
+    seal.seal(pin, repo, repo, forecast, 90, ledger, inputs)
+    git("add", "research/watch_lead_p/packet-90")
+    git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture completion packet")
+    monkeypatch.setattr(preflight, "REPO_ROOT", repo)
+    monkeypatch.setattr(
+        preflight,
+        "_run",
+        lambda command, **kw: subprocess.check_output(command, cwd=repo, text=True).strip(),
+    )
+    return repo, repo / "research/watch_lead_p/packet-90", inputs, paths
+
+
+def test_completion_packet_preflight_upload_skip_and_union(
+    completion_packet, tmp_path, monkeypatch
+):
+    import concurrent.futures
+    import shutil
+
+    from research.colab_cli import supervisor
+    from research.watch_lead_p import resume, run
+    from research.watch_lead_p.protocol import FRAMES
+
+    repo, packet, inputs, prior = completion_packet
+    preflight.preflight(
+        packet / "sandbox.json",
+        registry_path=repo / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
+        run_tests=False,
+    )
+    manifest = json.loads((packet / "dispatch-manifest.json").read_text())
+    assert manifest["required_exports"] == [
+        "watch-lead/inventory.json",
+        "watch-lead/units/session-31.json",
+    ]
+    # Run the actual dispatch admission route with its recursive tests already
+    # owned by the outer suite; all source, packet and input checks remain real.
+    real_preflight = preflight.preflight
+    monkeypatch.setattr(
+        preflight,
+        "preflight",
+        lambda path, **kw: real_preflight(
+            path, registry_path=repo / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json", run_tests=False
+        ),
+    )
+    monkeypatch.setitem(dispatch.SANDBOX_OUTPUT_ROOTS, STUDY, tmp_path / "artifacts")
+    monkeypatch.setattr(dispatch, "HERE", repo / "tools/ops")
+    from tools.sandbox.supervisor import sandbox_admission_route
+
+    with sandbox_admission_route():
+        manifest = supervisor.validate(manifest, repo=repo)
+    dispatch.require_sandbox_admission(manifest, repo)
+    # The qualified staging path creates nested parents before uploading. Replay
+    # its exact destination mapping locally; validate has admitted every dest.
+    staged = tmp_path / "staged"
+    for record in manifest["inputs"]:
+        target = staged / record["dest"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(record["path"], target)
+    assert len(resume.read_ledger(staged / "verified-ledger.json", staged)) == 31
+    called = []
+
+    def arm_worker(index, arm):
+        called.append((index, arm))
+        return dict(initial_state="same", frames=FRAMES, seed=SEEDS[index], deaths=10, mass=100)
+
+    monkeypatch.setattr(run, "worker", arm_worker)
+
+    class Pool(concurrent.futures.ThreadPoolExecutor):
+        def __init__(self, **kw):
+            super().__init__(max_workers=2)
+            self._processes = {}
+
+    monkeypatch.setattr(run.concurrent.futures, "ProcessPoolExecutor", Pool)
+    output = tmp_path / "completed"
+    run.execute(staged / "verified-ledger.json", staged, output)
+    assert sorted(called) == [(31, "P0"), (31, "P48"), (31, "bare")]
+    assert sorted(p.name for p in (output / "units").glob("*.json")) == ["session-31.json"]
+    report = resume.aggregate(
+        [*prior, output / "units/session-31.json"], tmp_path / "decision.json"
+    )
+    assert report["decision"] == "STOP this delayed controller"
+    assert len(report["inputs"]) == 32
+
+
+@pytest.mark.parametrize(
+    "corruption", ["seal-empty", "seal-uncommitted", "ledger-path", "dest-missing", "all-complete"]
+)
+def test_completion_admission_rejects_broken_bindings(
+    completion_packet, tmp_path, monkeypatch, corruption
+):
+    from research.watch_lead_p.admission import validate_inputs
+    from tools.sandbox.registry import load_registry
+
+    repo, packet, _, _ = completion_packet
+    payload = json.loads((packet / "sandbox.json").read_text())
+    if corruption == "seal-uncommitted":
+        (packet / "seal.json").write_text("{}")
+        with pytest.raises(preflight.PreflightError, match="committed HEAD"):
+            validate_inputs(payload, load_registry())
+        return
+    # Other cases target semantic checks after committed-byte verification.
+    monkeypatch.setattr(preflight, "verify_committed_manifest", lambda *a: None)
+    if corruption == "seal-empty":
+        (packet / "seal.json").write_text("{}")
+    elif corruption == "ledger-path":
+        record = next(r for r in payload["inputs"] if r["kind"] == "verified-ledger")
+        record["path"] = str(tmp_path / "foreign-ledger.json")
+    else:
+        manifest = json.loads((packet / "dispatch-manifest.json").read_text())
+        if corruption == "dest-missing":
+            manifest["inputs"][-1].pop("dest")
+            (packet / "dispatch-manifest.json").write_text(json.dumps(manifest))
+        else:
+            value = json.loads((packet / "verified-ledger.json").read_text())
+            value["units"].append(value["units"][0])
+            (packet / "verified-ledger.json").write_text(json.dumps(value))
+        from research.bl_served_search.exports import digest
+
+        seal = json.loads((packet / "seal.json").read_text())
+        for name in seal:
+            seal[name] = digest(packet / name)
+        (packet / "seal.json").write_text(json.dumps(seal))
+    with pytest.raises(ValueError):
+        validate_inputs(payload, load_registry())
+
+
+def test_dispatch_verifies_inventory_once_and_rejects_unsafe_admitted_paths(tmp_path, monkeypatch):
+    """Inventory membership never bypasses the independent path/prefix boundary."""
+    monkeypatch.setattr(dispatch, "HERE", tmp_path / "tools/ops")
+    value = json.loads(
+        (ROOT / "research/watch_lead_p/packet-03/dispatch-manifest.json").read_text()
+    )
+    monkeypatch.setitem(dispatch.SANDBOX_OUTPUT_ROOTS, STUDY, tmp_path)
+    value["output_dir"] = str(tmp_path / "unused")
+    inventory = tmp_path / "research/watch_lead_p/runtime-sources.json"
+    inventory.parent.mkdir(parents=True)
+    called = []
+    monkeypatch.setattr(preflight, "verify_committed_manifest", lambda path: called.append(path))
+    for source in ("/absolute.py", "research/watch_lead_p/../evil.py", "evil.py"):
+        inventory.write_text(json.dumps([source]))
+        value["source_paths"] = [source]
+        with pytest.raises(dispatch.Refused, match="engineering dependency"):
+            dispatch.require_sandbox_admission(value, tmp_path)
+    assert called == [inventory] * 3
+
+
+def test_seal_rejects_forecast_above_base_before_writing(tmp_path, monkeypatch):
+    from research.watch_lead_p import seal
+
+    benchmark = tmp_path / "benchmark.json"
+    benchmark.write_text(
+        json.dumps(
+            dict(
+                fixture_index=32,
+                excluded_from_all_32_sessions=True,
+                workers=12,
+                projected_seconds=14401,
+            )
+        )
+    )
+    monkeypatch.setattr(seal, "ROOT", ROOT)
+    pin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    with pytest.raises(ValueError, match="base envelope"):
+        seal.seal(pin, tmp_path, tmp_path, benchmark, 99)
+    assert not (ROOT / "research/watch_lead_p/packet-99").exists()
+
+
+@pytest.mark.parametrize("count", [0, 32])
+def test_sealer_refuses_empty_or_complete_completion_ledger(tmp_path, count):
+    from research.bl_served_search.exports import export_json
+    from research.watch_lead_p import resume, seal
+
+    paths = []
+    for index in range(count):
+        path = tmp_path / "units" / f"session-{index:02d}.json"
+        export_json(path, {"sealed": True})
+        paths.append(path)
+    ledger = tmp_path / "ledger.json"
+    resume.make_ledger(paths, ledger)
+    pin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    with pytest.raises(ValueError, match="1..31 verified units"):
+        seal.seal(pin, tmp_path, tmp_path, tmp_path / "unused", 99, ledger, tmp_path)
+    assert not (ROOT / "research/watch_lead_p/packet-99").exists()

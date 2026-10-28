@@ -51,11 +51,15 @@ class LiveWorld:
             np.random.seed(np.random.SeedSequence(value).generate_state(4))
             torch.manual_seed(value)
 
-        with patch("research.t15_mixed_roster_20261017.episodes.set_world_seed", seed_all):
-            self.session, self.roster = new_watch(seed)
+        external = rng_state()
+        try:
+            with patch("research.t15_mixed_roster_20261017.episodes.set_world_seed", seed_all):
+                self.session, self.roster = new_watch(seed)
+            self.rng = rng_state()
+        finally:
+            set_rng(external)
         if get_config().game.mechanics_version != 2:
             raise ValueError("P requires live deployment mechanics-v2")
-        self.rng = rng_state()
         self.life = 0
         self.waiting = False
 
@@ -116,6 +120,8 @@ class LiveWorld:
 
     def step(self, forced: int | None = None) -> dict[str, Any]:
         """Execute ordinary Watch.step, optionally overriding only the hero proposal."""
+        if forced is not None and not 0 <= int(forced) < 6:
+            raise ValueError("P forced hero action index out of range")
         before = self.frame
         observed: dict[str, Any] = {}
 
@@ -130,7 +136,9 @@ class LiveWorld:
                 life=self.life,
                 length=int(snake.length),
             )
-            if forced is not None and not bool(mask[int(forced)]):
+            if forced is not None and (
+                not 0 <= int(forced) < len(mask) or not bool(mask[int(forced)])
+            ):
                 raise ValueError("P attempted a masked hero action")
             return int(bare) if forced is None else int(forced)
 
@@ -145,6 +153,8 @@ class LiveWorld:
             del hero.action_transform
         if self.frame != before + 1 or self.session.last_error:
             raise RuntimeError("P Watch transition failed")
+        if forced is not None and not observed:
+            raise ValueError("P forced action on a non-acting hero tick")
         death = hero.id in self.session.game.frame_death_causes
         if death:
             self.waiting = True

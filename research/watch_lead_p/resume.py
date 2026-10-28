@@ -24,8 +24,9 @@ SCHEMA = "watch-lead-p-ledger/v1"
 
 
 def recipe_fingerprint() -> str:
+    """Bind scientific dependencies, independent of packet/admission/orchestration fixes."""
     root = Path(__file__).resolve().parents[2]
-    sources = json.loads((root / "research/watch_lead_p/runtime-sources.json").read_text())
+    sources = json.loads((root / "research/watch_lead_p/science-sources.json").read_text())
     identities = [(name, digest(root / name)) for name in sources]
     return hashlib.sha256(json.dumps(identities, separators=(",", ":")).encode()).hexdigest()
 
