@@ -11,8 +11,9 @@ not exact future reachability.")
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import numba
 import numpy as np
@@ -116,13 +117,121 @@ _DY = np.array([-1, 0, 1, 0], dtype=np.int64)
 _TURNS = np.array([-1, 0, 1, -1, 0, 1], dtype=np.int64)
 
 
+_ZLIB_BLOCK_RAW_BYTES = 16 * 1024 * 1024
+_ZLIB_CODEC_SCHEMA = "ct-zlib-tensor/v1"
+
+
+def compress_array_to_u8_tensor(
+    arr: np.ndarray,
+    *,
+    byte_shuffle: bool = False,
+    level: int = 6,
+) -> dict[str, Any]:
+    """Losslessly compress a NumPy array into chunked CPU ``uint8`` ``torch.Tensor`` leaves."""
+    contig = np.ascontiguousarray(arr)
+    itemsize = int(contig.dtype.itemsize)
+    do_shuffle = bool(byte_shuffle and itemsize > 1 and contig.size > 0)
+    raw_u8 = contig.view(np.uint8).reshape(-1)
+    total_bytes = int(raw_u8.size)
+    # Align chunk step to itemsize so per-chunk byte shuffle is self-contained.
+    block_bytes = (_ZLIB_BLOCK_RAW_BYTES // max(1, itemsize)) * max(1, itemsize)
+    chunks: list[torch.Tensor] = []
+    for start in range(0, total_bytes, block_bytes):
+        sub = raw_u8[start : min(total_bytes, start + block_bytes)]
+        if do_shuffle:
+            sub = np.ascontiguousarray(sub.reshape(-1, itemsize).T).reshape(-1)
+        comp = zlib.compress(memoryview(sub), level=int(level))
+        chunks.append(torch.frombuffer(bytearray(comp), dtype=torch.uint8))
+    return {
+        "codec": _ZLIB_CODEC_SCHEMA,
+        "dtype": contig.dtype.str,
+        "shape": [int(d) for d in contig.shape],
+        "byte_shuffle": do_shuffle,
+        "nbytes": total_bytes,
+        "chunks": chunks,
+    }
+
+
+def decompress_u8_tensor_to_array(block: Mapping[str, Any]) -> np.ndarray:
+    """Losslessly reconstruct the exact NumPy array from ``compress_array_to_u8_tensor``."""
+    if block.get("codec") != _ZLIB_CODEC_SCHEMA:
+        raise ValueError(f"foreign compressed array codec: {block.get('codec')!r}")
+    dt = np.dtype(str(block["dtype"]))
+    shape = tuple(int(d) for d in block["shape"])
+    expected_bytes = int(block["nbytes"])
+    do_shuffle = bool(block.get("byte_shuffle", False))
+    itemsize = int(dt.itemsize)
+    if expected_bytes != int(np.prod(shape, dtype=np.int64)) * itemsize:
+        raise ValueError("compressed array header shape/nbytes mismatch")
+    out_u8 = np.empty(expected_bytes, dtype=np.uint8)
+    cursor = 0
+    for chunk_t in block["chunks"]:
+        if not isinstance(chunk_t, torch.Tensor) or chunk_t.dtype != torch.uint8:
+            raise ValueError("compressed chunk must be a uint8 torch.Tensor")
+        raw = zlib.decompress(memoryview(chunk_t.detach().cpu().contiguous().numpy()))
+        n = len(raw)
+        if cursor + n > expected_bytes:
+            raise ValueError("decompressed byte stream exceeds declared nbytes")
+        sub = np.frombuffer(raw, dtype=np.uint8)
+        if do_shuffle:
+            if n % itemsize != 0:
+                raise ValueError("misaligned byte-shuffled block")
+            sub = np.ascontiguousarray(sub.reshape(itemsize, -1).T).reshape(-1)
+        out_u8[cursor : cursor + n] = sub
+        cursor += n
+    if cursor != expected_bytes:
+        raise ValueError("decompressed byte stream shorter than declared nbytes")
+    return out_u8.view(dt).reshape(shape)
+
+
+def _plane0_matches_p1_or_p2(planes_u16: np.ndarray) -> bool:
+    expected_p0 = np.where(
+        (planes_u16[:, 1] > 0) | (planes_u16[:, 2] > 0),
+        np.uint16(QUANT_MAX),
+        np.uint16(0),
+    )
+    return bool(np.array_equal(planes_u16[:, 0], expected_p0))
+
+
+@numba.njit(cache=True)
+def _encode_csr_row_deltas_u16_nb(offsets: np.ndarray, flat_indices: np.ndarray) -> np.ndarray:
+    out = np.empty(flat_indices.shape[0], dtype=np.uint16)
+    n_rows = offsets.shape[0] - 1
+    for r in range(n_rows):
+        s = offsets[r]
+        e = offsets[r + 1]
+        if e > s:
+            prev = np.uint16(0)
+            for p in range(s, e):
+                cur = flat_indices[p]
+                out[p] = cur - prev if p > s else cur
+                prev = cur
+    return out
+
+
+@numba.njit(cache=True)
+def _decode_csr_row_deltas_u16_nb(offsets: np.ndarray, row_deltas: np.ndarray) -> np.ndarray:
+    out = np.empty(row_deltas.shape[0], dtype=np.uint16)
+    n_rows = offsets.shape[0] - 1
+    for r in range(n_rows):
+        s = offsets[r]
+        e = offsets[r + 1]
+        if e > s:
+            acc = np.uint16(0)
+            for p in range(s, e):
+                acc = np.uint16(acc + row_deltas[p]) if p > s else row_deltas[p]
+                out[p] = acc
+    return out
+
+
 @dataclass
 class SparseTopologyBatch:
     """Lossless CSR-packed sparse representation of (N, 4, H, W) uint16 planes + (N, 6) summaries.
 
-    Because <10% of (4, 83, 145) entries are nonzero (48,140 < 65,536 fits in uint16),
-    storing (flat_idx_u16, val_u16) uses ~8 KB/row (~420 MB for 52,560 rows vs 5.06 GB dense)
-    with 100% bitwise-exact dense reconstruction.
+    When ``p0_derived=True`` (satisfied identically by all ``compute_topology_features``
+    outputs where Plane 0 ``wall_occupancy`` equals ``65535 * ((Plane 1 > 0) | (Plane 2 > 0))``),
+    only Planes 1..3 nonzeros are stored and Plane 0 is reconstructed losslessly during
+    unpacking, halving both RAM and serialized storage.
     """
 
     num_rows: int
@@ -132,6 +241,7 @@ class SparseTopologyBatch:
     flat_indices: np.ndarray  # (nnz,) uint16
     values: np.ndarray  # (nnz,) uint16
     summaries: np.ndarray  # (N, 6) float32
+    p0_derived: bool = False
 
     @property
     def nbytes(self) -> int:
@@ -142,17 +252,67 @@ class SparseTopologyBatch:
             + self.summaries.nbytes
         )
 
+    def slice_rows(self, indices: np.ndarray | Sequence[int]) -> "SparseTopologyBatch":
+        """Extract a subset/reordering of rows preserving ``p0_derived``."""
+        idx = np.asarray(indices, dtype=np.int64).reshape(-1)
+        N = int(idx.size)
+        if N == 0:
+            return SparseTopologyBatch(
+                num_rows=0,
+                grid_h=self.grid_h,
+                grid_w=self.grid_w,
+                offsets=np.zeros(1, dtype=np.int64),
+                flat_indices=np.zeros(0, dtype=np.uint16),
+                values=np.zeros(0, dtype=np.uint16),
+                summaries=np.zeros((0, 6), dtype=np.float32),
+                p0_derived=self.p0_derived,
+            )
+        counts = self.offsets[idx + 1] - self.offsets[idx]
+        new_offsets = np.zeros(N + 1, dtype=np.int64)
+        np.cumsum(counts, out=new_offsets[1:])
+        total_nnz = int(new_offsets[-1])
+        new_flat = np.empty(total_nnz, dtype=np.uint16)
+        new_vals = np.empty(total_nnz, dtype=np.uint16)
+        cursor = 0
+        for r_i in idx.tolist():
+            s = int(self.offsets[r_i])
+            e = int(self.offsets[r_i + 1])
+            span = e - s
+            if span > 0:
+                new_flat[cursor : cursor + span] = self.flat_indices[s:e]
+                new_vals[cursor : cursor + span] = self.values[s:e]
+                cursor += span
+        return SparseTopologyBatch(
+            num_rows=N,
+            grid_h=self.grid_h,
+            grid_w=self.grid_w,
+            offsets=new_offsets,
+            flat_indices=new_flat,
+            values=new_vals,
+            summaries=np.ascontiguousarray(self.summaries[idx], dtype=np.float32),
+            p0_derived=self.p0_derived,
+        )
+
     def unpack_rows(
         self, row_indices: np.ndarray | Sequence[int], device: torch.device | str | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Losslessly reconstruct (B, 4, H, W) float32/int32-ready tensors and (B, 6) summaries."""
         idx = np.asarray(row_indices, dtype=np.int64).reshape(-1)
         B = idx.shape[0]
-        plane_elems = 4 * self.grid_h * self.grid_w
+        hw = self.grid_h * self.grid_w
+        plane_elems = 4 * hw
         if plane_elems > 65536:
             raise ValueError("SparseTopologyBatch uint16 flat index requires 4*H*W <= 65536")
         dense = np.zeros((B, plane_elems), dtype=np.uint16)
-        _unpack_csr_u16_nb(idx, self.offsets, self.flat_indices, self.values, dense)
+        _unpack_csr_u16_nb(
+            idx,
+            self.offsets,
+            self.flat_indices,
+            self.values,
+            dense,
+            bool(self.p0_derived),
+            int(hw),
+        )
         dense_4d = dense.reshape(B, 4, self.grid_h, self.grid_w)
         sums = np.ascontiguousarray(self.summaries[idx], dtype=np.float32)
         # Convert uint16 -> float32 * (1 / 65535.0) deterministically for CPU & CUDA conv kernels.
@@ -167,34 +327,82 @@ class SparseTopologyBatch:
         """Reconstruct exact (B, 4, H, W) uint16 array for lossless round-trip verification."""
         idx = np.asarray(row_indices, dtype=np.int64).reshape(-1)
         B = idx.shape[0]
-        dense = np.zeros((B, 4 * self.grid_h * self.grid_w), dtype=np.uint16)
-        _unpack_csr_u16_nb(idx, self.offsets, self.flat_indices, self.values, dense)
+        hw = self.grid_h * self.grid_w
+        dense = np.zeros((B, 4 * hw), dtype=np.uint16)
+        _unpack_csr_u16_nb(
+            idx,
+            self.offsets,
+            self.flat_indices,
+            self.values,
+            dense,
+            bool(self.p0_derived),
+            int(hw),
+        )
         return dense.reshape(B, 4, self.grid_h, self.grid_w)
 
     def to_state_dict(self) -> dict[str, Any]:
+        counts_u32 = np.diff(self.offsets).astype(np.uint32)
+        row_deltas_u16 = _encode_csr_row_deltas_u16_nb(self.offsets, self.flat_indices)
+        values_deltas = np.empty_like(self.values, dtype=np.uint16)
+        if self.values.size > 0:
+            values_deltas[0] = self.values[0]
+            values_deltas[1:] = (
+                self.values[1:].astype(np.uint32) - self.values[:-1].astype(np.uint32)
+            ).astype(np.uint16)
         return {
-            "schema": "ct-sparse-topology-batch/v1",
+            "schema": "ct-sparse-topology-batch/v2",
             "num_rows": int(self.num_rows),
             "grid_h": int(self.grid_h),
             "grid_w": int(self.grid_w),
-            "offsets": torch.from_numpy(self.offsets.copy()),
-            "flat_indices": torch.from_numpy(self.flat_indices.astype(np.int32)),
-            "values": torch.from_numpy(self.values.astype(np.int32)),
-            "summaries": torch.from_numpy(self.summaries.copy()),
+            "p0_derived": bool(self.p0_derived),
+            "counts": compress_array_to_u8_tensor(counts_u32, byte_shuffle=True),
+            "flat_index_deltas": compress_array_to_u8_tensor(row_deltas_u16, byte_shuffle=True),
+            "values_deltas": compress_array_to_u8_tensor(values_deltas, byte_shuffle=True),
+            "summaries": compress_array_to_u8_tensor(self.summaries, byte_shuffle=True),
         }
 
     @classmethod
-    def from_state_dict(cls, state: dict[str, Any]) -> "SparseTopologyBatch":
-        if state.get("schema") != "ct-sparse-topology-batch/v1":
+    def from_state_dict(cls, state: Mapping[str, Any]) -> "SparseTopologyBatch":
+        schema = state.get("schema")
+        if schema == "ct-sparse-topology-batch/v1":
+            return cls(
+                num_rows=int(state["num_rows"]),
+                grid_h=int(state["grid_h"]),
+                grid_w=int(state["grid_w"]),
+                offsets=state["offsets"].detach().cpu().numpy().astype(np.int64),
+                flat_indices=state["flat_indices"].detach().cpu().numpy().astype(np.uint16),
+                values=state["values"].detach().cpu().numpy().astype(np.uint16),
+                summaries=state["summaries"].detach().cpu().numpy().astype(np.float32),
+                p0_derived=False,
+            )
+        if schema != "ct-sparse-topology-batch/v2":
             raise ValueError("foreign SparseTopologyBatch schema")
+        num_rows = int(state["num_rows"])
+        counts_u32 = decompress_u8_tensor_to_array(state["counts"]).astype(np.int64)
+        if counts_u32.shape != (num_rows,):
+            raise ValueError("corrupt SparseTopologyBatch v2 counts shape")
+        offsets = np.zeros(num_rows + 1, dtype=np.int64)
+        if num_rows > 0:
+            np.cumsum(counts_u32, out=offsets[1:])
+        deltas = decompress_u8_tensor_to_array(state["flat_index_deltas"]).astype(np.uint16)
+        flat_indices = _decode_csr_row_deltas_u16_nb(offsets, deltas)
+        if "values_deltas" in state:
+            v_deltas = decompress_u8_tensor_to_array(state["values_deltas"]).astype(np.uint64)
+            values = np.cumsum(v_deltas, dtype=np.uint64).astype(np.uint16)
+        else:
+            values = decompress_u8_tensor_to_array(state["values"]).astype(np.uint16)
+        summaries = decompress_u8_tensor_to_array(state["summaries"]).astype(np.float32)
+        if int(offsets[-1]) != int(flat_indices.size) or int(values.size) != int(flat_indices.size):
+            raise ValueError("corrupt SparseTopologyBatch v2 nnz length")
         return cls(
-            num_rows=int(state["num_rows"]),
+            num_rows=num_rows,
             grid_h=int(state["grid_h"]),
             grid_w=int(state["grid_w"]),
-            offsets=state["offsets"].detach().cpu().numpy().astype(np.int64),
-            flat_indices=state["flat_indices"].detach().cpu().numpy().astype(np.uint16),
-            values=state["values"].detach().cpu().numpy().astype(np.uint16),
-            summaries=state["summaries"].detach().cpu().numpy().astype(np.float32),
+            offsets=offsets,
+            flat_indices=flat_indices,
+            values=values,
+            summaries=summaries,
+            p0_derived=bool(state["p0_derived"]),
         )
 
 
@@ -205,14 +413,21 @@ def _unpack_csr_u16_nb(
     flat_indices: np.ndarray,
     values: np.ndarray,
     out_dense: np.ndarray,
+    p0_derived: bool,
+    hw: int,
 ) -> None:
     B = row_indices.shape[0]
+    three_hw = 3 * hw
     for b in range(B):
         r = row_indices[b]
         start = offsets[r]
         end = offsets[r + 1]
         for p in range(start, end):
-            out_dense[b, flat_indices[p]] = values[p]
+            col = flat_indices[p]
+            val = values[p]
+            out_dense[b, col] = val
+            if p0_derived and val > 0 and hw <= col < three_hw:
+                out_dense[b, col % hw] = np.uint16(65535)
 
 
 def pack_sparse_topology(planes_u16: np.ndarray, summaries_f32: np.ndarray) -> SparseTopologyBatch:
@@ -220,12 +435,21 @@ def pack_sparse_topology(planes_u16: np.ndarray, summaries_f32: np.ndarray) -> S
     if planes_u16.ndim != 4 or planes_u16.shape[1] != 4 or planes_u16.dtype != np.uint16:
         raise ValueError("planes_u16 must be uint16 with shape (N, 4, H, W)")
     N, _, H, W = planes_u16.shape
-    if 4 * H * W > 65536:
+    hw = H * W
+    if 4 * hw > 65536:
         raise ValueError("4 * H * W exceeds uint16 flat index capacity")
     if summaries_f32.shape != (N, 6):
         raise ValueError("summaries_f32 must have shape (N, 6)")
-    flat = planes_u16.reshape(N, 4 * H * W)
-    nz_rows, nz_cols = np.nonzero(flat)
+    p0_derived = N == 0 or _plane0_matches_p1_or_p2(planes_u16)
+    if p0_derived and N > 0:
+        sub = planes_u16[:, 1:4].reshape(N, 3 * hw)
+        nz_rows, nz_sub_cols = np.nonzero(sub)
+        nz_cols = nz_sub_cols + hw
+        vals = sub[nz_rows, nz_sub_cols].astype(np.uint16)
+    else:
+        flat = planes_u16.reshape(N, 4 * hw)
+        nz_rows, nz_cols = np.nonzero(flat)
+        vals = flat[nz_rows, nz_cols].astype(np.uint16)
     counts = np.bincount(nz_rows, minlength=N).astype(np.int64)
     offsets = np.empty(N + 1, dtype=np.int64)
     offsets[0] = 0
@@ -236,8 +460,9 @@ def pack_sparse_topology(planes_u16: np.ndarray, summaries_f32: np.ndarray) -> S
         grid_w=W,
         offsets=offsets,
         flat_indices=nz_cols.astype(np.uint16),
-        values=flat[nz_rows, nz_cols].astype(np.uint16),
+        values=vals,
         summaries=np.ascontiguousarray(summaries_f32, dtype=np.float32),
+        p0_derived=p0_derived,
     )
 
 
@@ -253,21 +478,68 @@ class IncrementalSparseTopologyBuilder:
         self._idx_chunks: list[np.ndarray] = []
         self._val_chunks: list[np.ndarray] = []
         self._sum_chunks: list[np.ndarray] = []
+        self._p0_derived: bool = True
+        self._nnz_total: int = 0
 
     def __len__(self) -> int:
         return len(self._counts)
+
+    @property
+    def nbytes(self) -> int:
+        n_rows = len(self._counts)
+        return int((n_rows + 1) * 8 + self._nnz_total * 4 + n_rows * 24)
+
+    def _downgrade_existing_to_explicit_p0(self) -> None:
+        """Materialize Plane-0 entries on stored rows if a custom non-derivable row arrives."""
+        if not self._p0_derived:
+            return
+        if self._counts:
+            prev = self.build()
+            dense_prev = prev.unpack_raw_u16(np.arange(prev.num_rows, dtype=np.int64))
+            explicit_prev = pack_sparse_topology(dense_prev, prev.summaries)
+            if explicit_prev.p0_derived:
+                # Force explicit 4-plane packing.
+                hw = self.grid_h * self.grid_w
+                flat = dense_prev.reshape(prev.num_rows, 4 * hw)
+                nz_r, nz_c = np.nonzero(flat)
+                cnts = np.bincount(nz_r, minlength=prev.num_rows)
+                self._counts = [int(c) for c in cnts.tolist()]
+                self._idx_chunks = [nz_c.astype(np.uint16)]
+                self._val_chunks = [flat[nz_r, nz_c].astype(np.uint16)]
+                self._sum_chunks = [prev.summaries]
+                self._nnz_total = int(nz_c.size)
+            else:
+                cnts = np.diff(explicit_prev.offsets)
+                self._counts = [int(c) for c in cnts.tolist()]
+                self._idx_chunks = [explicit_prev.flat_indices]
+                self._val_chunks = [explicit_prev.values]
+                self._sum_chunks = [explicit_prev.summaries]
+                self._nnz_total = int(explicit_prev.flat_indices.size)
+        self._p0_derived = False
 
     def append_batch(self, planes_u16: np.ndarray, summaries_f32: np.ndarray) -> None:
         if planes_u16.shape[0] == 0:
             return
         N = planes_u16.shape[0]
-        flat = planes_u16.reshape(N, 4 * self.grid_h * self.grid_w)
-        nz_r, nz_c = np.nonzero(flat)
+        hw = self.grid_h * self.grid_w
+        if self._p0_derived and not _plane0_matches_p1_or_p2(planes_u16):
+            self._downgrade_existing_to_explicit_p0()
+        if self._p0_derived:
+            sub = planes_u16[:, 1:4].reshape(N, 3 * hw)
+            nz_r, nz_sub_c = np.nonzero(sub)
+            nz_c = (nz_sub_c + hw).astype(np.uint16)
+            vals = sub[nz_r, nz_sub_c].astype(np.uint16)
+        else:
+            flat = planes_u16.reshape(N, 4 * hw)
+            nz_r, nz_c_raw = np.nonzero(flat)
+            nz_c = nz_c_raw.astype(np.uint16)
+            vals = flat[nz_r, nz_c_raw].astype(np.uint16)
         counts = np.bincount(nz_r, minlength=N)
         self._counts.extend(int(c) for c in counts.tolist())
-        self._idx_chunks.append(nz_c.astype(np.uint16))
-        self._val_chunks.append(flat[nz_r, nz_c].astype(np.uint16))
+        self._idx_chunks.append(nz_c)
+        self._val_chunks.append(vals)
         self._sum_chunks.append(np.ascontiguousarray(summaries_f32, dtype=np.float32))
+        self._nnz_total += int(nz_c.size)
 
     def build(self) -> SparseTopologyBatch:
         N = len(self._counts)
@@ -293,6 +565,7 @@ class IncrementalSparseTopologyBuilder:
             flat_indices=flat_idx,
             values=vals,
             summaries=sums,
+            p0_derived=self._p0_derived,
         )
 
 

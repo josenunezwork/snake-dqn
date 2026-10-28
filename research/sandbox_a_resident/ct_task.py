@@ -49,8 +49,11 @@ from research.sandbox_a_resident.ct_topology import (
     TOPOLOGY_SPEC,
     IncrementalSparseTopologyBuilder,
     SparseTopologyBatch,
+    compress_array_to_u8_tensor,
     compute_topology_features,
+    decompress_u8_tensor_to_array,
 )
+from research.sandbox_a_resident.ct_units import StageExportOverflowError
 from research.sandbox_a_resident.device_sim import _ENV_TENSOR_FIELDS
 from research.sandbox_a_resident.training_rosters import MIXES, TrainingRoster, training_rosters
 from src.simd_env.batch_sim import BatchSimConfig
@@ -61,7 +64,15 @@ TRAIN01_MONITOR_COUNT = 3 * 96
 TRAIN01_NOMINATION_OFFSET = 500_000_000
 TRAIN01_NOMINATION_COUNT = 3 * 256
 
-ORDINARY_LENGTH_BIN_EDGES: tuple[int, ...] = (600, 800, 1000, 1300, 1700)
+ORDINARY_LENGTH_BIN_EDGES: tuple[int, ...] = (1, 600, 800, 1000, 1300, 1700)
+ORDINARY_LENGTH_BIN_LABELS: tuple[str, ...] = (
+    "[1,600)",
+    "[600,800)",
+    "[800,1000)",
+    "[1000,1300)",
+    "[1300,1700)",
+    "[1700,inf)",
+)
 
 
 @dataclass(frozen=True)
@@ -102,6 +113,9 @@ class CTControl:
     scoring_chunks: int = 8
     branch_batch_size: int = 512
     snapshot_store_max_bytes: int = 512 * 1024 * 1024
+    anchor_archive_max_bytes: int = 1536 * 1024 * 1024
+    max_stage_export_bytes: int = 256 * 1024 * 1024
+    max_total_export_bytes: int = 384 * 1024 * 1024
     tiny: bool = False
 
     def __post_init__(self) -> None:
@@ -119,6 +133,13 @@ class CTControl:
             raise ValueError("C/T freezes 4 selection + 4 independent scoring suffixes")
         if self.scoring_chunks < 1:
             raise ValueError("scoring_chunks must be >= 1")
+        if (
+            self.snapshot_store_max_bytes < 1
+            or self.anchor_archive_max_bytes < 1
+            or self.max_stage_export_bytes < 1
+            or self.max_total_export_bytes < self.max_stage_export_bytes
+        ):
+            raise ValueError("positive bounded store/archive/export byte caps required")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -281,43 +302,93 @@ class AnchorArchive:
     def assessment_indices(self) -> np.ndarray:
         return np.flatnonzero(self.is_assessment)
 
+    @property
+    def nbytes(self) -> int:
+        return int(
+            self.world_id.nbytes
+            + self.mix_id.nbytes
+            + self.is_assessment.nbytes
+            + self.life_id.nbytes
+            + self.tick.nbytes
+            + self.hero_length.nbytes
+            + int(self.local.numel() * self.local.element_size())
+            + int(self.glob.numel() * self.glob.element_size())
+            + int(self.scalars.numel() * self.scalars.element_size())
+            + int(self.legal_mask.numel() * self.legal_mask.element_size())
+            + int(self.q_b8.numel() * self.q_b8.element_size())
+            + self.b8_action.nbytes
+            + self.topology.nbytes
+        )
+
     def to_state_dict(self) -> dict[str, Any]:
         return {
-            "schema": "ct-anchor-archive/v1",
+            "schema": "ct-anchor-archive/v2",
             "num_rows": int(self.num_rows),
-            "world_id": torch.from_numpy(self.world_id.copy()),
-            "mix_id": torch.from_numpy(self.mix_id.copy()),
-            "is_assessment": torch.from_numpy(self.is_assessment.copy()),
-            "life_id": torch.from_numpy(self.life_id.copy()),
-            "tick": torch.from_numpy(self.tick.copy()),
-            "hero_length": torch.from_numpy(self.hero_length.copy()),
-            "local": self.local.detach().cpu(),
-            "glob": self.glob.detach().cpu(),
-            "scalars": self.scalars.detach().cpu(),
-            "legal_mask": self.legal_mask.detach().cpu(),
-            "q_b8": self.q_b8.detach().cpu(),
-            "b8_action": torch.from_numpy(self.b8_action.copy()),
+            "world_id": compress_array_to_u8_tensor(self.world_id, byte_shuffle=True),
+            "mix_id": compress_array_to_u8_tensor(self.mix_id),
+            "is_assessment": compress_array_to_u8_tensor(self.is_assessment),
+            "life_id": compress_array_to_u8_tensor(self.life_id, byte_shuffle=True),
+            "tick": compress_array_to_u8_tensor(self.tick, byte_shuffle=True),
+            "hero_length": compress_array_to_u8_tensor(self.hero_length, byte_shuffle=True),
+            "local": compress_array_to_u8_tensor(self.local.detach().cpu().numpy()),
+            "glob": compress_array_to_u8_tensor(self.glob.detach().cpu().numpy()),
+            "scalars": compress_array_to_u8_tensor(
+                self.scalars.detach().cpu().numpy(), byte_shuffle=True
+            ),
+            "legal_mask": compress_array_to_u8_tensor(self.legal_mask.detach().cpu().numpy()),
+            "q_b8": compress_array_to_u8_tensor(
+                self.q_b8.detach().cpu().numpy(), byte_shuffle=True
+            ),
+            "b8_action": compress_array_to_u8_tensor(self.b8_action),
             "topology": self.topology.to_state_dict(),
         }
 
     @classmethod
     def from_state_dict(cls, state: Mapping[str, Any]) -> "AnchorArchive":
-        if state.get("schema") != "ct-anchor-archive/v1":
+        schema = state.get("schema")
+        if schema == "ct-anchor-archive/v1":
+            return cls(
+                num_rows=int(state["num_rows"]),
+                world_id=state["world_id"].detach().cpu().numpy().astype(np.int32),
+                mix_id=state["mix_id"].detach().cpu().numpy().astype(np.int8),
+                is_assessment=state["is_assessment"].detach().cpu().numpy().astype(bool),
+                life_id=state["life_id"].detach().cpu().numpy().astype(np.int32),
+                tick=state["tick"].detach().cpu().numpy().astype(np.int32),
+                hero_length=state["hero_length"].detach().cpu().numpy().astype(np.int32),
+                local=state["local"].detach().cpu().to(dtype=torch.uint8),
+                glob=state["glob"].detach().cpu().to(dtype=torch.uint8),
+                scalars=state["scalars"].detach().cpu().to(dtype=torch.float32),
+                legal_mask=state["legal_mask"].detach().cpu().to(dtype=torch.bool),
+                q_b8=state["q_b8"].detach().cpu().to(dtype=torch.float32),
+                b8_action=state["b8_action"].detach().cpu().numpy().astype(np.int8),
+                topology=SparseTopologyBatch.from_state_dict(state["topology"]),
+            )
+        if schema != "ct-anchor-archive/v2":
             raise ValueError("foreign AnchorArchive schema")
         return cls(
             num_rows=int(state["num_rows"]),
-            world_id=state["world_id"].detach().cpu().numpy().astype(np.int32),
-            mix_id=state["mix_id"].detach().cpu().numpy().astype(np.int8),
-            is_assessment=state["is_assessment"].detach().cpu().numpy().astype(bool),
-            life_id=state["life_id"].detach().cpu().numpy().astype(np.int32),
-            tick=state["tick"].detach().cpu().numpy().astype(np.int32),
-            hero_length=state["hero_length"].detach().cpu().numpy().astype(np.int32),
-            local=state["local"].detach().cpu().to(dtype=torch.uint8),
-            glob=state["glob"].detach().cpu().to(dtype=torch.uint8),
-            scalars=state["scalars"].detach().cpu().to(dtype=torch.float32),
-            legal_mask=state["legal_mask"].detach().cpu().to(dtype=torch.bool),
-            q_b8=state["q_b8"].detach().cpu().to(dtype=torch.float32),
-            b8_action=state["b8_action"].detach().cpu().numpy().astype(np.int8),
+            world_id=decompress_u8_tensor_to_array(state["world_id"]).astype(np.int32),
+            mix_id=decompress_u8_tensor_to_array(state["mix_id"]).astype(np.int8),
+            is_assessment=decompress_u8_tensor_to_array(state["is_assessment"]).astype(bool),
+            life_id=decompress_u8_tensor_to_array(state["life_id"]).astype(np.int32),
+            tick=decompress_u8_tensor_to_array(state["tick"]).astype(np.int32),
+            hero_length=decompress_u8_tensor_to_array(state["hero_length"]).astype(np.int32),
+            local=torch.from_numpy(decompress_u8_tensor_to_array(state["local"]).copy()).to(
+                dtype=torch.uint8
+            ),
+            glob=torch.from_numpy(decompress_u8_tensor_to_array(state["glob"]).copy()).to(
+                dtype=torch.uint8
+            ),
+            scalars=torch.from_numpy(decompress_u8_tensor_to_array(state["scalars"]).copy()).to(
+                dtype=torch.float32
+            ),
+            legal_mask=torch.from_numpy(
+                decompress_u8_tensor_to_array(state["legal_mask"]).copy()
+            ).to(dtype=torch.bool),
+            q_b8=torch.from_numpy(decompress_u8_tensor_to_array(state["q_b8"]).copy()).to(
+                dtype=torch.float32
+            ),
+            b8_action=decompress_u8_tensor_to_array(state["b8_action"]).astype(np.int8),
             topology=SparseTopologyBatch.from_state_dict(state["topology"]),
         )
 
@@ -506,14 +577,63 @@ def _select_deaths_deterministic(
     return selected
 
 
+def compute_required_ordinary_cell_quotas(
+    death_cell_counts: Mapping[tuple[str, int], int],
+    *,
+    quota: int,
+    min_partition_ordinary: int = 0,
+) -> dict[tuple[str, int], int]:
+    """Frozen per-``(mix, length_bin)`` target quotas without cross-mix/bin substitution.
+
+    - Target partition total is ``min(quota, max(total_death_roots, min_partition_ordinary))``
+      whenever ``total_death_roots > 0`` and ``quota > 0`` (else 0).
+    - When ``target_total == total_death_roots``: exact 1:1 ``(mix, length_bin)`` matching.
+    - Otherwise: largest-remainder scaling of ``death_cell_counts`` to ``target_total``
+      strictly over cells with ``count[k] > 0`` (cells with zero deaths always get 0).
+    """
+    n_bins = len(ORDINARY_LENGTH_BIN_EDGES)
+    all_keys = [(m, b) for m in MIXES for b in range(n_bins)]
+    counts = {k: int(death_cell_counts.get(k, 0)) for k in all_keys}
+    total_d = sum(counts.values())
+    if quota <= 0 or total_d <= 0:
+        return {k: 0 for k in all_keys}
+    target_total = min(int(quota), max(int(total_d), int(min_partition_ordinary)))
+    if target_total <= 0:
+        return {k: 0 for k in all_keys}
+    if target_total == total_d:
+        return dict(counts)
+
+    desired_raw = {k: (float(target_total) * float(c) / float(total_d)) for k, c in counts.items()}
+    desired = {k: (int(math.floor(val)) if counts[k] > 0 else 0) for k, val in desired_raw.items()}
+    rem = int(target_total) - sum(desired.values())
+    positive_keys = [k for k in all_keys if counts[k] > 0]
+    remainders = sorted(
+        positive_keys,
+        key=lambda k: (-(desired_raw[k] - math.floor(desired_raw[k])), MIXES.index(k[0]), k[1]),
+    )
+    for k in remainders:
+        if rem <= 0:
+            break
+        desired[k] += 1
+        rem -= 1
+    return desired
+
+
 def _select_matched_ordinary_roots(
     reservoirs: Mapping[tuple[str, str, int], list[_CandidateOrdinaryRoot]],
     selected_deaths: Sequence[_CandidateDeathEvent],
     *,
     max_ordinary_roots: int,
     forbidden_world_life_ticks: set[tuple[int, int, int]],
-) -> list[_CandidateOrdinaryRoot]:
-    """Match ``L >= 600`` ordinary roots to death ``(mix, length_bin)`` counts per partition."""
+    min_train_ordinary_roots: int = 0,
+    min_assess_ordinary_roots: int = 0,
+    allow_tiny_zero_death_fallback: bool = False,
+) -> tuple[list[_CandidateOrdinaryRoot], dict[str, Any]]:
+    """Select ordinary roots matched strictly to death ``(mix, length_bin)`` quotas per partition.
+
+    Never substitutes another mix or length bin to fill shortages; any cell shortfall is
+    left unfilled and reported so ``validate_ct_support`` flags ``INCOMPLETE_SUPPORT``.
+    """
     target_assess = int(round(0.20 * max_ordinary_roots))
     target_train = int(max_ordinary_roots) - target_assess
     n_bins = len(ORDINARY_LENGTH_BIN_EDGES)
@@ -527,74 +647,88 @@ def _select_matched_ordinary_roots(
         valid.sort(key=lambda c: (c.tick, c.world_id))
         cleaned[key] = valid
 
-    def pick_for_partition(part: str, quota: int) -> list[_CandidateOrdinaryRoot]:
-        if quota <= 0:
-            return []
-        # Count empirical (mix, bin) of death-lookback roots in this partition
-        # (falling back to uniform across mixes/bins if 0 deaths in partition).
-        cell_weights: dict[tuple[str, int], float] = {
-            (m, b): 0.0 for m in MIXES for b in range(n_bins)
-        }
-        total_w = 0.0
+    report_partitions: dict[str, Any] = {}
+
+    def pick_for_partition(
+        part: str, quota: int, min_part_ord: int
+    ) -> list[_CandidateOrdinaryRoot]:
+        death_counts: dict[tuple[str, int], int] = {(m, b): 0 for m in MIXES for b in range(n_bins)}
         for ev in selected_deaths:
             if ev.partition != part:
                 continue
             for _lb, _t, snap, *_rest in ev.lookback_roots:
                 hlen = int(snap.small_tensors["length"][0].item())
-                b = _length_bin_index(max(ORDINARY_LENGTH_BIN_EDGES[0], hlen))
-                cell_weights[(ev.mix, b)] += 1.0
-                total_w += 1.0
-        if total_w <= 0.0:
-            for k in cell_weights:
-                cell_weights[k] = 1.0
-            total_w = float(len(cell_weights))
+                b = _length_bin_index(hlen)
+                death_counts[(ev.mix, b)] += 1
 
-        # Largest-remainder quota allocation across (mix, bin), capped by availability.
-        taken_per_cell: dict[tuple[str, int], int] = {k: 0 for k in cell_weights}
-        desired_raw = {k: (quota * w / total_w) for k, w in cell_weights.items()}
-        for k, val in desired_raw.items():
-            avail = len(cleaned.get((part, k[0], k[1]), []))
-            taken_per_cell[k] = min(avail, int(math.floor(val)))
-        rem = quota - sum(taken_per_cell.values())
-        remainders = sorted(
-            cell_weights.keys(),
-            key=lambda k: (-(desired_raw[k] - math.floor(desired_raw[k])), MIXES.index(k[0]), k[1]),
-        )
-        for k in remainders:
-            if rem <= 0:
-                break
-            avail = len(cleaned.get((part, k[0], k[1]), []))
-            if taken_per_cell[k] < avail:
-                taken_per_cell[k] += 1
-                rem -= 1
-        # Spill any unfilled quota first within the same mix (nearest length bin),
-        # then round-robin across mixes in the same partition.
-        while rem > 0:
-            progressed = False
-            for m in MIXES:
-                for b in range(n_bins):
-                    if rem <= 0:
-                        break
-                    avail = len(cleaned.get((part, m, b), []))
-                    if taken_per_cell[(m, b)] < avail:
-                        taken_per_cell[(m, b)] += 1
-                        rem -= 1
-                        progressed = True
-            if not progressed:
-                break
+        total_d = sum(death_counts.values())
+        mode = "matched_to_deaths"
+        if quota <= 0:
+            desired_per_cell = {k: 0 for k in death_counts}
+        elif total_d == 0 and allow_tiny_zero_death_fallback:
+            mode = "tiny_zero_death_smoke"
+            desired_per_cell = {k: 0 for k in death_counts}
+            rem_smoke = int(quota)
+            while rem_smoke > 0:
+                progressed = False
+                for m in MIXES:
+                    for b in range(n_bins):
+                        if rem_smoke <= 0:
+                            break
+                        avail = len(cleaned.get((part, m, b), []))
+                        if desired_per_cell[(m, b)] < avail:
+                            desired_per_cell[(m, b)] += 1
+                            rem_smoke -= 1
+                            progressed = True
+                if not progressed:
+                    break
+        else:
+            desired_per_cell = compute_required_ordinary_cell_quotas(
+                death_counts, quota=quota, min_partition_ordinary=min_part_ord
+            )
 
+        taken_per_cell: dict[tuple[str, int], int] = {}
+        shortfall_per_cell: dict[tuple[str, int], int] = {}
+        cells_telemetry: dict[str, dict[str, dict[str, int]]] = {m: {} for m in MIXES}
         chosen: list[_CandidateOrdinaryRoot] = []
+
         for m in MIXES:
             for b in range(n_bins):
-                cnt = taken_per_cell[(m, b)]
-                if cnt > 0:
-                    chosen.extend(cleaned[(part, m, b)][:cnt])
+                avail_list = cleaned.get((part, m, b), [])
+                req = int(desired_per_cell[(m, b)])
+                taken = min(len(avail_list), req)
+                taken_per_cell[(m, b)] = taken
+                shortfall_per_cell[(m, b)] = req - taken
+                if taken > 0:
+                    chosen.extend(avail_list[:taken])
+                cells_telemetry[m][ORDINARY_LENGTH_BIN_LABELS[b]] = {
+                    "death_lookback_roots": int(death_counts[(m, b)]),
+                    "required_ordinary_roots": req,
+                    "available_candidates": len(avail_list),
+                    "achieved_ordinary_roots": taken,
+                    "shortfall": req - taken,
+                }
+
         chosen.sort(key=lambda c: (c.tick, c.world_id))
+        report_partitions[part] = {
+            "mode": mode,
+            "partition_quota_cap": int(quota),
+            "death_lookback_roots_total": int(total_d),
+            "required_ordinary_roots_total": int(sum(desired_per_cell.values())),
+            "achieved_ordinary_roots_total": int(sum(taken_per_cell.values())),
+            "shortfall_total": int(sum(shortfall_per_cell.values())),
+            "per_mix_bin": cells_telemetry,
+        }
         return chosen
 
-    train_picked = pick_for_partition("train", target_train)
-    assess_picked = pick_for_partition("assessment", target_assess)
-    return train_picked + assess_picked
+    train_picked = pick_for_partition("train", target_train, min_train_ordinary_roots)
+    assess_picked = pick_for_partition("assessment", target_assess, min_assess_ordinary_roots)
+    return train_picked + assess_picked, {
+        "length_bin_edges": list(ORDINARY_LENGTH_BIN_EDGES),
+        "length_bin_labels": list(ORDINARY_LENGTH_BIN_LABELS),
+        "cross_mix_or_bin_spill_allowed": False,
+        "partitions": report_partitions,
+    }
 
 
 @torch.inference_mode()
@@ -734,11 +868,12 @@ def collect_ct_dataset(
     total_hero_deaths = 0
     total_eligible_deaths_observed = 0
 
-    # Stratified per-(partition, mix, length_bin) reservoir for L >= min_death_length
-    # ordinary roots (never conditioned on future survival).
+    # Stratified per-(partition, mix, length_bin) reservoir for alive ordinary roots
+    # across all length bins (including [1,600) for early lookback states, never
+    # conditioned on future survival).
     n_bins = len(ORDINARY_LENGTH_BIN_EDGES)
-    ord_cap_train = max(32, (control.max_ordinary_roots // (len(MIXES) * n_bins)) * 3)
-    ord_cap_assess = max(16, (max(1, control.max_ordinary_roots // 5) // (len(MIXES) * n_bins)) * 3)
+    ord_cap_train = min(max(32, control.max_ordinary_roots // 2), 384)
+    ord_cap_assess = min(max(16, max(1, control.max_ordinary_roots // 5)), 128)
     ord_reservoirs: dict[tuple[str, str, int], list[_CandidateOrdinaryRoot]] = {
         (part, mix, b): []
         for part in ("train", "assessment")
@@ -769,8 +904,8 @@ def collect_ct_dataset(
     raw_anchor_scl: list[torch.Tensor] = []
     raw_anchor_msk: list[torch.Tensor] = []
     raw_anchor_qb8: list[torch.Tensor] = []
-    raw_anchor_topo_planes: list[np.ndarray] = []
-    raw_anchor_topo_sums: list[np.ndarray] = []
+    raw_anchor_topo_builder = IncrementalSparseTopologyBuilder(int(sim.grid_h), int(sim.grid_w))
+    raw_anchor_obs_bytes = 0
 
     last_log = time.perf_counter()
 
@@ -793,9 +928,7 @@ def collect_ct_dataset(
         #    (scheduled anchor rows + reservoir-accepted L >= min_death_length ordinary rows).
         sched_worlds = [w for w in anchor_schedule.get(tick, []) if alive_np[w]]
         ord_accepts: list[tuple[int, tuple[str, str, int], int | None]] = []
-        eligible_ord_worlds = np.flatnonzero(
-            alive_np & (pre_lengths_np >= control.min_death_length)
-        )
+        eligible_ord_worlds = np.flatnonzero(alive_np & (pre_lengths_np >= 1))
         for w_int in eligible_ord_worlds.tolist():
             w = int(w_int)
             part = world_labels[w]
@@ -821,6 +954,29 @@ def collect_ct_dataset(
 
         for w in sched_worlds:
             pl_w, sm_w = topo_map[w]
+            loc_w = loc_obs[w].detach().to("cpu", dtype=torch.uint8).clone()
+            glb_w = glb_obs[w].detach().to("cpu", dtype=torch.uint8).clone()
+            scl_w = scl_obs[w].detach().to("cpu", dtype=torch.float32).clone()
+            msk_w = leg_msk[w].detach().to("cpu", dtype=torch.bool).clone()
+            qb8_w = q_b8[w].detach().to("cpu", dtype=torch.float32).clone()
+            row_obs_bytes = (
+                int(loc_w.numel())
+                + int(glb_w.numel())
+                + int(scl_w.numel() * 4)
+                + int(msk_w.numel())
+                + int(qb8_w.numel() * 4)
+                + 20
+            )
+            raw_anchor_topo_builder.append_batch(pl_w[None, ...], sm_w[None, ...])
+            projected_anc_bytes = (
+                raw_anchor_obs_bytes + row_obs_bytes + raw_anchor_topo_builder.nbytes
+            )
+            if projected_anc_bytes > int(control.anchor_archive_max_bytes):
+                raise StageExportOverflowError(
+                    f"anchor archive in-memory byte cap exceeded during collection: "
+                    f"{projected_anc_bytes} > {control.anchor_archive_max_bytes}"
+                )
+            raw_anchor_obs_bytes += row_obs_bytes
             raw_anchor_meta.append(
                 (
                     w,
@@ -832,13 +988,11 @@ def collect_ct_dataset(
                     int(a_b8_np[w]),
                 )
             )
-            raw_anchor_loc.append(loc_obs[w].detach().to("cpu", dtype=torch.uint8).clone())
-            raw_anchor_glb.append(glb_obs[w].detach().to("cpu", dtype=torch.uint8).clone())
-            raw_anchor_scl.append(scl_obs[w].detach().to("cpu", dtype=torch.float32).clone())
-            raw_anchor_msk.append(leg_msk[w].detach().to("cpu", dtype=torch.bool).clone())
-            raw_anchor_qb8.append(q_b8[w].detach().to("cpu", dtype=torch.float32).clone())
-            raw_anchor_topo_planes.append(pl_w.copy())
-            raw_anchor_topo_sums.append(sm_w.copy())
+            raw_anchor_loc.append(loc_w)
+            raw_anchor_glb.append(glb_w)
+            raw_anchor_scl.append(scl_w)
+            raw_anchor_msk.append(msk_w)
+            raw_anchor_qb8.append(qb8_w)
 
         for w, cell_key, replace_slot in ord_accepts:
             pl_w, sm_w = topo_map[w]
@@ -1024,11 +1178,14 @@ def collect_ct_dataset(
             )
             searched_keys.add((ev.world_id, ev.life_id, t_target))
 
-    selected_ordinary = _select_matched_ordinary_roots(
+    selected_ordinary, ordinary_matching_report = _select_matched_ordinary_roots(
         ord_reservoirs,
         selected_deaths,
         max_ordinary_roots=control.max_ordinary_roots,
         forbidden_world_life_ticks=searched_keys,
+        min_train_ordinary_roots=0 if control.tiny else 1,
+        min_assess_ordinary_roots=int(control.min_held_out_ordinary_roots),
+        allow_tiny_zero_death_fallback=bool(control.tiny and control.min_held_out_deaths == 0),
     )
     for ord_idx, cand in enumerate(selected_ordinary):
         uid = f"ord{ord_idx:04d}-w{cand.world_id:04d}-l{cand.life_id:03d}-t{cand.tick:05d}"
@@ -1078,13 +1235,7 @@ def collect_ct_dataset(
                 keep_train.append(idx_a)
     keep_all = keep_train + keep_assess
 
-    anc_topo_builder = IncrementalSparseTopologyBuilder(int(sim.grid_h), int(sim.grid_w))
-    for idx_a in keep_all:
-        anc_topo_builder.append_batch(
-            raw_anchor_topo_planes[idx_a][None, ...],
-            raw_anchor_topo_sums[idx_a][None, ...],
-        )
-    anc_topo = anc_topo_builder.build()
+    anc_topo = raw_anchor_topo_builder.build().slice_rows(np.asarray(keep_all, dtype=np.int64))
     n_anc = len(keep_all)
     if n_anc > 0:
         meta_arr = [raw_anchor_meta[i] for i in keep_all]
@@ -1142,9 +1293,11 @@ def collect_ct_dataset(
         "selected_ordinary_roots_assessment": sum(
             1 for c in selected_ordinary if c.partition == "assessment"
         ),
+        "ordinary_matching": ordinary_matching_report,
         "anchor_rows_total": int(anc_archive.num_rows),
         "anchor_rows_train": int((~anc_archive.is_assessment).sum()),
         "anchor_rows_assessment": int(anc_archive.is_assessment.sum()),
+        "anchor_archive_bytes": int(anc_archive.nbytes),
         "snapshot_store_bytes": int(store.bytes_used),
         "collection_wall_sec": round(elapsed, 3),
     }

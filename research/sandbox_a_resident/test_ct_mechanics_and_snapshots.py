@@ -467,3 +467,255 @@ def test_dynamic_topology_approximations_geometric_fixtures_and_numba_parity() -
     p_ref, s_ref = compute_topology_features_reference(sim)
     np.testing.assert_array_equal(p_nb, p_ref)
     np.testing.assert_allclose(s_nb, s_ref, atol=1e-6)
+
+
+@torch.inference_mode()
+def test_production_refill_and_respawn_rejection_without_draw_feeder() -> None:
+    cfg = BatchSimConfig(
+        num_envs=1,
+        num_snakes=3,
+        game_width=240,
+        game_height=240,
+        segment_size=20,
+        wall_thickness=20,
+        initial_food=2,
+        max_food=2,
+        max_capacity=128,
+        body_storage_capacity=128,
+        mechanics_version=1,
+    )
+    sim = CTDeviceSim(cfg, device="cpu", train_mode=False, allow_respawn=True)
+    r2_cache.enable(sim)
+    assert not hasattr(sim, "_draw_feeder")
+    assert not hasattr(sim, "set_draw_feeder")
+
+    # 1) Astra's exact duplicate-draw refill probe on the production _random_cells path:
+    # max_food=2, empty food, draws (2,2), (2,2), (3,3), (4,4) -> must reject duplicate (2,2),
+    # place food at (2,2) and (3,3), and leave (4,4) unconsumed.
+    sim.alive.fill_(True)
+    sim.terminal_slots.fill_(False)
+    sim.terminal_slots[:, 0] = True
+    sim.bodies.zero_()
+    sim.head_ptr.zero_()
+    sim.seg_count.fill_(1)
+    sim.length.fill_(10)
+    # Place snakes away from (2,2), (3,3), (4,4)
+    sim.bodies[0, 0, 0] = torch.tensor([8, 8], dtype=torch.long)
+    sim.bodies[0, 1, 0] = torch.tensor([8, 9], dtype=torch.long)
+    sim.bodies[0, 2, 0] = torch.tensor([9, 8], dtype=torch.long)
+    sim.food_present.fill_(False)
+    sim.corpse_food.fill_(False)
+    sim.food_cells.zero_()
+    sim.food_count.zero_()
+
+    draw_queue = [(2, 2), (2, 2), (3, 3), (4, 4)]
+    orig_random_cells = sim._random_cells
+
+    def _patched_random_cells() -> torch.Tensor:
+        if draw_queue:
+            cx, cy = draw_queue.pop(0)
+            sim.rng_counter += 1
+            return torch.tensor([[cx, cy]], dtype=torch.long)
+        return orig_random_cells()
+
+    sim._random_cells = _patched_random_cells  # type: ignore[method-assign]
+    sim._prepared = False
+    sim.prepare()
+    assert int(sim.food_count[0].item()) == 2
+    active = sim.food_cells[0][sim.food_present[0]].tolist()
+    assert sorted(active) == [[2, 2], [3, 3]]
+    assert draw_queue == [(4, 4)]
+
+    # 2) Snake-occupied + duplicate food rejection during in-step refill:
+    # Snake 0 occupies (8,8); clear food and feed (8,8) [occ], (5,5), (5,5) [dup], (6,6), (7,7).
+    sim.food_present.fill_(False)
+    sim.food_count.zero_()
+    draw_queue[:] = [(8, 8), (5, 5), (5, 5), (6, 6), (7, 7)]
+    sim._refill_food_rows(torch.tensor([True], dtype=torch.bool))
+    assert int(sim.food_count[0].item()) == 2
+    active2 = sim.food_cells[0][sim.food_present[0]].tolist()
+    assert sorted(active2) == [[5, 5], [6, 6]]
+    assert draw_queue == [(7, 7)]
+
+    # 3) Production respawn collision rejection via _random_cells:
+    # Snake 0 alive at (5,5),(4,5),(3,5); snake 1 dead with respawn_timer=1; snake 2 alive at (8,9).
+    # First respawn candidate draw (5,5) collides with snake 0 body; second draw (6,7) is free;
+    # third draw (9,9) stays unconsumed.
+    sim.bodies[0, 0, 0] = torch.tensor([3, 5], dtype=torch.long)
+    sim.bodies[0, 0, 1] = torch.tensor([4, 5], dtype=torch.long)
+    sim.bodies[0, 0, 2] = torch.tensor([5, 5], dtype=torch.long)
+    sim.head_ptr[0, 0] = 2
+    sim.seg_count[0, 0] = 3
+    sim.alive[0, 1] = False
+    sim.respawn_timer[0, 1] = 1
+    draw_queue[:] = [(5, 5), (6, 7), (9, 9)]
+    sim._prepared = False
+    sim.prepare()
+    assert bool(sim.alive[0, 1].item()) is True
+    assert int(sim.direction[0, 1].item()) == 1
+    hp1 = int(sim.head_ptr[0, 1].item())
+    assert sim.bodies[0, 1, hp1].tolist() == [6, 7]
+    assert draw_queue == [(9, 9)]
+
+
+def test_compact_v2_serialization_roundtrip_and_export_size_overflow_guards(tmp_path) -> None:
+    from research.sandbox_a_resident.ct_task import AnchorArchive
+    from research.sandbox_a_resident.ct_topology import SparseTopologyBatch
+    from research.sandbox_a_resident.ct_units import (
+        StageExportOverflowError,
+        publish_stage_snapshot,
+    )
+    from research.sandbox_a_resident.training_compact import describe_state
+
+    b8, ckpts = _tiny_models()
+    rosters = training_rosters(6)
+    cfg = BatchSimConfig(
+        num_envs=3,
+        num_snakes=6,
+        max_capacity=256,
+        body_storage_capacity=256,
+        mechanics_version=1,
+    )
+    sim = CTDeviceSim(cfg, device="cpu", train_mode=False, allow_respawn=True)
+    r2_cache.enable(sim)
+    sim.alive.fill_(False)
+    sim.terminal_slots.fill_(False)
+    sim.rng_key.copy_(torch.tensor([9101, 9102, 9103], dtype=torch.long))
+    sim.rng_counter.zero_()
+    sim.reset_fresh_worlds()
+    sim.terminal_slots[:, 0] = True
+    sim.prepare()
+    opp = CTOpponentRuntime(
+        sim,
+        (rosters[0], rosters[1], rosters[2]),  # heterogeneous scripted + frozen + mixed carries
+        b8_network=b8,
+        checkpoint_networks=ckpts,
+        opp_rng_keys=[11, 22, 33],
+    )
+    local, glob, scalars, legal, q_b8, b8_act = observe_hero_bv8(sim, b8)
+    planes, summaries = compute_topology_features(sim)
+
+    store = LosslessBoundedSnapshotStore(
+        grid_h=sim.grid_h,
+        grid_w=sim.grid_w,
+        max_roots=8,
+        max_bytes=16 * 1024 * 1024,
+        max_body_capacity=256,
+    )
+    for e in range(3):
+        store.add_root(
+            meta=OmitIndexRootMeta(
+                root_uid=f"v2-rt-{e}",
+                kind="ordinary",
+                partition="train",
+                world_id=e,
+                mix=rosters[e].mix,
+                roster_index=e,
+                life_id=1,
+                tick=10 + e,
+                hero_length=int(sim.length[e, 0].item()),
+                death_event_id=None,
+                lookback=None,
+                death_tick=None,
+                death_length=None,
+                b8_action=int(b8_act[e].item()),
+            ),
+            snapshot=capture_world_snapshot(
+                sim, opp, e, world_id=e, life_id=1, tick=10 + e, max_body_capacity=256
+            ),
+            local_obs=local[e],
+            glob_obs=glob[e],
+            scalars_obs=scalars[e],
+            legal_mask=legal[e],
+            q_b8=q_b8[e],
+            topo_planes_u16=planes[e],
+            topo_summaries_f32=summaries[e],
+        )
+
+    st_dict = store.to_state_dict()
+    assert st_dict["schema"] == "ct-lossless-snapshot-store/v2"
+    assert describe_state(st_dict)["tensor_count"] > 0
+    restored_store = LosslessBoundedSnapshotStore.from_state_dict(st_dict)
+    assert len(restored_store.snapshots) == 3
+    for e in range(3):
+        np.testing.assert_array_equal(
+            restored_store.snapshots[e].body_segments_xy, store.snapshots[e].body_segments_xy
+        )
+        assert set(restored_store.snapshots[e].opponent_state["carry"]) == set(
+            store.snapshots[e].opponent_state["carry"]
+        )
+        for ck, cv in store.snapshots[e].opponent_state["carry"].items():
+            assert torch.equal(restored_store.snapshots[e].opponent_state["carry"][ck], cv)
+    np.testing.assert_array_equal(
+        restored_store.finalize_topology().unpack_raw_u16([0, 1, 2]), planes
+    )
+
+    # Custom non-derivable Plane 0 lossless downgrade check:
+    custom_planes = planes.copy()
+    custom_planes[0, 0, 0, 0] = 12345
+    tb_custom = pack_sparse_topology(custom_planes, summaries)
+    assert tb_custom.p0_derived is False
+    tb_custom_rt = SparseTopologyBatch.from_state_dict(tb_custom.to_state_dict())
+    np.testing.assert_array_equal(tb_custom_rt.unpack_raw_u16([0, 1, 2]), custom_planes)
+
+    # AnchorArchive v2 lossless round-trip + training_compact describe_state check:
+    obs = store.stacked_observations()
+    anc = AnchorArchive(
+        num_rows=3,
+        world_id=np.array([0, 1, 2], dtype=np.int32),
+        mix_id=np.array([0, 1, 2], dtype=np.int8),
+        is_assessment=np.array([False, False, True], dtype=bool),
+        life_id=np.array([1, 2, 1], dtype=np.int32),
+        tick=np.array([5, 6, 7], dtype=np.int32),
+        hero_length=np.array([50, 60, 70], dtype=np.int32),
+        local=obs["local"],
+        glob=obs["glob"],
+        scalars=obs["scalars"],
+        legal_mask=obs["legal_mask"],
+        q_b8=obs["q_b8"],
+        b8_action=np.array([0, 1, 2], dtype=np.int8),
+        topology=store.finalize_topology(),
+    )
+    anc_sd = anc.to_state_dict()
+    assert anc_sd["schema"] == "ct-anchor-archive/v2"
+    assert describe_state(anc_sd)["tensor_count"] > 0
+    anc_rt = AnchorArchive.from_state_dict(anc_sd)
+    assert torch.equal(anc_rt.local, anc.local)
+    assert torch.equal(anc_rt.glob, anc.glob)
+    assert torch.equal(anc_rt.scalars, anc.scalars)
+    assert torch.equal(anc_rt.q_b8, anc.q_b8)
+    np.testing.assert_array_equal(anc_rt.topology.unpack_raw_u16([0, 1, 2]), planes)
+
+    # Stage export hard cap refusal & atomic partial cleanup:
+    out_dir = tmp_path / "cap_exports"
+    with pytest.raises(StageExportOverflowError, match="max_stage_export_bytes"):
+        publish_stage_snapshot(
+            out_dir,
+            1,
+            lambda dst: dst.write_bytes(b"x" * 2048),
+            metadata={"allocation": "test"},
+            max_stage_bytes=1024,
+            max_total_bytes=4096,
+        )
+    assert not list(out_dir.glob("*"))
+
+    publish_stage_snapshot(
+        out_dir,
+        1,
+        lambda dst: dst.write_bytes(b"x" * 900),
+        metadata={"allocation": "test"},
+        max_stage_bytes=1024,
+        max_total_bytes=1500,
+    )
+    with pytest.raises(StageExportOverflowError, match="max_total_export_bytes"):
+        publish_stage_snapshot(
+            out_dir,
+            2,
+            lambda dst: dst.write_bytes(b"y" * 800),
+            metadata={"allocation": "test"},
+            max_stage_bytes=1024,
+            max_total_bytes=1500,
+        )
+    assert not (out_dir / "stage-0002.pt").exists()
+    assert not (out_dir / "stage-0002.pt.complete").exists()
+    assert not list(out_dir.glob("*.partial"))

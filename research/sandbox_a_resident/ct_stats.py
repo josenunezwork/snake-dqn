@@ -32,7 +32,14 @@ import numpy as np
 from research.sandbox_a_resident.ct_branching import MergedScoredRoots
 from research.sandbox_a_resident.ct_fit import D100_D300_LOOKBACKS, ArmEvaluationPredictions
 from research.sandbox_a_resident.ct_snapshots import LosslessBoundedSnapshotStore, RootMetadata
-from research.sandbox_a_resident.ct_task import AnchorArchive, CTControl
+from research.sandbox_a_resident.ct_task import (
+    ORDINARY_LENGTH_BIN_EDGES,
+    ORDINARY_LENGTH_BIN_LABELS,
+    AnchorArchive,
+    CTControl,
+    _length_bin_index,
+    compute_required_ordinary_cell_quotas,
+)
 from research.sandbox_a_resident.training_rosters import MIXES
 
 
@@ -93,15 +100,27 @@ def validate_ct_support(
         (part, m): set() for part in ("train", "assessment") for m in mix_names
     }
 
+    n_bins = len(ORDINARY_LENGTH_BIN_EDGES)
+    death_cells: dict[str, dict[tuple[str, int], int]] = {
+        part: {(m, b): 0 for m in mix_names for b in range(n_bins)}
+        for part in ("train", "assessment")
+    }
+    ordinary_cells: dict[str, dict[tuple[str, int], int]] = {
+        part: {(m, b): 0 for m in mix_names for b in range(n_bins)}
+        for part in ("train", "assessment")
+    }
+
     train_searched_count = 0
     assess_ordinary_count = 0
     for meta in store.metadata:
         part = meta.partition
         m = meta.mix
+        b = _length_bin_index(int(meta.hero_length))
         if part == "train":
             train_searched_count += 1
         if meta.kind == "death_lookback":
             per_mix[part][m]["death_lookback_roots"] += 1
+            death_cells[part][(m, b)] += 1
             if meta.death_event_id is not None:
                 seen_deaths[part].add(meta.death_event_id)
                 seen_deaths_mix[(part, m)].add(meta.death_event_id)
@@ -109,6 +128,7 @@ def validate_ct_support(
                 seen_death_worlds_mix[(part, m)].add(meta.world_id)
         elif meta.kind == "ordinary":
             per_mix[part][m]["ordinary_searched_roots"] += 1
+            ordinary_cells[part][(m, b)] += 1
             if part == "assessment":
                 assess_ordinary_count += 1
 
@@ -129,9 +149,65 @@ def validate_ct_support(
     held_out_anchors = int(np.sum(anchors.is_assessment))
     train_anchors = int(np.sum(~anchors.is_assessment))
 
+    target_assess_ord = int(round(0.20 * control.max_ordinary_roots))
+    target_train_ord = int(control.max_ordinary_roots) - target_assess_ord
+    ordinary_matching: dict[str, Any] = {
+        "length_bin_edges": list(ORDINARY_LENGTH_BIN_EDGES),
+        "length_bin_labels": list(ORDINARY_LENGTH_BIN_LABELS),
+        "cross_mix_or_bin_spill_allowed": False,
+        "partitions": {},
+    }
+    matching_reasons: list[str] = []
+    for part, quota, min_ord in (
+        ("train", target_train_ord, 0 if control.tiny else 1),
+        ("assessment", target_assess_ord, int(control.min_held_out_ordinary_roots)),
+    ):
+        d_map = death_cells[part]
+        o_map = ordinary_cells[part]
+        total_d = sum(d_map.values())
+        if total_d > 0:
+            req_map = compute_required_ordinary_cell_quotas(
+                d_map, quota=quota, min_partition_ordinary=min_ord
+            )
+        else:
+            req_map = {k: 0 for k in d_map}
+        part_shortfall = 0
+        part_unmatched = 0
+        cells_out: dict[str, dict[str, dict[str, int]]] = {m: {} for m in mix_names}
+        for m in mix_names:
+            for b in range(n_bins):
+                req_c = int(req_map[(m, b)])
+                act_c = int(o_map[(m, b)])
+                sf_c = max(0, req_c - act_c)
+                unm_c = act_c if (total_d > 0 and req_c == 0 and act_c > 0) else 0
+                part_shortfall += sf_c
+                part_unmatched += unm_c
+                cells_out[m][ORDINARY_LENGTH_BIN_LABELS[b]] = {
+                    "death_lookback_roots": int(d_map[(m, b)]),
+                    "required_ordinary_roots": req_c,
+                    "achieved_ordinary_roots": act_c,
+                    "shortfall": sf_c,
+                    "unmatched_in_zero_death_cell": unm_c,
+                }
+        ordinary_matching["partitions"][part] = {
+            "partition_quota_cap": int(quota),
+            "death_lookback_roots_total": int(total_d),
+            "required_ordinary_roots_total": int(sum(req_map.values())),
+            "achieved_ordinary_roots_total": int(sum(o_map.values())),
+            "shortfall_total": int(part_shortfall),
+            "unmatched_in_zero_death_cell_total": int(part_unmatched),
+            "per_mix_bin": cells_out,
+        }
+        if part_shortfall > 0:
+            matching_reasons.append(f"ordinary_matching_shortfall[{part}]={part_shortfall}")
+        if part_unmatched > 0:
+            matching_reasons.append(f"ordinary_unmatched_substitution[{part}]={part_unmatched}")
+
     reasons: list[str] = []
     if partition_leak:
         reasons.append("partition_leak_detected")
+    if not control.tiny and len(seen_deaths["train"]) < 1:
+        reasons.append("train_deaths=0")
     if held_out_deaths < control.min_held_out_deaths:
         reasons.append(f"held_out_deaths={held_out_deaths} < min={control.min_held_out_deaths}")
     if held_out_death_worlds < control.min_held_out_death_worlds:
@@ -152,6 +228,7 @@ def validate_ct_support(
         reasons.append("train_searched_roots=0")
     if train_anchors < 1:
         reasons.append("train_anchor_rows=0")
+    reasons.extend(matching_reasons)
 
     if partition_leak:
         status = "INVALID"
@@ -180,6 +257,7 @@ def validate_ct_support(
             "min_held_out_anchor_rows": int(control.min_held_out_anchor_rows),
         },
         "per_mix": per_mix,
+        "ordinary_matching": ordinary_matching,
     }
 
 
@@ -511,18 +589,20 @@ def evaluate_ct_gates(
         resamples=control.bootstrap_resamples,
         seed=control.bootstrap_seed,
     )
+    n_ev = len(event_rescued)
+    k_ev = int(round(sum(event_rescued)))
     rescue_event_rate = float(event_boot["point_estimate"])
-    if rescue_event_rate >= 0.25:
+    if n_ev > 0 and (100 * k_ev >= 25 * n_ev):
         gate_a_status = "PASS"
-    elif rescue_event_rate < 0.15:
+    elif n_ev == 0 or (100 * k_ev < 15 * n_ev):
         gate_a_status = "FAIL_STOP_RESCUE_TARGET"
     else:
         gate_a_status = "INCONCLUSIVE_15_TO_25_PCT"
 
     gate_a = {
         "status": gate_a_status,
-        "held_out_deaths": len(event_rescued),
-        "rescuable_held_out_deaths": int(sum(event_rescued)),
+        "held_out_deaths": n_ev,
+        "rescuable_held_out_deaths": k_ev,
         "rescuable_death_rate": rescue_event_rate,
         "held_out_causal_rescue_roots": len(assess_causal_rescue_indices),
         "pass_threshold": 0.25,
@@ -627,7 +707,9 @@ def evaluate_ct_gates(
             lethal_count = 0
             ord_flip_count = 0
 
-        gate_d_pass = bool(archive_flip_rate <= 0.010 and lethal_count <= 1)
+        anc_flip_count = int(round(float(np.sum(flips_anc))))
+        anc_rows = int(flips_anc.size)
+        gate_d_pass = bool((1000 * anc_flip_count <= 10 * anc_rows) and lethal_count <= 1)
 
         # World-grouped D100-D300 separability AUC (detached train-only probe + policy surprise)
         probe_auc_info = world_grouped_mann_whitney_auc(
@@ -714,9 +796,17 @@ def evaluate_ct_gates(
     ret_frozen = arms_report["frozen_phi"]["rescue_retention"]["rate"]
     ret_bv8 = arms_report["full_bv8"]["rescue_retention"]["rate"]
     ret_topo = arms_report["full_bv8_plus_topology"]["rescue_retention"]["rate"]
+    causal_denom = int(causal_idx_arr.size)
+    k_frozen = int(arms_report["frozen_phi"]["rescue_retention"]["retained_count"])
+    k_bv8 = int(arms_report["full_bv8"]["rescue_retention"]["retained_count"])
+    k_topo = int(arms_report["full_bv8_plus_topology"]["rescue_retention"]["retained_count"])
 
+    # Exact integer comparisons over common denominator causal_denom prevent IEEE-754
+    # boundary rejection (e.g. 7/20 - 4/20 == 0.14999999999999997 < 0.15 in float64).
     gate_c_bv8_pass = bool(
-        causal_idx_arr.size > 0 and ret_bv8 >= 0.30 and (ret_bv8 - ret_frozen) >= 0.15
+        causal_denom > 0
+        and (100 * k_bv8 >= 30 * causal_denom)
+        and (100 * (k_bv8 - k_frozen) >= 15 * causal_denom)
     )
     gate_d_bv8_pass = arms_report["full_bv8"]["gate_d_ordinary_safety"]["status"] == "PASS"
 
@@ -732,10 +822,10 @@ def evaluate_ct_gates(
         topo_auc_pass = True
 
     topo_ret_pass = bool(
-        causal_idx_arr.size > 0
-        and ret_topo >= 0.30
-        and (ret_topo - ret_frozen) >= 0.15
-        and (ret_topo - ret_bv8) >= 0.15
+        causal_denom > 0
+        and (100 * k_topo >= 30 * causal_denom)
+        and (100 * (k_topo - k_frozen) >= 15 * causal_denom)
+        and (100 * (k_topo - k_bv8) >= 15 * causal_denom)
     )
     gate_d_topo_pass = (
         arms_report["full_bv8_plus_topology"]["gate_d_ordinary_safety"]["status"] == "PASS"

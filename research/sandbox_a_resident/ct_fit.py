@@ -106,42 +106,7 @@ class TrainFitDataset:
 
 
 def _slice_sparse_topology(batch: SparseTopologyBatch, indices: np.ndarray) -> SparseTopologyBatch:
-    idx = np.asarray(indices, dtype=np.int64).reshape(-1)
-    N = int(idx.size)
-    if N == 0:
-        return SparseTopologyBatch(
-            num_rows=0,
-            grid_h=batch.grid_h,
-            grid_w=batch.grid_w,
-            offsets=np.zeros(1, dtype=np.int64),
-            flat_indices=np.zeros(0, dtype=np.uint16),
-            values=np.zeros(0, dtype=np.uint16),
-            summaries=np.zeros((0, 6), dtype=np.float32),
-        )
-    counts = batch.offsets[idx + 1] - batch.offsets[idx]
-    new_offsets = np.zeros(N + 1, dtype=np.int64)
-    np.cumsum(counts, out=new_offsets[1:])
-    total_nnz = int(new_offsets[-1])
-    new_flat = np.empty(total_nnz, dtype=np.uint16)
-    new_vals = np.empty(total_nnz, dtype=np.uint16)
-    cursor = 0
-    for r_i in idx.tolist():
-        s = int(batch.offsets[r_i])
-        e = int(batch.offsets[r_i + 1])
-        span = e - s
-        if span > 0:
-            new_flat[cursor : cursor + span] = batch.flat_indices[s:e]
-            new_vals[cursor : cursor + span] = batch.values[s:e]
-            cursor += span
-    return SparseTopologyBatch(
-        num_rows=N,
-        grid_h=batch.grid_h,
-        grid_w=batch.grid_w,
-        offsets=new_offsets,
-        flat_indices=new_flat,
-        values=new_vals,
-        summaries=np.ascontiguousarray(batch.summaries[idx], dtype=np.float32),
-    )
+    return batch.slice_rows(indices)
 
 
 @torch.no_grad()
@@ -551,6 +516,7 @@ def fit_all_three_arms(
         grid_h=store.grid_h,
         grid_w=store.grid_w,
         seed=control.fit_seed,
+        device=dev,
     )
     train_fit = build_train_fit_dataset(
         store=store,

@@ -29,10 +29,12 @@ from tools.sandbox.preflight import preflight, verify_committed_manifest
 from tools.sandbox.registry import digest
 
 ROOT = Path(__file__).resolve().parents[2]
+CT_CUDA_SEMANTICS_TEST = "research/sandbox_a_resident/test_ct_cuda_semantics.py"
 CT_FOCUSED_TESTS: tuple[str, ...] = (
     "research/sandbox_a_resident/test_ct_mechanics_and_snapshots.py",
     "research/sandbox_a_resident/test_ct_branching_fit_and_stats.py",
     "research/sandbox_a_resident/test_ct_runner_and_resume.py",
+    CT_CUDA_SEMANTICS_TEST,
     "tools/sandbox/tests/test_source_delivery.py",
 )
 
@@ -81,10 +83,21 @@ def validate_uploaded_ledger(packet: Path, broker: dict[str, Any], control: dict
                     raise ValueError("compact derivative and manifest must be original siblings")
                 source = sources[0]
                 for suffix in (".sha256", ".complete"):
+                    local_sidecar = Path(str(source) + suffix)
+                    if local_sidecar.is_symlink() or not local_sidecar.is_file():
+                        raise ValueError("compact resume original lacks Mac completion sidecars")
+                    if (
+                        suffix == ".sha256"
+                        and local_sidecar.read_text().strip().split()[0] != row["sha256"]
+                    ):
+                        raise ValueError("compact resume original .sha256 sidecar mismatch")
                     item = uploads.get(destination + suffix)
-                    if item is None or Path(item["path"]) != Path(str(source) + suffix):
-                        raise ValueError("resume sidecars must be exact uploaded siblings")
-                    referenced.add(destination + suffix)
+                    if item is not None:
+                        if Path(item["path"]) != local_sidecar or digest(local_sidecar) != item.get(
+                            "sha256"
+                        ):
+                            raise ValueError("resume sidecars must be exact uploaded siblings")
+                        referenced.add(destination + suffix)
                 row["path"] = str(source)
                 continue
 
@@ -92,12 +105,31 @@ def validate_uploaded_ledger(packet: Path, broker: dict[str, Any], control: dict
             if upload is None or row["sha256"] != upload["sha256"]:
                 raise ValueError("resume payload is not a hash-bound uploaded input")
             source = Path(upload["path"])
-            for suffix in ("", ".sha256", ".complete"):
+            if (
+                source.is_symlink()
+                or not source.is_file()
+                or digest(source) != row["sha256"]
+                or source.stat().st_size != row["size"]
+            ):
+                raise ValueError("resume payload source file missing or hash/size mismatch")
+            referenced.add(destination)
+            for suffix in (".sha256", ".complete"):
+                local_sidecar = Path(str(source) + suffix)
+                if local_sidecar.is_symlink() or not local_sidecar.is_file():
+                    raise ValueError("resume payload lacks Mac completion sidecars")
+                if (
+                    suffix == ".sha256"
+                    and local_sidecar.read_text().strip().split()[0] != row["sha256"]
+                ):
+                    raise ValueError("resume payload .sha256 sidecar mismatch")
                 name = destination + suffix
                 item = uploads.get(name)
-                if item is None or Path(item["path"]) != Path(str(source) + suffix):
-                    raise ValueError("resume sidecars must be exact uploaded siblings")
-                referenced.add(name)
+                if item is not None:
+                    if Path(item["path"]) != local_sidecar or digest(local_sidecar) != item.get(
+                        "sha256"
+                    ):
+                        raise ValueError("resume sidecars must be exact uploaded siblings")
+                    referenced.add(name)
             row["path"] = str(source)
 
     if referenced != {name for name in uploads if name.startswith("resume/")}:
@@ -110,7 +142,9 @@ def validate_uploaded_ledger(packet: Path, broker: dict[str, Any], control: dict
         load_ledger(path, control)
 
 
-def validate_packet(packet: Path, *, require_committed: bool = True) -> dict[str, Any]:
+def validate_packet(
+    packet: Path, *, require_committed: bool = True, allow_tiny: bool = False
+) -> dict[str, Any]:
     """Bind C/T runtime controls to committed seed audit and frozen topology contract."""
     payload = preflight(
         packet / "sandbox.json", require_committed=require_committed, run_tests=False
@@ -127,13 +161,18 @@ def validate_packet(packet: Path, *, require_committed: bool = True) -> dict[str
     ):
         raise ValueError("C/T seed domain requires nonnegative integer allocation/offset")
 
-    default_ctrl = CTControl(
-        study=STUDY,
-        source_commit=broker["commit"],
-        allocation_index=allocation_index,
-        seed_offset=seed_offset,
-        tiny=False,
-    )
+    if allow_tiny and bool(control.get("tiny", False)):
+        default_ctrl = CTControl.from_dict(control)
+        if default_ctrl.study != STUDY or default_ctrl.source_commit != broker["commit"]:
+            raise ValueError("tiny C/T control study or source_commit differs")
+    else:
+        default_ctrl = CTControl(
+            study=STUDY,
+            source_commit=broker["commit"],
+            allocation_index=allocation_index,
+            seed_offset=seed_offset,
+            tiny=False,
+        )
     default = default_ctrl.to_dict()
     if control != default or control != json.loads(broker["env"]["SANDBOX_CT_CONTROL_JSON"]):
         raise ValueError("C/T control differs from frozen production recipe")
@@ -183,14 +222,23 @@ def validate_packet(packet: Path, *, require_committed: bool = True) -> dict[str
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("packet", type=Path)
+    parser.add_argument("packet", type=Path, nargs="?")
+    parser.add_argument(
+        "--cuda-semantics",
+        action="store_true",
+        help="run the logical-CUDA / meta-device semantics suite (also included in full preflight)",
+    )
     parser.add_argument(
         "--allow-uncommitted",
         action="store_true",
         help="engineering test helper only; real dispatch never passes this",
     )
     args = parser.parse_args()
-    check = validate_packet(args.packet.resolve(), require_committed=not args.allow_uncommitted)
+    if not args.cuda_semantics and args.packet is None:
+        parser.error("packet directory is required unless --cuda-semantics is specified")
+    check: dict[str, Any] | None = None
+    if args.packet is not None:
+        check = validate_packet(args.packet.resolve(), require_committed=not args.allow_uncommitted)
     env = dict(os.environ)
     for key in (
         "OMP_NUM_THREADS",
@@ -198,13 +246,22 @@ def main() -> int:
         "OPENBLAS_NUM_THREADS",
         "VECLIB_MAXIMUM_THREADS",
         "NUMBA_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
         "OMP_THREAD_LIMIT",
+        "TORCHINDUCTOR_COMPILE_THREADS",
     ):
         env[key] = "1"
     env["SNAKE_DQN_DEVICE"] = "cpu"
+    env["CUDA_VISIBLE_DEVICES"] = ""
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["CT_PREFLIGHT_SUBPROCESS"] = "1"
     python_bin = (
         ROOT / "venv/bin/python" if (ROOT / "venv/bin/python").is_file() else Path(sys.executable)
+    )
+    targets = (
+        (CT_CUDA_SEMANTICS_TEST,)
+        if (args.cuda_semantics and args.packet is None)
+        else CT_FOCUSED_TESTS
     )
     subprocess.run(
         [
@@ -218,17 +275,22 @@ def main() -> int:
             "-o",
             "addopts=",
             "-p",
+            "no:cacheprovider",
+            "-p",
             "no:xdist",
-            *CT_FOCUSED_TESTS,
+            *targets,
         ],
         cwd=ROOT,
         env=env,
         check=True,
     )
-    print(
-        f"PASS_CT1028_PREFLIGHT seeds={check['count']} "
-        "schema=PASS registry=PASS tests=PASS allocations=0"
-    )
+    if check is None:
+        print("PASS_CT1028_CUDA_SEMANTICS tests=PASS allocations=0")
+    else:
+        print(
+            f"PASS_CT1028_PREFLIGHT seeds={check['count']} "
+            "schema=PASS registry=PASS tests=PASS allocations=0"
+        )
     return 0
 
 

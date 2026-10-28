@@ -185,8 +185,11 @@ def run_ct_experiment(
         torch.backends.cudnn.allow_tf32 = False
         torch.set_float32_matmul_precision("highest")
 
-        # Mandatory deterministic pre-scoring mechanics + topology fixture checks.
-        det_report = forced_state_determinism_suite("cpu")
+        dev = torch.device("cuda:0" if device == "cuda" else device)
+
+        # Mandatory deterministic pre-scoring mechanics + topology fixture checks
+        # qualified directly on the active runtime device before any scoring.
+        det_report = forced_state_determinism_suite(dev)
         if det_report.get("status") != "PASS":
             raise RuntimeError("forced-state determinism suite failed")
         topo_fixture_report = validate_geometric_fixtures()
@@ -196,11 +199,11 @@ def run_ct_experiment(
             "startup-self-checks-passed",
             {
                 "forced_state_cases": len(det_report["cases"]),
+                "forced_state_device": det_report["device"],
                 "topology_fixtures": topo_fixture_report["status"],
             },
         )
 
-        dev = torch.device("cuda:0" if device == "cuda" else device)
         b8_model: Ego2sNet = load_ego2s_checkpoint(str(b8_checkpoint), "cpu")
         b8_model.eval()
         if control.tiny:
@@ -289,6 +292,8 @@ def run_ct_experiment(
                     "roots": len(collected.store),
                     "anchors": collected.anchors.num_rows,
                 },
+                max_stage_bytes=control.max_stage_export_bytes,
+                max_total_bytes=control.max_total_export_bytes,
             )
             latest_durable_stage = 1
             emit(
@@ -384,6 +389,8 @@ def run_ct_experiment(
                     "roots": int(chunk_opt.root_indices.size),
                     "selection_freeze_sha256": chunk_opt.selection_freeze_sha256,
                 },
+                max_stage_bytes=control.max_stage_export_bytes,
+                max_total_bytes=control.max_total_export_bytes,
             )
             latest_durable_stage = stage_num
             emit(
@@ -441,6 +448,8 @@ def run_ct_experiment(
                 "phase": "fit_and_evaluation",
                 "verdict": gate_eval["verdict"],
             },
+            max_stage_bytes=control.max_stage_export_bytes,
+            max_total_bytes=control.max_total_export_bytes,
         )
         latest_durable_stage = final_stage
 

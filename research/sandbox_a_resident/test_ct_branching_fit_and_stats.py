@@ -806,3 +806,601 @@ def test_ordered_gates_world_bootstrap_auc_and_holm() -> None:
     auc_res = world_grouped_mann_whitney_auc(scores, is_pos, is_neg, wids, resamples=100)
     np.testing.assert_allclose(auc_res["world_grouped_auc"], 0.80, atol=1e-9)
     np.testing.assert_allclose(auc_res["root_level_auc"], 4.0 / 6.0, atol=1e-9)
+
+
+def test_ordinary_root_exact_cell_matching_no_cross_mix_or_bin_spill() -> None:
+    from research.sandbox_a_resident.ct_task import (
+        _CandidateDeathEvent,
+        _CandidateOrdinaryRoot,
+        _length_bin_index,
+        _select_matched_ordinary_roots,
+        compute_required_ordinary_cell_quotas,
+    )
+
+    b8, ckpts = _models()
+    rosters = training_rosters(6)
+    cfg1 = BatchSimConfig(
+        num_envs=1,
+        num_snakes=6,
+        game_width=240,
+        game_height=240,
+        initial_food=8,
+        max_food=12,
+        max_capacity=64,
+        body_storage_capacity=64,
+        mechanics_version=1,
+    )
+    sim = CTDeviceSim(cfg1, device="cpu", train_mode=False, allow_respawn=True)
+    r2_cache.enable(sim)
+    sim.alive.fill_(False)
+    sim.terminal_slots.fill_(False)
+    sim.rng_key.copy_(torch.tensor([4444], dtype=torch.long))
+    sim.rng_counter.zero_()
+    sim.reset_fresh_worlds()
+    sim.terminal_slots[:, 0] = True
+    sim.prepare()
+    opp = CTOpponentRuntime(sim, (rosters[0],), b8_network=b8, checkpoint_networks=ckpts)
+    snap = capture_world_snapshot(sim, opp, 0, world_id=0, life_id=1, tick=10, max_body_capacity=64)
+    loc, glb, scl, leg, qb8, _ = observe_hero_bv8(sim, b8)
+    planes, sums = compute_topology_features(sim, [0])
+
+    def _snap_with_hero_len(hero_len: int):
+        new_small = dict(snap.small_tensors)
+        len_t = new_small["length"].clone()
+        len_t[0] = hero_len
+        new_small["length"] = len_t
+        return type(snap)(
+            world_id=snap.world_id,
+            life_id=snap.life_id,
+            tick=snap.tick,
+            prepared=snap.prepared,
+            num_snakes=snap.num_snakes,
+            body_cap=snap.body_cap,
+            food_cap=snap.food_cap,
+            body_offsets=snap.body_offsets,
+            body_segments_xy=snap.body_segments_xy,
+            food_slot_indices=snap.food_slot_indices,
+            food_xy=snap.food_xy,
+            food_corpse=snap.food_corpse,
+            small_tensors=new_small,
+            opponent_state=snap.opponent_state,
+        )
+
+    def _mk_cand(mix: str, length: int, bin_idx: int, uid_num: int) -> _CandidateOrdinaryRoot:
+        return _CandidateOrdinaryRoot(
+            world_id=3 if mix == "scripted" else 5,
+            partition="assessment",
+            mix=mix,
+            roster_index=0,
+            life_id=1,
+            tick=20 + uid_num,
+            hero_length=length,
+            length_bin=bin_idx,
+            snapshot=_snap_with_hero_len(length),
+            local_obs=loc[0],
+            glob_obs=glb[0],
+            scalars_obs=scl[0],
+            legal_mask=leg[0],
+            q_b8=qb8[0],
+            b8_action=0,
+            topo_planes_u16=planes[0],
+            topo_summaries_f32=sums[0],
+        )
+
+    def _mk_death(mix: str, lookback_len: int) -> _CandidateDeathEvent:
+        return _CandidateDeathEvent(
+            world_id=3,
+            partition="assessment",
+            mix=mix,
+            roster_index=0,
+            life_id=1,
+            death_tick=200,
+            death_length=max(600, lookback_len),
+            lookback_roots=[
+                (
+                    100,
+                    100,
+                    _snap_with_hero_len(lookback_len),
+                    loc[0],
+                    glb[0],
+                    scl[0],
+                    leg[0],
+                    qb8[0],
+                    0,
+                    planes[0],
+                    sums[0],
+                )
+            ],
+        )
+
+    # 1) Sub-600 early death-lookback length is preserved in bin 0 ([1,600)), never clamped:
+    assert _length_bin_index(450) == 0
+    assert _length_bin_index(600) == 1
+    assert _length_bin_index(1000) == 3
+    assert _length_bin_index(2400) == 5
+
+    # 2) Astra's exact probe: scripted death-lookback at length 1,000 (bin 3) and ONLY a
+    # mixed ordinary candidate at length 2,400 (bin 5) -> must select ZERO ordinary roots
+    # (no cross-mix / cross-bin spill) and report shortfall!
+    death_counts = {("scripted", 3): 1}
+    quotas = compute_required_ordinary_cell_quotas(
+        death_counts, quota=256, min_partition_ordinary=4
+    )
+    assert quotas[("scripted", 3)] == 4
+    assert sum(quotas.values()) == 4
+    reservoirs = {("assessment", "mixed", 5): [_mk_cand("mixed", 2400, 5, 1)]}
+    selected, match_rep = _select_matched_ordinary_roots(
+        reservoirs,
+        [_mk_death("scripted", 1000)],
+        max_ordinary_roots=1280,
+        forbidden_world_life_ticks=set(),
+        min_assess_ordinary_roots=4,
+    )
+    assert selected == []
+    assert match_rep["partitions"]["assessment"]["shortfall_total"] == 4
+
+    # 3) Sub-600 scripted death-lookback (L=450, bin 0) matches ONLY scripted bin 0 (L=480),
+    # refusing scripted bin 1 (L=700):
+    sub600_res = {
+        ("assessment", "scripted", 0): [_mk_cand("scripted", 480, 0, 10)],
+        ("assessment", "scripted", 1): [_mk_cand("scripted", 700, 1, 11)],
+    }
+    sub600_sel, sub600_rep = _select_matched_ordinary_roots(
+        sub600_res,
+        [_mk_death("scripted", 450)],
+        max_ordinary_roots=1280,
+        forbidden_world_life_ticks=set(),
+        min_assess_ordinary_roots=1,
+    )
+    assert len(sub600_sel) == 1
+    assert sub600_sel[0].mix == "scripted" and sub600_sel[0].hero_length == 480
+    assert sub600_rep["partitions"]["assessment"]["shortfall_total"] == 0
+
+    # 4) validate_ct_support flags both matched-cell shortfall AND unmatched substitution
+    # in a zero-death cell as INCOMPLETE_SUPPORT (even when aggregate counts meet floors!):
+    world_partitions = ("train", "train", "train", "assessment", "assessment", "assessment")
+    store_short = LosslessBoundedSnapshotStore(
+        grid_h=sim.grid_h,
+        grid_w=sim.grid_w,
+        max_roots=16,
+        max_bytes=4 * 1024 * 1024,
+        max_body_capacity=64,
+    )
+    # Train: 1 scripted death at L=1000 + 1 matched scripted ordinary at L=1050
+    store_short.add_root(
+        meta=OmitIndexRootMeta(
+            root_uid="tr-d-0",
+            kind="death_lookback",
+            partition="train",
+            world_id=0,
+            mix="scripted",
+            roster_index=0,
+            life_id=1,
+            tick=10,
+            hero_length=1000,
+            death_event_id=0,
+            lookback=100,
+            death_tick=110,
+            death_length=1000,
+            b8_action=0,
+        ),
+        snapshot=snap,
+        local_obs=loc[0],
+        glob_obs=glb[0],
+        scalars_obs=scl[0],
+        legal_mask=leg[0],
+        q_b8=qb8[0],
+        topo_planes_u16=planes[0],
+        topo_summaries_f32=sums[0],
+    )
+    store_short.add_root(
+        meta=OmitIndexRootMeta(
+            root_uid="tr-o-0",
+            kind="ordinary",
+            partition="train",
+            world_id=0,
+            mix="scripted",
+            roster_index=0,
+            life_id=1,
+            tick=20,
+            hero_length=1050,
+            death_event_id=None,
+            lookback=None,
+            death_tick=None,
+            death_length=None,
+            b8_action=0,
+        ),
+        snapshot=snap,
+        local_obs=loc[0],
+        glob_obs=glb[0],
+        scalars_obs=scl[0],
+        legal_mask=leg[0],
+        q_b8=qb8[0],
+        topo_planes_u16=planes[0],
+        topo_summaries_f32=sums[0],
+    )
+    # Assessment: 1 scripted death at L=1000, plus an UNMATCHED mixed ordinary at L=2400!
+    store_short.add_root(
+        meta=OmitIndexRootMeta(
+            root_uid="as-d-0",
+            kind="death_lookback",
+            partition="assessment",
+            world_id=3,
+            mix="scripted",
+            roster_index=0,
+            life_id=1,
+            tick=10,
+            hero_length=1000,
+            death_event_id=1,
+            lookback=100,
+            death_tick=110,
+            death_length=1000,
+            b8_action=0,
+        ),
+        snapshot=snap,
+        local_obs=loc[0],
+        glob_obs=glb[0],
+        scalars_obs=scl[0],
+        legal_mask=leg[0],
+        q_b8=qb8[0],
+        topo_planes_u16=planes[0],
+        topo_summaries_f32=sums[0],
+    )
+    store_short.add_root(
+        meta=OmitIndexRootMeta(
+            root_uid="as-o-unmatched",
+            kind="ordinary",
+            partition="assessment",
+            world_id=5,
+            mix="mixed",
+            roster_index=2,
+            life_id=1,
+            tick=20,
+            hero_length=2400,
+            death_event_id=None,
+            lookback=None,
+            death_tick=None,
+            death_length=None,
+            b8_action=0,
+        ),
+        snapshot=snap,
+        local_obs=loc[0],
+        glob_obs=glb[0],
+        scalars_obs=scl[0],
+        legal_mask=leg[0],
+        q_b8=qb8[0],
+        topo_planes_u16=planes[0],
+        topo_summaries_f32=sums[0],
+    )
+    empty_topo = IncrementalSparseTopologyBuilder(grid_h=sim.grid_h, grid_w=sim.grid_w)
+    empty_topo.append_batch(
+        np.zeros((2, 4, sim.grid_h, sim.grid_w), dtype=np.uint16),
+        np.zeros((2, 6), dtype=np.float32),
+    )
+    anc = AnchorArchive(
+        num_rows=2,
+        world_id=np.array([0, 3], dtype=np.int32),
+        mix_id=np.array([0, 0], dtype=np.int8),
+        is_assessment=np.array([False, True], dtype=bool),
+        life_id=np.ones(2, dtype=np.int32),
+        tick=np.ones(2, dtype=np.int32),
+        hero_length=np.full(2, 1000, dtype=np.int32),
+        local=torch.zeros((2, 7, 31, 31), dtype=torch.uint8),
+        glob=torch.zeros((2, 4, 37, 37), dtype=torch.uint8),
+        scalars=torch.zeros((2, 60), dtype=torch.float32),
+        legal_mask=torch.ones((2, 6), dtype=torch.bool),
+        q_b8=torch.zeros((2, 6), dtype=torch.float32),
+        b8_action=np.zeros(2, dtype=np.int8),
+        topology=empty_topo.build(),
+    )
+    ctrl_sup = CTControl(
+        worlds=6,
+        collection_ticks=20,
+        max_body_capacity=64,
+        min_held_out_deaths=1,
+        min_held_out_death_worlds=1,
+        min_held_out_ordinary_roots=1,
+        min_held_out_anchor_rows=1,
+        tiny=True,
+    )
+    sup_rep = validate_ct_support(
+        control=ctrl_sup,
+        store=store_short,
+        anchors=anc,
+        world_partitions=world_partitions,
+    )
+    assert sup_rep["status"] == "INCOMPLETE_SUPPORT"
+    assert any("ordinary_matching_shortfall[assessment]=1" in r for r in sup_rep["reasons"])
+    assert any("ordinary_unmatched_substitution[assessment]=1" in r for r in sup_rep["reasons"])
+    assert sup_rep["ordinary_matching"]["partitions"]["assessment"]["shortfall_total"] == 1
+    assert (
+        sup_rep["ordinary_matching"]["partitions"]["assessment"][
+            "unmatched_in_zero_death_cell_total"
+        ]
+        == 1
+    )
+    assert sup_rep["per_mix"]["assessment"]["mixed"]["ordinary_searched_roots"] == 1
+
+
+def test_exact_boundary_15pp_retention_gates() -> None:
+    # Verify exact +15 pp boundary semantics where IEEE-754 float subtraction
+    # (7/20 - 4/20 = 0.35 - 0.20 = 0.14999999999999999 < 0.15 and
+    # 12/20 - 9/20 = 0.60 - 0.45 = 0.14999999999999997 < 0.15) would fail!
+    assert (7 / 20) - (4 / 20) < 0.15
+    assert (12 / 20) - (9 / 20) < 0.15
+
+    b8, ckpts = _models()
+    rosters = training_rosters(6)
+    cfg1 = BatchSimConfig(
+        num_envs=1,
+        num_snakes=6,
+        game_width=240,
+        game_height=240,
+        initial_food=8,
+        max_food=12,
+        max_capacity=64,
+        body_storage_capacity=64,
+        mechanics_version=1,
+    )
+    sim = CTDeviceSim(cfg1, device="cpu", train_mode=False, allow_respawn=True)
+    r2_cache.enable(sim)
+    sim.alive.fill_(False)
+    sim.terminal_slots.fill_(False)
+    sim.rng_key.copy_(torch.tensor([7777], dtype=torch.long))
+    sim.rng_counter.zero_()
+    sim.reset_fresh_worlds()
+    sim.terminal_slots[:, 0] = True
+    sim.prepare()
+    opp = CTOpponentRuntime(sim, (rosters[0],), b8_network=b8, checkpoint_networks=ckpts)
+    snap = capture_world_snapshot(sim, opp, 0, world_id=0, life_id=1, tick=10, max_body_capacity=64)
+    loc, glb, scl, leg, qb8, _ = observe_hero_bv8(sim, b8)
+    planes, sums = compute_topology_features(sim, [0])
+
+    # 1 train root + 40 assessment death roots (20 causal 1..20, 20 unrescuable 21..40) + 40 ord
+    n_deaths = 40
+    n_ord = 40
+    n_total = 1 + n_deaths + n_ord
+    world_partitions = tuple(["train"] + ["assessment"] * 40)
+    store = LosslessBoundedSnapshotStore(
+        grid_h=sim.grid_h,
+        grid_w=sim.grid_w,
+        max_roots=n_total + 4,
+        max_bytes=8 * 1024 * 1024,
+        max_body_capacity=64,
+    )
+    store.add_root(
+        meta=OmitIndexRootMeta(
+            root_uid="tr-0",
+            kind="ordinary",
+            partition="train",
+            world_id=0,
+            mix="scripted",
+            roster_index=0,
+            life_id=1,
+            tick=10,
+            hero_length=800,
+            death_event_id=None,
+            lookback=None,
+            death_tick=None,
+            death_length=None,
+            b8_action=0,
+        ),
+        snapshot=snap,
+        local_obs=loc[0],
+        glob_obs=glb[0],
+        scalars_obs=scl[0],
+        legal_mask=leg[0],
+        q_b8=qb8[0],
+        topo_planes_u16=planes[0],
+        topo_summaries_f32=sums[0],
+    )
+    for d in range(n_deaths):
+        store.add_root(
+            meta=OmitIndexRootMeta(
+                root_uid=f"as-d-{d}",
+                kind="death_lookback",
+                partition="assessment",
+                world_id=1 + d,
+                mix="scripted",
+                roster_index=0,
+                life_id=1,
+                tick=10,
+                hero_length=800,
+                death_event_id=d,
+                lookback=100,
+                death_tick=110,
+                death_length=800,
+                b8_action=0,
+            ),
+            snapshot=snap,
+            local_obs=loc[0],
+            glob_obs=glb[0],
+            scalars_obs=scl[0],
+            legal_mask=leg[0],
+            q_b8=qb8[0],
+            topo_planes_u16=planes[0],
+            topo_summaries_f32=sums[0],
+        )
+    for o in range(n_ord):
+        store.add_root(
+            meta=OmitIndexRootMeta(
+                root_uid=f"as-o-{o}",
+                kind="ordinary",
+                partition="assessment",
+                world_id=1 + o,
+                mix="scripted",
+                roster_index=0,
+                life_id=1,
+                tick=20,
+                hero_length=800,
+                death_event_id=None,
+                lookback=None,
+                death_tick=None,
+                death_length=None,
+                b8_action=0,
+            ),
+            snapshot=snap,
+            local_obs=loc[0],
+            glob_obs=glb[0],
+            scalars_obs=scl[0],
+            legal_mask=leg[0],
+            q_b8=qb8[0],
+            topo_planes_u16=planes[0],
+            topo_summaries_f32=sums[0],
+        )
+
+    empty_topo = IncrementalSparseTopologyBuilder(grid_h=sim.grid_h, grid_w=sim.grid_w)
+    empty_topo.append_batch(
+        np.zeros((11, 4, sim.grid_h, sim.grid_w), dtype=np.uint16),
+        np.zeros((11, 6), dtype=np.float32),
+    )
+    anchors = AnchorArchive(
+        num_rows=11,
+        world_id=np.array([0] + [1] * 10, dtype=np.int32),
+        mix_id=np.zeros(11, dtype=np.int8),
+        is_assessment=np.array([False] + [True] * 10, dtype=bool),
+        life_id=np.ones(11, dtype=np.int32),
+        tick=np.ones(11, dtype=np.int32),
+        hero_length=np.full(11, 800, dtype=np.int32),
+        local=torch.zeros((11, 7, 31, 31), dtype=torch.uint8),
+        glob=torch.zeros((11, 4, 37, 37), dtype=torch.uint8),
+        scalars=torch.zeros((11, 60), dtype=torch.float32),
+        legal_mask=torch.ones((11, 6), dtype=torch.bool),
+        q_b8=torch.zeros((11, 6), dtype=torch.float32),
+        b8_action=np.zeros(11, dtype=np.int8),
+        topology=empty_topo.build(),
+    )
+    ctrl = CTControl(
+        worlds=41,
+        collection_ticks=20,
+        max_body_capacity=64,
+        max_ordinary_roots=200,
+        min_held_out_deaths=32,
+        min_held_out_death_worlds=32,
+        min_held_out_ordinary_roots=32,
+        min_held_out_anchor_rows=10,
+        bootstrap_resamples=50,
+        tiny=True,
+    )
+    ok_sup = validate_ct_support(
+        control=ctrl, store=store, anchors=anchors, world_partitions=world_partitions
+    )
+    assert ok_sup["status"] == "PASS"
+
+    leg_np = np.tile(np.array([[True, True, True, False, False, False]], dtype=bool), (n_total, 1))
+    b8_act = np.zeros(n_total, dtype=np.int64)
+    a_star = np.zeros(n_total, dtype=np.int64)
+    a_star[1:21] = 1  # Exactly 20 causal rescue deaths!
+    s_sc = np.ones((n_total, 6), dtype=np.float64)
+    m_sc = np.full((n_total, 6), 800.0, dtype=np.float64)
+    s_sc[:, 3:] = np.nan
+    m_sc[:, 3:] = np.nan
+    s_sc[1:21, 0] = 0.0
+    m_sc[1:21, 0] = 400.0
+    s_sc[1:21, 1] = 1.0
+    m_sc[1:21, 1] = 850.0
+    s_sc[21 : 1 + n_deaths, :3] = 0.0
+    m_sc[21 : 1 + n_deaths, :3] = 350.0
+    s_sc[1 + n_deaths :, 2] = 0.0
+    forb = np.zeros((n_total, 6), dtype=bool)
+    forb[:, 2] = True
+    scored = MergedScoredRoots(
+        num_roots=n_total,
+        legal_mask=leg_np,
+        b8_action=b8_act,
+        s_sel=s_sc.copy(),
+        m_sel=m_sc.copy(),
+        q_sel=s_sc.copy(),
+        a_star=a_star,
+        forbidden_sel=forb,
+        s_score=s_sc,
+        m_score=m_sc,
+        q_score=s_sc.copy(),
+        chunk_sha256s=["a" * 64],
+        total_logical_branch_steps=500,
+        total_executed_sim_steps=450,
+        total_scoring_wall_sec=0.1,
+    )
+    probe_scores = np.array(
+        [2.0 if (1 <= i < 1 + n_deaths) else -2.0 for i in range(n_total)], dtype=np.float64
+    )
+    anc_zero = np.zeros(10, dtype=np.int64)
+
+    def _mk_pred(name: str, k_rescued: int) -> ArmEvaluationPredictions:
+        acts = np.zeros(n_total, dtype=np.int64)
+        acts[1 : 1 + k_rescued] = 1
+        return ArmEvaluationPredictions(
+            arm_name=name,
+            root_logits=np.zeros((n_total, 6), dtype=np.float32),
+            root_greedy_actions=acts,
+            root_b8_neg_log_prob=probe_scores.copy(),
+            root_danger_probe_scores=probe_scores.copy(),
+            danger_probe_fitted=True,
+            assessment_anchor_greedy_actions=anc_zero.copy(),
+            train_telemetry={},
+        )
+
+    # Boundary 1: 7/20 - 4/20 == +15 pp exact -> Gate (c) PASS!
+    res_7_4 = evaluate_ct_gates(
+        control=ctrl,
+        support_report=ok_sup,
+        store=store,
+        scored=scored,
+        anchors=anchors,
+        arm_predictions={
+            "frozen_phi": _mk_pred("frozen_phi", 4),
+            "full_bv8": _mk_pred("full_bv8", 7),
+            "full_bv8_plus_topology": _mk_pred("full_bv8_plus_topology", 7),
+        },
+    )
+    assert res_7_4["gates"]["gate_c_bv8_rescue_retention"]["full_bv8_status"] == "PASS"
+    assert res_7_4["verdict"] == "GO_BV8_ONLY"
+
+    # Below boundary: 6/20 - 4/20 == +10 pp -> Gate (c) FAIL!
+    res_6_4 = evaluate_ct_gates(
+        control=ctrl,
+        support_report=ok_sup,
+        store=store,
+        scored=scored,
+        anchors=anchors,
+        arm_predictions={
+            "frozen_phi": _mk_pred("frozen_phi", 4),
+            "full_bv8": _mk_pred("full_bv8", 6),
+            "full_bv8_plus_topology": _mk_pred("full_bv8_plus_topology", 6),
+        },
+    )
+    assert res_6_4["gates"]["gate_c_bv8_rescue_retention"]["full_bv8_status"] == "FAIL"
+    assert res_6_4["verdict"] == "FAIL_DISTILLATION_RETENTION_OR_SAFETY"
+
+    # Boundary 2: 12/20 - 9/20 == +15 pp exact (and 9/20 - 6/20 == +15 pp exact) -> T-arm PASS!
+    res_12_9 = evaluate_ct_gates(
+        control=ctrl,
+        support_report=ok_sup,
+        store=store,
+        scored=scored,
+        anchors=anchors,
+        arm_predictions={
+            "frozen_phi": _mk_pred("frozen_phi", 6),
+            "full_bv8": _mk_pred("full_bv8", 9),
+            "full_bv8_plus_topology": _mk_pred("full_bv8_plus_topology", 12),
+        },
+    )
+    assert res_12_9["gates"]["gate_c_bv8_rescue_retention"]["full_bv8_status"] == "PASS"
+    assert res_12_9["gates"]["gate_t_dynamic_topology"]["retention_gate_pass"] is True
+    assert res_12_9["verdict"] == "GO_BV8_AND_TOPOLOGY"
+
+    # Below boundary: 11/20 - 9/20 == +10 pp -> T-arm FAIL (GO_BV8_ONLY)!
+    res_11_9 = evaluate_ct_gates(
+        control=ctrl,
+        support_report=ok_sup,
+        store=store,
+        scored=scored,
+        anchors=anchors,
+        arm_predictions={
+            "frozen_phi": _mk_pred("frozen_phi", 6),
+            "full_bv8": _mk_pred("full_bv8", 9),
+            "full_bv8_plus_topology": _mk_pred("full_bv8_plus_topology", 11),
+        },
+    )
+    assert res_11_9["gates"]["gate_t_dynamic_topology"]["retention_gate_pass"] is False
+    assert res_11_9["verdict"] == "GO_BV8_ONLY"

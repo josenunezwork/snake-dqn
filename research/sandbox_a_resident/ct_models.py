@@ -108,6 +108,10 @@ class CTPolicyArm(nn.Module):
         self.fuse = copy.deepcopy(b8_model.fuse)
         self.adv = copy.deepcopy(b8_model.adv)
 
+        ref_param = next(b8_model.parameters(), None)
+        model_device = ref_param.device if ref_param is not None else torch.device("cpu")
+        model_dtype = ref_param.dtype if ref_param is not None else torch.float32
+
         self.phi_mlp_hidden: nn.Sequential | None = None
         self.phi_mlp_out: nn.Linear | None = None
         self.topology_encoder: TopologyEncoder | None = None
@@ -126,6 +130,8 @@ class CTPolicyArm(nn.Module):
             self.phi_mlp_out = nn.Linear(128, 6)
             nn.init.zeros_(self.phi_mlp_out.weight)
             nn.init.zeros_(self.phi_mlp_out.bias)
+            self.phi_mlp_hidden = self.phi_mlp_hidden.to(device=model_device, dtype=model_dtype)
+            self.phi_mlp_out = self.phi_mlp_out.to(device=model_device, dtype=model_dtype)
         elif arm_name == "full_bv8_plus_topology":
             self.topology_encoder = TopologyEncoder(
                 n_scalars=int(self.config["n_scalars"]), out_dim=128
@@ -133,6 +139,8 @@ class CTPolicyArm(nn.Module):
             self.topo_head = nn.Linear(128, 6)
             nn.init.zeros_(self.topo_head.weight)
             nn.init.zeros_(self.topo_head.bias)
+            self.topology_encoder = self.topology_encoder.to(device=model_device, dtype=model_dtype)
+            self.topo_head = self.topo_head.to(device=model_device, dtype=model_dtype)
 
     def train(self, mode: bool = True) -> "CTPolicyArm":
         super().train(mode)
@@ -227,25 +235,39 @@ def verify_zero_residual_init(
     grid_h: int = 83,
     grid_w: int = 145,
     seed: int = 20261028,
+    device: str | torch.device | None = None,
 ) -> dict[str, Any]:
     """Verify exact step-0 bitwise output parity with B8Actor and step-2 encoder grad flow."""
+    ref_param = next(b8_model.parameters(), None)
+    inferred_dev = ref_param.device if ref_param is not None else torch.device("cpu")
+    exec_device = (
+        torch.device("cuda:0" if str(device) == "cuda" else device)
+        if device is not None
+        else inferred_dev
+    )
+    b8_eval = copy.deepcopy(b8_model).to(exec_device).eval()
+
     gen = torch.Generator(device="cpu").manual_seed(int(seed))
-    local = torch.randint(0, 256, (8, 7, 31, 31), generator=gen, dtype=torch.uint8)
-    glob = torch.randint(0, 256, (8, 4, 37, 37), generator=gen, dtype=torch.uint8)
-    scalars = torch.randn((8, 60), generator=gen, dtype=torch.float32)
-    planes_a = torch.rand((8, 4, grid_h, grid_w), generator=gen, dtype=torch.float32)
-    sums_a = torch.rand((8, 6), generator=gen, dtype=torch.float32) * 2.0 - 1.0
+    local = torch.randint(0, 256, (8, 7, 31, 31), generator=gen, dtype=torch.uint8).to(exec_device)
+    glob = torch.randint(0, 256, (8, 4, 37, 37), generator=gen, dtype=torch.uint8).to(exec_device)
+    scalars = torch.randn((8, 60), generator=gen, dtype=torch.float32).to(exec_device)
+    planes_a = torch.rand((8, 4, grid_h, grid_w), generator=gen, dtype=torch.float32).to(
+        exec_device
+    )
+    sums_a = (torch.rand((8, 6), generator=gen, dtype=torch.float32) * 2.0 - 1.0).to(exec_device)
     planes_b = torch.ones_like(planes_a)
     sums_b = torch.full_like(sums_a, -1.0)
 
-    ref_actor = B8Actor(b8_model=b8_model, temperature=1.0).eval()
+    ref_actor = B8Actor(b8_model=b8_eval, temperature=1.0).to(exec_device).eval()
     with torch.no_grad():
         ref_out = ref_actor(local, glob, scalars)
 
     arm_checks: dict[str, bool] = {}
     for name in CT_ARM_NAMES:
         torch.manual_seed(int(seed))
-        arm = CTPolicyArm(b8_model, name).eval()
+        if exec_device.type == "cuda":
+            torch.cuda.manual_seed_all(int(seed))
+        arm = CTPolicyArm(b8_eval, name).to(exec_device).eval()
         with torch.no_grad():
             out_a = arm(local, glob, scalars, topo_planes=planes_a, topo_summaries=sums_a)
             out_b = arm(local, glob, scalars, topo_planes=planes_b, topo_summaries=sums_b)
@@ -257,18 +279,20 @@ def verify_zero_residual_init(
     # Step 1: topo_head receives non-zero gradient while topology_encoder grad is exact 0.
     # Step 2 (after 1 optimizer update): topology_encoder receives non-zero gradient.
     torch.manual_seed(int(seed))
-    t_arm = CTPolicyArm(b8_model, "full_bv8_plus_topology").train()
+    if exec_device.type == "cuda":
+        torch.cuda.manual_seed_all(int(seed))
+    t_arm = CTPolicyArm(b8_eval, "full_bv8_plus_topology").to(exec_device).train()
     opt = t_arm.build_optimizer(trunk_lr=1e-5, head_lr=1e-4)
-    target = torch.tensor([0, 1, 2, 3, 4, 5, 0, 1], dtype=torch.long)
+    target = torch.tensor([0, 1, 2, 3, 4, 5, 0, 1], dtype=torch.long, device=exec_device)
 
     opt.zero_grad()
     logits1 = t_arm(local, glob, scalars, topo_planes=planes_a, topo_summaries=sums_a)
     loss1 = F.cross_entropy(logits1, target)
     loss1.backward()
     assert t_arm.topo_head is not None and t_arm.topology_encoder is not None
-    head_grad_step1 = float(t_arm.topo_head.weight.grad.abs().max().item())
+    head_grad_step1 = float(t_arm.topo_head.weight.grad.detach().cpu().abs().max().item())
     enc_grad_step1 = max(
-        float(p.grad.abs().max().item())
+        float(p.grad.detach().cpu().abs().max().item())
         for p in t_arm.topology_encoder.parameters()
         if p.grad is not None
     )
@@ -283,7 +307,7 @@ def verify_zero_residual_init(
     loss2 = F.cross_entropy(logits2, target)
     loss2.backward()
     enc_grad_step2 = max(
-        float(p.grad.abs().max().item())
+        float(p.grad.detach().cpu().abs().max().item())
         for p in t_arm.topology_encoder.parameters()
         if p.grad is not None
     )
@@ -292,6 +316,7 @@ def verify_zero_residual_init(
 
     return {
         "status": "PASS",
+        "device": str(exec_device),
         "exact_step0_b8_identity": arm_checks,
         "t_arm_step1_head_grad_max": head_grad_step1,
         "t_arm_step1_encoder_grad_max": enc_grad_step1,

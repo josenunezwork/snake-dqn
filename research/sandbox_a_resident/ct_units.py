@@ -41,6 +41,10 @@ COMPACT_MANIFEST_SUFFIX = ".xz.manifest"
 _READ_BYTES = 1024 * 1024
 
 
+class StageExportOverflowError(RuntimeError):
+    """Raised when a serialized stage snapshot or cumulative attempt exports exceed frozen caps."""
+
+
 def allocation(control: Mapping[str, Any]) -> str:
     """Return frozen control digest independently of attempt path or job_id."""
     return hashlib.sha256(
@@ -288,10 +292,34 @@ def publish_stage_snapshot(
     writer: Callable[[Path], None],
     *,
     metadata: Mapping[str, Any],
+    max_stage_bytes: int | None = None,
+    max_total_bytes: int | None = None,
 ) -> dict[str, Any]:
-    """Publish ``stage-XXXX.pt`` and completion-last ``stage-XXXX.json`` atomically."""
+    """Publish ``stage-XXXX.pt`` and completion-last ``stage-XXXX.json`` with size caps."""
     identity = unit_id(stage)
-    payload = publish(output / f"stage-{stage:04d}.pt", writer)
+    output.mkdir(parents=True, exist_ok=True)
+    existing_bytes = sum(
+        p.stat().st_size
+        for p in output.iterdir()
+        if p.is_file() and not p.name.endswith(".partial")
+    )
+
+    def _checked_writer(partial_dst: Path) -> None:
+        writer(partial_dst)
+        size = partial_dst.stat().st_size
+        if max_stage_bytes is not None and size > int(max_stage_bytes):
+            partial_dst.unlink(missing_ok=True)
+            raise StageExportOverflowError(
+                f"stage-{stage:04d}.pt size {size} exceeds max_stage_export_bytes={max_stage_bytes}"
+            )
+        if max_total_bytes is not None and (existing_bytes + size) > int(max_total_bytes):
+            partial_dst.unlink(missing_ok=True)
+            raise StageExportOverflowError(
+                f"cumulative export size {existing_bytes + size} exceeds "
+                f"max_total_export_bytes={max_total_bytes}"
+            )
+
+    payload = publish(output / f"stage-{stage:04d}.pt", _checked_writer)
     descriptor = verified_descriptor(Path(payload["path"]), identity)
     envelope = {
         "schema": SNAPSHOT_SCHEMA,
@@ -362,13 +390,28 @@ def load_ledger(
                 exp_path = raw_p
             sidecar = Path(str(exp_path) + ".sha256")
             complete = Path(str(exp_path) + ".complete")
+            require_sidecars = (
+                input_root is None
+                or sidecar.exists()
+                or sidecar.is_symlink()
+                or complete.exists()
+                or complete.is_symlink()
+            )
             if (
-                not exp_path.is_file()
-                or not sidecar.is_file()
-                or not complete.is_file()
-                or sidecar.read_text().strip().split()[0] != exp["sha256"]
+                exp_path.is_symlink()
+                or not exp_path.is_file()
                 or digest(exp_path) != exp["sha256"]
                 or exp_path.stat().st_size != exp["size"]
+                or (
+                    require_sidecars
+                    and (
+                        sidecar.is_symlink()
+                        or complete.is_symlink()
+                        or not sidecar.is_file()
+                        or not complete.is_file()
+                        or sidecar.read_text().strip().split()[0] != exp["sha256"]
+                    )
+                )
             ):
                 raise ValueError(f"incomplete or corrupt verified stage export: {exp_path.name}")
             resolved_exports.append({**exp, "path": str(exp_path)})

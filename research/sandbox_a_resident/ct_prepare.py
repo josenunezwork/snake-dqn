@@ -7,7 +7,7 @@ import hashlib
 import json
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 
@@ -40,14 +40,13 @@ def write_once(path: Path, value: dict[str, Any]) -> None:
         stream.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
-def ct_endpoint_steps(control: CTControl) -> int:
+def ct_endpoint_steps(control: CTControl | Mapping[str, Any]) -> int:
     """Return finite total simulator step bound (collection + max H300 branching)."""
-    collection_steps = int(control.worlds) * int(control.collection_ticks)
-    max_searched_roots = int(control.max_deaths) * len(control.lookbacks) + int(
-        control.max_ordinary_roots
-    )
-    total_suffixes = int(control.selection_suffixes) + int(control.scoring_suffixes)
-    branch_steps = max_searched_roots * 6 * total_suffixes * int(control.branch_horizon)
+    ctrl = control if isinstance(control, CTControl) else CTControl.from_dict(control)
+    collection_steps = int(ctrl.worlds) * int(ctrl.collection_ticks)
+    max_searched_roots = int(ctrl.max_deaths) * len(ctrl.lookbacks) + int(ctrl.max_ordinary_roots)
+    total_suffixes = int(ctrl.selection_suffixes) + int(ctrl.scoring_suffixes)
+    branch_steps = max_searched_roots * 6 * total_suffixes * int(ctrl.branch_horizon)
     return int(collection_steps + branch_steps)
 
 
@@ -264,7 +263,7 @@ def prepare(
         },
         "timeout_minutes": timeout_minutes,
         "output_dir": str(resolved_output),
-        "max_export_bytes": 2 * 1024**3,
+        "max_export_bytes": 1024**3,
         "inputs": uploads,
         "env": env,
         "required_exports": ["ct/summary.json"],

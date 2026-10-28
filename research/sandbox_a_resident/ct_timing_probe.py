@@ -10,11 +10,14 @@ against measured TRAIN-01 A100 multi-mix throughput anchors.
 from __future__ import annotations
 
 import argparse
+import io
 import json
+import lzma
 import time
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 
 from research.gpu_sim_spike import r2_cache
@@ -33,7 +36,7 @@ from research.sandbox_a_resident.ct_snapshots import (
     observe_hero_bv8,
     restore_world_snapshots_into,
 )
-from research.sandbox_a_resident.ct_task import CTControl
+from research.sandbox_a_resident.ct_task import AnchorArchive, CTControl
 from research.sandbox_a_resident.ct_topology import compute_topology_features
 from research.sandbox_a_resident.training_rosters import (
     CHAMPION_SHA256,
@@ -251,6 +254,172 @@ def _build_fixture_store(
     return store
 
 
+def _measure_diverse_marginal_bytes(
+    kind: str,
+    *,
+    b8: torch.nn.Module,
+    ckpts: dict[str, torch.nn.Module],
+) -> tuple[int, int, int, int]:
+    """Measure non-repeating marginal serialized .pt and .pt.xz bytes/row (n=24 vs n=8)."""
+    hero_segs = 2400 if kind == "long_body" else 700
+    opp_segs = 200 if kind == "long_body" else 60
+
+    def _build_n(n: int) -> tuple[LosslessBoundedSnapshotStore, AnchorArchive]:
+        rng = np.random.default_rng(20261028 + hero_segs + n)
+        cfg = BatchSimConfig(
+            num_envs=n,
+            num_snakes=6,
+            max_capacity=MAX_LEGAL_BODY_CAPACITY,
+            body_storage_capacity=MAX_LEGAL_BODY_CAPACITY,
+            mechanics_version=1,
+        )
+        sim = CTDeviceSim(cfg, device="cpu", train_mode=False, allow_respawn=True)
+        r2_cache.enable(sim)
+        sim.alive.fill_(False)
+        sim.terminal_slots.fill_(False)
+        sim.rng_key.copy_(torch.tensor([100_000 + e * 7919 for e in range(n)], dtype=torch.long))
+        sim.rng_counter.zero_()
+        sim.reset_fresh_worlds()
+        sim.terminal_slots[:, 0] = True
+        for e in range(n):
+            sim.bodies[e].zero_()
+            sim.seg_count[e].zero_()
+            sim.head_ptr[e].zero_()
+            hx = int(rng.integers(5, 22))
+            hy = int(rng.integers(4, 18))
+            ymin = 25 + int(rng.integers(0, 6))
+            _place_folded_snake(
+                sim,
+                e,
+                0,
+                head_x=hx,
+                head_y=hy,
+                direction=int(rng.integers(0, 4)),
+                num_segments=hero_segs,
+                y_min=ymin,
+                y_max=80,
+                x_start=hx,
+            )
+            for s in range(1, 6):
+                ox = 70 + s * 11 + int(rng.integers(-2, 3))
+                oy = int(rng.integers(4, 12))
+                _place_folded_snake(
+                    sim,
+                    e,
+                    s,
+                    head_x=ox,
+                    head_y=oy,
+                    direction=int(rng.integers(0, 4)),
+                    num_segments=opp_segs,
+                    y_min=14,
+                    y_max=76,
+                    x_start=ox,
+                )
+        sim.prepare()
+        rosters = training_rosters(max(6, n))[:n]
+        opp = CTOpponentRuntime(
+            sim,
+            rosters,
+            b8_network=b8,
+            checkpoint_networks=ckpts,
+            opp_rng_keys=[90_000 + e for e in range(n)],
+        )
+        for _ in range(3):
+            sim.step(torch.ones((n, 6), dtype=torch.long))
+        local, glob, scalars, legal, q_b8, b8_act = observe_hero_bv8(sim, b8)
+        planes, summaries = compute_topology_features(sim)
+        st = LosslessBoundedSnapshotStore(
+            grid_h=sim.grid_h,
+            grid_w=sim.grid_w,
+            max_roots=n + 4,
+            max_bytes=256 * 1024 * 1024,
+            max_body_capacity=MAX_LEGAL_BODY_CAPACITY,
+        )
+        for e in range(n):
+            snap = capture_world_snapshot(
+                sim,
+                opp,
+                e,
+                world_id=e,
+                life_id=int(rng.integers(1, 9)),
+                tick=int(rng.integers(50, 2500)),
+                max_body_capacity=MAX_LEGAL_BODY_CAPACITY,
+            )
+            st.add_root(
+                meta=OmitIndexRootMeta(
+                    root_uid=f"div-{kind}-{n}-{e}",
+                    kind="death_lookback",
+                    partition="train",
+                    world_id=e,
+                    mix=rosters[e].mix,
+                    roster_index=e % 6,
+                    life_id=1,
+                    tick=100 + e,
+                    hero_length=int(sim.length[e, 0].item()),
+                    death_event_id=e,
+                    lookback=100,
+                    death_tick=200 + e,
+                    death_length=int(sim.length[e, 0].item()),
+                    b8_action=int(b8_act[e].item()),
+                ),
+                snapshot=snap,
+                local_obs=local[e],
+                glob_obs=glob[e],
+                scalars_obs=scalars[e],
+                legal_mask=legal[e],
+                q_b8=q_b8[e],
+                topo_planes_u16=planes[e],
+                topo_summaries_f32=summaries[e],
+            )
+        tb = st.finalize_topology()
+        obs = st.stacked_observations()
+        anc = AnchorArchive(
+            num_rows=n,
+            world_id=np.arange(n, dtype=np.int32),
+            mix_id=(np.arange(n) % 3).astype(np.int8),
+            is_assessment=(np.arange(n) % 5 == 0),
+            life_id=rng.integers(1, 9, size=n, dtype=np.int32),
+            tick=rng.integers(1, 2560, size=n, dtype=np.int32),
+            hero_length=np.array([m.hero_length for m in st.metadata], dtype=np.int32),
+            local=obs["local"],
+            glob=obs["glob"],
+            scalars=obs["scalars"],
+            legal_mask=obs["legal_mask"],
+            q_b8=obs["q_b8"],
+            b8_action=np.array([m.b8_action for m in st.metadata], dtype=np.int8),
+            topology=tb,
+        )
+        return st, anc
+
+    st8, a8 = _build_n(8)
+    st24, a24 = _build_n(24)
+    ba8, ba24 = io.BytesIO(), io.BytesIO()
+    torch.save(a8.to_state_dict(), ba8)
+    torch.save(a24.to_state_dict(), ba24)
+    bs8, bs24 = io.BytesIO(), io.BytesIO()
+    torch.save(st8.to_state_dict(), bs8)
+    torch.save(st24.to_state_dict(), bs24)
+    anc_pt = max(1, (len(ba24.getvalue()) - len(ba8.getvalue())) // 16)
+    root_pt = max(1, (len(bs24.getvalue()) - len(bs8.getvalue())) // 16)
+    anc_xz = max(
+        1,
+        (
+            len(lzma.compress(ba24.getvalue(), preset=6))
+            - len(lzma.compress(ba8.getvalue(), preset=6))
+        )
+        // 16,
+    )
+    root_xz = max(
+        1,
+        (
+            len(lzma.compress(bs24.getvalue(), preset=6))
+            - len(lzma.compress(bs8.getvalue(), preset=6))
+        )
+        // 16,
+    )
+    return anc_pt, root_pt, anc_xz, root_xz
+
+
 def run_timing_probe(*, horizon: int = 8, num_roots: int = 1) -> dict[str, Any]:
     """Run local 1-thread CPU fixture timings and compute conservative A100 projections."""
     torch.set_num_threads(1)
@@ -313,9 +482,27 @@ def run_timing_probe(*, horizon: int = 8, num_roots: int = 1) -> dict[str, Any]:
             compaction_interval=2,
         )
         assert chunk_compact is not None
+        topo_batch = store.finalize_topology()
+        anc_pt_per_row, root_pt_per_row, anc_xz_per_row, root_xz_per_row = (
+            _measure_diverse_marginal_bytes(kind, b8=b8, ckpts=ckpts)
+        )
+
+        proj_s1_pt_bytes = 50_000 * anc_pt_per_row + 2_560 * root_pt_per_row + 65_536
+        proj_s1_xz_bytes = 50_000 * anc_xz_per_row + 2_560 * root_xz_per_row + 32_768
+
         rec: dict[str, Any] = {
             "hero_length": store.metadata[0].hero_length,
             "snapshot_bytes_per_root": store.snapshots[0].nbytes,
+            "topology_ram_bytes_per_row": topo_batch.nbytes // num_roots,
+            "topology_p0_derived": bool(topo_batch.p0_derived),
+            "anchor_serialized_pt_bytes_per_row": anc_pt_per_row,
+            "root_store_serialized_pt_bytes_per_row": root_pt_per_row,
+            "projected_50k_anchor_plus_2560_roots_stage1_pt_mib": round(
+                proj_s1_pt_bytes / (1024.0 * 1024.0), 2
+            ),
+            "projected_50k_anchor_plus_2560_roots_stage1_pt_xz_mib": round(
+                proj_s1_xz_bytes / (1024.0 * 1024.0), 2
+            ),
             "restore_ms_per_row_cpu_1t": round(restore_ms_per_row, 3),
             "topology_ms_per_row_cpu_1t": round(topo_ms_per_row, 3),
             "build_and_topo_sec": round(build_and_topo_sec, 3),

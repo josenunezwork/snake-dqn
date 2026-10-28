@@ -181,24 +181,6 @@ def _splitmix_positive(key: torch.Tensor, counter: torch.Tensor) -> torch.Tensor
     return z & 0x7FFF_FFFF_FFFF_FFFF
 
 
-class DeterministicCellDrawQueue:
-    """Optional per-env candidate cell feeder for forced-state CPU/GPU parity tests."""
-
-    def __init__(self, draws_by_env: Mapping[int, Sequence[tuple[int, int]]]) -> None:
-        self._queues: dict[int, list[tuple[int, int]]] = {
-            int(env): [(int(x), int(y)) for x, y in cells] for env, cells in draws_by_env.items()
-        }
-
-    def pop_batch(self, env_indices: Sequence[int], device: torch.device) -> torch.Tensor:
-        out: list[tuple[int, int]] = []
-        for env in env_indices:
-            queue = self._queues.get(int(env))
-            if not queue:
-                raise RuntimeError(f"exhausted injected draw queue for env={env}")
-            out.append(queue.pop(0))
-        return torch.tensor(out, dtype=torch.long, device=device)
-
-
 class _InjectedCpuRngProxy:
     """Thin EnvRng wrapper feeding identical snapped cell draws to CPU GridBatchSim."""
 
@@ -225,14 +207,12 @@ class _InjectedCpuRngProxy:
 
 
 class CTDeviceSim(TrainingDeviceSim):
-    """Sandbox-local C/T simulator repairing non-train in-step ambient food refill.
+    """Sandbox-local C/T simulator matching GridBatchSim refill and respawn rejection.
 
     Certified ``DeviceSim`` and ``TrainingDeviceSim`` remain untouched.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self._draw_feeder: DeterministicCellDrawQueue | None = None
-        self._global_env_ids: torch.Tensor | None = None
         super().__init__(*args, **kwargs)
         if not hasattr(self, "capacity_overflow"):
             self.capacity_overflow = torch.zeros(
@@ -245,15 +225,9 @@ class CTDeviceSim(TrainingDeviceSim):
     ) -> "CTDeviceSim":
         out = super().from_reference(sim, device=device, repeat=repeat)
         out.__class__ = cls
-        out._draw_feeder = None
-        out._global_env_ids = None
         if not hasattr(out, "capacity_overflow"):
             out.capacity_overflow = torch.zeros((out.E, out.S), dtype=torch.bool, device=out.device)
         return out  # type: ignore[return-value]
-
-    def set_draw_feeder(self, feeder: DeterministicCellDrawQueue | None) -> None:
-        """Install or clear an explicit draw queue for forced-state parity tests."""
-        self._draw_feeder = feeder
 
     def _spawn_bounds(self) -> tuple[int, int, int, int]:
         margin = max(0, int(self.cfg.wall_thickness) // int(self.cfg.segment_size))
@@ -263,15 +237,7 @@ class CTDeviceSim(TrainingDeviceSim):
 
     @torch.inference_mode()
     def _random_cells(self) -> torch.Tensor:
-        """Draw candidate cells within wall_thickness interior margin (or test feeder)."""
-        if self._draw_feeder is not None:
-            env_ids = (
-                list(range(self.E))
-                if self._global_env_ids is None
-                else self._global_env_ids.detach().cpu().tolist()
-            )
-            self.rng_counter += 1
-            return self._draw_feeder.pop_batch(env_ids, self.device)
+        """Draw candidate cells within wall_thickness interior margin."""
         self.rng_counter += 1
         mx, span_w, my, span_h = self._spawn_bounds()
         z = _splitmix_positive(self.rng_key, self.rng_counter)
@@ -279,55 +245,40 @@ class CTDeviceSim(TrainingDeviceSim):
         y = my + (z >> 32).remainder(span_h)
         return torch.stack((x, y), dim=-1)
 
-    def _refill_food_rows(self, active_mask: torch.Tensor, *, advance_all_counters: bool) -> None:
-        """Refill ambient deficit up to max_food for selected rows in FIFO order."""
-        trials = int(self.cfg.max_food)
+    @torch.inference_mode()
+    def _draw_for_rows(self, active_rows: torch.Tensor) -> torch.Tensor:
+        """Draw one candidate cell per active row, advancing only active rng_counters."""
+        if "_random_cells" in self.__dict__:
+            before = self.rng_counter.clone()
+            full_cand = self._random_cells()
+            after_active = torch.where(
+                self.rng_counter.index_select(0, active_rows)
+                == before.index_select(0, active_rows),
+                before.index_select(0, active_rows) + 1,
+                self.rng_counter.index_select(0, active_rows),
+            )
+            self.rng_counter.copy_(before)
+            self.rng_counter.index_copy_(0, active_rows, after_active)
+            return full_cand.index_select(0, active_rows)
+        if int(active_rows.numel()) == self.E:
+            return self._random_cells()
+        self.rng_counter.index_add_(0, active_rows, torch.ones_like(active_rows))
+        mx, span_w, my, span_h = self._spawn_bounds()
+        z = _splitmix_positive(
+            self.rng_key.index_select(0, active_rows),
+            self.rng_counter.index_select(0, active_rows),
+        )
+        x = mx + z.remainder(span_w)
+        y = my + (z >> 32).remainder(span_h)
+        return torch.stack((x, y), dim=-1)
+
+    def _refill_food_rows(self, active_mask: torch.Tensor) -> None:
+        """Refill ambient deficit up to max_food matching GridBatchSim._spawn nested rejection."""
+        max_food = int(self.cfg.max_food)
         ambient = (self.food_present & ~self.corpse_food).sum(dim=1)
-        need = active_mask & (ambient < trials)
+        need = active_mask & (ambient < max_food)
         rows = need.nonzero(as_tuple=False).flatten()
         if not rows.numel():
-            if advance_all_counters:
-                self.rng_counter += trials
-            return
-
-        if self._draw_feeder is not None:
-            # Exact per-env sequential rejection matching GridBatchSim._spawn(e, deficit)
-            # when common-draw parity injection is active.
-            occupied = self.occupancy()
-            for r in rows.detach().cpu().tolist():
-                r_int = int(r)
-                amb = int(ambient[r_int].item())
-                deficit = trials - amb
-                for _ in range(deficit):
-                    placed = False
-                    for _outer in range(100):
-                        cand: tuple[int, int] | None = None
-                        for _inner in range(100):
-                            drawn = self._draw_feeder.pop_batch([r_int], self.device)[0]
-                            self.rng_counter[r_int] += 1
-                            cx, cy = int(drawn[0].item()), int(drawn[1].item())
-                            if int(occupied[r_int, cy, cx].item()) < 0:
-                                cand = (cx, cy)
-                                break
-                        if cand is None:
-                            break
-                        present = self.food_present[r_int]
-                        existing = self.food_cells[r_int, present]
-                        dup = bool(
-                            existing.numel()
-                            and ((existing[:, 0] == cand[0]) & (existing[:, 1] == cand[1])).any()
-                        )
-                        if not dup:
-                            idx = int(self.food_count[r_int].item())
-                            self.food_cells[r_int, idx, 0] = cand[0]
-                            self.food_cells[r_int, idx, 1] = cand[1]
-                            self.food_present[r_int, idx] = True
-                            self.corpse_food[r_int, idx] = False
-                            self.food_count[r_int] = idx + 1
-                            placed = True
-                            break
-                    if not placed:
-                        break
             return
 
         sub = object.__new__(type(self))
@@ -337,107 +288,125 @@ class CTDeviceSim(TrainingDeviceSim):
             if isinstance(value, torch.Tensor):
                 setattr(sub, name, value.index_select(0, rows))
         sub.E = int(rows.numel())
-        sub._global_env_ids = rows
         r2_cache.inherit(sub, self)
         occupied = sub.occupancy()
-        env = torch.arange(sub.E, device=self.device)
-        count = ambient.index_select(0, rows)
-        for _ in range(trials):
-            candidate = sub._random_cells()
-            free = occupied[env, candidate[:, 1], candidate[:, 0]] < 0
-            previous = sub.food_count.clone()
-            sub._append_food(candidate, (count < trials) & free, False)
-            count += sub.food_count - previous
-            if bool((count >= trials).all()):
+
+        remaining = (max_food - ambient.index_select(0, rows)).clamp_min(0)
+        outer_tries = torch.zeros(sub.E, dtype=torch.long, device=self.device)
+        inner_tries = torch.zeros(sub.E, dtype=torch.long, device=self.device)
+        exhausted = torch.zeros(sub.E, dtype=torch.bool, device=self.device)
+
+        while True:
+            active_local = (remaining > 0) & (~exhausted)
+            if not bool(active_local.any()):
                 break
-        if advance_all_counters:
-            self.rng_counter += trials
-        else:
-            # In-step refill advances ONLY rows that triggered refill so every
-            # world's RNG stream is strictly invariant to sibling worlds.
-            self.rng_counter[rows] += trials
+            local_idx = active_local.nonzero(as_tuple=False).flatten()
+            global_idx = rows.index_select(0, local_idx)
+            cand = self._draw_for_rows(global_idx)
+            cx = cand[:, 0]
+            cy = cand[:, 1]
+            in_bounds = (cx >= 0) & (cx < self.grid_w) & (cy >= 0) & (cy < self.grid_h)
+            safe_x = cx.clamp(0, self.grid_w - 1)
+            safe_y = cy.clamp(0, self.grid_h - 1)
+            occ_free = in_bounds & (occupied[local_idx, safe_y, safe_x] < 0)
+
+            sub_cells = sub.food_cells.index_select(0, local_idx)
+            sub_pres = sub.food_present.index_select(0, local_idx)
+            dup = (
+                sub_pres & (sub_cells[:, :, 0] == cx[:, None]) & (sub_cells[:, :, 1] == cy[:, None])
+            ).any(dim=1)
+
+            placed = occ_free & (~dup)
+            if bool(placed.any()):
+                placed_local = local_idx[placed]
+                placed_cand = cand[placed]
+                insert_mask = torch.zeros(sub.E, dtype=torch.bool, device=self.device)
+                insert_full = torch.zeros((sub.E, 2), dtype=torch.long, device=self.device)
+                insert_mask[placed_local] = True
+                insert_full[placed_local] = placed_cand
+                prev_fc = sub.food_count.clone()
+                sub._append_food(insert_full, insert_mask, False)
+                added = (sub.food_count - prev_fc) > 0
+                remaining = torch.where(added, remaining - 1, remaining)
+                exhausted |= insert_mask & (~added)
+                inner_tries = torch.where(insert_mask, torch.zeros_like(inner_tries), inner_tries)
+                outer_tries = torch.where(insert_mask, torch.zeros_like(outer_tries), outer_tries)
+
+            dup_only = occ_free & dup
+            if bool(dup_only.any()):
+                dup_local = local_idx[dup_only]
+                inner_tries[dup_local] = 0
+                outer_tries[dup_local] += 1
+                exhausted[dup_local] |= outer_tries[dup_local] >= 100
+
+            occ_blocked = ~occ_free
+            if bool(occ_blocked.any()):
+                occ_local = local_idx[occ_blocked]
+                inner_tries[occ_local] += 1
+                exhausted[occ_local] |= inner_tries[occ_local] >= 100
+
         for name in ("food_cells", "food_present", "corpse_food", "food_count"):
             getattr(self, name).index_copy_(0, rows, getattr(sub, name))
 
     def _maintain_food_impl(self) -> None:
         """Pre-decision maintenance phase called once per frame for all worlds."""
         all_rows = torch.ones(self.E, dtype=torch.bool, device=self.device)
-        self._refill_food_rows(all_rows, advance_all_counters=True)
+        self._refill_food_rows(all_rows)
 
     @torch.inference_mode()
     def reset_fresh_worlds(self) -> None:
-        """Place dead nonterminal slots in wall_thickness interior facing direction=1."""
+        """Place dead nonterminal slots sequentially matching GridBatchSim._respawn_dead."""
         pending = ~self.alive & ~self.terminal_slots & (self.respawn_timer <= 0)
         if not bool(pending.any()):
             return
-        if self._draw_feeder is not None:
-            for e_idx, s_idx in pending.nonzero(as_tuple=False).detach().cpu().tolist():
-                e_int, s_int = int(e_idx), int(s_idx)
-                occupied = self.occupancy()
-                for _ in range(100):
-                    drawn = self._draw_feeder.pop_batch([e_int], self.device)[0]
-                    self.rng_counter[e_int] += 1
-                    cx, cy = int(drawn[0].item()), int(drawn[1].item())
-                    if int(occupied[e_int, cy, cx].item()) < 0:
-                        self.bodies[e_int, s_int, 0, 0] = cx
-                        self.bodies[e_int, s_int, 0, 1] = cy
-                        self.head_ptr[e_int, s_int] = 0
-                        self.seg_count[e_int, s_int] = 1
-                        self.length[e_int, s_int] = 1
-                        self.direction[e_int, s_int] = 1
-                        self.alive[e_int, s_int] = True
-                        self.respawn_timer[e_int, s_int] = 0
-                        self.boost_frames[e_int, s_int] = 0
-                        self.frames_since_food[e_int, s_int] = 0
-                        self._reward_prev_length[e_int, s_int] = 1
-                        break
+        any_placed = False
+        for sidx in range(self.S):
+            slot_need = pending[:, sidx]
+            if not bool(slot_need.any()):
+                continue
+            rows = slot_need.nonzero(as_tuple=False).flatten()
             r2_cache.bump(self)
-            return
+            sub = object.__new__(type(self))
+            sub.__dict__ = self.__dict__.copy()
+            for name in _ENV_TENSOR_FIELDS:
+                value = getattr(self, name, None)
+                if isinstance(value, torch.Tensor):
+                    setattr(sub, name, value.index_select(0, rows))
+            sub.E = int(rows.numel())
+            r2_cache.inherit(sub, self)
+            occupied = sub.occupancy()
 
-        placed = torch.zeros_like(pending)
-        slots = torch.arange(self.S, device=self.device)[None, :]
-        mx, span_w, my, span_h = self._spawn_bounds()
-        for trial in range(64):
-            counter = self.rng_counter[:, None] + trial * self.S + slots + 1
-            z = _splitmix_positive(self.rng_key[:, None], counter)
-            x = mx + z.remainder(span_w)
-            y = my + (z // span_w).remainder(span_h)
-            candidate = torch.stack((x, y), dim=-1)
-            occupied = self.occupancy()
-            env = torch.arange(self.E, device=self.device)[:, None]
-            free = occupied[env, y, x] < 0
-            equal = (candidate[:, :, None] == candidate[:, None, :]).all(-1)
-            prior = torch.tril(
-                torch.ones((self.S, self.S), dtype=torch.bool, device=self.device), -1
-            )
-            unique = ~(equal & prior[None]).any(2)
-            take = pending & ~placed & free & unique
-            self.bodies[:, :, 0] = torch.where(take[..., None], candidate, self.bodies[:, :, 0])
-            self.head_ptr = torch.where(take, torch.zeros_like(self.head_ptr), self.head_ptr)
-            self.seg_count = torch.where(take, torch.ones_like(self.seg_count), self.seg_count)
-            self.length = torch.where(take, torch.ones_like(self.length), self.length)
-            # Match BatchSim._reset_env and GridBatchSim._respawn_dead: direction = 1 (Right).
-            self.direction = torch.where(take, torch.ones_like(self.direction), self.direction)
-            self.alive |= take
-            placed |= take
-            if not bool((pending & ~placed).any()):
-                break
-        self.rng_counter += pending.any(dim=1).long() * (64 * self.S)
-        if not bool((placed | ~pending).all()):
-            raise RuntimeError("C/T sandbox spawn rejection exhausted")
-        self.respawn_timer = torch.where(
-            placed, torch.zeros_like(self.respawn_timer), self.respawn_timer
-        )
-        self.boost_frames = torch.where(
-            placed, torch.zeros_like(self.boost_frames), self.boost_frames
-        )
-        self.frames_since_food = torch.where(
-            placed, torch.zeros_like(self.frames_since_food), self.frames_since_food
-        )
-        self._reward_prev_length = torch.where(
-            placed, torch.ones_like(self.length), self._reward_prev_length
-        )
-        r2_cache.bump(self)
+            unplaced = torch.ones(sub.E, dtype=torch.bool, device=self.device)
+            for _ in range(100):
+                if not bool(unplaced.any()):
+                    break
+                local_idx = unplaced.nonzero(as_tuple=False).flatten()
+                global_idx = rows.index_select(0, local_idx)
+                cand = self._draw_for_rows(global_idx)
+                cx = cand[:, 0]
+                cy = cand[:, 1]
+                in_bounds = (cx >= 0) & (cx < self.grid_w) & (cy >= 0) & (cy < self.grid_h)
+                safe_x = cx.clamp(0, self.grid_w - 1)
+                safe_y = cy.clamp(0, self.grid_h - 1)
+                free = in_bounds & (occupied[local_idx, safe_y, safe_x] < 0)
+                if bool(free.any()):
+                    win_global = global_idx[free]
+                    win_local = local_idx[free]
+                    win_cand = cand[free]
+                    self.bodies[win_global, sidx, 0] = win_cand.to(self.bodies.dtype)
+                    self.head_ptr[win_global, sidx] = 0
+                    self.seg_count[win_global, sidx] = 1
+                    self.length[win_global, sidx] = 1
+                    self.direction[win_global, sidx] = 1
+                    self.alive[win_global, sidx] = True
+                    self.respawn_timer[win_global, sidx] = 0
+                    self.boost_frames[win_global, sidx] = 0
+                    self.frames_since_food[win_global, sidx] = 0
+                    self._reward_prev_length[win_global, sidx] = 1
+                    unplaced[win_local] = False
+                    any_placed = True
+        if any_placed:
+            r2_cache.bump(self)
 
     @torch.inference_mode()
     def step(self, actions: torch.Tensor) -> None:
@@ -533,7 +502,7 @@ class CTDeviceSim(TrainingDeviceSim):
                 self._compact_food()
                 r2_cache.bump(self)
                 with self.stage("food"):
-                    self._refill_food_rows(has, advance_all_counters=False)
+                    self._refill_food_rows(has)
                 r2_cache.bump(self)
 
         movement_stage.__exit__(None, None, None)
@@ -954,6 +923,8 @@ def _sync_forced_state_to_cpu_and_gpu(
     cpu._refresh_action_masks(np.ones(1, dtype=bool))
 
     gpu = CTDeviceSim.from_reference(cpu, device=device)
+    if gpu.device.type == "cuda":
+        gpu.move_backend = "indexed"
     gpu.capacity_overflow = torch.zeros((gpu.E, gpu.S), dtype=torch.bool, device=gpu.device)
     r2_cache.enable(gpu)
 
@@ -965,7 +936,16 @@ def _sync_forced_state_to_cpu_and_gpu(
         game_height=cfg.game_height,
         wall_thickness=cfg.wall_thickness,
     )
-    gpu.set_draw_feeder(DeterministicCellDrawQueue({0: list(draws)}))
+    gpu_queue = [(int(x), int(y)) for x, y in draws]
+
+    def _injected_random_cells() -> torch.Tensor:
+        if not gpu_queue:
+            raise RuntimeError("exhausted injected CTDeviceSim _random_cells draw queue")
+        cx, cy = gpu_queue.pop(0)
+        gpu.rng_counter += 1
+        return torch.tensor([[cx, cy]], dtype=torch.long, device=gpu.device)
+
+    gpu._random_cells = _injected_random_cells  # type: ignore[method-assign]
     return cpu, gpu
 
 
@@ -1198,24 +1178,23 @@ def forced_state_determinism_suite(device: str | torch.device = "cpu") -> dict[s
     _assert_discrete_state_exact(cpu, gpu, "case4_corpse_drop_order")
     results["corpse_ordering"] = "PASS"
 
-    # 5. Respawn timer countdown, occupied-cell rejection, and terminal hero non-respawn:
+    # 5. Respawn timer countdown, multi-slot cross-collision rejection, and terminal hero lock:
     cpu, gpu = _sync_forced_state_to_cpu_and_gpu(
         cfg,
         bodies=[
             [(5, 5), (4, 5), (3, 5)],
-            [],  # dead timer=1 -> decrements to 0 and respawns this step!
+            [],  # dead timer=1 -> decrements to 0, rejects (5,5), spawns at (9,9)
+            [],  # dead timer=1 -> decrements to 0, rejects newly occupied (9,9), spawns at (11,11)
+            [],
             [],  # dead timer=2 -> decrements to 1, stays dead!
-            [],
-            [],
             [],
         ],
         lengths=[3, 1, 1, 1, 1, 1],
         alive=[True, False, False, False, False, False],
-        directions=[1, 3, 2, 1, 1, 1],
+        directions=[1, 3, 2, 1, 2, 1],
         food=[(12, 12, False), (13, 12, False), (14, 12, False), (15, 12, False)],
-        respawn_timer=[0, 1, 2, 5, 5, 5],
-        # First draw (5,5) is occupied by snake 0 and must be rejected; second draw (9,9) succeeds!
-        draws=[(5, 5), (9, 9)] + draws_pool,
+        respawn_timer=[0, 1, 1, 5, 2, 5],
+        draws=[(5, 5), (9, 9), (9, 9), (11, 11)] + draws_pool,
         device=target_device,
     )
     gpu.terminal_slots[0, 3] = True
@@ -1224,12 +1203,46 @@ def forced_state_determinism_suite(device: str | torch.device = "cpu") -> dict[s
     act = np.array([[1, 1, 1, 1, 1, 1]], dtype=np.int64)
     cpu.step(act)
     gpu.step(torch.tensor(act, dtype=torch.long, device=target_device))
-    assert bool(gpu.alive[0, 1].item()) and not bool(gpu.alive[0, 2].item())
+    assert bool(gpu.alive[0, 1].item()) and bool(gpu.alive[0, 2].item())
+    assert not bool(gpu.alive[0, 4].item())
     assert not bool(gpu.alive[0, 3].item()), "terminal slot must never respawn"
-    # Respawn placed snake 1 at (9, 9) facing dir=1 during prepare(), then step moved it to (10, 9).
+    # Slot 1 spawned at (9,9) dir=1 -> (10,9); slot 2 spawned at (11,11) -> (12,11)
     assert tuple(map(int, gpu.heads()[0, 1].cpu().tolist())) == (10, 9)
     assert tuple(map(int, cpu.heads()[0, 1].tolist())) == (10, 9)
-    assert int(gpu.direction[0, 1].item()) == 1
+    assert tuple(map(int, gpu.heads()[0, 2].cpu().tolist())) == (12, 11)
+    assert tuple(map(int, cpu.heads()[0, 2].tolist())) == (12, 11)
+    assert int(gpu.direction[0, 1].item()) == 1 and int(gpu.direction[0, 2].item()) == 1
+
+    # Verify empty-board duplicate + snake-occupied refill rejection directly on production path:
+    cfg_dup = BatchSimConfig(
+        num_envs=1,
+        num_snakes=6,
+        game_width=400,
+        game_height=400,
+        segment_size=20,
+        wall_thickness=20,
+        initial_food=2,
+        max_food=2,
+        max_capacity=256,
+        body_storage_capacity=256,
+        mechanics_version=1,
+    )
+    cpu_dup, gpu_dup = _sync_forced_state_to_cpu_and_gpu(
+        cfg_dup,
+        bodies=[[(5, 5), (4, 5), (3, 5)], [], [], [], [], []],
+        lengths=[3, 1, 1, 1, 1, 1],
+        alive=[True, False, False, False, False, False],
+        directions=[1, 1, 1, 1, 1, 1],
+        food=[],
+        respawn_timer=[0, 5, 5, 5, 5, 5],
+        # (2,2) placed -> (2,2) rejected as duplicate -> (5,5) rejected as occupied -> (3,3) placed!
+        draws=[(2, 2), (2, 2), (5, 5), (3, 3)],
+        device=target_device,
+    )
+    cpu_dup.step(act)
+    gpu_dup.step(torch.tensor(act, dtype=torch.long, device=target_device))
+    _assert_discrete_state_exact(cpu_dup, gpu_dup, "case5b_duplicate_and_occupied_refill_rejection")
+    assert list(cpu_dup.food_cells[0]) == [(2, 2), (3, 3)]
     results["respawn_and_terminal_lock"] = "PASS"
 
     # 6. Prepared-state ego2s-bv8 observation + vector61 carry numerical parity:
@@ -1331,7 +1344,7 @@ def forced_state_determinism_suite(device: str | torch.device = "cpu") -> dict[s
     results["prepared_state_and_carry"] = "PASS"
 
     # 7. Root restoration determinism (prepared state + carry + RNG continuation):
-    gpu.set_draw_feeder(None)
+    gpu.__dict__.pop("_random_cells", None)
     gpu.rng_key.fill_(derive_63bit_key("test-restore-sim", 0))
     gpu.rng_counter.fill_(17)
     gpu.prepare()

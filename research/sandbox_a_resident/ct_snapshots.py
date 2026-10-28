@@ -23,7 +23,9 @@ from research.sandbox_a_resident.ct_mechanics import CTDeviceSim, CTOpponentRunt
 from research.sandbox_a_resident.ct_topology import (
     IncrementalSparseTopologyBuilder,
     SparseTopologyBatch,
+    compress_array_to_u8_tensor,
     compute_topology_features,
+    decompress_u8_tensor_to_array,
 )
 from research.sandbox_a_resident.training_model import canonical_legal_mask
 from research.sandbox_a_resident.training_rosters import TrainingRoster
@@ -403,6 +405,190 @@ class RootMetadata:
         )
 
 
+def _pack_snapshots_batched(snapshots: Sequence[CompactWorldSnapshot]) -> dict[str, Any]:
+    """Losslessly batch-compress variable-length ``CompactWorldSnapshot`` records."""
+    n = len(snapshots)
+    if n == 0:
+        return {"num_snapshots": 0}
+
+    scalars_i64 = np.array(
+        [
+            [
+                s.world_id,
+                s.life_id,
+                s.tick,
+                s.num_snakes,
+                s.body_cap,
+                s.food_cap,
+                s.food_slot_indices.shape[0],
+                int(s.opponent_state["rng_key"]),
+                int(s.opponent_state["rng_step"]),
+            ]
+            for s in snapshots
+        ],
+        dtype=np.int64,
+    )
+    flags_u8 = np.array(
+        [
+            [
+                int(bool(s.prepared)),
+                int(bool(s.opponent_state["vector_prepared"])),
+                int(bool(s.opponent_state["pending_prepare"])),
+            ]
+            for s in snapshots
+        ],
+        dtype=np.uint8,
+    )
+    body_offsets_mat = np.stack([s.body_offsets for s in snapshots], axis=0).astype(np.int32)
+    all_xy = (
+        np.concatenate([s.body_segments_xy for s in snapshots], axis=0).astype(np.int16)
+        if any(s.body_segments_xy.shape[0] > 0 for s in snapshots)
+        else np.empty((0, 2), dtype=np.int16)
+    )
+    xy_deltas = np.empty_like(all_xy, dtype=np.uint16)
+    if all_xy.shape[0] > 0:
+        xy_deltas[0] = all_xy[0].astype(np.uint16)
+        xy_deltas[1:] = (all_xy[1:].astype(np.int32) - all_xy[:-1].astype(np.int32)).astype(
+            np.uint16
+        )
+
+    all_food_slots = (
+        np.concatenate([s.food_slot_indices for s in snapshots], axis=0).astype(np.int16)
+        if any(s.food_slot_indices.shape[0] > 0 for s in snapshots)
+        else np.empty((0,), dtype=np.int16)
+    )
+    all_food_xy = (
+        np.concatenate([s.food_xy for s in snapshots], axis=0).astype(np.int16)
+        if any(s.food_xy.shape[0] > 0 for s in snapshots)
+        else np.empty((0, 2), dtype=np.int16)
+    )
+    all_food_corpse = (
+        np.concatenate([s.food_corpse for s in snapshots], axis=0).astype(np.uint8)
+        if any(s.food_corpse.shape[0] > 0 for s in snapshots)
+        else np.empty((0,), dtype=np.uint8)
+    )
+
+    small_keys = sorted(snapshots[0].small_tensors.keys())
+    small_packed: dict[str, Any] = {}
+    for k in small_keys:
+        stacked_t = torch.stack([s.small_tensors[k].detach().cpu() for s in snapshots], dim=0)
+        td_name = str(stacked_t.dtype).removeprefix("torch.")
+        arr = stacked_t.numpy()
+        small_packed[k] = {
+            "torch_dtype": td_name,
+            "blob": compress_array_to_u8_tensor(arr, byte_shuffle=(arr.dtype.itemsize > 1)),
+        }
+
+    carry_keys = sorted({k for s in snapshots for k in s.opponent_state["carry"].keys()})
+    carry_packed: dict[str, Any] = {}
+    for k in carry_keys:
+        present = [i for i, s in enumerate(snapshots) if k in s.opponent_state["carry"]]
+        stacked_c = torch.stack(
+            [snapshots[i].opponent_state["carry"][k].detach().cpu() for i in present], dim=0
+        )
+        td_name = str(stacked_c.dtype).removeprefix("torch.")
+        arr = stacked_c.numpy()
+        carry_packed[k] = {
+            "torch_dtype": td_name,
+            "indices": compress_array_to_u8_tensor(
+                np.array(present, dtype=np.int32), byte_shuffle=True
+            ),
+            "blob": compress_array_to_u8_tensor(arr, byte_shuffle=(arr.dtype.itemsize > 1)),
+        }
+
+    return {
+        "num_snapshots": n,
+        "scalars_i64": compress_array_to_u8_tensor(scalars_i64, byte_shuffle=True),
+        "flags_u8": compress_array_to_u8_tensor(flags_u8),
+        "roster_identities": [s.opponent_state["roster_identity"] for s in snapshots],
+        "body_offsets_mat": compress_array_to_u8_tensor(body_offsets_mat, byte_shuffle=True),
+        "body_xy_deltas": compress_array_to_u8_tensor(xy_deltas, byte_shuffle=True),
+        "food_slot_indices": compress_array_to_u8_tensor(all_food_slots, byte_shuffle=True),
+        "food_xy": compress_array_to_u8_tensor(all_food_xy, byte_shuffle=True),
+        "food_corpse": compress_array_to_u8_tensor(all_food_corpse),
+        "small_tensors": small_packed,
+        "carry_tensors": carry_packed,
+    }
+
+
+def _unpack_snapshots_batched(packed: Mapping[str, Any]) -> list[CompactWorldSnapshot]:
+    """Losslessly unpack batched ``CompactWorldSnapshot`` records."""
+    n = int(packed["num_snapshots"])
+    if n == 0:
+        return []
+
+    scalars_i64 = decompress_u8_tensor_to_array(packed["scalars_i64"]).astype(np.int64)
+    flags_u8 = decompress_u8_tensor_to_array(packed["flags_u8"]).astype(np.uint8)
+    roster_ids = list(packed["roster_identities"])
+    body_offsets_mat = decompress_u8_tensor_to_array(packed["body_offsets_mat"]).astype(np.int32)
+    xy_deltas = decompress_u8_tensor_to_array(packed["body_xy_deltas"]).astype(np.uint16)
+    if xy_deltas.shape[0] > 0:
+        all_xy = np.cumsum(xy_deltas.astype(np.uint64), axis=0).astype(np.uint16).astype(np.int16)
+    else:
+        all_xy = np.empty((0, 2), dtype=np.int16)
+
+    all_food_slots = decompress_u8_tensor_to_array(packed["food_slot_indices"]).astype(np.int16)
+    all_food_xy = decompress_u8_tensor_to_array(packed["food_xy"]).astype(np.int16)
+    all_food_corpse = decompress_u8_tensor_to_array(packed["food_corpse"]).astype(np.uint8)
+
+    small_unpacked: dict[str, torch.Tensor] = {}
+    for k, rec in packed["small_tensors"].items():
+        arr = decompress_u8_tensor_to_array(rec["blob"]).copy()
+        td = getattr(torch, str(rec["torch_dtype"]))
+        small_unpacked[k] = torch.from_numpy(arr).to(dtype=td)
+
+    carry_per_row: list[dict[str, torch.Tensor]] = [{} for _ in range(n)]
+    for k, rec in packed["carry_tensors"].items():
+        idxs = decompress_u8_tensor_to_array(rec["indices"]).astype(np.int32)
+        arr = decompress_u8_tensor_to_array(rec["blob"]).copy()
+        td = getattr(torch, str(rec["torch_dtype"]))
+        t_all = torch.from_numpy(arr).to(dtype=td)
+        for pos, row_i in enumerate(idxs.tolist()):
+            carry_per_row[row_i][k] = t_all[pos].clone()
+
+    out: list[CompactWorldSnapshot] = []
+    seg_cursor = 0
+    food_cursor = 0
+    for i in range(n):
+        b_off = body_offsets_mat[i].copy()
+        n_segs = int(b_off[-1])
+        seg_xy = all_xy[seg_cursor : seg_cursor + n_segs].copy()
+        seg_cursor += n_segs
+
+        n_food = int(scalars_i64[i, 6])
+        f_slots = all_food_slots[food_cursor : food_cursor + n_food].copy()
+        f_xy = all_food_xy[food_cursor : food_cursor + n_food].copy()
+        f_corpse = all_food_corpse[food_cursor : food_cursor + n_food].copy()
+        food_cursor += n_food
+
+        out.append(
+            CompactWorldSnapshot(
+                world_id=int(scalars_i64[i, 0]),
+                life_id=int(scalars_i64[i, 1]),
+                tick=int(scalars_i64[i, 2]),
+                prepared=bool(flags_u8[i, 0]),
+                num_snakes=int(scalars_i64[i, 3]),
+                body_cap=int(scalars_i64[i, 4]),
+                food_cap=int(scalars_i64[i, 5]),
+                body_offsets=b_off,
+                body_segments_xy=seg_xy,
+                food_slot_indices=f_slots,
+                food_xy=f_xy,
+                food_corpse=f_corpse,
+                small_tensors={k: v[i].clone() for k, v in small_unpacked.items()},
+                opponent_state={
+                    "roster_identity": roster_ids[i],
+                    "vector_prepared": bool(flags_u8[i, 1]),
+                    "pending_prepare": bool(flags_u8[i, 2]),
+                    "carry": carry_per_row[i],
+                    "rng_key": int(scalars_i64[i, 7]),
+                    "rng_step": int(scalars_i64[i, 8]),
+                },
+            )
+        )
+    return out
+
+
 class LosslessBoundedSnapshotStore:
     """Bounded store of lossless world snapshots + exact prepared root observations.
 
@@ -572,8 +758,19 @@ class LosslessBoundedSnapshotStore:
     def to_state_dict(self) -> dict[str, Any]:
         topo = self.finalize_topology()
         obs = self.stacked_observations()
+        comp_obs = {
+            "local": compress_array_to_u8_tensor(obs["local"].detach().cpu().numpy()),
+            "glob": compress_array_to_u8_tensor(obs["glob"].detach().cpu().numpy()),
+            "scalars": compress_array_to_u8_tensor(
+                obs["scalars"].detach().cpu().numpy(), byte_shuffle=True
+            ),
+            "legal_mask": compress_array_to_u8_tensor(obs["legal_mask"].detach().cpu().numpy()),
+            "q_b8": compress_array_to_u8_tensor(
+                obs["q_b8"].detach().cpu().numpy(), byte_shuffle=True
+            ),
+        }
         return {
-            "schema": "ct-lossless-snapshot-store/v1",
+            "schema": "ct-lossless-snapshot-store/v2",
             "grid_h": self.grid_h,
             "grid_w": self.grid_w,
             "max_roots": self.max_roots,
@@ -581,14 +778,15 @@ class LosslessBoundedSnapshotStore:
             "max_body_capacity": self.max_body_capacity,
             "bytes_used": self._bytes_used,
             "metadata": [m.to_dict() for m in self.metadata],
-            "snapshots": [s.to_state_dict() for s in self.snapshots],
-            "observations": obs,
+            "snapshots_batched": _pack_snapshots_batched(self.snapshots),
+            "observations_compressed": comp_obs,
             "topology": topo.to_state_dict(),
         }
 
     @classmethod
     def from_state_dict(cls, state: Mapping[str, Any]) -> "LosslessBoundedSnapshotStore":
-        if state.get("schema") != "ct-lossless-snapshot-store/v1":
+        schema = state.get("schema")
+        if schema not in ("ct-lossless-snapshot-store/v1", "ct-lossless-snapshot-store/v2"):
             raise ValueError("foreign LosslessBoundedSnapshotStore schema")
         store = cls(
             grid_h=int(state["grid_h"]),
@@ -599,14 +797,40 @@ class LosslessBoundedSnapshotStore:
         )
         store.metadata = [RootMetadata.from_dict(row) for row in state["metadata"]]
         store._uid_set = {m.root_uid for m in store.metadata}
-        store.snapshots = [CompactWorldSnapshot.from_state_dict(s) for s in state["snapshots"]]
-        obs = state["observations"]
+        if "snapshots_batched" in state:
+            store.snapshots = _unpack_snapshots_batched(state["snapshots_batched"])
+        else:
+            store.snapshots = [CompactWorldSnapshot.from_state_dict(s) for s in state["snapshots"]]
+        if schema == "ct-lossless-snapshot-store/v1":
+            obs = state["observations"]
+            loc_t = obs["local"].detach().cpu()
+            glb_t = obs["glob"].detach().cpu()
+            scl_t = obs["scalars"].detach().cpu()
+            msk_t = obs["legal_mask"].detach().cpu()
+            qb8_t = obs["q_b8"].detach().cpu()
+        else:
+            cobs = state["observations_compressed"]
+            loc_t = torch.from_numpy(decompress_u8_tensor_to_array(cobs["local"]).copy()).to(
+                dtype=torch.uint8
+            )
+            glb_t = torch.from_numpy(decompress_u8_tensor_to_array(cobs["glob"]).copy()).to(
+                dtype=torch.uint8
+            )
+            scl_t = torch.from_numpy(decompress_u8_tensor_to_array(cobs["scalars"]).copy()).to(
+                dtype=torch.float32
+            )
+            msk_t = torch.from_numpy(decompress_u8_tensor_to_array(cobs["legal_mask"]).copy()).to(
+                dtype=torch.bool
+            )
+            qb8_t = torch.from_numpy(decompress_u8_tensor_to_array(cobs["q_b8"]).copy()).to(
+                dtype=torch.float32
+            )
         n = len(store.snapshots)
-        store._locals = [obs["local"][i].detach().cpu().clone() for i in range(n)]
-        store._globs = [obs["glob"][i].detach().cpu().clone() for i in range(n)]
-        store._scalars = [obs["scalars"][i].detach().cpu().clone() for i in range(n)]
-        store._legal_masks = [obs["legal_mask"][i].detach().cpu().clone() for i in range(n)]
-        store._q_b8 = [obs["q_b8"][i].detach().cpu().clone() for i in range(n)]
+        store._locals = [loc_t[i].clone() for i in range(n)]
+        store._globs = [glb_t[i].clone() for i in range(n)]
+        store._scalars = [scl_t[i].clone() for i in range(n)]
+        store._legal_masks = [msk_t[i].clone() for i in range(n)]
+        store._q_b8 = [qb8_t[i].clone() for i in range(n)]
         store._finalized_topology = SparseTopologyBatch.from_state_dict(state["topology"])
         store._bytes_used = int(state["bytes_used"])
         return store
