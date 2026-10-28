@@ -1,0 +1,13 @@
+TRAIN-01 continuation packet-train01-15-c1-i0064-r2: prepared only; operator dispatch required.
+Runtime pin: f882d85068fb04be66811f142685ed78204ea5c6
+Continues packet-train01-15 (sandbox-a-train01-20261027-15) from Mac-verified iteration-0064 via lossless compact derivative (38396880 B .pt.xz + 93518 B tensor manifest; completion_attempt=1/2).
+Remaining workload: 320/384 updates (83886080 actor rows), 5 scheduled E96 H5000 proxies [128, 192, 256, 320, 384]; same seed domain (allocation_index=0, train_seed_offset=0) and identical monitor (400000000, 288) / nomination (500000000, 768) banks.
+Source delivery: background-sparse-v1 (3x local spawn <2.0 s, max 0.0080 s); 15 private inputs (66680757 B) + supervisor/fallback files = 67657597 B across 18 uploads (85.58 s nominal / 154.80 s conservative, 28.5%/51.6% of 300 s cap).
+Mac destination storage projection (compact-at-source periodic exports): 20 remaining snapshots = 902181420 B (902.18 MB < 1 GB; 1.026 GiB conservative; 29.92x smaller than 25.14 GiB raw); required with temp+logs+4.0 GiB margin = 6.687 GiB vs 82.550 GiB free (+75.862 GiB above safety margin).
+Remaining A100 wall-time projection: 22.11 h nominal (22.90 h conservative) -> est_minutes=1380 / timeout_minutes=2760 (2x guard), unit_cap=369.0 u; progress <=60 s; faulthandler stall watchdog 900 s (exit 1); SIGUSR1 <15 s path active.
+Prior attempt stop evidence: host ENOSPC recovery certificate (3060c1e318541e89...; prior status=INCOMPLETE, original receipt absent as-is, post-hoc release verified: sessions empty, assignments=0, rate=0.0, 1279 retained polls + full supervisor log scanned with 0 scientific-failure hits).
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-r2-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261028-15-c1-i0064-r2 /Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-r2-broker.noindex/research/sandbox_a_resident/packet-train01-15-c1-i0064-r2/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-r2-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-r2-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15-c1-i0064-r2/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-r2-broker.noindex/research/sandbox_a_resident/packet-train01-15-c1-i0064-r2/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve detached checkouts and prior evidence.
