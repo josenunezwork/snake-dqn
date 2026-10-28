@@ -34,6 +34,7 @@ def seal(
     attempt: int = 1,
     ledger: Path | None = None,
     units_root: Path | None = None,
+    revision: int = 0,
 ) -> None:
     broker = broker.expanduser().resolve()
     runtime = runtime.expanduser().resolve()
@@ -69,6 +70,8 @@ def seal(
         raise ValueError("P science/runtime working tree differs from runtime pin")
     if type(attempt) is not int or not 1 <= attempt <= 99:
         raise ValueError("fresh packet attempt must be 1..99")
+    if type(revision) is not int or not 0 <= revision <= 99:
+        raise ValueError("packet revision must be 0..99")
     if (ledger is None) != (units_root is None):
         raise ValueError("completion requires both ledger and units root")
     verified = read_ledger(ledger, units_root, recipe_root=ROOT) if ledger is not None else {}
@@ -81,9 +84,12 @@ def seal(
         raise ValueError("measured forecast does not fit the ruled base envelope")
     packet_name = f"packet-{attempt:02d}"
     attempt_name = f"attempt-{attempt:02d}"
-    packet = ROOT / "research/watch_lead_p" / packet_name
-    packet.mkdir(exist_ok=False)
-    target = broker / "research/watch_lead_p" / packet_name
+    relative = Path("research/watch_lead_p") / packet_name
+    if revision:
+        relative /= f"reseal-{revision:02d}"
+    packet = ROOT / relative
+    packet.mkdir(parents=True, exist_ok=False)
+    target = broker / relative
     write(
         packet / "verified-ledger.json",
         json.loads(ledger.read_text()) if ledger else empty_ledger(ROOT),
@@ -243,6 +249,7 @@ if __name__ == "__main__":
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--benchmark", type=Path, required=True)
     parser.add_argument("--attempt", type=int, default=1)
+    parser.add_argument("--revision", type=int, default=0)
     parser.add_argument("--ledger", type=Path)
     parser.add_argument("--units-root", type=Path)
     args = parser.parse_args()
@@ -254,4 +261,5 @@ if __name__ == "__main__":
         args.attempt,
         args.ledger,
         args.units_root,
+        args.revision,
     )

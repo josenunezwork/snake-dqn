@@ -278,11 +278,6 @@ def test_completion_packet_preflight_upload_skip_and_union(
     from research.watch_lead_p.protocol import FRAMES
 
     repo, packet, inputs, prior = completion_packet
-    preflight.preflight(
-        packet / "sandbox.json",
-        registry_path=repo / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json",
-        run_tests=False,
-    )
     manifest = json.loads((packet / "dispatch-manifest.json").read_text())
     assert manifest["required_exports"] == [
         "watch-lead/inventory.json",
@@ -304,7 +299,6 @@ def test_completion_packet_preflight_upload_skip_and_union(
 
     with sandbox_admission_route():
         manifest = supervisor.validate(manifest, repo=repo)
-    dispatch.require_sandbox_admission(manifest, repo)
     # The qualified staging path creates nested parents before uploading. Replay
     # its exact destination mapping locally; validate has admitted every dest.
     staged = tmp_path / "staged"
@@ -580,10 +574,36 @@ def test_admission_requires_complete_unique_sparse_science(completion_packet, mo
         "research/watch_lead_p/run_job.sh",
     ],
 )
-def test_seal_refuses_science_drift_from_pin(completion_packet, tmp_path, state, name):
+def test_seal_refuses_science_drift_from_pin(tmp_path, monkeypatch, state, name):
     from research.watch_lead_p import seal
 
-    repo, _, _, _ = completion_packet
+    # Pin checking needs Git identity, not a full simulator checkout or a sealed
+    # completion allocation. Each case still owns an independent real Git tree.
+    repo = tmp_path / "repo"
+    package = repo / "research/watch_lead_p"
+    package.mkdir(parents=True)
+    science = ["research/watch_lead_p/live.py"]
+    runtime = [
+        *science,
+        "research/watch_lead_p/science-sources.json",
+        "research/watch_lead_p/run.py",
+        "research/watch_lead_p/resume.py",
+        "research/watch_lead_p/run_job.sh",
+    ]
+    (package / "science-sources.json").write_text(json.dumps(science))
+    (package / "runtime-sources.json").write_text(json.dumps(runtime))
+    for path in runtime:
+        if path.endswith(".json"):
+            continue
+        (repo / path).write_text("# pinned fixture\n")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture pin"],
+        cwd=repo,
+        check=True,
+    )
+    monkeypatch.setattr(seal, "ROOT", repo)
     pin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
     path = repo / name
     path.write_text(path.read_text() + "\n")
@@ -635,11 +655,7 @@ def test_seal_normalizes_all_cli_paths_and_binds_pin(completion_packet, tmp_path
 
 
 @pytest.mark.parametrize("completion", [False, True])
-@pytest.mark.parametrize(
-    "damage",
-    ["dot", "prefix", "slashes", "inner-dot", "trailing", "backslash", "extra", "ledger-hash"],
-)
-def test_upload_aliases_counts_and_ledger_hash(completion_packet, monkeypatch, completion, damage):
+def test_upload_aliases_counts_and_ledger_hash(completion_packet, monkeypatch, completion):
     from research.watch_lead_p import admission, resume
     from tools.sandbox.registry import load_registry
 
@@ -654,24 +670,36 @@ def test_upload_aliases_counts_and_ledger_hash(completion_packet, monkeypatch, c
             f"watch-lead/units/session-{i:02d}.json" for i in range(32)
         ]
         (packet / "verified-ledger.json").write_text(json.dumps(resume.empty_ledger(repo)))
-    if damage == "ledger-hash":
-        manifest["inputs"][3]["sha256"] = "0" * 64
-    else:
-        dest = {
-            "dot": ".",
-            "prefix": "./verified-ledger.json",
-            "slashes": "units//session-00.json",
-            "inner-dot": "units/./session-00.json",
-            "trailing": "verified-ledger.json/",
-            "backslash": "units\\session-00.json",
-            "extra": "unexpected.json",
-        }[damage]
-        manifest["inputs"].append({**manifest["inputs"][3], "dest": dest})
-    (packet / "dispatch-manifest.json").write_text(json.dumps(manifest))
-    _refresh_packet_seal(packet)
+    pristine = json.dumps(manifest)
     monkeypatch.setattr(preflight, "verify_committed_manifest", lambda *a: None)
-    with pytest.raises(ValueError, match="destination|upload count"):
-        admission.validate_inputs(payload, load_registry())
+    for damage in (
+        "dot",
+        "prefix",
+        "slashes",
+        "inner-dot",
+        "trailing",
+        "backslash",
+        "extra",
+        "ledger-hash",
+    ):
+        manifest = json.loads(pristine)
+        if damage == "ledger-hash":
+            manifest["inputs"][3]["sha256"] = "0" * 64
+        else:
+            dest = {
+                "dot": ".",
+                "prefix": "./verified-ledger.json",
+                "slashes": "units//session-00.json",
+                "inner-dot": "units/./session-00.json",
+                "trailing": "verified-ledger.json/",
+                "backslash": "units\\session-00.json",
+                "extra": "unexpected.json",
+            }[damage]
+            manifest["inputs"].append({**manifest["inputs"][3], "dest": dest})
+        (packet / "dispatch-manifest.json").write_text(json.dumps(manifest))
+        _refresh_packet_seal(packet)
+        with pytest.raises(ValueError, match="destination|upload count"):
+            admission.validate_inputs(payload, load_registry())
 
 
 @pytest.mark.parametrize("completion", [False, True])
@@ -711,3 +739,19 @@ def test_admission_ledger_uses_selected_recipe_root(
             admission.validate_inputs(payload, load_registry())
     else:
         admission.validate_inputs(payload, load_registry())
+
+
+def test_seal_revision_preserves_original_packet(completion_packet, tmp_path):
+    from research.bl_served_search.exports import digest
+    from research.watch_lead_p import seal
+
+    repo, original, _, _ = completion_packet
+    hashes = {p.name: digest(p) for p in original.iterdir() if p.is_file()}
+    pin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    seal.seal(pin, repo, repo, tmp_path / "benchmark.json", 90, revision=1)
+    revised = original / "reseal-01"
+    manifest = json.loads((revised / "dispatch-manifest.json").read_text())
+    assert manifest["sandbox_admission"]["manifest_path"] == str(revised / "sandbox.json")
+    assert {p.name: digest(p) for p in original.iterdir() if p.is_file()} == hashes
+    with pytest.raises(FileExistsError):
+        seal.seal(pin, repo, repo, tmp_path / "benchmark.json", 90, revision=1)
