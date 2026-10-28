@@ -113,7 +113,10 @@ def test_sandbox_validation_keeps_checks_and_uses_bounded_focused_test_window(
         "validate",
         str(manifest),
     ]
-    assert captured["timeout_seconds"] == dispatch.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS
+    assert captured["timeout_seconds"] == dispatch.SANDBOX_OUTER_VALIDATE_TIMEOUT_SECONDS
+    assert captured["timeout_seconds"] == (
+        2 * dispatch.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS + dispatch.COMMAND_TIMEOUT_SECONDS
+    )
     assert captured["timeout_seconds"] > dispatch.COMMAND_TIMEOUT_SECONDS
 
 

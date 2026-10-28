@@ -14,10 +14,13 @@ from typing import Any
 
 from research.sandbox_a_resident.ct_prepare import STUDY, ct_endpoint_steps
 from research.sandbox_a_resident.ct_resume import (
+    _check_attempt_base_fault_evidence,
     _check_attempt_output_dir_fault_evidence,
     _check_single_root_fault_evidence,
     _extract_prior_admitted_coverage,
     _is_hex,
+    retained_inventory,
+    verify_mechanical_stop,
 )
 from research.sandbox_a_resident.ct_task import (
     CTControl,
@@ -142,35 +145,95 @@ def validate_uploaded_ledger(packet: Path, broker: dict[str, Any], control: dict
         for exp_str in raw_exp_dirs:
             _check_single_root_fault_evidence(Path(exp_str))
 
-        if comp.get("prior_manifest_path") is not None:
-            pm_path = Path(str(comp["prior_manifest_path"]))
+        raw_pm = comp.get("prior_manifest_path")
+        if not isinstance(raw_pm, str) or not Path(raw_pm).is_absolute():
+            raise ValueError("continuation requires absolute prior_manifest_path")
+        pm_path = Path(raw_pm)
+        if (
+            pm_path.is_symlink()
+            or not pm_path.is_file()
+            or digest(pm_path) != comp["prior_manifest_sha256"]
+        ):
+            raise ValueError("prior_manifest_path missing, symlinked, or SHA-256 mismatched")
+        prior_broker = json.loads(pm_path.read_text())
+        if (
+            not isinstance(prior_broker, dict)
+            or prior_broker.get("job_id") != comp["prior_job_id"]
+            or prior_broker.get("commit") != broker.get("commit")
+        ):
+            raise ValueError("prior_manifest_path job_id or commit binding mismatch")
+        # Recurse through the bound manifests, never through successor self-declarations.
+        # _extract_prior_admitted_coverage enforces strictly decreasing indices (2 -> 1 -> initial).
+        disk_units, disk_lsha, disk_outs, disk_exps = _extract_prior_admitted_coverage(
+            prior_broker,
+            control,
+            completion_index=int(comp["index"]),
+            prior_packet_dir=pm_path.parent,
+        )
+        validate_uploaded_ledger(pm_path.parent, prior_broker, control)
+        if comp.get("prior_ledger_sha256") != disk_lsha:
+            raise ValueError("prior_ledger_sha256 differs from bound prior verified-ledger.json")
+        if comp.get("prior_verified_units") != [disk_units[k] for k in sorted(disk_units)]:
+            raise ValueError("prior_verified_units differs from bound prior verified-ledger.json")
+        if raw_out_dirs != disk_outs:
+            raise ValueError("continuation omits or changes lineage-derived prior_output_dirs")
+        required_exps = set(disk_exps)
+        for dest, upload in uploads.items():
+            if dest.startswith("resume/"):
+                required_exps.add(str(Path(upload["path"]).resolve().parent))
+        if not required_exps.issubset(set(raw_exp_dirs)):
+            raise ValueError("continuation omits lineage-derived prior_export_roots")
+        proof_file, seal_file = packet / "provenance.json", packet / "SEAL.json"
+        for path in (proof_file, seal_file):
+            if path.is_symlink() or not path.is_file():
+                raise ValueError("continuation requires provenance.json and SEAL.json")
+        proof, seal = json.loads(proof_file.read_text()), json.loads(seal_file.read_text())
+        proof_sha = digest(proof_file)
+        if (
+            proof.get("schema") != "t34-cf-continuation-provenance/v1"
+            or comp.get("provenance_sha256") != proof_sha
+            or seal.get("schema") != "t34-cf-continuation-seal/v1"
+            or seal.get("provenance_sha256") != proof_sha
+            or seal.get("manifest_sha256") != digest(packet / "dispatch-manifest.json")
+            or seal.get("ledger_sha256") != actual_ledger_sha
+            or seal.get("prior_manifest_sha256") != comp["prior_manifest_sha256"]
+            or proof.get("prior_manifest_path") != raw_pm
+            or proof.get("prior_manifest_sha256") != comp["prior_manifest_sha256"]
+        ):
+            raise ValueError("continuation provenance lacks mandatory seal/manifest binding")
+        roots = sorted(set(raw_out_dirs + raw_exp_dirs))
+        if proof.get("retained") != {root: retained_inventory(Path(root)) for root in roots}:
+            raise ValueError("retained evidence inventory changed or provenance omitted")
+        receipt = proof.get("receipt")
+        if not isinstance(receipt, dict):
+            raise ValueError("provenance lacks mechanical-stop receipt")
+        log = proof.get("supervisor_log")
+        log_path = None
+        if log is not None:
+            log_path = Path(log["path"])
             if (
-                pm_path.is_symlink()
-                or not pm_path.is_file()
-                or digest(pm_path) != comp["prior_manifest_sha256"]
+                log_path.is_symlink()
+                or not log_path.is_file()
+                or log_path.stat().st_size != log["size"]
+                or digest(log_path) != log["sha256"]
             ):
-                raise ValueError("prior_manifest_path missing, symlinked, or SHA-256 mismatched")
-            prior_broker = json.loads(pm_path.read_text())
-            if (
-                not isinstance(prior_broker, dict)
-                or prior_broker.get("job_id") != comp["prior_job_id"]
-                or prior_broker.get("commit") != broker.get("commit")
-            ):
-                raise ValueError("prior_manifest_path job_id or commit binding mismatch")
-            disk_units, disk_lsha, _, _ = _extract_prior_admitted_coverage(
-                prior_broker,
-                control,
-                completion_index=int(comp["index"]),
-                prior_packet_dir=pm_path.parent,
-            )
-            if comp.get("prior_ledger_sha256") != disk_lsha:
-                raise ValueError(
-                    "prior_ledger_sha256 differs from bound prior verified-ledger.json"
-                )
-            expected_prior_units = [disk_units[s] for s in sorted(disk_units)]
-            if comp.get("prior_verified_units") != expected_prior_units:
-                raise ValueError(
-                    "prior_verified_units differs from bound prior verified-ledger.json"
+                raise ValueError("bound supervisor log changed")
+        verify_mechanical_stop(
+            receipt,
+            prior_broker,
+            comp["prior_manifest_sha256"],
+            export_root=[Path(r) for r in raw_exp_dirs],
+            supervisor_log_path=log_path,
+        )
+        inherited_roots = set(disk_exps)
+        if isinstance(prior_broker.get("completion_attempt"), dict):
+            inherited_roots.update(prior_broker["completion_attempt"]["prior_output_dirs"])
+        for root in roots:
+            if root not in inherited_roots:
+                _check_attempt_base_fault_evidence(
+                    Path(root),
+                    expected_job_id=receipt.get("job_id"),
+                    expected_generation=receipt.get("generation"),
                 )
 
     referenced: set[str] = set()
@@ -343,6 +406,21 @@ def validate_packet(
         != digest(packet / "topology-manifest.json")
     ):
         raise ValueError("exhaustive C/T seed audit does not bind this allocation/registry")
+    cursor, cursor_broker = packet, broker
+    for _ in range(3):
+        if cursor_broker.get("completion_attempt") is None:
+            break
+        for name in ("provenance.json", "SEAL.json"):
+            verify_committed_manifest(cursor / name, require_committed=require_committed)
+        raw_prior = cursor_broker["completion_attempt"].get("prior_manifest_path")
+        if not isinstance(raw_prior, str) or not Path(raw_prior).is_absolute():
+            raise ValueError("continuation requires absolute prior_manifest_path")
+        prior_path = Path(raw_prior)
+        for name in ("dispatch-manifest.json", "verified-ledger.json"):
+            verify_committed_manifest(prior_path.parent / name, require_committed=require_committed)
+        cursor, cursor_broker = prior_path.parent, json.loads(prior_path.read_text())
+    else:
+        raise ValueError("continuation lineage exceeds two completion attempts")
     validate_uploaded_ledger(packet, broker, control)
     return check
 

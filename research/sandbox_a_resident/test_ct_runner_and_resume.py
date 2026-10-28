@@ -1148,6 +1148,22 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
             },
         )
 
+        publish_stage_snapshot(
+            exp_a0,
+            2,
+            lambda dst: dst.write_bytes(b"prior verified stage 2"),
+            metadata={"allocation": allocation(prod_ctrl), "source_commit": impl_pin},
+        )
+        # Completion 2 adds stage 3 while retaining admitted [1, 2].
+        for old in list(exp_c1.glob("stage-0002*")):
+            old.rename(old.with_name(old.name.replace("0002", "0003")))
+        header = exp_c1 / "stage-0003.json"
+        info = json.loads(header.read_text())
+        info["stage"], info["id"] = 3, unit_id(3)
+        info["snapshot"]["id"] = unit_id(3)
+        header.write_text(json.dumps(info))
+        Path(str(header) + ".sha256").write_text(digest(header) + "\n")
+
         rec_p0 = ws / "receipt-p0.json"
         rec_p0.write_text(
             json.dumps(
@@ -1280,6 +1296,127 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
             cwd=broker_wt,
             check=True,
         )
+
+        adversarial_script = (
+            "\n"
+            "from pathlib import Path\n"
+            "import copy, hashlib, json, subprocess\n"
+            "from research.sandbox_a_resident.ct_preflight import validate_pa"
+            "cket\n"
+            "from research.sandbox_a_resident.units import digest\n"
+            "packet = Path(PACKET_PATH)\n"
+            "files = {p: p.read_bytes() for p in packet.iterdir() if p.is_fil"
+            "e()}\n"
+            'original = json.loads((packet / "dispatch-manifest.json").read_t'
+            "ext())\n"
+            'original_output = Path(json.loads(Path(original["completion_atte'
+            'mpt"]["prior_manifest_path"]).read_text())["completion_attempt"]'
+            '["prior_output_dirs"][0])\n'
+            'for attack in ("missing_reference_and_stage", "omitted_output_di'
+            'rs", "omitted_export_roots", "missing_proof", "missing_seal", "u'
+            'nbound_proof", "inventory_deletion", "nested_fault_rebound_inven'
+            'tory"):\n'
+            "    for path, data in files.items():\n"
+            "        path.write_bytes(data)\n"
+            "    broker = copy.deepcopy(original)\n"
+            '    comp = broker["completion_attempt"]\n'
+            '    if attack == "missing_reference_and_stage":\n'
+            '        comp.pop("prior_manifest_path")\n'
+            '        ledger_path = packet / "verified-ledger.json"\n'
+            "        ledger = json.loads(ledger_path.read_text())\n"
+            '        ledger["units"] = [u for u in ledger["units"] if u["stag'
+            'e"] != 2]\n'
+            "        ledger_path.write_text(json.dumps(ledger))\n"
+            '        comp["verified_stages"] = [1, 3]\n'
+            '        comp["prior_verified_stages"] = [1]\n'
+            '        comp["prior_verified_units"] = [u for u in comp["prior_v'
+            'erified_units"] if u["stage"] != 2]\n'
+            '        comp["ledger_sha256"] = digest(ledger_path)\n'
+            '        broker["inputs"] = [u for u in broker["inputs"] if not u'
+            '["dest"].startswith("resume/stage-0002")]\n'
+            '        next(u for u in broker["inputs"] if u["dest"] == "verifi'
+            'ed-ledger.json")["sha256"] = digest(ledger_path)\n'
+            '    elif attack == "omitted_output_dirs":\n'
+            '        comp["prior_output_dirs"] = []\n'
+            '    elif attack == "omitted_export_roots":\n'
+            '        comp["prior_export_roots"] = comp["prior_export_roots"]['
+            "-1:]\n"
+            '    elif attack in {"missing_proof", "missing_seal"}:\n'
+            '        (packet / ("provenance.json" if attack == "missing_proof'
+            '" else "SEAL.json")).unlink()\n'
+            '    elif attack == "unbound_proof":\n'
+            '        comp.pop("provenance_sha256")\n'
+            '    elif attack == "inventory_deletion":\n'
+            '        proof = json.loads((packet / "provenance.json").read_tex'
+            "t())\n"
+            '        proof["retained"] = {}\n'
+            '        (packet / "provenance.json").write_text(json.dumps(proof'
+            "))\n"
+            '        comp["provenance_sha256"] = digest(packet / "provenance.'
+            'json")\n'
+            "    else:\n"
+            "        # Rebind *all* inventories after injecting a fault: sema"
+            "ntic scan must still refuse.\n"
+            "        from research.sandbox_a_resident.ct_resume import retain"
+            "ed_inventory\n"
+            "        original_output.mkdir(parents=True, exist_ok=True)\n"
+            '        fault = original_output / "unselected.json.partial"\n'
+            '        fault.write_text(\'{"metadata":{"error":"FloatingPointErr'
+            "or: non-finite\"}}')\n"
+            '        for proof_path in (packet / "provenance.json", Path(comp'
+            '["prior_manifest_path"]).parent / "provenance.json"):\n'
+            "            # Parent remains immutable; c2 admission must recurs"
+            "ively re-open its evidence.\n"
+            "            if proof_path.parent != packet:\n"
+            "                continue\n"
+            "            proof = json.loads(proof_path.read_text())\n"
+            '            proof["retained"] = {r: retained_inventory(Path(r)) '
+            'for r in proof["retained"]}\n'
+            "            proof_path.write_text(json.dumps(proof))\n"
+            '        comp["provenance_sha256"] = digest(packet / "provenance.'
+            'json")\n'
+            '    (packet / "dispatch-manifest.json").write_text(json.dumps(br'
+            "oker))\n"
+            '    sandbox = json.loads((packet / "sandbox.json").read_text())\n'
+            '    sandbox["outputs"]["broker_manifest"]["sha256"] = digest(pac'
+            'ket / "dispatch-manifest.json")\n'
+            '    if attack == "missing_reference_and_stage":\n'
+            '        sandbox["inputs"] = [u for u in sandbox["inputs"] if "st'
+            'age-0002" not in u.get("path", "")]\n'
+            '        next(u for u in sandbox["inputs"] if u.get("kind") == "v'
+            'erified-ledger")["sha256"] = digest(packet / "verified-ledger.js'
+            'on")\n'
+            '    (packet / "sandbox.json").write_text("\\n".join(("{" if i == '
+            '0 else " ") + json.dumps(k) + ": " + json.dumps(v) + ("," if i <'
+            ' 9 else "}") for i,(k,v) in enumerate(sandbox.items())) + "\\n")\n'
+            '    if (packet / "SEAL.json").exists():\n'
+            '        seal = json.loads((packet / "SEAL.json").read_text())\n'
+            '        seal.update(manifest_sha256=digest(packet / "dispatch-ma'
+            'nifest.json"), ledger_sha256=digest(packet / "verified-ledger.js'
+            'on"), provenance_sha256=comp.get("provenance_sha256"))\n'
+            '        (packet / "SEAL.json").write_text(json.dumps(seal))\n'
+            '    subprocess.run(["git", "add", "-A", str(packet)], check=True'
+            ")\n"
+            '    subprocess.run(["git", "commit", "-qm", "committed refusal p'
+            'robe " + attack], check=True)\n'
+            "    try:\n"
+            "        validate_packet(packet, require_committed=True)\n"
+            "    except (ValueError, FileNotFoundError) as error:\n"
+            '        print("REFUSED_COMMITTED", attack, type(error).__name__,'
+            " str(error), flush=True)\n"
+            "    else:\n"
+            '        raise AssertionError("ADMITTED " + attack)\n'
+            '    if attack == "nested_fault_rebound_inventory":\n'
+            "        fault.unlink()\n"
+            "        original_output.rmdir()\n"
+            "for path, data in files.items():\n"
+            "    path.write_bytes(data)\n"
+            'subprocess.run(["git", "add", "-A", str(packet)], check=True)\n'
+            'subprocess.run(["git", "commit", "-qm", "restore accepted fixtur'
+            'e"], check=True)\n'
+            "validate_packet(packet, require_committed=True)\n"
+        ).replace("PACKET_PATH", repr(str(prod_c2)))
+        subprocess.run([sys.executable, "-c", adversarial_script], cwd=broker_wt, check=True)
 
         # Run full tools/ops/dispatch.sh --dry-run on BOTH c1 and c2 at top level
         # (skip only inside nested ct_preflight subprocesses to avoid recursion).
@@ -1916,3 +2053,129 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
         )
     with pytest.raises(ValueError, match="floatingpointerror|non-finite"):
         validate_uploaded_ledger(packet_c2_ok, copy.deepcopy(c2_manifest), ctrl_dict)
+
+
+@pytest.mark.parametrize(
+    "relative,content",
+    [
+        (
+            "exports/ct/progress.json.partial",
+            '{"stage":"scoring-failed","error":"FloatingPointError: non-finite tensor tripwire"}',
+        ),
+        (
+            "exports/ct/progress.json.partial",
+            '{"stage":"scoring-failed","error":"FloatingPointError: non-finite',
+        ),
+        ("exports/ct/progress.json.partial", '{"stage":"scoring-progress"'),
+        (
+            "exports/ct/job.log",
+            "Traceback (most recent call last):\nFloatingPointError: non-finite",
+        ),
+        ("supervisor.log", "FloatingPointError: non-finite tensor tripwire"),
+        ("exports/ct/calibrated-boundary.json", '{"error":"FloatingPointError: non-finite"}'),
+        ("exports/ct/stage-0002.json", '{"error":"FloatingPointError: non-finite"}'),
+        ("exports/ct/progress.json", '{"metadata":{"error":"FloatingPointError: non-finite"}}'),
+        ("exports/ct/unknown.json", '{"metadata":{"error":"opaque failure"}}'),
+        ("exports/ct/unknown.json", '{"metadata":{"finite":false}}'),
+        ("poll-000001.json", '{"state":{"job_id":"foreign","generation":"g0","status":"running"}}'),
+        (
+            "terminal.json",
+            '{"job_id":"tiny-ct-00","generation":"foreign","status":"failed",'
+            '"reason":"timeout","returncode":138}',
+        ),
+        (
+            "state.json",
+            '{"job_id":"tiny-ct-00","generation":"g0","status":"failed","returncode":7}',
+        ),
+    ],
+)
+def test_ct3_retained_fault_probes_refuse_writer_and_admission(
+    tmp_path: Path,
+    relative: str,
+    content: str,
+) -> None:
+    """CT3 MAJOR-1: retained evidence is mandatory through both production boundaries."""
+    from research.sandbox_a_resident.ct_preflight import validate_uploaded_ledger
+
+    ctrl = CTControl(source_commit="a" * 40, worlds=6, collection_ticks=12, tiny=True)
+    initial, successor = tmp_path / "initial", tmp_path / "successor"
+    prior_output = tmp_path / "prior-output"
+    exports = prior_output / "exports/ct"
+    _write_tiny_initial_packet(initial, ctrl, _save_tiny_checkpoints(tmp_path), prior_output)
+    publish_stage_snapshot(
+        exports,
+        1,
+        lambda p: p.write_bytes(b"hash-only numerical payload"),
+        metadata={"allocation": allocation(ctrl.to_dict()), "source_commit": ctrl.source_commit},
+    )
+    receipt = {
+        "job_id": "tiny-ct-00",
+        "commit": ctrl.source_commit,
+        "manifest_sha256": digest(initial / "dispatch-manifest.json"),
+        "status": "INCOMPLETE",
+        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "generation": "g0",
+    }
+    kwargs = dict(
+        prior_packet_dir=initial,
+        terminal_receipt=receipt,
+        export_root=exports,
+        completion_index=1,
+        job_id="ct-c1",
+        output_dir=tmp_path / "next-output",
+        use_compact_xz_for_stages=None,
+        validate_registry_inputs=False,
+    )
+    write_continuation_packet(successor, **kwargs)
+    manifest = json.loads((successor / "dispatch-manifest.json").read_text())
+    validate_uploaded_ledger(successor, manifest, ctrl.to_dict())
+    fault = prior_output / relative
+    fault.parent.mkdir(parents=True, exist_ok=True)
+    fault.write_text(content)
+    with pytest.raises(ValueError):
+        validate_uploaded_ledger(successor, manifest, ctrl.to_dict())
+    with pytest.raises(ValueError):
+        write_continuation_packet(tmp_path / "refused", **kwargs)
+    assert not (tmp_path / "refused").exists()
+
+
+@pytest.mark.parametrize("cap", [5 * 1024 * 1024, 1024])
+def test_ct3_oversized_exception_export_obeys_recursive_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cap: int,
+) -> None:
+    """CT3 MINOR: the actual startup exception handler cannot bypass the hard total."""
+    from research.sandbox_a_resident import ct_run
+    from research.sandbox_a_resident.ct_units import recursive_export_bytes
+
+    def explode(_device: object) -> None:
+        raise ValueError("X" * (3 * 1024 * 1024))
+
+    monkeypatch.setattr(ct_run, "forced_state_determinism_suite", explode)
+    output = tmp_path / "fault-export"
+    ctrl = CTControl(
+        source_commit="a" * 40, tiny=True, max_stage_export_bytes=cap, max_total_export_bytes=cap
+    )
+    with pytest.raises(ValueError):
+        run_ct_experiment(
+            ctrl,
+            b8_checkpoint=tmp_path / "unused",
+            frp3_checkpoint=tmp_path / "unused",
+            champion_checkpoint=tmp_path / "unused",
+            output=output,
+            device="cpu",
+        )
+    assert recursive_export_bytes(output) <= cap
+    # No fault bundle fits the small cap, so publication must refuse atomically.
+    if cap == 1024:
+        assert not (output / "fault.json").exists()
+        assert sorted(p.name for p in output.iterdir()) == ["progress.json"]
+    else:
+        assert (output / "fault.json.complete").is_file()
+        record = json.loads((output / "fault.json").read_text())
+        assert len(record["error_message"]) <= 8192
+        assert len(record["traceback"]) <= 16384
+        assert recursive_export_bytes(output) <= cap

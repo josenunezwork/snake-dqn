@@ -27,6 +27,7 @@ import argparse
 import copy
 import hashlib
 import json
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -411,153 +412,288 @@ def _check_poll_fault_evidence(poll_payload: Mapping[str, Any], *, label: str) -
         _check_terminal_fault_evidence(poll_term, label=f"{label}.terminal")
 
 
-def _check_stage_headers_for_fault(stage_dir: Path) -> None:
-    if stage_dir.is_symlink():
-        raise CTResumeRefused(f"symlinked stage directory: {stage_dir}")
-    if not stage_dir.is_dir():
-        return
-    for header_path in sorted(stage_dir.glob("stage-*.json")):
-        if header_path.is_symlink():
-            raise CTResumeRefused(f"symlinked stage header: {header_path.name}")
-        if not header_path.is_file():
-            continue
-        try:
-            info = json.loads(header_path.read_text())
-        except (OSError, json.JSONDecodeError) as err:
-            if _complete(header_path):
-                raise CTResumeRefused(f"corrupt stage header: {header_path.name}") from err
-            continue
-        if not isinstance(info, Mapping):
-            if _complete(header_path):
-                raise CTResumeRefused(f"malformed stage header: {header_path.name}")
-            continue
-        meta = info.get("metadata")
-        if isinstance(meta, Mapping) and (
-            meta.get("scientific_fault")
-            or meta.get("support_status") in {"INCOMPLETE_SUPPORT", "INVALID"}
+def _check_retained_execution(
+    record: Mapping[str, Any],
+    *,
+    label: str,
+    expected_job_id: str | None,
+    expected_generation: str | None,
+    require_identity: bool = False,
+) -> None:
+    """Validate execution facts independently of human-readable fault markers."""
+    for key, expected in (
+        ("job_id", expected_job_id),
+        ("job", expected_job_id),
+        ("generation", expected_generation),
+    ):
+        if expected is not None and key in record and record[key] != expected:
+            raise CTResumeRefused(f"{label} belongs to foreign {key}")
+    if require_identity:
+        for key, expected in (("job_id", expected_job_id), ("generation", expected_generation)):
+            if expected is not None and record.get(key) != expected:
+                raise CTResumeRefused(f"{label} lacks matching {key} identity")
+    status = record.get("status")
+    reason = record.get("reason")
+    returncode = record.get("returncode")
+    if returncode == 0 or status in {"completed", "succeeded"}:
+        raise CTResumeRefused(f"{label} records completed status")
+    if reason is not None and reason not in MECHANICAL_TERMINAL_REASONS:
+        raise CTResumeRefused(f"{label} records non-mechanical reason: {reason!r}")
+    if returncode is not None and type(returncode) is not int:
+        raise CTResumeRefused(f"{label} records malformed returncode")
+    if returncode == 124:
+        raise CTResumeRefused(f"{label} records watchdog timeout exit code 124")
+    if (returncode not in (None, 0) or status in {"failed", "stopped", "error"}) and (
+        reason not in MECHANICAL_TERMINAL_REASONS
+    ):
+        raise CTResumeRefused(
+            f"{label} records non-mechanical child failure or unexplained runtime failure"
+        )
+    if status is not None and status not in {
+        "running",
+        "starting",
+        "ready",
+        "failed",
+        "stopped",
+        "error",
+    }:
+        raise CTResumeRefused(f"{label} records unknown execution status: {status!r}")
+
+
+def _retained_files(output_root: Path) -> list[Path]:
+    """Walk every retained file without following links or accepting special files."""
+    files = []
+    for path in sorted(output_root.rglob("*")):
+        mode = path.lstat().st_mode
+        if stat.S_ISLNK(mode) or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+            raise CTResumeRefused(f"non-regular or symlinked retained evidence: {path}")
+        if stat.S_ISREG(mode):
+            files.append(path)
+    return files
+
+
+def _scan_json_faults(
+    value: Any,
+    *,
+    label: str,
+    expected_job_id: str | None = None,
+    expected_generation: str | None = None,
+) -> None:
+    """Inspect nested diagnostic fields, including error fields in snapshot headers."""
+    if isinstance(value, Mapping):
+        for key, expected in (
+            ("job_id", expected_job_id),
+            ("job", expected_job_id),
+            ("generation", expected_generation),
         ):
-            raise CTResumeRefused(
-                f"{header_path.name} recorded terminal support/fault status "
-                f"{meta.get('support_status') or meta.get('scientific_fault')}; "
-                "continuation refused"
+            if expected is not None and key in value and value[key] != expected:
+                raise CTResumeRefused(f"{label} belongs to foreign {key}")
+        for key, item in value.items():
+            name = f"{label}.{key}"
+            mechanical_error = (
+                key == "error"
+                and isinstance(item, str)
+                and any(marker in item.lower() for marker in MECHANICAL_SUPERVISOR_ERROR_MARKERS)
             )
-
-
-def _check_attempt_base_fault_evidence(base: Path) -> None:
-    """Scan one attempt/export base directory for any scientific, watchdog, state, or poll fault."""
-    if base.is_symlink():
-        raise CTResumeRefused(f"symlinked prior output ancestor: {base}")
-    if not base.exists():
-        return
-    for summary_rel in (
-        "summary.json",
-        "summary.json.partial",
-        "summary.json.sha256",
-        "summary.json.complete",
-        "ct/summary.json",
-        "ct/summary.json.partial",
-        "exports/ct/summary.json",
-        "exports/ct/summary.json.partial",
-    ):
-        cand = base / summary_rel
-        if cand.exists() or cand.is_symlink():
-            raise CTResumeRefused(
-                f"scientific summary already present ({cand.name}); continuation refused"
-            )
-    for fault_rel in (
-        "fault.json",
-        "fault.json.partial",
-        "fault.json.sha256",
-        "fault.json.complete",
-        "ct/fault.json",
-        "ct/fault.json.partial",
-        "exports/ct/fault.json",
-        "exports/ct/fault.json.partial",
-    ):
-        cand = base / fault_rel
-        if cand.exists() or cand.is_symlink():
-            raise CTResumeRefused(
-                f"scientific/runtime fault diagnostic present ({cand.name}); continuation refused"
-            )
-    for stack_rel in (
-        "stall-watchdog/faulthandler-stacks.log",
-        "ct/stall-watchdog/faulthandler-stacks.log",
-        "exports/ct/stall-watchdog/faulthandler-stacks.log",
-    ):
-        stack_path = base / stack_rel
-        if stack_path.is_symlink():
-            raise CTResumeRefused(f"symlinked faulthandler-stacks.log: {stack_path}")
-        if stack_path.is_file() and stack_path.stat().st_size > 0:
-            raise CTResumeRefused(
-                "stall-watchdog faulthandler stack dump is non-empty; continuation refused"
-            )
-    for wd_rel in (
-        "stall-watchdog/stall-watchdog.json",
-        "ct/stall-watchdog/stall-watchdog.json",
-        "exports/ct/stall-watchdog/stall-watchdog.json",
-        "progress.json",
-        "ct/progress.json",
-        "exports/ct/progress.json",
-    ):
-        wd_path = base / wd_rel
-        if wd_path.is_symlink():
-            raise CTResumeRefused(f"symlinked telemetry artifact: {wd_path}")
-        if wd_path.is_file():
-            try:
-                wd_payload = json.loads(wd_path.read_text())
-            except (OSError, json.JSONDecodeError) as err:
-                raise CTResumeRefused(f"corrupt telemetry artifact: {wd_path.name}") from err
-            if not isinstance(wd_payload, Mapping):
-                raise CTResumeRefused(f"malformed telemetry artifact: {wd_path.name}")
-            if str(wd_payload.get("stage", "")).lower().endswith("-failed"):
-                raise CTResumeRefused(
-                    f"{wd_path.name} records failed stage: {wd_payload.get('stage')!r}"
+            if (
+                key
+                in {
+                    "error",
+                    "exception",
+                    "last_error_line",
+                    "last_traceback_line",
+                    "unassign_error",
+                    "fault",
+                    "error_type",
+                    "traceback",
+                }
+                and item
+                and not mechanical_error
+                and not (
+                    key in {"last_error_line", "last_traceback_line"}
+                    and isinstance(item, str)
+                    and item.startswith("STALL_WATCHDOG_DIAGNOSTICS sealed_dir=")
+                    and "\n" not in item
                 )
-            _refuse_if_fault_text(wd_payload.get("error"), field_name=f"{wd_path.name}.error")
+            ):
+                raise CTResumeRefused(
+                    f"{name} records explicit scientific/non-mechanical fault: {item!r}"
+                )
+            if (
+                key in {"state", "terminal"}
+                and isinstance(item, Mapping)
+                and any(field in item for field in ("status", "reason", "returncode"))
+            ):
+                _check_retained_execution(
+                    item,
+                    label=name,
+                    expected_job_id=expected_job_id,
+                    expected_generation=expected_generation,
+                    require_identity=True,
+                )
+            if key in {"phase", "prepare_phase", "stage"} and isinstance(item, str):
+                if item.lower().endswith("failed") or "failure" in item.lower():
+                    raise CTResumeRefused(f"{name} records failed stage")
+            if (
+                (key == "finite" and item is False)
+                or (key == "material_gaps" and item)
+                or (key == "scientific_fault" and item)
+                or (key == "support_status" and item in {"INCOMPLETE_SUPPORT", "INVALID"})
+            ):
+                raise CTResumeRefused(
+                    f"{name} records explicit scientific/non-mechanical fault: {item!r}"
+                )
+            # Inventories name diagnostic files even when they are empty. Their
+            # paths are checked by the export scanner; don't treat filenames as errors.
+            if key not in {"path", "dest", "sha256"}:
+                _scan_json_faults(
+                    item,
+                    label=name,
+                    expected_job_id=expected_job_id,
+                    expected_generation=expected_generation,
+                )
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _scan_json_faults(
+                item,
+                label=f"{label}[{index}]",
+                expected_job_id=expected_job_id,
+                expected_generation=expected_generation,
+            )
+    elif isinstance(value, str):
+        _refuse_if_fault_text(value, field_name=label)
 
-    state_file = base / "state.json"
-    if state_file.is_symlink():
-        raise CTResumeRefused(f"symlinked state.json: {state_file}")
-    if state_file.is_file():
+
+def _scan_retained_text(
+    path: Path,
+    *,
+    output_root: Path,
+    expected_job_id: str | None = None,
+    expected_generation: str | None = None,
+) -> None:
+    """Scan all text/JSON, including incomplete telemetry and unknown filenames.
+
+    Model payloads are binary and remain path/size/hash evidence. Text is streamed
+    with overlap so a fault marker split across read boundaries is still found.
+    Incomplete JSON refuses after scanning its retained text for explicit faults.
+    """
+    # Staged executable source contains exception definitions and canary checks,
+    # not observations. Inventory its bytes, but scan diagnostic files separately.
+    if path.parent == output_root / "staging" and path.name in {
+        "bootstrap.sh",
+        "source.py",
+        "runtime.py",
+        "release.py",
+    }:
+        qualified_source = Path(__file__).resolve().parents[1] / "colab_cli" / path.name
+        if digest(path) != digest(qualified_source):
+            raise CTResumeRefused(
+                f"retained staged executable differs from qualified source: {path}"
+            )
+        return
+    is_json = path.suffix == ".json" or path.name.endswith(".json.partial")
+    if is_json:
         try:
-            persisted_state = json.loads(state_file.read_text())
-        except (OSError, json.JSONDecodeError) as err:
-            raise CTResumeRefused("corrupt persisted state.json") from err
-        if not isinstance(persisted_state, Mapping):
-            raise CTResumeRefused("malformed persisted state.json")
-        _check_runtime_state_fault_evidence(persisted_state, label="persisted_state")
+            text = path.read_text()
+            payload = json.loads(text)
+        except (UnicodeError, json.JSONDecodeError) as error:
+            if isinstance(error, json.JSONDecodeError):
+                _refuse_if_fault_text(text, field_name=str(path))
+            label = (
+                "corrupt poll evidence"
+                if path.name.startswith("poll-")
+                else "unreadable or partial retained JSON evidence"
+            )
+            raise CTResumeRefused(f"{label}: {path}") from error
+        if path.name in {
+            "state.json",
+            "state.json.partial",
+            "terminal.json",
+            "terminal.json.partial",
+        }:
+            if not isinstance(payload, Mapping):
+                raise CTResumeRefused(f"malformed retained execution record: {path}")
+            _check_retained_execution(
+                payload,
+                label=str(path),
+                expected_job_id=expected_job_id,
+                expected_generation=expected_generation,
+                require_identity=True,
+            )
+        if path.name.startswith("poll-"):
+            if not isinstance(payload, Mapping):
+                raise CTResumeRefused(f"malformed poll evidence: {path}")
+            _check_poll_fault_evidence(payload, label=str(path))
+        if path.name in {"receipt.json", "receipt.json.partial"} and isinstance(payload, Mapping):
+            if payload.get("status") != "INCOMPLETE" or payload.get("stop_verified") is not True:
+                raise CTResumeRefused(f"non-resumable retained receipt: {path}")
+            _refuse_if_fault_text(payload.get("error"), field_name=str(path))
+            payload = {k: v for k, v in payload.items() if k != "error"}
+        _scan_json_faults(
+            payload,
+            label=str(path),
+            expected_job_id=expected_job_id,
+            expected_generation=expected_generation,
+        )
+        return
+    # Known model payload formats must never be interpreted as diagnostic text.
+    if any(suffix in {".pt", ".pth", ".xz", ".gz", ".zip"} for suffix in path.suffixes):
+        return
+    with path.open("rb") as stream:
+        sample = stream.read(8192)
+        if b"\x00" in sample:
+            raise CTResumeRefused(f"unreadable retained diagnostic evidence: {path}")
+    with path.open(encoding="utf-8") as stream:
+        overlap = ""
+        while part := stream.read(65536):
+            _refuse_if_fault_text(overlap + part, field_name=str(path))
+            overlap = part[-256:]
 
-    term_file = base / "terminal.json"
-    if term_file.is_symlink():
-        raise CTResumeRefused(f"symlinked terminal.json: {term_file}")
-    if term_file.is_file():
-        try:
-            persisted_term = json.loads(term_file.read_text())
-        except (OSError, json.JSONDecodeError) as err:
-            raise CTResumeRefused("corrupt persisted terminal.json") from err
-        if not isinstance(persisted_term, Mapping):
-            raise CTResumeRefused("malformed persisted terminal.json")
-        _check_terminal_fault_evidence(persisted_term, label="persisted_terminal")
 
-    for poll_path in sorted(base.glob("poll-*.json")):
-        if poll_path.is_symlink() or not poll_path.is_file():
-            raise CTResumeRefused(f"non-regular or symlinked poll evidence: {poll_path.name}")
-        try:
-            poll_payload = json.loads(poll_path.read_text())
-        except (OSError, json.JSONDecodeError) as err:
-            raise CTResumeRefused(f"corrupt poll evidence: {poll_path.name}") from err
-        if not isinstance(poll_payload, Mapping):
-            raise CTResumeRefused(f"malformed poll evidence: {poll_path.name}")
-        _check_poll_fault_evidence(poll_payload, label=poll_path.name)
+def retained_inventory(root: Path) -> dict[str, Any]:
+    """Bind every retained byte by path/size/hash without decoding numerical payloads."""
+    if not root.is_absolute() or root.is_symlink():
+        raise CTResumeRefused(f"invalid retained evidence root: {root}")
+    if not root.exists():
+        return {"exists": False, "files": []}
+    if not root.is_dir():
+        raise CTResumeRefused(f"retained evidence root is not a directory: {root}")
+    return {
+        "exists": True,
+        "files": [
+            {"path": str(p.relative_to(root)), "size": p.stat().st_size, "sha256": digest(p)}
+            for p in _retained_files(root)
+        ],
+    }
 
-    for rel_stage_dir in (".", "ct", "exports/ct"):
-        _check_stage_headers_for_fault(base / rel_stage_dir if rel_stage_dir != "." else base)
+
+def _check_attempt_base_fault_evidence(
+    base: Path,
+    *,
+    expected_job_id: str | None = None,
+    expected_generation: str | None = None,
+) -> None:
+    """Inspect the entire retained diagnostic set; model payloads remain hash-only."""
+    inventory = retained_inventory(base.resolve() if not base.is_symlink() else base)
+    for row in inventory["files"]:
+        path = base / row["path"]
+        name = path.name.lower()
+        if name.startswith("summary.json"):
+            raise CTResumeRefused(f"scientific summary already present: {path}")
+        if name.startswith("fault.json"):
+            raise CTResumeRefused(f"scientific/runtime fault diagnostic present: {path}")
+        if name == "faulthandler-stacks.log" and row["size"]:
+            raise CTResumeRefused(f"non-empty faulthandler stack dump: {path}")
+        _scan_retained_text(
+            path,
+            output_root=base,
+            expected_job_id=expected_job_id,
+            expected_generation=expected_generation,
+        )
 
 
 def _candidate_search_roots(export_root: Path) -> list[Path]:
     roots = [export_root]
-    if export_root.parent != export_root:
-        roots.append(export_root.parent)
     if export_root.name == "ct" and export_root.parent.name == "exports":
         if len(export_root.parents) >= 2:
             roots.append(export_root.parents[1])
@@ -586,6 +722,12 @@ def assert_no_scientific_or_fault_precedence(
     for root in _normalize_export_roots(export_root):
         _check_single_root_fault_evidence(root)
 
+    _scan_json_faults(
+        {k: v for k, v in receipt.items() if k != "error"},
+        label="receipt",
+        expected_job_id=receipt.get("job_id"),
+        expected_generation=receipt.get("generation"),
+    )
     _refuse_if_fault_text(
         receipt.get("error"), field_name="receipt.error", check_supervisor_denylist=True
     )
@@ -1280,6 +1422,23 @@ def completion_packet(
         export_root=export_root,
         supervisor_log_path=supervisor_log_path,
     )
+    inherited_roots = set()
+    prior_attempt = original_manifest.get("completion_attempt")
+    if isinstance(prior_attempt, Mapping):
+        inherited_roots.update(prior_attempt.get("prior_output_dirs", []))
+        inherited_roots.update(prior_attempt.get("prior_export_roots", []))
+    current_roots = [Path(r) for r in prior_output_dirs if r not in inherited_roots]
+    current_roots.extend(
+        root
+        for root in _normalize_export_roots(export_root)
+        if str(root.resolve()) not in inherited_roots
+    )
+    for root in current_roots:
+        _check_attempt_base_fault_evidence(
+            root,
+            expected_job_id=str(original_manifest["job_id"]),
+            expected_generation=terminal_receipt.get("generation"),
+        )
     if not job_id or job_id == original_manifest.get("job_id"):
         raise CTResumeRefused("completion attempt requires a fresh job_id")
     if not output_dir.is_absolute() or output_dir.is_symlink():
@@ -1469,6 +1628,9 @@ def write_continuation_packet(
     reg_check = json.loads(prior_reg_check_path.read_text())
     topo_manifest = json.loads(prior_topo_path.read_text())
 
+    from research.sandbox_a_resident.ct_preflight import validate_uploaded_ledger
+
+    validate_uploaded_ledger(prior, copy.deepcopy(prior_manifest), control)
     built = completion_packet(
         prior_manifest,
         terminal_receipt,
@@ -1486,6 +1648,28 @@ def write_continuation_packet(
         prior_manifest_path=prior_manifest_path,
     )
 
+    provenance_roots = sorted(
+        set(
+            built.manifest["completion_attempt"]["prior_output_dirs"]
+            + built.manifest["completion_attempt"]["prior_export_roots"]
+        )
+    )
+    provenance = {
+        "schema": "t34-cf-continuation-provenance/v1",
+        "prior_manifest_path": str(prior_manifest_path),
+        "prior_manifest_sha256": prior_manifest_sha,
+        "receipt": dict(terminal_receipt),
+        "retained": {root: retained_inventory(Path(root)) for root in provenance_roots},
+        "supervisor_log": (
+            None
+            if supervisor_log_path is None
+            else {
+                "path": str(supervisor_log_path.resolve()),
+                "size": supervisor_log_path.stat().st_size,
+                "sha256": digest(supervisor_log_path),
+            }
+        ),
+    }
     packet.mkdir(parents=True, exist_ok=False)
     write_once(packet / "control.json", control)
     write_once(packet / "registry-check.json", reg_check)
@@ -1494,8 +1678,10 @@ def write_continuation_packet(
     if digest(packet / "verified-ledger.json") != built.ledger_sha256:
         raise CTResumeRefused("written verified-ledger.json SHA-256 differs from manifest binding")
 
+    write_once(packet / "provenance.json", provenance)
     # Preserve canonical seed/topology bindings pointing to identical sidecar bytes.
     manifest_out = copy.deepcopy(built.manifest)
+    manifest_out["completion_attempt"]["provenance_sha256"] = digest(packet / "provenance.json")
     manifest_out["sandbox_a"] = {
         **dict(manifest_out.get("sandbox_a", {})),
         "seed_audit_sha256": digest(packet / "registry-check.json"),
@@ -1549,6 +1735,16 @@ def write_continuation_packet(
     with (packet / "sandbox.json").open("x") as stream:
         stream.write("\n".join(lines) + "\n")
 
+    write_once(
+        packet / "SEAL.json",
+        {
+            "schema": "t34-cf-continuation-seal/v1",
+            "provenance_sha256": digest(packet / "provenance.json"),
+            "manifest_sha256": broker_sha,
+            "ledger_sha256": built.ledger_sha256,
+            "prior_manifest_sha256": prior_manifest_sha,
+        },
+    )
     validate_manifest(load_manifest(packet / "sandbox.json"))
     if validate_registry_inputs:
         reg_entry = next((r for r in sandbox_inputs if r["kind"] == "registry"), None)

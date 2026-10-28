@@ -55,7 +55,7 @@ from research.sandbox_a_resident.ct_units import (
 )
 from research.sandbox_a_resident.stall_watchdog import StallWatchdog
 from research.sandbox_a_resident.training_rosters import CHAMPION_SHA256, FRP3_S12_SHA256
-from research.sandbox_a_resident.units import digest, publish
+from research.sandbox_a_resident.units import digest
 from src.model.ego2s_network import Ego2sNet, load_ego2s_checkpoint
 from src.model.inference_agent import InferenceAgent
 
@@ -526,17 +526,21 @@ def run_ct_experiment(
             "allocation": alloc_sha,
             "latest_durable_stage": latest_durable_stage,
             "error_type": type(exc).__qualname__,
-            "error_message": str(exc),
-            "traceback": traceback.format_exc(),
+            "error_message": str(exc)[:8192],
+            "traceback": traceback.format_exc()[-16384:],
+            "diagnostic_text_truncated": True,
         }
         fault_path = output / "fault.json"
         if not fault_path.exists():
             try:
-                publish(
+                publish_bounded_export(
                     fault_path,
                     lambda p: p.write_text(
                         json.dumps(fault_record, indent=2, sort_keys=True) + "\n"
                     ),
+                    export_root=output,
+                    max_total_bytes=control.max_total_export_bytes,
+                    reserved_tail_bytes=_summary_tail_reserve_bytes(control),
                 )
             except BaseException:
                 pass
