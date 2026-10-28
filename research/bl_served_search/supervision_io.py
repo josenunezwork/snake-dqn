@@ -80,8 +80,8 @@ def _registry_from_identity(
 
     capture_start = time.monotonic_ns()
     boot_id = "boot-" + str(psutil.boot_time())
-    state_dir = Path(argv[4]).resolve(strict=True)
-    manifest_path = Path(argv[-1]).resolve(strict=True)
+    state_dir = (cwd / argv[4]).resolve(strict=True)
+    manifest_path = (cwd / argv[-1]).resolve(strict=True)
     manifest = json.loads(manifest_path.read_text())
     lane = state_dir / manifest["job_id"]
     assignment_path = lane / "assignment.json"
@@ -108,7 +108,7 @@ def _registry_from_identity(
             )
         )
     sources = {str(path.resolve(strict=True)): file_digest(path) for path in paths}
-    colab = Path(argv[6]).resolve(strict=True)
+    colab = (cwd / argv[6]).resolve(strict=True)
     if argv[2] == "tools.sandbox.supervisor_v2":
         sources[str(colab)] = file_digest(colab)
     with colab.open("rb") as handle:

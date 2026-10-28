@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @contextmanager
-def prospective_root(tmp_path, *, cwd=None, invocation="exact"):
+def prospective_root(tmp_path, *, cwd=None, invocation="exact", relative_paths=False):
     """Pause before module execution, using real psutil argv and Collector I/O.
 
     sitecustomize is only a test entry harness: it installs the real collector
@@ -77,7 +77,16 @@ def prospective_root(tmp_path, *, cwd=None, invocation="exact"):
         if invocation == "script"
         else ["-m", "tools.sandbox.supervisor_v2"]
     )
-    args += ["--state-dir", str(state), "--colab", str(cli), "run", str(manifest)]
+
+    def argument(path):
+        return os.path.relpath(path, ROOT) if relative_paths else str(path)
+
+    flags = ["--state-dir", argument(state), "--colab", argument(cli)]
+    if invocation == "swapped":
+        flags = flags[2:] + flags[:2]
+    elif invocation == "abbreviated":
+        flags[0], flags[2] = "--state", "--col"
+    args += [*flags, "run", argument(manifest)]
     env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(harness), str(ROOT)])}
     child = subprocess.Popen(
         args,
@@ -138,8 +147,30 @@ def test_loaded_checkout_must_match_real_process_cwd(tmp_path):
         assert not (directory / "collector.json").exists()
 
 
-@pytest.mark.parametrize("invocation", ["flag", "script"])
+@pytest.mark.parametrize("invocation", ["flag", "script", "swapped", "abbreviated"])
 def test_manifest_bytes_require_exact_real_process_argv(tmp_path, invocation):
     with prospective_root(tmp_path, invocation=invocation) as (_, directory, _, result):
         assert "manifest requires exact supervisor argv" in result["error"]
         assert not (directory / "collector.json").exists()
+
+
+def test_relative_startup_paths_are_resolved_in_root_cwd(tmp_path, monkeypatch):
+    with prospective_root(tmp_path, relative_paths=True) as (manifest, directory, cli, result):
+        assert result == {}
+        startup = read_export(directory / "collector.json")["startup"]
+        assert not Path(startup["argv"][4]).is_absolute()
+        assert not Path(startup["argv"][6]).is_absolute()
+        assert not Path(startup["argv"][-1]).is_absolute()
+        # Registry capture runs elsewhere than the root; use actual psutil
+        # identity/source checks and the real immutable collector export.
+        monkeypatch.chdir(tmp_path)
+        registry = supervision_dispatch.capture_dispatch_registry(manifest)
+        root = registry["roots"][0]
+        assert root["cwd"] == str(ROOT)
+        assert root["state_dir"] == str(tmp_path / "state")
+        assert root["colab"] == str(cli.resolve())
+        assert root["manifest"] == str(manifest.resolve())
+        assert root["source_hashes"][str(cli.resolve())] == io.file_digest(cli)
+        assert registry["assignment_path"] == str(
+            tmp_path / "state/offline-binding/assignment.json"
+        )

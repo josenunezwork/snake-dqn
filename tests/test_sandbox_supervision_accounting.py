@@ -608,27 +608,71 @@ def test_timeout_with_successful_post_kill_drain_never_certifies_capture(tmp_pat
 
 
 @pytest.mark.parametrize("holds_pipes", [False, True])
-def test_real_descendant_post_death_output_is_bounded_and_uncertified(tmp_path, holds_pipes):
+def test_real_descendant_post_death_output_is_bounded_and_uncertified(
+    tmp_path, monkeypatch, holds_pipes
+):
+    import select
+
     from tools.sandbox.collector_v2 import POST_KILL_DRAIN_SECONDS
 
     collector = Collector(tmp_path / "collector")
     pid_file = tmp_path / "descendant.pid"
-    # The descendant inherits BOTH response pipes and writes after the direct
-    # child has been killed. It either exits during drain or keeps FDs open.
-    descendant = "import time; time.sleep(0.4); print('post-death', flush=True); " + (
-        "time.sleep(10)" if holds_pipes else "pass"
+    ready_read, ready_write = os.pipe()
+    # The descendant signals readiness, then waits for EOF on a pipe whose
+    # sole writer is the direct child. Only killing that child releases it.
+    descendant = (
+        "import os,sys,time; from pathlib import Path; "
+        f"Path({str(pid_file)!r}).write_text(str(os.getpid())); "
+        f"os.write({ready_write}, b'R'); os.close({ready_write}); "
+        "assert os.read(int(sys.argv[1]), 1) == b''; "
+        "print('post-death', flush=True); " + ("time.sleep(10)" if holds_pipes else "pass")
     )
     code = (
-        "import subprocess,sys,time; from pathlib import Path; "
-        f"p=subprocess.Popen([sys.executable, '-c', {descendant!r}]); "
-        f"Path({str(pid_file)!r}).write_text(str(p.pid)); time.sleep(10)"
+        "import os,subprocess,sys; r,w=os.pipe(); "
+        f"subprocess.Popen([sys.executable, '-c', {descendant!r}, str(r)], "
+        f"pass_fds=(r, {ready_write})); "
+        f"os.close(r); os.close({ready_write}); sys.stdin.buffer.read()"
     )
+    original = subject.Wait4Popen.communicate
+    calls = []
+
+    def communicate(child, *args, **kwargs):
+        if not calls:
+            assert select.select([ready_read], [], [], 10)[0], "descendant never became ready"
+            assert os.read(ready_read, 1) == b"R"
+            calls.append("ready")
+            # Deterministically enter the timeout branch only after both real
+            # interpreters have started. No startup deadline or sleep race.
+            raise subprocess.TimeoutExpired(child.args, kwargs["timeout"])
+        assert kwargs["timeout"] == POST_KILL_DRAIN_SECONDS
+        started = time.monotonic()
+        try:
+            output, error = original(child, *args, **kwargs)
+        except subprocess.TimeoutExpired as exc:
+            calls.append("drain-timeout")
+            assert exc.output == b"post-death\n"
+            raise
+        else:
+            calls.append("drain-completed")
+            assert output == b"post-death\n"
+            assert error == b""
+            return output, error
+        finally:
+            assert time.monotonic() - started < POST_KILL_DRAIN_SECONDS + 2
+
+    monkeypatch.setattr(subject.Wait4Popen, "communicate", communicate)
     started = time.monotonic()
     try:
         with pytest.raises(subprocess.TimeoutExpired):
-            collector.run([sys.executable, "-c", code], capture_output=True, timeout=0.3)
-        elapsed = time.monotonic() - started
-        assert elapsed < 0.3 + POST_KILL_DRAIN_SECONDS + 2
+            collector.run(
+                [sys.executable, "-c", code],
+                capture_output=True,
+                stdin=subprocess.PIPE,
+                pass_fds=(ready_write,),
+                timeout=10,
+            )
+        assert time.monotonic() - started < 10 + POST_KILL_DRAIN_SECONDS + 2
+        assert calls == ["ready", "drain-timeout" if holds_pipes else "drain-completed"]
         assert pid_file.exists()
         collector.seal()
         end = subject.read_journal(collector.journal.directory)[-1]
@@ -636,6 +680,8 @@ def test_real_descendant_post_death_output_is_bounded_and_uncertified(tmp_path, 
         assert end["response_capture"]["independent"] is False
         assert end["response_bytes"] == 0
     finally:
+        os.close(ready_read)
+        os.close(ready_write)
         if pid_file.exists():
             import psutil
 

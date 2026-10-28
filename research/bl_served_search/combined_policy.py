@@ -122,14 +122,15 @@ def _replay(host: dict, *, final: bool) -> dict:
         at = point["time_ns"]
         for row in point["processes"]:
             if row.get("kind") in {"desktop_app", "desktop_renderer"}:
-                if not remote._permitted(row, at, identity["lifecycles"]):
+                if supervision_identity.process_id(row) not in identity["lifecycles"]:
                     keys.add(remote.digest([at, at, row]))
     for sample in host["cpu_samples"]:
         a, b = sample["start_ns"], sample["end_ns"]
         for row in sample["processes"]:
-            permitted = remote._permitted_interval(row, a, b, identity["lifecycles"])
             if row.get("kind") in {"desktop_app", "desktop_renderer"}:
-                if not permitted:
+                # A supervised process cannot become ambient desktop work when
+                # it escapes its permitted lifecycle window.
+                if supervision_identity.process_id(row) not in identity["lifecycles"]:
                     keys.add(remote.digest([a, b, row]))
     background.validate_desktop_host(desktop)
     ordinary = remote.replay_ordinary(
@@ -235,21 +236,20 @@ def replay_host(raw: dict) -> dict:
     desktop_policy.validate_component_intent(raw)
     receipt = raw.get("qualification_receipt")
     observation_times = []
-    captures = list(host["cpu_samples"])
-    captures.extend(o["process_screen"] for o in host["observations"])
     if not host["cpu_samples"] or not host["observations"]:
         raise ValueError("combined intent has empty observation timestamps")
-    for capture in captures:
+    captures = [(s, ("start_ns", "end_ns")) for s in host["cpu_samples"]]
+    captures.extend((o["process_screen"], ("observation_ns",)) for o in host["observations"])
+    for capture, fields in captures:
         at = capture.get("capture_start_ns")
         if type(at) is not int or at < 0:
             raise ValueError("combined intent requires capture_start_ns on every observation")
+        times = [at, *(capture.get(field) for field in fields)]
+        if "capture_end_ns" in capture:
+            times.append(capture["capture_end_ns"])
+        if any(type(t) is not int or t < 0 for t in times) or times != sorted(times):
+            raise ValueError("combined intent has malformed or unordered capture timestamps")
         observation_times.append(at)
-    observation_times.extend(s["start_ns"] for s in host["cpu_samples"])
-    for observation in host["observations"]:
-        screen = observation["process_screen"]
-        observation_times.append(screen["observation_ns"])
-    if any(type(at) is not int or at < 0 for at in observation_times):
-        raise ValueError("combined intent has malformed observation timestamps")
     first_observation = min(observation_times)
     publications = [
         raw["desktop_intent"].get("published_ns"),

@@ -49,7 +49,8 @@ def capture_dispatch_registry(manifest_path: Path) -> dict[str, Any]:
     expected_sources[startup["colab"]] = startup["colab_sha256"]
     # The qualified CLI generates this hook after collector startup. Bind its
     # deterministic bytes, rather than trusting a post-startup file hash.
-    hook = Path(startup["argv"][4]) / packet["job_id"] / "cli-hook/sitecustomize.py"
+    state_dir = (cwd / startup["argv"][4]).resolve(strict=True)
+    hook = state_dir / packet["job_id"] / "cli-hook/sitecustomize.py"
     guard = str(cwd / "research/colab_cli/cli_guard.py")
     hook_bytes = (
         "import os,runpy\ntry:\n    runpy.run_path("

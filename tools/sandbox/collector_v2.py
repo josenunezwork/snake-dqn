@@ -63,7 +63,11 @@ class Collector:
         cwd = Path(process.cwd()).resolve(strict=True)
         if cwd != Path(__file__).resolve().parents[2]:
             raise accounting.AccountingError("startup cwd differs from loaded collector checkout")
-        exact_argv = len(argv) == 9 and argv[1:3] == ["-m", "tools.sandbox.supervisor_v2"]
+        exact_argv = (
+            len(argv) == 9
+            and argv[1:3] == ["-m", "tools.sandbox.supervisor_v2"]
+            and (argv[3], argv[5], argv[7]) == ("--state-dir", "--colab", "run")
+        )
         if manifest_bytes is not None and not exact_argv:
             raise accounting.AccountingError("startup manifest requires exact supervisor argv")
         result = {
@@ -75,14 +79,14 @@ class Collector:
             "interpreter": str(Path(process.exe()).resolve(strict=True)),
         }
         if exact_argv:
-            path = Path(argv[-1]).resolve(strict=True)
+            path = (cwd / argv[-1]).resolve(strict=True)
             actual_bytes = path.read_bytes()
             if manifest_bytes is None or actual_bytes != manifest_bytes:
                 raise accounting.AccountingError("startup manifest bytes changed or unavailable")
             result.update(
                 manifest=str(path), manifest_sha256=accounting.sha256_bytes(manifest_bytes)
             )
-            colab = Path(argv[6]).resolve(strict=True)
+            colab = (cwd / argv[6]).resolve(strict=True)
             result.update(
                 colab=str(colab), colab_sha256=accounting.sha256_bytes(colab.read_bytes())
             )

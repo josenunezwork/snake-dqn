@@ -103,14 +103,11 @@ def fixture(enrolled, *, supervised_desktop=None):
     return host
 
 
-@pytest.mark.parametrize("kind", ["desktop_app", "desktop_renderer"])
-def test_supervised_desktop_child_totals_are_removed_before_wire_and_report_validation(
-    enrolled, kind
-):
+def enrolled_role(enrolled, kind):
+    """Enroll either real desktop fixture shape for supervised-child regressions."""
     import json
 
     from research.bl_served_search.desktop_apps import DesktopRegistry
-    from tests.test_served_supervision_report import _row
 
     registry, app_row, executable, bundle = enrolled
     command = str(executable)
@@ -132,7 +129,17 @@ def test_supervised_desktop_child_totals_are_removed_before_wire_and_report_vali
         )
         registry.verify_all()
         command = str(renderer)
-    host = fixture((registry, app_row, executable, bundle), supervised_desktop=command)
+    return (registry, app_row, executable, bundle), command
+
+
+@pytest.mark.parametrize("kind", ["desktop_app", "desktop_renderer"])
+def test_supervised_desktop_child_totals_are_removed_before_wire_and_report_validation(
+    enrolled, kind
+):
+    from tests.test_served_supervision_report import _row
+
+    enrollment, command = enrolled_role(enrolled, kind)
+    host = fixture(enrollment, supervised_desktop=command)
     assert host["cpu_samples"][2][kind + "_cpu_percent"] >= 10
     before = deepcopy(host)
     proof = combined.replay(host)
@@ -145,6 +152,32 @@ def test_supervised_desktop_child_totals_are_removed_before_wire_and_report_vali
         {"trace": [_row(0, 61 * SECOND, 61 * SECOND + 10)], "warmup_ticks": 0}, host, proof
     )
     assert report["counts"]["ticks"] == 1
+    assert host == before
+
+
+@pytest.mark.parametrize("kind", ["desktop_app", "desktop_renderer"])
+@pytest.mark.parametrize("inventory", ["cpu_samples", "observations"])
+def test_escaped_supervised_desktop_child_cannot_become_ambient(enrolled, kind, inventory):
+    enrollment, command = enrolled_role(enrolled, kind)
+    host = fixture(enrollment, supervised_desktop=command)
+    assert combined.replay(host)["valid"]
+    # The real CLI lifecycle ends at 3s and its operation at 4s. Observe the
+    # very same OS identity during served exposure, after both windows ended.
+    row = deepcopy(host["cpu_samples"][2]["processes"][1])
+    assert row["kind"] == kind
+    row["cpu_percent"] = 25
+    if inventory == "cpu_samples":
+        sample = host["cpu_samples"][61]
+        sample["processes"].append(row)
+        combined._totals(sample)
+    else:
+        host["observations"][-1]["process_screen"]["classified_processes"].append(row)
+        host["supervision_point_screens"][-1]["processes"].append(deepcopy(row))
+    before = deepcopy(host)
+    proof = combined.replay(host)
+    assert proof["valid"] is False
+    expected = "heavy load" if inventory == "cpu_samples" else ">=20%"
+    assert expected in str(proof["errors"])
     assert host == before
 
 
@@ -543,6 +576,40 @@ def test_combined_publication_precedes_capture_start_not_only_midpoint(enrolled,
         capture = capture["process_screen"]
     capture["capture_start_ns"] = 2
     with pytest.raises(ValueError, match="publication"):
+        combined.replay_host(raw)
+
+
+@pytest.mark.parametrize("inventory", ["cpu_samples", "observations"])
+@pytest.mark.parametrize("index", [0, -1])
+@pytest.mark.parametrize(
+    "fault", ["late-start", "early-end", "bool-end", "missing-time", "bool-time"]
+)
+def test_combined_capture_clock_order_is_checked_per_record(enrolled, inventory, index, fault):
+    raw = bound_raw(enrolled)
+    entry = raw["host"][inventory][index]
+    capture = entry if inventory == "cpu_samples" else entry["process_screen"]
+    field = "start_ns" if inventory == "cpu_samples" else "observation_ns"
+    end = "end_ns" if inventory == "cpu_samples" else "observation_ns"
+    if fault == "late-start":
+        # A curr-snapshot start or post-scan clock must not fall back to midpoint.
+        capture["capture_start_ns"] = capture[field] + 1
+    elif fault == "early-end":
+        capture["capture_end_ns"] = capture[end] - 1
+    elif fault == "bool-end":
+        capture["capture_end_ns"] = True
+    elif fault == "missing-time":
+        del capture[field]
+    else:
+        capture[field] = True
+    with pytest.raises(ValueError, match="capture timestamps"):
+        combined.replay_host(raw)
+
+
+def test_combined_cpu_interval_end_cannot_precede_start(enrolled):
+    raw = bound_raw(enrolled)
+    capture = raw["host"]["cpu_samples"][-1]
+    capture["end_ns"] = capture["start_ns"] - 1
+    with pytest.raises(ValueError, match="capture timestamps"):
         combined.replay_host(raw)
 
 
