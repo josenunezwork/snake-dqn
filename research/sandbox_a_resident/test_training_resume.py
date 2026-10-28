@@ -1490,7 +1490,13 @@ def test_review_r3_execution_filename_variants_refuse(
     if ".jsonl" in Path(name).suffixes:
         text = json.dumps({"message": "healthy first line"}) + "\n" + text
     (tmp_path / name).write_text(text + "\n")
-    with pytest.raises(ResumeRefused):
+    message = {
+        "failed": "unknown execution status or failed status",
+        "completed": "completed status",
+        "foreign-job": "foreign job_id",
+        "foreign-generation": "foreign generation",
+    }[defect]
+    with pytest.raises(ResumeRefused, match=message):
         _check_output_root_fault_evidence(
             tmp_path, expected_job_id="train-01", expected_generation="gen"
         )
@@ -1511,7 +1517,14 @@ def test_review_r3_structured_diagnostics_refuse(tmp_path: Path, suffix: str, re
 
     path = tmp_path / ("progress" + suffix)
     path.write_text(json.dumps(record) + "\n")
-    with pytest.raises(ResumeRefused):
+    with pytest.raises(
+        ResumeRefused,
+        match=(
+            "records failed stage"
+            if "stage" in record
+            else "explicit scientific/non-mechanical fault"
+        ),
+    ):
         _scan_retained_text(path, output_root=tmp_path)
 
 
@@ -1523,7 +1536,9 @@ def test_review_r3_compressed_diagnostics_refuse(tmp_path: Path, suffix: str) ->
 
     path = tmp_path / ("job.log" + suffix)
     path.write_bytes(gzip.compress(b"FloatingPointError: non-finite loss tripwire"))
-    with pytest.raises(ResumeRefused):
+    with pytest.raises(
+        ResumeRefused, match="compressed|scientific/non-mechanical fault|failed stage"
+    ):
         _scan_retained_text(path, output_root=tmp_path)
 
 

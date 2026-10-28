@@ -137,8 +137,7 @@ def _manifest(
     }
 
 
-@pytest.fixture(autouse=True)
-def _isolate_account(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def isolate_account(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(supervisor, "ACCOUNT_ROOT", tmp_path / "account")
     # The implementation deliberately obtains runtime/bootstrap from the
     # manifest commit.  During this uncommitted test checkout, make an
@@ -184,6 +183,11 @@ def _isolate_account(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     ).strip()
     monkeypatch.setenv("GIT_INDEX_FILE", str(index))
     monkeypatch.setenv("SNAKE_TEST_PINNED_COMMIT", commit)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_account(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    isolate_account(monkeypatch, tmp_path)
 
 
 def test_allocation_cap_counts_existing_notebook_assignments(

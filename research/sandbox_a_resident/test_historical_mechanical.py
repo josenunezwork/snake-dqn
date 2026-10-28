@@ -22,23 +22,31 @@ def _sha256(path: Path) -> str:
 
 
 @pytest.fixture(scope="module", autouse=True)
-def _preserve_original_manifest_commit() -> None:
+def _preserve_original_manifest_commit(tmp_path_factory):
     """Restore the captured original commit object if local Git GC removed it."""
     repo = Path(__file__).resolve().parents[2]
-    for attempt in ATTEMPTS:
-        root = FIXTURES / attempt
-        manifest = json.loads((root / "output/manifest.json").read_text())
-        raw = (root / "pinned-commit.raw").read_bytes()
-        identity = hashlib.sha1(b"commit " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
-        assert identity == manifest["commit"]
-        exists = subprocess.run(
-            ["git", "cat-file", "-e", identity], cwd=repo, capture_output=True, check=False
-        )
-        if exists.returncode:
-            restored = subprocess.check_output(
-                ["git", "hash-object", "-w", "-t", "commit", "--stdin"], input=raw, cwd=repo
+    objects = tmp_path_factory.mktemp("capture-git-objects")
+    common = subprocess.check_output(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=repo, text=True
+    ).strip()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("GIT_OBJECT_DIRECTORY", str(objects))
+        mp.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", str(Path(common) / "objects"))
+        for attempt in ATTEMPTS:
+            root = FIXTURES / attempt
+            manifest = json.loads((root / "output/manifest.json").read_text())
+            raw = (root / "pinned-commit.raw").read_bytes()
+            identity = hashlib.sha1(b"commit " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+            assert identity == manifest["commit"]
+            exists = subprocess.run(
+                ["git", "cat-file", "-e", identity], cwd=repo, capture_output=True, check=False
             )
-            assert restored.decode().strip() == identity
+            if exists.returncode:
+                restored = subprocess.check_output(
+                    ["git", "hash-object", "-w", "-t", "commit", "--stdin"], input=raw, cwd=repo
+                )
+                assert restored.decode().strip() == identity
+        yield
 
 
 @pytest.mark.parametrize("attempt", ATTEMPTS)

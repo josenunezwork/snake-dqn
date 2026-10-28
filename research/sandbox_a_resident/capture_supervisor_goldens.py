@@ -17,8 +17,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 
@@ -39,6 +41,7 @@ SCENARIOS = (
     "runtime-timeout",
     "runtime-lease-expiry",
     "provider-loss-no-receipt",
+    "provider-loss-after-download",
 )
 
 
@@ -56,7 +59,7 @@ def _sha(path: Path) -> str:
 
 def _runtime_into_fake(
     root: Path, payload: dict[str, Any], scenario: str, mp: pytest.MonkeyPatch
-) -> None:
+) -> Callable[[], None] | None:
     """Run pinned runtime + real train orchestration with the existing tiny CPU seams.
 
     Runtime validation's /content path restriction and release safety are the
@@ -84,7 +87,7 @@ class ProxyTask(Task):
         event.mass = self.hero_length
         return event
 m = pytest.MonkeyPatch()
-c,_ = p.production.__wrapped__(m,Path(os.environ['COLAB_OUTPUT_DIR']))
+c,_ = p.production_seams(m,Path(os.environ['COLAB_OUTPUT_DIR']))
 object.__setattr__(c,'outer_iterations',16)
 p.train.ResidentTrainingTask.proxy_factory = lambda *args: lambda *args: ProxyTask()
 p.train.evaluate = training_proxy.evaluate
@@ -99,44 +102,177 @@ p.execute(c,Path(os.environ['COLAB_OUTPUT_DIR'])/'training',on_progress=boundary
         "job_id": payload["manifest"]["job_id"],
         "generation": payload["generation"],
         "root": str(owned),
-        "command": [sys.executable, "-c", child_code],
+        "command": [
+            sys.executable,
+            "-c",
+            "import sys; sys.exit(23)" if scenario == "child-nonzero" else child_code,
+        ],
         "env": {
             "PYTHONPATH": str(REPO),
             "OMP_NUM_THREADS": "1",
             "OPENBLAS_NUM_THREADS": "1",
-            "GOLDEN_WAIT_AT_BOUNDARY": "0" if scenario == "clean-completion" else "1",
+            "GOLDEN_WAIT_AT_BOUNDARY": (
+                "0" if scenario in {"clean-completion", "child-nonzero"} else "1"
+            ),
         },
         "timeout_seconds": 8 if scenario == "runtime-timeout" else 30,
         "lease_seconds": 6 if scenario == "runtime-lease-expiry" else 60,
         "checkpoint_grace_seconds": 0.1,
         "max_export_bytes": 16 * 1024 * 1024,
         "release_endpoint": "offline-fake-endpoint",
-        "post_terminal_timeout_seconds": 0.2,
+        "post_terminal_timeout_seconds": 120,
     }
-    # Pin is loaded from the same immutable Git object as the Broker's bundle.
-    with pytest.MonkeyPatch.context() as runtime_mp:
-        runtime_mp.setattr(runtime, "_validate_spec", lambda raw: dict(raw))
-        runtime_mp.setattr(runtime, "_require_release_safety", lambda *_args: None)
-        runtime_mp.setattr(runtime, "_release_credential_expiring", lambda *_args: False)
-        runtime_mp.setattr(runtime, "_unassign", lambda *_args: None)
+    # Runtime remains retained while the real broker downloads the terminal.
+    mp.setattr(runtime, "_validate_spec", lambda raw: dict(raw))
+    mp.setattr(runtime, "_require_release_safety", lambda *_args: None)
+    mp.setattr(runtime, "_release_credential_expiring", lambda *_args: False)
+
+    def unassign(*_args: Any) -> None:
+        state_path = root / "fake-state.json"
+        state = json.loads(state_path.read_text())
+        session = payload["cli"].session
+        state["sessions"] = {
+            key: value
+            for key, value in state["sessions"].items()
+            if key != session and value.get("name") != session
+        }
+        state_path.write_text(json.dumps(state))
+
+    mp.setattr(runtime, "_unassign", unassign)
+    cleanup = None
+    if scenario in {"clean-completion", "child-nonzero"}:
+        errors = []
+        release = threading.Event()
+        mp.setattr(runtime, "_release_credential_expiring", lambda *_: release.is_set())
+
+        def run() -> None:
+            try:
+                runtime.supervise(spec)
+            except BaseException as error:
+                errors.append(error)
+
+        worker = threading.Thread(target=run)
+        worker.start()
+
+        def stop_runtime() -> None:
+            release.set()
+            worker.join(timeout=10)
+            if worker.is_alive() or errors:
+                raise RuntimeError(f"native runtime cleanup failed: {errors}")
+
+        try:
+            deadline = time.monotonic() + 60
+            while True:
+                if errors or not worker.is_alive() or time.monotonic() > deadline:
+                    raise RuntimeError(f"native runtime failed to publish terminal: {errors}")
+                retained_state = (
+                    json.loads((owned / "state.json").read_text())
+                    if (owned / "state.json").is_file()
+                    else {}
+                )
+                if (owned / "terminal.json").is_file() and retained_state.get("status") in {
+                    "succeeded",
+                    "failed",
+                }:
+                    break
+                time.sleep(0.02)
+        except BaseException:
+            stop_runtime()
+            raise
+        cleanup = stop_runtime
+    else:
         runtime.supervise(spec)
+        retained_state = json.loads((owned / "state.json").read_text())
+    observation = root / "runtime-observation"
+    observation.mkdir()
+    for name in ("terminal.json", "state.json", "job.log"):
+        shutil.copyfile(owned / name, observation / name)
     terminal = json.loads((owned / "terminal.json").read_text())
     state_path = root / "fake-state.json"
     state = json.loads(state_path.read_text())
     fake_runtime = state["runtime"][payload["cli"].session]
     fake_runtime["terminal"] = terminal
-    fake_runtime["state"] = json.loads((owned / "state.json").read_text())
+    fake_runtime["state"] = retained_state
     # Existing fake emulates the provider filesystem; Broker still transports
     # each export and verifies its native runtime scanner hash.
     remote_root = root / "remote" / payload["cli"].session / payload["root"].lstrip("/")
     shutil.copytree(owned / "output", remote_root / "output", dirs_exist_ok=True)
     state_path.write_text(json.dumps(state))
+    return cleanup
+
+
+def _prefetch_before_host_loss(root: Path, payload: dict[str, Any], lose_host: Any) -> None:
+    """Interrupt real native transfer after a verified opaque snapshot-shaped export."""
+    from research.colab_cli import transfers
+
+    cli = payload["cli"]
+    # Replay a previously native-produced tiny TRAIN-01 full-state publication
+    # through the actual downloader before the unrelated large byte transfer.
+    fixture = HERE / "fixtures/supervisor_goldens/runtime-timeout/output/exports/training"
+    remote_training = (
+        root / "remote" / cli.session / (payload["root"] + "/output/training").lstrip("/")
+    )
+    remote_training.mkdir(parents=True, exist_ok=True)
+    for name in ("iteration-0016.pt", "iteration-0016-actor.pth", "iteration-0016.json"):
+        for suffix in ("", ".sha256", ".complete"):
+            shutil.copyfile(fixture / (name + suffix), remote_training / (name + suffix))
+        source = fixture / name
+        supervisor.export_file(
+            cli,
+            payload["root"],
+            {
+                "path": "training/" + name,
+                "size": source.stat().st_size,
+                "sha256": _sha(source),
+            },
+            root / "job-output",
+            32 * 1024 * 1024,
+        )
+    content = hashlib.shake_256(b"train01-c2-native-chunks-v1").digest(17 * 1024 * 1024 + 19)
+    sha = hashlib.sha256(content).hexdigest()
+    remote = payload["root"] + "/output/training/iteration-0032.pt.xz"
+    path = root / "remote" / cli.session / remote.lstrip("/")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    Path(str(path) + ".sha256").write_text(sha + "\n")
+    Path(str(path) + ".complete").write_text("complete\n")
+    supervisor.export_file(
+        cli,
+        payload["root"],
+        {
+            "path": "training/iteration-0032.pt.xz",
+            "size": len(content),
+            "sha256": sha,
+        },
+        root / "job-output",
+        32 * 1024 * 1024,
+    )
+    original = cli._call_once
+
+    def interrupt(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        if args[0] == "download" and args[-2].endswith("/00000001.part"):
+            lose_host()
+        return result
+
+    cli._call_once = interrupt
+    transfers.download_file(
+        cli,
+        remote,
+        root / "job-output/exports/training/.transfer-interrupted",
+        len(content),
+        expected_sha256=sha,
+    )
+    raise RuntimeError("host-loss transfer boundary was not exercised")
 
 
 def capture_one(destination: Path, scenario: str) -> dict[str, Any]:
     """Capture one actual receipt and retained output under an isolated fake account."""
     assert scenario in SCENARIOS
-    if scenario == "provider-loss-no-receipt" and not os.environ.get("GOLDEN_LOSS_CHILD"):
+    if scenario in {
+        "provider-loss-no-receipt",
+        "provider-loss-after-download",
+    } and not os.environ.get("GOLDEN_LOSS_CHILD"):
         env = {**os.environ, "GOLDEN_LOSS_CHILD": "1"}
         result = subprocess.run(
             [
@@ -151,10 +287,12 @@ def capture_one(destination: Path, scenario: str) -> dict[str, Any]:
             cwd=REPO,
         )
         if result.returncode != 91:
+            if destination.exists():
+                destination.rename(destination.with_name(destination.name + ".failed"))
             raise RuntimeError(f"offline host loss child returned {result.returncode}")
         provenance = json.loads((destination / "provenance.json").read_text())
         scratch = Path(provenance["scratch_removed_by_parent"])
-        if scratch.parent != Path("/private/tmp") or not scratch.name.startswith(
+        if scratch.parent != Path(tempfile.gettempdir()) or not scratch.name.startswith(
             "train01-goldens-"
         ):
             raise RuntimeError("unexpected private scratch path")
@@ -176,7 +314,12 @@ def capture_one(destination: Path, scenario: str) -> dict[str, Any]:
         "tests/fixtures/fake_colab.py",
         "tests/fixtures/fake_colab_helper.py",
         "tests/test_colab_cli_supervisor.py",
+        "research/sandbox_a_resident/capture_supervisor_goldens.py",
         "research/sandbox_a_resident/train.py",
+        "research/sandbox_a_resident/training_compile.py",
+        "research/sandbox_a_resident/runtime_tools.py",
+        "research/sandbox_a_resident/training_units.py",
+        "research/sandbox_a_resident/units.py",
         "research/sandbox_a_resident/training_proxy.py",
         "research/sandbox_a_resident/test_training_production.py",
         "research/sandbox_a_resident/test_training_runner.py",
@@ -189,15 +332,41 @@ def capture_one(destination: Path, scenario: str) -> dict[str, Any]:
             ["git", "rev-parse", "HEAD"], cwd=REPO, text=True
         ).strip(),
         "provider": "tests/fixtures/fake_colab.py (subprocess; no account access)",
-        "receipt_fabricated": False,
         "admission_baseline_sha256": _sha(HERE / "training_resume.py"),
         "injections": [],
+        "working_tree_status": subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=REPO, text=True
+        ),
+        "head_tree": subprocess.check_output(
+            ["git", "rev-parse", "HEAD^{tree}"], cwd=REPO, text=True
+        ).strip(),
+        "version_boundary": (
+            "runtime from manifest commit; trainer and test seams from hash-bound working tree"
+        ),
     }
-    with tempfile.TemporaryDirectory(prefix="train01-goldens-", dir="/private/tmp") as scratch:
+    if scenario == "provider-loss-after-download":
+        fixture = HERE / "fixtures/supervisor_goldens/runtime-timeout/output/exports/training"
+        provenance["replayed_snapshot_fixture"] = {
+            str(path.relative_to(REPO)): {"size": path.stat().st_size, "sha256": _sha(path)}
+            for path in sorted(fixture.glob("iteration-0016*"))
+        }
+    with tempfile.TemporaryDirectory(
+        prefix="train01-goldens-", dir=tempfile.gettempdir()
+    ) as scratch:
         root = Path(scratch)
         with pytest.MonkeyPatch.context() as mp:
             # This fixture uses a private alternate Git index; never the checkout index.
-            helpers._isolate_account.__wrapped__(mp, root)
+            # All temporary Git writes go to a private object store.
+            objects = root / "git-objects"
+            objects.mkdir()
+            common = subprocess.check_output(
+                ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                cwd=REPO,
+                text=True,
+            ).strip()
+            mp.setenv("GIT_OBJECT_DIRECTORY", str(objects))
+            mp.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", str(Path(common) / "objects"))
+            helpers.isolate_account(mp, root)
             binary = helpers._fake_env(mp, root)
             now = [0.0]
             helpers._patch_virtual_clock(mp, now, advance_sleep=True)
@@ -218,12 +387,21 @@ def capture_one(destination: Path, scenario: str) -> dict[str, Any]:
                     "fake account balance becomes zero immediately after allocation"
                 )
 
+            runtime_cleanups = []
+
             def observer(event: str, payload: dict[str, Any]) -> None:
                 if event != "ready":
                     return
                 cli = payload["cli"]
-                if scenario in {"clean-completion", "runtime-timeout", "runtime-lease-expiry"}:
-                    _runtime_into_fake(root, payload, scenario, mp)
+                if scenario in {
+                    "clean-completion",
+                    "child-nonzero",
+                    "runtime-timeout",
+                    "runtime-lease-expiry",
+                }:
+                    cleanup = _runtime_into_fake(root, payload, scenario, mp)
+                    if cleanup is not None:
+                        runtime_cleanups.append(cleanup)
                 elif scenario == "wall-cap":
                     now[0] = 200
                 elif scenario == "runaway-guard":
@@ -242,10 +420,10 @@ def capture_one(destination: Path, scenario: str) -> dict[str, Any]:
                     else:
                         cli.call("usage")
                 elif scenario in {"lease-renewal-timeout", "rpc-exec-poll-timeout"}:
-                    original_run = supervisor.subprocess.run
+                    original_call = supervisor.CLI._call_once
 
-                    def timeout_boundary(args: Any, **kwargs: Any) -> Any:
-                        if "-f" in args:
+                    def timeout_boundary(self: Any, *args: Any, **kwargs: Any) -> Any:
+                        if args and args[0] == "exec" and "-f" in args:
                             code = Path(args[args.index("-f") + 1]).read_text()
                             if (
                                 "renew_lease("
@@ -254,47 +432,47 @@ def capture_one(destination: Path, scenario: str) -> dict[str, Any]:
                             ) in code:
                                 now[0] += float(kwargs.get("timeout", 1))
                                 raise subprocess.TimeoutExpired(args, kwargs.get("timeout", 1))
-                        return original_run(args, **kwargs)
+                        return original_call(self, *args, **kwargs)
 
-                    mp.setattr(supervisor.subprocess, "run", timeout_boundary)
+                    mp.setattr(supervisor.CLI, "_call_once", timeout_boundary)
                     if scenario == "lease-renewal-timeout":
                         cli.renew_runtime_lease(payload["root"], payload["generation"], force=False)
-                elif scenario == "child-nonzero":
-                    state_path = root / "fake-state.json"
-                    state = json.loads(state_path.read_text())
-                    runtime = state["runtime"][cli.session]
-                    runtime["terminal"].update(status="failed", returncode=23)
-                    state_path.write_text(json.dumps(state))
-                elif scenario == "provider-loss-no-receipt":
-                    # Host loss before finally is reproduced in a separate subprocess below.
-                    state_path = root / "fake-state.json"
-                    state = json.loads(state_path.read_text())
-                    state["sessions"] = {}
-                    state_path.write_text(json.dumps(state))
-                    destination.mkdir(parents=True)
-                    (destination / "pinned-commit.raw").write_bytes(
-                        subprocess.check_output(
-                            ["git", "cat-file", "commit", manifest["commit"]], cwd=REPO
+                elif scenario in {"provider-loss-no-receipt", "provider-loss-after-download"}:
+
+                    def lose_host() -> None:
+                        state_path = root / "fake-state.json"
+                        state = json.loads(state_path.read_text())
+                        state["sessions"] = {}
+                        state_path.write_text(json.dumps(state))
+                        destination.mkdir(parents=True)
+                        (destination / "pinned-commit.raw").write_bytes(
+                            subprocess.check_output(
+                                ["git", "cat-file", "commit", manifest["commit"]], cwd=REPO
+                            )
                         )
-                    )
-                    shutil.copytree(root / "job-output", destination / "output")
-                    (destination / "provider-sessions.json").write_text(
-                        json.dumps(state["sessions"])
-                    )
-                    (destination / "supervisor.log").write_text(
-                        stdout.getvalue() + stderr.getvalue()
-                    )
-                    provenance.update(
-                        receipt_sha256=None,
-                        receipt_error=None,
-                        failure_class=None,
-                        broker_exception="host os._exit(91) before finally",
-                        scratch_removed_by_parent=str(root),
-                    )
-                    (destination / "provenance.json").write_text(
-                        json.dumps(provenance, indent=2) + "\n"
-                    )
-                    os._exit(91)
+                        shutil.copytree(root / "job-output", destination / "output")
+                        (destination / "provider-sessions.json").write_text(
+                            json.dumps(state["sessions"])
+                        )
+                        (destination / "supervisor.log").write_text(
+                            stdout.getvalue() + stderr.getvalue()
+                        )
+                        provenance.update(
+                            receipt_sha256=None,
+                            receipt_error=None,
+                            failure_class=None,
+                            broker_exception="host os._exit(91) before finally",
+                            scratch_removed_by_parent=str(root),
+                        )
+                        (destination / "provenance.json").write_text(
+                            json.dumps(provenance, indent=2) + "\n"
+                        )
+                        os._exit(91)
+
+                    if scenario == "provider-loss-after-download":
+                        _prefetch_before_host_loss(root, payload, lose_host)
+                    else:
+                        lose_host()
 
             if scenario != "calibration-reserve":
                 provenance["injections"].append(
@@ -326,8 +504,12 @@ def capture_one(destination: Path, scenario: str) -> dict[str, Any]:
                             "read_state RPC boundary"
                         ),
                         "child-nonzero": (
-                            "existing fake runtime child terminal changed to failed/23, no "
-                            "mechanical reason"
+                            "pinned runtime supervises real child sys.exit(23), "
+                            "no mechanical reason"
+                        ),
+                        "provider-loss-after-download": (
+                            "native tiny TRAIN-01 snapshot replay/download, then 17 MiB "
+                            "byte fixture download and host loss during a second transfer"
                         ),
                         "provider-loss-no-receipt": (
                             "offline fake provider sessions removed, host process "
@@ -351,12 +533,20 @@ def capture_one(destination: Path, scenario: str) -> dict[str, Any]:
                     supervisor.Broker(root / "lanes", binary, observer=observer).run(manifest)
             except Exception as exc:
                 error = repr(exc)
+            finally:
+                for cleanup in runtime_cleanups:
+                    cleanup()
             destination.mkdir(parents=True)
             (destination / "pinned-commit.raw").write_bytes(
                 subprocess.check_output(["git", "cat-file", "commit", manifest["commit"]], cwd=REPO)
             )
             shutil.copytree(root / "job-output", destination / "output")
             (destination / "supervisor.log").write_text(stdout.getvalue() + stderr.getvalue())
+            (destination / "provider-sessions.json").write_text(
+                json.dumps(json.loads((root / "fake-state.json").read_text())["sessions"])
+            )
+            if (root / "runtime-observation").exists():
+                shutil.copytree(root / "runtime-observation", destination / "runtime-observation")
             receipt_path = destination / "output/receipt.json"
             receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else None
             provenance.update(

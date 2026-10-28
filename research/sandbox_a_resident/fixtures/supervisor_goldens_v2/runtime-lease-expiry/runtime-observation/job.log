@@ -1,0 +1,87 @@
+TRAIN01_PROGRESS {"stage": "initializing"}
+TRAIN01_PROGRESS {"stage": "compile-self-check"}
+TRAIN01_PROGRESS {"stage": "compile-self-check-complete"}
+TRAIN01_PROGRESS {"stage": "distribution-screen-start"}
+TRAIN01_PROGRESS {"material_gap_count": 0, "stage": "distribution-screen-complete"}
+TRAIN01_PROGRESS {"prepare_phase": null, "stage": "preparation-start"}
+TRAIN01_PROGRESS {"stage": "preparation-complete"}
+TRAIN01_PROGRESS {"stage": "proxy-baseline-start"}
+TRAIN01_PROGRESS {"mix": "scripted", "stage": "proxy-mix-start"}
+TRAIN01_PROGRESS {"frame": 2, "mix": "scripted", "stage": "proxy-mix-complete"}
+TRAIN01_PROGRESS {"mix": "frozen", "stage": "proxy-mix-start"}
+TRAIN01_PROGRESS {"frame": 2, "mix": "frozen", "stage": "proxy-mix-complete"}
+TRAIN01_PROGRESS {"mix": "mixed", "stage": "proxy-mix-start"}
+TRAIN01_PROGRESS {"frame": 2, "mix": "mixed", "stage": "proxy-mix-complete"}
+TRAIN01_PROGRESS {"stage": "proxy-baseline-complete"}
+TRAIN01_PROGRESS {"iteration": 1, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 1, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 1, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 1, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 2, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 2, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 2, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 2, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 3, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 3, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 3, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 3, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 4, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 4, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 4, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 4, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 5, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 5, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 5, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 5, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 6, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 6, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 6, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 6, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 7, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 7, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 7, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 7, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 8, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 8, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 8, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 8, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 9, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 9, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 9, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 9, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 10, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 10, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 10, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 10, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 11, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 11, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 11, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 11, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 12, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 12, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 12, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 12, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 13, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 13, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 13, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 13, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 14, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 14, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 14, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 14, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 15, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 15, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 15, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 15, "stage": "iteration-complete"}
+TRAIN01_PROGRESS {"iteration": 16, "stage": "collect-start"}
+TRAIN01_PROGRESS {"iteration": 16, "stage": "learner-start"}
+TRAIN01_PROGRESS {"iteration": 16, "stage": "learner-complete"}
+TRAIN01_PROGRESS {"iteration": 16, "kind": "diagnostic-update-16", "stage": "proxy-candidate-start"}
+TRAIN01_PROGRESS {"mix": "scripted", "stage": "proxy-mix-start"}
+TRAIN01_PROGRESS {"frame": 2, "mix": "scripted", "stage": "proxy-mix-complete"}
+TRAIN01_PROGRESS {"mix": "frozen", "stage": "proxy-mix-start"}
+TRAIN01_PROGRESS {"frame": 2, "mix": "frozen", "stage": "proxy-mix-complete"}
+TRAIN01_PROGRESS {"mix": "mixed", "stage": "proxy-mix-start"}
+TRAIN01_PROGRESS {"frame": 2, "mix": "mixed", "stage": "proxy-mix-complete"}
+TRAIN01_PROGRESS {"iteration": 16, "kind": "diagnostic-update-16", "stage": "proxy-candidate-complete"}
+TRAIN01_PROGRESS {"iteration": 16, "stage": "iteration-complete"}

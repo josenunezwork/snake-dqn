@@ -33,33 +33,43 @@ ALL_CASES = ("clean-completion", *ELIGIBLE, "child-nonzero", "provider-loss-no-r
 
 
 @pytest.fixture(scope="module", autouse=True)
-def _restore_capture_commit_objects() -> None:
+def _restore_capture_commit_objects(tmp_path_factory):
     """Preserve temporary helper pins across Git GC without refs/index changes.
 
     Every temporary pin has the same tree as the qualified capture baseline;
     the tiny raw commit headers are enough to reconstruct those actual objects.
     """
     repo = Path(__file__).resolve().parents[2]
-    for case in ALL_CASES:
-        root = GOLDENS / case
-        manifest = json.loads((root / "output/manifest.json").read_text())
-        commit = manifest["commit"]
-        raw = (root / "pinned-commit.raw").read_bytes()
-        header = b"commit " + str(len(raw)).encode() + b"\0"
-        assert hashlib.sha1(header + raw).hexdigest() == commit
-        exists = subprocess.run(["git", "cat-file", "-e", commit], cwd=repo, capture_output=True)
-        if exists.returncode:
-            restored = (
-                subprocess.check_output(
-                    ["git", "hash-object", "-w", "-t", "commit", "--stdin"],
-                    input=raw,
-                    cwd=repo,
-                    text=False,
-                )
-                .decode()
-                .strip()
+    objects = tmp_path_factory.mktemp("capture-git-objects")
+    common = subprocess.check_output(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=repo, text=True
+    ).strip()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("GIT_OBJECT_DIRECTORY", str(objects))
+        mp.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", str(Path(common) / "objects"))
+        for case in ALL_CASES:
+            root = GOLDENS / case
+            manifest = json.loads((root / "output/manifest.json").read_text())
+            commit = manifest["commit"]
+            raw = (root / "pinned-commit.raw").read_bytes()
+            header = b"commit " + str(len(raw)).encode() + b"\0"
+            assert hashlib.sha1(header + raw).hexdigest() == commit
+            exists = subprocess.run(
+                ["git", "cat-file", "-e", commit], cwd=repo, capture_output=True
             )
-            assert restored == commit
+            if exists.returncode:
+                restored = (
+                    subprocess.check_output(
+                        ["git", "hash-object", "-w", "-t", "commit", "--stdin"],
+                        input=raw,
+                        cwd=repo,
+                        text=False,
+                    )
+                    .decode()
+                    .strip()
+                )
+                assert restored == commit
+        yield
 
 
 def _bytes_hash(path: Path) -> str:
@@ -78,6 +88,14 @@ def test_golden_bytes_match_capture_inventory(case: str) -> None:
     root = GOLDENS / case
     provenance = json.loads((root / "provenance.json").read_text())
     assert provenance["receipt_fabricated"] is False
+    assert provenance["admission_baseline_sha256"] == (
+        "c6aed498752109a8adadcc4ac4dfd84f902aaa96b955db28807a47f50df97473"
+    )
+    assert provenance["source_commit"] == "e971d41f1adbbdc3e6bf655f66f33cc3849c04e5"
+    subprocess.run(
+        ["git", "merge-base", "--is-ancestor", provenance["source_commit"], "HEAD"], check=True
+    )
+
     assert provenance["provider"].startswith("tests/fixtures/fake_colab.py")
     assert provenance["source_sha256"]["research/colab_cli/supervisor.py"] == _bytes_hash(
         Path(__file__).parents[1] / "colab_cli/supervisor.py"

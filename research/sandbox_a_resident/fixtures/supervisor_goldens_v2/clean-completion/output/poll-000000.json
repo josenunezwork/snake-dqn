@@ -1,0 +1,195 @@
+{
+  "exports": [
+    {
+      "path": "training/distribution-screen.json",
+      "sha256": "e0f7e87afbe069653a67ca52151b197cce3b1de952b25214e713e87bd18bb354",
+      "size": 22
+    },
+    {
+      "path": "training/iteration-0000-actor.pth",
+      "sha256": "820e78c21f66d657b2d9cda5b8b7356835dabcf53029bb05343a451e8a94b7e7",
+      "size": 13
+    },
+    {
+      "path": "training/iteration-0000.json",
+      "sha256": "3781feeec86c07465dcf856e7483dc7b23943276368f222ab7b2e3ba55269840",
+      "size": 982
+    },
+    {
+      "path": "training/iteration-0000.pt",
+      "sha256": "d9a3c77acf6a80335e99bf724f90693a81bcb12e5637df9b70b8d38b60345dc2",
+      "size": 23123
+    },
+    {
+      "path": "training/iteration-0016-actor.pth",
+      "sha256": "820e78c21f66d657b2d9cda5b8b7356835dabcf53029bb05343a451e8a94b7e7",
+      "size": 13
+    },
+    {
+      "path": "training/iteration-0016.json",
+      "sha256": "6acb0014ae8874bfeac94735fe57cc017574ae1c19f8c67e97a29da279f2a223",
+      "size": 3422
+    },
+    {
+      "path": "training/iteration-0016.pt",
+      "sha256": "ea2a66de0f44c658a2ca4c792800ab1efd14bff37bf2728e31587f93c66f564c",
+      "size": 27475
+    },
+    {
+      "path": "training/summary.json",
+      "sha256": "3cac2dd760f74f5e37673fb65752a38b05985619687408f81894b5f37f79fc46",
+      "size": 11312
+    }
+  ],
+  "state": {
+    "exports": [
+      {
+        "path": "training/distribution-screen.json",
+        "sha256": "e0f7e87afbe069653a67ca52151b197cce3b1de952b25214e713e87bd18bb354",
+        "size": 22
+      },
+      {
+        "path": "training/iteration-0000-actor.pth",
+        "sha256": "820e78c21f66d657b2d9cda5b8b7356835dabcf53029bb05343a451e8a94b7e7",
+        "size": 13
+      },
+      {
+        "path": "training/iteration-0000.json",
+        "sha256": "3781feeec86c07465dcf856e7483dc7b23943276368f222ab7b2e3ba55269840",
+        "size": 982
+      },
+      {
+        "path": "training/iteration-0000.pt",
+        "sha256": "d9a3c77acf6a80335e99bf724f90693a81bcb12e5637df9b70b8d38b60345dc2",
+        "size": 23123
+      },
+      {
+        "path": "training/iteration-0016-actor.pth",
+        "sha256": "820e78c21f66d657b2d9cda5b8b7356835dabcf53029bb05343a451e8a94b7e7",
+        "size": 13
+      },
+      {
+        "path": "training/iteration-0016.json",
+        "sha256": "6acb0014ae8874bfeac94735fe57cc017574ae1c19f8c67e97a29da279f2a223",
+        "size": 3422
+      },
+      {
+        "path": "training/iteration-0016.pt",
+        "sha256": "ea2a66de0f44c658a2ca4c792800ab1efd14bff37bf2728e31587f93c66f564c",
+        "size": 27475
+      },
+      {
+        "path": "training/summary.json",
+        "sha256": "3cac2dd760f74f5e37673fb65752a38b05985619687408f81894b5f37f79fc46",
+        "size": 11312
+      }
+    ],
+    "generation": "f1396ea3bda840fc8fc7439729899aaf",
+    "job_id": "fake-job",
+    "max_export_bytes": 16777216,
+    "pid": 3548,
+    "reason": null,
+    "returncode": 0,
+    "started_at": 1793221587.510221,
+    "status": "succeeded",
+    "updated_at": 1793221588.980412
+  },
+  "terminal": {
+    "canary_observations": [],
+    "export_scanner": {
+      "inventory": [
+        {
+          "path": "training/distribution-screen.json",
+          "sha256": "e0f7e87afbe069653a67ca52151b197cce3b1de952b25214e713e87bd18bb354",
+          "size": 22
+        },
+        {
+          "path": "training/iteration-0000-actor.pth",
+          "sha256": "820e78c21f66d657b2d9cda5b8b7356835dabcf53029bb05343a451e8a94b7e7",
+          "size": 13
+        },
+        {
+          "path": "training/iteration-0000.json",
+          "sha256": "3781feeec86c07465dcf856e7483dc7b23943276368f222ab7b2e3ba55269840",
+          "size": 982
+        },
+        {
+          "path": "training/iteration-0000.pt",
+          "sha256": "d9a3c77acf6a80335e99bf724f90693a81bcb12e5637df9b70b8d38b60345dc2",
+          "size": 23123
+        },
+        {
+          "path": "training/iteration-0016-actor.pth",
+          "sha256": "820e78c21f66d657b2d9cda5b8b7356835dabcf53029bb05343a451e8a94b7e7",
+          "size": 13
+        },
+        {
+          "path": "training/iteration-0016.json",
+          "sha256": "6acb0014ae8874bfeac94735fe57cc017574ae1c19f8c67e97a29da279f2a223",
+          "size": 3422
+        },
+        {
+          "path": "training/iteration-0016.pt",
+          "sha256": "ea2a66de0f44c658a2ca4c792800ab1efd14bff37bf2728e31587f93c66f564c",
+          "size": 27475
+        },
+        {
+          "path": "training/summary.json",
+          "sha256": "3cac2dd760f74f5e37673fb65752a38b05985619687408f81894b5f37f79fc46",
+          "size": 11312
+        }
+      ],
+      "name": "runtime._exports"
+    },
+    "exports": [
+      {
+        "path": "training/distribution-screen.json",
+        "sha256": "e0f7e87afbe069653a67ca52151b197cce3b1de952b25214e713e87bd18bb354",
+        "size": 22
+      },
+      {
+        "path": "training/iteration-0000-actor.pth",
+        "sha256": "820e78c21f66d657b2d9cda5b8b7356835dabcf53029bb05343a451e8a94b7e7",
+        "size": 13
+      },
+      {
+        "path": "training/iteration-0000.json",
+        "sha256": "3781feeec86c07465dcf856e7483dc7b23943276368f222ab7b2e3ba55269840",
+        "size": 982
+      },
+      {
+        "path": "training/iteration-0000.pt",
+        "sha256": "d9a3c77acf6a80335e99bf724f90693a81bcb12e5637df9b70b8d38b60345dc2",
+        "size": 23123
+      },
+      {
+        "path": "training/iteration-0016-actor.pth",
+        "sha256": "820e78c21f66d657b2d9cda5b8b7356835dabcf53029bb05343a451e8a94b7e7",
+        "size": 13
+      },
+      {
+        "path": "training/iteration-0016.json",
+        "sha256": "6acb0014ae8874bfeac94735fe57cc017574ae1c19f8c67e97a29da279f2a223",
+        "size": 3422
+      },
+      {
+        "path": "training/iteration-0016.pt",
+        "sha256": "ea2a66de0f44c658a2ca4c792800ab1efd14bff37bf2728e31587f93c66f564c",
+        "size": 27475
+      },
+      {
+        "path": "training/summary.json",
+        "sha256": "3cac2dd760f74f5e37673fb65752a38b05985619687408f81894b5f37f79fc46",
+        "size": 11312
+      }
+    ],
+    "finished_at": 1793221588.97968,
+    "generation": "f1396ea3bda840fc8fc7439729899aaf",
+    "job_id": "fake-job",
+    "last_traceback_line": "TRAIN01_PROGRESS {\"iteration\": 16, \"stage\": \"iteration-complete\"}",
+    "reason": null,
+    "returncode": 0,
+    "started_at": 1793221587.510221,
+    "status": "succeeded"
+  }
+}

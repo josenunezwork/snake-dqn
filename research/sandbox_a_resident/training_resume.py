@@ -11,6 +11,7 @@ import copy
 import hashlib
 import json
 import math
+import os
 import re
 import stat
 import subprocess
@@ -575,7 +576,9 @@ def _refuse_if_fault_text(
     if not isinstance(value, str) or not value.strip():
         return
     lowered = value.lower()
-    exit_signal = re.search(r"\b(?:exit|exit_code|returncode)\s*[=:]\s*(-?\d+)\b", lowered)
+    exit_signal = re.search(
+        r'\b(?:exit(?:[_ -]?code)?|return[_ -]?code)"?\s*[=:]\s*(-?\d+)\b', lowered
+    )
     if exit_signal and int(exit_signal[1]) != 0:
         raise ResumeRefused(
             f"prior evidence records explicit scientific/non-mechanical fault "
@@ -587,6 +590,10 @@ def _refuse_if_fault_text(
                 f"prior evidence records explicit scientific/non-mechanical fault "
                 f"in {field_name}: {marker!r}"
             )
+    if re.search(r"\b[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception):", value):
+        raise ResumeRefused(
+            f"prior evidence records explicit scientific/non-mechanical fault in {field_name}"
+        )
     if check_supervisor_denylist:
         for marker in NON_MECHANICAL_SUPERVISOR_ERROR_MARKERS:
             if marker in lowered:
@@ -636,25 +643,40 @@ MECHANICAL_RECEIPT_CLASSES = frozenset(
 )
 RECORD_KEY_ALIASES = {"job": "job_id", "return_code": "returncode", "exit_code": "returncode"}
 SCIENTIFIC_DATA_SCOPES = frozenset({"metrics", "metadata", "compile", "proxy", "proxy_baseline"})
-FAILURE_STATUSES = frozenset(
+# Producer data vocabulary is explicit. Reasons are absent in native scientific
+# summaries; an execution stop reason inside metrics is never an exemption.
+DATA_STATUSES = {
+    "metrics": frozenset({"measured", "pass", "ok"}),
+    "metadata": frozenset({"measured", "pass", "ok"}),
+    "proxy": frozenset({"measured", "pass", "ok"}),
+    "proxy_baseline": frozenset({"measured", "pass", "ok"}),
+    "compile": frozenset({"measured", "pass", "ok", "pending", "compiled", "disabled_eager"}),
+}
+DATA_REASONS = {scope: frozenset() for scope in SCIENTIFIC_DATA_SCOPES}
+DATA_REASONS["compile"] = frozenset({"requested mode=none"})
+EXECUTION_KEYS = frozenset(
     {
-        "killed",
-        "canceled",
-        "cancelled",
-        "timed_out",
-        "timeout",
-        "diverged",
-        "halted",
-        "invalid",
-        "refused",
-        "failed",
-        "crashed",
-        "aborted",
-        "incomplete",
-        "stopped",
-        "terminated",
-        "mismatch",
-        "material_gap",
+        "job_id",
+        "generation",
+        "status",
+        "reason",
+        "returncode",
+        "failure_class",
+        "error",
+        "exception",
+        "cleanup_error",
+        "last_error_line",
+        "last_traceback_line",
+        "job_log_tail",
+        "state",
+        "terminal",
+        "export_scanner",
+        "stop_verified",
+        "finite",
+        "material_gaps",
+        "stage",
+        "phase",
+        "prepare_phase",
     }
 )
 
@@ -670,7 +692,7 @@ def _json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     seen: set[str] = set()
     for key, value in pairs:
         normal = _record_key(key)
-        if normal in seen:
+        if key in result or (normal in EXECUTION_KEYS and normal in seen):
             raise ResumeRefused(
                 f"duplicate normalized JSON key (conflicting field identities): {key}"
             )
@@ -690,9 +712,9 @@ def _normalised_record(record: Mapping[str, Any], label: str) -> dict[str, Any]:
     normal = {}
     for raw, value in record.items():
         key = _record_key(raw)
-        if key in normal and normal[key] != value:
+        if key in normal and key in EXECUTION_KEYS:
             raise ResumeRefused(f"{label} records conflicting job/job_id or field identities")
-        normal[key] = value
+        normal[key if key in EXECUTION_KEYS else raw] = value
     return normal
 
 
@@ -738,6 +760,7 @@ def _check_retained_execution(
     require_identity: bool = False,
     allow_validated_incomplete: bool = False,
     scientific_data: bool = False,
+    scientific_scope: str | None = None,
     transport_operation: bool = False,
     calibration_stop: bool = False,
     allow_completed: bool = False,
@@ -751,7 +774,11 @@ def _check_retained_execution(
     record = _normalised_record(record, label)
     for key, expected in (("job_id", expected_job_id), ("generation", expected_generation)):
         if key == "generation" and scientific_data and not require_identity:
-            continue
+            # RL metadata may use integer generations, but run UUIDs remain bound.
+            if not isinstance(record.get(key), str) or not re.fullmatch(
+                r"[0-9a-f]{32}", record[key]
+            ):
+                continue
         if key in record:
             value = record[key]
             if (
@@ -766,14 +793,13 @@ def _check_retained_execution(
     status = status.strip().lower() if isinstance(status, str) else status
     reason = record.get("reason")
     reason = reason.strip().lower() if isinstance(reason, str) else reason
-    if allow_validated_incomplete:
-        terminal = record.get("terminal")
-        reason = terminal.get("reason") if isinstance(terminal, Mapping) else reason
     returncode = record.get("returncode")
-    if status is not None and not isinstance(status, str) and not scientific_data:
+    if status is not None and not isinstance(status, str):
         raise ResumeRefused(f"{label} records malformed execution status")
-    if reason is not None and not isinstance(reason, str) and not scientific_data:
+    if reason is not None and not isinstance(reason, str):
         raise ResumeRefused(f"{label} records malformed execution reason")
+    if scientific_data and reason is not None and reason not in DATA_REASONS[scientific_scope]:
+        raise ResumeRefused(f"{label} records non-allowlisted scientific data reason: {reason!r}")
     if transport_operation:
         control = isinstance(record.get("operation"), str)
         direction = record.get("direction")
@@ -841,8 +867,7 @@ def _check_retained_execution(
             not scientific_data
             and status not in NON_FAILURE_STATUSES
             or scientific_data
-            and isinstance(status, str)
-            and status in FAILURE_STATUSES
+            and status not in DATA_STATUSES[scientific_scope]
         )
         and not (
             not scientific_data
@@ -855,22 +880,37 @@ def _check_retained_execution(
         )
     if record.get("failure_class") not in (None, "") and not allow_validated_incomplete:
         raise ResumeRefused(f"{label} records non-receipt failure_class")
-    if returncode not in (None, 0) and (
-        not isinstance(reason, str) or reason not in MECHANICAL_TERMINAL_REASONS
-    ):
+    exit_reason = reason
+    if allow_validated_incomplete:
+        terminal = record.get("terminal")
+        exit_reason = terminal.get("reason") if isinstance(terminal, Mapping) else reason
+    if returncode not in (None, 0) and exit_reason not in MECHANICAL_TERMINAL_REASONS:
         raise ResumeRefused(f"{label} records unexplained/non-mechanical child or runtime failure")
 
 
 def _retained_files(output_root: Path) -> list[Path]:
-    """Walk every retained file without following links or accepting special files."""
+    """Walk every retained file; unreadable directories never silently vanish."""
+    if output_root.is_symlink() or not output_root.is_dir():
+        raise ResumeRefused(f"missing or symlinked retained scan root: {output_root}")
     files = []
-    for path in sorted(output_root.rglob("*")):
-        mode = path.lstat().st_mode
-        if stat.S_ISLNK(mode) or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
-            raise ResumeRefused(f"non-regular or symlinked retained evidence: {path}")
-        if stat.S_ISREG(mode):
-            files.append(path)
-    return files
+
+    def unreadable(error: OSError) -> None:
+        raise ResumeRefused(f"unreadable retained scan directory: {error.filename}") from error
+
+    try:
+        for directory, folders, names in os.walk(
+            output_root, followlinks=False, onerror=unreadable
+        ):
+            for name in sorted([*folders, *names]):
+                path = Path(directory) / name
+                mode = path.lstat().st_mode
+                if stat.S_ISLNK(mode) or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+                    raise ResumeRefused(f"non-regular or symlinked retained evidence: {path}")
+                if stat.S_ISREG(mode):
+                    files.append(path)
+    except OSError as error:
+        raise ResumeRefused(f"unreadable retained scan evidence: {error.filename}") from error
+    return sorted(files)
 
 
 def _mechanical_supervisor_error(value: Any) -> bool:
@@ -950,7 +990,8 @@ def _scan_json_faults(
                 expected_generation=expected_generation,
                 require_identity=require_identity,
                 allow_validated_incomplete=receipt_root and current.get("status") == "INCOMPLETE",
-                scientific_data=data_scope,
+                scientific_data=bool(data_scope),
+                scientific_scope=data_scope or None,
                 transport_operation=operation,
                 calibration_stop=calibration,
                 allow_completed=allow_completed,
@@ -962,7 +1003,8 @@ def _scan_json_faults(
             for key, item in _normalised_record(current, name).items():
                 field = f"{name}.{key}"
                 if (
-                    key in {"state", "terminal"}
+                    not data_scope
+                    and key in {"state", "terminal"}
                     and item is not None
                     and not isinstance(item, Mapping)
                 ):
@@ -1000,6 +1042,20 @@ def _scan_json_faults(
                     raise ResumeRefused(
                         f"{field} records explicit scientific/non-mechanical fault: {item!r}"
                     )
+                if key in {"last_traceback_line", "last_error_line"} and item:
+                    _scan_last_diagnostic_line(
+                        item,
+                        label=field,
+                        expected_job_id=expected_job_id,
+                        expected_generation=expected_generation,
+                    )
+                if key == "job_log_tail" and item:
+                    _scan_diagnostic_lines(
+                        item,
+                        label=field,
+                        expected_job_id=expected_job_id,
+                        expected_generation=expected_generation,
+                    )
                 if key in {"phase", "prepare_phase", "stage"} and isinstance(item, str):
                     if item.lower().endswith("failed") or "failure" in item.lower():
                         raise ResumeRefused(f"{field} records failed stage")
@@ -1007,10 +1063,16 @@ def _scan_json_faults(
                     raise ResumeRefused(f"{field} records explicit scientific/non-mechanical fault")
                 # Inventory paths are data, but mappings/lists under any key still validate.
                 if key not in {"path", "dest", "sha256"} or not isinstance(item, str):
-                    execution_child = key in {"state", "terminal"}
+                    execution_child = key in {"state", "terminal"} and (
+                        not data_scope
+                        or isinstance(item, Mapping)
+                        and any(_record_key(raw) in EXECUTION_KEYS for raw in item)
+                    )
                     child_data = (
-                        data_scope or key in SCIENTIFIC_DATA_SCOPES
-                    ) and not execution_child
+                        (key if key in SCIENTIFIC_DATA_SCOPES else data_scope)
+                        if not execution_child
+                        else False
+                    )
                     child_operation = receipt_root and key in {
                         "cli_calls",
                         "control_operations",
@@ -1036,6 +1098,63 @@ def _scan_json_faults(
             )
         elif isinstance(current, str):
             _refuse_if_fault_text(current, field_name=name)
+
+
+def _scan_last_diagnostic_line(
+    value: Any, *, label: str, expected_job_id: str | None, expected_generation: str | None
+) -> None:
+    if not isinstance(value, str):
+        raise ResumeRefused(f"{label} records malformed diagnostic line")
+    match = re.fullmatch(r"TRAIN01_PROGRESS (\{[^\n]*\})", value)
+    if match:
+        try:
+            record = _json_loads(match[1])
+        except json.JSONDecodeError as error:
+            raise ResumeRefused(f"{label} records malformed progress diagnostic") from error
+        if not isinstance(record, Mapping):
+            raise ResumeRefused(f"{label} records malformed progress diagnostic")
+        _scan_json_faults(
+            record,
+            label=label,
+            expected_job_id=expected_job_id,
+            expected_generation=expected_generation,
+        )
+        return
+    raise ResumeRefused(f"{label} records explicit scientific/non-mechanical fault: {value!r}")
+
+
+def _scan_diagnostic_lines(
+    value: Any, *, label: str, expected_job_id: str | None, expected_generation: str | None
+) -> None:
+    if not isinstance(value, str):
+        raise ResumeRefused(f"{label} records malformed diagnostic text")
+    for line in value.splitlines():
+        if not line.strip():
+            continue
+        if line.startswith("TRAIN01_PROGRESS "):
+            _scan_last_diagnostic_line(
+                line,
+                label=label,
+                expected_job_id=expected_job_id,
+                expected_generation=expected_generation,
+            )
+        elif re.fullmatch(r"STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/[^\s]+", line):
+            continue
+        else:
+            _refuse_if_fault_text(line, field_name=label)
+            # Exceptions need no membership in a growing marker denylist.
+            if re.search(r"\b[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception):", line):
+                raise ResumeRefused(f"{label} records explicit scientific/non-mechanical fault")
+
+
+def _check_truncated_execution_line(line: str, *, label: str) -> None:
+    # Bracketed provider warnings are text; a damaged execution document is not.
+    if re.match(r"^\[[^\]]*\]\s", line):
+        return
+    if line.startswith(("{", "[", '"')) and any(
+        _record_key(key) in EXECUTION_KEYS for key in re.findall(r'"([^"\\]+)"\s*:', line)
+    ):
+        raise ResumeRefused(f"{label} records truncated execution JSON")
 
 
 def _retained_json_records(path: Path) -> list[Any]:
@@ -1206,12 +1325,12 @@ class _RetainedTransport:
         self.bounds = bounds
         return bounds
 
-    def admit_payload(self, path: Path, payload: Path | None) -> tuple[str, str]:
+    def admit_payload(self, path: Path, payload: Path | None) -> tuple[str, str] | None:
         if path.is_symlink() or not path.is_file():
             raise ResumeRefused(f"non-regular retained model transport partial: {path}")
         # Empty interrupted writes carry no observations and never finalize units.
         if path.stat().st_size == 0:
-            return "", "iteration-0000.pt"
+            return None
         # Native local downloads use 8 MiB chunks; .snake-transfer upload
         # directories use 2 MiB chunks. Neither index is a prefix offset.
         from research.colab_cli.transfers import DOWNLOAD_CHUNK_BYTES, UPLOAD_CHUNK_BYTES
@@ -1311,7 +1430,10 @@ class _RetainedTransport:
         if staged_dir and path.name in {"sha256", "complete"}:
             # The staging directory must contain byte-proven model data.
             data = path.with_name("data")
-            expected, name = self.admit_payload(data, None)
+            proven = self.admit_payload(data, None)
+            if proven is None:
+                raise ResumeRefused(f"staged sidecar has no verified nonempty payload: {path}")
+            expected, name = proven
             _sidecar_bytes(path, path.name, expected)
             if not re.fullmatch(MODEL_NAME, name):
                 _scan_retained_text(
@@ -1330,6 +1452,18 @@ class _RetainedTransport:
             canonical = path.with_name(staged[1])
             if path.stat().st_size == 0:
                 return True
+            try:
+                record = _json_loads(path.read_text(encoding="utf-8"))
+            except (UnicodeError, json.JSONDecodeError):
+                pass
+            else:
+                _scan_json_faults(
+                    record,
+                    label=str(path),
+                    expected_job_id=self.job,
+                    expected_generation=self.generation,
+                )
+                return True  # Complete mutable rewrite; never a ledger unit.
             if canonical.is_file() and Path(str(canonical) + ".sha256").is_file():
                 self.admit_payload(path, canonical)
                 return True
@@ -1345,7 +1479,7 @@ class _RetainedTransport:
                 ):
                     return True
         if opaque or (model and path.parent == training):
-            _, name = self.admit_payload(path, path.with_name(model[1]) if model else None)
+            self.admit_payload(path, path.with_name(model[1]) if model else None)
             # Hash binding never excuses failure/identity signals in JSON/text.
             return True  # Non-model whole candidates were independently scanned above.
         return False
@@ -1556,27 +1690,23 @@ def _scan_retained_text(
         with path.open(encoding="utf-8", errors="replace") as stream:
             for line in stream:
                 stripped = line.replace("\x00", "").strip()
-                if stripped.startswith(("{", "[")):
+                if stripped.startswith(("{", "[", '"')):
                     try:
                         record = _json_loads(stripped)
                     except json.JSONDecodeError:
-                        continue  # The raw-text scan below still checks this entire line.
-                    _scan_log_record(
-                        record,
-                        label=str(path),
-                        expected_job_id=expected_job_id,
-                        expected_generation=expected_generation,
-                        supervisor_transport=path.name.startswith("supervisor.log"),
-                        validated_receipt=validated_receipt,
-                        allow_completed=allow_completed,
-                    )
-    with path.open(encoding="utf-8", errors="replace") as stream:
-        overlap = ""
-        while part := stream.read(65536):
-            part = part.replace("\x00", "")
-            combined = overlap + part
-            _refuse_if_fault_text(combined, field_name=str(path))
-            overlap = combined[-256:]
+                        _check_truncated_execution_line(stripped, label=str(path))
+                    else:
+                        _scan_log_record(
+                            record,
+                            label=str(path),
+                            expected_job_id=expected_job_id,
+                            expected_generation=expected_generation,
+                            supervisor_transport=path.name.startswith("supervisor.log"),
+                            validated_receipt=validated_receipt,
+                            allow_completed=allow_completed,
+                        )
+                        continue
+                _refuse_if_fault_text(stripped, field_name=str(path))
 
 
 def _scan_log_record(
@@ -1643,12 +1773,35 @@ def _check_output_root_fault_evidence(
     if output_root.is_symlink():
         raise ResumeRefused("prior output directory must not be a symlink")
     if not output_root.exists():
-        return 0, 0
+        raise ResumeRefused(f"missing retained scan root: {output_root}")
     if not output_root.is_dir():
         raise ResumeRefused("prior output_root is not a directory")
 
+    retained_files = _retained_files(output_root)
+    training = output_root / "exports/training"
+    for path in (
+        training / "distribution-screen.json",
+        training / "progress.json",
+        training / "stall-watchdog/stall-watchdog.json",
+    ):
+        if not (path.is_symlink() or path.exists()):
+            continue
+        if path.is_symlink() or not path.is_file():
+            raise ResumeRefused(f"missing or symlinked scientific publication: {path}")
+        record = _retained_json_records(path)[0]
+        if not isinstance(record, Mapping):
+            raise ResumeRefused(f"malformed scientific publication: {path}")
+        if path.name == "distribution-screen.json" and record.get("material_gaps"):
+            raise ResumeRefused("distribution-screen.json records material distribution gaps")
+        if path.name in {"progress.json", "stall-watchdog.json"} and str(
+            record.get("stage", "")
+        ).lower().endswith("-failed"):
+            raise ResumeRefused(f"{path.name} records failed stage")
+        if path.name == "progress.json" and record.get("error"):
+            raise ResumeRefused("progress.json records explicit scientific/non-mechanical fault")
+
     transport = _RetainedTransport(output_root, expected_job_id, expected_generation)
-    for retained_file in _retained_files(output_root):
+    for retained_file in retained_files:
         _scan_retained_text(
             retained_file,
             output_root=output_root,
@@ -1663,7 +1816,8 @@ def _check_output_root_fault_evidence(
     # These are publication-level facts rather than JSON vocabulary checks.
     summary = output_root / "exports/training/summary.json"
     if not allow_completed and any(
-        Path(str(summary) + suffix).exists() for suffix in ("", ".partial", ".sha256", ".complete")
+        Path(str(summary) + suffix).is_symlink() or Path(str(summary) + suffix).exists()
+        for suffix in ("", ".partial", ".sha256", ".complete")
     ):
         raise ResumeRefused("exported summary.json already exists; prior run completed")
     stacks = output_root / "exports/training/stall-watchdog/faulthandler-stacks.log"
@@ -1677,7 +1831,9 @@ def _check_output_root_fault_evidence(
         if not header.is_file():
             continue
         record = _retained_json_records(header)[0]
-        if isinstance(record, Mapping) and isinstance(record.get("metadata"), Mapping):
+        if not isinstance(record, Mapping):
+            raise ResumeRefused(f"malformed snapshot header: {header.name}")
+        if isinstance(record.get("metadata"), Mapping):
             meta = record["metadata"]
             if (
                 "fail" in str(meta.get("phase", "")).lower()
@@ -1779,10 +1935,11 @@ def _check_supervisor_log_fault_evidence(
         if allow_terminal_receipt_enospc and idx in (enospc_line_index, exit_line_index):
             continue
         line_no = idx + 1
-        if stripped.startswith(("{", "[")):
+        if stripped.startswith(("{", "[", '"')):
             try:
                 record = _json_loads(stripped)
             except json.JSONDecodeError:
+                _check_truncated_execution_line(stripped, label=f"supervisor_log:{line_no}")
                 _refuse_if_fault_text(stripped, field_name=f"supervisor_log:{line_no}")
                 continue
             _scan_log_record(
@@ -1798,6 +1955,7 @@ def _check_supervisor_log_fault_evidence(
                 normal = _normalised_record(record, f"supervisor_log:{line_no}")
                 if normal.get("job_id") == expected_job_id and expected_job_id is not None:
                     matched_job_records += 1
+            continue
         _refuse_if_fault_text(stripped, field_name=f"supervisor_log:{line_no}")
     return {
         "line_count": len(raw_lines),

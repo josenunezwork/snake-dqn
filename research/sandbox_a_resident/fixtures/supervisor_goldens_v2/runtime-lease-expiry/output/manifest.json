@@ -1,0 +1,32 @@
+{
+  "budget": {
+    "rate_units_per_hour": 6.84,
+    "reserve_units": 0.0,
+    "unit_cap": 1.0
+  },
+  "commit": "1276af2ddc7e468bb8acd250b733fa0102bbf163",
+  "env": {
+    "FAKE_JOB": "1"
+  },
+  "inputs": [
+    {
+      "dest": "input.bin",
+      "path": "/private/var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/train01-goldens-6hahhupb/input.bin",
+      "sha256": "ccfa67bcb1d9eddd41f9fcc8cbf027697897a0d0a8bd60790749007931e5c064"
+    }
+  ],
+  "job_id": "fake-job",
+  "lease_seconds": 180.0,
+  "max_export_bytes": 268435456,
+  "output_dir": "/var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/train01-goldens-6hahhupb/job-output",
+  "requirements": {
+    "allowed_gpus": [
+      "cpu"
+    ],
+    "est_minutes": 1.0,
+    "gpu": "cpu",
+    "min_vcpu": 1
+  },
+  "script": "research/colab_cli/acceptance_probe.sh",
+  "timeout_minutes": 3.0
+}

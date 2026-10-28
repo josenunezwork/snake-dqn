@@ -245,9 +245,9 @@ def test_native_incomplete_wrapper_footer_needs_exact_receipt_binding(
 
 def test_scientific_failed_status_cannot_borrow_mechanical_reason(tmp_path: Path) -> None:
     path = tmp_path / "proxy.json"
-    path.write_text('{"metrics":{"status":"measured","reason":"timeout"}}')
+    path.write_text('{"metrics":{"status":"measured"}}')
     _scan_retained_text(path, output_root=tmp_path)
-    path.write_text('{"metrics":{"status":"failed","reason":"timeout"}}')
+    path.write_text('{"metrics":{"status":"failed"}}')
     with pytest.raises(ResumeRefused, match="failed status"):
         _scan_retained_text(path, output_root=tmp_path)
 

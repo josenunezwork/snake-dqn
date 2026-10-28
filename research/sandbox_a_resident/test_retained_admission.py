@@ -120,10 +120,10 @@ def test_generated_failure_class_alias_twins(tmp_path: Path, alias: str, depth: 
 
 
 @pytest.mark.parametrize("context", ["metrics", "metadata"])
-def test_scientific_data_context_accepts_arbitrary_vocabulary(tmp_path: Path, context: str) -> None:
+def test_scientific_data_context_accepts_producer_vocabulary(tmp_path: Path, context: str) -> None:
     path = tmp_path / "exports/training/proxy-0128.json"
     path.parent.mkdir(parents=True)
-    data = {"status": "measured", "reason": "food", "generation": "Ampere"}
+    data = {"status": "measured", "generation": "Ampere"}
     _write_and_scan(path, tmp_path, {context: data})
     # The same values are execution signals when moved out of the explicit data scope.
     with pytest.raises(ResumeRefused, match="foreign generation"):
@@ -144,7 +144,7 @@ def test_scientific_data_context_never_hides_execution_faults(
 ) -> None:
     path = tmp_path / "exports/training/proxy-0128.json"
     path.parent.mkdir(parents=True)
-    record = {"status": "measured", "reason": "food", "generation": "Ampere"}
+    record = {"status": "measured", "generation": "Ampere"}
     _write_and_scan(path, tmp_path, {context: record})
     record["diagnostic"] = {key: value}
     with pytest.raises(ResumeRefused, match=reason):

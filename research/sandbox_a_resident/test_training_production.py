@@ -19,8 +19,7 @@ from research.sandbox_a_resident.training_units import (
 )
 
 
-@pytest.fixture
-def production(monkeypatch, tmp_path):
+def production_seams(monkeypatch, tmp_path):
     """Keep test_only=False; replace expensive science/engine dependencies only."""
     control = train.TrainControl("sandbox-a-train01", "a" * 40, 0)
     # Explicit test seam: production branches, three worlds, two tiny updates.
@@ -155,6 +154,11 @@ def production(monkeypatch, tmp_path):
     }.items():
         monkeypatch.setattr(train, name, replacement)
     return control, calls
+
+
+@pytest.fixture
+def production(monkeypatch, tmp_path):
+    return production_seams(monkeypatch, tmp_path)
 
 
 def execute(control, output, **kwargs):

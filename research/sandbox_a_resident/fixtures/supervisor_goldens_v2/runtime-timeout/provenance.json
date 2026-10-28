@@ -1,0 +1,140 @@
+{
+  "schema": "sandbox-a-offline-supervisor-golden/v1",
+  "scenario": "runtime-timeout",
+  "source_sha256": {
+    "research/colab_cli/supervisor.py": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+    "research/colab_cli/runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+    "research/colab_cli/failures.py": "fd92efd5700669ab331f88c6fe478f181757d3f76776a8d76ef298e43e45843f",
+    "tests/fixtures/fake_colab.py": "cc0bb1a9b83932f7dedfcee9f333df741e9dcf91c84920cee21051653e04b304",
+    "tests/fixtures/fake_colab_helper.py": "ccbaf4592ff34a3abaaa6d15ffa6d4086db5ed266cb39f57b6b74dd302cdcfe0",
+    "tests/test_colab_cli_supervisor.py": "5f96c088397dc91898ae85000d2238dba22a4358fcdb9502acdc399fea3ca9fe",
+    "research/sandbox_a_resident/capture_supervisor_goldens.py": "8ee98502e064e87cbe9cc1a54dd935f741a303178af22e34c9bed75caf318dc8",
+    "research/sandbox_a_resident/train.py": "b037733561b900d4db594d73e9edc4908c6a72bb84153832e2e6aa62d95bd66f",
+    "research/sandbox_a_resident/training_compile.py": "12d1adfae70168488d1d39e368ec07a2c6ff0b7c25d3e5c309ef26fd41d525f6",
+    "research/sandbox_a_resident/runtime_tools.py": "4cdec26d7d8b65f1bca1618ff9606dfd528c5ca6e0fdfb0950252eb0f51d7baf",
+    "research/sandbox_a_resident/training_units.py": "d577edef97cecae5c01cae61a318343178b368383ea26335903fd8995084b925",
+    "research/sandbox_a_resident/units.py": "57de601ef7db341380832147b0fcf70b346fd58be0e2a4ce3fcb3eefa1f3b70d",
+    "research/sandbox_a_resident/training_proxy.py": "c9a64489d2052c9f1e022d5e1b322d541270781378e075403d7376e2c4fec5cb",
+    "research/sandbox_a_resident/test_training_production.py": "f1cc37be582674627a321c667ab8a530f6dfa4ed6c606ef4fb7c7f97191edd1c",
+    "research/sandbox_a_resident/test_training_runner.py": "c1b19eb5bd141f77214816941d35a598c84f58da29426e6761de9eb091a32380"
+  },
+  "source_commit": "b2f0ddd38cfed3035ab20966888ced41ba3d8bda",
+  "provider": "tests/fixtures/fake_colab.py (subprocess; no account access)",
+  "admission_baseline_sha256": "aa58fe9aef7fd4d5810c42fc9ea768605a8bab12e051bfd824e9cf7f15227f5c",
+  "injections": [
+    "pinned runtime CPU child; validation path/release I/O replaced for offline private temp root"
+  ],
+  "working_tree_status": " M research/sandbox_a_resident/capture_supervisor_goldens.py\n M research/sandbox_a_resident/test_c2_admission.py\n M research/sandbox_a_resident/test_historical_mechanical.py\n M research/sandbox_a_resident/test_retained_admission.py\n M research/sandbox_a_resident/test_supervisor_goldens.py\n M research/sandbox_a_resident/test_training_production.py\n M research/sandbox_a_resident/test_training_resume.py\n M research/sandbox_a_resident/training_resume.py\n M tests/test_colab_cli_supervisor.py\n?? research/sandbox_a_resident/C2_READINESS2_AUDIT.md\n?? research/sandbox_a_resident/fixtures/supervisor_goldens_v2/\n?? research/sandbox_a_resident/test_c2_capture_corrections.py\n?? research/sandbox_a_resident/test_c2_readiness2.py\n?? research/sandbox_a_resident/test_c2_transfer_producer.py\n",
+  "head_tree": "d38a18fc9f3ba657320fe36339961d82ae7b234e",
+  "version_boundary": "runtime from manifest commit; trainer and test seams from hash-bound working tree",
+  "broker_exception": "Refused(\"INCOMPLETE: AccountingError('supervised assignment disappeared from sessions'); receipt: /var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/train01-goldens-cywc3a21/job-output/receipt.json\")",
+  "receipt_sha256": "795fec825f77159e3f64b390dc17dacfe939d92e81806de093fbf1c3e887a14b",
+  "receipt_error": "AccountingError('supervised assignment disappeared from sessions')",
+  "failure_class": "ACCOUNTING",
+  "files": {
+    "output/accounting-baseline.json": {
+      "size": 173,
+      "sha256": "9c24383ab9def869752ce1c5ff1b8e19ac075a999670227114bf82f840f81a2f"
+    },
+    "output/hardware.json": {
+      "size": 5,
+      "sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74"
+    },
+    "output/input-hashes.json": {
+      "size": 430,
+      "sha256": "cfa4045d2f25ee179e5440e7f47e9eeefd6dfeaef1613552a327b229c2ad11e2"
+    },
+    "output/manifest.json": {
+      "size": 836,
+      "sha256": "ef403ee9874f810fc38b9b99ee4873c086b6e7bcd22c1e1ee6417e74daec0978"
+    },
+    "output/rate-calibration-000.json": {
+      "size": 187,
+      "sha256": "b25efcef362fa8e66d48b7d4cecdff77047794b03b61812d72f976148e2e0762"
+    },
+    "output/rate-calibration-001.json": {
+      "size": 187,
+      "sha256": "f683e3382b630293e29685489de5cd9b05e7ae979904395b1b50dfe1c02dafb1"
+    },
+    "output/rate-calibration-002.json": {
+      "size": 188,
+      "sha256": "6a49092d6d8eeb6257eefbcc3ce6340c88cdea89b97a065d25b84fcc932d6cec"
+    },
+    "output/rate-calibration.json": {
+      "size": 938,
+      "sha256": "3cd27d7aadd50cb4607572243aac4726eaf7c45bd4a1b1895fe8d7d4dfcb2145"
+    },
+    "output/receipt.json": {
+      "size": 15754,
+      "sha256": "795fec825f77159e3f64b390dc17dacfe939d92e81806de093fbf1c3e887a14b"
+    },
+    "output/source-delivery.json": {
+      "size": 138,
+      "sha256": "832ba9bff18d6d922e294d5e51d9a135b4c7bfe1e822c096765129c66e06ceb7"
+    },
+    "output/staging/bootstrap.sh": {
+      "size": 3244,
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4"
+    },
+    "output/staging/release.py": {
+      "size": 14677,
+      "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355"
+    },
+    "output/staging/runtime.py": {
+      "size": 30712,
+      "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036"
+    },
+    "output/staging/schema-validation.json": {
+      "size": 175,
+      "sha256": "19e9a30388e606d7d21b2f3c6d89f3aeed6aba88857ab56ab239348e92375c54"
+    },
+    "output/staging/source-plan.json": {
+      "size": 30910,
+      "sha256": "3694b67b421da720ca93b57ce1e64cb04c62def1631229f7574fdc1d24c4c225"
+    },
+    "output/staging/source.py": {
+      "size": 14511,
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f"
+    },
+    "output/staging/source.tar.gz": {
+      "size": 901912,
+      "sha256": "3b4b3070e47e721f8168386a0f1713f70945b84f6ad17c9ae4308e01d88d732e"
+    },
+    "output/upload-measurement.json": {
+      "size": 170,
+      "sha256": "fd3d4c11fb7b20b04b9ac8a07060de3d57f233735dd96cf5ee30f9a5950b05f0"
+    },
+    "output/usage-allocated.json": {
+      "size": 62,
+      "sha256": "0606d4eb21388a79ef86fcea5f8583a50a7193475d477e87d577a653a439cd49"
+    },
+    "output/warmup-measurement.json": {
+      "size": 64,
+      "sha256": "97edc79e0ad801de6dcd03d28fcf15c8d82bba59b0b8d3c2b08b92a42415ce32"
+    },
+    "pinned-commit.raw": {
+      "size": 254,
+      "sha256": "0cd0f0590fa6ede291d0229abd29d4b2850dd7da56379531a923b96d6fa902e4"
+    },
+    "provider-sessions.json": {
+      "size": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "runtime-observation/job.log": {
+      "size": 5568,
+      "sha256": "ba139cbef600f65dd0a3c133b2051fda22ed448e1ef67bc944a319e045e169a6"
+    },
+    "runtime-observation/state.json": {
+      "size": 1141,
+      "sha256": "0721f90ba7b3e51b3a566a6c8660ed49230d976f3fdf3e1d446d9b31dd7172bb"
+    },
+    "runtime-observation/terminal.json": {
+      "size": 2185,
+      "sha256": "6c56d6e6284c624a5b7795c4caddfb35ed82cd8b28e11fe9559d8486a2275249"
+    },
+    "supervisor.log": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}
