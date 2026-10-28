@@ -1,0 +1,10 @@
+C/T-1028-07: implementation prepared for Opus review; operator dispatch required.
+Runtime pin: d3f44e60a425b76b54428b9e45c7d20b35734f49
+Science and frozen production counts unchanged from packet 03; only control.source_commit changes.
+Structured mechanical facts; exact diagnostic allowlists; fail-closed scan roots; sealed member hashes; ancestor retirement; offline provider-error refusal.
+Base 720 min / effective 1440 min; unit guard 193.0; initial empty verified ledger; at most two manual outcome-blind completion attempts after verified mechanical stop.
+Storage remains projected from prior 8/24-row fixtures; no actual CUDA or provider/account check is claimed.
+Exact operator dispatch (NOT RUN by Astra):
+PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin SNAKE_DQN_PYTHON=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 PYTHONDONTWRITEBYTECODE=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-07-broker.noindex/tools/ops/dispatch.sh sandbox-ct-cf-20261028-07 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-07-broker.noindex/research/sandbox_a_resident/packet-ct-1028-07/reseal-01/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-ct-1028-07-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-ct-1028-07-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-cf-1028/attempt-07/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-ct-1028-07-broker.noindex/research/sandbox_a_resident/packet-ct-1028-07/reseal-01/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve checkouts and all prior evidence.
