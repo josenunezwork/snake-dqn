@@ -169,6 +169,26 @@ def validate_input(record: dict, registry: dict | None = None) -> None:
             or payload_sha.read_text().strip() != digest(payload)
         ):
             raise ValueError("training-export sidecar lacks a complete canonical payload")
+    elif kind == "training-export-derivative":
+        # A lossless transport derivative (XZ stream) of a canonical full-state
+        # snapshot, or its manifest of the original decoded tensors.  It must be
+        # a completion-last artifact next to its complete original; which
+        # derivative may resume is frozen by the TRAIN-01 runtime allowlist.
+        match = re.fullmatch(r"(iteration-[0-9]{4}\.pt)\.xz(?:\.manifest)?", path.name)
+        if match is None:
+            raise ValueError("canonical TRAIN-01 snapshot derivative path required")
+        sidecar = Path(str(path) + ".sha256")
+        complete = Path(str(path) + ".complete")
+        original = path.with_name(match.group(1))
+        if (
+            not sidecar.is_file()
+            or not complete.is_file()
+            or sidecar.read_text().strip() != claimed
+            or not original.is_file()
+            or not Path(str(original) + ".sha256").is_file()
+            or not Path(str(original) + ".complete").is_file()
+        ):
+            raise ValueError("snapshot derivative lacks completion sidecars or its original")
     elif kind == "verified-ledger":
         value = json.loads(path.read_text())
         if not isinstance(value, dict) or not isinstance(value.get("units"), list):

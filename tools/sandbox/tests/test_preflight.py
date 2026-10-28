@@ -272,3 +272,22 @@ def test_b3_recipe_binds_its_new_ledger_identity_and_configured_updates(tmp_path
         _validate_b_heads_runtime_recipe(
             payload, packet, ledger, payload["inputs"][:1], payload["inputs"][1:]
         )
+
+
+def test_snapshot_derivative_kind_is_admitted_only_for_train01() -> None:
+    payload = _payload()
+    payload["inputs"].append(
+        {
+            "kind": "training-export-derivative",
+            "path": "exports/iteration-0000.pt.xz",
+            "sha256": "c" * 64,
+        }
+    )
+    with pytest.raises(ManifestError, match="exclusive to sandbox-a-train01"):
+        validate_manifest(payload)
+    payload["study"] = "sandbox-a-train01"
+    payload["inputs"][2]["study"] = "sandbox-a-train01"
+    assert validate_manifest(payload)["inputs"][-1]["kind"] == "training-export-derivative"
+    payload["inputs"][-1].pop("sha256")
+    with pytest.raises(ManifestError):
+        validate_manifest(payload)

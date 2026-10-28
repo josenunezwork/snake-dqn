@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from research.sandbox_a_resident.training_prepare import STUDY, seed_allocations
-from research.sandbox_a_resident.training_units import load_ledger
+from research.sandbox_a_resident.training_units import (
+    COMPACT_DERIVATIVE_SUFFIX,
+    COMPACT_MANIFEST_SUFFIX,
+    COMPACT_RESUME_FIELD,
+    load_ledger,
+    validate_compact_resume,
+)
 from tools.sandbox.preflight import preflight, verify_committed_manifest
 from tools.sandbox.registry import digest
 
@@ -20,8 +26,15 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def validate_uploaded_ledger(packet: Path, broker: dict, control: dict) -> None:
-    """Verify relative runtime ledger paths against the actual Mac upload set."""
+    """Verify relative runtime ledger paths against the actual Mac upload set.
+
+    With an allowlisted ``compact_resume`` binding, the full-state ``.pt`` is not
+    uploaded: its derivative and manifest are, as exact hash-bound siblings of
+    the Mac original, together with the original's completion sidecars.  The
+    Mac original itself is still verified by path/size/hash below.
+    """
     ledger = json.loads((packet / "verified-ledger.json").read_text())
+    compact = validate_compact_resume(ledger)
     uploads = {row["dest"]: row for row in broker["inputs"]}
     if len(uploads) != len(broker["inputs"]):
         raise ValueError("duplicate runtime input destination")
@@ -35,6 +48,37 @@ def validate_uploaded_ledger(packet: Path, broker: dict, control: dict) -> None:
             raise ValueError("complete canonical snapshot triple required")
         for row in unit["exports"]:
             destination = row["path"]
+            if compact is not None and destination == compact["original"]["path"]:
+                if destination in uploads:
+                    raise ValueError("compact resume must not also upload the full-state payload")
+                sources = []
+                for role, suffix in (
+                    ("derivative", COMPACT_DERIVATIVE_SUFFIX),
+                    ("manifest", COMPACT_MANIFEST_SUFFIX),
+                ):
+                    item = uploads.get(destination + suffix)
+                    bound = compact[role]
+                    if (
+                        item is None
+                        or bound["path"] != destination + suffix
+                        or item["sha256"] != bound["sha256"]
+                        or not item["path"].endswith(suffix)
+                        or digest(Path(item["path"])) != bound["sha256"]
+                        or Path(item["path"]).stat().st_size != bound["size"]
+                    ):
+                        raise ValueError(f"compact resume {role} is not a hash-bound upload")
+                    sources.append(Path(item["path"][: -len(suffix)]))
+                    referenced.add(destination + suffix)
+                if sources[0] != sources[1]:
+                    raise ValueError("compact derivative and manifest must be original siblings")
+                source = sources[0]
+                for suffix in (".sha256", ".complete"):
+                    item = uploads.get(destination + suffix)
+                    if item is None or Path(item["path"]) != Path(str(source) + suffix):
+                        raise ValueError("resume sidecars must be exact uploaded siblings")
+                    referenced.add(destination + suffix)
+                row["path"] = str(source)
+                continue
             upload = uploads.get(destination)
             if upload is None or row["sha256"] != upload["sha256"]:
                 raise ValueError("resume payload is not a hash-bound uploaded input")
@@ -48,6 +92,9 @@ def validate_uploaded_ledger(packet: Path, broker: dict, control: dict) -> None:
             row["path"] = str(source)
     if referenced != {name for name in uploads if name.startswith("resume/")}:
         raise ValueError("unreferenced resume upload")
+    # The compact binding was validated against relative paths above; the Mac
+    # copy below verifies the local original by path/size/hash only.
+    ledger.pop(COMPACT_RESUME_FIELD, None)
     # Only metadata/path/size/hash are examined; Torch payloads stay opaque.
     with tempfile.TemporaryDirectory(prefix="train01-verify-ledger-") as directory:
         path = Path(directory) / "ledger.json"

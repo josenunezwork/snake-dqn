@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import copy
 import json
+from decimal import Decimal, localcontext
 
+import numpy as np
 import pytest
 import torch
 
@@ -25,6 +27,70 @@ from research.sandbox_a_resident.training_model import (
     masked_categorical_kl,
 )
 from src.model.ego2s_network import Ego2sNet
+
+_ORACLE_DIGITS = 100
+
+
+def _dec_log_softmax(logits: list[float]) -> list[Decimal]:
+    """Independent 100-digit log-softmax of exact binary float inputs."""
+    with localcontext() as context:
+        context.prec = _ORACLE_DIGITS
+        values = [Decimal(float(value)) for value in logits]
+        anchor = max(values)
+        total = sum(((value - anchor).exp() for value in values), Decimal(0))
+        log_total = total.ln()
+        return [+(value - anchor - log_total) for value in values]
+
+
+def _dec_kl(reference: list[float], actor: list[float]) -> Decimal:
+    with localcontext() as context:
+        context.prec = _ORACLE_DIGITS
+        ref, act = _dec_log_softmax(reference), _dec_log_softmax(actor)
+        return sum((r.exp() * (r - a) for r, a in zip(ref, act)), Decimal(0))
+
+
+def _dec_entropy(logits: list[float]) -> Decimal:
+    with localcontext() as context:
+        context.prec = _ORACLE_DIGITS
+        return -sum((lp.exp() * lp for lp in _dec_log_softmax(logits)), Decimal(0))
+
+
+def _dec_kl_actor_grad(reference: list[float], actor: list[float]) -> list[Decimal]:
+    """dKL(p||q)/da_j = q_j - p_j."""
+    with localcontext() as context:
+        context.prec = _ORACLE_DIGITS
+        ref, act = _dec_log_softmax(reference), _dec_log_softmax(actor)
+        return [a.exp() - r.exp() for r, a in zip(ref, act)]
+
+
+def _dec_kl_reference_grad(reference: list[float], actor: list[float]) -> list[Decimal]:
+    """dKL(p||q)/dr_j = p_j * (log p_j - log q_j - KL)."""
+    with localcontext() as context:
+        context.prec = _ORACLE_DIGITS
+        ref, act = _dec_log_softmax(reference), _dec_log_softmax(actor)
+        kl = _dec_kl(reference, actor)
+        return [r.exp() * (r - a - kl) for r, a in zip(ref, act)]
+
+
+def _dec_entropy_grad(logits: list[float]) -> list[Decimal]:
+    """dH/dx_j = -p_j * (log p_j + H)."""
+    with localcontext() as context:
+        context.prec = _ORACLE_DIGITS
+        entropy = _dec_entropy(logits)
+        return [-(lp.exp() * (lp + entropy)) for lp in _dec_log_softmax(logits)]
+
+
+def _f32(value: Decimal) -> float:
+    """Correctly round a Decimal to float32 (nearest of three neighbouring candidates)."""
+    guess = np.float32(float(value))
+    candidates = (
+        np.nextafter(guess, np.float32(-np.inf)),
+        guess,
+        np.nextafter(guess, np.float32(np.inf)),
+    )
+    with localcontext() as context:
+        context.prec = _ORACLE_DIGITS
+        return float(min(candidates, key=lambda item: abs(Decimal(float(item)) - value)))
 
 
 def make_rollout(
@@ -522,14 +588,12 @@ def test_legal_probability_underflow_contributes_exact_log_space_term() -> None:
     assert ref_dist.probs[0, 1].item() == 0.0
     assert act_dist.probs[0, 1].item() == 0.0
 
-    # Independent float64 oracle over the two legal actions:
-    ref64 = ref_logits[:, :2].double()
-    act64 = act_logits.detach()[:, :2].double()
-    ref_logp64 = ref64 - torch.logsumexp(ref64, dim=-1, keepdim=True)
-    act_logp64 = act64 - torch.logsumexp(act64, dim=-1, keepdim=True)
-    expected_kl = (ref_logp64.exp() * (ref_logp64 - act_logp64)).sum(dim=-1).float()
-    expected_entropy = -(ref_logp64.exp() * ref_logp64).sum(dim=-1).float()
-    assert expected_kl.item() == pytest.approx(6.1096613044562024e-43, rel=0, abs=0)
+    # Independent 100-digit Decimal oracle over the two legal actions. The prior
+    # float64 logsumexp oracle repeated the normalization loss it was meant to
+    # detect (TRAIN01-13 review finding 1), so it is no longer used here.
+    expected_kl = torch.tensor([_f32(_dec_kl([0.0, -104.0], [0.0, -1000.0]))])
+    expected_entropy = torch.tensor([_f32(_dec_entropy([0.0, -104.0]))])
+    assert expected_kl.item() == 6.095648319812954e-43
     assert expected_entropy.item() == pytest.approx(7.146622168056567e-44, rel=0, abs=0)
 
     kl = masked_categorical_kl(ref_dist, act_dist, mask)
@@ -544,9 +608,9 @@ def test_legal_probability_underflow_contributes_exact_log_space_term() -> None:
     act_extreme = categorical(
         torch.tensor([[0.0, -1e38, 0.0, 0.0, 0.0, 0.0]], dtype=torch.float32), mask
     )
-    act_ext64 = torch.tensor([[0.0, -1e38]], dtype=torch.float32).double()
-    act_ext_logp64 = act_ext64 - torch.logsumexp(act_ext64, dim=-1, keepdim=True)
-    expected_extreme_kl = (ref_logp64.exp() * (ref_logp64 - act_ext_logp64)).sum(dim=-1).float()
+    expected_extreme_kl = torch.tensor(
+        [_f32(_dec_kl([0.0, -104.0], [0.0, float(torch.tensor(-1e38).item())]))]
+    )
     extreme_kl = masked_categorical_kl(ref_dist, act_extreme, mask)
     assert torch.equal(extreme_kl, expected_extreme_kl)
     assert extreme_kl.item() == pytest.approx(6.8135566e-8, rel=1e-6)
@@ -559,3 +623,171 @@ def test_legal_probability_underflow_contributes_exact_log_space_term() -> None:
         torch.tensor([[0.0, -1.0, -1e38, 100.0, -500.0, 500.0]], dtype=torch.float32), mask
     )
     assert masked_categorical_kl(identical_legal_ref, identical_legal_act, mask).item() == 0.0
+
+
+_SATURATED_CASES = [
+    # (legal actions, reference logits, actor logits); illegal entries are padded.
+    (2, [0.0, -104.0], [0.0, -108.0]),
+    (2, [0.0, -104.0], [0.0, -1000.0]),
+    (2, [0.0, -40.0], [0.0, -40.0]),
+    (2, [0.0, -40.0], [0.0, -41.0]),
+    (2, [0.0, -100.0], [0.0, -104.0]),
+    (3, [0.0, -38.5, -39.0], [0.0, -38.5, -39.25]),
+    (3, [5.0, 5.0, -100.0], [5.0, 4.999999, -101.0]),
+    (3, [-3.0, 20.0, -80.0], [-3.5, 20.0, -79.0]),
+    (6, [0.0, -17.0, -18.0, -19.0, -60.0, -90.0], [0.0, -17.0001, -18.0, -19.5, -61.0, -95.0]),
+    (2, [0.3, -0.7], [0.1, 0.2]),
+]
+
+
+def _padded(values: list[float], fill: float) -> torch.Tensor:
+    return torch.tensor([values + [fill] * (6 - len(values))], dtype=torch.float32)
+
+
+@pytest.mark.parametrize("legal_count,reference,actor", _SATURATED_CASES)
+def test_saturated_kl_entropy_and_gradients_match_independent_decimal_oracle(
+    legal_count: int, reference: list[float], actor: list[float]
+) -> None:
+    """Values and analytic gradients are correctly rounded float32 of a 100-digit oracle."""
+    torch.set_num_threads(1)
+    mask = torch.tensor([[index < legal_count for index in range(6)]])
+    ref_raw = _padded(reference, 77.0).requires_grad_(True)
+    act_raw = _padded(actor, -77.0).requires_grad_(True)
+    ref_dist, act_dist = categorical(ref_raw, mask), categorical(act_raw, mask)
+    # The oracle consumes the distributions' stored (float32-normalized) logits.
+    ref_logits = vars(ref_dist)["logits"]
+    act_logits = vars(act_dist)["logits"]
+    ref_values = ref_logits.detach()[0, :legal_count].tolist()
+    act_values = act_logits.detach()[0, :legal_count].tolist()
+
+    kl = masked_categorical_kl(ref_dist, act_dist, mask)
+    entropy = masked_categorical_entropy(act_dist, mask)
+    assert kl.dtype == torch.float32 and entropy.dtype == torch.float32
+    assert torch.equal(kl, torch.tensor([_f32(_dec_kl(ref_values, act_values))]))
+    assert torch.equal(entropy, torch.tensor([_f32(_dec_entropy(act_values))]))
+
+    grad_ref, grad_act = torch.autograd.grad(kl.sum(), (ref_logits, act_logits))
+    (grad_entropy,) = torch.autograd.grad(entropy.sum(), (act_logits,))
+    pad = [0.0] * (6 - legal_count)
+    expected_ref = [_f32(v) for v in _dec_kl_reference_grad(ref_values, act_values)] + pad
+    expected_act = [_f32(v) for v in _dec_kl_actor_grad(ref_values, act_values)] + pad
+    expected_entropy = [_f32(v) for v in _dec_entropy_grad(act_values)] + pad
+    assert torch.equal(grad_ref, torch.tensor([expected_ref]))
+    assert torch.equal(grad_act, torch.tensor([expected_act]))
+    assert torch.equal(grad_entropy, torch.tensor([expected_entropy]))
+
+
+def test_review_saturated_examples_are_correctly_rounded() -> None:
+    """The TRAIN01-13 review's three numerical counterexamples now round correctly."""
+    mask = torch.tensor([[True, True, False, False, False, False]])
+    ref = categorical(_padded([0.0, -104.0], 0.0), mask)
+    assert masked_categorical_kl(
+        ref, categorical(_padded([0.0, -108.0], 0.0), mask), mask
+    ).item() == (1.401298464324817e-45)
+    assert masked_categorical_kl(
+        ref, categorical(_padded([0.0, -1000.0], 0.0), mask), mask
+    ).item() == (6.095648319812954e-43)
+    logits = _padded([0.0, -40.0], 0.0).requires_grad_(True)
+    entropy = masked_categorical_entropy(categorical(logits, mask), mask)
+    assert entropy.item() == 1.7418251854950444e-16
+    (grad,) = torch.autograd.grad(entropy.sum(), (logits,))
+    assert grad[0, 1].item() == 1.699341718629913e-16
+    assert grad[0, 0].item() == -1.699341718629913e-16
+    assert torch.equal(grad[0, 2:], torch.zeros(4))
+
+
+def test_probability_validation_is_independent_of_lazy_logits_cache() -> None:
+    """Reading ``.logits`` must not change failure classification or the distribution."""
+    mask = torch.tensor([[True, True, False, False, False, False]])
+    uniform = torch.distributions.Categorical(
+        probs=torch.tensor([[0.5, 0.5, 0.0, 0.0, 0.0, 0.0]]), validate_args=False
+    )
+
+    def zero_legal() -> torch.distributions.Categorical:
+        return torch.distributions.Categorical(
+            probs=torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0]]), validate_args=False
+        )
+
+    fresh, cached = zero_legal(), zero_legal()
+    _ = cached.logits  # observational read populates PyTorch's clamped lazy cache
+    assert "logits" in vars(cached)
+    for distribution in (fresh, cached):
+        assert torch.isnan(masked_categorical_entropy(distribution, mask)).all()
+        assert torch.isnan(masked_categorical_kl(uniform, distribution, mask)).all()
+        assert torch.isnan(masked_categorical_kl(distribution, uniform, mask)).all()
+
+    healthy = torch.tensor([[0.25, 0.75, 0.0, 0.0, 0.0, 0.0]])
+    before = torch.distributions.Categorical(probs=healthy, validate_args=False)
+    after = torch.distributions.Categorical(probs=healthy, validate_args=False)
+    _ = after.logits
+    for left, right in (
+        (masked_categorical_entropy(before, mask), masked_categorical_entropy(after, mask)),
+        (masked_categorical_kl(uniform, before, mask), masked_categorical_kl(uniform, after, mask)),
+    ):
+        assert torch.isfinite(left).all() and torch.equal(left, right)
+    # A logits-parameterized distribution is unaffected by reading ``.probs``.
+    logits = categorical(torch.tensor([[0.0, -104.0, 0.0, 0.0, 0.0, 0.0]]), mask)
+    read = categorical(torch.tensor([[0.0, -104.0, 0.0, 0.0, 0.0, 0.0]]), mask)
+    _ = read.probs
+    assert torch.equal(
+        masked_categorical_entropy(logits, mask), masked_categorical_entropy(read, mask)
+    )
+
+    class Opaque(torch.distributions.Categorical):
+        pass
+
+    opaque = Opaque(logits=torch.zeros(1, 6), validate_args=False)
+    del opaque._param
+    with pytest.raises(TypeError, match="parameterization"):
+        masked_categorical_entropy(opaque, mask)
+
+
+def test_seeded_oracle_sweep_values_and_actor_gradients_are_correctly_rounded() -> None:
+    """Seeded saturated/close/extreme sweep against the independent Decimal oracle.
+
+    KL, entropy and the actor/entropy gradients used by PPO must be correctly
+    rounded float32.  The frozen reference's gradient (never used by training;
+    reference logits are computed under ``no_grad``) is bounded at float64
+    resolution: one float32 ulp at exact float32 rounding midpoints.
+    """
+    import random
+
+    rng = random.Random(20261027)
+    for _ in range(150):
+        count = rng.randint(2, 6)
+        reference = [
+            rng.choice([0.0, rng.uniform(-120, 0), rng.uniform(-5, 5)]) for _ in range(count)
+        ]
+        actor = [
+            value
+            + rng.choice(
+                [0.0, 0.0, rng.uniform(-1e-5, 1e-5), rng.uniform(-1, 1), rng.uniform(-50, 50)]
+            )
+            for value in reference
+        ]
+        if rng.random() < 0.1:
+            actor[rng.randrange(count)] = -1e38
+        mask = torch.tensor([[index < count for index in range(6)]])
+        ref_dist = categorical(_padded(reference, 3.0).requires_grad_(True), mask)
+        act_dist = categorical(_padded(actor, -3.0).requires_grad_(True), mask)
+        ref_logits, act_logits = vars(ref_dist)["logits"], vars(act_dist)["logits"]
+        ref_values = ref_logits.detach()[0, :count].tolist()
+        act_values = act_logits.detach()[0, :count].tolist()
+        kl = masked_categorical_kl(ref_dist, act_dist, mask)
+        entropy = masked_categorical_entropy(act_dist, mask)
+        assert kl.item() == _f32(_dec_kl(ref_values, act_values))
+        assert entropy.item() == _f32(_dec_entropy(act_values))
+        grad_ref, grad_act = torch.autograd.grad(kl.sum(), (ref_logits, act_logits))
+        (grad_entropy,) = torch.autograd.grad(entropy.sum(), (act_logits,))
+        pad = [0.0] * (6 - count)
+        assert (
+            grad_act[0].tolist()
+            == [_f32(v) for v in _dec_kl_actor_grad(ref_values, act_values)] + pad
+        )
+        assert grad_entropy[0].tolist() == [_f32(v) for v in _dec_entropy_grad(act_values)] + pad
+        torch.testing.assert_close(
+            grad_ref,
+            torch.tensor([[_f32(v) for v in _dec_kl_reference_grad(ref_values, act_values)] + pad]),
+            rtol=1.2e-7,
+            atol=1e-36,
+        )

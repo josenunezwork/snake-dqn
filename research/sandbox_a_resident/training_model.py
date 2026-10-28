@@ -78,57 +78,197 @@ def categorical(logits: torch.Tensor, legal_mask: torch.Tensor) -> torch.distrib
     )
 
 
-def _legal_log_probs(
+def _probability_parameterized(distribution: torch.distributions.Categorical) -> bool:
+    """Return whether ``distribution`` was constructed from ``probs``.
+
+    PyTorch caches the complementary lazy property (``logits`` for a
+    probability-parameterized distribution, ``probs`` for a logits one) in the
+    instance dictionary on first read; the probability-to-logit cache clamps
+    zeros to epsilon.  The constructor's ``_param`` alias identifies the original
+    parameterization independently of which observational property was read.
+    """
+    parameter = getattr(distribution, "_param", None)
+    state = vars(distribution)
+    if parameter is not None and state.get("probs") is parameter:
+        return True
+    if parameter is not None and state.get("logits") is parameter:
+        return False
+    raise TypeError("categorical distribution lacks an identifiable constructor parameterization")
+
+
+def _anchored_normalization(
+    values: torch.Tensor, legal: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Split finite float64 log-weights into anchor-shifted values and a log-normalizer.
+
+    ``logsumexp`` returns ``m + log(sum(exp(x - m)))`` and rounds ``log(1 + s)``
+    to zero when the non-anchor mass ``s`` is below float64 epsilon, dropping
+    the dominant action's small negative log-probability.  Anchor at one legal
+    maximum ``k``: ``shifted = x - x_k`` and ``log_normalizer = log1p(s)`` with
+    ``s = sum_{j != k} exp(x_j - x_k)``, so ``log p = shifted - log_normalizer``.
+    Keeping the two parts lets callers difference normalizers before adding
+    them to large shifted values.  Callers differentiate through the analytic
+    backward passes below, never through this normalization.
+    """
+    masked = torch.where(legal, values, float("-inf"))
+    anchor_index = masked.argmax(dim=-1, keepdim=True)
+    shifted = torch.where(legal, values - values.gather(-1, anchor_index), torch.zeros_like(values))
+    positions = torch.arange(values.shape[-1], device=values.device)
+    others = legal & (positions != anchor_index)
+    tail = torch.where(others, shifted, float("-inf")).exp().sum(dim=-1, keepdim=True)
+    return shifted, torch.log1p(tail)
+
+
+# Taylor coefficients (n - 1) / n! of phi(u) = u e^u - expm1(u) = sum_{n>=2} (n-1) u^n / n!.
+_PHI_SERIES = tuple((n - 1) / math.factorial(n) for n in range(2, 16))
+
+
+def _kl_phi(u: torch.Tensor) -> torch.Tensor:
+    """Return ``phi(u) = 1 + (u - 1) e^u >= 0`` without cancellation for ``|u| < 0.1``."""
+    small = u.abs() < 0.1
+    safe = torch.where(small, u, torch.zeros_like(u))
+    series = torch.zeros_like(u)
+    for coefficient in reversed(_PHI_SERIES):
+        series = series * safe + coefficient
+    capped = torch.where(u <= 1.0, u, torch.zeros_like(u))
+    direct = capped * capped.exp() - torch.expm1(capped)
+    return torch.where(small, safe * safe * series, direct)
+
+
+class _LegalCategoricalKL(torch.autograd.Function):
+    """Forward KL over legal support, normalization-exact in float64.
+
+    With ``q``'s dominant action ``m``, ``delta'_j = (x_j - x_m) - (y_j - y_m)``
+    and ``D' = log1p(sum_{j != m} q_j expm1(delta'_j))``, the log-ratio is
+    ``u_j = log p_j - log q_j = delta'_j - D'`` exactly; the two normalizers are
+    differenced before they meet large logits.  Because ``sum_j q_j expm1(u_j) = 0``,
+
+    ``KL = sum_j p_j u_j = sum_j q_j phi(u_j)``, ``phi(u) = 1 + (u - 1) e^u >= 0``,
+
+    a sum of non-negative terms (``p_j (u_j - 1) + q_j`` for ``u_j > 1``).
+    Analytic gradients:
+
+    * ``dKL/dy_j = q_j - p_j = -q_j expm1(u_j)`` (``q_j - p_j`` when ``u_j > 1``).
+    * ``dKL/dx_j = p_j (u_j - KL) = p_j ((delta_j - delta_k) - c)`` with ``k`` the
+      dominant reference action and ``c = sum_{i != k} p_i (delta_i - delta_k)``;
+      normalizers cancel exactly.
+
+    Illegal entries receive zero.
+    """
+
+    @staticmethod
+    def forward(  # type: ignore[override]
+        ctx: Any, ref_values: torch.Tensor, act_values: torch.Tensor, legal: torch.Tensor
+    ) -> torch.Tensor:
+        zeros = torch.zeros_like(ref_values)
+        ref_shifted, ref_norm = _anchored_normalization(ref_values, legal)
+        act_shifted, act_norm = _anchored_normalization(act_values, legal)
+        ref_logp = torch.where(legal, ref_shifted - ref_norm, zeros)
+        act_logp = torch.where(legal, act_shifted - act_norm, zeros)
+        p = torch.where(legal, ref_logp.exp(), zeros)
+        q = torch.where(legal, act_logp.exp(), zeros)
+        # ``act_shifted`` is anchored at q's dominant action m (act_shifted_m == 0).
+        anchor = torch.where(legal, act_values, float("-inf")).argmax(dim=-1, keepdim=True)
+        ref_centered = torch.where(legal, ref_shifted - ref_shifted.gather(-1, anchor), zeros)
+        delta = torch.where(legal, ref_centered - act_shifted, zeros)
+        # q_j e^{delta'_j} = exp(x_j - x_m - La) never forms the actor's own logit.
+        boosted = torch.where(legal, ref_centered - act_norm, zeros)
+        others = legal & (torch.arange(legal.shape[-1], device=legal.device) != anchor)
+        terms = torch.where(
+            delta <= 1.0,
+            q * torch.expm1(torch.where(delta <= 1.0, delta, zeros)),
+            boosted.exp() - q,
+        )
+        log_ratio_shift = torch.log1p(torch.where(others, terms, zeros).sum(dim=-1, keepdim=True))
+        u = torch.where(legal, delta - log_ratio_shift, zeros)
+        contribution = torch.where(u > 1.0, p * (u - 1.0) + q, q * _kl_phi(u))
+        kl = torch.where(legal, contribution, zeros).sum(dim=-1)
+        ctx.save_for_backward(p, q, u, torch.where(legal, ref_shifted - act_shifted, zeros), legal)
+        return kl
+
+    @staticmethod
+    def backward(  # type: ignore[override]
+        ctx: Any, grad_kl: torch.Tensor
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None, None]:
+        p, q, u, delta, legal = ctx.saved_tensors
+        zeros = torch.zeros_like(p)
+        grad = grad_kl.unsqueeze(-1)
+        grad_ref = grad_act = None
+        if ctx.needs_input_grad[0]:
+            index = torch.where(legal, p, float("-inf")).argmax(dim=-1, keepdim=True)
+            centered = torch.where(legal, delta - delta.gather(-1, index), zeros)
+            mean = torch.where(legal, p * centered, zeros).sum(dim=-1, keepdim=True)
+            grad_ref = torch.where(legal, p * (centered - mean), zeros) * grad
+        if ctx.needs_input_grad[1]:
+            bounded = torch.where(u <= 1.0, u, zeros)
+            difference = torch.where(u <= 1.0, -q * torch.expm1(bounded), q - p)
+            grad_act = torch.where(legal, difference, zeros) * grad
+        return grad_ref, grad_act, None
+
+
+class _LegalCategoricalEntropy(torch.autograd.Function):
+    """Shannon entropy over legal support, normalization-exact in float64.
+
+    With anchor-shifted values ``s`` (``s_k = 0`` at the dominant action, all
+    ``s_i <= 0``) and ``log p_i = s_i - L``, ``L = log1p(sum_{i != k} exp(s_i))``:
+
+    ``H = L + sum_i p_i (-s_i)`` is a sum of non-negative terms, and
+    ``dH/dx_j = -p_j (log p_j + H) = -p_j (s_j - sum_i p_i s_i)``, in which the
+    normalizer cancels exactly.  Illegal entries receive zero.
+    """
+
+    @staticmethod
+    def forward(  # type: ignore[override]
+        ctx: Any, values: torch.Tensor, legal: torch.Tensor
+    ) -> torch.Tensor:
+        zeros = torch.zeros_like(values)
+        shifted, log_normalizer = _anchored_normalization(values, legal)
+        p = torch.where(legal, (shifted - log_normalizer).exp(), zeros)
+        mean_shift = torch.where(legal, p * shifted, zeros).sum(dim=-1, keepdim=True)
+        ctx.save_for_backward(p, shifted, mean_shift, legal)
+        return (log_normalizer - mean_shift).squeeze(-1)
+
+    @staticmethod
+    def backward(  # type: ignore[override]
+        ctx: Any, grad_entropy: torch.Tensor
+    ) -> tuple[torch.Tensor, None]:
+        p, shifted, mean_shift, legal = ctx.saved_tensors
+        grad = torch.where(legal, -p * (shifted - mean_shift), torch.zeros_like(p))
+        return grad * grad_entropy.unsqueeze(-1), None
+
+
+def _legal_log_weights(
     distribution: torch.distributions.Categorical, legal: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor, torch.dtype]:
-    """Return normalized log-probabilities on canonical legal support and row finiteness.
+    """Return float64 log-weights on canonical legal support and row finiteness.
 
     Only finite logits on all canonical legal actions may produce valid
     log-probabilities when ``exp()`` underflows ``float32``.  Any non-finite
     legal logit, or any non-positive/non-finite legal probability when
     ``distribution`` was constructed from ``probs``, marks the row non-finite so
-    callers never mask numerical failures to healthy zero.
+    callers never mask numerical failures to healthy zero.  The constructor
+    parameterization, not lazy-property cache state, selects which is validated.
+    Normalization is anchored (:func:`_anchored_normalization`) by the callers so
+    saturated distributions retain the dominant action's residual log-probability.
     """
-    if "probs" in distribution.__dict__ and "logits" not in distribution.__dict__:
-        probs = distribution.probs
+    if _probability_parameterized(distribution):
+        probs = vars(distribution)["probs"]
         if probs.shape != legal.shape:
             raise ValueError("distribution and legal_mask must share shape [..., 6]")
-        out_dtype = probs.dtype
         probs64 = probs.double()
-        legal_probs = probs64.masked_fill(~legal, 0.0)
-        normalizer = legal_probs.sum(dim=-1, keepdim=True)
-        valid_row = (
-            ((torch.isfinite(probs) & (probs > 0.0)) | ~legal).all(dim=-1)
-            & torch.isfinite(normalizer.squeeze(-1))
-            & (normalizer.squeeze(-1) > 0.0)
-        )
-        safe_probs = torch.where(
-            legal & (probs64 > 0.0) & torch.isfinite(probs64),
-            probs64 / normalizer.clamp_min(torch.finfo(probs64.dtype).tiny),
-            torch.ones_like(probs64),
-        )
-        return (
-            torch.where(legal, safe_probs.log(), torch.zeros_like(probs64)),
-            valid_row,
-            out_dtype,
-        )
+        usable = legal & (probs64 > 0.0) & torch.isfinite(probs64)
+        valid_row = (usable | ~legal).all(dim=-1)
+        return torch.where(usable, probs64, torch.ones_like(probs64)).log(), valid_row, probs.dtype
 
-    raw_logits = distribution.logits
+    raw_logits = vars(distribution)["logits"]
     if raw_logits.shape != legal.shape:
         raise ValueError("distribution and legal_mask must share shape [..., 6]")
-    out_dtype = raw_logits.dtype
     valid_row = (torch.isfinite(raw_logits) | ~legal).all(dim=-1)
     logits64 = raw_logits.double()
     safe_logits = torch.where(
         legal & torch.isfinite(logits64), logits64, torch.zeros_like(logits64)
     )
-    masked = torch.where(legal, safe_logits, float("-inf"))
-    normalizer = torch.logsumexp(masked, dim=-1, keepdim=True)
-    return (
-        torch.where(legal, safe_logits - normalizer, torch.zeros_like(logits64)),
-        valid_row,
-        out_dtype,
-    )
+    return safe_logits, valid_row, raw_logits.dtype
 
 
 def masked_categorical_kl(
@@ -142,50 +282,33 @@ def masked_categorical_kl(
     where ``q.probs == 0`` with ``+inf``, while probability-space masking
     ``reference.probs > 0`` drops finite legal tail log-probabilities whose
     ``float32`` ``exp()`` rounds to ``0.0`` and masks ``NaN`` probabilities to
-    healthy zero.  Evaluate positive and negative KL contributions in log-space
-    with ``logsumexp`` from the normalized legal log-probabilities, and return
-    ``NaN`` on any row whose legal support contains a non-finite log-probability.
+    healthy zero.  Evaluate float64 log-ratios with anchored, differenced
+    normalizers and sum non-negative ``q_j * phi(u_j)`` terms (exact tails and
+    dominant-action residuals; :class:`_LegalCategoricalKL`, analytic
+    gradients), cast to the input dtype, and return ``NaN`` on any row whose
+    legal support contains a non-finite log-probability.
     """
     legal = canonical_legal_mask(legal_mask)
-    ref_logp, ref_valid, out_dtype = _legal_log_probs(reference, legal)
-    act_logp, act_valid, _ = _legal_log_probs(distribution, legal)
-    valid = ref_valid & act_valid
-    diff = torch.where(legal, ref_logp - act_logp, torch.zeros_like(ref_logp))
-    pos = legal & (diff > 0.0)
-    neg = legal & (diff < 0.0)
-    zero = legal & (diff == 0.0)
-    pos_log_terms = torch.where(
-        pos,
-        ref_logp + torch.where(pos, diff, torch.ones_like(diff)).log(),
-        float("-inf"),
-    )
-    neg_log_terms = torch.where(
-        neg,
-        ref_logp + torch.where(neg, -diff, torch.ones_like(diff)).log(),
-        float("-inf"),
-    )
-    zero_tangent = torch.where(zero, ref_logp.detach().exp() * diff, torch.zeros_like(diff)).sum(
-        dim=-1
-    )
-    kl = (
-        torch.logsumexp(pos_log_terms, dim=-1).exp()
-        - torch.logsumexp(neg_log_terms, dim=-1).exp()
-        + (zero_tangent - zero_tangent.detach())
-    ).to(dtype=out_dtype)
-    return torch.where(valid, kl, torch.full_like(kl, float("nan")))
+    ref_values, ref_valid, out_dtype = _legal_log_weights(reference, legal)
+    act_values, act_valid, _ = _legal_log_weights(distribution, legal)
+    kl = _LegalCategoricalKL.apply(ref_values, act_values, legal).to(dtype=out_dtype)
+    return torch.where(ref_valid & act_valid, kl, torch.full_like(kl, float("nan")))
 
 
 def masked_categorical_entropy(
     distribution: torch.distributions.Categorical,
     legal_mask: torch.Tensor,
 ) -> torch.Tensor:
-    """Return Shannon entropy over canonical legal support via log-space logsumexp."""
+    """Return Shannon entropy over canonical legal support, normalization-exact.
+
+    Normalization is anchored so a dominant action keeps its residual
+    log-probability and float32-underflowing tails keep their contribution;
+    gradients are analytic (:class:`_LegalCategoricalEntropy`).  Rows with a
+    non-finite legal log-probability return ``NaN``.
+    """
     legal = canonical_legal_mask(legal_mask)
-    logp, valid, out_dtype = _legal_log_probs(distribution, legal)
-    active = legal & (logp < 0.0)
-    safe_neg_logp = torch.where(active, -logp, torch.ones_like(logp))
-    log_terms = torch.where(active, logp + safe_neg_logp.log(), float("-inf"))
-    entropy = torch.logsumexp(log_terms, dim=-1).exp().to(dtype=out_dtype)
+    values, valid, out_dtype = _legal_log_weights(distribution, legal)
+    entropy = _LegalCategoricalEntropy.apply(values, legal).to(dtype=out_dtype)
     return torch.where(valid, entropy, torch.full_like(entropy, float("nan")))
 
 

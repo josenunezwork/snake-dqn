@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -154,3 +155,37 @@ def test_mutated_registry_with_protected_life_refused(tmp_path):
     p.write_text(json.dumps(reg))
     with pytest.raises(ValueError):
         load_registry(p)
+
+
+def test_training_export_derivatives_require_completion_sidecars_and_original(tmp_path):
+    payload = tmp_path / "iteration-0000.pt"
+    payload.write_bytes(b"full state")
+    (tmp_path / "iteration-0000.pt.sha256").write_text(
+        hashlib.sha256(payload.read_bytes()).hexdigest() + "\n"
+    )
+    (tmp_path / "iteration-0000.pt.complete").write_text("complete\n")
+
+    def derivative(name, body):
+        path = tmp_path / name
+        path.write_bytes(body)
+        sha = hashlib.sha256(body).hexdigest()
+        Path(f"{path}.sha256").write_text(sha + "\n")
+        Path(f"{path}.complete").write_text("complete\n")
+        return {"kind": "training-export-derivative", "path": str(path), "sha256": sha}
+
+    xz = derivative("iteration-0000.pt.xz", b"xz-stream")
+    manifest = derivative("iteration-0000.pt.xz.manifest", b"{}")
+    validate_input(xz)
+    validate_input(manifest)
+    with pytest.raises(ValueError, match="derivative path required"):
+        validate_input(derivative("iteration-0000.pt.zst", b"other"))
+    with pytest.raises(ValueError, match="derivative path required"):
+        validate_input(derivative("iteration-0000.json.xz", b"other"))
+    Path(f"{tmp_path / 'iteration-0000.pt.xz'}.sha256").write_text("0" * 64 + "\n")
+    with pytest.raises(ValueError, match="completion sidecars or its original"):
+        validate_input(xz)
+    (tmp_path / "iteration-0000.pt.complete").unlink()
+    with pytest.raises(ValueError, match="completion sidecars or its original"):
+        validate_input(manifest)
+    with pytest.raises(ValueError, match="input hash mismatch"):
+        validate_input({**manifest, "sha256": "1" * 64})
