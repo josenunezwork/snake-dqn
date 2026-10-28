@@ -24,14 +24,14 @@ frozen effective guard is 480 minutes. Without an authorized resolution, this
 packet is blocked at transport admission even though its forecast fits the
 operator's governing envelope. Never reduce the estimate to evade this check.
 
-Workers are scheduled in a spawn pool of 11. A worker initializer sets its nice
+Workers are scheduled in a spawn pool of 11. Each real arm worker sets its absolute nice
 value to min(19, parent nice + 10), refusing if it cannot be strictly lower priority
-than the parent. This is one setting per process, never an increment per task.
+than the parent. Repeated arm tasks set the same absolute value, never an additive increment.
 Each session retains W1/K1, seed allocation, action/branch rules and fixed horizon.
 The real guarded fixture compares all six immutable unit components byte for byte
 between pool sizes 11 and 12, with fixed source/input paths; records include
-initial/final state, action trace, counts, roster and outcomes. The short fixture
-covers 60 real ticks per arm on the excluded seed. Existing separate natural L600,
+initial/final state, action trace, counts, roster and outcomes. The fixture repeats only the excluded seed across 13 engineering sessions to
+cross both cohort boundaries, with 60 real ticks per arm. Existing separate natural L600,
 P0/P48, death/respawn and W1/K1 tests cover deeper controller behavior; this is not
 a full H6000 or cross-platform parity claim.
 

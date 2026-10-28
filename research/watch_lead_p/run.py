@@ -57,6 +57,7 @@ def lower_worker_priority() -> None:
 
 def worker(index: int, arm: str) -> dict:
     """Compute one deterministic arm; only the coordinator publishes full units."""
+    lower_worker_priority()
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     faulthandler.dump_traceback_later(900, exit=True)
 
@@ -128,7 +129,6 @@ def execute(ledger: Path, inputs: Path, output: Path) -> None:
     pool = concurrent.futures.ProcessPoolExecutor(
         max_workers=WORKERS,
         mp_context=multiprocessing.get_context("spawn"),
-        initializer=lower_worker_priority,
     )
     try:
         for sig in previous:
