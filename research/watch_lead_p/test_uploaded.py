@@ -176,14 +176,18 @@ def test_adapter_full_smoke_and_mature_search_parity(tmp_path, monkeypatch):
 
 
 def test_real_entrypoint_without_mac_roots(tmp_path):
-    """Copy the exact sparse inventory and uploads; block original roots in child."""
+    run_vm_fixture(tmp_path)
+
+
+def run_vm_fixture(tmp_path: Path, source_root: Path = ROOT) -> None:
+    """Run the guarded fixture from exact supplied source (including installed archive)."""
     sparse = tmp_path / "sparse"
     sparse.mkdir()
-    sources = json.loads((ROOT / "research/watch_lead_p/runtime-sources.json").read_text())
+    sources = json.loads((source_root / "research/watch_lead_p/runtime-sources.json").read_text())
     for name in sources:
         target = sparse / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(ROOT / name, target)
+        shutil.copyfile(source_root / name, target)
     inputs = copy_inputs(tmp_path / "inputs")
     home, cwd = tmp_path / "home", tmp_path / "elsewhere"
     home.mkdir()
@@ -191,7 +195,7 @@ def test_real_entrypoint_without_mac_roots(tmp_path):
     output = tmp_path / "smoke.json"
     guard = tmp_path / "guard"
     guard.mkdir()
-    shutil.copyfile(ROOT / "research/watch_lead_p/vm_guard.py", guard / "sitecustomize.py")
+    shutil.copyfile(source_root / "research/watch_lead_p/vm_guard.py", guard / "sitecustomize.py")
     # The driver constrains only fixture seed/horizon/allocation size, in both
     # parent and spawn children. main(run), execute, worker, uploaded_checkpoints,
     # run_arm, publication, and ledger validation remain the real functions.
