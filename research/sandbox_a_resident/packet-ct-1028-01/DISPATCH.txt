@@ -1,0 +1,13 @@
+C/T-1028-01: prepared only; operator dispatch required.
+Runtime pin: f611e76b8302b5be9d9751dc161560f5a4e44355
+Counterfactual learnability plus dynamic-topology probe (study t34-cf-1028) per Ruling section 4 before TRAIN-02.
+Domain: a100-dev/t34-cf-1028/ (training/validation/assessment disjoint; excludes TRAIN-01 monitor/nomination 1,056 seeds and all protected banks; exhaustive 2,623,488-root 63-bit alias + exclusion audit PASS).
+Task identity: t34-cf-v1-terminal-hero-skill-instep-refill (separated from watch6-v2-continuous-respawn-product; no Watch v2 transfer claim).
+Collection & branching: B8 E1024x2560 ticks, <=160 eligible deaths at L>=600 x 8 lookbacks + <=1280 matched ordinary roots + 50,000 anchor rows; pre-fit 80/20 world split (820 train / 204 assessment); H300 branching over 4 selection + 4 independent scoring suffixes with CRN across legal actions; 3 arms (frozen_phi, full_bv8, full_bv8_plus_topology with zero-residual init) x 2000 minibatches (256 searched + 768 anchor, beta=0.05).
+Source delivery: background-sparse-v1 (measured foreground launch-exec 0.0025 s < 2 s; 1.02 MB sparse archive + 20.60 MB fixed inputs = 21.66% nominal / 36.82% worst-case of 300 s upload cap); 10 atomic resumable stage units + ledger-bound .pt.xz compact resume; SIGUSR1 <15 s exit 138; stall watchdog 900 s.
+Measured A100 wall-time projection: 6.37 h expected / 10.54 h conservative upper -> 12.0 h base (720 min) / 24.0 h 2x effective guard (1440 min), unit_cap=193.0 u.
+
+Exact operator dispatch (from any shell):
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-01-broker.noindex/tools/ops/dispatch.sh sandbox-ct-cf-20261028-01 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-01-broker.noindex/research/sandbox_a_resident/packet-ct-1028-01/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-ct-1028-01-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-ct-1028-01-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-cf-1028/attempt-01/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-ct-1028-01-broker.noindex/research/sandbox_a_resident/packet-ct-1028-01/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve detached checkouts and prior evidence.
