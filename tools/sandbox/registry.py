@@ -195,7 +195,9 @@ def validate_input(record: dict, registry: dict | None = None) -> None:
             raise ValueError("verified ledger object/units required")
     elif kind == "verified-unit":
         if record.get("study") == "t34-watch-lead-1028":
-            match = re.fullmatch(r"session-([0-9]{2})\.json(?:\.sha256|\.complete)?", path.name)
+            match = re.fullmatch(
+                r"session-([0-9]{2})\.json(?:\.metadata\.json)?(?:\.sha256|\.complete)?", path.name
+            )
             if match is None or int(match[1]) >= 32:
                 raise ValueError("foreign P paired-session resume filename")
             return

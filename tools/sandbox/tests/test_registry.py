@@ -189,3 +189,51 @@ def test_training_export_derivatives_require_completion_sidecars_and_original(tm
         validate_input(manifest)
     with pytest.raises(ValueError, match="input hash mismatch"):
         validate_input({**manifest, "sha256": "1" * 64})
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "",
+        ".sha256",
+        ".complete",
+        ".metadata.json",
+        ".metadata.json.sha256",
+        ".metadata.json.complete",
+    ],
+)
+def test_p_verified_unit_construction_metadata_names(tmp_path, suffix):
+    path = tmp_path / ("session-00.json" + suffix)
+    path.write_bytes(b"hash-bound component")
+    record = {
+        "kind": "verified-unit",
+        "study": "t34-watch-lead-1028",
+        "path": str(path),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    validate_input(record)
+    with pytest.raises(ValueError):
+        validate_input({**record, "study": "another-study"})
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "session-32.json",
+        "session-00.metadata.json",
+        "session-00.json.metadata.json.extra",
+        "session-0.json",
+    ],
+)
+def test_p_verified_unit_metadata_names_remain_narrow(tmp_path, name):
+    path = tmp_path / name
+    path.write_bytes(b"hash-bound component")
+    with pytest.raises(ValueError, match="foreign P"):
+        validate_input(
+            {
+                "kind": "verified-unit",
+                "study": "t34-watch-lead-1028",
+                "path": str(path),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+        )
