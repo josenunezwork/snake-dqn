@@ -39,6 +39,13 @@ COMPACT_MANIFEST_SCHEMA = "t34-cf-compact-snapshot/v1"
 COMPACT_DERIVATIVE_SUFFIX = ".xz"
 COMPACT_MANIFEST_SUFFIX = ".xz.manifest"
 _READ_BYTES = 1024 * 1024
+# units.publish() writes "<64-hex>\n" (65 B) + "complete\n" (9 B) = 74 B of sidecars per artifact.
+PUBLISH_SIDECAR_BYTES = 65 + 9
+# ct_job.sh:seal_stall_diagnostics caps each of the 2 stall-watchdog files at <= 1 MiB + sidecars,
+# plus 8 KiB slack for stall-diagnostic sidecar filenames and final progress.json replacement.
+STALL_DIAGNOSTIC_SEAL_RESERVE_BYTES = 2 * (1024 * 1024) + 8192
+# Reserved tail inside max_total_export_bytes (384 MiB) for summary/sigusr1/fault + stall sealing.
+TAIL_SUMMARY_AND_DIAGNOSTIC_RESERVE_BYTES = 2_228_224
 
 
 class StageExportOverflowError(RuntimeError):
@@ -286,6 +293,63 @@ def load_verified_stage_payload(
     return state
 
 
+def recursive_export_bytes(root: Path, *, exclude: Path | None = None) -> int:
+    """Return recursive byte sum across all regular files under ``root`` (sidecars/diagnostics)."""
+    if not root.exists():
+        return 0
+    excluded_resolved = exclude.resolve() if (exclude is not None and exclude.exists()) else None
+    total = 0
+    for candidate in root.rglob("*"):
+        if candidate.is_symlink():
+            continue
+        if not candidate.is_file():
+            continue
+        if excluded_resolved is not None and candidate.resolve() == excluded_resolved:
+            continue
+        total += candidate.stat().st_size
+    return total
+
+
+def publish_bounded_export(
+    path: Path,
+    writer: Callable[[Path], None],
+    *,
+    export_root: Path,
+    max_total_bytes: int | None = None,
+    reserved_tail_bytes: int = 0,
+) -> dict[str, Any]:
+    """Publish one completion-last artifact while enforcing recursive total-export byte cap."""
+    if reserved_tail_bytes < 0:
+        raise ValueError("reserved_tail_bytes must be >= 0")
+    export_root.mkdir(parents=True, exist_ok=True)
+
+    def _checked_writer(partial_dst: Path) -> None:
+        writer(partial_dst)
+        size = partial_dst.stat().st_size
+        if max_total_bytes is not None:
+            existing = recursive_export_bytes(export_root, exclude=partial_dst)
+            artifact_bundle = size + PUBLISH_SIDECAR_BYTES
+            projected_total = existing + artifact_bundle + int(reserved_tail_bytes)
+            if projected_total > int(max_total_bytes):
+                partial_dst.unlink(missing_ok=True)
+                raise StageExportOverflowError(
+                    f"recursive export total {projected_total} B (existing={existing} B, "
+                    f"artifact_with_sidecars={artifact_bundle} B, "
+                    f"reserved_tail={int(reserved_tail_bytes)} B) exceeds "
+                    f"max_total_export_bytes={max_total_bytes}"
+                )
+
+    published = publish(path, _checked_writer)
+    if max_total_bytes is not None:
+        observed_total = recursive_export_bytes(export_root) + int(reserved_tail_bytes)
+        if observed_total > int(max_total_bytes):
+            raise StageExportOverflowError(
+                f"post-publish recursive export total {observed_total} B exceeds "
+                f"max_total_export_bytes={max_total_bytes}"
+            )
+    return published
+
+
 def publish_stage_snapshot(
     output: Path,
     stage: int,
@@ -294,15 +358,23 @@ def publish_stage_snapshot(
     metadata: Mapping[str, Any],
     max_stage_bytes: int | None = None,
     max_total_bytes: int | None = None,
+    reserved_tail_bytes: int = 0,
 ) -> dict[str, Any]:
-    """Publish ``stage-XXXX.pt`` and completion-last ``stage-XXXX.json`` with size caps."""
+    """Publish ``stage-XXXX.pt`` and completion-last ``stage-XXXX.json`` under exact recursive caps.
+
+    - ``max_stage_bytes`` bounds the ``stage-XXXX.pt`` payload bytes.
+    - ``max_total_bytes`` bounds ALL recursive regular files under ``output`` — including
+      prior stages, nested ``stall-watchdog/*`` diagnostics, ``progress.json``, all six files
+      published for this stage (``.pt`` + ``.sha256`` + ``.complete`` + ``.json`` + ``.sha256``
+      + ``.complete``), plus ``reserved_tail_bytes`` reserved for final summary/diagnostic files.
+    """
+    if reserved_tail_bytes < 0:
+        raise ValueError("reserved_tail_bytes must be >= 0")
     identity = unit_id(stage)
     output.mkdir(parents=True, exist_ok=True)
-    existing_bytes = sum(
-        p.stat().st_size
-        for p in output.iterdir()
-        if p.is_file() and not p.name.endswith(".partial")
-    )
+    pt_path = output / f"stage-{stage:04d}.pt"
+    info_path = output / f"stage-{stage:04d}.json"
+    meta_copy = dict(metadata)
 
     def _checked_writer(partial_dst: Path) -> None:
         writer(partial_dst)
@@ -312,26 +384,56 @@ def publish_stage_snapshot(
             raise StageExportOverflowError(
                 f"stage-{stage:04d}.pt size {size} exceeds max_stage_export_bytes={max_stage_bytes}"
             )
-        if max_total_bytes is not None and (existing_bytes + size) > int(max_total_bytes):
-            partial_dst.unlink(missing_ok=True)
-            raise StageExportOverflowError(
-                f"cumulative export size {existing_bytes + size} exceeds "
-                f"max_total_export_bytes={max_total_bytes}"
+        if max_total_bytes is not None:
+            existing_bytes = recursive_export_bytes(output, exclude=partial_dst)
+            projected_descriptor = {
+                "id": identity,
+                "path": str(pt_path.resolve()),
+                "size": size,
+                "sha256": "0" * 64,
+            }
+            projected_envelope = {
+                "schema": SNAPSHOT_SCHEMA,
+                "id": identity,
+                "stage": int(stage),
+                "snapshot": projected_descriptor,
+                "metadata": meta_copy,
+            }
+            envelope_size = len(
+                (json.dumps(projected_envelope, sort_keys=True) + "\n").encode("utf-8")
             )
+            stage_six_file_bytes = (
+                size + PUBLISH_SIDECAR_BYTES + envelope_size + PUBLISH_SIDECAR_BYTES
+            )
+            projected_total = existing_bytes + stage_six_file_bytes + int(reserved_tail_bytes)
+            if projected_total > int(max_total_bytes):
+                partial_dst.unlink(missing_ok=True)
+                raise StageExportOverflowError(
+                    f"recursive export total {projected_total} B (existing={existing_bytes} B, "
+                    f"stage_six_files={stage_six_file_bytes} B, "
+                    f"reserved_tail={int(reserved_tail_bytes)} B) exceeds "
+                    f"max_total_export_bytes={max_total_bytes}"
+                )
 
-    payload = publish(output / f"stage-{stage:04d}.pt", _checked_writer)
+    payload = publish(pt_path, _checked_writer)
     descriptor = verified_descriptor(Path(payload["path"]), identity)
     envelope = {
         "schema": SNAPSHOT_SCHEMA,
         "id": identity,
         "stage": int(stage),
         "snapshot": descriptor,
-        "metadata": dict(metadata),
+        "metadata": meta_copy,
     }
-    info_path = output / f"stage-{stage:04d}.json"
     info = publish(
         info_path, lambda path: path.write_text(json.dumps(envelope, sort_keys=True) + "\n")
     )
+    if max_total_bytes is not None:
+        observed_total = recursive_export_bytes(output) + int(reserved_tail_bytes)
+        if observed_total > int(max_total_bytes):
+            raise StageExportOverflowError(
+                f"post-publish recursive export total {observed_total} B exceeds "
+                f"max_total_export_bytes={max_total_bytes}"
+            )
     return {"id": identity, "stage": int(stage), "exports": [descriptor, info]}
 
 

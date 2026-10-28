@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import subprocess
@@ -12,6 +13,12 @@ from pathlib import Path
 from typing import Any
 
 from research.sandbox_a_resident.ct_prepare import STUDY, ct_endpoint_steps
+from research.sandbox_a_resident.ct_resume import (
+    _check_attempt_output_dir_fault_evidence,
+    _check_single_root_fault_evidence,
+    _extract_prior_admitted_coverage,
+    _is_hex,
+)
 from research.sandbox_a_resident.ct_task import (
     CTControl,
     ct_seed_allocations,
@@ -41,11 +48,131 @@ CT_FOCUSED_TESTS: tuple[str, ...] = (
 
 def validate_uploaded_ledger(packet: Path, broker: dict[str, Any], control: dict[str, Any]) -> None:
     """Verify relative runtime ledger paths (raw .pt or compact .pt.xz) against Mac uploads."""
-    ledger = json.loads((packet / "verified-ledger.json").read_text())
+    ledger_file = packet / "verified-ledger.json"
+    actual_ledger_sha = digest(ledger_file)
+    ledger = json.loads(ledger_file.read_text())
     compact_by_unit = validate_compact_resume(ledger)
     uploads = {row["dest"]: row for row in broker["inputs"]}
     if len(uploads) != len(broker["inputs"]):
         raise ValueError("duplicate runtime input destination")
+    ledger_upload = uploads.get("verified-ledger.json")
+    if (
+        ledger_upload is None
+        or ledger_upload.get("sha256") != actual_ledger_sha
+        or Path(str(ledger_upload.get("path", ""))).resolve() != ledger_file.resolve()
+    ):
+        raise ValueError("verified-ledger.json is not hash-bound to packet ledger upload")
+
+    canonical_units = copy.deepcopy(ledger.get("units", []))
+    if not isinstance(canonical_units, list):
+        raise ValueError("verified-ledger.json units must be a list")
+
+    comp = broker.get("completion_attempt")
+    if comp is None:
+        if canonical_units:
+            raise ValueError("non-empty verified-ledger.json requires completion_attempt metadata")
+    else:
+        if not isinstance(comp, dict) or comp.get("index") not in (1, 2):
+            raise ValueError("malformed completion_attempt metadata")
+        if (
+            comp.get("manual") is not True
+            or not isinstance(comp.get("prior_job_id"), str)
+            or not comp["prior_job_id"]
+            or not _is_hex(comp.get("prior_manifest_sha256"), 64)
+            or comp.get("ledger_sha256") != actual_ledger_sha
+        ):
+            raise ValueError("completion_attempt lacks valid prior_manifest/ledger SHA-256 binding")
+        if not canonical_units:
+            raise ValueError("continuation packet requires at least one verified stage unit")
+        actual_stages = [u.get("stage") for u in canonical_units if isinstance(u, dict)]
+        if comp.get("verified_stages") != actual_stages:
+            raise ValueError("completion_attempt.verified_stages differs from verified-ledger.json")
+        canonical_by_stage = {
+            u["stage"]: u
+            for u in canonical_units
+            if isinstance(u, dict) and type(u.get("stage")) is int
+        }
+        if comp["index"] == 1:
+            if comp.get("prior_verified_stages") != [] or comp.get("prior_verified_units") != []:
+                raise ValueError(
+                    "completion_attempt=1 must declare empty prior_verified_stages/units"
+                )
+        else:
+            prior_stages = comp.get("prior_verified_stages")
+            prior_units = comp.get("prior_verified_units")
+            if (
+                not isinstance(prior_stages, list)
+                or not prior_stages
+                or not isinstance(prior_units, list)
+                or not prior_units
+            ):
+                raise ValueError(
+                    "completion_attempt=2 must bind non-empty prior_verified_stages and units"
+                )
+            if [u.get("stage") for u in prior_units if isinstance(u, dict)] != prior_stages:
+                raise ValueError("prior_verified_stages disagrees with prior_verified_units")
+            for p_unit in prior_units:
+                if not isinstance(p_unit, dict):
+                    raise ValueError("malformed prior_verified_units entry")
+                p_stage = p_unit.get("stage")
+                if type(p_stage) is not int or p_stage not in canonical_by_stage:
+                    raise ValueError(
+                        f"continuation ledger omits previously verified stage {p_stage!r}"
+                    )
+                if canonical_by_stage[p_stage] != p_unit:
+                    raise ValueError(
+                        "continuation ledger conflicts with previously verified "
+                        f"stage-{p_stage:04d}"
+                    )
+
+        raw_out_dirs = comp.get("prior_output_dirs")
+        raw_exp_dirs = comp.get("prior_export_roots")
+        if (
+            not isinstance(raw_out_dirs, list)
+            or any(not isinstance(d, str) or not d for d in raw_out_dirs)
+            or not isinstance(raw_exp_dirs, list)
+            or not raw_exp_dirs
+            or any(not isinstance(d, str) or not d for d in raw_exp_dirs)
+        ):
+            raise ValueError(
+                "completion_attempt must bind prior_output_dirs and prior_export_roots"
+            )
+        for out_str in raw_out_dirs:
+            _check_attempt_output_dir_fault_evidence(Path(out_str))
+        for exp_str in raw_exp_dirs:
+            _check_single_root_fault_evidence(Path(exp_str))
+
+        if comp.get("prior_manifest_path") is not None:
+            pm_path = Path(str(comp["prior_manifest_path"]))
+            if (
+                pm_path.is_symlink()
+                or not pm_path.is_file()
+                or digest(pm_path) != comp["prior_manifest_sha256"]
+            ):
+                raise ValueError("prior_manifest_path missing, symlinked, or SHA-256 mismatched")
+            prior_broker = json.loads(pm_path.read_text())
+            if (
+                not isinstance(prior_broker, dict)
+                or prior_broker.get("job_id") != comp["prior_job_id"]
+                or prior_broker.get("commit") != broker.get("commit")
+            ):
+                raise ValueError("prior_manifest_path job_id or commit binding mismatch")
+            disk_units, disk_lsha, _, _ = _extract_prior_admitted_coverage(
+                prior_broker,
+                control,
+                completion_index=int(comp["index"]),
+                prior_packet_dir=pm_path.parent,
+            )
+            if comp.get("prior_ledger_sha256") != disk_lsha:
+                raise ValueError(
+                    "prior_ledger_sha256 differs from bound prior verified-ledger.json"
+                )
+            expected_prior_units = [disk_units[s] for s in sorted(disk_units)]
+            if comp.get("prior_verified_units") != expected_prior_units:
+                raise ValueError(
+                    "prior_verified_units differs from bound prior verified-ledger.json"
+                )
+
     referenced: set[str] = set()
     for unit in ledger.get("units", []):
         stage = unit.get("stage")

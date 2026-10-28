@@ -1361,3 +1361,558 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                 assert f"PASS_DRY_RUN {name} allocations=0" in res.stdout
     finally:
         shutil.rmtree(ws, ignore_errors=True)
+
+
+def test_qualified_nested_poll_shapes_fault_precedence_and_all_polls_scan(tmp_path: Path) -> None:
+    """Re-review Finding 1: inspect qualified nested poll state & supervisor_log_tail."""
+    from research.colab_cli import runtime as colab_runtime
+
+    manifest = {"job_id": "sandbox-ct-cf-qual-poll-01", "commit": "d" * 40}
+    m_sha = "e" * 64
+    rpc_timeout_receipt: dict[str, object] = {
+        "job_id": "sandbox-ct-cf-qual-poll-01",
+        "commit": "d" * 40,
+        "manifest_sha256": m_sha,
+        "status": "INCOMPLETE",
+        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "generation": "gen-p1",
+    }
+
+    # 1) Astra's exact verbatim counterexample (REVIEW.md §1):
+    #    <attempt>/poll-000001.json + <attempt>/exports/ct + RPC_EXEC_POLL_TIMEOUT w/ terminal=None.
+    astra_attempt = tmp_path / "astra_attempt_01"
+    astra_export_root = astra_attempt / "exports" / "ct"
+    astra_export_root.mkdir(parents=True)
+    (astra_attempt / "poll-000001.json").write_text(
+        json.dumps(
+            {
+                "state": {
+                    "status": "failed",
+                    "reason": "runtime_error",
+                    "error": "FloatingPointError('non-finite tensor')",
+                },
+                "terminal": None,
+                "exports": [],
+                "job_log_tail": "",
+                "supervisor_log_tail": (
+                    "Traceback (most recent call last):\nFloatingPointError: non-finite tensor"
+                ),
+            }
+        )
+    )
+    with pytest.raises(CTResumeRefused, match="floatingpointerror|non-finite"):
+        verify_mechanical_stop(rpc_timeout_receipt, manifest, m_sha, export_root=astra_export_root)
+
+    def _produce_real_qualified_poll(
+        case_name: str,
+        *,
+        state: dict[str, object],
+        job_log: str = "",
+        supervisor_log: str = "",
+        terminal: dict[str, object] | None = None,
+        compact: bool = True,
+    ) -> dict[str, object]:
+        vm_root = tmp_path / f"vm_{case_name}"
+        vm_root.mkdir(parents=True, exist_ok=True)
+        gen = str(state.get("generation", "gen-p1"))
+        full_state = {"job_id": "sandbox-ct-cf-qual-poll-01", "generation": gen, **state}
+        (vm_root / "state.json").write_text(json.dumps(full_state))
+        (vm_root / "lease.json").write_text(json.dumps({"generation": gen, "renewed_at": 1.0}))
+        if job_log:
+            (vm_root / "job.log").write_text(job_log)
+        if supervisor_log:
+            (vm_root / "supervisor.log").write_text(supervisor_log)
+        if terminal is not None:
+            (vm_root / "terminal.json").write_text(json.dumps(terminal))
+        return colab_runtime.read_state(vm_root, gen, renew=False, compact=compact)
+
+    def _attempt_with_polls(name: str, polls: list[dict[str, object]]) -> Path:
+        att = tmp_path / name
+        exp = att / "exports" / "ct"
+        exp.mkdir(parents=True)
+        for idx, p_obj in enumerate(polls, start=1):
+            (att / f"poll-{idx:06d}.json").write_text(json.dumps(p_obj))
+        return exp
+
+    # 2) Nested state runtime fault alone (empty supervisor_log_tail & job_log_tail, no terminal).
+    poll_state_only = _produce_real_qualified_poll(
+        "state_fault_only",
+        state={
+            "status": "failed",
+            "reason": "runtime_error",
+            "error": "FloatingPointError('non-finite tensor')",
+        },
+    )
+    exp_state_only = _attempt_with_polls("att_state_only", [poll_state_only])
+    with pytest.raises(CTResumeRefused, match="floatingpointerror|runtime_error"):
+        verify_mechanical_stop(rpc_timeout_receipt, manifest, m_sha, export_root=exp_state_only)
+
+    # 3) supervisor_log_tail fault alone while state.status == "running" (traceback & runtime.py).
+    for idx_sup, sup_err in enumerate(
+        (
+            "Traceback (most recent call last):\nFloatingPointError: non-finite tensor\n",
+            "colab-cli runtime: runtime supervisor failure: OSError('No space left on device')\n",
+        )
+    ):
+        poll_sup_only = _produce_real_qualified_poll(
+            f"sup_only_{idx_sup}",
+            state={"status": "running", "pid": 4444},
+            supervisor_log=sup_err,
+        )
+        exp_sup_only = _attempt_with_polls(f"att_sup_only_{idx_sup}", [poll_sup_only])
+        with pytest.raises(CTResumeRefused):
+            verify_mechanical_stop(rpc_timeout_receipt, manifest, m_sha, export_root=exp_sup_only)
+
+    # 4) Child crash in nested state (status="failed", reason=None, returncode=1) w/o terminal.
+    poll_child_crash = _produce_real_qualified_poll(
+        "child_crash",
+        state={"status": "failed", "reason": None, "returncode": 1},
+    )
+    exp_child_crash = _attempt_with_polls("att_child_crash", [poll_child_crash])
+    with pytest.raises(CTResumeRefused, match="non-mechanical child failure"):
+        verify_mechanical_stop(rpc_timeout_receipt, manifest, m_sha, export_root=exp_child_crash)
+
+    # 5) Completed, post-terminal, watchdog-124, or invalid nested state w/o terminal/final exports.
+    bad_states: list[tuple[str, dict[str, object], bool]] = [
+        ("succeeded", {"status": "succeeded", "returncode": 0, "reason": None}, True),
+        ("completed", {"status": "completed", "returncode": None, "reason": None}, True),
+        (
+            "post_terminal",
+            {
+                "status": "lease_expired_after_terminal",
+                "returncode": 0,
+                "reason": "lease_expired",
+            },
+            True,
+        ),
+        ("invalid", {"status": "invalid", "returncode": None, "reason": None}, True),
+        ("watchdog_124", {"status": "failed", "returncode": 124, "reason": "timeout"}, True),
+        (
+            "unassign_err",
+            {"status": "failed", "reason": "timeout", "unassign_error": "URLError"},
+            True,
+        ),
+        (
+            "state_exports_summary",
+            {
+                "status": "running",
+                "exports": [{"path": "ct/summary.json", "size": 512, "sha256": "a" * 64}],
+            },
+            False,
+        ),
+        (
+            "state_exports_watchdog",
+            {
+                "status": "running",
+                "exports": [
+                    {
+                        "path": "ct/stall-watchdog/faulthandler-stacks.log",
+                        "size": 128,
+                        "sha256": "b" * 64,
+                    }
+                ],
+            },
+            False,
+        ),
+    ]
+    for tag, st_dict, is_compact in bad_states:
+        poll_bad = _produce_real_qualified_poll(f"bad_{tag}", state=st_dict, compact=is_compact)
+        exp_bad = _attempt_with_polls(f"att_bad_{tag}", [poll_bad])
+        with pytest.raises(CTResumeRefused):
+            verify_mechanical_stop(rpc_timeout_receipt, manifest, m_sha, export_root=exp_bad)
+
+    # 6) ALL retained polls scanned: fault in poll-000001.json is NOT masked by clean poll-000002!
+    clean_running_poll = _produce_real_qualified_poll(
+        "clean_running",
+        state={
+            "status": "running",
+            "pid": 7777,
+            "exports": [{"path": "ct/stage-0001.pt", "size": 4096, "sha256": "c" * 64}],
+        },
+        job_log=(
+            'CT_PROGRESS {"elapsed_sec": 60.0, "latest_durable_stage": 1, '
+            '"schema": "t34-cf-progress/v1", "stage": "scoring-progress", "study": "t34-cf-1028"}\n'
+        ),
+        compact=False,
+    )
+    exp_multi_fault = _attempt_with_polls(
+        "att_multi_poll_fault_first", [poll_state_only, clean_running_poll]
+    )
+    with pytest.raises(CTResumeRefused, match="floatingpointerror|runtime_error"):
+        verify_mechanical_stop(rpc_timeout_receipt, manifest, m_sha, export_root=exp_multi_fault)
+
+    # 7) Ordinary verified timeout/lease/credential-expiring stops in qualified poll shape pass!
+    empty_sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    poll_starting = _produce_real_qualified_poll("ok_start", state={"status": "starting"})
+    for mech_reason in ("timeout", "lease_expired", "release_credential_expiring"):
+        mech_exports = [
+            {"path": "ct/stage-0001.pt", "size": 4096, "sha256": "c" * 64},
+            {
+                "path": "ct/stall-watchdog/faulthandler-stacks.log",
+                "size": 0,
+                "sha256": empty_sha,
+            },
+        ]
+        mech_term = {
+            "export_scanner": {"name": "runtime._exports", "inventory": mech_exports},
+            "canary_observations": [],
+            "last_traceback_line": (
+                "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/out/ct/stall-watchdog"
+            ),
+            "job_id": "sandbox-ct-cf-qual-poll-01",
+            "generation": "gen-p1",
+            "status": "failed",
+            "returncode": 138,
+            "reason": mech_reason,
+            "exports": mech_exports,
+        }
+        poll_mech_end = _produce_real_qualified_poll(
+            f"ok_end_{mech_reason}",
+            state={
+                "status": "failed",
+                "returncode": 138,
+                "reason": mech_reason,
+                "exports": mech_exports,
+            },
+            job_log=(
+                'CT_PROGRESS {"elapsed_sec": 120.0, "latest_durable_stage": 1, '
+                '"schema": "t34-cf-progress/v1", "stage": "scoring-progress", '
+                '"study": "t34-cf-1028"}\n'
+                "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/out/ct/stall-watchdog\n"
+            ),
+            terminal=mech_term,
+            compact=True,
+        )
+        exp_ok = _attempt_with_polls(
+            f"att_ok_{mech_reason}", [poll_starting, clean_running_poll, poll_mech_end]
+        )
+        verify_mechanical_stop(rpc_timeout_receipt, manifest, m_sha, export_root=exp_ok)
+        verify_mechanical_stop(
+            {
+                **rpc_timeout_receipt,
+                "failure_class": "CHILD_NONZERO_EXIT",
+                "terminal": mech_term,
+            },
+            manifest,
+            m_sha,
+            export_root=exp_ok,
+        )
+
+
+def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidden_provenance_fault(
+    tmp_path: Path,
+) -> None:
+    """Re-review Finding 2 regression: successor packets must preserve & bind admitted coverage."""
+    import copy
+
+    from research.sandbox_a_resident.ct_preflight import validate_uploaded_ledger
+
+    canonical_ckpt_dir = Path("/Users/josenunez/Projects/ml/snake-dqn/saved_snakes")
+    if (canonical_ckpt_dir / "b8_s3_t7_20261016.pth").is_file():
+        ckpts = (
+            canonical_ckpt_dir / "b8_s3_t7_20261016.pth",
+            canonical_ckpt_dir / "frp3_m3_s12_u60000_20261005.pth",
+            canonical_ckpt_dir / "champion_a5_freespace_20260621.pth",
+        )
+        use_registry_validation = True
+    else:
+        ckpts = _save_tiny_checkpoints(tmp_path)
+        use_registry_validation = False
+
+    ctrl = CTControl(
+        source_commit="a" * 40, worlds=6, collection_ticks=12, scoring_chunks=4, tiny=True
+    )
+    ctrl_dict = ctrl.to_dict()
+    alloc = allocation(ctrl_dict)
+
+    a0_out = tmp_path / "attempt_00_out"
+    packet_00 = tmp_path / "packet-00"
+    _write_tiny_initial_packet(packet_00, ctrl, ckpts, a0_out)
+    validate_uploaded_ledger(
+        packet_00,
+        json.loads((packet_00 / "dispatch-manifest.json").read_text()),
+        ctrl_dict,
+    )
+
+    dir_s1 = tmp_path / "exports_s1"
+    dir_s2 = tmp_path / "exports_s2"
+    dir_s2_conflict = tmp_path / "exports_s2_conflict"
+    dir_s3 = tmp_path / "exports_s3"
+    publish_stage_snapshot(
+        dir_s1,
+        1,
+        lambda dst: torch.save({"stage": 1, "v": torch.tensor([11])}, dst),
+        metadata={
+            "allocation": alloc,
+            "source_commit": ctrl.source_commit,
+            "support_status": "PASS",
+        },
+    )
+    publish_stage_snapshot(
+        dir_s2,
+        2,
+        lambda dst: torch.save({"stage": 2, "v": torch.tensor([22])}, dst),
+        metadata={"allocation": alloc, "source_commit": ctrl.source_commit},
+    )
+    publish_stage_snapshot(
+        dir_s2_conflict,
+        2,
+        lambda dst: torch.save({"stage": 2, "v": torch.tensor([999])}, dst),
+        metadata={"allocation": alloc, "source_commit": ctrl.source_commit},
+    )
+    publish_stage_snapshot(
+        dir_s3,
+        3,
+        lambda dst: torch.save({"stage": 3, "v": torch.tensor([33])}, dst),
+        metadata={"allocation": alloc, "source_commit": ctrl.source_commit},
+    )
+
+    rec_00 = {
+        "job_id": "tiny-ct-00",
+        "commit": ctrl.source_commit,
+        "manifest_sha256": digest(packet_00 / "dispatch-manifest.json"),
+        "status": "INCOMPLETE",
+        "failure_class": "CHILD_NONZERO_EXIT",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "generation": "g0",
+        "terminal": {
+            "job_id": "tiny-ct-00",
+            "generation": "g0",
+            "status": "failed",
+            "reason": "timeout",
+            "returncode": 138,
+        },
+    }
+    c1_out = tmp_path / "attempt_c1_out"
+    packet_c1 = tmp_path / "packet-c1"
+    c1_res = write_continuation_packet(
+        packet_c1,
+        prior_packet_dir=packet_00,
+        terminal_receipt=rec_00,
+        export_root=[dir_s1, dir_s2],
+        completion_index=1,
+        job_id="tiny-ct-c1",
+        output_dir=c1_out,
+        use_compact_xz_for_stages=(1,),
+        auto_encode_compact_xz=True,
+        validate_registry_inputs=use_registry_validation,
+    )
+    assert c1_res["verified_stages"] == [1, 2]
+    c1_manifest = json.loads((packet_c1 / "dispatch-manifest.json").read_text())
+    c1_sha = digest(packet_c1 / "dispatch-manifest.json")
+    validate_uploaded_ledger(packet_c1, copy.deepcopy(c1_manifest), ctrl_dict)
+
+    rec_c1 = {
+        "job_id": "tiny-ct-c1",
+        "commit": ctrl.source_commit,
+        "manifest_sha256": c1_sha,
+        "status": "INCOMPLETE",
+        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "generation": "g1",
+    }
+
+    # 1) Astra's exact omission counterexample (REVIEW.md §2):
+    #    Prior c1 has verified_stages=[1, 2]; supplying ONLY dir_s1 for completion 2 MUST be refused
+    #    by both completion_packet() and write_continuation_packet() (including legacy c1 shape)!
+    with pytest.raises(CTResumeRefused, match=r"omits previously verified stage\(s\) \[2\]"):
+        completion_packet(
+            c1_manifest,
+            rec_c1,
+            dir_s1,
+            ctrl_dict,
+            completion_index=2,
+            job_id="tiny-ct-c2-omit-direct",
+            output_dir=tmp_path / "c2_omit_direct_out",
+            original_manifest_sha256=c1_sha,
+        )
+
+    minimal_c1_manifest = {
+        **copy.deepcopy(c1_manifest),
+        "completion_attempt": {"index": 1, "verified_stages": [1, 2]},
+    }
+    minimal_c1_sha = hashlib.sha256(
+        json.dumps(minimal_c1_manifest, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    with pytest.raises(CTResumeRefused, match=r"omits previously verified stage\(s\) \[2\]"):
+        completion_packet(
+            minimal_c1_manifest,
+            {**rec_c1, "manifest_sha256": minimal_c1_sha},
+            dir_s1,
+            ctrl_dict,
+            completion_index=2,
+            job_id="tiny-ct-c2-omit-legacy",
+            output_dir=tmp_path / "c2_omit_legacy_out",
+            original_manifest_sha256=minimal_c1_sha,
+        )
+
+    packet_c2_omit = tmp_path / "packet-c2-omit"
+    with pytest.raises(CTResumeRefused, match=r"omits previously verified stage\(s\) \[2\]"):
+        write_continuation_packet(
+            packet_c2_omit,
+            prior_packet_dir=packet_c1,
+            terminal_receipt=rec_c1,
+            export_root=dir_s1,
+            completion_index=2,
+            job_id="tiny-ct-c2-omit",
+            output_dir=tmp_path / "c2_omit_out",
+            use_compact_xz_for_stages=(1,),
+            auto_encode_compact_xz=True,
+            validate_registry_inputs=use_registry_validation,
+        )
+    assert not packet_c2_omit.exists()
+
+    # 2) Conflict / recomputation counterexample:
+    #    Supplying [dir_s1, dir_s2_conflict] (altered/recomputed stage-0002) MUST be refused!
+    with pytest.raises(
+        CTResumeRefused, match="stage-0002 conflicts with previously verified coverage"
+    ):
+        completion_packet(
+            c1_manifest,
+            rec_c1,
+            [dir_s1, dir_s2_conflict],
+            ctrl_dict,
+            completion_index=2,
+            job_id="tiny-ct-c2-conflict-direct",
+            output_dir=tmp_path / "c2_conflict_direct_out",
+            original_manifest_sha256=c1_sha,
+        )
+
+    packet_c2_conflict = tmp_path / "packet-c2-conflict"
+    with pytest.raises(
+        CTResumeRefused, match="stage-0002 conflicts with previously verified coverage"
+    ):
+        write_continuation_packet(
+            packet_c2_conflict,
+            prior_packet_dir=packet_c1,
+            terminal_receipt=rec_c1,
+            export_root=[dir_s1, dir_s2_conflict],
+            completion_index=2,
+            job_id="tiny-ct-c2-conflict",
+            output_dir=tmp_path / "c2_conflict_out",
+            use_compact_xz_for_stages=(1,),
+            auto_encode_compact_xz=True,
+            validate_registry_inputs=use_registry_validation,
+        )
+    assert not packet_c2_conflict.exists()
+
+    # 3) Valid completion 2 preserving [1, 2] and adding [3] passes both builder and preflight!
+    packet_c2_ok = tmp_path / "packet-c2-ok"
+    c2_res = write_continuation_packet(
+        packet_c2_ok,
+        prior_packet_dir=packet_c1,
+        terminal_receipt=rec_c1,
+        export_root=[dir_s1, dir_s2, dir_s3],
+        completion_index=2,
+        job_id="tiny-ct-c2-ok",
+        output_dir=tmp_path / "c2_ok_out",
+        use_compact_xz_for_stages=(1,),
+        auto_encode_compact_xz=True,
+        validate_registry_inputs=use_registry_validation,
+    )
+    assert c2_res["verified_stages"] == [1, 2, 3]
+    c2_manifest = json.loads((packet_c2_ok / "dispatch-manifest.json").read_text())
+    assert c2_manifest["completion_attempt"]["prior_verified_stages"] == [1, 2]
+    validate_uploaded_ledger(packet_c2_ok, copy.deepcopy(c2_manifest), ctrl_dict)
+
+    # 4) Forged/tampered packet_c2 dropping or mutating stage 2 MUST be refused by ct_preflight!
+    forged_drop_dir = tmp_path / "packet-c2-forged-drop"
+    shutil.copytree(packet_c2_ok, forged_drop_dir)
+    forged_ledger = json.loads((forged_drop_dir / "verified-ledger.json").read_text())
+    forged_ledger["units"] = [u for u in forged_ledger["units"] if u["stage"] != 2]
+    (forged_drop_dir / "verified-ledger.json").write_text(
+        json.dumps(forged_ledger, indent=2, sort_keys=True) + "\n"
+    )
+    forged_lsha = digest(forged_drop_dir / "verified-ledger.json")
+    forged_broker = copy.deepcopy(c2_manifest)
+    forged_broker["inputs"] = [
+        (
+            {
+                "path": str((forged_drop_dir / "verified-ledger.json").resolve()),
+                "dest": "verified-ledger.json",
+                "sha256": forged_lsha,
+            }
+            if r["dest"] == "verified-ledger.json"
+            else r
+        )
+        for r in forged_broker["inputs"]
+        if not str(r["dest"]).startswith("resume/stage-0002")
+    ]
+    forged_broker["completion_attempt"]["verified_stages"] = [1, 3]
+    forged_broker["completion_attempt"]["ledger_sha256"] = forged_lsha
+    with pytest.raises(ValueError, match="omits previously verified stage"):
+        validate_uploaded_ledger(forged_drop_dir, forged_broker, ctrl_dict)
+
+    # Even if an attacker ALSO edits completion_attempt.prior_verified_units/stages, on-disk
+    # prior_manifest_path -> prior verified-ledger.json cross-check in ct_preflight catches it!
+    forged_broker_2 = copy.deepcopy(forged_broker)
+    forged_broker_2["completion_attempt"]["prior_verified_stages"] = [1]
+    forged_broker_2["completion_attempt"]["prior_verified_units"] = [
+        u for u in forged_broker_2["completion_attempt"]["prior_verified_units"] if u["stage"] != 2
+    ]
+    with pytest.raises(ValueError, match="differs from bound prior verified-ledger.json"):
+        validate_uploaded_ledger(forged_drop_dir, forged_broker_2, ctrl_dict)
+
+    # Forged conflicting stage 2 in packet_c2 -> refused by ct_preflight!
+    forged_conf_dir = tmp_path / "packet-c2-forged-conflict"
+    shutil.copytree(packet_c2_ok, forged_conf_dir)
+    conf_ledger, conf_uploads, _ = build_stage_ledger([dir_s1, dir_s2_conflict, dir_s3], ctrl_dict)
+    (forged_conf_dir / "verified-ledger.json").write_text(
+        json.dumps(conf_ledger, indent=2, sort_keys=True) + "\n"
+    )
+    conf_lsha = digest(forged_conf_dir / "verified-ledger.json")
+    conf_broker = copy.deepcopy(c2_manifest)
+    conf_broker["inputs"] = [
+        r
+        for r in conf_broker["inputs"]
+        if r["dest"] != "verified-ledger.json" and not str(r["dest"]).startswith("resume/")
+    ] + [
+        {
+            "path": str((forged_conf_dir / "verified-ledger.json").resolve()),
+            "dest": "verified-ledger.json",
+            "sha256": conf_lsha,
+        },
+        *conf_uploads,
+    ]
+    conf_broker["completion_attempt"]["ledger_sha256"] = conf_lsha
+    with pytest.raises(ValueError, match="conflicts with previously verified stage-0002"):
+        validate_uploaded_ledger(forged_conf_dir, conf_broker, ctrl_dict)
+
+    # 5) Bound prior provenance fault inspection: if an earlier attempt's output_dir (a0_out) holds
+    #    retained qualified poll fault evidence, BOTH write_continuation_packet(c2) and ct_preflight
+    #    refuse continuation even though dir_s1/dir_s2 live outside a0_out!
+    a0_out.mkdir(parents=True, exist_ok=True)
+    (a0_out / "poll-000001.json").write_text(
+        json.dumps(
+            {
+                "state": {
+                    "status": "failed",
+                    "reason": "runtime_error",
+                    "error": "FloatingPointError('non-finite tensor')",
+                },
+                "terminal": None,
+                "exports": [],
+                "job_log_tail": "",
+                "supervisor_log_tail": "FloatingPointError: non-finite tensor",
+            }
+        )
+    )
+    with pytest.raises(CTResumeRefused, match="floatingpointerror|non-finite"):
+        write_continuation_packet(
+            tmp_path / "packet-c2-hidden-a0-fault",
+            prior_packet_dir=packet_c1,
+            terminal_receipt=rec_c1,
+            export_root=[dir_s1, dir_s2, dir_s3],
+            completion_index=2,
+            job_id="tiny-ct-c2-hidden-fault",
+            output_dir=tmp_path / "c2_hidden_fault_out",
+            use_compact_xz_for_stages=(1,),
+            auto_encode_compact_xz=True,
+            validate_registry_inputs=use_registry_validation,
+        )
+    with pytest.raises(ValueError, match="floatingpointerror|non-finite"):
+        validate_uploaded_ledger(packet_c2_ok, copy.deepcopy(c2_manifest), ctrl_dict)

@@ -705,7 +705,7 @@ def test_compact_v2_serialization_roundtrip_and_export_size_overflow_guards(tmp_
         lambda dst: dst.write_bytes(b"x" * 900),
         metadata={"allocation": "test"},
         max_stage_bytes=1024,
-        max_total_bytes=1500,
+        max_total_bytes=1800,
     )
     with pytest.raises(StageExportOverflowError, match="max_total_export_bytes"):
         publish_stage_snapshot(
@@ -714,8 +714,127 @@ def test_compact_v2_serialization_roundtrip_and_export_size_overflow_guards(tmp_
             lambda dst: dst.write_bytes(b"y" * 800),
             metadata={"allocation": "test"},
             max_stage_bytes=1024,
-            max_total_bytes=1500,
+            max_total_bytes=1800,
         )
     assert not (out_dir / "stage-0002.pt").exists()
     assert not (out_dir / "stage-0002.pt.complete").exists()
     assert not list(out_dir.glob("*.partial"))
+
+
+def test_recursive_total_export_cap_counts_sidecars_headers_summaries_and_diagnostics(
+    tmp_path: object,
+) -> None:
+    """Re-review Finding 3 regression: max_total_bytes bounds all 6 stage files + diagnostics."""
+    from pathlib import Path
+
+    from research.sandbox_a_resident.ct_units import (
+        PUBLISH_SIDECAR_BYTES,
+        StageExportOverflowError,
+        publish_bounded_export,
+        publish_stage_snapshot,
+        recursive_export_bytes,
+    )
+
+    assert isinstance(tmp_path, Path)
+
+    # 1) Astra's exact counterexample: 100-byte payload w/ max_stage_bytes=100, max_total_bytes=100
+    #    must be refused BEFORE os.link because the 6-file stage bundle exceeds 100 bytes.
+    counter_dir = tmp_path / "astra_100b_counterexample"
+    with pytest.raises(StageExportOverflowError, match="max_total_export_bytes"):
+        publish_stage_snapshot(
+            counter_dir,
+            1,
+            lambda dst: dst.write_bytes(b"z" * 100),
+            metadata={"allocation": "test"},
+            max_stage_bytes=100,
+            max_total_bytes=100,
+        )
+    assert recursive_export_bytes(counter_dir) == 0
+    assert not list(counter_dir.glob("*"))
+
+    # 2) Exact 6-file byte boundary (path-length independent via identical basename length "bnd_X").
+    probe_dir = tmp_path / "bnd_0"
+    publish_stage_snapshot(
+        probe_dir,
+        1,
+        lambda dst: dst.write_bytes(b"z" * 100),
+        metadata={"allocation": "test"},
+        max_stage_bytes=100,
+    )
+    exact_six_bytes = recursive_export_bytes(probe_dir)
+    assert exact_six_bytes > 500
+    assert len([p for p in probe_dir.rglob("*") if p.is_file()]) == 6
+
+    under_dir = tmp_path / "bnd_1"
+    with pytest.raises(StageExportOverflowError, match="max_total_export_bytes"):
+        publish_stage_snapshot(
+            under_dir,
+            1,
+            lambda dst: dst.write_bytes(b"z" * 100),
+            metadata={"allocation": "test"},
+            max_stage_bytes=100,
+            max_total_bytes=exact_six_bytes - 1,
+        )
+    assert recursive_export_bytes(under_dir) == 0
+
+    exact_dir = tmp_path / "bnd_2"
+    publish_stage_snapshot(
+        exact_dir,
+        1,
+        lambda dst: dst.write_bytes(b"z" * 100),
+        metadata={"allocation": "test"},
+        max_stage_bytes=100,
+        max_total_bytes=exact_six_bytes,
+    )
+    assert recursive_export_bytes(exact_dir) == exact_six_bytes
+
+    # 3) Reserved tail allowance + nested stall-watchdog diagnostic bytes are enforced recursively.
+    reserve_fail_dir = tmp_path / "bnd_3"
+    with pytest.raises(StageExportOverflowError, match="reserved_tail=51"):
+        publish_stage_snapshot(
+            reserve_fail_dir,
+            1,
+            lambda dst: dst.write_bytes(b"z" * 100),
+            metadata={"allocation": "test"},
+            max_stage_bytes=100,
+            max_total_bytes=exact_six_bytes + 50,
+            reserved_tail_bytes=51,
+        )
+    assert recursive_export_bytes(reserve_fail_dir) == 0
+
+    diag_dir = tmp_path / "bnd_4"
+    (diag_dir / "stall-watchdog").mkdir(parents=True)
+    (diag_dir / "stall-watchdog/stall-watchdog.json").write_bytes(b"d" * 200)
+    with pytest.raises(StageExportOverflowError, match="existing=200"):
+        publish_stage_snapshot(
+            diag_dir,
+            1,
+            lambda dst: dst.write_bytes(b"z" * 100),
+            metadata={"allocation": "test"},
+            max_stage_bytes=100,
+            max_total_bytes=exact_six_bytes + 199,
+        )
+    assert not (diag_dir / "stage-0001.pt").exists()
+
+    # 4) Terminal summary via publish_bounded_export enforces payload + 74 B sidecars + reserve.
+    summary_bytes = b'{"verdict": "STOP"}\n'
+    summary_bundle = len(summary_bytes) + PUBLISH_SIDECAR_BYTES
+    with pytest.raises(StageExportOverflowError, match="max_total_export_bytes"):
+        publish_bounded_export(
+            exact_dir / "summary.json",
+            lambda dst: dst.write_bytes(summary_bytes),
+            export_root=exact_dir,
+            max_total_bytes=exact_six_bytes + summary_bundle + 19,
+            reserved_tail_bytes=20,
+        )
+    assert not (exact_dir / "summary.json").exists()
+
+    publish_bounded_export(
+        exact_dir / "summary.json",
+        lambda dst: dst.write_bytes(summary_bytes),
+        export_root=exact_dir,
+        max_total_bytes=exact_six_bytes + summary_bundle + 20,
+        reserved_tail_bytes=20,
+    )
+    assert (exact_dir / "summary.json.complete").is_file()
+    assert recursive_export_bytes(exact_dir) == exact_six_bytes + summary_bundle

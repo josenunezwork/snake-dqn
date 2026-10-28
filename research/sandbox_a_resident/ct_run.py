@@ -45,9 +45,12 @@ from research.sandbox_a_resident.ct_task import (
 )
 from research.sandbox_a_resident.ct_topology import TOPOLOGY_SPEC, validate_geometric_fixtures
 from research.sandbox_a_resident.ct_units import (
+    STALL_DIAGNOSTIC_SEAL_RESERVE_BYTES,
+    TAIL_SUMMARY_AND_DIAGNOSTIC_RESERVE_BYTES,
     allocation,
     load_ledger,
     load_verified_stage_payload,
+    publish_bounded_export,
     publish_stage_snapshot,
 )
 from research.sandbox_a_resident.stall_watchdog import StallWatchdog
@@ -71,6 +74,20 @@ def _write_progress(output: Path, payload: Mapping[str, Any]) -> None:
     tmp = output / "progress.json.partial"
     tmp.write_text(json.dumps(dict(payload), sort_keys=True) + "\n")
     os.replace(tmp, output / "progress.json")
+
+
+def _stage_tail_reserve_bytes(control: CTControl) -> int:
+    """Return reserved summary/diagnostic tail bytes under ``control.max_total_export_bytes``."""
+    if int(control.max_total_export_bytes) >= 2 * TAIL_SUMMARY_AND_DIAGNOSTIC_RESERVE_BYTES:
+        return TAIL_SUMMARY_AND_DIAGNOSTIC_RESERVE_BYTES
+    return 0
+
+
+def _summary_tail_reserve_bytes(control: CTControl) -> int:
+    """Return reserved stall-diagnostic seal bytes when publishing terminal markers/summaries."""
+    if int(control.max_total_export_bytes) >= 2 * TAIL_SUMMARY_AND_DIAGNOSTIC_RESERVE_BYTES:
+        return STALL_DIAGNOSTIC_SEAL_RESERVE_BYTES
+    return 0
 
 
 class _Sigusr1Fence:
@@ -172,9 +189,12 @@ def run_ct_experiment(
             "shutdown_elapsed_sec": elapsed_sig,
             "within_15s_sla": bool(elapsed_sig < 15.0),
         }
-        publish(
+        publish_bounded_export(
             output / "sigusr1-marker.json",
             lambda p: p.write_text(json.dumps(marker, indent=2, sort_keys=True) + "\n"),
+            export_root=output,
+            max_total_bytes=control.max_total_export_bytes,
+            reserved_tail_bytes=_summary_tail_reserve_bytes(control),
         )
         print(f"CT_SIGUSR1_CLEAN_EXIT {json.dumps(marker, sort_keys=True)}", flush=True)
         return SIGUSR1_EXIT_CODE, marker
@@ -294,6 +314,7 @@ def run_ct_experiment(
                 },
                 max_stage_bytes=control.max_stage_export_bytes,
                 max_total_bytes=control.max_total_export_bytes,
+                reserved_tail_bytes=_stage_tail_reserve_bytes(control),
             )
             latest_durable_stage = 1
             emit(
@@ -333,9 +354,12 @@ def run_ct_experiment(
                 "resumed_stages": sorted(verified_stages),
                 "total_wall_sec": round(time.perf_counter() - t_run0, 3),
             }
-            publish(
+            publish_bounded_export(
                 output / "summary.json",
                 lambda p: p.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n"),
+                export_root=output,
+                max_total_bytes=control.max_total_export_bytes,
+                reserved_tail_bytes=_summary_tail_reserve_bytes(control),
             )
             emit("completed-early-support-gate", {"verdict": summary["verdict"]})
             return 0, summary
@@ -391,6 +415,7 @@ def run_ct_experiment(
                 },
                 max_stage_bytes=control.max_stage_export_bytes,
                 max_total_bytes=control.max_total_export_bytes,
+                reserved_tail_bytes=_stage_tail_reserve_bytes(control),
             )
             latest_durable_stage = stage_num
             emit(
@@ -450,6 +475,7 @@ def run_ct_experiment(
             },
             max_stage_bytes=control.max_stage_export_bytes,
             max_total_bytes=control.max_total_export_bytes,
+            reserved_tail_bytes=_stage_tail_reserve_bytes(control),
         )
         latest_durable_stage = final_stage
 
@@ -483,9 +509,12 @@ def run_ct_experiment(
             "resumed_stages": sorted(verified_stages),
             "total_wall_sec": round(time.perf_counter() - t_run0, 3),
         }
-        publish(
+        publish_bounded_export(
             output / "summary.json",
             lambda p: p.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n"),
+            export_root=output,
+            max_total_bytes=control.max_total_export_bytes,
+            reserved_tail_bytes=_summary_tail_reserve_bytes(control),
         )
         emit("completed", {"verdict": summary["verdict"]})
         return 0, summary

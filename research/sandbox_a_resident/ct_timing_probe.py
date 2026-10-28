@@ -495,6 +495,11 @@ def run_timing_probe(*, horizon: int = 8, num_roots: int = 1) -> dict[str, Any]:
             "snapshot_bytes_per_root": store.snapshots[0].nbytes,
             "topology_ram_bytes_per_row": topo_batch.nbytes // num_roots,
             "topology_p0_derived": bool(topo_batch.p0_derived),
+            "size_projection_method": (
+                "linear_marginal_extrapolation_from_8_and_24_row_fixtures_not_direct_50k_export"
+            ),
+            "measured_marginal_anchor_pt_bytes_per_row_n24_vs_n8": anc_pt_per_row,
+            "measured_marginal_root_pt_bytes_per_row_n24_vs_n8": root_pt_per_row,
             "anchor_serialized_pt_bytes_per_row": anc_pt_per_row,
             "root_store_serialized_pt_bytes_per_row": root_pt_per_row,
             "projected_50k_anchor_plus_2560_roots_stage1_pt_mib": round(
