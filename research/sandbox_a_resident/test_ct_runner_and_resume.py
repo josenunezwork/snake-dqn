@@ -1102,6 +1102,8 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                 "/tests/fixtures/ct-supervisor-06-exports/",
                 "/tests/fixtures/ct-supervisor-06-ct-bound/",
                 "/tests/fixtures/ct-supervisor-06-entrypoint/",
+                "/tests/fixtures/ct-supervisor-06-main/",
+                "/tests/fixtures/ct-supervisor-06-entrypoint-main/",
                 "/docs/research/governance_a100_sandbox_20261026/",
             ],
             check=True,

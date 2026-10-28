@@ -1,0 +1,2 @@
+{"job": "fake-job", "elapsed": 11.0, "status": "failed", "terminal": true, "exports": 3, "job_log_tail": "CT_CHILD_READY\n"}
+INCOMPLETE: ClassifiedFailure('remote child exited 138: CT_CHILD_READY'); receipt: /private/tmp/astra-impl-ct6-producers-main/child-lease-expired/job-output/receipt.json

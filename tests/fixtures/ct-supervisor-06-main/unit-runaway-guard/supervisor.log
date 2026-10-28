@@ -1,0 +1,2 @@
+{"job": "fake-job", "elapsed": 11.0, "status": "running", "terminal": false, "exports": 5, "job_log_tail": ""}
+INCOMPLETE: Refused('deadline reached during telemetry recovery'); receipt: /private/tmp/astra-impl-ct6-producers-main/unit-runaway-guard/job-output/receipt.json

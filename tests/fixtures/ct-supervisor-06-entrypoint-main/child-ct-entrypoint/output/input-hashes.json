@@ -1,0 +1,11 @@
+{
+  "bootstrap.sh": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4",
+  "inputs/b8-s3.pth": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "inputs/champion.pth": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+  "inputs/frp3-s12.pth": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+  "inputs/registry.json": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+  "inputs/verified-ledger.json": "44ce6a2eca3de454ca62b2e08798e2dca6b2dff88b68956206268e8d7274def3",
+  "release.py": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355",
+  "runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+  "source.py": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f"
+}

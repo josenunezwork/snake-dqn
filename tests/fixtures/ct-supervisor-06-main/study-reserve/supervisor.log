@@ -1,0 +1,6 @@
+{"job": "fake-job", "elapsed": 11.0, "status": "running", "terminal": false, "exports": 5, "job_log_tail": ""}
+{"job": "fake-job", "elapsed": 26.0, "status": "running", "terminal": false, "exports": 5, "job_log_tail": ""}
+{"job": "fake-job", "elapsed": 41.0, "status": "running", "terminal": false, "exports": 5, "job_log_tail": ""}
+{"job": "fake-job", "elapsed": 56.0, "status": "running", "terminal": false, "exports": 5, "job_log_tail": ""}
+{"ALERT": "UNEXPLAINED_ACCOUNT_DEBIT", "job": "fake-job", "spend": {"elapsed_seconds": 71.0, "own_elapsed_units": 0.1349, "observed_elapsed_units": 0.1349, "observed_account_debit_units": 1079.3, "baseline_integrated_units": 0.0, "attributable_account_debit_units": 1079.3, "observed_rate_units_per_hour": 6.84, "expected_account_debit_units": 0.1349, "balance_discrepancy_units": 1079.1651, "balance_discrepancy_tolerance_units": 0.58, "balance_crosscheck_status": "WARNING_UNEXPLAINED_DEBIT", "provider_transition_status": "OK", "provider_transition_mismatch_polls": 0}}
+INCOMPLETE: Refused('study reserve reached'); receipt: /private/tmp/astra-impl-ct6-producers-main/study-reserve/job-output/receipt.json

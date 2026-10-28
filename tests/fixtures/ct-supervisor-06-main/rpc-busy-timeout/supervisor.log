@@ -1,0 +1,2 @@
+{"job": "fake-job", "elapsed": 11.0, "status": "running", "terminal": false, "exports": 5, "job_log_tail": ""}
+INCOMPLETE: Refused('kernel remains busy/unknown after telemetry hiccup'); receipt: /private/tmp/astra-impl-ct6-producers-main/rpc-busy-timeout/job-output/receipt.json

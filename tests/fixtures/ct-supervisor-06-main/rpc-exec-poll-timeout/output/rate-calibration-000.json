@@ -1,0 +1,11 @@
+{
+  "elapsed_seconds": 0.0,
+  "sessions": {
+    "gpu-cpu-fake-0001": "snake-fake-job-b383887bd8d8"
+  },
+  "usage": {
+    "assignments": 1.0,
+    "balance": 1178.3,
+    "rate": 6.84
+  }
+}

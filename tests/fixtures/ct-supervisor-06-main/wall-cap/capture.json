@@ -1,0 +1,11 @@
+{
+  "boundary_injections": "offline provider, virtual clock, observer, runtime local release exemptions",
+  "error": "Refused('whole-session wall cap reached (including setup/export)')",
+  "failure": "SystemExit(1)",
+  "failure_class": "SUPERVISOR",
+  "producer_commit": "16ffee968c425033a1906a0b4b69bff229539485",
+  "scenario": "wall-cap",
+  "status": "INCOMPLETE",
+  "stop_verified": true,
+  "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+}

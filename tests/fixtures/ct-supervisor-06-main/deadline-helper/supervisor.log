@@ -1,0 +1,2 @@
+{"job": "fake-job", "elapsed": 11.0, "status": "running", "terminal": false, "exports": 5, "job_log_tail": ""}
+INCOMPLETE: Refused('whole-session deadline reached before helper'); receipt: /private/tmp/astra-impl-ct6-producers-main/deadline-helper/job-output/receipt.json

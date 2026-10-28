@@ -904,6 +904,8 @@ def _scan_retained_text(
     output_root: Path,
     expected_job_id: str | None = None,
     expected_generation: str | None = None,
+    supervisor_receipt: Mapping[str, Any] | None = None,
+    supervisor_receipt_path: Path | None = None,
 ) -> None:
     """Validate every diagnostic representation, refusing archives and incomplete writes."""
     if path.parent == output_root / "staging" and path.name in {
@@ -951,7 +953,13 @@ def _scan_retained_text(
         raise CTResumeRefused(f"unexpected retained binary payload: {path}")
     name = path.name.lstrip(".")
     if name.startswith("supervisor.log"):
-        _scan_supervisor_log(path, job_id=expected_job_id, generation=expected_generation)
+        _scan_supervisor_log(
+            path,
+            job_id=expected_job_id,
+            generation=expected_generation,
+            receipt=supervisor_receipt,
+            receipt_path=supervisor_receipt_path,
+        )
         if path.name.startswith(".") or any(
             part.startswith((".partial", ".tmp")) for part in path.suffixes
         ):
@@ -1119,7 +1127,14 @@ def assert_no_scientific_or_fault_precedence(
         _check_terminal_fault_evidence(terminal, label="terminal")
 
 
-def _scan_supervisor_log(path: Path, *, job_id: str | None, generation: str | None) -> None:
+def _scan_supervisor_log(
+    path: Path,
+    *,
+    job_id: str | None,
+    generation: str | None,
+    receipt: Mapping[str, Any] | None = None,
+    receipt_path: Path | None = None,
+) -> None:
     """Apply execution validation to every structured host-log record, including nested facts."""
     _no_symlink_path(path)
     if not path.is_file():
@@ -1129,6 +1144,32 @@ def _scan_supervisor_log(path: Path, *, job_id: str | None, generation: str | No
         for index, line in enumerate(stream, 1):
             stripped = line.strip()
             label = f"{path}:{index}"
+            if stripped.startswith("INCOMPLETE:"):
+                # argparse.main emits this final line after Broker.run has
+                # published a receipt. Admit only that entire bound cause;
+                # a generic log substring whitelist would conceal appended faults.
+                bound_path = receipt_path or path.parent / "receipt.json"
+                _no_symlink_path(bound_path)
+                bound = receipt
+                if bound is None and bound_path.is_file():
+                    bound = _load_json(bound_path.read_text())
+                if not isinstance(bound, Mapping):
+                    raise CTResumeRefused(f"supervisor CLI footer lacks bound receipt: {label}")
+                _check_retained_receipt(bound, label=label)
+                _scan_json_faults(
+                    bound,
+                    label=label,
+                    expected_job_id=job_id,
+                    expected_generation=generation,
+                    supervisor_transport=True,
+                )
+                expected = f"INCOMPLETE: {bound.get('error')}; receipt: {bound_path}"
+                if stripped != expected:
+                    _refuse_if_supervisor_log_fault(stripped, field_name=label)
+                    raise CTResumeRefused(
+                        f"supervisor CLI footer differs from bound receipt: {label}"
+                    )
+                continue
             if stripped.startswith("{"):
                 try:
                     record = _load_json(stripped)
@@ -1171,7 +1212,15 @@ def verify_mechanical_stop(
     assert_no_scientific_or_fault_precedence(export_root, receipt)
     if supervisor_log_path is not None:
         _scan_supervisor_log(
-            supervisor_log_path, job_id=receipt.get("job_id"), generation=receipt.get("generation")
+            supervisor_log_path,
+            job_id=receipt.get("job_id"),
+            generation=receipt.get("generation"),
+            receipt=receipt,
+            receipt_path=(
+                Path(manifest["output_dir"]) / "receipt.json"
+                if isinstance(manifest.get("output_dir"), str)
+                else None
+            ),
         )
 
     if not _is_hex(manifest_sha256, 64):

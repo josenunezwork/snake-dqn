@@ -50,12 +50,15 @@ def _source_binding(output: Path, control: dict) -> dict:
 
 @pytest.mark.parametrize("scenario", MECHANICAL)
 @pytest.mark.parametrize("fault", [False, True])
+@pytest.mark.parametrize("corpus", ["ct-supervisor-06-exports", "ct-supervisor-06-main"])
 def test_real_supervisor_mechanical_formats_and_compound_twins(
     tmp_path: Path,
     scenario: str,
     fault: bool,
+    corpus: str,
 ) -> None:
-    capture = GOLDENS / scenario
+    goldens = ROOT / "tests/fixtures" / corpus
+    capture = goldens / scenario
     shutil.copytree(capture / "output", tmp_path / "output")
     output = tmp_path / "output"
     log = tmp_path / "supervisor.log"
@@ -63,7 +66,7 @@ def test_real_supervisor_mechanical_formats_and_compound_twins(
     receipt, manifest = _read(output / "receipt.json"), _read(output / "manifest.json")
     # An offline path relocation does not rewrite any golden fixture. The
     # original producer manifest/receipt binding remains byte-for-byte intact.
-    control = _read(GOLDENS / "control.json")
+    control = _read(goldens / "control.json")
 
     @ct_resume._evidence_session
     def admit() -> None:
@@ -115,6 +118,30 @@ def test_nested_qualified_mechanical_error_survives(tmp_path: Path) -> None:
     log = tmp_path / "supervisor.log"
     log.write_text(json.dumps({"nested": [{"error": "Refused('whole-session wall cap reached')"}]}))
     ct_resume._scan_supervisor_log(log, job_id=None, generation=None)
+
+
+@pytest.mark.parametrize("mutation", ["append", "different-path", "different-cause"])
+def test_cli_footer_is_an_exact_bound_cause(tmp_path: Path, mutation: str) -> None:
+    capture = ROOT / "tests/fixtures/ct-supervisor-06-main/lease-renewal-timeout"
+    receipt = _read(capture / "output/receipt.json")
+    manifest = _read(capture / "output/manifest.json")
+    text = (capture / "supervisor.log").read_text()
+    if mutation == "append":
+        text = text.rstrip("\n") + "; FloatingPointError appended fault\n"
+    elif mutation == "different-path":
+        text = text.replace(manifest["output_dir"], str(tmp_path / "foreign"))
+    else:
+        text = text.replace("fake request deadline exceeded", "a different cause")
+    log = tmp_path / "supervisor.log"
+    log.write_text(text)
+    with pytest.raises(ct_resume.CTResumeRefused):
+        ct_resume._scan_supervisor_log(
+            log,
+            job_id=receipt["job_id"],
+            generation=receipt["generation"],
+            receipt=receipt,
+            receipt_path=Path(manifest["output_dir"]) / "receipt.json",
+        )
 
 
 @pytest.mark.parametrize("name", ["events.json", "events.jsonl", "supervisor.log"])
@@ -278,7 +305,9 @@ def test_superseded_packet_refuses_in_preflight_and_dispatch(tmp_path: Path, num
     assert not (tmp_path / "unused-state").exists()
 
 
-@pytest.mark.parametrize("scenario", ["child-timeout", "wall-cap", "child-ct-entrypoint"])
+@pytest.mark.parametrize(
+    "scenario", ["child-timeout", "wall-cap", "child-ct-entrypoint", "cli-entrypoint"]
+)
 def test_actual_ct_tree_writes_and_commits_continuation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -286,11 +315,20 @@ def test_actual_ct_tree_writes_and_commits_continuation(
 ) -> None:
     """Real transferred C/T tree -> writer -> complete committed packet admission."""
     corpus = (
-        "ct-supervisor-06-entrypoint"
-        if scenario == "child-ct-entrypoint"
-        else "ct-supervisor-06-ct-bound"
+        "ct-supervisor-06-entrypoint-main"
+        if scenario == "cli-entrypoint"
+        else (
+            "ct-supervisor-06-entrypoint"
+            if scenario == "child-ct-entrypoint"
+            else "ct-supervisor-06-ct-bound"
+        )
     )
-    capture = ROOT / "tests/fixtures" / corpus / scenario
+    capture = (
+        ROOT
+        / "tests/fixtures"
+        / corpus
+        / ("child-ct-entrypoint" if scenario == "cli-entrypoint" else scenario)
+    )
     repo = tmp_path / "repo"
     subprocess.run(
         ["git", "clone", "--quiet", "--shared", "--no-checkout", str(ROOT), str(repo)], check=True
@@ -371,7 +409,10 @@ def test_actual_ct_tree_writes_and_commits_continuation(
     )
     _write(packet / "SEAL.json", seal)
     log = tmp_path / "supervisor.log"
-    shutil.copy2(capture / "supervisor.log", log)
+    log_text = (capture / "supervisor.log").read_text()
+    for old, new in replacements.items():
+        log_text = log_text.replace(old, new)
+    log.write_text(log_text)
     successor = repo / "test-packets/c1"
     ct_resume.write_continuation_packet(
         successor,

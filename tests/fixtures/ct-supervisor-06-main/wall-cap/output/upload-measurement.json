@@ -1,0 +1,9 @@
+{
+  "elapsed_seconds": 0.0,
+  "input_transfer_seconds": {
+    "input.bin": 0.0
+  },
+  "setup_seconds": 0.0,
+  "source_delivery_seconds": 0.0,
+  "transfer_seconds": 0.0
+}

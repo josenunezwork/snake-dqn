@@ -1,0 +1,2 @@
+{"job": "fake-job", "elapsed": 11.0, "status": "running", "terminal": false, "exports": 5, "job_log_tail": ""}
+INCOMPLETE: Refused('colab upload failed (1): TimeoutError: fake request deadline exceeded\n'); receipt: /private/tmp/astra-impl-ct6-producers-main/lease-renewal-timeout/job-output/receipt.json

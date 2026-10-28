@@ -1,0 +1,2 @@
+{"job": "fake-job", "elapsed": 11.0, "status": "running", "terminal": false, "exports": 5, "job_log_tail": ""}
+INCOMPLETE: Refused('whole-session deadline reached before CLI call'); receipt: /private/tmp/astra-impl-ct6-producers-main/deadline-cli-call/job-output/receipt.json

@@ -1,0 +1,44 @@
+{
+  "interval_seconds": 5.0,
+  "observed_rate_units_per_hour": 6.84,
+  "priced_rate_units_per_hour": 6.84,
+  "required_stable_reads": 3,
+  "samples": [
+    {
+      "elapsed_seconds": 0.0,
+      "sessions": {
+        "gpu-cpu-fake-0001": "snake-fake-job-f669fcfb7ebe"
+      },
+      "usage": {
+        "assignments": 1.0,
+        "balance": 1178.3,
+        "rate": 6.84
+      }
+    },
+    {
+      "elapsed_seconds": 5.0,
+      "sessions": {
+        "gpu-cpu-fake-0001": "snake-fake-job-f669fcfb7ebe"
+      },
+      "usage": {
+        "assignments": 1.0,
+        "balance": 1178.3,
+        "rate": 6.84
+      }
+    },
+    {
+      "elapsed_seconds": 10.0,
+      "sessions": {
+        "gpu-cpu-fake-0001": "snake-fake-job-f669fcfb7ebe"
+      },
+      "usage": {
+        "assignments": 1.0,
+        "balance": 1178.3,
+        "rate": 6.84
+      }
+    }
+  ],
+  "stability_units_per_hour": 0.01,
+  "status": "PASS",
+  "timeout_seconds": 730.0
+}

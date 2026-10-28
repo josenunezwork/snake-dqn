@@ -1,0 +1,52 @@
+{
+  "disclaimer": "Dynamic-topology approximations only: time-expanded TTL<=arrival assumes unit-rate tail decay and ignores later food growth, future boosts, newly laid body segments, and opponent reactions; it is not exact future reachability. Diagnostic T-arm input only; authorizes no serving obs-spec change.",
+  "name": "dynamic-topology approximations",
+  "orientation": {
+    "action_summaries": "Hero ego-relative action order [0:left, 1:straight, 2:right, 3:boost_left, 4:boost_straight, 5:boost_right].",
+    "board_planes": "Canonical arena-aligned lattice (y in [0, grid_h), x in [0, grid_w)), +x Right/East, +y Down/South; hero head uniquely marked at own_ttl == 1.0."
+  },
+  "planes": {
+    "channels": [
+      {
+        "index": 0,
+        "name": "wall_occupancy",
+        "rule": "1.0 (65535) if occupied by any living snake segment, 0.0 (0) if free; conv pads exterior border with 1.0 (wall)."
+      },
+      {
+        "index": 1,
+        "name": "own_ttl",
+        "rule": "clamp(own_ttl_steps(y, x) / max(1, hero_length), 0.0, 1.0) where own_ttl_steps = max(0, hero_length - hero_seg_count) + (hero_seg_count - k); hero head has 1.0 (65535), empty 0.0."
+      },
+      {
+        "index": 2,
+        "name": "enemy_ttl",
+        "rule": "clamp(max_{s in 1..5 alive} enemy_ttl_steps(s, y, x) / 1000.0, 0.0, 1.0), empty 0.0."
+      },
+      {
+        "index": 3,
+        "name": "food",
+        "rule": "0.0 (0) empty, 0.5 (32768) ambient food, 1.0 (65535) corpse-tagged food."
+      }
+    ],
+    "forward_scale": "float32 = uint16 / 65535.0 in [0.0, 1.0]",
+    "shape_production": [
+      4,
+      83,
+      145
+    ],
+    "storage_dtype": "uint16"
+  },
+  "schema": "dynamic-topology-approximations/v1",
+  "summaries": {
+    "bfs_horizon": 128,
+    "boost_treatment_3_5": "If hero not alive or hero_length < min_boost_length, missing-value sentinel = -1.0. Else step d=1 traverses c1 = head + dir(a) and c2 = head + 2*dir(a), popping pop1 = 2 + 1[boost_frames + 1 >= boost_length_cost_frames and hero_length > 1] own tail segments and 1 enemy tail segment. If c1 or c2 is out-of-bounds, enemy_ttl > 1, or own_ttl > pop1, value = 0.0. Else time-expanded BFS from (c2, d=1) up to d <= 128 with remaining own_ttl shifted by -(pop1 - 1).",
+    "count": 6,
+    "dtype": "float32",
+    "formula": "0.8 * (reachable_cells / (grid_h * grid_w)) + 0.2 * mean_{u in reachable}(min(arrival_step(u) - total_ttl(u), 128) / 128.0)",
+    "missing_value_rules": {
+      "illegal_boost_or_dead_boost": -1.0,
+      "immediate_step1_collision_or_dead_normal": 0.0
+    },
+    "normal_actions_0_2": "Step d=1 to c1 = head + dir(a). If c1 out-of-bounds or total_ttl(c1) > 1, value = 0.0. Else 4-neighbor time-expanded BFS from (c1, d=1) up to d <= 128 admitting neighbor u at step d iff in-bounds and max(own_ttl(u), enemy_ttl(u)) <= d."
+  }
+}

@@ -347,6 +347,8 @@ def validate_uploaded_ledger(
             output_root=log_path.parent,
             expected_job_id=receipt.get("job_id"),
             expected_generation=receipt.get("generation"),
+            supervisor_receipt=receipt,
+            supervisor_receipt_path=Path(prior_broker["output_dir"]) / "receipt.json",
         )
         verify_mechanical_stop(
             receipt,

@@ -125,6 +125,7 @@ def build(
     scratch: Path,
     *,
     ct_manifest: bool = False,
+    cli_main: bool = False,
     scenarios: tuple[str, ...] = SCENARIOS,
 ) -> None:
     destination.mkdir(parents=True, exist_ok=False)
@@ -341,9 +342,41 @@ def build(
             failure = None
             with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
                 try:
-                    supervisor.Broker(work / "broker-state", binary, observer=observe).run(manifest)
+                    if cli_main:
+                        manifest_path = work / "cli-manifest.json"
+                        _json(manifest_path, manifest)
+                        broker_type = supervisor.Broker
+                        patch.setattr(
+                            supervisor,
+                            "Broker",
+                            lambda state, binary: broker_type(
+                                state,
+                                binary,
+                                observer=observe,
+                            ),
+                        )
+                        patch.setattr(
+                            sys,
+                            "argv",
+                            [
+                                "supervisor",
+                                "--state-dir",
+                                str(work / "broker-state"),
+                                "--colab",
+                                binary,
+                                "run",
+                                str(manifest_path),
+                            ],
+                        )
+                        supervisor.main()
+                    else:
+                        supervisor.Broker(work / "broker-state", binary, observer=observe).run(
+                            manifest
+                        )
                 except supervisor.Refused as exc:
                     failure = str(exc)
+                except SystemExit as exc:
+                    failure = f"SystemExit({exc.code})"
             (captured / "supervisor.log").write_text(log.getvalue())
             shutil.copytree(work / "job-output", captured / "output")
             if ct_manifest:
@@ -384,11 +417,13 @@ if __name__ == "__main__":
     parser.add_argument("--destination", required=True, type=Path)
     parser.add_argument("--scratch", required=True, type=Path)
     parser.add_argument("--ct-manifest", action="store_true")
+    parser.add_argument("--cli-main", action="store_true")
     parser.add_argument("--scenario", action="append", choices=SCENARIOS)
     args = parser.parse_args()
     build(
         args.destination,
         args.scratch,
         ct_manifest=args.ct_manifest,
+        cli_main=args.cli_main,
         scenarios=tuple(args.scenario) if args.scenario else SCENARIOS,
     )

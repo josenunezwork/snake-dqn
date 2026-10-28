@@ -1,0 +1,6 @@
+{
+  "manifest_sha256": "55edbf29d709ecadba71dbdcee2b070aeea4bae81b38b0e1a5f19726f2c6fd95",
+  "required_exports": [],
+  "schema": "colab-cli-manifest/v1",
+  "status": "PASS"
+}

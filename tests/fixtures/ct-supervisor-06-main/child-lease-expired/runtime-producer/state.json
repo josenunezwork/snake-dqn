@@ -1,0 +1,28 @@
+{
+  "exports": [
+    {
+      "path": "ct/sigusr1-marker.json",
+      "sha256": "d2cf4f989dff221e6ff355952cc1ec7cd003a29512c4ecd6eaef778d100afea0",
+      "size": 359
+    },
+    {
+      "path": "ct/stage-0001.json",
+      "sha256": "6997e61db68584e8756ae1a080af954c9e13cedb421604e483bc9bf7b6b38025",
+      "size": 589
+    },
+    {
+      "path": "ct/stage-0001.pt",
+      "sha256": "74aa3e8423722ba4c9b2a86b302fb8527530938d177ef282051c4b16c0484b89",
+      "size": 47025
+    }
+  ],
+  "generation": "bc40e1e5ccba42a2a0d790d01c48f85b",
+  "job_id": "fake-job",
+  "max_export_bytes": 33554432,
+  "pid": 47009,
+  "reason": "lease_expired",
+  "returncode": 138,
+  "started_at": 1793217334.5249941,
+  "status": "failed",
+  "updated_at": 1793217335.989943
+}
