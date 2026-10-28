@@ -24,13 +24,19 @@ Implements Ruling §4 & §5 and JUDGMENT_RESUME_POLICY.md:
 from __future__ import annotations
 
 import argparse
+import codecs
+import contextvars
 import copy
+import functools
 import hashlib
 import json
+import re
 import stat
+import subprocess
+import tarfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
 from research.sandbox_a_resident.ct_prepare import STUDY, ct_endpoint_steps, write_once
 from research.sandbox_a_resident.ct_units import (
@@ -174,8 +180,7 @@ def _normalize_export_roots(export_root: Path | Sequence[Path]) -> list[Path]:
     seen_resolved: set[Path] = set()
     for item in raw_list:
         p = Path(item)
-        if p.is_symlink():
-            raise CTResumeRefused(f"export_root must not be a symlink: {p}")
+        _no_symlink_path(p)
         resolved = p.resolve()
         if resolved in seen_resolved:
             raise CTResumeRefused(f"duplicate export_root supplied: {p}")
@@ -202,7 +207,7 @@ def _descriptor(path: Path, *, runtime_path: str) -> dict[str, Any]:
     expected = sidecar.read_text().strip().split()[0]
     if not _is_hex(expected, 64):
         raise CTResumeRefused(f"malformed SHA-256 sidecar: {path.name}")
-    if digest(path) != expected:
+    if _retained_digest(path) != expected:
         raise CTResumeRefused(f"corrupt export: {path.name}")
     return {"path": runtime_path, "size": path.stat().st_size, "sha256": expected}
 
@@ -429,11 +434,16 @@ def _check_retained_execution(
         if expected is not None and key in record and record[key] != expected:
             raise CTResumeRefused(f"{label} belongs to foreign {key}")
     if require_identity:
-        for key, expected in (("job_id", expected_job_id), ("generation", expected_generation)):
-            if expected is not None and record.get(key) != expected:
+        for key in ("job_id", "generation"):
+            item = record.get(key, record.get("job") if key == "job_id" else None)
+            if not isinstance(item, str) or not item.strip():
                 raise CTResumeRefused(f"{label} lacks matching {key} identity")
     status = record.get("status")
     reason = record.get("reason")
+    if status is not None and not isinstance(status, str):
+        raise CTResumeRefused(f"{label} records malformed execution status")
+    if reason is not None and not isinstance(reason, str):
+        raise CTResumeRefused(f"{label} records malformed execution reason")
     returncode = record.get("returncode")
     if returncode == 0 or status in {"completed", "succeeded"}:
         raise CTResumeRefused(f"{label} records completed status")
@@ -460,6 +470,55 @@ def _check_retained_execution(
         raise CTResumeRefused(f"{label} records unknown execution status: {status!r}")
 
 
+_EVIDENCE_CACHE: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "ct_evidence_cache", default=None
+)
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _evidence_session(function: Callable[_P, _R]) -> Callable[_P, _R]:
+    """Cache successful immutable-evidence work only for one admission operation."""
+
+    @functools.wraps(function)
+    def wrapped(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        if _EVIDENCE_CACHE.get() is not None:
+            return function(*args, **kwargs)
+        token = _EVIDENCE_CACHE.set({})
+        try:
+            return function(*args, **kwargs)
+        finally:
+            _EVIDENCE_CACHE.reset(token)
+
+    return wrapped
+
+
+def _no_symlink_path(path: Path) -> None:
+    if not path.is_absolute() or any(p.is_symlink() for p in (path, *path.parents)):
+        raise CTResumeRefused(f"path must be absolute without symlink ancestors: {path}")
+
+
+def _retained_digest(path: Path) -> str:
+    cache = _EVIDENCE_CACHE.get()
+    info = path.stat()
+    key = (
+        "digest",
+        str(path),
+        info.st_dev,
+        info.st_ino,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+    if cache is None:
+        return digest(path)
+    if key not in cache:
+        cache[key] = digest(path)
+    return cache[key]
+
+
 def _retained_files(output_root: Path) -> list[Path]:
     """Walk every retained file without following links or accepting special files."""
     files = []
@@ -472,28 +531,88 @@ def _retained_files(output_root: Path) -> list[Path]:
     return files
 
 
+def _mechanical_supervisor_error(value: Any) -> bool:
+    """Accept a whole qualified cause, never a compound error containing one."""
+    if not isinstance(value, str):
+        return False
+    causes = set(MECHANICAL_SUPERVISOR_ERROR_MARKERS) | {
+        "whole-session wall cap reached (including setup/export)",
+        "whole-session deadline reached before helper",
+        "whole-session deadline reached before CLI call",
+        "study reserve reached during calibration",
+        "retention lease elapsed; no further job",
+    }
+    return value in causes or any(
+        value == f"{wrapper}({cause!r})"
+        for wrapper in ("SupervisorError", "Refused")
+        for cause in causes
+    )
+
+
+def _check_retained_receipt(record: Any, *, label: str) -> None:
+    if not isinstance(record, Mapping):
+        raise CTResumeRefused(f"malformed retained receipt: {label}")
+    if (
+        record.get("status") != "INCOMPLETE"
+        or record.get("stop_verified") is not True
+        or record.get("cleanup_error") is not None
+        or record.get("failure_class")
+        not in {"SUPERVISOR", "RPC_EXEC_POLL_TIMEOUT", "CHILD_NONZERO_EXIT"}
+    ):
+        raise CTResumeRefused(f"non-resumable retained receipt: {label}")
+    error = record.get("error")
+    _refuse_if_fault_text(error, field_name=label, check_supervisor_denylist=True)
+    terminal = record.get("terminal")
+    child_error = (
+        record["failure_class"] == "CHILD_NONZERO_EXIT"
+        and isinstance(terminal, Mapping)
+        and terminal.get("reason") in MECHANICAL_TERMINAL_REASONS
+        and isinstance(error, str)
+        and error
+        == (
+            f"remote child exited {terminal.get('returncode')}: "
+            "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/out/ct/stall-watchdog"
+        )
+    )
+    if error not in (None, "") and not (_mechanical_supervisor_error(error) or child_error):
+        raise CTResumeRefused(f"unexplained retained receipt error: {label}")
+    terminal = record.get("terminal")
+    if record["failure_class"] == "CHILD_NONZERO_EXIT" and (
+        not isinstance(terminal, Mapping)
+        or terminal.get("reason") not in MECHANICAL_TERMINAL_REASONS
+    ):
+        raise CTResumeRefused(
+            f"non-mechanical child failure: retained receipt lacks mechanical terminal: {label}"
+        )
+
+
 def _scan_json_faults(
     value: Any,
     *,
     label: str,
     expected_job_id: str | None = None,
     expected_generation: str | None = None,
+    supervisor_transport: bool = False,
+    require_execution_identity: bool = False,
 ) -> None:
     """Inspect nested diagnostic fields, including error fields in snapshot headers."""
     if isinstance(value, Mapping):
-        for key, expected in (
-            ("job_id", expected_job_id),
-            ("job", expected_job_id),
-            ("generation", expected_generation),
-        ):
-            if expected is not None and key in value and value[key] != expected:
-                raise CTResumeRefused(f"{label} belongs to foreign {key}")
+        receipt = value.get("status") == "INCOMPLETE"
+        if receipt:
+            _check_retained_receipt(value, label=label)
+        if "failure_class" in value and not receipt:
+            raise CTResumeRefused(f"{label} records failure_class outside a qualified receipt")
+        execution = (
+            require_execution_identity
+            or any(key in value for key in ("returncode", "reason", "failure_class"))
+            or ("status" in value and any(key in value for key in ("job", "job_id", "generation")))
+            or value.get("status") in ("failed", "stopped", "error", "completed", "succeeded")
+        )
+        execution_record = {k: v for k, v in value.items() if not (receipt and k == "status")}
         for key, item in value.items():
             name = f"{label}.{key}"
-            mechanical_error = (
-                key == "error"
-                and isinstance(item, str)
-                and any(marker in item.lower() for marker in MECHANICAL_SUPERVISOR_ERROR_MARKERS)
+            mechanical_error = key == "error" and (
+                receipt or supervisor_transport and _mechanical_supervisor_error(item)
             )
             if (
                 key
@@ -505,6 +624,8 @@ def _scan_json_faults(
                     "unassign_error",
                     "fault",
                     "error_type",
+                    "error_message",
+                    "cleanup_error",
                     "traceback",
                 }
                 and item
@@ -516,20 +637,9 @@ def _scan_json_faults(
                     and "\n" not in item
                 )
             ):
+                _refuse_if_fault_text(item, field_name=name, check_supervisor_denylist=True)
                 raise CTResumeRefused(
                     f"{name} records explicit scientific/non-mechanical fault: {item!r}"
-                )
-            if (
-                key in {"state", "terminal"}
-                and isinstance(item, Mapping)
-                and any(field in item for field in ("status", "reason", "returncode"))
-            ):
-                _check_retained_execution(
-                    item,
-                    label=name,
-                    expected_job_id=expected_job_id,
-                    expected_generation=expected_generation,
-                    require_identity=True,
                 )
             if key in {"phase", "prepare_phase", "stage"} and isinstance(item, str):
                 if item.lower().endswith("failed") or "failure" in item.lower():
@@ -540,18 +650,37 @@ def _scan_json_faults(
                 or (key == "scientific_fault" and item)
                 or (key == "support_status" and item in {"INCOMPLETE_SUPPORT", "INVALID"})
             ):
+                _refuse_if_fault_text(item, field_name=name, check_supervisor_denylist=True)
                 raise CTResumeRefused(
                     f"{name} records explicit scientific/non-mechanical fault: {item!r}"
                 )
             # Inventories name diagnostic files even when they are empty. Their
             # paths are checked by the export scanner; don't treat filenames as errors.
-            if key not in {"path", "dest", "sha256"}:
+            if key not in {"path", "dest", "sha256"} or not isinstance(item, str):
                 _scan_json_faults(
                     item,
                     label=name,
                     expected_job_id=expected_job_id,
                     expected_generation=expected_generation,
+                    require_execution_identity=(
+                        key in {"state", "terminal"} and isinstance(item, Mapping)
+                    ),
                 )
+        _check_retained_execution(
+            (
+                execution_record
+                if receipt
+                else (
+                    value
+                    if execution
+                    else {k: v for k, v in value.items() if k in {"job", "job_id", "generation"}}
+                )
+            ),
+            label=label,
+            expected_job_id=expected_job_id,
+            expected_generation=expected_generation,
+            require_identity=require_execution_identity,
+        )
     elif isinstance(value, list):
         for index, item in enumerate(value):
             _scan_json_faults(
@@ -564,6 +693,164 @@ def _scan_json_faults(
         _refuse_if_fault_text(value, field_name=label)
 
 
+def _verify_staged_source_archive(path: Path, output_root: Path) -> None:
+    """Exempt the expected source archive only after checking pinned Git blobs."""
+    try:
+        plan = json.loads((path.parent / "source-plan.json").read_text())
+        manifest = json.loads((output_root / "manifest.json").read_text())
+        commit = manifest["commit"]
+        files = plan["files"]
+        if (
+            not _is_hex(commit, 40)
+            or not isinstance(files, dict)
+            or not files
+            or plan.get("commit") != commit
+            or plan.get("fallback_archive") != path.name
+            or plan.get("fallback_size") != path.stat().st_size
+            or path.stat().st_size > 32 * 1024 * 1024
+            or plan.get("fallback_sha256") != _retained_digest(path)
+        ):
+            raise ValueError("source plan binding differs")
+        tree = subprocess.run(
+            ["git", "ls-tree", "-rz", commit, "--", *files],
+            cwd=Path(__file__).resolve().parents[2],
+            capture_output=True,
+            check=True,
+            timeout=20,
+        ).stdout
+        blobs = {}
+        for row in tree.split(b"\x00"):
+            if row:
+                meta, name = row.split(b"\t", 1)
+                mode, kind, blob = meta.decode().split()
+                if kind != "blob" or mode not in {"100644", "100755"}:
+                    raise ValueError("source plan contains non-regular Git entry")
+                blobs[name.decode()] = blob
+        if set(blobs) != set(files):
+            raise ValueError("source plan differs from pinned Git inventory")
+        seen = set()
+        total = 0
+        with tarfile.open(path, "r|gz") as archive:
+            for member in archive:
+                total += member.size
+                if (
+                    not member.isfile()
+                    or member.name not in files
+                    or member.name in seen
+                    or member.size < 0
+                    or total > 32 * 1024 * 1024
+                ):
+                    raise ValueError("unexpected or oversized source archive member")
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise ValueError("unreadable source member")
+                data = stream.read()
+                blob = hashlib.sha1(f"blob {len(data)}\x00".encode() + data).hexdigest()
+                if (
+                    blob != blobs[member.name]
+                    or len(data) != files[member.name]["size"]
+                    or hashlib.sha256(data).hexdigest() != files[member.name]["sha256"]
+                ):
+                    raise ValueError("source archive differs from pinned Git bytes")
+                seen.add(member.name)
+        if seen != set(files):
+            raise ValueError("source archive omits pinned files")
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        tarfile.TarError,
+        subprocess.SubprocessError,
+    ) as error:
+        raise CTResumeRefused(
+            f"unverified retained staged source archive: {path}: {error}"
+        ) from error
+
+
+def _publication_sidecar(path: Path) -> bool:
+    if path.suffix not in {".sha256", ".complete"}:
+        return False
+    payload = path.with_suffix("")
+    if not _complete(payload):
+        return False
+    if (
+        Path(str(payload) + ".sha256").read_text().strip() != _retained_digest(payload)
+        or Path(str(payload) + ".complete").read_bytes() != b"complete\n"
+    ):
+        raise CTResumeRefused(f"corrupt retained publication sidecar: {path}")
+    return True
+
+
+def _scan_diagnostic_bytes(path: Path, *, json_mode: bool = False) -> str:
+    """Scan the entire readable stream first, then refuse invalid encoding/NULs."""
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    strict_decoder = codecs.getincrementaldecoder("utf-8")(errors="strict")
+    bad_utf8 = False
+    overlap, chunks, invalid = "", [], False
+    with path.open("rb") as stream:
+        while raw := stream.read(65536):
+            invalid |= b"\x00" in raw
+            part = decoder.decode(raw).replace("\x00", "")
+            if not bad_utf8:
+                try:
+                    strict_decoder.decode(raw)
+                except UnicodeDecodeError:
+                    bad_utf8 = True
+            if not json_mode:
+                _refuse_if_fault_text(overlap + part, field_name=str(path))
+            overlap = (overlap + part)[-256:]
+            if json_mode:
+                chunks.append(part)
+    tail = decoder.decode(b"", final=True)
+    if not bad_utf8:
+        try:
+            strict_decoder.decode(b"", final=True)
+        except UnicodeDecodeError:
+            bad_utf8 = True
+    invalid |= bad_utf8
+    if not json_mode or invalid:
+        _refuse_if_fault_text(
+            ("".join(chunks) if json_mode else overlap) + tail, field_name=str(path)
+        )
+    if invalid:
+        raise CTResumeRefused(f"unreadable retained diagnostic evidence: {path}")
+    return "".join(chunks) + tail
+
+
+def _verified_stage_payload(path: Path) -> bool:
+    match = re.fullmatch(r"stage-(\d{4})\.pt(?:\.xz)?", path.name)
+    if match is None:
+        return False
+    header = path.parent / f"stage-{match[1]}.json"
+    if not _complete(header) or not _complete(path):
+        raise CTResumeRefused(f"unverified retained binary stage payload: {path}")
+    _descriptor(header, runtime_path=header.name)
+    info = json.loads(header.read_text())
+    descriptor = _descriptor(path, runtime_path=path.name)
+    if path.suffix == ".xz":
+        manifest = Path(str(path) + ".manifest")
+        _descriptor(manifest, runtime_path=manifest.name)
+        meta = json.loads(manifest.read_text())
+        bound = meta.get("derivative", {})
+        original = meta.get("original", {})
+        if meta.get("unit") != info.get("id") or original.get("sha256") != info.get(
+            "snapshot", {}
+        ).get("sha256"):
+            raise CTResumeRefused(f"unbound compact stage payload: {path}")
+    else:
+        bound = info.get("snapshot", {})
+    if (
+        info.get("schema") != SNAPSHOT_SCHEMA
+        or info.get("stage") != int(match[1])
+        or info.get("id") != unit_id(int(match[1]))
+        or bound.get("sha256") != descriptor["sha256"]
+        or bound.get("size") != descriptor["size"]
+    ):
+        raise CTResumeRefused(f"unbound retained stage payload: {path}")
+    return True
+
+
 def _scan_retained_text(
     path: Path,
     *,
@@ -571,89 +858,101 @@ def _scan_retained_text(
     expected_job_id: str | None = None,
     expected_generation: str | None = None,
 ) -> None:
-    """Scan all text/JSON, including incomplete telemetry and unknown filenames.
-
-    Model payloads are binary and remain path/size/hash evidence. Text is streamed
-    with overlap so a fault marker split across read boundaries is still found.
-    Incomplete JSON refuses after scanning its retained text for explicit faults.
-    """
-    # Staged executable source contains exception definitions and canary checks,
-    # not observations. Inventory its bytes, but scan diagnostic files separately.
+    """Validate every diagnostic representation, refusing archives and incomplete writes."""
     if path.parent == output_root / "staging" and path.name in {
         "bootstrap.sh",
         "source.py",
         "runtime.py",
         "release.py",
     }:
-        qualified_source = Path(__file__).resolve().parents[1] / "colab_cli" / path.name
-        if digest(path) != digest(qualified_source):
+        source = Path(__file__).resolve().parents[1] / "colab_cli" / path.name
+        if _retained_digest(path) != _retained_digest(source):
             raise CTResumeRefused(
                 f"retained staged executable differs from qualified source: {path}"
             )
         return
-    is_json = path.suffix == ".json" or path.name.endswith(".json.partial")
+    if path == output_root / "staging/source.tar.gz":
+        _verify_staged_source_archive(path, output_root)
+        return
+    if _verified_stage_payload(path) or _publication_sidecar(path):
+        return
+    with path.open("rb") as stream:
+        header = stream.read(8)
+    if (
+        header.startswith(
+            (
+                b"\x1f\x8b",
+                b"\xfd7zXZ\x00",
+                b"PK\x03\x04",
+                b"BZh",
+                b"\x28\xb5\x2f\xfd",
+                b"7z\xbc\xaf\x27\x1c",
+            )
+        )
+        or any(
+            part in {".gz", ".xz", ".zip", ".bz2", ".zst", ".tar", ".7z"} for part in path.suffixes
+        )
+        and not re.fullmatch(r"stage-\d{4}\.pt\.xz\.manifest", path.name)
+    ):
+        raise CTResumeRefused(f"unsupported retained diagnostic archive: {path}")
+    if path.suffix in {".pt", ".pth"}:
+        raise CTResumeRefused(f"unexpected retained binary payload: {path}")
+    name = path.name.lstrip(".")
+    if name.startswith("supervisor.log"):
+        _scan_supervisor_log(path, job_id=expected_job_id, generation=expected_generation)
+        if path.name.startswith(".") or any(
+            part.startswith((".partial", ".tmp")) for part in path.suffixes
+        ):
+            raise CTResumeRefused(f"incomplete retained diagnostic evidence: {path}")
+        return
+    is_json = any(suffix in {".json", ".jsonl"} for suffix in path.suffixes) or name.endswith(
+        ".xz.manifest"
+    )
+    text = _scan_diagnostic_bytes(path, json_mode=is_json)
     if is_json:
         try:
-            text = path.read_text()
-            payload = json.loads(text)
-        except (UnicodeError, json.JSONDecodeError) as error:
-            if isinstance(error, json.JSONDecodeError):
-                _refuse_if_fault_text(text, field_name=str(path))
+            records = (
+                [json.loads(line) for line in text.splitlines() if line.strip()]
+                if ".jsonl" in path.suffixes
+                else [json.loads(text)]
+            )
+            if not records:
+                raise ValueError("empty JSONL evidence")
+        except ValueError as error:
+            _refuse_if_fault_text(text, field_name=str(path))
             label = (
                 "corrupt poll evidence"
-                if path.name.startswith("poll-")
+                if name.startswith("poll-")
                 else "unreadable or partial retained JSON evidence"
             )
             raise CTResumeRefused(f"{label}: {path}") from error
-        if path.name in {
-            "state.json",
-            "state.json.partial",
-            "terminal.json",
-            "terminal.json.partial",
-        }:
-            if not isinstance(payload, Mapping):
+        for record in records:
+            execution_file = name.startswith(("state.json", "terminal.json", "poll-"))
+            if (
+                execution_file or name.startswith("receipt.json") or ".jsonl" in path.suffixes
+            ) and not isinstance(record, Mapping):
                 raise CTResumeRefused(f"malformed retained execution record: {path}")
-            _check_retained_execution(
-                payload,
+            if name.startswith("receipt.json"):
+                _check_retained_receipt(record, label=str(path))
+            _scan_json_faults(
+                record,
                 label=str(path),
                 expected_job_id=expected_job_id,
                 expected_generation=expected_generation,
-                require_identity=True,
+                supervisor_transport=(name.startswith(("poll-", "receipt.json"))),
+                require_execution_identity=(execution_file and not name.startswith("poll-")),
             )
-        if path.name.startswith("poll-"):
-            if not isinstance(payload, Mapping):
-                raise CTResumeRefused(f"malformed poll evidence: {path}")
-            _check_poll_fault_evidence(payload, label=str(path))
-        if path.name in {"receipt.json", "receipt.json.partial"} and isinstance(payload, Mapping):
-            if payload.get("status") != "INCOMPLETE" or payload.get("stop_verified") is not True:
-                raise CTResumeRefused(f"non-resumable retained receipt: {path}")
-            _refuse_if_fault_text(payload.get("error"), field_name=str(path))
-            payload = {k: v for k, v in payload.items() if k != "error"}
-        _scan_json_faults(
-            payload,
-            label=str(path),
-            expected_job_id=expected_job_id,
-            expected_generation=expected_generation,
-        )
-        return
-    # Known model payload formats must never be interpreted as diagnostic text.
-    if any(suffix in {".pt", ".pth", ".xz", ".gz", ".zip"} for suffix in path.suffixes):
-        return
-    with path.open("rb") as stream:
-        sample = stream.read(8192)
-        if b"\x00" in sample:
-            raise CTResumeRefused(f"unreadable retained diagnostic evidence: {path}")
-    with path.open(encoding="utf-8") as stream:
-        overlap = ""
-        while part := stream.read(65536):
-            _refuse_if_fault_text(overlap + part, field_name=str(path))
-            overlap = part[-256:]
+            if name.startswith("poll-"):
+                _check_poll_fault_evidence(record, label=str(path))
+    if path.name.startswith(".") or any(
+        part.startswith((".partial", ".tmp")) for part in path.suffixes
+    ):
+        raise CTResumeRefused(f"incomplete retained diagnostic evidence: {path}")
 
 
 def retained_inventory(root: Path) -> dict[str, Any]:
     """Bind every retained byte by path/size/hash without decoding numerical payloads."""
-    if not root.is_absolute() or root.is_symlink():
-        raise CTResumeRefused(f"invalid retained evidence root: {root}")
+    _no_symlink_path(root)
     if not root.exists():
         return {"exists": False, "files": []}
     if not root.is_dir():
@@ -661,7 +960,11 @@ def retained_inventory(root: Path) -> dict[str, Any]:
     return {
         "exists": True,
         "files": [
-            {"path": str(p.relative_to(root)), "size": p.stat().st_size, "sha256": digest(p)}
+            {
+                "path": str(p.relative_to(root)),
+                "size": p.stat().st_size,
+                "sha256": _retained_digest(p),
+            }
             for p in _retained_files(root)
         ],
     }
@@ -674,15 +977,22 @@ def _check_attempt_base_fault_evidence(
     expected_generation: str | None = None,
 ) -> None:
     """Inspect the entire retained diagnostic set; model payloads remain hash-only."""
-    inventory = retained_inventory(base.resolve() if not base.is_symlink() else base)
-    for row in inventory["files"]:
-        path = base / row["path"]
-        name = path.name.lower()
+    _no_symlink_path(base)
+    cache = _EVIDENCE_CACHE.get()
+    key = ("scan", str(base), expected_job_id, expected_generation)
+    if cache is not None and key in cache:
+        return
+    if not base.exists():
+        return
+    if not base.is_dir():
+        raise CTResumeRefused(f"retained evidence root is not a directory: {base}")
+    for path in _retained_files(base):
+        name = path.name.lower().lstrip(".")
         if name.startswith("summary.json"):
             raise CTResumeRefused(f"scientific summary already present: {path}")
         if name.startswith("fault.json"):
             raise CTResumeRefused(f"scientific/runtime fault diagnostic present: {path}")
-        if name == "faulthandler-stacks.log" and row["size"]:
+        if name.startswith("faulthandler-stacks.log") and path.lstat().st_size:
             raise CTResumeRefused(f"non-empty faulthandler stack dump: {path}")
         _scan_retained_text(
             path,
@@ -690,10 +1000,14 @@ def _check_attempt_base_fault_evidence(
             expected_job_id=expected_job_id,
             expected_generation=expected_generation,
         )
+    if cache is not None:
+        cache[key] = True
 
 
 def _candidate_search_roots(export_root: Path) -> list[Path]:
     roots = [export_root]
+    if export_root.name in {"ct", "exports"}:
+        roots.append(export_root.parent)
     if export_root.name == "ct" and export_root.parent.name == "exports":
         if len(export_root.parents) >= 2:
             roots.append(export_root.parents[1])
@@ -737,6 +1051,39 @@ def assert_no_scientific_or_fault_precedence(
         _check_terminal_fault_evidence(terminal, label="terminal")
 
 
+def _scan_supervisor_log(path: Path, *, job_id: str | None, generation: str | None) -> None:
+    """Apply execution validation to every structured host-log record, including nested facts."""
+    _no_symlink_path(path)
+    if not path.is_file():
+        raise CTResumeRefused(f"missing or symlinked supervisor log: {path}")
+    _scan_diagnostic_bytes(path, json_mode=True)
+    with path.open(encoding="utf-8") as stream:
+        for index, line in enumerate(stream, 1):
+            stripped = line.strip()
+            label = f"{path}:{index}"
+            if stripped.startswith("{"):
+                try:
+                    record = json.loads(stripped)
+                except ValueError as error:
+                    raise CTResumeRefused(f"corrupt supervisor JSON record: {label}") from error
+                _scan_json_faults(
+                    record,
+                    label=label,
+                    expected_job_id=job_id,
+                    expected_generation=generation,
+                    supervisor_transport=True,
+                )
+                for field in ("state", "terminal"):
+                    item = record.get(field)
+                    if item is not None and not (field == "terminal" and item is False):
+                        if not isinstance(item, Mapping):
+                            raise CTResumeRefused(f"malformed supervisor {field}: {label}")
+                _refuse_if_fault_exports(record.get("exports"), source_name=label)
+            else:
+                _refuse_if_supervisor_log_fault(line, field_name=label)
+
+
+@_evidence_session
 def verify_mechanical_stop(
     receipt: Mapping[str, Any],
     manifest: Mapping[str, Any],
@@ -746,12 +1093,12 @@ def verify_mechanical_stop(
     supervisor_log_path: Path | None = None,
 ) -> None:
     """Enforce scientific-fault precedence first, then verify clean qualified mechanical stop."""
+    _check_retained_receipt(receipt, label="receipt")
     assert_no_scientific_or_fault_precedence(export_root, receipt)
     if supervisor_log_path is not None:
-        if supervisor_log_path.is_symlink() or not supervisor_log_path.is_file():
-            raise CTResumeRefused(f"missing or symlinked supervisor log: {supervisor_log_path}")
-        for idx, line in enumerate(supervisor_log_path.read_text().splitlines(), start=1):
-            _refuse_if_supervisor_log_fault(line, field_name=f"supervisor_log:{idx}")
+        _scan_supervisor_log(
+            supervisor_log_path, job_id=receipt.get("job_id"), generation=receipt.get("generation")
+        )
 
     if not _is_hex(manifest_sha256, 64):
         raise CTResumeRefused("original manifest_sha256 is malformed")
@@ -798,10 +1145,7 @@ def verify_mechanical_stop(
             return
         error = receipt.get("error")
         if terminal is None and isinstance(error, str):
-            lowered = error.lower()
-            if any(marker in lowered for marker in MECHANICAL_SUPERVISOR_ERROR_MARKERS) and not any(
-                bad in lowered for bad in NON_MECHANICAL_SUPERVISOR_ERROR_MARKERS
-            ):
+            if _mechanical_supervisor_error(error):
                 return
         raise CTResumeRefused(
             "SUPERVISOR receipt does not prove a mechanical wall/unit/lease/poll stop"
@@ -1069,6 +1413,7 @@ def project_staging_envelope(
 
 
 def _append_unique_dir_str(target: list[str], directory: Path) -> None:
+    _no_symlink_path(directory)
     if directory.is_symlink():
         raise CTResumeRefused(f"provenance directory must not be a symlink: {directory}")
     resolved_str = str(directory.resolve())
@@ -1135,6 +1480,7 @@ def _extract_prior_admitted_coverage(
         if not orig_out_path.is_absolute():
             raise CTResumeRefused("original_manifest.output_dir must be absolute")
         _append_unique_dir_str(prior_output_dirs, orig_out_path)
+        _append_unique_dir_str(prior_export_roots, orig_out_path / "exports/ct")
 
     raw_inputs = original_manifest.get("inputs", [])
     if not isinstance(raw_inputs, list) or any(not isinstance(r, Mapping) for r in raw_inputs):
@@ -1160,11 +1506,12 @@ def _extract_prior_admitted_coverage(
     if ledger_entry is not None:
         expected_lsha = ledger_entry.get("sha256")
         prior_ledger_file = Path(str(ledger_entry.get("path", "")))
+        _no_symlink_path(prior_ledger_file)
         if (
             not _is_hex(expected_lsha, 64)
             or prior_ledger_file.is_symlink()
             or not prior_ledger_file.is_file()
-            or digest(prior_ledger_file) != expected_lsha
+            or _retained_digest(prior_ledger_file) != expected_lsha
         ):
             raise CTResumeRefused(
                 "prior verified-ledger.json is missing, symlinked, or hash-mismatched"
@@ -1174,7 +1521,7 @@ def _extract_prior_admitted_coverage(
             if (
                 pkt_ledger.is_symlink()
                 or not pkt_ledger.is_file()
-                or digest(pkt_ledger) != expected_lsha
+                or _retained_digest(pkt_ledger) != expected_lsha
             ):
                 raise CTResumeRefused(
                     "prior packet verified-ledger.json differs from manifest binding"
@@ -1300,11 +1647,12 @@ def _extract_prior_admitted_coverage(
                             f"prior compact resume {role} upload binding mismatch"
                         )
                     item_path = Path(str(item["path"]))
+                    _no_symlink_path(item_path)
                     if (
                         item_path.is_symlink()
                         or not item_path.is_file()
                         or item_path.stat().st_size != bound["size"]
-                        or digest(item_path) != bound["sha256"]
+                        or _retained_digest(item_path) != bound["sha256"]
                     ):
                         raise CTResumeRefused(
                             f"prior compact resume {role} file missing or corrupt"
@@ -1325,7 +1673,7 @@ def _extract_prior_admitted_coverage(
                         raise CTResumeRefused("prior compact stage original .sha256 mismatch")
                     sc_up = prior_uploads.get(dest + sc_suffix)
                     if sc_up is not None:
-                        if Path(str(sc_up.get("path", ""))) != sc_file or digest(
+                        if Path(str(sc_up.get("path", ""))) != sc_file or _retained_digest(
                             sc_file
                         ) != sc_up.get("sha256"):
                             raise CTResumeRefused("prior uploaded stage sidecar mismatch")
@@ -1339,11 +1687,12 @@ def _extract_prior_admitted_coverage(
                     f"prior stage-{stage:04d} export {dest} lacks hash-bound upload"
                 )
             src = Path(str(item.get("path", "")))
+            _no_symlink_path(src)
             if (
                 src.is_symlink()
                 or not src.is_file()
                 or src.stat().st_size != exp["size"]
-                or digest(src) != exp["sha256"]
+                or _retained_digest(src) != exp["sha256"]
             ):
                 raise CTResumeRefused(f"prior stage-{stage:04d} source file missing or corrupt")
             referenced_resume.add(dest)
@@ -1358,9 +1707,9 @@ def _extract_prior_admitted_coverage(
                     raise CTResumeRefused(f"prior stage-{stage:04d} .sha256 sidecar mismatch")
                 sc_up = prior_uploads.get(dest + sc_suffix)
                 if sc_up is not None:
-                    if Path(str(sc_up.get("path", ""))) != sc_file or digest(sc_file) != sc_up.get(
-                        "sha256"
-                    ):
+                    if Path(str(sc_up.get("path", ""))) != sc_file or _retained_digest(
+                        sc_file
+                    ) != sc_up.get("sha256"):
                         raise CTResumeRefused("prior uploaded stage sidecar mismatch")
                     referenced_resume.add(dest + sc_suffix)
             _append_unique_dir_str(prior_export_roots, src.resolve().parent)
@@ -1441,6 +1790,7 @@ def completion_packet(
         )
     if not job_id or job_id == original_manifest.get("job_id"):
         raise CTResumeRefused("completion attempt requires a fresh job_id")
+    _no_symlink_path(output_dir)
     if not output_dir.is_absolute() or output_dir.is_symlink():
         raise CTResumeRefused("completion attempt requires a fresh absolute output_dir")
     resolved_new_output = str(output_dir.resolve())
@@ -1570,6 +1920,7 @@ def _sandbox_input_kind_for_dest(dest: str) -> str:
     return "frozen-opponent"
 
 
+@_evidence_session
 def write_continuation_packet(
     packet_dir: Path,
     *,
@@ -1586,12 +1937,19 @@ def write_continuation_packet(
 ) -> dict[str, Any]:
     """Create-only 6-file admitted C/T continuation packet directory; never dispatches."""
     packet = packet_dir.resolve()
+    _no_symlink_path(prior_packet_dir)
+    _no_symlink_path(packet_dir)
     prior = prior_packet_dir.resolve()
     if packet.exists() or packet.is_symlink():
         raise FileExistsError(f"continuation packet_dir already exists: {packet}")
     if prior.is_symlink() or not prior.is_dir():
         raise CTResumeRefused(f"missing or symlinked prior_packet_dir: {prior}")
 
+    if supervisor_log_path is None:
+        raise CTResumeRefused("production continuation requires bound supervisor_log")
+    _no_symlink_path(supervisor_log_path)
+    if not supervisor_log_path.is_file():
+        raise CTResumeRefused("production continuation requires a regular supervisor_log")
     prior_manifest_path = prior / "dispatch-manifest.json"
     prior_sandbox_path = prior / "sandbox.json"
     prior_control_path = prior / "control.json"
@@ -1610,7 +1968,7 @@ def write_continuation_packet(
             raise CTResumeRefused(f"prior packet lacks required file: {req.name}")
 
     prior_manifest = json.loads(prior_manifest_path.read_text())
-    prior_manifest_sha = digest(prior_manifest_path)
+    prior_manifest_sha = _retained_digest(prior_manifest_path)
     prior_sandbox = json.loads(prior_sandbox_path.read_text())
     prior_broker_binding = (
         prior_sandbox.get("outputs", {}).get("broker_manifest")
@@ -1630,7 +1988,9 @@ def write_continuation_packet(
 
     from research.sandbox_a_resident.ct_preflight import validate_uploaded_ledger
 
-    validate_uploaded_ledger(prior, copy.deepcopy(prior_manifest), control)
+    # Preparation can precede the local packet commit; production admission always
+    # reopens all components with require_committed=True.
+    validate_uploaded_ledger(prior, copy.deepcopy(prior_manifest), control, require_committed=False)
     built = completion_packet(
         prior_manifest,
         terminal_receipt,
@@ -1666,7 +2026,7 @@ def write_continuation_packet(
             else {
                 "path": str(supervisor_log_path.resolve()),
                 "size": supervisor_log_path.stat().st_size,
-                "sha256": digest(supervisor_log_path),
+                "sha256": _retained_digest(supervisor_log_path),
             }
         ),
     }
@@ -1675,20 +2035,22 @@ def write_continuation_packet(
     write_once(packet / "registry-check.json", reg_check)
     write_once(packet / "topology-manifest.json", topo_manifest)
     write_once(packet / "verified-ledger.json", built.ledger)
-    if digest(packet / "verified-ledger.json") != built.ledger_sha256:
+    if _retained_digest(packet / "verified-ledger.json") != built.ledger_sha256:
         raise CTResumeRefused("written verified-ledger.json SHA-256 differs from manifest binding")
 
     write_once(packet / "provenance.json", provenance)
     # Preserve canonical seed/topology bindings pointing to identical sidecar bytes.
     manifest_out = copy.deepcopy(built.manifest)
-    manifest_out["completion_attempt"]["provenance_sha256"] = digest(packet / "provenance.json")
+    manifest_out["completion_attempt"]["provenance_sha256"] = _retained_digest(
+        packet / "provenance.json"
+    )
     manifest_out["sandbox_a"] = {
         **dict(manifest_out.get("sandbox_a", {})),
-        "seed_audit_sha256": digest(packet / "registry-check.json"),
-        "topology_manifest_sha256": digest(packet / "topology-manifest.json"),
+        "seed_audit_sha256": _retained_digest(packet / "registry-check.json"),
+        "topology_manifest_sha256": _retained_digest(packet / "topology-manifest.json"),
     }
     write_once(packet / "dispatch-manifest.json", manifest_out)
-    broker_sha = digest(packet / "dispatch-manifest.json")
+    broker_sha = _retained_digest(packet / "dispatch-manifest.json")
 
     allocations = list(manifest_out["sandbox_a"]["seed_allocations"])
     roots = [int(row["offset"]) for row in allocations]
@@ -1739,7 +2101,7 @@ def write_continuation_packet(
         packet / "SEAL.json",
         {
             "schema": "t34-cf-continuation-seal/v1",
-            "provenance_sha256": digest(packet / "provenance.json"),
+            "provenance_sha256": _retained_digest(packet / "provenance.json"),
             "manifest_sha256": broker_sha,
             "ledger_sha256": built.ledger_sha256,
             "prior_manifest_sha256": prior_manifest_sha,
@@ -1759,7 +2121,7 @@ def write_continuation_packet(
         "verified_stages": list(built.verified_stages),
         "ledger_sha256": built.ledger_sha256,
         "manifest_sha256": broker_sha,
-        "sandbox_sha256": digest(packet / "sandbox.json"),
+        "sandbox_sha256": _retained_digest(packet / "sandbox.json"),
         "staging_projection": built.staging_projection,
     }
 

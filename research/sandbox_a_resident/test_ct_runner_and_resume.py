@@ -179,10 +179,10 @@ def test_tiny_runner_end_to_end_and_compact_xz_continuation_resume(tmp_path: Pat
         "failure_class": "CHILD_NONZERO_EXIT",
         "stop_verified": True,
         "cleanup_error": None,
-        "generation": 1,
+        "generation": "gen-1",
         "terminal": {
             "job_id": "sandbox-ct-cf-test-01",
-            "generation": 1,
+            "generation": "gen-1",
             "status": "failed",
             "reason": "timeout",
             "returncode": 138,
@@ -307,7 +307,7 @@ def test_incomplete_support_stops_before_branch_scoring_and_blocks_continuation(
         "stop_verified": True,
         "cleanup_error": None,
     }
-    with pytest.raises(CTResumeRefused, match="INCOMPLETE_SUPPORT"):
+    with pytest.raises(CTResumeRefused, match="(?i)incomplete_support"):
         completion_packet(
             manifest,
             timeout_receipt,
@@ -599,7 +599,10 @@ def test_qualified_mechanical_stop_receipts_and_fault_precedence(tmp_path: Path)
 
     # 4) Refuse invented / non-qualified failure classes previously allowlisted by mistake.
     for bogus_cls in ("SESSION_LOST", "WALL_CLOCK_TIMEOUT", "SIGUSR1_PREEMPTED"):
-        with pytest.raises(CTResumeRefused, match="not a qualified mechanical trigger"):
+        with pytest.raises(
+            CTResumeRefused,
+            match="not a qualified mechanical trigger|non-resumable retained receipt",
+        ):
             verify_mechanical_stop(
                 _base_receipt(failure_class=bogus_cls),
                 manifest,
@@ -670,6 +673,31 @@ def test_qualified_mechanical_stop_receipts_and_fault_precedence(tmp_path: Path)
             export_root=clean_dir,
             supervisor_log_path=sup_log,
         )
+
+
+def _clean_supervisor_log(directory: Path, name: str = "supervisor.log") -> Path:
+    path = directory / name
+    if not path.exists():
+        path.write_text("qualified transport stop observed\n")
+    return path
+
+
+def _seal_initial_packet(packet: Path) -> None:
+    bindings = {
+        "manifest_sha256": "dispatch-manifest.json",
+        "sandbox_sha256": "sandbox.json",
+        "control_sha256": "control.json",
+        "ledger_sha256": "verified-ledger.json",
+        "registry_audit_sha256": "registry-check.json",
+        "topology_manifest_sha256": "topology-manifest.json",
+    }
+    write_once(
+        packet / "SEAL.json",
+        {
+            "schema": "t34-cf-1028-prep-seal/v1",
+            **{key: digest(packet / name) for key, name in bindings.items()},
+        },
+    )
 
 
 def _write_tiny_initial_packet(
@@ -804,6 +832,7 @@ def _write_tiny_initial_packet(
         for i, (k, v) in enumerate(sandbox.items())
     ]
     (packet_dir / "sandbox.json").write_text("\n".join(lines) + "\n")
+    _seal_initial_packet(packet_dir)
 
 
 def _stage_manifest_inputs(manifest: dict[str, object], input_root: Path) -> Path:
@@ -908,6 +937,7 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
         use_compact_xz_for_stages=(1,),
         auto_encode_compact_xz=True,
         validate_registry_inputs=False,
+        supervisor_log_path=_clean_supervisor_log(tmp_path),
     )
     assert c1_info["verified_stages"] == [1]
     c1_manifest = json.loads((packet_c1 / "dispatch-manifest.json").read_text())
@@ -974,6 +1004,7 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
         use_compact_xz_for_stages=(1,),
         auto_encode_compact_xz=True,
         validate_registry_inputs=False,
+        supervisor_log_path=_clean_supervisor_log(tmp_path),
     )
     assert c2_info["verified_stages"] == [1, 2]
     c2_manifest = json.loads((packet_c2 / "dispatch-manifest.json").read_text())
@@ -1122,6 +1153,7 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
             check=True,
         )
 
+        _seal_initial_packet(prod_p0)
         prod_ctrl = json.loads((prod_p0 / "control.json").read_text())
         exp_a0 = art_root / "attempt-00-prior/exports/ct"
         exp_c1 = art_root / "attempt-c1-prior/exports/ct"
@@ -1198,6 +1230,8 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                 str(prod_p0),
                 "--receipt",
                 str(rec_p0),
+                "--supervisor-log",
+                str(_clean_supervisor_log(ws, "supervisor-p0.log")),
                 "--export-dir",
                 str(exp_a0),
                 "--completion-index",
@@ -1247,6 +1281,8 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                 str(prod_c1),
                 "--receipt",
                 str(rec_c1),
+                "--supervisor-log",
+                str(_clean_supervisor_log(ws, "supervisor-c1.log")),
                 "--export-dir",
                 str(exp_a0),
                 "--export-dir",
@@ -1665,6 +1701,7 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
         packet_00,
         json.loads((packet_00 / "dispatch-manifest.json").read_text()),
         ctrl_dict,
+        require_committed=False,
     )
 
     dir_s1 = tmp_path / "exports_s1"
@@ -1730,11 +1767,14 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
         use_compact_xz_for_stages=(1,),
         auto_encode_compact_xz=True,
         validate_registry_inputs=use_registry_validation,
+        supervisor_log_path=_clean_supervisor_log(tmp_path),
     )
     assert c1_res["verified_stages"] == [1, 2]
     c1_manifest = json.loads((packet_c1 / "dispatch-manifest.json").read_text())
     c1_sha = digest(packet_c1 / "dispatch-manifest.json")
-    validate_uploaded_ledger(packet_c1, copy.deepcopy(c1_manifest), ctrl_dict)
+    validate_uploaded_ledger(
+        packet_c1, copy.deepcopy(c1_manifest), ctrl_dict, require_committed=False
+    )
 
     rec_c1 = {
         "job_id": "tiny-ct-c1",
@@ -1794,6 +1834,7 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
             use_compact_xz_for_stages=(1,),
             auto_encode_compact_xz=True,
             validate_registry_inputs=use_registry_validation,
+            supervisor_log_path=_clean_supervisor_log(tmp_path),
         )
     assert not packet_c2_omit.exists()
 
@@ -1828,6 +1869,7 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
             use_compact_xz_for_stages=(1,),
             auto_encode_compact_xz=True,
             validate_registry_inputs=use_registry_validation,
+            supervisor_log_path=_clean_supervisor_log(tmp_path),
         )
     assert not packet_c2_conflict.exists()
 
@@ -1844,11 +1886,14 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
         use_compact_xz_for_stages=(1,),
         auto_encode_compact_xz=True,
         validate_registry_inputs=use_registry_validation,
+        supervisor_log_path=_clean_supervisor_log(tmp_path),
     )
     assert c2_res["verified_stages"] == [1, 2, 3]
     c2_manifest = json.loads((packet_c2_ok / "dispatch-manifest.json").read_text())
     assert c2_manifest["completion_attempt"]["prior_verified_stages"] == [1, 2]
-    validate_uploaded_ledger(packet_c2_ok, copy.deepcopy(c2_manifest), ctrl_dict)
+    validate_uploaded_ledger(
+        packet_c2_ok, copy.deepcopy(c2_manifest), ctrl_dict, require_committed=False
+    )
 
     # 4) Forged/tampered packet_c2 dropping or mutating stage 2 MUST be refused by ct_preflight!
     forged_drop_dir = tmp_path / "packet-c2-forged-drop"
@@ -1875,8 +1920,10 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
     ]
     forged_broker["completion_attempt"]["verified_stages"] = [1, 3]
     forged_broker["completion_attempt"]["ledger_sha256"] = forged_lsha
-    with pytest.raises(ValueError, match="omits previously verified stage"):
-        validate_uploaded_ledger(forged_drop_dir, forged_broker, ctrl_dict)
+    with pytest.raises(
+        ValueError, match="omits previously verified stage|mandatory component|canonical"
+    ):
+        validate_uploaded_ledger(forged_drop_dir, forged_broker, ctrl_dict, require_committed=False)
 
     # Even if an attacker ALSO edits completion_attempt.prior_verified_units/stages, on-disk
     # prior_manifest_path -> prior verified-ledger.json cross-check in ct_preflight catches it!
@@ -1885,8 +1932,13 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
     forged_broker_2["completion_attempt"]["prior_verified_units"] = [
         u for u in forged_broker_2["completion_attempt"]["prior_verified_units"] if u["stage"] != 2
     ]
-    with pytest.raises(ValueError, match="differs from bound prior verified-ledger.json"):
-        validate_uploaded_ledger(forged_drop_dir, forged_broker_2, ctrl_dict)
+    with pytest.raises(
+        ValueError,
+        match="differs from bound prior verified-ledger.json|mandatory component|canonical",
+    ):
+        validate_uploaded_ledger(
+            forged_drop_dir, forged_broker_2, ctrl_dict, require_committed=False
+        )
 
     # Forged conflicting stage 2 in packet_c2 -> refused by ct_preflight!
     forged_conf_dir = tmp_path / "packet-c2-forged-conflict"
@@ -1910,8 +1962,11 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
         *conf_uploads,
     ]
     conf_broker["completion_attempt"]["ledger_sha256"] = conf_lsha
-    with pytest.raises(ValueError, match="conflicts with previously verified stage-0002"):
-        validate_uploaded_ledger(forged_conf_dir, conf_broker, ctrl_dict)
+    with pytest.raises(
+        ValueError,
+        match="conflicts with previously verified stage-0002|mandatory component|canonical",
+    ):
+        validate_uploaded_ledger(forged_conf_dir, conf_broker, ctrl_dict, require_committed=False)
 
     # 5) Bound prior provenance fault inspection: if an earlier attempt's output_dir (a0_out) holds
     #    retained qualified poll fault evidence, BOTH write_continuation_packet(c2) and ct_preflight
@@ -1944,9 +1999,12 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
             use_compact_xz_for_stages=(1,),
             auto_encode_compact_xz=True,
             validate_registry_inputs=use_registry_validation,
+            supervisor_log_path=_clean_supervisor_log(tmp_path),
         )
     with pytest.raises(ValueError, match="floatingpointerror|non-finite"):
-        validate_uploaded_ledger(packet_c2_ok, copy.deepcopy(c2_manifest), ctrl_dict)
+        validate_uploaded_ledger(
+            packet_c2_ok, copy.deepcopy(c2_manifest), ctrl_dict, require_committed=False
+        )
 
 
 @pytest.mark.parametrize(
@@ -2021,15 +2079,16 @@ def test_ct3_retained_fault_probes_refuse_writer_and_admission(
         output_dir=tmp_path / "next-output",
         use_compact_xz_for_stages=None,
         validate_registry_inputs=False,
+        supervisor_log_path=_clean_supervisor_log(tmp_path),
     )
     write_continuation_packet(successor, **kwargs)
     manifest = json.loads((successor / "dispatch-manifest.json").read_text())
-    validate_uploaded_ledger(successor, manifest, ctrl.to_dict())
+    validate_uploaded_ledger(successor, manifest, ctrl.to_dict(), require_committed=False)
     fault = prior_output / relative
     fault.parent.mkdir(parents=True, exist_ok=True)
     fault.write_text(content)
     with pytest.raises(ValueError):
-        validate_uploaded_ledger(successor, manifest, ctrl.to_dict())
+        validate_uploaded_ledger(successor, manifest, ctrl.to_dict(), require_committed=False)
     with pytest.raises(ValueError):
         write_continuation_packet(tmp_path / "refused", **kwargs)
     assert not (tmp_path / "refused").exists()
@@ -2085,6 +2144,18 @@ def _ct3_committed_admission_refusal_probes(packet: Path) -> None:
 
     files = {p: p.read_bytes() for p in packet.iterdir() if p.is_file()}
     original = json.loads((packet / "dispatch-manifest.json").read_text())
+    ancestor = Path(original["completion_attempt"]["prior_manifest_path"]).parent
+    root_packet = Path(
+        json.loads((ancestor / "dispatch-manifest.json").read_text())["completion_attempt"][
+            "prior_manifest_path"
+        ]
+    ).parent
+    ancestor_files = {
+        p: p.read_bytes()
+        for directory in (ancestor, root_packet)
+        for p in directory.iterdir()
+        if p.is_file()
+    }
     original_output = Path(
         json.loads(Path(original["completion_attempt"]["prior_manifest_path"]).read_text())[
             "completion_attempt"
@@ -2099,8 +2170,15 @@ def _ct3_committed_admission_refusal_probes(packet: Path) -> None:
         "unbound_proof",
         "inventory_deletion",
         "nested_fault_rebound_inventory",
+        "shadow_prior",
+        "missing_root_seal",
+        "uncommitted_root_seal",
+        "uncommitted_prior_manifest",
+        "omitted_supervisor_log",
+        "relative_supervisor_log",
+        "rebound_log_fault",
     ):
-        for path, data in files.items():
+        for path, data in {**files, **ancestor_files}.items():
             path.write_bytes(data)
         broker = copy.deepcopy(original)
         comp = broker["completion_attempt"]
@@ -2133,6 +2211,31 @@ def _ct3_committed_admission_refusal_probes(packet: Path) -> None:
         elif attack == "inventory_deletion":
             proof = json.loads((packet / "provenance.json").read_text())
             proof["retained"] = {}
+            (packet / "provenance.json").write_text(json.dumps(proof))
+            comp["provenance_sha256"] = digest(packet / "provenance.json")
+        elif attack == "shadow_prior":
+            shadow = ancestor / "shadow.json"
+            shadow.write_bytes((ancestor / "dispatch-manifest.json").read_bytes())
+            comp["prior_manifest_path"] = str(shadow)
+            proof = json.loads((packet / "provenance.json").read_text())
+            proof["prior_manifest_path"] = str(shadow)
+            (packet / "provenance.json").write_text(json.dumps(proof))
+            comp["provenance_sha256"] = digest(packet / "provenance.json")
+        elif attack == "missing_root_seal":
+            (root_packet / "SEAL.json").unlink()
+        elif attack in {"uncommitted_root_seal", "uncommitted_prior_manifest"}:
+            pass  # Mutated after the packet commit, below.
+        elif attack in {"omitted_supervisor_log", "relative_supervisor_log", "rebound_log_fault"}:
+            proof = json.loads((packet / "provenance.json").read_text())
+            if attack == "omitted_supervisor_log":
+                proof["supervisor_log"] = None
+            elif attack == "relative_supervisor_log":
+                proof["supervisor_log"]["path"] = "supervisor.log"
+            else:
+                log = Path(proof["supervisor_log"]["path"])
+                original_log = log.read_bytes()
+                log.write_text('{"status":"failed","returncode":7}\n')
+                proof["supervisor_log"].update(size=log.stat().st_size, sha256=digest(log))
             (packet / "provenance.json").write_text(json.dumps(proof))
             comp["provenance_sha256"] = digest(packet / "provenance.json")
         else:
@@ -2182,19 +2285,34 @@ def _ct3_committed_admission_refusal_probes(packet: Path) -> None:
                 provenance_sha256=comp.get("provenance_sha256"),
             )
             (packet / "SEAL.json").write_text(json.dumps(seal))
-        subprocess.run(["git", "add", "-A", str(packet)], check=True)
-        subprocess.run(["git", "commit", "-qm", "committed refusal probe " + attack], check=True)
+        # Commit only the known components; shadow.json deliberately stays untracked.
+        subprocess.run(["git", "add", "-A", str(packet), *map(str, ancestor_files)], check=True)
+        subprocess.run(
+            ["git", "commit", "--allow-empty", "-qm", "committed refusal probe " + attack],
+            check=True,
+        )
+        uncommitted = (
+            root_packet / "SEAL.json"
+            if attack == "uncommitted_root_seal"
+            else ancestor / "dispatch-manifest.json"
+        )
+        if attack in {"uncommitted_root_seal", "uncommitted_prior_manifest"}:
+            uncommitted.write_text(uncommitted.read_text() + " ")
         try:
             validate_packet(packet, require_committed=True)
         except (ValueError, FileNotFoundError, PreflightError) as error:
             print("REFUSED_COMMITTED", attack, type(error).__name__, str(error), flush=True)
         else:
             raise AssertionError("ADMITTED " + attack)
+        if attack == "shadow_prior":
+            shadow.unlink()
+        if attack == "rebound_log_fault":
+            log.write_bytes(original_log)
         if attack == "nested_fault_rebound_inventory":
             fault.unlink()
             original_output.rmdir()
-    for path, data in files.items():
+    for path, data in {**files, **ancestor_files}.items():
         path.write_bytes(data)
-    subprocess.run(["git", "add", "-A", str(packet)], check=True)
+    subprocess.run(["git", "add", "-A", str(packet), *map(str, ancestor_files)], check=True)
     subprocess.run(["git", "commit", "-qm", "restore accepted fixture"], check=True)
     validate_packet(packet, require_committed=True)

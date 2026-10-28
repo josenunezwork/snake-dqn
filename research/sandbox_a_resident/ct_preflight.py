@@ -17,8 +17,11 @@ from research.sandbox_a_resident.ct_resume import (
     _check_attempt_base_fault_evidence,
     _check_attempt_output_dir_fault_evidence,
     _check_single_root_fault_evidence,
+    _evidence_session,
     _extract_prior_admitted_coverage,
     _is_hex,
+    _no_symlink_path,
+    _scan_retained_text,
     retained_inventory,
     verify_mechanical_stop,
 )
@@ -45,12 +48,67 @@ CT_FOCUSED_TESTS: tuple[str, ...] = (
     "research/sandbox_a_resident/test_ct_branching_fit_and_stats.py",
     "research/sandbox_a_resident/test_ct_runner_and_resume.py",
     CT_CUDA_SEMANTICS_TEST,
+    "research/sandbox_a_resident/test_ct_hardening.py",
     "tools/sandbox/tests/test_source_delivery.py",
 )
 
 
-def validate_uploaded_ledger(packet: Path, broker: dict[str, Any], control: dict[str, Any]) -> None:
+def _verify_packet_components(
+    packet: Path, broker: dict[str, Any], *, require_committed: bool
+) -> None:
+    """Every packet, including the root, has a canonical manifest and mandatory seal."""
+    _no_symlink_path(packet)
+    names = [
+        "dispatch-manifest.json",
+        "sandbox.json",
+        "control.json",
+        "registry-check.json",
+        "topology-manifest.json",
+        "verified-ledger.json",
+        "SEAL.json",
+    ]
+    if broker.get("completion_attempt") is not None:
+        names.append("provenance.json")
+    for name in names:
+        path = packet / name
+        _no_symlink_path(path)
+        if not path.is_file():
+            raise ValueError(f"packet lacks mandatory component: {path}")
+        if require_committed:
+            verify_committed_manifest(path)
+    if json.loads((packet / "dispatch-manifest.json").read_text()) != broker:
+        raise ValueError("loaded prior manifest differs from canonical dispatch-manifest.json")
+    seal = json.loads((packet / "SEAL.json").read_text())
+    if not isinstance(seal, dict):
+        raise ValueError("malformed mandatory SEAL.json")
+    if seal.get("manifest_sha256") != digest(packet / "dispatch-manifest.json"):
+        raise ValueError("SEAL.json does not bind canonical dispatch-manifest.json")
+    if broker.get("completion_attempt") is None:
+        bindings = {
+            "control_sha256": "control.json",
+            "sandbox_sha256": "sandbox.json",
+            "ledger_sha256": "verified-ledger.json",
+            "registry_audit_sha256": "registry-check.json",
+            "topology_manifest_sha256": "topology-manifest.json",
+        }
+        if seal.get("schema") != "t34-cf-1028-prep-seal/v1" or any(
+            seal.get(field) != digest(packet / name) for field, name in bindings.items()
+        ):
+            raise ValueError("initial SEAL.json lacks packet component bindings")
+
+
+@_evidence_session
+def validate_uploaded_ledger(
+    packet: Path,
+    broker: dict[str, Any],
+    control: dict[str, Any],
+    *,
+    require_committed: bool = True,
+) -> None:
     """Verify relative runtime ledger paths (raw .pt or compact .pt.xz) against Mac uploads."""
+    _verify_packet_components(packet, broker, require_committed=require_committed)
+    if json.loads((packet / "control.json").read_text()) != control:
+        raise ValueError("lineage control differs from frozen packet control")
     ledger_file = packet / "verified-ledger.json"
     actual_ledger_sha = digest(ledger_file)
     ledger = json.loads(ledger_file.read_text())
@@ -149,6 +207,9 @@ def validate_uploaded_ledger(packet: Path, broker: dict[str, Any], control: dict
         if not isinstance(raw_pm, str) or not Path(raw_pm).is_absolute():
             raise ValueError("continuation requires absolute prior_manifest_path")
         pm_path = Path(raw_pm)
+        _no_symlink_path(pm_path)
+        if pm_path.name != "dispatch-manifest.json":
+            raise ValueError("prior_manifest_path must name canonical dispatch-manifest.json")
         if (
             pm_path.is_symlink()
             or not pm_path.is_file()
@@ -170,7 +231,9 @@ def validate_uploaded_ledger(packet: Path, broker: dict[str, Any], control: dict
             completion_index=int(comp["index"]),
             prior_packet_dir=pm_path.parent,
         )
-        validate_uploaded_ledger(pm_path.parent, prior_broker, control)
+        validate_uploaded_ledger(
+            pm_path.parent, prior_broker, control, require_committed=require_committed
+        )
         if comp.get("prior_ledger_sha256") != disk_lsha:
             raise ValueError("prior_ledger_sha256 differs from bound prior verified-ledger.json")
         if comp.get("prior_verified_units") != [disk_units[k] for k in sorted(disk_units)]:
@@ -208,16 +271,28 @@ def validate_uploaded_ledger(packet: Path, broker: dict[str, Any], control: dict
         if not isinstance(receipt, dict):
             raise ValueError("provenance lacks mechanical-stop receipt")
         log = proof.get("supervisor_log")
-        log_path = None
-        if log is not None:
-            log_path = Path(log["path"])
-            if (
-                log_path.is_symlink()
-                or not log_path.is_file()
-                or log_path.stat().st_size != log["size"]
-                or digest(log_path) != log["sha256"]
-            ):
-                raise ValueError("bound supervisor log changed")
+        if (
+            not isinstance(log, dict)
+            or not isinstance(log.get("path"), str)
+            or type(log.get("size")) is not int
+            or log["size"] < 0
+            or not _is_hex(log.get("sha256"), 64)
+        ):
+            raise ValueError("provenance requires bound supervisor_log path/size/SHA-256")
+        log_path = Path(log["path"])
+        _no_symlink_path(log_path)
+        if (
+            not log_path.is_file()
+            or log_path.stat().st_size != log["size"]
+            or digest(log_path) != log["sha256"]
+        ):
+            raise ValueError("bound supervisor log changed")
+        _scan_retained_text(
+            log_path,
+            output_root=log_path.parent,
+            expected_job_id=receipt.get("job_id"),
+            expected_generation=receipt.get("generation"),
+        )
         verify_mechanical_stop(
             receipt,
             prior_broker,
@@ -225,9 +300,10 @@ def validate_uploaded_ledger(packet: Path, broker: dict[str, Any], control: dict
             export_root=[Path(r) for r in raw_exp_dirs],
             supervisor_log_path=log_path,
         )
-        inherited_roots = set(disk_exps)
+        inherited_roots: set[str] = set()
         if isinstance(prior_broker.get("completion_attempt"), dict):
             inherited_roots.update(prior_broker["completion_attempt"]["prior_output_dirs"])
+            inherited_roots.update(prior_broker["completion_attempt"]["prior_export_roots"])
         for root in roots:
             if root not in inherited_roots:
                 _check_attempt_base_fault_evidence(
@@ -332,10 +408,12 @@ def validate_uploaded_ledger(packet: Path, broker: dict[str, Any], control: dict
         load_ledger(path, control)
 
 
+@_evidence_session
 def validate_packet(
     packet: Path, *, require_committed: bool = True, allow_tiny: bool = False
 ) -> dict[str, Any]:
     """Bind C/T runtime controls to committed seed audit and frozen topology contract."""
+    _no_symlink_path(packet)
     payload = preflight(
         packet / "sandbox.json", require_committed=require_committed, run_tests=False
     )
@@ -406,22 +484,7 @@ def validate_packet(
         != digest(packet / "topology-manifest.json")
     ):
         raise ValueError("exhaustive C/T seed audit does not bind this allocation/registry")
-    cursor, cursor_broker = packet, broker
-    for _ in range(3):
-        if cursor_broker.get("completion_attempt") is None:
-            break
-        for name in ("provenance.json", "SEAL.json"):
-            verify_committed_manifest(cursor / name, require_committed=require_committed)
-        raw_prior = cursor_broker["completion_attempt"].get("prior_manifest_path")
-        if not isinstance(raw_prior, str) or not Path(raw_prior).is_absolute():
-            raise ValueError("continuation requires absolute prior_manifest_path")
-        prior_path = Path(raw_prior)
-        for name in ("dispatch-manifest.json", "verified-ledger.json"):
-            verify_committed_manifest(prior_path.parent / name, require_committed=require_committed)
-        cursor, cursor_broker = prior_path.parent, json.loads(prior_path.read_text())
-    else:
-        raise ValueError("continuation lineage exceeds two completion attempts")
-    validate_uploaded_ledger(packet, broker, control)
+    validate_uploaded_ledger(packet, broker, control, require_committed=require_committed)
     return check
 
 
@@ -433,17 +496,12 @@ def main() -> int:
         action="store_true",
         help="run the logical-CUDA / meta-device semantics suite (also included in full preflight)",
     )
-    parser.add_argument(
-        "--allow-uncommitted",
-        action="store_true",
-        help="engineering test helper only; real dispatch never passes this",
-    )
     args = parser.parse_args()
     if not args.cuda_semantics and args.packet is None:
         parser.error("packet directory is required unless --cuda-semantics is specified")
     check: dict[str, Any] | None = None
     if args.packet is not None:
-        check = validate_packet(args.packet.resolve(), require_committed=not args.allow_uncommitted)
+        check = validate_packet(args.packet)
     env = dict(os.environ)
     for key in (
         "OMP_NUM_THREADS",

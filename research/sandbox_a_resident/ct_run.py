@@ -520,15 +520,16 @@ def run_ct_experiment(
         return 0, summary
 
     except BaseException as exc:
+        raw_message, raw_traceback = str(exc), traceback.format_exc()
         fault_record = {
             "schema": "t34-cf-fault/v1",
             "study": control.study,
             "allocation": alloc_sha,
             "latest_durable_stage": latest_durable_stage,
             "error_type": type(exc).__qualname__,
-            "error_message": str(exc)[:8192],
-            "traceback": traceback.format_exc()[-16384:],
-            "diagnostic_text_truncated": True,
+            "error_message": raw_message[:8192],
+            "traceback": raw_traceback[-16384:],
+            "diagnostic_text_truncated": len(raw_message) > 8192 or len(raw_traceback) > 16384,
         }
         fault_path = output / "fault.json"
         if not fault_path.exists():
@@ -540,7 +541,7 @@ def run_ct_experiment(
                     ),
                     export_root=output,
                     max_total_bytes=control.max_total_export_bytes,
-                    reserved_tail_bytes=_summary_tail_reserve_bytes(control),
+                    reserved_tail_bytes=0,
                 )
             except BaseException:
                 pass
