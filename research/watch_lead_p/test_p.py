@@ -966,3 +966,19 @@ def test_real_export_download_preserves_metadata_and_union(tmp_path, batched):
         resume.aggregate(recovered, downloaded / "decision.json")["decision"]
         == "STOP this delayed controller"
     )
+
+
+@pytest.mark.parametrize("parent,target", [(0, 10), (15, 19), (19, None)])
+def test_worker_priority_is_below_parent_or_refuses(monkeypatch, parent, target):
+    from research.watch_lead_p import run
+
+    calls = []
+    monkeypatch.setattr(run.os, "getpriority", lambda *a: parent)
+    monkeypatch.setattr(run.os, "setpriority", lambda *a: calls.append(a))
+    if target is None:
+        with pytest.raises(RuntimeError, match="no lower worker priority"):
+            run.lower_worker_priority()
+        assert calls == []
+    else:
+        run.lower_worker_priority()
+        assert calls == [(run.os.PRIO_PROCESS, 0, target)]

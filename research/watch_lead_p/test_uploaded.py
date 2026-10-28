@@ -436,5 +436,6 @@ def test_eleven_vs_twelve_workers_publish_identical_fixture_units(tmp_path):
         outputs.append(records)
     assert outputs[0] == outputs[1]
     print(
-        "SCHEDULING_PARITY_PASS workers=11,12 sessions=13 six components/unit byte-identical; lower priority"
+        "SCHEDULING_PARITY_PASS workers=11,12 sessions=13 "
+        "six components/unit byte-identical; lower priority"
     )
