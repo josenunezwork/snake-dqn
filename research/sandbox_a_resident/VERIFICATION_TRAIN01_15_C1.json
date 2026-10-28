@@ -1,0 +1,207 @@
+{
+  "PPO_recipe_unchanged": true,
+  "allocations": 0,
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-broker.noindex",
+  "broker_seal": "315144c21de5548b52a0f1e44f746de4a5fb5125",
+  "commits": {
+    "base_reviewed_commit": "eb4ae24475672ee36e154f8836b408d083e5112e",
+    "broker_seal": "315144c21de5548b52a0f1e44f746de4a5fb5125",
+    "runtime_pin": "20e3088eab0b741409118fe01a4ceba68282fdaf",
+    "tooling_and_tests_commit": "0c42fa71b6fe5dd140754069af8f656b755dd09d"
+  },
+  "compact_allowlist_entry": {
+    "derivative": {
+      "path": "resume/iteration-0064.pt.xz",
+      "sha256": "55a9b0afd1224557381b34d2ec312cbe6e35cf62ed84e62c4a764015dcf3c6f2",
+      "size": 38396880
+    },
+    "iteration": 64,
+    "manifest": {
+      "path": "resume/iteration-0064.pt.xz.manifest",
+      "sha256": "3cf9e5856b2953acfc2b97b03dc2e6152998dcc27316fb89f2f9131d48068646",
+      "size": 93518
+    },
+    "original": {
+      "path": "resume/iteration-0064.pt",
+      "sha256": "a0c31e8a1555a1971cda2a80fd19b77ab485b550630abeac14b8fd5ba746c8d5",
+      "size": 1343234243
+    },
+    "source_commit": "5c0a101a85237e2ce563dcaa6429828126a37d04",
+    "source_packet_id": "packet-train01-15",
+    "unit": "a100-dev/sandbox-a/train01/iteration-0064"
+  },
+  "completion_attempt_index": 1,
+  "dispatch_command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261028-15-c1-i0064 /Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-broker.noindex/research/sandbox_a_resident/packet-train01-15-c1-i0064/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15-c1-i0064/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-broker.noindex/research/sandbox_a_resident/packet-train01-15-c1-i0064/DISPATCH.txt",
+  "dispatch_identity": "sandbox-a-train01-20261028-15-c1-i0064",
+  "dry_run_output": "PASS_DRY_RUN sandbox-a-train01-20261028-15-c1-i0064 allocations=0 live_accounting=NOT_CHECKED",
+  "existing_files_deleted": 0,
+  "host_enospc_recovery_evidence": {
+    "account_release_capture": {
+      "captured_at_utc": "2026-10-28T13:32:48Z",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-15-enospc-recovery-20261028/account-release-status.json",
+      "sessions": {},
+      "sha256": "a3ed1d081880ffeceb593fb00710320146b1a072653d09113937ff7b6d96a9be",
+      "size": 108007,
+      "unresolved": [],
+      "usage": {
+        "assignments": 0.0,
+        "balance": 955.63,
+        "rate": 0.0
+      }
+    },
+    "broker_reconciliation_mode": "verified_disappearance_with_bound_stale_active",
+    "certificate_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-15-enospc-recovery-20261028/host-enospc-recovery-certificate.json",
+    "certificate_sha256": "decffdb770168c634ecaf29562f746f657e1f0a9b1ec75487d16ef5a028724f7",
+    "certificate_size": 4680,
+    "committed_packet_copy": "research/sandbox_a_resident/packet-train01-15-c1-i0064/recovery-evidence.json",
+    "failure_class": "HOST_SUPERVISOR_RECEIPT_WRITE_ENOSPC",
+    "operator_reconcile_command": "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.colab_cli.supervisor recover /Users/josenunez/.config/colab-cli/snake/active-snake-sandbox-a-train01-20261027-15-59e68cce673b.json",
+    "original_cleanup_error": "UNKNOWN_UNAVAILABLE",
+    "original_receipt_present": false,
+    "original_supervisor_error": "UNKNOWN_UNAVAILABLE",
+    "original_terminal_status": "UNKNOWN_UNAVAILABLE",
+    "polls_scanned": 1279,
+    "polls_sha256": "bfcb61d767ae9901a789346f742864e6417ec79374692cdf10d5de5520740180",
+    "post_hoc_release_verified": true,
+    "prior_attempt_status": "INCOMPLETE",
+    "schema": "sandbox-a-train01-host-enospc-recovery/v1",
+    "scientific_failure_hits": 0,
+    "supervisor_log_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/sandbox-a-train01-20261027-15.log",
+    "supervisor_log_sha256": "d85a92595128ffcfbac2cf768762fd5f262ad74c5d23d425b5a9e1e1c64f71e4"
+  },
+  "launch_exec_bound": {
+    "bound_seconds": 2.0,
+    "files_verified": 193,
+    "runs": [
+      {
+        "completion_seconds": 0.2687277499353513,
+        "index": 0,
+        "launch_seconds": 0.00691133295185864,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.27040408400353044,
+        "index": 1,
+        "launch_seconds": 0.008663292042911053,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.2704335419693962,
+        "index": 2,
+        "launch_seconds": 0.008663290995173156,
+        "status": "completed"
+      }
+    ],
+    "source_tar_gz_bytes": 957327,
+    "source_unpacked_bytes": 3963707,
+    "status": "PASS"
+  },
+  "mac_storage_projection": {
+    "checked_filesystem_ancestor": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident",
+    "destination_output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15-c1-i0064/output",
+    "export_byte_reduction_factor": 29.92,
+    "filesystem_free_bytes": 14365556736,
+    "filesystem_free_gib": 13.379,
+    "filesystem_st_dev": 16777233,
+    "filesystem_total_bytes": 994610155520,
+    "free_above_safety_margin_at_temp_peak_bytes": 7185003308,
+    "free_above_safety_margin_at_temp_peak_gib": 6.692,
+    "mac_verify_decode_temp_bytes": 1410395956,
+    "per_snapshot_conservative_bytes": 55094856,
+    "per_snapshot_nominal_bytes": 45109071,
+    "persistent_free_after_conservative_run_bytes": 13158802016,
+    "persistent_free_after_conservative_run_gib": 12.255,
+    "raw_counterfactual_exports_bytes": 26996894480,
+    "raw_counterfactual_exports_gib": 25.143,
+    "reference_snapshot_bytes": {
+      "actor_pth": 6562549,
+      "compact_derivative_pt_xz": 38396880,
+      "compact_manifest": 93518,
+      "envelope_json": 23356,
+      "raw_original_pt": 1343234243
+    },
+    "remaining_exports_conservative_bytes": 1101897120,
+    "remaining_exports_conservative_gib": 1.026,
+    "remaining_exports_nominal_bytes": 902181420,
+    "remaining_exports_nominal_mb": 902.18,
+    "remaining_snapshot_count": 20,
+    "required_conservative_bytes": 2885586132,
+    "required_conservative_with_margin_bytes": 7180553428,
+    "required_conservative_with_margin_gib": 6.687,
+    "required_nominal_bytes": 2685870432,
+    "safety_margin_bytes": 4294967296,
+    "safety_margin_gib": 4.0,
+    "schema": "sandbox-a-train01-continuation-mac-storage-projection/v1",
+    "snapshot_format": "compact",
+    "status": "PASS",
+    "telemetry_and_logs_bytes": 104857600,
+    "temp_headroom_bytes": 1678831412,
+    "transfer_temp_headroom_bytes": 268435456,
+    "under_1gb_nominal_for_remaining_exports": true
+  },
+  "packet_dir": "/Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-broker.noindex/research/sandbox_a_resident/packet-train01-15-c1-i0064",
+  "packet_name": "packet-train01-15-c1-i0064",
+  "periodic_export_format": "compact",
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "remaining_envelope": {
+    "base_seconds": 82800,
+    "conservative_base_hours": 22.9,
+    "conservative_base_seconds": 82449.2,
+    "effective_seconds": 165600,
+    "est_minutes": 1380,
+    "expected_nominal_units_at_5p3": 117.17,
+    "nominal_hours": 22.11,
+    "nominal_seconds": 79588.7,
+    "outer_iterations": 384,
+    "proxy_count": 5,
+    "remaining_actor_rows": 83886080,
+    "remaining_snapshot_count": 20,
+    "remaining_updates": 320,
+    "resume_from_iteration": 64,
+    "scheduled_proxy_updates": [
+      128,
+      192,
+      256,
+      320,
+      384
+    ],
+    "timeout_minutes": 2760,
+    "unit_cap": 369.0,
+    "unit_cap_base_at_8p0": 184.5
+  },
+  "resume_from_iteration": 64,
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-15-c1-i0064-runtime.noindex",
+  "runtime_pin": "20e3088eab0b741409118fe01a4ceba68282fdaf",
+  "schema": "sandbox-a-train01-15-c1-verification/v1",
+  "state_and_output_absent": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15-c1-i0064/output": false,
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15-c1-i0064/state": false,
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15/output/receipt.json": false
+  },
+  "status": "PREPARED_NOT_DISPATCHED",
+  "test_counts": {
+    "broker_ops_and_colab_cli_admission_suite": 432,
+    "combined_resident_and_sandbox_tools_suite": 456,
+    "frozen_cuda_semantics_preflight": 4,
+    "frozen_sandbox_preflight": 158,
+    "frozen_training_preflight": 383,
+    "scoped_sandbox_a_resident_suite": 367,
+    "tools_sandbox_suite": 89
+  },
+  "upload_staging_projection": {
+    "canary_bar_seconds": 150.0,
+    "design_target_nominal_seconds": 120.0,
+    "design_target_worst_seconds": 210.0,
+    "fraction_of_300s_cap_nominal": 0.2853,
+    "fraction_of_300s_cap_worst": 0.516,
+    "hard_cap_seconds": 300.0,
+    "max_private_input_bytes": 100000000,
+    "nominal_seconds": 85.58,
+    "private_input_bytes": 66680757,
+    "private_input_count": 15,
+    "status": "PASS",
+    "total_upload_bytes": 67655839,
+    "total_upload_file_count": 18,
+    "worst_case_seconds": 154.8
+  }
+}

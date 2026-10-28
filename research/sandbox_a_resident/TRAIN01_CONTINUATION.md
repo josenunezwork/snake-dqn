@@ -169,3 +169,36 @@ group, grants `15 s` (`checkpoint_grace_seconds = 15`), then escalates to `SIGTE
   (`allocation_index = 1`, `train_seed_offset = 1_000_000_000`) from scratch on a moved runtime pin
   that includes commit `f80bcdeb` (`SIGUSR1` `< 15 s` checkpoint/marker path + compact v2
   continuation support) and extends the v2 continuation allowlist/slug regexes to `train01-17`.
+
+---
+
+## 6. Full Retained-History Fault Scan, Narrow Host ENOSPC Recovery & Compact-at-Source Exports (`2026-10-28`)
+
+1. **Full Retained-History Scientific-Failure Precedence (`training_resume.py`):**
+   - `_check_output_root_fault_evidence` scans **every** retained `poll-*.json` (failing closed on
+     corrupt, symlinked, foreign-`job`, or foreign-`generation` polls), `terminal.json`,
+     `summary.json`, `faulthandler-stacks.log`, `stall-watchdog.json`, `distribution-screen.json`,
+     `progress.json`, `calibrated-boundary.json`, and `iteration-*.json`; and
+     `_check_supervisor_log_fault_evidence` scans **every** line of the host supervisor log.
+2. **Narrow Host-Side ENOSPC Recovery (`sandbox-a-train01-host-enospc-recovery/v1`):**
+   - When the host disk fills while writing `output/.receipt-*` after remote execution stops,
+     `build_host_enospc_recovery_certificate` and `verify_host_enospc_recovery` preserve
+     `output/receipt.json` and `output/terminal.json` absent as-is, keep the prior attempt
+     `INCOMPLETE` with `original_terminal_status`, `original_supervisor_error`, and
+     `original_cleanup_error` recorded as `"UNKNOWN_UNAVAILABLE"` (never fabricating
+     `cleanup_error: null`), verify post-hoc server disappearance (`sessions == {}`,
+     `usage.assignments == 0`, `usage.rate == 0.0`) from a create-only authenticated status capture,
+     scan all retained polls and supervisor log lines for zero scientific faults, and bind
+     `recovery-evidence.json` into the successor `SEAL.json`.
+   - Applied to `train01-attempt-15` -> `packet-train01-15-c1-i0064` (`sandbox-a-train01-20261028-15-c1-i0064`,
+     runtime pin `20e3088eab0b741409118fe01a4ceba68282fdaf`, broker seal
+     `315144c21de5548b52a0f1e44f746de4a5fb5125`; see [TRAIN01_15_C1.md](TRAIN01_15_C1.md)).
+3. **Compact-at-Source Periodic Exports & Destination Mac Storage Gate (`training_compact.py`, `train.py`, `training_continuation.py`, `tools/sandbox/registry.py`):**
+   - Production runs (`test_only = False`) export lossless `.pt.xz` + per-tensor `.pt.xz.manifest`
+     from the Colab runtime (`publish_compact_snapshot`, schema `sandbox-a-train-compact-export/v1`)
+     instead of raw `~1.343 GB` `.pt` files while keeping `.json` and `-actor.pth`, verified on Mac
+     via `verify_compact_snapshot_export` and admitted for `c1 -> c2` continuation.
+   - `compute_storage_projection` enforces destination filesystem capacity (`20` remaining compact
+     snapshots = `902.18 MB` nominal `< 1 GB` / `1.026 GiB` conservative, `29.92x` smaller than
+     `25.143 GiB` raw, plus logs, transient transfer/decode headroom, and a mandatory `4.0 GiB`
+     safety margin).
