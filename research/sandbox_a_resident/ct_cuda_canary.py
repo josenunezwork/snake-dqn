@@ -8,6 +8,7 @@ child's marker. No producer, torch operation, or progress emitter is replaced.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import signal
 import subprocess
@@ -17,9 +18,15 @@ import time
 from pathlib import Path
 from typing import Any
 
+from research.sandbox_a_resident.ct_liveness import (
+    finish_status,
+    owns_output,
+    print_status,
+    set_phase,
+)
 from research.sandbox_a_resident.ct_task import CTControl
 from research.sandbox_a_resident.ct_units import empty_ledger
-from research.sandbox_a_resident.units import publish
+from research.sandbox_a_resident.units import digest, publish
 
 FIXTURE_OFFSET = 950_000_000
 PADDING_BYTES = 255 * 1024 * 1024
@@ -61,11 +68,17 @@ def run_capture(inputs: Path, output: Path, commit: str, *, device: str = "cuda"
     """Publish immutable raw captures and a strict fixture-only qualification report."""
     import torch
 
-    from research.sandbox_a_resident.ct_progress import progress_inventory
+    from research.sandbox_a_resident.ct_progress import (
+        progress_inventory,
+        validate_heartbeat,
+        validate_progress,
+        verify_cadence,
+    )
 
-    if output.exists():
+    if output.exists() and not owns_output(output):
         raise ValueError("canary output already exists")
-    output.mkdir(parents=True)
+    output.mkdir(parents=True, exist_ok=owns_output(output))
+    set_phase("probe-configuration")
     if device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("real CUDA is required")
     probes = []
@@ -78,7 +91,8 @@ def run_capture(inputs: Path, output: Path, commit: str, *, device: str = "cuda"
         command = [
             sys.executable,
             "-m",
-            "research.sandbox_a_resident.ct_run",
+            "research.sandbox_a_resident.ct_entrypoint",
+            "runner",
             "--checkpoint",
             str(inputs / "b8-fixture.pth"),
             "--frp3",
@@ -100,7 +114,11 @@ def run_capture(inputs: Path, output: Path, commit: str, *, device: str = "cuda"
         ]
         if signal_probe:
             command += ["--fixture-stage-padding-bytes", str(PADDING_BYTES)]
+        set_phase("probe-execution")
         started = time.monotonic()
+        progress_times = [started]
+        heartbeat_times = [started]
+        observations = []
         child = subprocess.Popen(
             command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
         )
@@ -130,12 +148,42 @@ def run_capture(inputs: Path, output: Path, commit: str, *, device: str = "cuda"
         with log_path.open("x") as log:
             assert child.stdout is not None
             for line in child.stdout:
+                if line.startswith(("CT_PROGRESS ", "CT_HEARTBEAT ", "CT_SIGUSR1_CLEAN_EXIT ")):
+                    received = time.monotonic()
+                    progress_times.append(received)
+                    if line.startswith("CT_HEARTBEAT "):
+                        heartbeat_times.append(received)
+                    observations.append(
+                        {
+                            "received_seconds": received - started,
+                            "line_sha256": hashlib.sha256(line.encode()).hexdigest(),
+                        }
+                    )
                 log.write(line)
                 log.flush()
-                print(line, end="", flush=True)
+                print_status(line.rstrip("\n"), output)
         rc = child.wait(timeout=15)
         exited = time.monotonic()
         thread.join(timeout=1)
+        progress_times.append(exited)
+        heartbeat_times.append(exited)
+        max_gap = max(b - a for a, b in zip(progress_times, progress_times[1:]))
+        heartbeat_gap = max(b - a for a, b in zip(heartbeat_times, heartbeat_times[1:]))
+        if max_gap > 60:
+            raise RuntimeError("fixture progress gap exceeds unchanged 60-second limit")
+        if heartbeat_gap > 30:
+            raise RuntimeError("fixture heartbeat gap exceeds 30-second startup requirement")
+        cadence = {
+            "line_count": len(progress_times) - 2,
+            "max_gap_seconds": max_gap,
+            "limit_seconds": 60,
+            "heartbeat_max_gap_seconds": heartbeat_gap,
+            "heartbeat_limit_seconds": 30,
+            "clock": "parent-monotonic-receive-including-start-and-exit",
+            "exit_seconds": exited - started,
+            "observations": observations,
+        }
+        verify_cadence(log_path.read_text(), cadence)
         if controller_errors:
             raise RuntimeError(controller_errors[0])
         if rc != (138 if signal_probe else 0):
@@ -145,6 +193,17 @@ def run_capture(inputs: Path, output: Path, commit: str, *, device: str = "cuda"
             for line in log_path.read_text().splitlines()
             if line.startswith("CT_PROGRESS ")
         ]
+        heartbeat_rows = [
+            json.loads(line.partition(" ")[2])
+            for line in log_path.read_text().splitlines()
+            if line.startswith("CT_HEARTBEAT ")
+        ]
+        for row in rows:
+            validate_progress(row, fixture_completion=True)
+        for row in heartbeat_rows:
+            validate_heartbeat(row)
+        if not heartbeat_rows:
+            raise RuntimeError("fixture did not use the status-heartbeat entrypoint")
         if signal_probe:
             marker = json.loads((child_output / "sigusr1-marker.json").read_text())
             elapsed = exited - signalled[0] if len(signalled) == 1 else float("inf")
@@ -160,6 +219,8 @@ def run_capture(inputs: Path, output: Path, commit: str, *, device: str = "cuda"
             probes.append(
                 {
                     "name": name,
+                    "progress_cadence": cadence,
+                    "heartbeat_phases": sorted({r["phase"] for r in heartbeat_rows}),
                     "returncode": rc,
                     "runtime": json.loads((child_output / "fixture-runtime.json").read_text()),
                     "checkpoint_bytes": size,
@@ -190,6 +251,8 @@ def run_capture(inputs: Path, output: Path, commit: str, *, device: str = "cuda"
             probes.append(
                 {
                     "name": name,
+                    "progress_cadence": cadence,
+                    "heartbeat_phases": sorted({r["phase"] for r in heartbeat_rows}),
                     "returncode": rc,
                     "runtime": json.loads((child_output / "fixture-runtime.json").read_text()),
                     "stages": sorted(stages),
@@ -208,15 +271,24 @@ def run_capture(inputs: Path, output: Path, commit: str, *, device: str = "cuda"
         "probes": probes,
         "qualification": "AWAITING_OPERATOR_CAPTURE_REVIEW" if device == "cuda" else "CPU_ONLY",
     }
+    set_phase("export-sealing")
     # Seal all raw evidence with the same completion-last publication primitive.
     for path in sorted(output.rglob("*")):
+        if path.name == "progress-history.log" and path.parent == output and owns_output(output):
+            continue  # Active parent history is sealed only after its thread joins.
         if path.is_file() and not path.name.endswith((".sha256", ".complete")):
             sidecar = Path(str(path) + ".sha256")
             if not sidecar.exists():
-                from research.sandbox_a_resident.units import digest
-
                 sidecar.write_text(f"{digest(path)}  {path.name}\n")
                 Path(str(path) + ".complete").write_text("complete\n")
+    status_cadence = finish_status()
+    if status_cadence is not None:
+        if status_cadence["max_gap_seconds"] > 30:
+            raise RuntimeError("canary parent heartbeat gap exceeds 30 seconds")
+        report["startup_heartbeat_cadence"] = status_cadence
+        history = output / "progress-history.log"
+        history.with_suffix(".log.sha256").write_text(f"{digest(history)}  {history.name}\n")
+        history.with_suffix(".log.complete").write_text("complete\n")
     publish(
         output / "capture.json",
         lambda p: p.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n"),

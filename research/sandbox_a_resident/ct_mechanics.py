@@ -35,6 +35,7 @@ from research.gpu_sim_spike.device_sim import PHI_LENGTH_DIVISOR
 from research.gpu_sim_spike.ego_device import build_observation
 from research.gpu_sim_spike.v8_device import v8_decide
 from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
+from research.sandbox_a_resident.ct_liveness import set_phase
 from research.sandbox_a_resident.device_sim import _ENV_TENSOR_FIELDS
 from research.sandbox_a_resident.training_rosters import (
     TrainingRoster,
@@ -890,6 +891,7 @@ def _sync_forced_state_to_cpu_and_gpu(
     """Build matched 1-world CPU GridBatchSim and CTDeviceSim on an exact forced state."""
     assert cfg.num_envs == 1
     S = cfg.num_snakes
+    set_phase("forced-state-cpu-world")
     cpu = GridBatchSim(cfg, seeds=[42], train_mode=False, allow_respawn=True)
     cpu.bodies.fill(0)
     cpu.head_ptr.fill(0)
@@ -922,6 +924,7 @@ def _sync_forced_state_to_cpu_and_gpu(
     cpu._rebuild_traversed_from_heads(np.ones(1, dtype=bool))
     cpu._refresh_action_masks(np.ones(1, dtype=bool))
 
+    set_phase("forced-state-device-world")
     gpu = CTDeviceSim.from_reference(cpu, device=device)
     if gpu.device.type == "cuda":
         gpu.move_backend = "indexed"
@@ -946,6 +949,7 @@ def _sync_forced_state_to_cpu_and_gpu(
         return torch.tensor([[cx, cy]], dtype=torch.long, device=gpu.device)
 
     gpu._random_cells = _injected_random_cells  # type: ignore[method-assign]
+    set_phase("forced-state-checks")
     return cpu, gpu
 
 
@@ -1084,7 +1088,9 @@ def forced_state_determinism_suite(device: str | torch.device = "cpu") -> dict[s
         device=target_device,
     )
     act = np.array([[1, 1, 1, 1, 1, 1]], dtype=np.int64)
+    set_phase("forced-state-cpu-step")
     cpu.step(act)
+    set_phase("forced-state-device-step")
     gpu.step(torch.tensor(act, dtype=torch.long, device=target_device))
     _assert_discrete_state_exact(cpu, gpu, "case1_eat_plus_death_v1_refill")
     # Confirm snake 0 grew to 5, snake 1 died at wall (k=0 OOB at x=20, k=2,4 -> 2 corpse pellets),
@@ -1114,7 +1120,9 @@ def forced_state_determinism_suite(device: str | torch.device = "cpu") -> dict[s
         device=target_device,
     )
     act = np.array([[1, 4, 1, 1, 1, 1]], dtype=np.int64)
+    set_phase("forced-state-cpu-step")
     cpu.step(act)
+    set_phase("forced-state-device-step")
     gpu.step(torch.tensor(act, dtype=torch.long, device=target_device))
     _assert_discrete_state_exact(cpu, gpu, "case2_contested_boost_food")
     assert bool(cpu._last_food_ate[0, 0]) and bool(cpu._last_food_ate[0, 1])
@@ -1144,7 +1152,9 @@ def forced_state_determinism_suite(device: str | torch.device = "cpu") -> dict[s
         device=target_device,
     )
     act = np.array([[4, 4, 1, 1, 1, 1]], dtype=np.int64)
+    set_phase("forced-state-cpu-step")
     cpu.step(act)
+    set_phase("forced-state-device-step")
     gpu.step(torch.tensor(act, dtype=torch.long, device=target_device))
     _assert_discrete_state_exact(cpu, gpu, "case3_boost_burn_and_min_len")
     assert int(cpu.length[0, 0]) == 4 and int(cpu.boost_frames[0, 0]) == 0
@@ -1173,7 +1183,9 @@ def forced_state_determinism_suite(device: str | torch.device = "cpu") -> dict[s
         device=target_device,
     )
     act = np.array([[1, 1, 1, 1, 1, 1]], dtype=np.int64)
+    set_phase("forced-state-cpu-step")
     cpu.step(act)
+    set_phase("forced-state-device-step")
     gpu.step(torch.tensor(act, dtype=torch.long, device=target_device))
     _assert_discrete_state_exact(cpu, gpu, "case4_corpse_drop_order")
     results["corpse_ordering"] = "PASS"
@@ -1201,7 +1213,9 @@ def forced_state_determinism_suite(device: str | torch.device = "cpu") -> dict[s
     gpu.respawn_timer[0, 3] = 1
     cpu.respawn_timer[0, 3] = 5  # keep CPU slot 3 unready to match terminal lock on slot 3
     act = np.array([[1, 1, 1, 1, 1, 1]], dtype=np.int64)
+    set_phase("forced-state-cpu-step")
     cpu.step(act)
+    set_phase("forced-state-device-step")
     gpu.step(torch.tensor(act, dtype=torch.long, device=target_device))
     assert bool(gpu.alive[0, 1].item()) and bool(gpu.alive[0, 2].item())
     assert not bool(gpu.alive[0, 4].item())
@@ -1239,7 +1253,9 @@ def forced_state_determinism_suite(device: str | torch.device = "cpu") -> dict[s
         draws=[(2, 2), (2, 2), (5, 5), (3, 3)],
         device=target_device,
     )
+    set_phase("forced-state-cpu-step")
     cpu_dup.step(act)
+    set_phase("forced-state-device-step")
     gpu_dup.step(torch.tensor(act, dtype=torch.long, device=target_device))
     _assert_discrete_state_exact(cpu_dup, gpu_dup, "case5b_duplicate_and_occupied_refill_rejection")
     assert list(cpu_dup.food_cells[0]) == [(2, 2), (3, 3)]
@@ -1281,9 +1297,11 @@ def forced_state_determinism_suite(device: str | torch.device = "cpu") -> dict[s
         cpu._refresh_action_masks(np.ones(1, dtype=bool))
         gpu.prepare()
 
+        set_phase("forced-state-cpu-observation")
         cpu_obs = build_ego_raster(
             cpu, EgoRasterConfig(version="bv8"), backend="numba", rows=np.array([[0, 0]])
         )
+        set_phase("forced-state-device-observation")
         rows_hero = torch.tensor([[0, 0]], dtype=torch.long, device=target_device)
         gpu_legal = gpu.advisory_mask()[:, 0]
         gpu_v8 = (
@@ -1313,6 +1331,7 @@ def forced_state_determinism_suite(device: str | torch.device = "cpu") -> dict[s
             err_msg=f"step {step_idx} scalars",
         )
 
+        set_phase("forced-state-vector-carry")
         cpu_vrun.prepare(cpu)
         gpu_vrun.prepare(gpu)
         cpu_vec, cpu_vmask = cpu_vrun.selection(np.array([[0, 1], [0, 2]], dtype=np.int64))
@@ -1343,6 +1362,7 @@ def forced_state_determinism_suite(device: str | torch.device = "cpu") -> dict[s
             gpu_vrun.observe_step(gpu)
     results["prepared_state_and_carry"] = "PASS"
 
+    set_phase("forced-state-root-restoration")
     # 7. Root restoration determinism (prepared state + carry + RNG continuation):
     gpu.__dict__.pop("_random_cells", None)
     gpu.rng_key.fill_(derive_63bit_key("test-restore-sim", 0))

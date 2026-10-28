@@ -32,6 +32,7 @@ from research.sandbox_a_resident.ct_branching import (
     score_root_chunk,
 )
 from research.sandbox_a_resident.ct_fit import fit_all_three_arms
+from research.sandbox_a_resident.ct_liveness import print_status, set_phase
 from research.sandbox_a_resident.ct_mechanics import (
     RNG_CONSUMER_INVENTORY,
     forced_state_determinism_suite,
@@ -78,10 +79,7 @@ def _write_progress(output: Path, payload: Mapping[str, Any]) -> None:
 
 def _print_progress(output: Path, line: str) -> None:
     """Retain complete emitter lines so byte-truncated poll tails have a witness."""
-    with (output / "progress-history.log").open("a", encoding="utf-8") as stream:
-        stream.write(line + "\n")
-        stream.flush()
-    print(line, flush=True)
+    print_status(line, output)
 
 
 def _stage_tail_reserve_bytes(control: CTControl) -> int:
@@ -155,6 +153,7 @@ def run_ct_experiment(
         raise ValueError("checkpoint padding is restricted to tiny fixtures, at most 255 MiB")
     if not 0 <= progress_interval_seconds <= 60:
         raise ValueError("progress interval must be between zero and 60 seconds")
+    set_phase("input-validation")
     t_run0 = time.perf_counter()
     output.mkdir(parents=True, exist_ok=True)
     control_dict = control.to_dict()
@@ -217,6 +216,7 @@ def run_ct_experiment(
 
     try:
         emit("initializing")
+        set_phase("cuda-configuration")
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
         torch.set_float32_matmul_precision("highest")
@@ -225,9 +225,11 @@ def run_ct_experiment(
 
         # Mandatory deterministic pre-scoring mechanics + topology fixture checks
         # qualified directly on the active runtime device before any scoring.
+        set_phase("forced-state-checks")
         det_report = forced_state_determinism_suite(dev)
         if det_report.get("status") != "PASS":
             raise RuntimeError("forced-state determinism suite failed")
+        set_phase("topology-fixtures")
         topo_fixture_report = validate_geometric_fixtures()
         if topo_fixture_report.get("status") != "PASS":
             raise RuntimeError("topology geometric fixture validation failed")
@@ -240,6 +242,7 @@ def run_ct_experiment(
             },
         )
 
+        set_phase("model-load")
         b8_model: Ego2sNet = load_ego2s_checkpoint(str(b8_checkpoint), "cpu")
         b8_model.eval()
         if control.tiny:
@@ -262,6 +265,7 @@ def run_ct_experiment(
                 CHAMPION_SHA256: _load_vector61(champion_checkpoint, dev),
             }
 
+        set_phase("ledger-validation")
         verified_stages: dict[int, dict[str, Any]] = {}
         compact_manifests: dict[str, dict[str, Any]] = {}
         if ledger_path is not None and ledger_path.exists():
@@ -284,6 +288,7 @@ def run_ct_experiment(
             "study": control.study,
         }
 
+        set_phase("collection")
         # --- STAGE 1: Collection + Whole-World Split + Support Audit ---
         if 1 in verified_stages:
             s1_blob = load_verified_stage_payload(
@@ -403,6 +408,7 @@ def run_ct_experiment(
         chunk_slices = partition_roots_into_chunks(len(collected.store), control.scoring_chunks)
         scored_chunks: list[ScoredRootChunk] = []
 
+        set_phase("scoring")
         for chunk_idx, root_slice in enumerate(chunk_slices):
             stage_num = 2 + chunk_idx
             if stage_num in verified_stages:
@@ -465,6 +471,7 @@ def run_ct_experiment(
         merged_scored = merge_scored_chunks(scored_chunks, expected_num_roots=len(collected.store))
 
         # --- FINAL STAGE (2 + scoring_chunks): 3-Arm Fit + Detached Probe + Ordered Gates ---
+        set_phase("fit")
         final_stage = 2 + control.scoring_chunks
         emit(f"stage-{final_stage:04d}-fit-start")
         fit_opt = fit_all_three_arms(
@@ -614,6 +621,7 @@ def main() -> int:
     parser.add_argument("--fixture-stage-padding-bytes", type=int, default=0)
     args = parser.parse_args()
 
+    set_phase("runner-configuration")
     torch.set_num_threads(1)
     control = CTControl.from_dict(json.loads(args.control.read_text()))
     diag_dir = (

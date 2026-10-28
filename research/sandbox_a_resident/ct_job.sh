@@ -53,7 +53,7 @@ trap on_exit EXIT
 trap ':' USR1
 
 set +e
-nice -n 15 python -m research.sandbox_a_resident.ct_run \
+nice -n 15 python -m research.sandbox_a_resident.ct_entrypoint runner \
   --checkpoint "$COLAB_INPUT_DIR/b8-s3.pth" \
   --frp3 "$COLAB_INPUT_DIR/frp3-s12.pth" \
   --champion "$COLAB_INPUT_DIR/champion.pth" \

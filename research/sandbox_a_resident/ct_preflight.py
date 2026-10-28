@@ -55,6 +55,7 @@ CT_FOCUSED_TESTS: tuple[str, ...] = (
     "research/sandbox_a_resident/test_ct_hardening.py",
     "research/sandbox_a_resident/test_ct_cuda_capture.py",
     "research/sandbox_a_resident/test_ct_packet08.py",
+    "research/sandbox_a_resident/test_ct_startup_heartbeat.py",
     "tools/sandbox/tests/test_source_delivery.py",
 )
 

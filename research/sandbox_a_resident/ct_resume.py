@@ -41,7 +41,7 @@ from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
 from research.sandbox_a_resident.ct_cuda_observed import BOOTSTRAP_LINES, CAPTURE_LABELS
 from research.sandbox_a_resident.ct_prepare import STUDY, ct_endpoint_steps, write_once
-from research.sandbox_a_resident.ct_progress import validate_progress
+from research.sandbox_a_resident.ct_progress import validate_heartbeat, validate_progress
 from research.sandbox_a_resident.ct_units import (
     COMPACT_DERIVATIVE_SUFFIX,
     COMPACT_MANIFEST_SUFFIX,
@@ -674,6 +674,8 @@ def _scan_job_tail(
                 raise ValueError("unknown line")
             if prefix == "CT_PROGRESS":
                 validate_progress(row, fixture_completion=fixture_completion)
+            elif prefix == "CT_HEARTBEAT":
+                validate_heartbeat(row)
             elif prefix == "CT_SIGUSR1_CLEAN_EXIT":
                 _validate_signal_marker(row)
             else:
@@ -683,7 +685,7 @@ def _scan_job_tail(
             witnesses = (_EVIDENCE_CACHE.get() or {}).get("progress_history_lines", set())
             if (
                 index == 0
-                and prefix not in {"CT_PROGRESS", "CT_SIGUSR1_CLEAN_EXIT"}
+                and prefix not in {"CT_PROGRESS", "CT_HEARTBEAT", "CT_SIGUSR1_CLEAN_EXIT"}
                 and len(value.encode("utf-8")) in {4096, 65536}
                 and any(known.endswith(line) for known in witnesses)
             ):
