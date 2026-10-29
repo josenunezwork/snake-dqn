@@ -7,16 +7,17 @@ from pathlib import Path
 from typing import Any, Iterator
 
 SCRIPT = "research/watch_lead_p_successor/profile_job.sh"
+FOLLOWUP_SCRIPT = "research/watch_lead_p_successor/followup_job.sh"
 
 
 def require_profile(manifest: dict, broker: Path) -> None:
     """Admit background sparse delivery only for the exact bounded CPU probe."""
     if (
         manifest.get("p_profile_source_delivery") != "background-sparse-v1"
-        or manifest.get("script") != SCRIPT
+        or manifest.get("script") not in (SCRIPT, FOLLOWUP_SCRIPT)
         or manifest.get("device") != "cpu"
         or manifest.get("canary")
-        != {"schema": "colab-family-canary/v1", "mode": "probe", "family": SCRIPT}
+        != {"schema": "colab-family-canary/v1", "mode": "probe", "family": manifest.get("script")}
         or manifest.get("requirements", {}).get("allowed_gpus") not in (["L4"], ["A100"])
         or [manifest.get("requirements", {}).get("gpu")]
         != manifest.get("requirements", {}).get("allowed_gpus")

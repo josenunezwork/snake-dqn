@@ -134,10 +134,13 @@ def worker(tasks: Any, results: Any, ready: Any, roots: dict, seed: int, scratch
     lower_worker_priority()
     faulthandler.dump_traceback_later(900, exit=True)
     try:
+        initialized = time.monotonic()
         with uploaded_checkpoints():
             # Real construction establishes process-global 61-feature config.
             primer = LiveWorld(seed)
+            primer_started = time.monotonic()
             primer.step()  # Compile/warm actual features and opponent CPU paths.
+            primer_seconds = time.monotonic() - primer_started
             if torch.get_num_threads() != 1 or torch.get_num_interop_threads() != 1:
                 raise ValueError("P worker requires one torch intra/interop thread")
             ROOTS = {}
@@ -151,6 +154,8 @@ def worker(tasks: Any, results: Any, ready: Any, roots: dict, seed: int, scratch
                     "pid": os.getpid(),
                     "torch_threads": torch.get_num_threads(),
                     "torch_interop_threads": torch.get_num_interop_threads(),
+                    "initialization_seconds": time.monotonic() - initialized,
+                    "primer_step_seconds": primer_seconds,
                 }
             )
             while True:
@@ -163,6 +168,18 @@ def worker(tasks: Any, results: Any, ready: Any, roots: dict, seed: int, scratch
                             with path.open("xb") as handle:
                                 handle.write(payload)
                         value = (str(path) if payload else None, metadata)
+                    elif kind == "tail-scan":
+                        from research.watch_lead_p_successor.followup import scan
+
+                        value = scan(*args, scratch=Path(scratch))
+                    elif kind == "tail-window":
+                        from research.watch_lead_p_successor.followup import detail_task
+
+                        value = detail_task(*args, ROOTS[args[0]])
+                    elif kind == "tail-stress":
+                        from research.watch_lead_p_successor.followup import stress_task
+
+                        value = stress_task(*args, ROOTS[args[0]])
                     else:
                         value = task(*args, ROOTS[args[0]])
                     results.put((job_id, True, value))
@@ -320,7 +337,14 @@ def sample(pool: Workers, started: float) -> dict:
 
 
 def sweep(
-    jobs: list[tuple], roots: dict, workers: int, output: Path, deadline: float, label: str
+    jobs: list[tuple],
+    roots: dict,
+    workers: int,
+    output: Path,
+    deadline: float,
+    label: str,
+    *,
+    kind: str = "window",
 ) -> dict:
     """Identical fixed task sets, warm worker barrier, independent spawn clock."""
     pool = Workers(workers, roots, jobs[0][0], deadline)
@@ -330,7 +354,7 @@ def sweep(
         samples = [sample(pool, started)]
         samples[0]["elapsed"] = 0.0
         for i, args in enumerate(jobs):
-            pool.tasks.put((i, "window", args))
+            pool.tasks.put((i, kind, args))
         rows = []
         last_print = started
         while len(rows) < len(jobs):
