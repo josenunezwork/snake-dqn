@@ -92,7 +92,12 @@ def _verify_packet_components(
         if not path.is_file():
             raise ValueError(f"packet lacks mandatory component: {path}")
         if require_committed:
-            verify_committed_manifest(path)
+            if path.resolve().is_relative_to(ROOT):
+                verify_committed_manifest(path)
+            else:
+                from tools.sandbox.ct_mac_compatibility import verify_sealed_root_component
+
+                verify_sealed_root_component(path)
     if _load_json((packet / "dispatch-manifest.json").read_text()) != broker:
         raise ValueError("loaded prior manifest differs from canonical dispatch-manifest.json")
     seal = _load_json((packet / "SEAL.json").read_text())

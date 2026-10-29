@@ -9,7 +9,10 @@
       "runtime_sha256": "697c3c00f3ce8db192a7d246be9e7828eb7dab68d32b160bc3801425d182e1e0"
     }
   },
+  "root_broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-ct-1028-14-r3-broker.noindex",
+  "root_broker_commit": "6c7ff7ea65d02451ed3036d4e0229774bb3924e9",
   "root_manifest_sha256": "2c02fb3ff90256a7cb8931f8a08b1eb6be5e2822de2168ae1bc9b6dc61102a18",
+  "root_packet_directory": "/Users/josenunez/Projects/ml/snake-dqn-ct-1028-14-r3-broker.noindex/research/sandbox_a_resident/packet-ct-1028-14/reseal-03",
   "root_seal_sha256": "fb0351621128073412d00b9736c35e20c1e86488ad1d860db6101d3bd95bac1e",
   "runtime_commit": "af2bba1c8e7e44031a50a78cd282f7aec1d5b6c7",
   "schema": "t34-cf-mac-source-compatibility/v1"

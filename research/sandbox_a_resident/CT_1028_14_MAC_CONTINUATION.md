@@ -32,7 +32,10 @@ The generic sandbox source check has a separate committed compatibility record:
 `tools/sandbox/ct_mac_compatibility.json`. It permits exactly the old/new hashes of
 `ct_resume.py` and `ct_cuda_observed.py`, only for this runtime and the original
 reseal-03 manifest/seal (at most two bound lineage hops). All other source
-comparisons still require equality. Runtime staging continues to use the frozen
+comparisons still require equality. Original packet components in the original
+broker are verified read-only against its exact `6c7ff7ea` commit and this seal;
+no arbitrary external packet is accepted and successor packets stay in the new
+continuation broker. Runtime staging continues to use the frozen
 commit/archive, including the old versions of these two Mac grammar modules.
 
 Exact mutually exclusive H100/A100-fallback c1 commands are retained in

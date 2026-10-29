@@ -147,3 +147,51 @@ def test_compatibility_fault_twins(compatible: dict, fault: str) -> None:
         assert not compat.permits_mac_source(manifest, next(iter(compat.MAC_ONLY)), b"old", b"new")
     except preflight.PreflightError:
         assert fault in ("uncommitted", "symlink")
+
+
+@pytest.mark.parametrize(
+    "fault", [None, "foreign-path", "foreign-head", "seal", "component", "symlink"]
+)
+def test_external_root_commit_and_component_binding(compatible: dict, fault: str | None) -> None:
+    f = compatible
+    external = f["root"].parent / "original-broker"
+    packet = external / "initial"
+    packet.mkdir(parents=True)
+    for name in ("dispatch-manifest.json", "SEAL.json"):
+        (packet / name).write_bytes((f["packet"] / name).read_bytes())
+    dump(packet / "control.json", {"frozen": True})
+
+    def git(*args: str) -> bytes:
+        return subprocess.check_output(["git", "-C", str(external), *args])
+
+    git("init", "-q")
+    git("config", "user.name", "Original Broker")
+    git("config", "user.email", "original@example.invalid")
+    git("add", ".")
+    git("commit", "-qm", "original packet")
+    f["policy"].update(
+        root_broker_checkout=str(external),
+        root_packet_directory=str(packet),
+        root_broker_commit=git("rev-parse", "HEAD").decode().strip(),
+    )
+    dump(f["policy_path"], f["policy"])
+    f["git"]("add", ".")
+    f["git"]("commit", "-qm", "bind original external packet")
+    path = packet / "control.json"
+    if fault == "foreign-path":
+        path = f["packet"] / "control.json"
+        dump(path, {"frozen": True})
+    elif fault == "foreign-head":
+        git("commit", "--allow-empty", "-qm", "foreign commit")
+    elif fault == "seal":
+        (packet / "SEAL.json").write_text("{}")
+    elif fault == "component":
+        path.write_text("{}")
+    elif fault == "symlink":
+        path.unlink()
+        path.symlink_to(packet / "dispatch-manifest.json")
+    if fault is None:
+        compat.verify_sealed_root_component(path)
+    else:
+        with pytest.raises(preflight.PreflightError):
+            compat.verify_sealed_root_component(path)

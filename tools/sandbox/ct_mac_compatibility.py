@@ -74,3 +74,53 @@ def permits_mac_source(
             return False
         prior = json.loads(raw)
     return False
+
+
+def verify_sealed_root_component(path: Path) -> None:
+    """Read-only committed proof for reseal-03 in its original broker checkout.
+
+    A new continuation broker cannot rewrite absolute paths in an existing seal.
+    Admit only that exact original checkout/commit, never arbitrary external Git
+    evidence; all later continuation packets must belong to the new broker.
+    """
+    import subprocess
+
+    from tools.sandbox.preflight import (
+        PreflightError,
+        _assert_safe_path,
+        verify_committed_manifest,
+    )
+
+    _assert_safe_path(POLICY, "C/T Mac compatibility policy")
+    verify_committed_manifest(POLICY)
+    policy = json.loads(POLICY.read_bytes())
+    root = _assert_safe_path(policy["root_broker_checkout"], "C/T sealed root broker")
+    packet = _assert_safe_path(policy["root_packet_directory"], "C/T sealed root packet")
+    _assert_safe_path(path, "C/T sealed root component")
+    allowed = {
+        "dispatch-manifest.json",
+        "sandbox.json",
+        "control.json",
+        "registry-check.json",
+        "topology-manifest.json",
+        "verified-ledger.json",
+        "SEAL.json",
+    }
+    if path.parent != packet or path.name not in allowed or not packet.is_relative_to(root):
+        raise PreflightError("external C/T evidence is not the registered reseal-03 root")
+
+    def git(*args: str) -> bytes:
+        result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, timeout=10)
+        if result.returncode:
+            raise PreflightError("cannot verify original C/T broker commit")
+        return result.stdout
+
+    if (
+        git("rev-parse", "HEAD").decode().strip() != policy["root_broker_commit"]
+        or hashlib.sha256((packet / "SEAL.json").read_bytes()).hexdigest()
+        != policy["root_seal_sha256"]
+        or hashlib.sha256((packet / "dispatch-manifest.json").read_bytes()).hexdigest()
+        != policy["root_manifest_sha256"]
+        or git("show", f"HEAD:{path.relative_to(root).as_posix()}") != path.read_bytes()
+    ):
+        raise PreflightError("original C/T broker/component differs from registered seal/commit")
