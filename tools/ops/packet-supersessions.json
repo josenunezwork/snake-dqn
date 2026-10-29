@@ -164,6 +164,15 @@
       ],
       "successor": "packet-ct-1028-14/reseal-04",
       "reason": "Both dispatch identities are spent. Fresh reseal-04 binds the merged continuation fixes, fallback window and owner-ordered no-budget broker; all prior evidence remains immutable."
+    },
+    {
+      "packet_dir": "packet-ct-1028-14/reseal-04",
+      "job_ids": [
+        "sandbox-ct-cf-20261028-14-r4",
+        "sandbox-ct-cf-20261028-14-r4-a100-fallback"
+      ],
+      "successor": "packet-ct-1028-14/reseal-04/transport-01",
+      "reason": "Original r4 was offline-qualified only. Current enforced transport qualification strictly requires a transport-only runtime successor; old packet/seal retained immutable, no data or allocation occurred."
     }
   ]
 }

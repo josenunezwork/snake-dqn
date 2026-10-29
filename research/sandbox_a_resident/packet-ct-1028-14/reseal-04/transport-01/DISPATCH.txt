@@ -1,0 +1,12 @@
+C/T reseal-04/transport-01: PREPARED ONLY, NOT DISPATCHED.
+Runtime transport-only successor: daa008e89dc706880665c246334ff2f6206ae914; af2bba1c study source is unchanged.
+Primary: sandbox-ct-cf-20261028-14-r4t1; fallback: sandbox-ct-cf-20261028-14-r4t1-a100-fallback. All identities/outputs/state are fresh.
+Current qualified transport 3a7b2188 is mandatory for both refs; old af2bba1c ref is refused.
+Original reseal-04 files remain immutable and are retired by the supersession registry.
+Independent ACCEPT is required before live dispatch; PENDING permits offline dry-run only.
+No account/config changes, actual CUDA execution, measured debit or scientific result.
+Exact live command, NOT RUN:
+env PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin SNAKE_DQN_PYTHON=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 PYTHONDONTWRITEBYTECODE=1 'PYTEST_ADDOPTS=-p no:cacheprovider' nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-14-r4-broker.noindex/tools/ops/dispatch.sh sandbox-ct-cf-20261028-14-r4t1 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-14-r4-broker.noindex/research/sandbox_a_resident/packet-ct-1028-14/reseal-04/transport-01/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-ct-1028-14-r4-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-ct-1028-14-r4-runtime-transport01.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-cf-1028/attempt-14-r4t1/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-ct-1028-14-r4-broker.noindex/research/sandbox_a_resident/packet-ct-1028-14/reseal-04/transport-01/DISPATCH.txt
+
+For provider-free validation append --dry-run. Preserve both frozen checkouts.
+See CT_1028_14_RESEAL_04_TRANSPORT01.md and the task SUMMARY.md.
