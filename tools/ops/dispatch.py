@@ -319,6 +319,7 @@ def qualified(broker: Path, ops: Path, deadline: float | None = None, ref: str =
             str(ops / "colab-cli-qualified.json"),
             "--ref",
             ref,
+            *(["--runtime"] if re.fullmatch(r"[0-9a-f]{40}", ref) else []),
         ],
         deadline=deadline,
         stdout=subprocess.DEVNULL,

@@ -342,7 +342,23 @@ def test_dispatch_binding_fault_twins(
             value = json.loads(path.read_text())
             value["manifest_sha256"] = "b" * 64
         write(path, value)
-    with pytest.raises((ValueError, FileNotFoundError)):
+    reasons = {
+        "foreign-capability": "unrecognized job_log_tail line",
+        "foreign-job": "foreign job or ambiguous variant identity",
+        "accounting-sha": "accounting source/live manifest hash mismatch",
+        "variant-sha": "variant differs from pure sealed derivation",
+        "hardware": "execution or observed hardware identity differs",
+        "gpu-receipt-sha": "GPU receipt supervisor_receipt hash/path differs",
+        "seal": "SEAL.json does not bind canonical dispatch-manifest.json",
+        "missing-hardware-or-reconciliation": "unreadable",
+        "scientific-fault": "scientific",
+    }
+    reason = reasons.get(fault)
+    if fault.startswith("live-"):
+        reason = "accounting source/live manifest hash mismatch"
+    elif fault.startswith("executed-"):
+        reason = "retained manifest changes fields beyond supervisor lease default"
+    with pytest.raises((ValueError, FileNotFoundError), match=reason):
         write_continuation_packet(
             tmp_path / "refused",
             prior_packet_dir=f["initial"],
@@ -382,10 +398,11 @@ def test_changed_live_manifest_without_explicit_binding_refuses(
 
 
 @pytest.mark.parametrize("surface", ["live", "executed"])
+@pytest.mark.parametrize("fallback", [False, True])
 def test_coherently_rehashed_foreign_manifest_is_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, surface: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, surface: str, fallback: bool
 ) -> None:
-    f = dispatched(tmp_path, monkeypatch, False)
+    f = dispatched(tmp_path, monkeypatch, fallback)
     accounting_path = f["evidence"]["accounting"]
     accounting = json.loads(accounting_path.read_text())
     live_path = Path(accounting["manifest"])
@@ -407,4 +424,28 @@ def test_coherently_rehashed_foreign_manifest_is_refused(
     f["evidence"]["gpu_receipt"].unlink()
     publish(live_path, f["evidence"]["gpu_receipt"])
     with pytest.raises(CTResumeRefused, match="changes fields beyond"):
+        resolve_dispatch_binding(f["initial"], f["canonical"], f["receipt"], paths=f["evidence"])
+
+
+@pytest.mark.parametrize("fault", ["endpoint", "compute", "receipt-sha", "dry-run"])
+def test_fallback_reconciliation_fault_twins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    f = dispatched(tmp_path, monkeypatch, True)
+    proof_path = f["evidence"]["preference"].parent / "unavailable.json"
+    proof = json.loads(proof_path.read_text())
+    if fault == "endpoint":
+        path = Path(proof["receipt"]["path"])
+        receipt = json.loads(path.read_text())
+        receipt["endpoint"] = "assigned-endpoint"
+        write(path, receipt)
+        proof["receipt"]["sha256"] = digest(path)
+    elif fault == "compute":
+        proof["vm_compute_started"] = True
+    elif fault == "receipt-sha":
+        proof["receipt"]["sha256"] = "b" * 64
+    else:
+        proof["mode"] = "DRY_RUN"
+    write(proof_path, proof)
+    with pytest.raises(CTResumeRefused, match="fallback lacks bound pre-endpoint reconciliation"):
         resolve_dispatch_binding(f["initial"], f["canonical"], f["receipt"], paths=f["evidence"])

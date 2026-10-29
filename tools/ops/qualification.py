@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -38,7 +39,7 @@ def clean_transport(repo: Path) -> None:
         raise ValueError("broker transport has working-tree changes")
 
 
-def check(repo: Path, record: Path, ref: str = "HEAD") -> str:
+def check(repo: Path, record: Path, ref: str = "HEAD", *, runtime: bool = False) -> str:
     """Require the recorded tree, independent of the enclosing commit."""
     saved = json.loads(record.read_text())
     if not isinstance(saved, dict):
@@ -51,6 +52,17 @@ def check(repo: Path, record: Path, ref: str = "HEAD") -> str:
     ):
         raise ValueError("invalid qualification registry")
     actual = tree(repo, ref)
+    if actual != expected and runtime and re.fullmatch(r"[0-9a-f]{40}", ref):
+        # Only frozen runtime pins may use the current registry's hash-bound
+        # previous qualification. HEAD/remote broker checks never use history.
+        previous = saved.get("previous_qualification", {})
+        path = Path(previous.get("path", ""))
+        if path.is_absolute() and not path.is_symlink() and path.is_file():
+            raw = path.read_bytes()
+            if hashlib.sha256(raw).hexdigest() == previous.get("sha256"):
+                historical = json.loads(raw)
+                if historical.get("schema") == "snake-dqn-colab-cli-qualified/v1":
+                    expected = historical.get("tree_hash")
     if actual != expected:
         raise ValueError(f"COLAB_CLI_UNQUALIFIED ref={ref} tree={actual} qualified={expected}")
     if ref == "HEAD":
@@ -82,11 +94,12 @@ def main() -> int:
     parser.add_argument("--record", type=Path, required=True)
     parser.add_argument("--ref", default="HEAD")
     parser.add_argument("--fetch", action="store_true")
+    parser.add_argument("--runtime", action="store_true")
     args = parser.parse_args()
     try:
         if args.fetch:
             git(args.repo, "fetch", "--quiet", "origin", "main")
-        print(check(args.repo, args.record, args.ref))
+        print(check(args.repo, args.record, args.ref, runtime=args.runtime))
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         print(f"REFUSE: COLAB_CLI_UNQUALIFIED {exc}", file=sys.stderr)
         return 1

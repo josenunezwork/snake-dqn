@@ -57,12 +57,16 @@ def permits_mac_source(
             path = _assert_safe_path(bound.get("path", ""), "C/T root manifest")
             raw = path.read_bytes()
             seal = _assert_safe_path(path.parent / "SEAL.json", "C/T root seal")
+            roots = [policy] + policy.get("additional_roots", [])
             return (
                 json.loads(raw) == prior
-                and hashlib.sha256(raw).hexdigest()
-                == bound.get("sha256")
-                == policy.get("root_manifest_sha256")
-                and hashlib.sha256(seal.read_bytes()).hexdigest() == policy.get("root_seal_sha256")
+                and hashlib.sha256(raw).hexdigest() == bound.get("sha256")
+                and any(
+                    hashlib.sha256(raw).hexdigest() == root.get("root_manifest_sha256")
+                    and hashlib.sha256(seal.read_bytes()).hexdigest()
+                    == root.get("root_seal_sha256")
+                    for root in roots
+                )
             )
         if not isinstance(comp, dict) or comp.get("index") not in (1, 2):
             return False

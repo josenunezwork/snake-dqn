@@ -130,7 +130,7 @@ def test_both_unavailable_never_attempts_a_third_allocation(fixture):
     assert [row["job"] for row in trace(f, "run")] == ["job", "job-a100-fallback"]
 
 
-@pytest.mark.parametrize("fallback_seconds", [100, 181])
+@pytest.mark.parametrize("fallback_seconds", [100, 421])
 def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch, fallback_seconds):
     """Simulate the 100s C/T preflight after 545s spent on the primary."""
     from tools.ops import dispatch as module
@@ -138,7 +138,7 @@ def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch
     f = fixture
     preferred(f, "gpu_unavailable")
     packet = json.loads(f["manifest"].read_text())
-    packet["sandbox_admission"] = {}  # Select the real 180s validation bound.
+    packet["sandbox_admission"] = {}  # Select the real sandbox outer validation bound.
     monkeypatch.setenv("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "600")
     now = [1000.0]
     monkeypatch.setattr(module.time, "monotonic", lambda: now[0])
@@ -209,19 +209,21 @@ def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch
             args, packet, f["ops"], f["broker"], f["broker"], f["ops"] / "state/lane"
         )
 
-    if fallback_seconds > 180:
-        with pytest.raises(subprocess.TimeoutExpired):
+    bound = module.SANDBOX_OUTER_VALIDATE_TIMEOUT_SECONDS
+    if fallback_seconds > bound:
+        with pytest.raises(module.Refused, match="validation failed:.*timed out") as error:
             call()
+        assert isinstance(error.value.__cause__, subprocess.TimeoutExpired)
         assert starts == ["lane"]
     else:
         assert "requested_gpu=A100" in call()
         assert starts == ["lane", "lane-a100-fallback"]
     assert windows == [600, 600]
     assert validations == [
-        (False, False, 180),
-        (False, True, 180),
-        (True, False, 180),
-        (True, True, 180),
+        (False, False, bound),
+        (False, True, bound),
+        (True, False, bound),
+        (True, True, bound),
     ]
     # Exclusion is released after either success or validation timeout.
     with (f["ops"] / "alloc.lock").open("a") as lock:

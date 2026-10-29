@@ -77,6 +77,51 @@ def test_untracked_transport_refused_and_remote_ref_checked(broker, tmp_path):
     assert qualification.check(broker, record, "origin/main")
 
 
+@pytest.mark.parametrize("fault", [None, "sha", "tree", "symlink", "schema", "missing"])
+def test_frozen_runtime_uses_only_bound_previous_qualification(broker, tmp_path, fault):
+    previous = registry(broker, tmp_path)
+    old_pin = git(broker, "rev-parse", "HEAD")
+    old_tree = qualification.tree(broker)
+    raw = previous.read_bytes()
+    if fault in ("tree", "schema"):
+        value = json.loads(raw)
+        value["tree_hash" if fault == "tree" else "schema"] = "foreign"
+        previous.write_text(json.dumps(value))
+        raw = previous.read_bytes()
+    descriptor = {"path": str(previous), "sha256": hashlib.sha256(raw).hexdigest()}
+    if fault == "sha":
+        descriptor["sha256"] = "0" * 64
+    elif fault == "symlink":
+        target = tmp_path / "previous-target.json"
+        previous.rename(target)
+        previous.symlink_to(target)
+    elif fault == "missing":
+        previous.unlink()
+    (broker / "research/colab_cli/launch.sh").write_text("new transport")
+    git(broker, "add", ".")
+    git(broker, "commit", "-qm", "new host transport")
+    current = tmp_path / "current.json"
+    qualification.save(
+        current,
+        {
+            "schema": "snake-dqn-colab-cli-qualified/v1",
+            "tree_hash": qualification.tree(broker),
+            "previous_qualification": descriptor,
+        },
+    )
+    assert qualification.check(broker, current)
+    with pytest.raises(ValueError, match="UNQUALIFIED"):
+        qualification.check(broker, current, old_pin)
+    if fault is None:
+        assert qualification.check(broker, current, old_pin, runtime=True) == old_tree
+    else:
+        with pytest.raises(ValueError, match="UNQUALIFIED"):
+            qualification.check(broker, current, old_pin, runtime=True)
+    git(broker, "update-ref", "refs/remotes/origin/old", old_pin)
+    with pytest.raises(ValueError, match="UNQUALIFIED"):
+        qualification.check(broker, current, "origin/old", runtime=True)
+
+
 def test_watcher_reports_remote_tree_mismatch_once(broker, tmp_path):
     ops = tmp_path / "ops"
     ops.mkdir()

@@ -108,6 +108,27 @@ def test_exact_compatibility_across_two_hops(compatible: dict, index: int) -> No
     )
 
 
+@pytest.mark.parametrize("fault", [None, "manifest", "seal", "uncommitted"])
+def test_additional_root_requires_exact_committed_pair(compatible: dict, fault: str | None) -> None:
+    f = compatible
+    pair = {key: f["policy"][key] for key in ("root_manifest_sha256", "root_seal_sha256")}
+    f["policy"].update(root_manifest_sha256="b" * 64, root_seal_sha256="c" * 64)
+    if fault in ("manifest", "seal"):
+        pair[f"root_{fault}_sha256"] = "d" * 64
+    f["policy"]["additional_roots"] = [pair]
+    dump(f["policy_path"], f["policy"])
+    if fault != "uncommitted":
+        f["git"]("add", ".")
+        f["git"]("commit", "-qm", "bind additional exact root")
+    if fault == "uncommitted":
+        with pytest.raises(preflight.PreflightError):
+            compat.permits_mac_source(f["manifest"], next(iter(compat.MAC_ONLY)), b"old", b"new")
+    else:
+        assert compat.permits_mac_source(
+            f["manifest"], next(iter(compat.MAC_ONLY)), b"old", b"new"
+        ) == (fault is None)
+
+
 @pytest.mark.parametrize(
     "fault", ["runtime", "policy-hash", "seal", "root", "uncommitted", "c3", "cycle", "symlink"]
 )

@@ -155,6 +155,15 @@
       "manifest_sha256": "e8a442930b8bee22f6464f9652ceafecb9d36481910cf8dd4b9becd328208a10",
       "successor": "packet-ct-1028-14/reseal-03",
       "reason": "Reseal-02 identity spent by 2026-10-29 A100 HTTP503 allocation failure with no endpoint. Reseal-03 uses a fresh identity, H100-first with pre-admitted whole-timeout-priced A100 sibling, current GPU-preference dispatcher, sm90 adapter and accepted focused-test MINOR. Science unchanged; all prior evidence immutable."
+    },
+    {
+      "packet_dir": "packet-ct-1028-14/reseal-03",
+      "job_ids": [
+        "sandbox-ct-cf-20261028-14-r3",
+        "sandbox-ct-cf-20261028-14-r3-a100-fallback"
+      ],
+      "successor": "packet-ct-1028-14/reseal-04",
+      "reason": "Both dispatch identities are spent. Fresh reseal-04 binds the merged continuation fixes, fallback window and owner-ordered no-budget broker; all prior evidence remains immutable."
     }
   ]
 }
