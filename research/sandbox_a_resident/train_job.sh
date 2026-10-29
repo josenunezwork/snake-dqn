@@ -38,13 +38,15 @@ sidecar.write_text(f"{digest}  {payload.name}\n")
 complete.write_text("complete\n")
 PY
   done
-  printf 'STALL_WATCHDOG_DIAGNOSTICS sealed_dir=%s\n' "$diagnostics" >&2
+  # The finalizer runs after EVERY child exit, including a preparation failure
+  # or success. Sealing files is not evidence that the work watchdog expired.
+  printf 'TRAIN01_DIAGNOSTICS_SEALED child_status=%s sealed_dir=%s\n' "$1" "$diagnostics" >&2
 }
 
 on_exit() {
   local status=$?
   trap - EXIT
-  seal_stall_diagnostics
+  seal_stall_diagnostics "$status"
   exit "$status"
 }
 trap on_exit EXIT

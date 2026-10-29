@@ -577,18 +577,20 @@ def run(
         metadata: dict[str, Any],
     ) -> dict[str, Any]:
         if snapshot_format == "compact":
-            emit("snapshot-compact-start", {"iteration": boundary})
+            details = {"iteration": boundary, "snapshot_phase": metadata.get("phase")}
+            emit("snapshot-compact-start", details)
             published = publish_compact_snapshot(
                 output,
                 boundary,
                 writer,
                 metadata=metadata,
                 source_packet_id=source_packet_id,
+                on_progress=lambda stage, values: emit(stage, {**details, **values}),
             )
             emit(
                 "snapshot-compact-complete",
                 {
-                    "iteration": boundary,
+                    **details,
                     "derivative_bytes": published["compact_snapshot"]["derivative"]["size"],
                 },
             )
@@ -853,6 +855,7 @@ def run(
                     )
                 except PreparationFailure as error:
                     interruptible_stage = None
+                    emit("preparation-failed", {"reason": str(error)})
                     # The preparation helper carries its exact independent task state.
                     failure = None if error.state is None else error.state.state_dict()
                     failed = _snapshot_state(

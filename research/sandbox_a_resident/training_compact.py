@@ -21,6 +21,7 @@ import lzma
 import os
 import re
 import tempfile
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -53,18 +54,42 @@ CODEC = {
 DECODER_MEMLIMIT = 64 * 1024 * 1024
 READ_BYTES = 1024 * 1024
 DECODE_BLOCK_BYTES = 8 * 1024 * 1024
+Progress = Callable[[str, Mapping[str, Any]], None]
+
+
+class _PublicationProgress:
+    """Report completed byte work, never periodic claims from a timer thread."""
+
+    def __init__(self, callback: Progress | None) -> None:
+        self.callback = callback
+        self.last = time.monotonic()
+        self.stage: str | None = None
+
+    def __call__(self, stage: str, values: Mapping[str, Any]) -> None:
+        now = time.monotonic()
+        if self.callback is not None and (stage != self.stage or now - self.last >= 30):
+            self.callback(stage, values)
+            self.last = now
+            self.stage = stage
 
 
 class CompactResumeRefused(ValueError):
     """A compact derivative, its manifest or the decoded state fails verification."""
 
 
-def _tensor_sha256(tensor: torch.Tensor) -> str:
+def _tensor_sha256(tensor: torch.Tensor, on_progress: Progress | None = None) -> str:
     flat = tensor.detach().contiguous().reshape(-1)
-    return hashlib.sha256(memoryview(flat.view(torch.uint8).numpy())).hexdigest()
+    raw = memoryview(flat.view(torch.uint8).numpy())
+    hasher = hashlib.sha256()
+    for offset in range(0, len(raw), READ_BYTES):
+        block = raw[offset : offset + READ_BYTES]
+        hasher.update(block)
+        if on_progress is not None:
+            on_progress("snapshot-tensor-hash", {"tensor_bytes_done": offset + len(block)})
+    return hasher.hexdigest()
 
 
-def describe_state(state: Any) -> dict[str, Any]:
+def describe_state(state: Any, on_progress: Progress | None = None) -> dict[str, Any]:
     """Return per-tensor SHA-256 records and a canonical structure digest.
 
     The walk is deterministic (insertion order) and refuses unsupported types,
@@ -87,7 +112,7 @@ def describe_state(state: Any) -> dict[str, Any]:
                     "storage_offset": int(value.storage_offset()),
                     "requires_grad": bool(value.requires_grad),
                     "nbytes": int(value.numel() * value.element_size()),
-                    "sha256": _tensor_sha256(value),
+                    "sha256": _tensor_sha256(value, on_progress),
                 }
             )
             return ["tensor", len(tensors) - 1]
@@ -141,6 +166,7 @@ def decode_stream(
     *,
     expected_size: int,
     expected_sha256: str,
+    on_progress: Progress | None = None,
 ) -> None:
     """Stream-decode one XZ stream, bounding output and verifying size and SHA-256."""
     if type(expected_size) is not int or expected_size < 1:
@@ -163,6 +189,8 @@ def decode_stream(
                     raise CompactResumeRefused("decoded snapshot exceeds its original size")
                 hasher.update(block)
                 sink(block)
+                if on_progress is not None and block:
+                    on_progress("snapshot-roundtrip", {"decoded_bytes": total})
             if decompressor.unused_data or source.read(1):
                 raise CompactResumeRefused("trailing bytes after the compact snapshot stream")
     except lzma.LZMAError as error:
@@ -171,13 +199,17 @@ def decode_stream(
         raise CompactResumeRefused("decoded snapshot differs from the original size/SHA-256")
 
 
-def _compress(original: Path, destination: Path) -> None:
+def _compress(original: Path, destination: Path, on_progress: Progress | None = None) -> None:
     compressor = lzma.LZMACompressor(
         format=lzma.FORMAT_XZ, check=lzma.CHECK_SHA256, preset=XZ_PRESET
     )
     with original.open("rb") as source, destination.open("xb") as target:
+        total = 0
         for block in iter(lambda: source.read(16 * READ_BYTES), b""):
             target.write(compressor.compress(block))
+            total += len(block)
+            if on_progress is not None:
+                on_progress("snapshot-compress", {"original_bytes_done": total})
         target.write(compressor.flush())
         target.flush()
         os.fsync(target.fileno())
@@ -410,6 +442,7 @@ def publish_compact_snapshot(
     *,
     metadata: Mapping[str, Any],
     source_packet_id: str | None = None,
+    on_progress: Progress | None = None,
 ) -> dict[str, Any]:
     """Publish a lossless compact periodic snapshot at the source without writing raw ``.pt``.
 
@@ -422,6 +455,7 @@ def publish_compact_snapshot(
     """
     if type(iteration) is not int or iteration < 0:
         raise CompactResumeRefused("iteration must be a nonnegative integer")
+    progress = _PublicationProgress(on_progress)
     identity = unit_id(iteration)
     if source_packet_id is not None:
         try:
@@ -451,16 +485,27 @@ def publish_compact_snapshot(
             scratch_pt = Path(scratch_dir) / f"{stem}.pt"
             writer(scratch_pt)
             orig_size = scratch_pt.stat().st_size
-            orig_sha256 = digest(scratch_pt)
+            progress("snapshot-serialized", {"original_bytes": orig_size})
+            hasher = hashlib.sha256()
+            with scratch_pt.open("rb") as stream:
+                total = 0
+                for block in iter(lambda: stream.read(READ_BYTES), b""):
+                    hasher.update(block)
+                    total += len(block)
+                    progress("snapshot-file-hash", {"original_bytes_done": total})
+            orig_sha256 = hasher.hexdigest()
             loaded_state = torch.load(scratch_pt, map_location="cpu", weights_only=False)
-            state_description = describe_state(loaded_state)
+            progress("snapshot-loaded", {"original_bytes": orig_size})
+            state_description = describe_state(loaded_state, progress)
             del loaded_state
-            encoded = publish(derivative_path, lambda dst: _compress(scratch_pt, dst))
+            encoded = publish(derivative_path, lambda dst: _compress(scratch_pt, dst, progress))
+            progress("snapshot-compressed", {"derivative_bytes": encoded["size"]})
             decode_stream(
                 derivative_path,
                 lambda _block: None,
                 expected_size=orig_size,
                 expected_sha256=orig_sha256,
+                on_progress=progress,
             )
     finally:
         torch.set_rng_state(cpu_rng)

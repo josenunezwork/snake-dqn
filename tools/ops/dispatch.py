@@ -673,11 +673,11 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
                 env[early_key] != "1"
                 or env.get("SANDBOX_A_SNAPSHOT_FORMAT") != "compact"
                 or not re.fullmatch(
-                    r"packet-train01-s2-04(?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?",
+                    r"packet-train01-s2-0[45](?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?",
                     env.get("SANDBOX_A_PACKET_ID", ""),
                 )
             ):
-                raise Refused("TRAIN-01 early snapshot must bind the compact S2-04 family")
+                raise Refused("TRAIN-01 early snapshot must bind a compact S2-04/S2-05 family")
             allowed_env.add(early_key)
         stall = env.get("SANDBOX_A_STALL_TIMEOUT_SECONDS", "900")
         try:

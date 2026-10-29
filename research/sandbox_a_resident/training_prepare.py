@@ -52,7 +52,13 @@ def source_paths(commit: str, *, repo_root: Path = ROOT) -> list[str]:
             Path(name).parent.as_posix() == "research/sandbox_a_resident"
             and (
                 Path(name).name
-                in {"train.py", "train_job.sh", "stall_watchdog.py", "compact_allowlist.json"}
+                in {
+                    "train.py",
+                    "train_job.sh",
+                    "stall_watchdog.py",
+                    "ct_watchdog_guard.py",
+                    "compact_allowlist.json",
+                }
                 or (
                     Path(name).name.startswith("training_")
                     and Path(name).name

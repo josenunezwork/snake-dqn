@@ -109,7 +109,7 @@ def test_unknown_boundary_name_is_not_a_binary_exemption(tmp_path):
 def test_s2_04_compact_family_is_bounded():
     for name in ["packet-train01-s2-04", "packet-train01-s2-04-c1", "packet-train01-s2-04-c2"]:
         validate_compact_source_packet(name, 0)
-    for name in ["packet-train01-s2-05", "packet-train01-s2-04-c3"]:
+    for name in ["packet-train01-s2-06", "packet-train01-s2-04-c3"]:
         with pytest.raises(ValueError):
             validate_compact_source_packet(name, 0)
 
