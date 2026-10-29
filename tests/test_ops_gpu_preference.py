@@ -131,7 +131,7 @@ def test_both_unavailable_never_attempts_a_third_allocation(fixture):
 
 
 @pytest.mark.parametrize("ct_packet", [False, True])
-@pytest.mark.parametrize("fallback_seconds", [100, 601])
+@pytest.mark.parametrize("fallback_seconds", [100, 181, 601])
 def test_slow_fallback_validation_gets_fresh_bounded_window(
     fixture, monkeypatch, fallback_seconds, ct_packet
 ):
@@ -144,7 +144,7 @@ def test_slow_fallback_validation_gets_fresh_bounded_window(
     packet["sandbox_admission"] = {}  # Select the bounded host-admission window.
     if ct_packet:
         packet["script"] = "research/sandbox_a_resident/ct_job.sh"
-        if fallback_seconds > 100:
+        if fallback_seconds > 420:
             fallback_seconds = 421
     bound = module.CT_OUTER_VALIDATE_TIMEOUT_SECONDS if ct_packet else 600
     initial_bound = bound if ct_packet else module.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS

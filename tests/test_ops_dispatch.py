@@ -75,6 +75,10 @@ subprocess.Popen(['bash', '-c', sys.argv[-1]], stdin=subprocess.DEVNULL,
     )
     launch.write_text(f"#!{sys.executable}\n" + """import json, os, sys, time
 from pathlib import Path
+def publish_json(path, value):
+    temporary=path.with_name(path.name+'.writing')
+    temporary.write_text(json.dumps(value))
+    os.replace(temporary,path)
 args=sys.argv[1:]
 state=Path(args[args.index('--state-dir')+1])
 action=args[-2]; manifest=json.loads(Path(args[-1]).read_text())
@@ -128,7 +132,7 @@ if mode.startswith('gpu_'):
     if (gpu == 'A100' and mode not in {'gpu_both_unavailable',
                                      'gpu_retained_service_unavailable'}) or mode == 'gpu_success':
         (output/'hardware.json').write_text(json.dumps({'hardware':{'kind':gpu, 'name':gpu}}))
-        (output/'rate-calibration.json').write_text(json.dumps({'status':'PASS'}))
+        publish_json(output/'rate-calibration.json',{'status':'PASS'})
         receipt.update(status='PASS', endpoint='endpoint-'+gpu, error=None, cleanup_error=None,
                        stop_verified=True)
     else:
@@ -140,13 +144,13 @@ if mode.startswith('gpu_'):
             receipt['error']="Refused('new allocation identity uncertain; no retry')"
         if mode == 'gpu_entitlement':
             receipt['error']="Refused('Backend rejected accelerator H100')"
-    (output/'receipt.json').write_text(json.dumps(receipt))
+    publish_json(output/'receipt.json',receipt)
     time.sleep(float(os.environ.get('EXIT_DELAY', '.03')))
     raise SystemExit(0 if receipt['status']=='PASS' else 1)
 retry=job.endswith('-retry-1')
 if mode == 'success' or (retry and mode == 'retry_success'):
-    (output/'rate-calibration.json').write_text(json.dumps({'status':'PASS'}))
-    (output/'receipt.json').write_text(json.dumps({'status':'PASS', 'stop_verified':True}))
+    publish_json(output/'rate-calibration.json',{'status':'PASS'})
+    publish_json(output/'receipt.json',{'status':'PASS', 'stop_verified':True})
     time.sleep(.05)
     raise SystemExit(0)
 if mode == 'early_exit':
@@ -156,7 +160,7 @@ receipt={'status':'INCOMPLETE', 'failure_class':'ACCOUNTING',
                     "AccountingError('assignment endpoints changed during allocation')"),
          'cleanup_error':manifest.get('test_cleanup'),
          'stop_verified':manifest.get('test_stop', True)}
-(output/'receipt.json').write_text(json.dumps(receipt))
+publish_json(output/'receipt.json',receipt)
 print('original failure evidence', flush=True)
 time.sleep(float(os.environ.get('EXIT_DELAY', '.03')))
 raise SystemExit(1)
@@ -177,6 +181,7 @@ raise SystemExit(1)
         json.dumps(
             {
                 "schema": "snake-dqn-colab-cli-qualified/v1",
+                "independent_review_status": "ACCEPT",
                 "tree_hash": git("rev-parse", "HEAD:research/colab_cli"),
             }
         )
@@ -817,3 +822,34 @@ def test_a100_gpu_canary_missing_compile_pass_refuses_before_side_effects(fixtur
     assert "requires native CUDA compile PASS" in result.stderr
     assert not (fixture["ops"] / "dispatch").exists()
     assert not (fixture["tmp"] / "trace").exists()
+
+
+@pytest.mark.parametrize("status", ["PENDING", "REJECT", None])
+def test_pending_independent_review_blocks_before_dispatch_side_effects(fixture, status):
+    f = fixture
+    path = f["ops"] / "colab-cli-qualified.json"
+    value = json.loads(path.read_text())
+    if status is None:
+        value.pop("independent_review_status")
+    else:
+        value["independent_review_status"] = status
+    path.write_text(json.dumps(value))
+    result = f["invoke"]()
+    assert result.returncode != 0
+    assert "INDEPENDENT_REVIEW_REQUIRED" in result.stderr
+    assert not runs(f)
+    assert not (f["ops"] / "dispatch/lane").exists()
+
+
+def test_pending_review_allows_only_read_only_dry_run(fixture):
+    f = fixture
+    path = f["ops"] / "colab-cli-qualified.json"
+    saved = json.loads(path.read_text())
+    saved["independent_review_status"] = "PENDING"
+    path.write_text(json.dumps(saved))
+    result = f["invoke"](dry_run=True)
+    assert result.returncode == 0, result.stderr
+    assert "PASS_DRY_RUN" in result.stdout and "allocations=0" in result.stdout
+    assert not runs(f)
+    assert not (f["ops"] / "dispatch").exists()
+    assert json.loads(path.read_text())["independent_review_status"] == "PENDING"

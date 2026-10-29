@@ -27,19 +27,36 @@ def permits_mac_source(
     manifest: dict[str, Any], relative: str, pinned: bytes, current: bytes
 ) -> bool:
     """Require committed policy, exact old/new hashes and bounded sealed lineage."""
-    from tools.sandbox.preflight import _assert_safe_path, verify_committed_manifest
-
     if relative not in MAC_ONLY:
         return False
-    _assert_safe_path(POLICY, "C/T Mac compatibility policy")
-    verify_committed_manifest(POLICY)
-    policy = json.loads(POLICY.read_bytes())
+    for policy_path in (
+        POLICY,
+        POLICY.with_name("ct_mac_compatibility_transport01.json"),
+    ):
+        if not policy_path.exists():
+            continue
+        result = _permits_policy(manifest, relative, pinned, current, policy_path)
+        if result is not None:
+            return result
+    return False
+
+
+def _permits_policy(
+    manifest: dict[str, Any], relative: str, pinned: bytes, current: bytes, policy_path: Path
+) -> bool | None:
+    """Return None only for a different runtime, preserving exact root/hash guards."""
+    from tools.sandbox.preflight import _assert_safe_path, verify_committed_manifest
+
+    _assert_safe_path(policy_path, "C/T Mac compatibility policy")
+    verify_committed_manifest(policy_path)
+    policy = json.loads(policy_path.read_bytes())
     if (
         policy.get("schema") != "t34-cf-mac-source-compatibility/v1"
-        or manifest.get("commit") != policy.get("runtime_commit")
         or set(policy.get("mac_only_sources", {})) != MAC_ONLY
     ):
         return False
+    if manifest.get("commit") != policy.get("runtime_commit"):
+        return None
     pair = policy["mac_only_sources"][relative]
     if pair != {
         "runtime_sha256": hashlib.sha256(pinned).hexdigest(),

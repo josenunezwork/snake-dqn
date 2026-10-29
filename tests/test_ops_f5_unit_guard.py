@@ -39,7 +39,7 @@ def test_only_guard_changes() -> None:
     assert result == original
 
 
-@pytest.mark.parametrize("balance", [0, float("nan"), float("inf"), True])
+@pytest.mark.parametrize("balance", [float("nan"), float("inf"), True])
 def test_strict_admission_refuses(balance: float) -> None:
     with pytest.raises(ValueError):
         require_admissible(balance, 5)
@@ -64,7 +64,7 @@ def test_refuses_scientific_cap() -> None:
         repair_guard(value)
 
 
-@pytest.mark.parametrize("balance", [0.01, 100, 105])
+@pytest.mark.parametrize("balance", [-1, 0, 0.01, 100, 105])
 def test_legacy_f5_cap_only_warns(balance, capsys):
     require_admissible(balance, 5)
     assert "WARNING" in capsys.readouterr().err

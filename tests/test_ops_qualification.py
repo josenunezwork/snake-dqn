@@ -43,6 +43,7 @@ def registry(repo, tmp_path):
         path,
         {
             "schema": "snake-dqn-colab-cli-qualified/v1",
+            "independent_review_status": "ACCEPT",
             "tree_hash": qualification.tree(repo),
         },
     )
@@ -60,12 +61,33 @@ def test_tree_identity_survives_other_commits_and_refuses_dirty(broker, tmp_path
     path.write_text("changed")
     with pytest.raises(ValueError, match="working-tree"):
         qualification.check(broker, record)
+
     git(broker, "add", ".")
     with pytest.raises(ValueError, match="working-tree"):
         qualification.check(broker, record)
     git(broker, "commit", "-qm", "transport changed")
     with pytest.raises(ValueError, match="UNQUALIFIED"):
         qualification.check(broker, record)
+
+
+def test_pending_offline_check_still_requires_exact_clean_tree(broker, tmp_path):
+    record = registry(broker, tmp_path)
+    saved = json.loads(record.read_text())
+    saved["independent_review_status"] = "PENDING"
+    record.write_text(json.dumps(saved))
+    assert qualification.check(broker, record, offline=True)
+    with pytest.raises(ValueError, match="INDEPENDENT_REVIEW_REQUIRED"):
+        qualification.check(broker, record)
+    for rejected in ("REJECT", None):
+        saved["independent_review_status"] = rejected
+        record.write_text(json.dumps(saved))
+        with pytest.raises(ValueError, match="INDEPENDENT_REVIEW_REQUIRED"):
+            qualification.check(broker, record, offline=True)
+    saved["independent_review_status"] = "PENDING"
+    record.write_text(json.dumps(saved))
+    (broker / "research/colab_cli/launch.sh").write_text("changed")
+    with pytest.raises(ValueError, match="working-tree"):
+        qualification.check(broker, record, offline=True)
 
 
 def test_untracked_transport_refused_and_remote_ref_checked(broker, tmp_path):
@@ -77,49 +99,29 @@ def test_untracked_transport_refused_and_remote_ref_checked(broker, tmp_path):
     assert qualification.check(broker, record, "origin/main")
 
 
-@pytest.mark.parametrize("fault", [None, "sha", "tree", "symlink", "schema", "missing"])
-def test_frozen_runtime_uses_only_bound_previous_qualification(broker, tmp_path, fault):
+def test_historical_record_cannot_admit_a_foreign_runtime_tree(broker, tmp_path):
     previous = registry(broker, tmp_path)
     old_pin = git(broker, "rev-parse", "HEAD")
-    old_tree = qualification.tree(broker)
-    raw = previous.read_bytes()
-    if fault in ("tree", "schema"):
-        value = json.loads(raw)
-        value["tree_hash" if fault == "tree" else "schema"] = "foreign"
-        previous.write_text(json.dumps(value))
-        raw = previous.read_bytes()
-    descriptor = {"path": str(previous), "sha256": hashlib.sha256(raw).hexdigest()}
-    if fault == "sha":
-        descriptor["sha256"] = "0" * 64
-    elif fault == "symlink":
-        target = tmp_path / "previous-target.json"
-        previous.rename(target)
-        previous.symlink_to(target)
-    elif fault == "missing":
-        previous.unlink()
+    descriptor = {
+        "path": str(previous),
+        "sha256": hashlib.sha256(previous.read_bytes()).hexdigest(),
+    }
     (broker / "research/colab_cli/launch.sh").write_text("new transport")
     git(broker, "add", ".")
-    git(broker, "commit", "-qm", "new host transport")
+    git(broker, "commit", "-qm", "new qualified host transport")
     current = tmp_path / "current.json"
     qualification.save(
         current,
         {
             "schema": "snake-dqn-colab-cli-qualified/v1",
             "tree_hash": qualification.tree(broker),
+            "independent_review_status": "ACCEPT",
             "previous_qualification": descriptor,
         },
     )
-    assert qualification.check(broker, current)
-    with pytest.raises(ValueError, match="UNQUALIFIED"):
-        qualification.check(broker, current, old_pin)
-    if fault is None:
-        assert qualification.check(broker, current, old_pin, runtime=True) == old_tree
-    else:
+    for offline in (False, True):
         with pytest.raises(ValueError, match="UNQUALIFIED"):
-            qualification.check(broker, current, old_pin, runtime=True)
-    git(broker, "update-ref", "refs/remotes/origin/old", old_pin)
-    with pytest.raises(ValueError, match="UNQUALIFIED"):
-        qualification.check(broker, current, "origin/old", runtime=True)
+            qualification.check(broker, current, old_pin, offline=offline)
 
 
 def test_watcher_reports_remote_tree_mismatch_once(broker, tmp_path):
@@ -132,6 +134,7 @@ def test_watcher_reports_remote_tree_mismatch_once(broker, tmp_path):
         ops / "colab-cli-qualified.json",
         {
             "schema": "snake-dqn-colab-cli-qualified/v1",
+            "independent_review_status": "ACCEPT",
             "tree_hash": "0" * 40,
         },
     )
@@ -254,7 +257,9 @@ def test_execute_updates_only_after_verified_pass_and_cannot_repeat(broker, tmp_
     saved, _, calls = execution_fixture(broker, tmp_path, monkeypatch)
     target = tmp_path / "qualified.json"
     requalify.execute(saved, target, "COLAB_CLI_ACCEPTANCE_REVIEWED", "/fake/python")
-    assert qualification.check(broker, target)
+    with pytest.raises(ValueError, match="INDEPENDENT_REVIEW_REQUIRED"):
+        qualification.check(broker, target)
+    assert json.loads(target.read_text())["independent_review_status"] == "PENDING"
     assert calls == ["verify_sources", "execute", "require_final_only", "verify_sources"]
     with pytest.raises(FileExistsError):
         requalify.execute(saved, target, "COLAB_CLI_ACCEPTANCE_REVIEWED", "/fake/python")
@@ -296,3 +301,22 @@ def test_failed_source_bound_admission_preserves_registry(broker, tmp_path, monk
     with pytest.raises(ValueError, match="release evidence"):
         requalify.execute(saved, target, "COLAB_CLI_ACCEPTANCE_REVIEWED", "/fake/python")
     assert target.read_text() == "previous"
+
+
+@pytest.mark.parametrize(
+    "status", ["PENDING", "PENDING_POST_MERGE_OPUS_BEFORE_DISPATCH", "REJECT", "", None]
+)
+@pytest.mark.parametrize("ref", ["HEAD", "origin/main"])
+def test_pending_review_blocks_even_matching_tree(broker, tmp_path, status, ref):
+    record = registry(broker, tmp_path)
+    value = json.loads(record.read_text())
+    value.update(
+        qualification_kind="OWNER_AUTHORIZED_OFFLINE_TRANSPORT", independent_review_status=status
+    )
+    qualification.save(record, value)
+    git(broker, "update-ref", "refs/remotes/origin/main", "HEAD")
+    with pytest.raises(ValueError, match="INDEPENDENT_REVIEW_REQUIRED"):
+        qualification.check(broker, record, ref)
+    value["independent_review_status"] = "ACCEPT"
+    qualification.save(record, value)
+    assert qualification.check(broker, record, ref)

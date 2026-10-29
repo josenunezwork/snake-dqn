@@ -1296,6 +1296,7 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                 json.dumps(
                     {
                         "schema": "snake-dqn-colab-cli-qualified/v1",
+                        "independent_review_status": "ACCEPT",
                         "tree_hash": transport_tree,
                     }
                 )

@@ -216,3 +216,45 @@ def test_external_root_commit_and_component_binding(compatible: dict, fault: str
     else:
         with pytest.raises(preflight.PreflightError):
             compat.verify_sealed_root_component(path)
+
+
+@pytest.mark.parametrize("fault", [None, "root", "uncommitted"])
+def test_transport_successor_has_separate_exact_policy(compatible: dict, fault: str | None) -> None:
+    f = compatible
+    manifest = {**f["manifest"], "commit": "b" * 40}
+    dump(f["packet"] / "dispatch-manifest.json", manifest)
+    dump(
+        f["packet"] / "sandbox.json",
+        {
+            "outputs": {
+                "broker_manifest": {
+                    "path": str(f["packet"] / "dispatch-manifest.json"),
+                    "sha256": f["sha"](f["packet"] / "dispatch-manifest.json"),
+                }
+            }
+        },
+    )
+    dump(
+        f["packet"] / "SEAL.json",
+        {"manifest_sha256": f["sha"](f["packet"] / "dispatch-manifest.json")},
+    )
+    policy = {
+        **f["policy"],
+        "runtime_commit": "b" * 40,
+        "root_manifest_sha256": f["sha"](f["packet"] / "dispatch-manifest.json"),
+        "root_seal_sha256": f["sha"](f["packet"] / "SEAL.json"),
+    }
+    if fault == "root":
+        policy["root_manifest_sha256"] = "c" * 64
+    path = f["policy_path"].with_name("ct_mac_compatibility_transport01.json")
+    dump(path, policy)
+    if fault != "uncommitted":
+        f["git"]("add", ".")
+        f["git"]("commit", "-qm", "exact transport successor compatibility")
+    if fault == "uncommitted":
+        with pytest.raises(preflight.PreflightError):
+            compat.permits_mac_source(manifest, next(iter(compat.MAC_ONLY)), b"old", b"new")
+    else:
+        assert compat.permits_mac_source(manifest, next(iter(compat.MAC_ONLY)), b"old", b"new") == (
+            fault is None
+        )

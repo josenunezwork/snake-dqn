@@ -163,6 +163,7 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
         registry,
         {
             "schema": "snake-dqn-colab-cli-qualified/v1",
+            "independent_review_status": "PENDING",
             "qualified_commit": review["commit"],
             "tree_hash": review["tree_hash"],
             "acceptance_id": saved.parent.name,

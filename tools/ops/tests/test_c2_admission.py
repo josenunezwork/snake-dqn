@@ -70,6 +70,67 @@ def test_failed_validator_reaps_child_left_by_inner_timeout(tmp_path: Path) -> N
         time.sleep(0.01)
 
 
+def test_nested_term_ignoring_group_cannot_outlive_its_owner(tmp_path: Path) -> None:
+    pid_file = tmp_path / "nested-pid"
+    grandchild = (
+        "import os,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+        f"open({str(pid_file)!r},'w').write(str(os.getpid())); time.sleep(60)"
+    )
+    child = (
+        "import sys; from tools.ops.processes import run; "
+        "run([sys.executable,'-c'," + repr(grandchild) + "],timeout=60)"
+    )
+    pid = None
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            processes.run([sys.executable, "-c", child], timeout=1)
+        pid = int(pid_file.read_text())
+        deadline = time.monotonic() + 2
+        while True:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            assert time.monotonic() < deadline, "nested owned group survived escalation"
+            time.sleep(0.01)
+    finally:
+        # If the regression reappears, clean only this fixture's exact PID.
+        if pid is None and pid_file.exists():
+            pid = int(pid_file.read_text())
+        if pid is not None:
+            try:
+                os.kill(pid, 9)
+            except ProcessLookupError:
+                pass
+
+
+def test_tmux_client_timeout_does_not_kill_detached_shared_server(tmp_path: Path) -> None:
+    pid_file = tmp_path / "server-pid"
+    server = f"import os,time; open({str(pid_file)!r},'w').write(str(os.getpid())); time.sleep(60)"
+    client = tmp_path / "tmux"
+    client.write_text(
+        f"#!{sys.executable}\nimport subprocess,sys,time\n"
+        f"subprocess.Popen([sys.executable,'-c',{server!r}],start_new_session=True)\n"
+        "time.sleep(60)\n"
+    )
+    client.chmod(0o755)
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            dispatch.command([str(client)], timeout_seconds=1)
+        os.kill(int(pid_file.read_text()), 0)
+    finally:
+        if pid_file.exists():
+            pid = int(pid_file.read_text())
+            try:
+                command = subprocess.check_output(
+                    ["/bin/ps", "-p", str(pid), "-o", "command="], text=True
+                )
+                assert str(pid_file) in command
+                os.kill(pid, 9)  # Only this fixture's verified synthetic server.
+            except (ProcessLookupError, subprocess.CalledProcessError):
+                pass
+
+
 def test_command_has_independent_validation_and_allocation_windows(monkeypatch) -> None:
     clock = [100.0]
     monkeypatch.setattr(dispatch.time, "monotonic", lambda: clock[0])

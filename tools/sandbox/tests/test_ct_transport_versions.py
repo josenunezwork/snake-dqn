@@ -16,7 +16,9 @@ def test_only_exact_qualified_host_trees(monkeypatch: pytest.MonkeyPatch, tree: 
     if tree in preflight.QUALIFIED_TRANSPORT_TREES:
         preflight.verify_transport_tree()
     else:
-        with pytest.raises(preflight.PreflightError, match="exact qualification"):
+        with pytest.raises(
+            preflight.PreflightError, match="qualified research/colab_cli tree differs"
+        ):
             preflight.verify_transport_tree()
 
 

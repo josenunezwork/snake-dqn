@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
@@ -269,6 +270,16 @@ def _new_session(state: dict[str, Any], name: str, gpu: str) -> None:
             "kernel_id": None,
         }
         config_path.write_text(json.dumps(existing, sort_keys=True))
+    assignment_record = os.environ.get("SNAKE_COLAB_ASSIGNMENT_RECORD")
+    if assignment_record:
+        Path(assignment_record).write_text(
+            json.dumps(
+                {
+                    "endpoint": endpoint,
+                    "notebook_hash": str(uuid.UUID(os.environ["SNAKE_COLAB_NOTEBOOK_HASH"])),
+                }
+            )
+        )
     print(f"Created session {name}")
 
 
@@ -326,6 +337,10 @@ def _handle_exec(state: dict[str, Any], session: str, code: str) -> None:
         return
     if MODE == "kernel_error":
         _reply(code, ok=False, error="RuntimeError('fake kernel failure')")
+        _save(state)
+        return
+    if "TRANSPORT_OUTAGE_READ" in code:
+        _reply(code, True)
         _save(state)
         return
     if "SNAKE_RUNTIME_READINESS" in code:
