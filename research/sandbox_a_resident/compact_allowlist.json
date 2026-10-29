@@ -41,6 +41,27 @@
       "source_commit": "5c0a101a85237e2ce563dcaa6429828126a37d04",
       "source_packet_id": "packet-train01-15",
       "unit": "a100-dev/sandbox-a/train01/iteration-0064"
+    },
+    {
+      "derivative": {
+        "path": "resume/iteration-0336.pt.xz",
+        "sha256": "bbd34e2a349b68587a80e67bb6e1cbc12c29492f1f35babcce00ba53f36f8a5a",
+        "size": 39142144
+      },
+      "iteration": 336,
+      "manifest": {
+        "path": "resume/iteration-0336.pt.xz.manifest",
+        "sha256": "da5a2cdb42909905589b143dcd10e153778f48f96ffe4323a360a60990c885de",
+        "size": 93477
+      },
+      "original": {
+        "path": "resume/iteration-0336.pt",
+        "sha256": "cabfb08f478855fe73ffba9e961810ffeb9714b8f636f4ea7031706c5b38d49d",
+        "size": 1344373990
+      },
+      "source_commit": "dccf7e25a5fb3ebc2fe303b2dc072aeb83efd213",
+      "source_packet_id": "packet-train01-15-c1-i0064-r6",
+      "unit": "a100-dev/sandbox-a/train01/iteration-0336"
     }
   ],
   "schema": "sandbox-a-train-compact-allowlist/v2"
