@@ -1,0 +1,11 @@
+C/T-1028-11: locally resealed; independent Argon review pending; NOT DISPATCHED.
+Runtime pin: 4954ee41fd80494b7230385175f487d18d50a468
+All four packet-10 findings corrected. Science control differs only in source_commit.
+Immutable in-flight progress segments; timestamp/prose brace distinction; qualified uv version fences; all-Real and Decimal finite checks.
+Base720/effective1440minutes; base96.5/effective193units at8u/h; reserve0; empty initial ledger; at most2 manual completion attempts.
+Historical smoke09 startup status maximum17.3s and SIGUSR1 exit3.096602841s are retained observations, not qualification of the new pin or production VRAM/throughput.
+See CT_1028_11.md for corrections, tests and colab-limits walk.
+Exact operator command (NOT RUN; independent Argon review required):
+PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin SNAKE_DQN_PYTHON=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 PYTHONDONTWRITEBYTECODE=1 nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-11-broker.noindex/tools/ops/dispatch.sh sandbox-ct-cf-20261028-11 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-11-broker.noindex/research/sandbox_a_resident/packet-ct-1028-11/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-ct-1028-11-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-ct-1028-11-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-cf-1028/attempt-11/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-ct-1028-11-broker.noindex/research/sandbox_a_resident/packet-ct-1028-11/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve both detached checkouts and all prior evidence.
