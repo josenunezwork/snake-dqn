@@ -553,3 +553,33 @@ def test_stall_timeout_does_not_widen_other_sandbox_package_controls(tmp_path, m
     packet["env"]["SANDBOX_A_STALL_TIMEOUT_SECONDS"] = "900"
     with pytest.raises(dispatch.Refused, match="non-package controls"):
         dispatch.require_sandbox_admission(packet, ROOT)
+
+
+@pytest.mark.parametrize("mutation", [None, "format", "packet", "missing"])
+def test_train01_compact_export_controls_bind_exact_admitted_packet(monkeypatch, mutation):
+    packet_path = ROOT / "research/sandbox_a_resident/packet-train01-15/dispatch-manifest.json"
+    packet = json.loads(packet_path.read_text())
+    packet["env"].update(
+        SANDBOX_A_SNAPSHOT_FORMAT="compact", SANDBOX_A_PACKET_ID="packet-train01-15"
+    )
+    monkeypatch.setattr(
+        preflight,
+        "preflight",
+        lambda *a, **kw: {
+            "study": "sandbox-a-train01",
+            "outputs": {"broker_manifest": {"path": str(packet_path)}},
+        },
+    )
+    monkeypatch.setattr(dispatch, "read_json", lambda *_: packet)
+    monkeypatch.setattr(dispatch, "command", lambda *a, **kw: None)
+    if mutation == "format":
+        packet["env"]["SANDBOX_A_SNAPSHOT_FORMAT"] = "raw"
+    elif mutation == "packet":
+        packet["env"]["SANDBOX_A_PACKET_ID"] = "packet-train01-16"
+    elif mutation == "missing":
+        del packet["env"]["SANDBOX_A_PACKET_ID"]
+    if mutation:
+        with pytest.raises(dispatch.Refused, match="compact export controls"):
+            dispatch.require_sandbox_admission(packet, ROOT)
+    else:
+        dispatch.require_sandbox_admission(packet, ROOT)

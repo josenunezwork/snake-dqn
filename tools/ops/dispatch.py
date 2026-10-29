@@ -652,6 +652,21 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         )
     if study == "sandbox-a-train01":
         allowed_env.add("SANDBOX_A_STALL_TIMEOUT_SECONDS")
+        compact_controls = {"SANDBOX_A_SNAPSHOT_FORMAT", "SANDBOX_A_PACKET_ID"}
+        if compact_controls & set(env):
+            expected_packet = Path(admission["manifest_path"]).parent.name
+            from research.sandbox_a_resident.training_units import validate_compact_source_packet
+
+            try:
+                validate_compact_source_packet(expected_packet, 0)
+            except ValueError as error:
+                raise Refused("TRAIN-01 compact export packet family is unsupported") from error
+            if (
+                env.get("SANDBOX_A_SNAPSHOT_FORMAT") != "compact"
+                or env.get("SANDBOX_A_PACKET_ID") != expected_packet
+            ):
+                raise Refused("TRAIN-01 compact export controls must bind the admitted packet")
+            allowed_env.update(compact_controls)
         stall = env.get("SANDBOX_A_STALL_TIMEOUT_SECONDS", "900")
         try:
             seconds = float(stall) if isinstance(stall, str) else math.nan
