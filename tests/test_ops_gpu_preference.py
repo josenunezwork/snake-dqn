@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import ast
 import fcntl
 import hashlib
@@ -129,6 +130,104 @@ def test_both_unavailable_never_attempts_a_third_allocation(fixture):
     assert [row["job"] for row in trace(f, "run")] == ["job", "job-a100-fallback"]
 
 
+@pytest.mark.parametrize("fallback_seconds", [100, 181])
+def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch, fallback_seconds):
+    """Simulate the 100s C/T preflight after 545s spent on the primary."""
+    from tools.ops import dispatch as module
+
+    f = fixture
+    preferred(f, "gpu_unavailable")
+    packet = json.loads(f["manifest"].read_text())
+    packet["sandbox_admission"] = {}  # Select the real 180s validation bound.
+    monkeypatch.setenv("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "600")
+    now = [1000.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(module, "supervisor_launcher", lambda *_: Path("/fake/launch.sh"))
+    starts, validations, windows = [], [], []
+
+    def assert_locked():
+        with (f["ops"] / "alloc.lock").open("a") as lock:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def run(argv, *, timeout, **kwargs):
+        assert argv[0] == "/fake/launch.sh"
+        manifest = Path(argv[-1])
+        live = manifest.name.endswith(".live.json")
+        fallback = "a100-fallback" in manifest.name
+        duration = fallback_seconds if live and fallback else 100
+        if live:
+            assert_locked()
+        validations.append((live, fallback, timeout))
+        now[0] += min(duration, timeout)
+        if duration > timeout:
+            raise subprocess.TimeoutExpired(argv, timeout)
+        return subprocess.CompletedProcess(argv, 0)
+
+    # Exercise validate() and command() themselves; only the subprocess is fake.
+    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(module, "qualified", lambda *_args, **_kwargs: assert_locked())
+
+    def refresh(path, evidence, deadline):
+        assert_locked()
+        windows.append(deadline - now[0])
+        live = path.with_suffix(".live.json")
+        live.write_bytes(path.read_bytes())
+        evidence.write_text(
+            json.dumps({"manifest_sha256": hashlib.sha256(live.read_bytes()).hexdigest()})
+        )
+        return live
+
+    def start(_broker, _cwd, _lane, _live, log, name, deadline, **_kwargs):
+        assert_locked()
+        assert deadline > now[0]
+        starts.append(name)
+        log.write_text("EXIT=1\n" if len(starts) == 1 else "EXIT=0\n")
+
+    def wait(_output, _log, deadline, _poll):
+        assert_locked()
+        if len(starts) == 1:
+            now[0] += 445
+            assert deadline - now[0] == 55
+            return "failed"
+        return "allocated"
+
+    def reconcile(*args):
+        assert_locked()
+        assert args[-1] - now[0] == 55
+
+    monkeypatch.setattr(module, "refresh_assignments", refresh)
+    monkeypatch.setattr(module, "start", start)
+    monkeypatch.setattr(module, "wait_allocation", wait)
+    monkeypatch.setattr(module, "allocation_unavailable", lambda *_: True)
+    monkeypatch.setattr(module, "reconcile_unavailable", reconcile)
+    monkeypatch.setattr(module, "ensure_watcher", lambda *_: None)
+    args = argparse.Namespace(name="lane", state_dir=None)
+
+    def call():
+        return module.dispatch_preferred(
+            args, packet, f["ops"], f["broker"], f["broker"], f["ops"] / "state/lane"
+        )
+
+    if fallback_seconds > 180:
+        with pytest.raises(subprocess.TimeoutExpired):
+            call()
+        assert starts == ["lane"]
+    else:
+        assert "requested_gpu=A100" in call()
+        assert starts == ["lane", "lane-a100-fallback"]
+    assert windows == [600, 600]
+    assert validations == [
+        (False, False, 180),
+        (False, True, 180),
+        (True, False, 180),
+        (True, True, 180),
+    ]
+    # Exclusion is released after either success or validation timeout.
+    with (f["ops"] / "alloc.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
 def test_post_endpoint_accounting_failure_never_uses_legacy_retry(fixture):
     f = fixture
     preferred(f, "retry_success")
@@ -151,15 +250,16 @@ def test_fallback_existing_output_refuses_primary(fixture):
 @pytest.mark.parametrize(
     "field,value", [("unit_cap", 1.99), ("rate_units_per_hour", 7.5), ("unit_cap", True)]
 )
-def test_pricing_refuses_before_reservation(fixture, field, value):
+def test_pricing_thresholds_warn_and_continue(fixture, field, value):
     f = fixture
     preferred(f)
     packet = json.loads(f["manifest"].read_text())
     packet["budget"][field] = value
     f["manifest"].write_text(json.dumps(packet))
     result = f["invoke"]()
-    assert result.returncode != 0
-    assert not (f["ops"] / "dispatch").exists()
+    assert result.returncode == 0, result.stderr
+    if value is not True:
+        assert "WARNING" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -334,23 +434,25 @@ def test_new_envelopes_price_each_hardware_forecast_not_inherited_cap(old_cap):
         "new_completed",
     ],
 )
-def test_real_producer_allocation_classification(tmp_path, mutation):
+@pytest.mark.parametrize("accelerator", ["H100", "A100", "L4", "G4", "B200"])
+def test_real_producer_allocation_classification(tmp_path, mutation, accelerator):
     from tools.ops.dispatch import allocation_unavailable
 
     receipt = json.loads((REAL_FAILURE / "receipt.json").read_text())
     detail = ast.literal_eval(receipt["error"][len("Refused(") : -1])
+    detail = detail.replace("accelerator=H100", f"accelerator={accelerator}")
     replacements = {
         "503": ("Service Unavailable", "503"),
         "400": ("Service Unavailable", "Bad Request"),
         "timeout": ("Service Unavailable", "Read timed out"),
         "url": ("/tun/m/assign?", "/tun/m/other?"),
-        "accelerator": ("accelerator=H100", "accelerator=A100"),
+        "accelerator": (f"accelerator={accelerator}", "accelerator=FOREIGN"),
         "method": ("request POST", "request GET"),
         "suffix": ("Service Unavailable", "Service Unavailable extra"),
     }
     if mutation in replacements:
         detail = detail.replace(*replacements[mutation])
-        receipt["error"] = "Refused(" + repr(detail) + ")"
+    receipt["error"] = "Refused(" + repr(detail) + ")"
     if mutation == "endpoint":
         receipt["endpoint"] = "assigned"
     if mutation == "accounting_endpoint":
@@ -366,17 +468,23 @@ def test_real_producer_allocation_classification(tmp_path, mutation):
     (tmp_path / "receipt.json").write_text(json.dumps(receipt))
     log = tmp_path / "producer.log"
     log.write_bytes((REAL_FAILURE / "producer.log").read_bytes())
-    assert allocation_unavailable(tmp_path, log) is (mutation in {"healthy", "503"})
+    assert allocation_unavailable(tmp_path, log, accelerator) is (mutation in {"healthy", "503"})
 
 
-def retained_pending(f):
-    """Produce a failed attempt with the real error and a retained fixture intent."""
-    preferred(f, "gpu_service_unavailable")
-    f["env"]["GPU_FAILURE_FIXTURE"] = str(REAL_FAILURE / "receipt.json")
-    f["env"]["RECOVER_ENDPOINT"] = "uncertain-endpoint"
+def retained_pending(f, accelerator="H100"):
+    """Produce a sealed single-GPU failure without a preference or fallback."""
+    preferred(f, "gpu_retained_service_unavailable")
+    packet = json.loads(f["manifest"].read_text())
+    packet["requirements"].pop("prefer")
+    packet["requirements"].update(gpu=accelerator, allowed_gpus=[accelerator])
+    f["manifest"].write_text(json.dumps(packet))
+    failure = json.loads((REAL_FAILURE / "receipt.json").read_text())
+    failure["error"] = failure["error"].replace("accelerator=H100", f"accelerator={accelerator}")
+    path = f["tmp"] / "failure.json"
+    path.write_text(json.dumps(failure))
+    f["env"]["GPU_FAILURE_FIXTURE"] = str(path)
     result = f["invoke"]()
-    assert result.returncode != 0 and "endpoint recovered" in result.stderr
-    del f["env"]["RECOVER_ENDPOINT"]
+    assert result.returncode == 0 and "allocation=failed" in result.stdout, result.stderr
     account = Path(f["env"]["HOME"]) / ".config/colab-cli/snake"
     return next(account.glob("pending-*.json"))
 
@@ -449,9 +557,12 @@ def test_fallback_waits_for_account_lock_or_retains_pending_at_deadline(fixture,
 
 @pytest.mark.parametrize("live", [False, True])
 @pytest.mark.parametrize("release", [True, False])
-def test_operator_waits_for_account_lock_or_retains_pending_at_deadline(fixture, live, release):
+@pytest.mark.parametrize("accelerator", ["H100", "A100"])
+def test_operator_waits_for_account_lock_or_retains_pending_at_deadline(
+    fixture, live, release, accelerator
+):
     f = fixture
-    pending = retained_pending(f)
+    pending = retained_pending(f, accelerator)
     raw = pending.read_bytes()
     active = pending.parent / "active-preexisting.json"
     active.write_text('{"session":"preexisting"}')
@@ -483,9 +594,10 @@ def test_operator_waits_for_account_lock_or_retains_pending_at_deadline(fixture,
 
 
 @pytest.mark.parametrize("live", [False, True])
-def test_operator_reconciliation_repeats_proof_and_preserves_active(fixture, live):
+@pytest.mark.parametrize("accelerator", ["H100", "A100", "L4", "G4", "B200"])
+def test_operator_reconciliation_repeats_proof_and_preserves_active(fixture, live, accelerator):
     f = fixture
-    pending = retained_pending(f)
+    pending = retained_pending(f, accelerator)
     raw = pending.read_bytes()
     active = pending.parent / "active-preexisting.json"
     active.write_text('{"session":"preexisting"}')
@@ -499,6 +611,7 @@ def test_operator_reconciliation_repeats_proof_and_preserves_active(fixture, liv
     )
     assert result.returncode == 0, result.stderr
     evidence = json.loads(result.stdout)
+    assert evidence["requested_accelerator"] == accelerator
     assert evidence["pending"]["record"] == json.loads(raw)
     assert evidence["pending"]["sha256"] == hashlib.sha256(raw).hexdigest()
     assert evidence["pending_action"] == ("unlink_after_archive" if live else "preserve")
@@ -543,9 +656,10 @@ def test_operator_refuses_invalid_deadline_before_proof_or_mutation(fixture, sec
         "proof_failure",
     ],
 )
-def test_operator_reconciliation_refuses_ambiguous_evidence(fixture, fault):
+@pytest.mark.parametrize("accelerator", ["H100", "A100"])
+def test_operator_reconciliation_refuses_ambiguous_evidence(fixture, fault, accelerator):
     f = fixture
-    pending = retained_pending(f)
+    pending = retained_pending(f, accelerator)
     raw = pending.read_bytes()
     selected = pending
     if fault == "recovered":
@@ -572,4 +686,48 @@ def test_operator_reconciliation_refuses_ambiguous_evidence(fixture, fault):
     assert result.returncode != 0
     assert "REFUSE:" in result.stderr
     assert pending.read_bytes() == raw
+    assert len(trace(f, "run")) == 1
+
+
+@pytest.mark.parametrize("error", ["Bad Request", "Read timed out", "Permission Denied"])
+def test_a100_operator_refuses_other_errors_before_retiring(fixture, error):
+    f = fixture
+    pending = retained_pending(f, "A100")
+    raw = pending.read_bytes()
+    path = f["tmp"] / "output/receipt.json"
+    receipt = json.loads(path.read_text())
+    receipt["error"] = receipt["error"].replace("Service Unavailable", error)
+    path.write_text(json.dumps(receipt))
+    result = subprocess.run(
+        reconcile_command(f, pending, live=True),
+        env=f["env"],
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode != 0 and "unavailability is not proven" in result.stderr
+    assert pending.read_bytes() == raw
+    assert not (f["tmp"] / "archive.json").exists()
+    assert len(trace(f, "run")) == 1
+
+
+def test_a100_live_repeats_recovery_after_successful_dry_run(fixture):
+    f = fixture
+    pending = retained_pending(f, "A100")
+    raw = pending.read_bytes()
+    preview = subprocess.run(
+        reconcile_command(f, pending), env=f["env"], text=True, capture_output=True, timeout=10
+    )
+    assert preview.returncode == 0, preview.stderr
+    f["env"]["RECOVER_ENDPOINT"] = "now-assigned"
+    live = subprocess.run(
+        reconcile_command(f, pending, live=True),
+        env=f["env"],
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    assert live.returncode != 0 and "endpoint recovered" in live.stderr
+    assert pending.read_bytes() == raw
+    assert not (f["tmp"] / "archive.json").exists()
     assert len(trace(f, "run")) == 1

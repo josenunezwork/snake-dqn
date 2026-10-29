@@ -27,12 +27,13 @@ def test_shared_schema_rejects_historical_other_assignment_list_shape() -> None:
 
 
 @pytest.mark.parametrize("field", ["rate_units_per_hour", "unit_cap"])
-def test_shared_schema_requires_positive_priced_budget_fields(field: str) -> None:
+def test_shared_schema_accepts_zero_warning_thresholds(field: str) -> None:
     manifest = _manifest()
     manifest["budget"][field] = 0.0
 
-    with pytest.raises(schema.SchemaError, match=field):
-        schema.validate_manifest(manifest)
+    assert schema.validate_manifest(manifest) == tuple(manifest["required_exports"])
+    del manifest["budget"][field]
+    schema.validate_manifest(manifest)
 
 
 def test_terminal_inventory_requires_scanner_records_for_declared_exports() -> None:
@@ -97,3 +98,9 @@ def test_generation_fence_rpc_error_is_foreign():
         )
         is failures.FailureClass.FOREIGN_GENERATION
     )
+
+
+def test_budget_is_optional():
+    manifest = _manifest()
+    del manifest["budget"]
+    schema.validate_manifest(manifest)

@@ -68,9 +68,9 @@ def test_slow_first_exec_recovers_only_after_independent_idle_proof(
 
 
 @pytest.mark.parametrize(
-    ("wall", "priced", "bound"), [(600, 600, 300), (40, 600, 40), (600, 42, 42)]
+    ("wall", "priced", "bound"), [(600, 600, 300), (40, 600, 40), (600, 42, 300)]
 )
-def test_unready_runtime_is_bounded_by_warmup_wall_and_unit_deadlines(
+def test_unready_runtime_keeps_wall_bound_and_ignores_unit_deadline(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, wall: float, priced: float, bound: float
 ) -> None:
     now = _clock(monkeypatch)

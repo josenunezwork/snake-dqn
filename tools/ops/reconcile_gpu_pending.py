@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preview or retire a proven unassigned H100 pending intent; never allocate/stop."""
+"""Preview or retire a proven unassigned accelerator intent; never allocate/stop."""
 
 from __future__ import annotations
 

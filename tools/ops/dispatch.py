@@ -37,6 +37,7 @@ _guard_spec.loader.exec_module(_guard_module)
 _guard_module.verify(HERE.parents[1])
 if str(HERE.parents[1]) not in sys.path:
     sys.path.insert(0, str(HERE.parents[1]))
+from research.colab_cli.accounting import budget_warning, warning_threshold  # noqa: E402
 from research.compute.colab_control import POLICY_ID as CONTROL_POLICY_ID  # noqa: E402
 from research.compute.colab_control import RULING_SHA256 as CONTROL_RULING_SHA256  # noqa: E402
 from research.compute.gpu_preference import FALLBACK_SUFFIX, sibling_id, variants  # noqa: E402
@@ -703,7 +704,8 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         result = json.loads(json.dumps(value))
         req = result["requirements"]
         req.setdefault("allowed_gpus", [req["gpu"]])
-        result["budget"].setdefault("reserve_units", 0)
+        result.setdefault("budget", {}).setdefault("reserve_units", 0)
+        result["budget"].setdefault("rate_units_per_hour", 0)
         result["budget"]["other_assignments"] = {}  # Fresh broker prices only.
         result.setdefault("env", {})
         result.setdefault("lease_seconds", 180)
@@ -977,10 +979,13 @@ def _chain_values(manifests: list[dict[str, Any]], minutes: float, units: float)
         raise Refused("retained dispatch has duplicate job identifiers")
     if len({item.get("output_dir") for item in manifests}) != len(manifests):
         raise Refused("retained dispatch requires separate output roots")
-    if not all(math.isfinite(value) and value > 0 for value in (minutes, units)):
-        raise Refused("retention minutes and units must be finite positive values")
-    if minutes > 240 or units > 40:
-        raise Refused("retained ready-work chain exceeds the ruled 4 h / 40 u ceiling")
+    if not math.isfinite(minutes) or minutes <= 0:
+        raise Refused("retention minutes must be finite and positive")
+    units = warning_threshold(units, "retention_units")
+    if minutes > 240:
+        raise Refused("retained ready-work chain exceeds the ruled 4 h ceiling")
+    if units is not None and units > 40:
+        budget_warning("RETENTION_UNIT_THRESHOLD", units=units, legacy_threshold=40)
     if any(
         item.get("resume_exemption", {}).get("kind") == "acceptance"
         and item.get("timeout_minutes", math.inf) > 60
@@ -1036,7 +1041,7 @@ def start_chain(
         "--retention-minutes",
         str(minutes),
         "--retention-units",
-        str(units),
+        str(units or 0),
     ]
     environment = shlex.join(["env", f"HOME={Path.home()}", f'PATH={os.environ["PATH"]}'])
     body = (
@@ -1258,17 +1263,23 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
             or not math.isfinite(rate)
             or rate <= 0
         ):
-            raise Refused(f"broker endpoint lacks a calibrated positive rate: {endpoint}")
+            budget_warning("BROKER_RATE_UNAVAILABLE", endpoint=endpoint, rate=rate)
+            rate = 0.0
         registered = {"L4": 1.54, "CPU": 0.08}.get(hardware.upper())
         if registered is not None and not math.isclose(rate, registered, rel_tol=0, abs_tol=1e-9):
-            raise Refused(f"broker rate differs from registered {hardware} rate: {endpoint}")
+            budget_warning(
+                "BROKER_RATE_DIFFERS_FROM_REGISTERED",
+                endpoint=endpoint,
+                rate=rate,
+                registered=registered,
+            )
         if hardware.upper() not in ("L4", "CPU", "A100", "H100"):
             raise Refused(f"unregistered live hardware: {hardware}")
         rates[endpoint] = rate
     original = manifest.read_bytes()
     value = json.loads(original)
     require_f5_plan_live_assignment_match(value, {"budget": {"other_assignments": rates}})
-    value["budget"]["other_assignments"] = rates
+    value.setdefault("budget", {})["other_assignments"] = rates
     refreshed = manifest.with_name(f"{manifest.stem}.live.json")
     payload = (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
     with refreshed.open("xb") as stream:
@@ -1294,7 +1305,9 @@ A1_AUTHORITY_SHA256 = "1c87898be554d8e66788da6f0a09ee7b842a514e530c1d0e1c624bcf5
 
 
 def a1_acceptance_limit(manifest: dict[str, Any], exemption: dict[str, Any]) -> bool:
-    """Recognize only the source-bound A1 ruler's authorized 2 h / 20 u envelope."""
+    """Recognize the source-bound A1 ruler's authorized two-hour envelope."""
+    if manifest.get("budget", {}).get("unit_cap") not in (None, 20):
+        budget_warning("A1_LEGACY_UNIT_THRESHOLD", unit_cap=manifest["budget"]["unit_cap"])
     return (
         exemption.get("kind") == "acceptance"
         and exemption.get("authority_sha256") == A1_AUTHORITY_SHA256
@@ -1302,7 +1315,6 @@ def a1_acceptance_limit(manifest: dict[str, Any], exemption: dict[str, Any]) -> 
         and manifest.get("env", {}).get("GPU_SIM_SPIKE_ENTRYPOINT") == "a1-ruler"
         and manifest.get("requirements", {}).get("gpu") == "A100"
         and manifest.get("requirements", {}).get("allowed_gpus") == ["A100"]
-        and manifest.get("budget", {}).get("unit_cap") == 20
         and manifest.get("a1", {}).get("shapes") == [6, 256, 1024]
         and manifest.get("a1", {}).get("mixes") == ["scripted", "frozen", "mixed"]
         and manifest.get("a1", {}).get("repeats") == 3
@@ -1958,10 +1970,12 @@ def require_f5_plan_live_assignment_match(original: dict[str, Any], live: dict[s
         F5_PLAN_ADMISSION_SCHEMA,
         F5_TIMING_ADMISSION_SCHEMA,
     }:
-        if live.get("budget", {}).get("other_assignments") != original.get("budget", {}).get(
-            "other_assignments"
-        ):
+        expected = original.get("budget", {}).get("other_assignments", {})
+        observed = live.get("budget", {}).get("other_assignments", {})
+        if set(observed) != set(expected):
             raise Refused("F5 live assignments differ from sealed admission; seal a successor")
+        if observed != expected:
+            budget_warning("F5_LIVE_RATE_CHANGED", expected=expected, observed=observed)
 
 
 def wait_allocation(output: Path, log: Path, deadline: float, poll: float) -> str:
@@ -2029,13 +2043,15 @@ ALLOCATION_UNAVAILABLE = (
 )
 
 
-def allocation_unavailable(output: Path, log: Path) -> bool:
+def allocation_unavailable(output: Path, log: Path, accelerator: str) -> bool:
     """Recognize the measured 0.7.4 pre-assignment scarcity errors only.
 
     This is only a candidate: reconciliation below must independently prove
     no assignment. Timeout, entitlement, accounting and post-endpoint errors
     never qualify. The qualified supervisor intentionally retains uncertainty.
     """
+    if not isinstance(accelerator, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", accelerator):
+        return False
     if not re.search(r"^EXIT=[1-9]\d*$", log.read_text(), re.MULTILINE):
         return False
     path = output / "receipt.json"
@@ -2067,7 +2083,7 @@ def allocation_unavailable(output: Path, log: Path) -> bool:
             re.fullmatch(
                 r"ColabRequestError: Failed to issue request POST "
                 r"https://colab\.research\.google\.com/tun/m/assign"
-                r"\?nbh=[a-f0-9_.-]+&variant=GPU&accelerator=H100: "
+                r"\?nbh=[a-f0-9_.-]+&variant=GPU&accelerator=" + re.escape(accelerator) + r": "
                 r"(?:Service Unavailable|503(?: Service Unavailable)?)",
                 lines[-1] if lines else "",
             )
@@ -2115,11 +2131,10 @@ def reconcile_unavailable(
     failure or unrelated pending record leaves the account fenced for an operator.
     """
     packet = read_json(manifest)
-    if packet.get("requirements", {}).get("gpu") != "H100":
-        raise Refused("only H100 allocation reconciliation is supported")
+    accelerator = packet.get("requirements", {}).get("gpu")
     output = Path(packet["output_dir"])
-    if not allocation_unavailable(output, log):
-        raise Refused("H100 allocation unavailability is not proven")
+    if not allocation_unavailable(output, log, accelerator):
+        raise Refused("requested accelerator allocation unavailability is not proven")
     receipt_path = output / "receipt.json"
     receipt = read_json(receipt_path)
     session = receipt.get("session", "")
@@ -2179,7 +2194,7 @@ def reconcile_unavailable(
             text=True,
         )
         if json.loads(recovered.stdout) != {"endpoint": None}:
-            raise Refused("H100 endpoint recovered; fallback forbidden")
+            raise Refused("allocation endpoint recovered; retirement and fallback forbidden")
         inventory = command(
             [str(Path.home() / ".local/bin/colab"), "--auth", "oauth2", "sessions"],
             deadline=deadline,
@@ -2201,6 +2216,7 @@ def reconcile_unavailable(
         evidence = {
             "schema": "colab-allocation-unavailable/v1",
             "classification": "ALLOCATION_UNAVAILABLE",
+            "requested_accelerator": accelerator,
             "receipt": {
                 "path": str(receipt_path),
                 "sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
@@ -2301,7 +2317,7 @@ def dispatch_preferred(
                     "sha256": seal,
                     "name": name,
                     "gpu": packet["requirements"]["gpu"],
-                    "budget": packet["budget"],
+                    "budget": packet.get("budget", {}),
                     "receipt": str(ops / "dispatch" / name / "gpu-receipt.json"),
                 }
                 for name, path, seal, packet in zip(names, paths, seals, packets)
@@ -2312,10 +2328,14 @@ def dispatch_preferred(
     poll = float(os.environ.get("OPS_ALLOC_POLL_INTERVAL_SECONDS", "1"))
     if not math.isfinite(seconds) or not 0 < seconds <= 600 or not math.isfinite(poll) or poll <= 0:
         raise Refused("invalid allocation wait bounds")
-    with allocation_lock(ops / "alloc.lock", seconds) as deadline:
+    # Keep exclusion across both variants, but do not charge the sibling's
+    # admission/allocation window for time already spent on the primary.
+    # Each variant retains the ordinary bound; the whole pair is bounded too.
+    with allocation_lock(ops / "alloc.lock", seconds * len(packets)) as preference_deadline:
         for index, (packet, path, lane, log, name) in enumerate(
             zip(packets, paths, states, logs, names)
         ):
+            deadline = min(preference_deadline, time.monotonic() + seconds)
             if any(
                 hashlib.sha256(p.read_bytes()).hexdigest() != seal for p, seal in zip(paths, seals)
             ):
@@ -2353,7 +2373,9 @@ def dispatch_preferred(
             if (
                 index == 0
                 and outcome == "failed"
-                and allocation_unavailable(Path(packet["output_dir"]), log)
+                and allocation_unavailable(
+                    Path(packet["output_dir"]), log, packet["requirements"]["gpu"]
+                )
             ):
                 reconcile_unavailable(
                     broker, live, lane, log, ops / "dispatch" / name / "unavailable.json", deadline
@@ -2638,8 +2660,8 @@ def main() -> int:
         elif args.name is None or args.manifest is None:
             raise Refused("ordinary dispatch requires NAME and MANIFEST")
         elif args.chain_manifest:
-            if args.retention_minutes is None or args.retention_units is None:
-                raise Refused("retained chain requires --retention-minutes and --retention-units")
+            if args.retention_minutes is None:
+                raise Refused("retained chain requires --retention-minutes")
             print(dispatch_chain(args))
         elif args.retention_minutes is not None or args.retention_units is not None:
             raise Refused("retention arguments require --chain-manifest")

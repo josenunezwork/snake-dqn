@@ -347,8 +347,10 @@ class AcceptanceObserver:
         if unaccounted or not isinstance(assignments, list):
             raise supervisor.Refused("acceptance has unaccounted concurrent assignments")
         for assignment in assignments:
-            if not isinstance(assignment, dict) or assignment.get("rate_units_per_hour", 0) <= 0:
-                raise supervisor.Refused("acceptance assignment ledger lacks a positive rate")
+            if not isinstance(assignment, dict):
+                raise supervisor.Refused("acceptance assignment ledger entry is not an object")
+            if assignment.get("rate_units_per_hour", 0) <= 0:
+                supervisor.budget_warning("ACCEPTANCE_RATE_UNAVAILABLE", assignment=assignment)
         record = self.records.get("account-assignment-spend")
         arm_evidence = {"arm": arm, **ledger}
         if record is None:
