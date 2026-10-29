@@ -583,3 +583,32 @@ def test_train01_compact_export_controls_bind_exact_admitted_packet(monkeypatch,
             dispatch.require_sandbox_admission(packet, ROOT)
     else:
         dispatch.require_sandbox_admission(packet, ROOT)
+
+
+@pytest.mark.parametrize("mutation", [None, "disabled", "foreign", "raw", "missing"])
+def test_s2_04_early_snapshot_control_is_narrow(monkeypatch, mutation):
+    packet_path = ROOT / "research/sandbox_a_resident/packet-train01-s2-04/dispatch-manifest.json"
+    packet = json.loads(packet_path.read_text())
+    monkeypatch.setattr(
+        preflight,
+        "preflight",
+        lambda *a, **kw: {
+            "study": "sandbox-a-train01",
+            "outputs": {"broker_manifest": {"path": str(packet_path)}},
+        },
+    )
+    monkeypatch.setattr(dispatch, "read_json", lambda *_: packet)
+    monkeypatch.setattr(dispatch, "command", lambda *a, **kw: None)
+    if mutation == "disabled":
+        packet["env"]["SANDBOX_A_EARLY_PRE_ACTOR_SNAPSHOT"] = "0"
+    elif mutation == "foreign":
+        packet["env"]["SANDBOX_A_PACKET_ID"] = "packet-train01-s2-03"
+    elif mutation == "raw":
+        packet["env"]["SANDBOX_A_SNAPSHOT_FORMAT"] = "raw"
+    elif mutation == "missing":
+        del packet["env"]["SANDBOX_A_SNAPSHOT_FORMAT"]
+    if mutation:
+        with pytest.raises(dispatch.Refused):
+            dispatch.require_sandbox_admission(packet, ROOT)
+    else:
+        dispatch.require_sandbox_admission(packet, ROOT)
