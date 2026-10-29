@@ -625,6 +625,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         "research/sandbox_b_heads/run_b3.sh": "sandbox-b-heads-v3",
         "research/sandbox_a_resident/job.sh": "sandbox-a",
         "research/sandbox_a_resident/train_job.sh": "sandbox-a-train01",
+        "research/sandbox_a_resident/critic_rescore/job.sh": "sandbox-a-train01",
     }
     study = packages.get(manifest.get("script"))
     if study is None:
@@ -739,6 +740,8 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
             if study == "sandbox-a-train01"
             else "research.sandbox_a_resident.preflight"
         )
+        if manifest["script"] == "research/sandbox_a_resident/critic_rescore/job.sh":
+            module = "research.sandbox_a_resident.critic_rescore.preflight"
         command(
             [sys.executable, "-m", module, str(path.parent)],
             cwd=broker,
