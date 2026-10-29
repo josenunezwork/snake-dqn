@@ -156,3 +156,37 @@ def test_registry_admits_only_complete_bounded_critic_units(tmp_path: Path) -> N
     write_json_unit(q, dict(values=[1]))
     with pytest.raises(ValueError, match="foreign critic"):
         validate_input(dict(kind="verified-unit", path=str(q), sha256=digest(q)))
+
+
+def test_life_clusters_preserve_between_life_bias_uncertainty() -> None:
+    rows = []
+    for mix in MIXES:
+        rows.extend([life(len(rows), mix, 0), life(len(rows) + 1, mix, 100)])
+    result = analyse(rows, 0, 800, 200)
+    # Bias is constant within each life: within-life EV stays one, but pooled
+    # EV sees the between-life residual variance and whole-life resampling.
+    assert result["mean_per_life_ev"] == pytest.approx(1)
+    assert result["explained_variance"] == pytest.approx(1 - 2500 / np.var([10, 5, 0]))
+    low, high = result["life_clustered_ev_ci95"]
+    assert high - low > 10
+    assert result == analyse(rows, 0, 800, 200)
+
+
+def test_numerical_merge_refuses_foreign_payload_header(tmp_path: Path) -> None:
+    c = fixture_control()
+    p = tmp_path / unit_filename(c, "holdout", 0)
+    write_json_unit(
+        p,
+        dict(
+            schema="critic-rescore-wave/v1",
+            allocation=fingerprint(c),
+            id="foreign-namespace",
+            phase="holdout",
+            wave=0,
+            lives=[],
+        ),
+    )
+    # Metadata-only ledger verification cannot inspect numerical contents.
+    assert len(build_ledger(c, [p])["units"]) == 1
+    with pytest.raises(ValueError, match="foreign unit identity"):
+        aggregate(c, [p], 10)
