@@ -456,7 +456,10 @@ def main() -> int:
                 else (
                     admission_tests
                     if args.admission
-                    else ["research/sandbox_a_resident", "tools/sandbox/tests/test_source_delivery.py"]
+                    else [
+                        "research/sandbox_a_resident",
+                        "tools/sandbox/tests/test_source_delivery.py",
+                    ]
                 )
             ),
         ],
