@@ -175,6 +175,7 @@ def main() -> int:
     env = dict(os.environ)
     env.pop("SNAKE_SANDBOX_TEST_RECEIPT", None)
     env.pop("SNAKE_SANDBOX_ALLOCATION_LEASE", None)
+    env.pop("SNAKE_SANDBOX_REQUIRE_TEST_RECEIPT", None)
     for key in (
         "OMP_NUM_THREADS",
         "MKL_NUM_THREADS",
