@@ -6,7 +6,7 @@ The old P bank and all 21 imported session outcomes remain closed. Read
 manifest. Existing P science/runtime/receipts are untouched.
 
 The engineering runner calls the existing `watch_lead_p.engine.run_arm` rather
-than reimplementing it. Four deterministic fresh dev seeds each supply their
+than reimplementing it. Four deterministic fresh v2 dev seeds each supply their
 first naturally reached alive L≥600 root (within 6,000 ordinary bare Watch ticks).
 No root replacement or artificial geometry is permitted. Roots are prepared
 once, in four CPU processes, then exact snapshots seed every arm and concurrency
@@ -14,31 +14,57 @@ sweep. The constructor seam supplies those snapshots; snapshot/restore, W1/K1,
 search H300, P48 delay, acceptance, fallback, fp32 and mechanics stay unchanged.
 This is a mature-window workload, not a natural-start full-session estimate.
 
-The same 12 arm tasks (four seeds × P0/P48/bare) run for 64 frames at each of
-1/4/8/11 workers. P48 can deliver at frame offset 48. Timing wrappers collect
-inclusive wall/CPU time, submit-call wall time, non-submit wall time, CPU seconds
-per wall second, RSS and host CPU/load samples. CPU shape includes logical and
-physical counts, affinity, cpuinfo, cgroup quota/stat/cpuset/memory, and nice/thread
-settings. All workload traces must hash identically across concurrency. No
-death, mass, action choices, certificates or search outcomes are exported.
-Only opaque trajectory/initial-state hashes cross the timing boundary.
+The same 12 arm tasks (four seeds × P0/P48/bare) run at 1/4/8/11 workers.
+Per-arm windows are P0=8, P48=64 and bare=64 frames. P48 can deliver at offset 48;
+P0 samples two normal H300 submissions. A separate fixed set of 11 P0 one-tick
+copies, cycling the four roots, runs at every worker count to expose homogeneous
+search pressure. Those copies are engineering load, not extra scientific units.
+Both task sets must have identical opaque trajectory hashes across concurrency.
 
-The first 1-worker sweep pays cold imports separately from the measured arm
-window; every sweep includes spawning/IPC in its overall wall. Speedup therefore
-means end-to-end time for this fixed small task set, not steady-state scaling.
-Prefix preparation is measured separately. Per-arm CPU% uses 100% = one logical
-core. Difference consecutive cumulative child CPU-second samples / wall intervals
-for aggregate child utilization; do not sum percentages normalized by host cores.
-All workers stay alive until sweep end, so their cumulative CPU is retained.
+Each pool consists of a fixed owned set of raw spawn processes, without an
+executor manager or automatic worker replacement. Every worker initializes the
+uploaded checkpoint context and real process-global GameConfig once, and asserts
+one Torch intra/interop thread. All w workers report ready before timed work is
+submitted; pool startup is timed separately. Root payloads pass through hashed
+private local files so large pickles cannot block a queue reader during cleanup.
+No Mac-only root is uploaded; target hosts construct their own fresh roots.
 
-A 900-second total engineering work deadline includes root preparation and all
-sweeps; progress is printed at least every 30 seconds by the coordinator.
-Workers have a 900-second stall watchdog; window watchdog resets only after a
-completed tick. Deadline/error terminates and reaps only this executor's children.
-SIGUSR1/SIGTERM use default process termination: completed immutable timing cells
-remain available; this short canary claims no resumable scientific work. There
-is no automatic allocation or completion retry. Partial cells do not qualify a
-profile, and a missing final required export makes the broker refuse success.
+Timing wrappers collect inclusive arm wall/CPU time, submit wall time AND actual
+H300 search calls/seconds. Submit alone does not prove a search occurred. No
+mass, deaths, choices, Q values, certificates or drop reasons are exported.
+Actual per-row start/end timestamps allow time-weighted overlap concurrency.
+Immutable individual rows retain raw times; the final sweep adds derived mean
+concurrency. The draft requires residual contention pricing when active work
+falls below nominal w. Neither short homogeneous bursts nor mature windows
+qualify full-session tails. Rates remain target-host measurements pending dispatch.
+
+Host evidence includes logical/physical CPU counts, affinity, cpuinfo, cgroup
+quota/stat/cpuset/memory, nice and numerical thread settings. Samples record
+owned-worker cumulative CPU seconds and RSS, host load and primed host CPU usage;
+a post-warmup t=0 sample separates setup from measured work. Worker boot records
+assert Torch intra/interop=1. CPU% uses 100%=one logical core.
+
+The engineering work guard is base 450/effective 900 seconds, covering natural
+root preparation, worker warmups and all cells; overall whole-session guard is
+base 15/effective 30 minutes. These are bounded experiments, not completion
+forecasts. Coordinator progress is emitted at least every 30 seconds, including
+prefix preparation and warmup. Workers have a 900-second stall watchdog, reset on
+completed arm ticks. Parent SIGUSR1/SIGTERM raises a caught interruption so all
+owned workers are terminated/joined, then killed/joined if necessary. Worker
+signals use default dispositions. Spawn signal deferral covers PID registration.
+There is no private executor process dictionary, respawn, or automatic retry.
+Completed immutable timing cells remain retained on error, but a partial profile
+cannot qualify and missing required exports refuse broker success.
+
+Local `--check-roots` uses exactly one Mac CPU slot and only burned engineering
+seeds. It verifies natural maturity and real H300 execution in P0 and P48 before
+sealing; local timing is never a Colab rate. A blind unsupported v1 engineering
+seed was found before dispatch; that whole engineering allocation was retired.
+The fresh v2 key was fixed before its root check. All v1/v2 seeds are excluded
+from the successor. Local root caches stay outside Git and are not runtime inputs.
+The tiny `--smoke` additionally compares original construction at w1 to exact
+restore at w2; hermetic mid-session tests cover real engine snapshot/submit and
+48-frame delivery control flow with a cheap search fixture.
 
 Native family probes have a stricter ≤30-minute ceiling than the generic
 40-minute resume exemption. Base/effective whole-session guards are 15/30 min;
@@ -76,7 +102,8 @@ Prepare a source-pinned packet only after committing these sources:
 
 ```bash
 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m research.watch_lead_p_successor.prepare \
-  --pin FULL_SOURCE_SHA --packet FRESH_ABSOLUTE_PACKET_PATH
+  --pin FULL_SOURCE_SHA --packet FRESH_ABSOLUTE_PACKET_PATH \
+  --preflight ABSOLUTE_LOCAL_ROOT_PREFLIGHT_DIRECTORY
 ```
 
 The packet contains sealed manifests, bank/exclusion metadata, source hashes,

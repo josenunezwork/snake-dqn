@@ -18,6 +18,8 @@ def require_profile(manifest: dict, broker: Path) -> None:
         or manifest.get("canary")
         != {"schema": "colab-family-canary/v1", "mode": "probe", "family": SCRIPT}
         or manifest.get("requirements", {}).get("allowed_gpus") not in (["L4"], ["A100"])
+        or [manifest.get("requirements", {}).get("gpu")]
+        != manifest.get("requirements", {}).get("allowed_gpus")
         or manifest.get("timeout_minutes") != 30
         or manifest.get("resume_exemption", {}).get("kind") != "short-canary"
         or manifest.get("env", {}).get("SNAKE_COLAB_CANARY") != "1"

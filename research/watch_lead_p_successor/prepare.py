@@ -15,7 +15,7 @@ from research.watch_lead_p.protocol import FIXTURE_SEED, SEEDS
 from tools.sandbox.registry import DEFAULT_REGISTRY, load_registry, world_seed
 
 ROOT = Path(__file__).resolve().parents[2]
-STUDY = "p-successor-profile-v1"
+STUDY = "p-successor-profile-v2"
 
 
 def bank_record() -> dict:
@@ -34,6 +34,7 @@ def audit_bank() -> dict:
     registry = load_registry()
     excluded = set(registry["excluded_seeds"]) | set(SEEDS) | {FIXTURE_SEED}
     excluded.update(world_seed("t34-watch-lead-1028", i) for i in range(32, 36))
+    excluded.update(world_seed("p-successor-profile-v1", i) for i in range(4))
     for start, count in ((400_000_000, 288), (500_000_000, 768)):
         for i in range(start, start + count):
             raw = hashlib.sha256(f"a100-dev/sandbox-a-train01/{i}".encode()).digest()[:8]
@@ -62,7 +63,46 @@ def write(path: Path, value: object) -> None:
         handle.write("\n")
 
 
-def prepare(pin: str, packet: Path) -> None:
+def root_preflight(path: Path) -> dict:
+    """Require all fixed fresh roots and real H300 work before sealing a probe."""
+    from research.watch_lead_p_successor.profile import WINDOWS
+
+    summary = json.loads((path / "profile.json").read_text())
+    if not (
+        summary.get("check_roots") is True
+        and summary.get("complete") is True
+        and summary.get("mature_search_supported") is True
+        and summary.get("smoke") is False
+    ):
+        raise ValueError("local root/search preflight must pass before sealing")
+    rows = json.loads((path / "arms-w1.json").read_text())["rows"]
+    expected = {(seed, arm) for seed in bank_record()["seeds"] for arm in WINDOWS}
+    if len(rows) != 12 or {(r["seed"], r["arm"]) for r in rows} != expected:
+        raise ValueError("root preflight belongs to a foreign engineering bank")
+    for row in rows:
+        if row["frames"] != WINDOWS[row["arm"]] or (
+            row["arm"] != "bare" and row["search_calls"] <= 0
+        ):
+            raise ValueError("root preflight lacks exact-arm real search support")
+    files = [path / "profile.json", path / "arms-w1.json"]
+    for seed in bank_record()["seeds"]:
+        meta = path / f"prefix-{seed}.json"
+        value = json.loads(meta.read_text())
+        if (
+            value["seed"] != seed
+            or value["supported"] is not True
+            or not 0 < value["prefix_frames"] <= 6000
+        ):
+            raise ValueError("root preflight lacks a natural mature root")
+        files.append(meta)
+    return {
+        "status": "PASS_LOCAL_SUPPORT_ONLY",
+        "Colab_rates_measured": False,
+        "files": [{"path": str(p), "size": p.stat().st_size, "sha256": digest(p)} for p in files],
+    }
+
+
+def prepare(pin: str, packet: Path, preflight: Path) -> None:
     """Pin scripts/inputs, bound engineering time, record whole-timeout pricing."""
     if (
         subprocess.check_output(
@@ -86,7 +126,9 @@ def prepare(pin: str, packet: Path) -> None:
         blob = subprocess.check_output(["git", "show", f"{pin}:{path}"], cwd=ROOT)
         if hashlib.sha256(blob).hexdigest() != digest(ROOT / path):
             raise ValueError(f"uncommitted runtime drift: {path}")
+    support = root_preflight(preflight)
     packet.mkdir(parents=True, exist_ok=False)
+    write(packet / "local-root-preflight.json", support)
     write(packet / "profile-bank.json", bank_record())
     write(packet / "exclusion-audit.json", audit_bank())
     help_result = subprocess.run(
@@ -103,7 +145,7 @@ def prepare(pin: str, packet: Path) -> None:
     ]
     envelope = {}
     for gpu, rate in (("L4", 1.54), ("A100", 5.30)):
-        name = f"p-successor-profile-v1-{gpu.lower()}"
+        name = f"p-successor-profile-v2-{gpu.lower()}"
         base_cap = math.ceil(15 / 60 * rate * 100) / 100
         manifest = {
             "job_id": name,
@@ -147,7 +189,11 @@ def prepare(pin: str, packet: Path) -> None:
                 "family": "research/watch_lead_p_successor/profile_job.sh",
             },
             "required_exports": ["profile/host.json", "profile/profile.json"]
-            + [f"profile/sweep-w{w}.json" for w in (1, 4, 8, 11)],
+            + [
+                f"profile/{cell}-w{w}.json"
+                for cell in ("arms", "contention")
+                for w in (1, 4, 8, 11)
+            ],
         }
         write(packet / f"{gpu.lower()}-manifest.json", manifest)
         envelope[gpu] = {
@@ -201,8 +247,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pin", required=True)
     parser.add_argument("--packet", type=Path, required=True)
+    parser.add_argument("--preflight", type=Path, required=True)
     args = parser.parse_args()
-    prepare(args.pin, args.packet.resolve())
+    prepare(args.pin, args.packet.resolve(), args.preflight.resolve())
 
 
 if __name__ == "__main__":

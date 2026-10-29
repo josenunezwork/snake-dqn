@@ -33,7 +33,7 @@ with bare B8 s3 in ordinary continuously respawning mixed Watch6 sessions?
 | Search | Existing `watch_lead_p/engine.py`, `live.py`, `protocol.py` semantics: H300, trigger alive/L≥600, ≥5-frame root spacing, W1/K1, delays 0/48, same acceptance/drop/fallback and 16 MiB root limit |
 | Scientific unit | Complete three-arm paired session; all arms of a session on one host CPU model and software identity, matching initial state |
 | Proposed fresh namespace | `a100-dev/p-watch-lead-successor-v1/`, canonical `world_seed("p-watch-lead-successor-v1", i)`, i=0..31; freeze exact allocation and collision audit only after engineering acceptance |
-| Exclusions | Entire predecessor bank (32 + engineering indices 32..35), all `p-successor-profile-v1` engineering seeds and any later engineering stress seeds, protected registry and full available historical seed inventories, TRAIN01 monitor/nomination |
+| Exclusions | Entire predecessor bank (32 + engineering indices 32..35), all `p-successor-profile-v1` and `p-successor-profile-v2` engineering seeds and any later engineering stress seeds, protected registry and full available historical seed inventories, TRAIN01 monitor/nomination |
 
 Pre-data seed audit must reject a whole colliding allocation; increment a
 prospectively recorded round key, never replace one selected seed. Document audit
@@ -51,8 +51,11 @@ Benefit = `1 - mean(d_pi)/mean(d_bi)`. Relative mass is
 `mean_i((m_pi-m_bi)/m_bi)`, an equal-session paired mean, not a pooled mass ratio.
 Resample whole matched sessions, 10,000 bootstrap replicates, RNG seed 3431,
 quantile method `inverted_cdf`. Benefit limits use 0.10/0.90 quantiles; mass limits
-0.025/0.975. Zero baseline-death resamples produce conservative extended-real
-limits; unsupported benefit is INCONCLUSIVE unless the mass STOP rule applies.
+0.025/0.975. For every zero-baseline-death resample, use -infinity for the lower-bound
+sample and +infinity for the upper-bound sample, regardless of candidate deaths,
+as in the frozen P implementation; do not silently change that statistic.
+Any baseline session mass <= 0 is invalid. These conservative extended-real
+limits mean unsupported benefit is INCONCLUSIVE unless the mass STOP rule applies.
 Nonfinite/invalid payloads, changed identity/recipe, duplicates, foreign units,
 or missing sessions take precedence as INVALID/INCOMPLETE.
 
@@ -82,13 +85,16 @@ For host h and measured concurrency w, record `s[h,w,a]` = maximum measured
 inclusive seconds per frame for arm a over the frozen relevant engineering
 regimes, `c[h,w,a]` = measured per-arm construction + finalization cost,
 `q[h,w]` = measured contention factor at w / serial (do not apply twice if s is
-already measured at w), `L[h,w,a]` = measured tail-stress/full-session uplift,
+already measured at w), `L[h,w,a] >= 1` = measured tail-stress/full-session uplift,
+`q_residual[h,w,a] >= 1` = additional contention uplift whenever the measured
+window's time-weighted active concurrency is below w or sustained search pressure
+is not demonstrated (it is never assumed to be 1 from a nominal worker label),
 and setup/export/control terms from the actual supervisor receipt. All are
 **UNFILLED** until target measurements exist. Do not credit GPU acceleration:
 the science executes on CPU on both accelerator rentals.
 
 ```
-arm_forecast[h,w,a] = 6000 * s[h,w,a] * L[h,w,a] + c[h,w,a]
+arm_forecast[h,w,a] = 6000 * s[h,w,a] * L[h,w,a] * q_residual[h,w,a] + c[h,w,a]
 shard_forecast[j] = measured_scheduler_makespan(
     frozen_session_indices[j], all_three_arms, arm_forecast[h,w], w)
     + allocation + warmup + credential_launch + rate_calibration
@@ -124,7 +130,8 @@ including other projects. Never change a shard boundary based on outcomes.
 
 Freeze canonical unit ID = namespace + allocation index, allocation digest,
 controller/science fingerprint, input hashes, host/software identity, and exact
-session index assignment per shard. A unit is one complete three-arm session.
+session index assignment per shard. Use session-grouped FIFO tasks (i,P0),
+(i,P48),(i,bare) before the next session so whole units retire throughout a shard. A unit is one complete three-arm session.
 Each session is published immediately as an immutable atomic payload and public
 construction metadata, SHA sidecars and completion marker LAST. An interrupted
 session is discarded whole; no arm reuse, trajectory stitching or partial-arm
