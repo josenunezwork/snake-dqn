@@ -1,0 +1,128 @@
+{
+  "schema": "sandbox-a-offline-supervisor-golden/v1",
+  "scenario": "rate-drift",
+  "source_sha256": {
+    "research/colab_cli/supervisor.py": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+    "research/colab_cli/runtime.py": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036",
+    "research/colab_cli/failures.py": "fd92efd5700669ab331f88c6fe478f181757d3f76776a8d76ef298e43e45843f",
+    "tests/fixtures/fake_colab.py": "cc0bb1a9b83932f7dedfcee9f333df741e9dcf91c84920cee21051653e04b304",
+    "tests/fixtures/fake_colab_helper.py": "ccbaf4592ff34a3abaaa6d15ffa6d4086db5ed266cb39f57b6b74dd302cdcfe0",
+    "tests/test_colab_cli_supervisor.py": "5f96c088397dc91898ae85000d2238dba22a4358fcdb9502acdc399fea3ca9fe",
+    "research/sandbox_a_resident/capture_supervisor_goldens.py": "c8c8bb29572a54686d6bf79c39581ff8da69b92009d9b991fcc41cdc46ac0b5a",
+    "research/sandbox_a_resident/train.py": "b037733561b900d4db594d73e9edc4908c6a72bb84153832e2e6aa62d95bd66f",
+    "research/sandbox_a_resident/training_compile.py": "12d1adfae70168488d1d39e368ec07a2c6ff0b7c25d3e5c309ef26fd41d525f6",
+    "research/sandbox_a_resident/runtime_tools.py": "4cdec26d7d8b65f1bca1618ff9606dfd528c5ca6e0fdfb0950252eb0f51d7baf",
+    "research/sandbox_a_resident/training_units.py": "d577edef97cecae5c01cae61a318343178b368383ea26335903fd8995084b925",
+    "research/sandbox_a_resident/units.py": "57de601ef7db341380832147b0fcf70b346fd58be0e2a4ce3fcb3eefa1f3b70d",
+    "research/sandbox_a_resident/training_proxy.py": "c9a64489d2052c9f1e022d5e1b322d541270781378e075403d7376e2c4fec5cb",
+    "research/sandbox_a_resident/test_training_production.py": "f1cc37be582674627a321c667ab8a530f6dfa4ed6c606ef4fb7c7f97191edd1c",
+    "research/sandbox_a_resident/test_training_runner.py": "c1b19eb5bd141f77214816941d35a598c84f58da29426e6761de9eb091a32380"
+  },
+  "source_commit": "da85a426f94b6a4f2d6bfb8cb8507e26df417501",
+  "provider": "tests/fixtures/fake_colab.py (subprocess; no account access)",
+  "admission_baseline_sha256": "ab366dba80cbf5917e002af62b3b23abf7e27050680e0cb2795db08c8bef3392",
+  "injections": [
+    "after native rate calibration, fake account rate rises by 1 u/h; sessions remain unchanged; actual AccountTracker.check guard fires"
+  ],
+  "working_tree_status": " M research/sandbox_a_resident/capture_supervisor_goldens.py\n M research/sandbox_a_resident/training_resume.py\n?? research/sandbox_a_resident/TRAIN01_C2_ACCOUNTING.md\n?? research/sandbox_a_resident/test_c2_accounting_stop.py\n",
+  "head_tree": "174a1a89cac0e9f191b663b44c25213caab1dc6d",
+  "version_boundary": "runtime from manifest commit; trainer and test seams from hash-bound working tree",
+  "broker_exception": "Refused(\"INCOMPLETE: AccountingError('provider usage rate drift is not explained by accounted active assignments'); receipt: /var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/train01-goldens-mkxulul9/job-output/receipt.json\")",
+  "receipt_sha256": "0125f374dddaf56475be9d755a63f6ea5e087022d14f344f83ab0cd603cd0406",
+  "receipt_error": "AccountingError('provider usage rate drift is not explained by accounted active assignments')",
+  "failure_class": "ACCOUNTING",
+  "files": {
+    "output/accounting-baseline.json": {
+      "size": 173,
+      "sha256": "9c24383ab9def869752ce1c5ff1b8e19ac075a999670227114bf82f840f81a2f"
+    },
+    "output/hardware.json": {
+      "size": 5,
+      "sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74"
+    },
+    "output/input-hashes.json": {
+      "size": 430,
+      "sha256": "cfa4045d2f25ee179e5440e7f47e9eeefd6dfeaef1613552a327b229c2ad11e2"
+    },
+    "output/manifest.json": {
+      "size": 836,
+      "sha256": "386bafff7ce9f9f9f76d69cda121345641524099d94a87f66794b58ef6fc219d"
+    },
+    "output/rate-calibration-000.json": {
+      "size": 187,
+      "sha256": "fd581a7b8eb1e8a6e092418f4e440ba88ec69620cb574af405b1257781931d2b"
+    },
+    "output/rate-calibration-001.json": {
+      "size": 187,
+      "sha256": "6383ef8e5589da0fba4c383756068108f5563871293841ea2ec4f0e3b938d090"
+    },
+    "output/rate-calibration-002.json": {
+      "size": 188,
+      "sha256": "a71fd3d3a0934ab7d67ad6dbb575a6fa05790571217b5761bf5384b9e81c410e"
+    },
+    "output/rate-calibration.json": {
+      "size": 938,
+      "sha256": "0771d20bbbb329fa6f3cc804acca1e19623882195551f96078b0e09aa1525c9f"
+    },
+    "output/receipt.json": {
+      "size": 15791,
+      "sha256": "0125f374dddaf56475be9d755a63f6ea5e087022d14f344f83ab0cd603cd0406"
+    },
+    "output/source-delivery.json": {
+      "size": 138,
+      "sha256": "5bfe71d65f811c994804ff1133d23c4775ee464e99721187e587e4c7431401aa"
+    },
+    "output/staging/bootstrap.sh": {
+      "size": 3244,
+      "sha256": "0e8c752b7b4602c79415a57a3e14145ba3b9cc1685e7cb3114a4f40cb95d70d4"
+    },
+    "output/staging/release.py": {
+      "size": 14677,
+      "sha256": "af34a828c23045143192272ec94f62dc60aa48c55ab0324bf45026ff352cf355"
+    },
+    "output/staging/runtime.py": {
+      "size": 30712,
+      "sha256": "9b083caec777c12d508ad3692c0282b87af1a0c0304d4003e14df68cb2ad3036"
+    },
+    "output/staging/schema-validation.json": {
+      "size": 175,
+      "sha256": "a37d2d49382055fccfa4163bde45eac1d0f72b9997a02ee4068a6f5e593cb0a7"
+    },
+    "output/staging/source-plan.json": {
+      "size": 30910,
+      "sha256": "2174bb5f93e34d1a60a92bf7f86f37409bc0518718ad48f6c0cdb2851c97b1bb"
+    },
+    "output/staging/source.py": {
+      "size": 14511,
+      "sha256": "76dd3918da14090d412cfa51e3d9e7f82bb46290aa3f80262e8d723ebdc5080f"
+    },
+    "output/staging/source.tar.gz": {
+      "size": 901912,
+      "sha256": "e2d67707e087d8aef35acef9ef9a3a122f0d56de298a21de2989d9bb7cb00e03"
+    },
+    "output/upload-measurement.json": {
+      "size": 170,
+      "sha256": "fd3d4c11fb7b20b04b9ac8a07060de3d57f233735dd96cf5ee30f9a5950b05f0"
+    },
+    "output/usage-allocated.json": {
+      "size": 62,
+      "sha256": "0606d4eb21388a79ef86fcea5f8583a50a7193475d477e87d577a653a439cd49"
+    },
+    "output/warmup-measurement.json": {
+      "size": 64,
+      "sha256": "97edc79e0ad801de6dcd03d28fcf15c8d82bba59b0b8d3c2b08b92a42415ce32"
+    },
+    "pinned-commit.raw": {
+      "size": 254,
+      "sha256": "922a25c264c1c71dc62053e0760e2af0f86fd61187ed24568da02933228b07d8"
+    },
+    "provider-sessions.json": {
+      "size": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "supervisor.log": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

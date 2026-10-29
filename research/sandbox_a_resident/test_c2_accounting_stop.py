@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import shutil
 import subprocess
@@ -18,7 +19,17 @@ from research.sandbox_a_resident.units import digest
 @pytest.fixture(scope="module")
 def native_guard(tmp_path_factory):
     root = tmp_path_factory.mktemp("native-rate-guard") / "capture"
-    provenance = capture.capture_one(root, "rate-drift")
+    # 041a01b6 prospectively makes rate drift warning-only. The stopped r6
+    # guard remains historical continuation evidence, so replay the unchanged
+    # native capture used by accepted 0a0f5faf rather than recreating an error
+    # that the current producer no longer raises.
+    recorded = Path(__file__).parent / "fixtures/supervisor_goldens/historical-rate-drift"
+    shutil.copytree(recorded, root)
+    provenance = json.loads((root / "provenance.json").read_text())
+    for relative, expected in provenance["files"].items():
+        payload = (root / relative).read_bytes()
+        assert len(payload) == expected["size"]
+        assert hashlib.sha256(payload).hexdigest() == expected["sha256"]
     output = root / "output"
     receipt = json.loads((output / "receipt.json").read_text())
     manifest = json.loads((output / "manifest.json").read_text())
@@ -172,3 +183,9 @@ def test_rate_guard_error_cannot_be_relocated(tmp_path: Path, native_guard, surf
             output_root=output,
             supervisor_log_path=target if surface == "supervisor-log" else None,
         )
+
+
+def test_current_producer_rate_drift_is_warning_only(tmp_path):
+    provenance = capture.capture_one(tmp_path / "current-rate-warning", "rate-drift")
+    assert provenance["receipt_error"] is None
+    assert provenance["failure_class"] is None
