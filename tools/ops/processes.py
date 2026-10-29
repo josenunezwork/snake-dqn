@@ -27,26 +27,45 @@ def run(args: list[str], *, timeout: float, check: bool = False, **kwargs: Any) 
     def interrupted(signum: int, frame: Any) -> None:
         raise SystemExit(128 + signum)
 
-    def terminate() -> None:
+    def signal_group(signum: int) -> None:
         try:
-            os.killpg(process.pid, signal.SIGTERM)
+            os.killpg(process.pid, signum)
         except ProcessLookupError:
             pass
+        except PermissionError:
+            # macOS can return EPERM for an already-exited orphan group. Do
+            # not suppress an actual cleanup failure: independently refuse if
+            # the owned PGID still contains any non-zombie process.
+            inventory = subprocess.run(
+                ["/bin/ps", "-axo", "pgid=,stat="],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=True,
+            )
+            for row in inventory.stdout.splitlines():
+                fields = row.split()
+                if fields and int(fields[0]) == process.pid and not fields[1].startswith("Z"):
+                    raise
+
+    def terminate() -> None:
+        signal_group(signal.SIGTERM)
         try:
             process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
             pass
         # Kill surviving descendants even if the immediate child already exited.
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        signal_group(signal.SIGKILL)
         process.communicate()
 
     if install_handler:
         previous = signal.signal(signal.SIGTERM, interrupted)
     try:
         stdout, stderr = process.communicate(timeout=timeout)
+        if process.returncode:
+            # A nested validator may have caught its own subprocess timeout
+            # and exited nonzero, leaving descendants in this owned group.
+            terminate()
     except BaseException:
         terminate()
         raise

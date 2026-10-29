@@ -50,6 +50,26 @@ def test_outer_timeout_cleans_nested_owned_group(tmp_path: Path) -> None:
         os.kill(int(ids.read_text()), 0)
 
 
+def test_failed_validator_reaps_child_left_by_inner_timeout(tmp_path: Path) -> None:
+    pid_file = tmp_path / "pid"
+    code = (
+        "import subprocess,sys; "
+        "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); "
+        f"open({str(pid_file)!r},'w').write(str(p.pid)); "
+        "raise SystemExit(1)"
+    )
+    with pytest.raises(subprocess.CalledProcessError):
+        processes.run([sys.executable, "-c", code], timeout=2, check=True)
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            os.kill(int(pid_file.read_text()), 0)
+        except ProcessLookupError:
+            break
+        assert time.monotonic() < deadline, "orphan validator child survived group cleanup"
+        time.sleep(0.01)
+
+
 def test_command_has_independent_validation_and_allocation_windows(monkeypatch) -> None:
     clock = [100.0]
     monkeypatch.setattr(dispatch.time, "monotonic", lambda: clock[0])
