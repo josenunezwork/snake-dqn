@@ -17,6 +17,7 @@ POLICY = ROOT / "tools/sandbox/ct_mac_compatibility.json"
 MAC_ONLY = frozenset(
     {
         "research/sandbox_a_resident/ct_cuda_observed.py",
+        "research/sandbox_a_resident/ct_cuda_capture.py",
         "research/sandbox_a_resident/ct_resume.py",
     }
 )

@@ -6,6 +6,10 @@
     }
   ],
   "mac_only_sources": {
+    "research/sandbox_a_resident/ct_cuda_capture.py": {
+      "broker_sha256": "4e240d521b275ff03229752c4b40c2c9390aa0baddf17cab38da2a2c07c8d552",
+      "runtime_sha256": "50b2afdb8ddcd224668989874e4e5ff22758267e089e0e4f8de8d631e6164951"
+    },
     "research/sandbox_a_resident/ct_cuda_observed.py": {
       "broker_sha256": "0d4a96e1184c8b6ed294ee8b4f244c008a2e6b57eda4f9f9645ca4350d073d10",
       "runtime_sha256": "a1be39deb2d0325f3dfba99d42c18e10cb012fae0b0a875d41007ed9772e4a38"

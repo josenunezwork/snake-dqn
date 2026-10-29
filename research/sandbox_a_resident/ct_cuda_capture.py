@@ -12,6 +12,8 @@ import argparse
 import copy
 import hashlib
 import math
+import subprocess
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +39,17 @@ def _require(condition: bool, message: str) -> None:
 
 def _finite_under(value: Any, bound: float) -> bool:
     return type(value) in (float, int) and math.isfinite(value) and 0 <= value < bound
+
+
+@lru_cache(maxsize=256)
+def _pinned_transport_digest(pin: str, name: str) -> str:
+    """Hash immutable capture-era Git bytes, independent of today's host broker."""
+    _require(admission._is_hex(pin, 40), "capture transport pin is not a full commit")
+    result = subprocess.run(
+        ["git", "show", f"{pin}:{name}"], cwd=ROOT, capture_output=True, timeout=10
+    )
+    _require(result.returncode == 0, "capture pinned transport source is unavailable")
+    return hashlib.sha256(result.stdout).hexdigest()
 
 
 @admission._evidence_session
@@ -96,11 +109,11 @@ def validate_capture(
         == {(row["dest"], row["sha256"]) for row in manifest["inputs"]}
         and all(row["transport"] == "upload" and row["size"] > 0 for row in proof["inputs"])
         and all(
-            admission.digest(ROOT / name) == expected
+            _pinned_transport_digest(pin, name) == expected
             for name, expected in proof["transport_identity"].items()
         )
         and receipt["supervisor_sha256"]
-        == admission.digest(ROOT / "research/colab_cli/supervisor.py"),
+        == _pinned_transport_digest(pin, "research/colab_cli/supervisor.py"),
         "capture input/qualified-transport proof mismatch",
     )
     job, generation = receipt["job_id"], receipt["generation"]

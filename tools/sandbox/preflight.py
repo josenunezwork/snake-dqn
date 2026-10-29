@@ -17,6 +17,7 @@ from typing import Any, Sequence
 from .manifest import ManifestError, _forbidden, load_manifest, protected_name
 
 TRANSPORT_TREE = "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+QUALIFIED_TRANSPORT_TREES = frozenset({TRANSPORT_TREE, "cfd50f45145489c87ff986b9d1a2eed18b07377d"})
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -95,8 +96,8 @@ def verify_committed_manifest(path: Path, *, require_committed: bool = True) -> 
 def verify_transport_tree() -> None:
     """Confirm the qualified transport subtree is bit-identical and untouched."""
     tree = _run(["git", "rev-parse", "HEAD:research/colab_cli"])
-    if tree != TRANSPORT_TREE:
-        raise PreflightError("qualified research/colab_cli tree differs from 5833e54e")
+    if tree not in QUALIFIED_TRANSPORT_TREES:
+        raise PreflightError("research/colab_cli tree lacks an exact qualification")
     dirty = _run(
         ["git", "status", "--porcelain", "--untracked-files=all", "--", "research/colab_cli"]
     )
@@ -296,7 +297,7 @@ def _verify_broker_binding(payload: dict[str, Any]) -> None:
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise PreflightError("broker runtime pin must be a full commit SHA")
     pinned_tree = _run(["git", "rev-parse", f"{commit}:research/colab_cli"])
-    if pinned_tree != TRANSPORT_TREE:
+    if pinned_tree not in QUALIFIED_TRANSPORT_TREES:
         raise PreflightError("broker source pin changes qualified transport")
     for source in packet.get("source_paths", []):
         _assert_safe_path(source, "broker source")
