@@ -1,0 +1,12 @@
+{
+  "origin": "REAL TRAIN-01 attempt-15, local read-only byte copies; not a fake-provider capture",
+  "source_log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/sandbox-a-train01-20261027-15.log",
+  "source_output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15/output",
+  "copied_at_utc": "2026-10-29T05:59:47.606348+00:00",
+  "redactions": [],
+  "poll_count": 1279,
+  "log_lines": 1428,
+  "archive_sha256": "3273f56dff8abf767d5e51902ddc6725475dba415f542ebcdfb322db7785d716",
+  "inventory_sha256": "52a8501b52d7e53fd57c4232d64483d09cbaaab53ac20a0cd4d64816658d8a70",
+  "scope": "Executed manifest, complete supervisor log and all saved polls; snapshot payloads remain external. ENOSPC/EXIT footer uses the existing exact ENOSPC scan path. This regression proves full retained diagnostic admission, not a new released-run receipt."
+}

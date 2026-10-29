@@ -580,6 +580,15 @@ def _refuse_if_fault_text(
 ) -> None:
     if not isinstance(value, str) or not value.strip():
         return
+    # One exact producer warning, anchored through the runtime root and version.
+    warning = re.compile(
+        r"/?content/snake-cli/[0-9a-f]{32}/\.venv/lib/python3\.12/site-packages/"
+        r"torch/_inductor/compile_fx\.py:312: UserWarning: TensorFloat32 tensor cores "
+        r"for float32 matrix multiplication available but not enabled\. Consider setting "
+        r"`torch\.set_float32_matmul_precision\('high'\)` for better performance\."
+    )
+    # Mask only complete exact lines, even in JSON-encoded diagnostic strings.
+    value = warning.sub(lambda m: "" if m.group() == value.strip() else m.group(), value)
     lowered = value.lower()
     exit_signals = re.findall(
         r"\b(?:exit(?:[_ -]?(?:code|status))?|return[_ -]?code|rc)['\"]?"
@@ -613,6 +622,15 @@ def _refuse_if_fault_text(
     ):
         raise ResumeRefused(
             f"prior evidence records explicit scientific/non-mechanical fault in {field_name}"
+        )
+    if re.search(
+        r"\b[A-Za-z_][A-Za-z0-9_.]*['\"]?\s*[=:]\s*['\"]?"
+        r"[+-]?(?:nan|inf(?:inity)?)(?![A-Za-z0-9_])",
+        lowered,
+    ):
+        raise ResumeRefused(
+            f"prior evidence records explicit scientific/non-mechanical fault "
+            f"in {field_name}: non-finite numeric text"
         )
     if check_supervisor_denylist:
         for marker in NON_MECHANICAL_SUPERVISOR_ERROR_MARKERS:
@@ -1115,38 +1133,49 @@ def _scan_json_faults(
                         raise ResumeRefused(f"{field} records failed stage")
                 if (key == "finite" and item is False) or (key == "material_gaps" and item):
                     raise ResumeRefused(f"{field} records explicit scientific/non-mechanical fault")
-                # Inventory paths are data, but mappings/lists under any key still validate.
+                # Diagnostic strings have already been scanned line by line. The
+                # outer raw pass must not reinterpret their escaped JSON bytes.
+                if key in {"job_log_tail", "last_traceback_line", "last_error_line"} and item:
+                    continue
                 if mechanical_error:
                     continue  # This exact producer error was validated above.
-                if key not in {"path", "dest", "sha256"} or not isinstance(item, str):
-                    execution_child = key in {"state", "terminal"} and (
-                        not data_scope
-                        or isinstance(item, Mapping)
-                        and any(_record_key(raw) in EXECUTION_KEYS for raw in item)
+                if (
+                    key == "path"
+                    and item == "training/stall-watchdog/faulthandler-stacks.log"
+                    and type(current.get("size")) is int
+                    and current["size"] == 0
+                ):
+                    # Exact empty native diagnostic publication. Nonempty dumps
+                    # were rejected by _refuse_if_fault_exports above.
+                    continue
+                execution_child = key in {"state", "terminal"} and (
+                    not data_scope
+                    or isinstance(item, Mapping)
+                    and any(_record_key(raw) in EXECUTION_KEYS for raw in item)
+                )
+                child_data = (
+                    (key if key in SCIENTIFIC_DATA_SCOPES else data_scope)
+                    if not execution_child
+                    else False
+                )
+                child_operation = receipt_root and key in {
+                    "cli_calls",
+                    "control_operations",
+                    "transfers",
+                    "contents_transfers",
+                }
+                pending.append(
+                    (
+                        item,
+                        field,
+                        False,
+                        execution_child and isinstance(item, Mapping),
+                        False,
+                        child_data,
+                        child_operation,
+                        False,
                     )
-                    child_data = (
-                        (key if key in SCIENTIFIC_DATA_SCOPES else data_scope)
-                        if not execution_child
-                        else False
-                    )
-                    child_operation = receipt_root and key in {
-                        "cli_calls",
-                        "control_operations",
-                        "transfers",
-                        "contents_transfers",
-                    }
-                    pending.append(
-                        (
-                            item,
-                            field,
-                            False,
-                            execution_child and isinstance(item, Mapping),
-                            False,
-                            child_data,
-                            child_operation,
-                            False,
-                        )
-                    )
+                )
         elif isinstance(current, list):
             pending.extend(
                 (item, f"{name}[{index}]", False, False, False, data_scope, operation, False)
@@ -1186,7 +1215,7 @@ def _scan_diagnostic_lines(
 ) -> None:
     if not isinstance(value, str):
         raise ResumeRefused(f"{label} records malformed diagnostic text")
-    for line in value.splitlines():
+    for index, line in enumerate(value.splitlines()):
         if not line.strip():
             continue
         if line.startswith("TRAIN01_PROGRESS "):
@@ -1205,6 +1234,7 @@ def _scan_diagnostic_lines(
                 label=label,
                 expected_job_id=expected_job_id,
                 expected_generation=expected_generation,
+                allow_first_tail_fragment=index == 0,
             )
 
 
@@ -1217,6 +1247,7 @@ def _scan_diagnostic_record_line(
     supervisor_transport: bool = False,
     validated_receipt: Mapping[str, Any] | None = None,
     allow_completed: bool = False,
+    allow_first_tail_fragment: bool = False,
 ) -> Any:
     """Check structured facts AND raw text, including timestamp-prefixed JSON.
 
@@ -1251,7 +1282,8 @@ def _scan_diagnostic_record_line(
     try:
         record = _json_loads(candidate)
     except json.JSONDecodeError:
-        _check_truncated_execution_line(candidate, label=label)
+        if not allow_first_tail_fragment:
+            _check_truncated_execution_line(candidate, label=label)
         _refuse_if_fault_text(stripped, field_name=label)
         return None
     _scan_log_record(
@@ -1271,7 +1303,15 @@ def _scan_diagnostic_record_line(
         if isinstance(item, Mapping):
             for key, value in item.items():
                 if isinstance(value, str) and (
-                    _record_key(key) in {"path", "dest", "sha256"}
+                    _record_key(key)
+                    in {
+                        "path",
+                        "dest",
+                        "sha256",
+                        "job_log_tail",
+                        "last_traceback_line",
+                        "last_error_line",
+                    }
                     or _record_key(key) == "error"
                     and (
                         _mechanical_supervisor_error(value)
@@ -1948,7 +1988,16 @@ def _check_output_root_fault_evidence(
     for path in retained_files:
         if _scientific_publication_name(path, output_root) is not None:
             if path.stat().st_size:
-                _check_scientific_publication(path, output_root, _retained_json_records(path)[0])
+                try:
+                    record = _json_loads(path.read_text(encoding="utf-8", errors="replace"))
+                except json.JSONDecodeError:
+                    if not re.search(STAGING_SUFFIX + r"$", path.name):
+                        raise ResumeRefused(f"unreadable or partial retained JSON evidence: {path}")
+                    # The transport scanner still requires a verified canonical
+                    # prefix and scans the canonical scientific facts below.
+                    _refuse_if_fault_text(path.read_text(errors="replace"), field_name=str(path))
+                else:
+                    _check_scientific_publication(path, output_root, record)
         if (
             not allow_completed
             and path.parent == training
@@ -2620,6 +2669,21 @@ def verify_host_enospc_recovery(
     }
 
 
+def verify_recovery_evidence(
+    recovery_evidence_path: Path,
+    manifest: Mapping[str, Any],
+    manifest_sha256: str,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Select an explicit recovery schema; no fallback on failed validation."""
+    from research.sandbox_a_resident.training_prefix_recovery import SCHEMA, verify_prefix_recovery
+
+    certificate = _json_loads(recovery_evidence_path.read_text())
+    if isinstance(certificate, Mapping) and certificate.get("schema") == SCHEMA:
+        return verify_prefix_recovery(recovery_evidence_path, manifest, manifest_sha256, **kwargs)
+    return verify_host_enospc_recovery(recovery_evidence_path, manifest, manifest_sha256, **kwargs)
+
+
 def completion_packet(
     original_manifest: Mapping[str, Any],
     terminal_receipt: Mapping[str, Any] | None,
@@ -2659,10 +2723,11 @@ def completion_packet(
         and export_root.parent.name == "exports"
     ):
         inferred_output_root = export_root.parents[1]
+    recovery_summary = None
     if recovery_evidence_path is not None:
         if inferred_output_root is None:
             raise ResumeRefused("host ENOSPC recovery requires output_root")
-        verify_host_enospc_recovery(
+        recovery_summary = verify_recovery_evidence(
             recovery_evidence_path,
             original_manifest,
             original_manifest_sha256,
@@ -2681,6 +2746,12 @@ def completion_packet(
             output_root=inferred_output_root,
             supervisor_log_path=supervisor_log_path,
         )
+    if (
+        recovery_summary is not None
+        and recovery_summary.get("receipt_less")
+        and completion_index != 2
+    ):
+        raise ResumeRefused("retained-export-prefix admission is restricted to c2")
     if not job_id or job_id == original_manifest.get("job_id"):
         raise ResumeRefused("completion attempt requires a fresh job id")
     if str(output_dir) == original_manifest.get("output_dir") or not output_dir.is_absolute():
@@ -2710,6 +2781,8 @@ def completion_packet(
         "prior_job_id": original_manifest["job_id"],
         "resume_from_iteration": latest,
     }
+    if recovery_summary is not None and recovery_summary.get("receipt_less"):
+        successor["completion_attempt"]["admission"] = recovery_summary
     # A successor resumes only the latest eligible full trajectory.  Strip all
     # prior runtime inputs here too, because callers may use this function
     # directly rather than the create-only packet writer below.

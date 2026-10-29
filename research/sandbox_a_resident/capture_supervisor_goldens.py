@@ -313,7 +313,15 @@ def capture_one(destination: Path, scenario: str) -> dict[str, Any]:
             if private.exists():
                 failed = destination.with_name(destination.name + ".failed")
                 # Reserve create-only, even if a prior failed capture exists.
-                failed.mkdir()
+                try:
+                    failed.mkdir()
+                except FileExistsError:
+                    # Preserve both captures and the original producer failure.
+                    failed = Path(
+                        tempfile.mkdtemp(
+                            prefix=destination.name + ".failed-", dir=destination.parent
+                        )
+                    )
                 for path in private.iterdir():
                     path.rename(failed / path.name)
             raise

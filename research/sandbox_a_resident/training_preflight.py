@@ -16,8 +16,8 @@ from typing import Any
 from research.sandbox_a_resident.training_prepare import STUDY, seed_allocations
 from research.sandbox_a_resident.training_resume import (
     HOST_ENOSPC_RECOVERY_SCHEMA,
-    verify_host_enospc_recovery,
     verify_mechanical_stop,
+    verify_recovery_evidence,
 )
 from research.sandbox_a_resident.training_units import (
     COMPACT_DERIVATIVE_SUFFIX,
@@ -86,7 +86,8 @@ def _validate_continuation_stop(packet: Path, broker: dict) -> None:
         raise ValueError("unsupported continuation SEAL.json schema")
     kind = seal.get("prior_stop_evidence_kind")
     # 'supervisor_receipt' is the existing builder's canonical spelling.
-    if kind not in {"receipt", "supervisor_receipt", "host_enospc_recovery_certificate"}:
+    recovery_kinds = {"host_enospc_recovery_certificate", "receiptless_retained_export_prefix"}
+    if kind not in {"receipt", "supervisor_receipt", *recovery_kinds}:
         raise ValueError("SEAL.json has unsupported prior_stop_evidence_kind")
     prior_name = seal.get("prior_packet")
     if (
@@ -133,17 +134,23 @@ def _validate_continuation_stop(packet: Path, broker: dict) -> None:
         _regular_packet_file(path)
         verify_committed_manifest(path)
     source_frozen = json.loads(source_packet_manifest.read_text())
-    if kind == "host_enospc_recovery_certificate":
+    if kind in recovery_kinds:
         if not recovery_file.is_file() or recovery_file.is_symlink():
             raise ValueError(
                 "SEAL.json requires recovery-evidence.json; admission proof is missing"
             )
         verify_committed_manifest(recovery_file)
         recovery = json.loads(recovery_file.read_text())
+        from research.sandbox_a_resident.training_prefix_recovery import SCHEMA
+
+        expected_schema = (
+            SCHEMA if kind == "receiptless_retained_export_prefix" else HOST_ENOSPC_RECOVERY_SCHEMA
+        )
         if (
-            recovery.get("schema") != HOST_ENOSPC_RECOVERY_SCHEMA
-            or seal.get("prior_recovery_evidence_schema") != HOST_ENOSPC_RECOVERY_SCHEMA
-            or seal.get("prior_receipt_present") is not False
+            recovery.get("schema") != expected_schema
+            or seal.get("prior_recovery_evidence_schema") != expected_schema
+            or seal.get("prior_receipt_present")
+            is not (None if expected_schema == SCHEMA else False)
             or seal.get("prior_receipt_sha256") is not None
             or seal.get("prior_recovery_evidence_sha256") != digest(recovery_file)
         ):
@@ -169,8 +176,8 @@ def _validate_continuation_stop(packet: Path, broker: dict) -> None:
         or broker.get("completion_attempt", {}).get("prior_job_id") != seal.get("prior_job_id")
     ):
         raise ValueError("prior executed manifest identity differs from SEAL.json")
-    if kind == "host_enospc_recovery_certificate":
-        verify_host_enospc_recovery(
+    if kind in recovery_kinds:
+        recovery_summary = verify_recovery_evidence(
             recovery_file,
             source_manifest,
             digest(source_manifest_path),
@@ -179,6 +186,13 @@ def _validate_continuation_stop(packet: Path, broker: dict) -> None:
             source_packet_id=source_packet.name,
             source_packet_manifest_sha256=digest(source_packet_manifest),
         )
+        if kind == "receiptless_retained_export_prefix" and (
+            seal.get("completion_attempt_index") != 2
+            or broker.get("completion_attempt", {}).get("index") != 2
+            or seal.get("prior_release_proof") != recovery_summary
+            or broker.get("completion_attempt", {}).get("admission") != recovery_summary
+        ):
+            raise ValueError("receipt-less c2 packet labels differ from verified retained prefix")
     else:
         receipt_file = source_output / "receipt.json"
         _regular_packet_file(receipt_file)

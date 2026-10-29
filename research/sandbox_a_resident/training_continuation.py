@@ -59,6 +59,7 @@ from research.sandbox_a_resident.training_resume import (
     compute_retained_evidence_inventory,
     verify_host_enospc_recovery,
     verify_mechanical_stop,
+    verify_recovery_evidence,
 )
 from research.sandbox_a_resident.training_task import seed_allocations
 from research.sandbox_a_resident.training_units import (
@@ -1166,12 +1167,8 @@ def build_continuation_packet(
         safe_path(recovery_evidence)
         resolved_recovery = recovery_evidence.resolve()
         safe_path(resolved_recovery)
-        if receipt_path.exists() or receipt_path.is_symlink():
-            raise ContinuationRefused(
-                "receipt.json exists in source attempt; refusing narrow host ENOSPC recovery path"
-            )
         try:
-            recovery_summary = verify_host_enospc_recovery(
+            recovery_summary = verify_recovery_evidence(
                 resolved_recovery,
                 executed_manifest,
                 digest(executed_manifest_path),
@@ -1589,22 +1586,31 @@ def build_continuation_packet(
         prior_receipt_present = False
         prior_receipt_sha256 = None
         prior_failure_class = HOST_ENOSPC_FAILURE_CLASS
-        prior_release_proof = {
-            "kind": "post_hoc_host_enospc_recovery",
-            "prior_attempt_status": "INCOMPLETE",
-            "original_receipt_present": False,
-            "original_terminal_status": "UNKNOWN_UNAVAILABLE",
-            "original_supervisor_error": "UNKNOWN_UNAVAILABLE",
-            "original_cleanup_error": "UNKNOWN_UNAVAILABLE",
-            "post_hoc_release_verified": True,
-            "account_status_capture_sha256": recovery_summary["account_status_capture_sha256"],
-            "captured_at_utc": recovery_summary["captured_at_utc"],
-            "broker_reconciliation_mode": recovery_summary["broker_reconciliation_mode"],
-            "recover_receipt": recovery_summary["recover_receipt"],
-            "supervisor_log_sha256": recovery_summary["supervisor_log_sha256"],
-            "polls_scanned": recovery_summary["polls_scanned"],
-            "polls_sha256": recovery_summary["polls_sha256"],
-        }
+        prior_release_proof = (
+            {}
+            if recovery_summary.get("receipt_less")
+            else {
+                "kind": "post_hoc_host_enospc_recovery",
+                "prior_attempt_status": "INCOMPLETE",
+                "original_receipt_present": False,
+                "original_terminal_status": "UNKNOWN_UNAVAILABLE",
+                "original_supervisor_error": "UNKNOWN_UNAVAILABLE",
+                "original_cleanup_error": "UNKNOWN_UNAVAILABLE",
+                "post_hoc_release_verified": True,
+                "account_status_capture_sha256": recovery_summary["account_status_capture_sha256"],
+                "captured_at_utc": recovery_summary["captured_at_utc"],
+                "broker_reconciliation_mode": recovery_summary["broker_reconciliation_mode"],
+                "recover_receipt": recovery_summary["recover_receipt"],
+                "supervisor_log_sha256": recovery_summary["supervisor_log_sha256"],
+                "polls_scanned": recovery_summary["polls_scanned"],
+                "polls_sha256": recovery_summary["polls_sha256"],
+            }
+        )
+    if recovery_summary is not None and recovery_summary.get("receipt_less"):
+        prior_stop_kind = "receiptless_retained_export_prefix"
+        prior_failure_class = recovery_summary["failure_class"]
+        prior_receipt_present = None  # Presence uninspected; no receipt is used or bound.
+        prior_release_proof = recovery_summary
     seal: dict[str, Any] = {
         "schema": "sandbox-a-train01-continuation-seal/v1",
         "prepared_not_dispatched": True,
@@ -1628,7 +1634,7 @@ def build_continuation_packet(
         "prior_receipt_sha256": prior_receipt_sha256,
         "prior_failure_class": prior_failure_class,
         "prior_recovery_evidence_schema": (
-            HOST_ENOSPC_RECOVERY_SCHEMA if recovery_summary is not None else None
+            recovery_summary["schema"] if recovery_summary is not None else None
         ),
         "prior_recovery_evidence_source_path": (
             str(resolved_recovery) if resolved_recovery is not None else None
@@ -1772,7 +1778,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--recovery-evidence",
         type=Path,
-        help="explicit create-only host ENOSPC recovery certificate for a receipt-less attempt",
+        help="create-only host ENOSPC or receipt-less c2 retained-export-prefix certificate",
     )
     parser.add_argument(
         "--supervisor-log",
