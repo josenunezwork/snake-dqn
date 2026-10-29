@@ -22,7 +22,7 @@ Exact binding text:
 
 > “The one Mac terminal aggregation uses the complete 32-unit union across attempts, with duplicate/foreign refusal.” — README.md:37
 
-> “Time-cap INCOMPLETE of a running job: completing to the registered N under the pre-registered attempt cap is allowed; raising N or the cap mid-series is not.” — docs/research/advice/2026-10-21_big_lever/JUDGMENT_RESUME_POLICY.md:133–134
+> “Time-cap INCOMPLETE of a running job: completing to the registered N under the pre-registered attempt cap is allowed; raising N or the cap mid-series is not.” — docs/research/advice/2026-10-21_big_lever/JUDGMENT_RESUME_POLICY.md:131–132
 
 The executable rule agrees: `resume.py:211–221` requires indices 0–31 before calling either statistic function and states `# Do not inspect effect estimates on a partial union.` `protocol.py:80–81` returns `INVALID/INCOMPLETE` when `complete` is false. `INCONCLUSIVE` is a later, valid-complete-data branch; it is not the missing-data label.
 
@@ -102,7 +102,7 @@ The last retained runtime pulse is 33,755.4 s with completed=21/skipped=0. First
 
 3. **Scheduling magnified the expensive-arm tail.** Eleven single-thread CPU workers execute cohort-ordered P0/P48/bare tasks. P0 for a later cohort can overlap unfinished P0 from an earlier cohort; the queue has no all-session barrier. An early expensive P0 (session 21) remained unfinished while other sessions published. Runtime workers inherit parent nice 15 and are lowered to absolute nice 19. This reserves supervisor preference but provides no speedup. GPU model does not accelerate this CPU-only implementation.
 
-4. **The terminal failure is operational, not an efficacy failure.** The receipt has 136 failed renewal calls (and two failed control calls); many renewal RPCs reached about 120 s, and the final failure was deadline expiry during telemetry recovery. Setup/upload measurement is only 83.891442 s, including 73.616407 s transfers, versus the forecast’s 1,200 s allowance. Worker progress continued while RPCs were slow. Summed call durations overlap remote execution and other calls, so they cannot be subtracted from wall time to invent a transport-free throughput. No exact causal split between host contention and RPC load is available.
+4. **The terminal failure is operational, not an efficacy failure.** The receipt has 136 failed renewal calls, two failed control calls, and two failed renewal-heartbeat calls; many renewal RPCs reached about 120 s, and the final failure was deadline expiry during telemetry recovery. The retained `upload-measurement.json` records setup/upload of only 83.891442 s, including 73.616407 s transfers, versus the forecast’s 1,200 s allowance. Worker progress continued while RPCs were slow. Summed call durations overlap remote execution and other calls, so they cannot be subtracted from wall time to invent a transport-free throughput. No exact causal split between host contention and RPC load is available.
 
 **Correct interpretation of “~2×”:** receipt elapsed / forecast = **1.99815024217×**, but the attempt completed only 21/32 units. The full-study runtime is right-censored; it was not measured at 2×. An illustrative deterministic schedule using each completed arm’s maximum last pulse +60 s gives 68,617.8 s (19.0605 h), versus the 4.7484 h forecast. This assumes a common expensive arm across all sessions and no unobserved tail, excludes variable initialization/finalization, and is neither an estimator of the actual missing work nor a safe upper bound.
 
@@ -124,12 +124,12 @@ Whole-session three-arm units remain the scientific/ledger identity. A successor
 
 ## Verification and preserved boundaries
 
-- Focused audit tests: `python -m pytest -q research/watch_lead_p/closeout_09e/test_audit.py` under CPU/single-thread caps and `nice -n 15`: **6 passed** (0.04 s test time). They verify opaque-payload handling and corruption/partial/symlink refusal.
+- Focused audit tests: `python -m pytest -q research/watch_lead_p/closeout_09e/test_audit.py` under CPU/single-thread caps and `nice -n 15`: **6 passed** (latest retained run: 0.03 s test time). They verify opaque-payload handling and corruption/partial/symlink refusal.
 - `python -m black --check --line-length 100 research/watch_lead_p/closeout_09e`, `python -m isort --check-only --profile black research/watch_lead_p/closeout_09e`, and `python -m flake8 research/watch_lead_p/closeout_09e`: passed.
 - Real offline audit entrypoint: `python -m research.watch_lead_p.closeout_09e.audit --artifacts /Users/josenunez/Projects/ml/snake-dqn-artifacts --output /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-p-closeout-09e/evidence`: verified/imported 21 sessions and 126 components; no look.
 - Registered ledger construction and `read_ledger` verification: independent and registered ledgers equal; indices exactly 0–20. Exact argv is recorded in `evidence/ledger-command.json`.
 - The interpreter is `/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python`. Existing runtime/science code and hash-bound documents, manifests and receipts were not edited. No gameplay, benchmark, aggregate, training, Colab command, live session, other job or ops-state write occurred. The original untracked `saved_snakes` item is preserved. The existing external prompt.txt/retry.out are preserved.
-- Independent Argon review and Git publication evidence are recorded separately after the source commit; no claim of cross-review acceptance is made by this initial report.
+- Independent Argon static cross-review of source commit `30166ed688d306b3dbc7a043b8764230bb688717`: **ACCEPT**, no blocking defects. Full response: `argon-review-r2.txt` beside this summary; source/review hashes and exact verification commands are recorded in the committed `VERIFICATION.md`. The reviewer ran no commands and opened no scientific payload. Minor prose/evidence additions record the two failed heartbeat calls, the setup timing source, and its hashes in `supplemental-evidence.json`. That 83.891442 s figure is from `upload-measurement.json`; `warmup-measurement.json` separately records 18.078301 s. The original immutable audit is preserved. The auditor depends on the retained broker inputs and pinned working-tree source at verification time; the focused tests cover custody primitives, not every log parser/schedule helper. Completed-session medians are censored by which sessions finished and are not full-bank runtime estimates. No code or science changed after review.
 
 ## Evidence identities
 
