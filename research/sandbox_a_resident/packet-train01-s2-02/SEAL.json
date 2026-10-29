@@ -1,0 +1,57 @@
+{
+  "a100_fallback": {
+    "base_unit_cap": 92,
+    "effective_unit_cap": 184,
+    "rate_units_per_hour": 8
+  },
+  "accepted_runtime": "dccf7e25a5fb3ebc2fe303b2dc072aeb83efd213",
+  "allocation_index": 2,
+  "argon_code_review_sha256": "e71bff57f352689cba26fb188c6be42a174d0c6075ed9c3865db0a1359be5377",
+  "base_reserve_units": 0,
+  "base_timeout_minutes": 690,
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2b-broker.noindex",
+  "burned_identity": {
+    "allocated": false,
+    "consumes_completion_retry": false,
+    "job_id": "sandbox-a-train01-20261028-s2-01",
+    "receipt_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-01/output/receipt.json",
+    "receipt_sha256": "deddcdae339d005cf0c64b913b2481bd5792b6920dc92c20cf0c89a145aff498"
+  },
+  "compact_exports_enabled": true,
+  "cross_domain_union_roots": 342894912,
+  "dispatch_identity": "sandbox-a-train01-20261028-s2-02",
+  "effective_reserve_units": 0,
+  "effective_timeout_minutes": 1380,
+  "estimate_scope": "per-attempt window; full endpoint spans verified manual continuations",
+  "forecast_full_workload_minutes": 2009.04,
+  "fresh_start_from_b8": true,
+  "h100": {
+    "base_unit_cap": 138,
+    "effective_unit_cap": 276,
+    "rate_status": "UNMEASURED_PROVISIONAL_CEILING",
+    "rate_units_per_hour": 12
+  },
+  "packet_file_sha256": {
+    "DISPATCH.txt": "0298515143f4d17b3f5487cea44cd49eb6d240f198909b529be2ff99d56a5ed6",
+    "control.json": "b68318994f9ebc09eb28959437604e2d1c2b32622c9e80d3c980c010b595ddba",
+    "dispatch-manifest.json": "8b87410f24e6a1826bc5817ad5c631713c651e86150bdc368ff8d8bd82d31063",
+    "registry-check.json": "e01abbc8bbb61be9f0f137812230fb73396610d010da22b8eb2f84cfa3202fd7",
+    "sandbox.json": "800ef285f7731138fe5a5f4b5de528ca860ac5a56cef930272a4f8c19a0fae89",
+    "seed-disjointness.json": "89e8bfab75be51429d8a2deecd5beab14f0f77f7b15174e96831a71d7b9f612a",
+    "verified-ledger.json": "9d76cce858d56c0d6dec429f0d8830dc176eab75b5f8d92a649de81f0547211e"
+  },
+  "prepared_not_dispatched": true,
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "read_only_accounting_sha256": "8882ff66a733d45ca86eaacb549015568b4a481b1d0dbd94a20b5f7737b4055e",
+  "recipe_unchanged": true,
+  "resume_max_outcome_blind_retries": 2,
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2b-runtime.noindex",
+  "runtime_parity_proof_sha256": "cc5636df99e286ef82ce30b66150ca36edd0772d7d0f9fc9c2f1d9f2a784f827",
+  "runtime_pin": "dec8c2630c6d0beeee0bd4ef19a94ebbdc0b0b94",
+  "schema": "sandbox-a-train01-resident-prep-seal/v1",
+  "seed_audits_reused_byte_exact": true,
+  "seed_registry_roots": 114299008,
+  "source_launch_proof_sha256": "2d386bb982bf1d23ed2c8a15764eb844c7a983dc700f2e79242a518085ebe5aa",
+  "staging_projection_sha256": "de190de68db6b4fbd60c917ca309a9f0b0178d3a10b136eb6e0c23839f6afee9",
+  "train_seed_offset": 2000000000
+}

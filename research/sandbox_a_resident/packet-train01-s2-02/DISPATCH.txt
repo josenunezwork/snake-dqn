@@ -1,0 +1,13 @@
+TRAIN-01 second-seed reseal: prepared only; operator dispatch.
+Runtime pin: dec8c2630c6d0beeee0bd4ef19a94ebbdc0b0b94
+S2-01 identity burned after pre-allocation balance refusal; original packet and receipt preserved.
+Unchanged 384-update recipe; allocation2/offset2000000000; empty ledger; compact snapshots every16.
+Per-attempt estimate690/effective timeout1380minutes (23hours); H10012u/h cap276, A1008u/h cap184; reserve0.
+Full unchanged A100 workload forecast2009.04minutes; use latest verified snapshot after mechanical stop and verified release, up to two manual completions. S2-02 continuation guards stay <=1380minutes.
+Read-only live accounting replay passed both GPU variants with two active reservations left untouched; real dispatch refreshes all admission state.
+Development-only simulator-D.
+
+Exact operator dispatch:
+/usr/bin/caffeinate -dimsu env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 PYTHONDONTWRITEBYTECODE=1 NUMBA_CACHE_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/evidence/numba-cache PYTEST_ADDOPTS='-p no:cacheprovider -o addopts=' nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-s2b-broker.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261028-s2-02 /Users/josenunez/Projects/ml/snake-dqn-train01-s2b-broker.noindex/research/sandbox_a_resident/packet-train01-s2-02/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-s2b-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-s2b-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-02/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-s2b-broker.noindex/research/sandbox_a_resident/packet-train01-s2-02/DISPATCH.txt
+
+Dry-run: append --dry-run.
