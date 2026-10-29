@@ -497,7 +497,11 @@ grant, and a child already in allocation keeps competitors fenced even if its
 parent exits. TRAIN-01 native `run` requires this host grant.
 
 Timed admission subprocesses run in owned process groups. Timeout/interruption
-terminates their descendants, escalates surviving group members and reaps the
-owned child; nested group owners forward termination to their descendants. No
-process is selected by a global name match. These are host-only adapters; the
+snapshots their descendant group IDs before termination, escalates every
+observed owned group and reaps the owned child. Nested group owners also forward
+termination; the root retains group identities even if an inner launcher exits
+before its TERM-ignoring descendant. An unavailable inventory refuses admission
+and reports cleanup as unverified after reaping the known root group. A tmux client is the explicit exception: cleanup reaps its client group but
+never sweeps a detached shared tmux server. TRAIN-01 allocation remains fenced
+by the owned ops lease. No process is selected by a global name match. These are host-only adapters; the
 qualified `research/colab_cli` tree and remote science/runtime recipe are unchanged.

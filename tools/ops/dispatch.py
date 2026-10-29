@@ -264,6 +264,10 @@ def command(
     )
     if remaining <= 0:
         raise TimeoutError("allocation lock deadline expired")
+    # A tmux client may start the shared server. Never sweep that detached
+    # infrastructure; a TRAIN-01 runner is separately fenced by its ops lease.
+    if Path(args[0]).name == "tmux":
+        kwargs["descendant_groups"] = False
     return run_process_tree(args, timeout=remaining, check=True, **kwargs)
 
 
