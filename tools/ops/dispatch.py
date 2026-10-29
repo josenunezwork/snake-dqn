@@ -273,15 +273,29 @@ def note(log: Path, value: str) -> None:
 
 
 @contextlib.contextmanager
-def allocation_lock(path: Path, seconds: float) -> Iterator[float]:
-    """Own the flock here; termination, including SIGKILL, closes the descriptor."""
+def allocation_lock(
+    path: Path, seconds: float, *, wait: bool = False, poll_seconds: float = 1.0
+) -> Iterator[float]:
+    """Own the flock; optional contention polling consumes the same deadline."""
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise Refused("allocation lock deadline expired")
+    if not math.isfinite(poll_seconds) or poll_seconds <= 0:
+        raise Refused("invalid allocation lock poll interval")
+    deadline = time.monotonic() + seconds
     with path.open("a") as stream:
+        while True:
+            try:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                remaining = deadline - time.monotonic()
+                if not wait or remaining <= 0:
+                    raise Refused(f"account allocation lock is held: {path}") from exc
+                time.sleep(min(poll_seconds, remaining))
+                if time.monotonic() >= deadline:
+                    raise Refused(f"account allocation lock is held: {path}") from exc
         try:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise Refused(f"account allocation lock is held: {path}") from exc
-        try:
-            yield time.monotonic() + seconds
+            yield deadline
         finally:
             fcntl.flock(stream, fcntl.LOCK_UN)
 
@@ -2082,7 +2096,7 @@ def reconcile_unavailable(
     ):
         raise Refused("unavailable allocation receipt/manifest identity differs")
     account = Path.home() / ".config/colab-cli/snake"
-    with allocation_lock(account / "broker.lock", max(0.001, deadline - time.monotonic())):
+    with allocation_lock(account / "broker.lock", deadline - time.monotonic(), wait=True):
         pending = account / f"pending-{session}.json"
         if expected_pending is not None and expected_pending != pending:
             raise Refused("requested pending path differs from receipt session")

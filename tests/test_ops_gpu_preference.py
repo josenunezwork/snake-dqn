@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import fcntl
 import hashlib
 import json
 import subprocess
@@ -400,6 +401,87 @@ def reconcile_command(f, pending, *, live=False):
     ]
 
 
+@pytest.mark.parametrize("release", [True, False])
+def test_fallback_waits_for_account_lock_or_retains_pending_at_deadline(fixture, release):
+    f = fixture
+    preferred(f, "gpu_service_unavailable")
+    f["env"]["GPU_FAILURE_FIXTURE"] = str(REAL_FAILURE / "receipt.json")
+    account = Path(f["env"]["HOME"]) / ".config/colab-cli/snake"
+    account.mkdir(parents=True)
+    proof = f["ops"] / "dispatch/lane/unavailable.json"
+    with (account / "broker.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        process = f["invoke"](capture=False)
+        log = f["ops"] / "logs/lane.log"
+        wait_for(lambda: log.exists() and "EXIT=1" in log.read_text())
+        pending = next(account.glob("pending-*.json"))
+        raw = pending.read_bytes()
+        receipt = (f["tmp"] / "output/receipt.json").read_bytes()
+        # A short contention must neither refuse nor retire the fence.
+        with pytest.raises(subprocess.TimeoutExpired):
+            process.wait(timeout=0.2)
+        assert pending.read_bytes() == raw
+        assert not proof.exists()
+        assert len(trace(f, "run")) == 1
+        with (f["ops"] / "alloc.lock").open("a") as outer:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(outer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if release:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        stdout, stderr = process.communicate(timeout=10)
+        assert (f["tmp"] / "output/receipt.json").read_bytes() == receipt
+        if release:
+            assert process.returncode == 0, stderr
+            assert "requested_gpu=A100" in stdout
+            assert [row["job"] for row in trace(f, "run")] == ["job", "job-a100-fallback"]
+            assert (
+                json.loads(proof.read_text())["pending"]["sha256"]
+                == hashlib.sha256(raw).hexdigest()
+            )
+            assert not pending.exists()
+        else:
+            assert process.returncode != 0 and "account allocation lock is held" in stderr
+            assert pending.read_bytes() == raw
+            assert not proof.exists()
+            assert len(trace(f, "run")) == 1
+            assert not (f["tmp"] / "output-a100-fallback").exists()
+
+
+@pytest.mark.parametrize("live", [False, True])
+@pytest.mark.parametrize("release", [True, False])
+def test_operator_waits_for_account_lock_or_retains_pending_at_deadline(fixture, live, release):
+    f = fixture
+    pending = retained_pending(f)
+    raw = pending.read_bytes()
+    active = pending.parent / "active-preexisting.json"
+    active.write_text('{"session":"preexisting"}')
+    before = active.read_bytes()
+    argv = reconcile_command(f, pending, live=live) + ["--timeout-seconds", "2"]
+    with (pending.parent / "broker.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        process = subprocess.Popen(
+            argv, env=f["env"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        with pytest.raises(subprocess.TimeoutExpired):
+            process.wait(timeout=0.3)
+        assert pending.read_bytes() == raw
+        assert not (f["tmp"] / "archive.json").exists()
+        if release:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        stdout, stderr = process.communicate(timeout=10)
+    if release:
+        assert process.returncode == 0, stderr
+        assert json.loads(stdout)["pending"]["sha256"] == hashlib.sha256(raw).hexdigest()
+        assert pending.exists() is not live
+        assert (f["tmp"] / "archive.json").exists() is live
+    else:
+        assert process.returncode != 0 and "account allocation lock is held" in stderr
+        assert pending.read_bytes() == raw
+        assert not (f["tmp"] / "archive.json").exists()
+    assert active.read_bytes() == before
+    assert len(trace(f, "run")) == 1
+
+
 @pytest.mark.parametrize("live", [False, True])
 def test_operator_reconciliation_repeats_proof_and_preserves_active(fixture, live):
     f = fixture
@@ -430,6 +512,22 @@ def test_operator_reconciliation_repeats_proof_and_preserves_active(fixture, liv
     assert active.read_bytes() == before
     assert not (Path(f["env"]["HOME"]) / "real-colab-called").exists()
     assert len(trace(f, "run")) == 1  # Operator path never launches the fallback.
+
+
+@pytest.mark.parametrize("seconds", ["0", "-1", "nan", "inf", "601"])
+def test_operator_refuses_invalid_deadline_before_proof_or_mutation(fixture, seconds):
+    f = fixture
+    argv = reconcile_command(f, f["tmp"] / "pending.json", live=True)
+    result = subprocess.run(
+        argv + ["--timeout-seconds", seconds],
+        env=f["env"],
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode != 0 and "timeout must be positive and at most 600" in result.stderr
+    assert not (f["tmp"] / "archive.json").exists()
+    assert not Path(f["env"]["TRACE"]).exists()
 
 
 @pytest.mark.parametrize(

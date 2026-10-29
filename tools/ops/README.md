@@ -115,6 +115,13 @@ it leaves the pending record and archive path untouched. Replace `--dry-run` wit
 No allocation, stop, active-record mutation, fallback dispatch, or receipt rewrite
 is performed by this command. Any recovered endpoint, inventory drift, other
 pending intent, archive collision or evidence mismatch keeps the pending fence.
+Both automatic fallback reconciliation and this operator tool poll a contended
+account broker lock once per second within their remaining deadline (at most
+600 seconds including preceding work). They retain the ops-then-account lock
+order. Deadline expiry refuses without publishing proof, retiring the pending
+record or starting fallback; contention never relaxes any evidence check.
+The operator tool's `--timeout-seconds` may shorten its 600-second total bound;
+zero, nonfinite values and values above 600 are refused.
 The qualified supervisor refuses **all new allocations** while any pending record
 exists, even when fewer than three sessions are active. Historical sealed brokers
 remain fenced until this shared account record is reconciled; no packet change

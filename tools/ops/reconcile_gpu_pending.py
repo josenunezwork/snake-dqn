@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -25,11 +26,18 @@ def main() -> int:
     parser.add_argument("--log", type=Path, required=True)
     parser.add_argument("--proof", type=Path, required=True)
     parser.add_argument("--broker", type=Path, required=True)
+    parser.add_argument(
+        "--timeout-seconds", type=float, default=600, help="total proof deadline, at most 600s"
+    )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--live", action="store_true")
     args = parser.parse_args()
     try:
+        if not math.isfinite(args.timeout_seconds) or not 0 < args.timeout_seconds <= 600:
+            raise dispatch.Refused(
+                "reconciliation timeout must be positive and at most 600 seconds"
+            )
         if not args.pending.is_absolute() or args.pending.is_symlink():
             raise dispatch.Refused("pending must be an absolute non-symlink account record")
         if args.proof.exists() or args.proof.is_symlink():
@@ -38,7 +46,7 @@ def main() -> int:
         broker = args.broker.resolve()
         # Same lock order as fallback: ops allocation exclusion, then account
         # broker exclusion. Only GET recovery and read-only sessions run here.
-        with dispatch.allocation_lock(ops / "alloc.lock", 180) as deadline:
+        with dispatch.allocation_lock(ops / "alloc.lock", args.timeout_seconds) as deadline:
             dispatch.qualified(broker, ops, deadline)
             dispatch.qualified(
                 broker, ops, deadline, ref=dispatch.read_json(args.manifest)["commit"]
