@@ -22,11 +22,15 @@ def prepare_completion(
     job_id: str,
     output: Path,
     successor_template: Path | None = None,
+    compact_source_packet_id: str | None = None,
+    allowlist_path: Path | None = None,
 ) -> None:
     """Seal a successor without allocating, selecting weights or reading outcomes."""
     paths = (original, receipt, exports, packet, output)
     if successor_template is not None:
         paths += (successor_template,)
+    if allowlist_path is not None:
+        paths += (allowlist_path,)
     for path in paths:
         safe_path(path)
     manifest_path = original / "dispatch-manifest.json"
@@ -59,9 +63,10 @@ def prepare_completion(
     previous = manifest.get("completion_attempt", {}).get("index", 0)
     if index != previous + 1:
         raise ValueError("completion attempts must advance exactly once, at most two")
+    prior_receipt = json.loads(receipt.read_text())
     result = completion_packet(
         executed,
-        json.loads(receipt.read_text()),
+        prior_receipt,
         exports,
         control,
         completion_index=index,
@@ -70,6 +75,8 @@ def prepare_completion(
         original_manifest_sha256=digest(executed_path),
         successor_manifest=successor_manifest,
         successor_control=successor_control,
+        compact_source_packet_id=compact_source_packet_id,
+        allowlist_path=allowlist_path,
     )
     packet.mkdir(parents=True, exist_ok=False)
     write_once(packet / "control.json", successor_control)
@@ -97,12 +104,17 @@ def prepare_completion(
                 if row["dest"].startswith("resume/")
                 and row["dest"].endswith((".sha256", ".complete"))
                 else (
-                    "training-export"
+                    "training-export-derivative"
                     if row["dest"].startswith("resume/")
+                    and row["dest"].endswith((".xz", ".xz.manifest"))
                     else (
-                        "verified-ledger"
-                        if row["dest"] == "verified-ledger.json"
-                        else old_kinds[row["sha256"]]
+                        "training-export"
+                        if row["dest"].startswith("resume/")
+                        else (
+                            "verified-ledger"
+                            if row["dest"] == "verified-ledger.json"
+                            else old_kinds[row["sha256"]]
+                        )
                     )
                 )
             ),
@@ -131,6 +143,27 @@ def prepare_completion(
             )
             + "\n"
         )
+    write_once(
+        packet / "SEAL.json",
+        {
+            "schema": "sandbox-a-train01-continuation-seal/v1",
+            "prior_packet": original.name,
+            **(
+                {}
+                if original.parent.resolve() == packet.parent.resolve()
+                else {"prior_packet_path": str(original.resolve())}
+            ),
+            "prior_job_id": executed["job_id"],
+            "prior_output_dir": str(receipt.parent.resolve()),
+            "prior_executed_manifest_sha256": digest(executed_path),
+            "prior_stop_evidence_kind": "supervisor_receipt",
+            "prior_receipt_present": True,
+            "prior_receipt_sha256": digest(receipt),
+            "prior_failure_class": prior_receipt.get("failure_class"),
+            "completion_attempt_index": index,
+            "resume_from_iteration": result.latest_iteration,
+        },
+    )
     print(
         f"PREPARED_MANUAL_COMPLETION index={index} "
         f"iteration={result.latest_iteration} allocations=0"
@@ -148,6 +181,10 @@ def main() -> int:
         type=Path,
         help="sealed target packet whose control/source pin is the new successor",
     )
+    parser.add_argument(
+        "--compact-source-packet-id",
+        help="bind the allowlisted compact derivative for this source packet id",
+    )
     args = parser.parse_args()
     prepare_completion(
         args.original.resolve(),
@@ -160,6 +197,7 @@ def main() -> int:
         successor_template=(
             None if args.successor_template is None else args.successor_template.resolve()
         ),
+        compact_source_packet_id=args.compact_source_packet_id,
     )
     return 0
 

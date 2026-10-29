@@ -32,9 +32,13 @@ from research.sandbox_a_resident.training_resume import (
     build_ledger,
 )
 from research.sandbox_a_resident.training_units import (
+    COMPACT_ALLOWLIST_SCHEMA,
     COMPACT_RESUME_ALLOWLIST,
+    TRAIN01_15_SOURCE_COMMIT,
+    TRAIN01_16_SOURCE_COMMIT,
     allocation,
     load_ledger,
+    register_compact_allowlist_entry,
     unit_id,
     validate_compact_resume,
 )
@@ -374,6 +378,112 @@ def test_attach_refuses_unallowlisted_or_incomplete_derivative(tmp_path: Path, m
         attach_compact_resume(ledger, uploads, original.parent)
 
 
+@pytest.mark.parametrize(
+    ("source_packet_id", "source_commit", "iteration"),
+    [
+        ("packet-train01-15", TRAIN01_15_SOURCE_COMMIT, 192),
+        ("packet-train01-16", TRAIN01_16_SOURCE_COMMIT, 176),
+        ("packet-train01-17", "e" * 40, 176),
+        ("packet-train01-s2-01", "f" * 40, 64),
+        ("packet-train01-s2-01-c1-i0064", "f" * 40, 176),
+    ],
+)
+def test_v2_periodic_checkpoint_compact_encode_attach_preflight_and_materialize(
+    tmp_path: Path, source_packet_id: str, source_commit: str, iteration: int
+) -> None:
+    src_control = {
+        "study": "sandbox-a-train01",
+        "source_commit": source_commit,
+        "outer_iterations": 384,
+        "snapshot_interval": 16,
+    }
+    dst_control = {**src_control, "source_commit": "f" * 40}
+    export_dir = tmp_path / "exports"
+    export_dir.mkdir(parents=True)
+    state = sample_state()
+    state["iteration"] = iteration
+    # Exercise non-contiguous transposed/sliced tensors in periodic checkpoints.
+    state["non_contiguous_view"] = torch.arange(24, dtype=torch.float32).reshape(4, 6).t()[1:5]
+    assert not state["non_contiguous_view"].is_contiguous()
+
+    stem = f"iteration-{iteration:04d}"
+    payload = publish(export_dir / f"{stem}.pt", lambda path: torch.save(state, path))
+    info = {
+        "schema": "sandbox-a-train-snapshot/v1",
+        "id": unit_id(iteration),
+        "iteration": iteration,
+        "snapshot": {"id": unit_id(iteration), **payload},
+        "metadata": {
+            "allocation": allocation(src_control),
+            "source_commit": src_control["source_commit"],
+            "prepare_phase": "ready",
+        },
+    }
+    publish(export_dir / f"{stem}.json", lambda path: path.write_text(json.dumps(info)))
+    publish(export_dir / f"{stem}-actor.pth", lambda path: path.write_bytes(b"periodic-actor"))
+
+    encoded = encode_snapshot(
+        export_dir / f"{stem}.pt",
+        source_packet_id=source_packet_id,
+        iteration=iteration,
+        source_commit=source_commit,
+    )
+    assert "allowlist_entry" in encoded
+    allowlist_path = tmp_path / "compact_allowlist.json"
+    allowlist_path.write_text(json.dumps({"schema": COMPACT_ALLOWLIST_SCHEMA, "entries": []}))
+    register_compact_allowlist_entry(encoded["allowlist_entry"], path=allowlist_path)
+
+    ledger, uploads, latest = build_ledger(
+        export_dir, dst_control, source_control=src_control, allowlist_path=allowlist_path
+    )
+    assert latest == iteration
+    ledger, uploads = attach_compact_resume(
+        ledger,
+        uploads,
+        export_dir,
+        source_packet_id=source_packet_id,
+        allowlist_path=allowlist_path,
+    )
+    assert ledger["compact_resume"]["schema"] == "sandbox-a-train-compact-resume/v2"
+    assert ledger["compact_resume"]["source_packet_id"] == source_packet_id
+    assert ledger["compact_resume"]["iteration"] == iteration
+    assert f"resume/{stem}.pt" not in {row["dest"] for row in uploads}
+
+    packet = tmp_path / "packet"
+    packet.mkdir()
+    (packet / "verified-ledger.json").write_text(json.dumps(ledger))
+    broker = {"inputs": [{"dest": "b8-s3.pth", "path": "/x", "sha256": "0" * 64}, *uploads]}
+    validate_uploaded_ledger(packet, broker, dst_control, allowlist_path=allowlist_path)
+
+    # Forging source_packet_id or iteration in the manifest fails closed.
+    manifest_file = export_dir / f"{stem}.pt.xz.manifest"
+    forged_payload = json.loads(manifest_file.read_text())
+    forged_payload["iteration"] = iteration + 16
+    forged_path = tmp_path / "forged.xz.manifest"
+    forged_path.write_text(json.dumps(forged_payload))
+    forged_entry = copy.deepcopy(ledger["compact_resume"])
+    forged_entry["manifest"] = descriptor(forged_path, forged_entry["manifest"]["path"])
+    with pytest.raises(CompactResumeRefused, match="source_packet_id/iteration differs"):
+        load_manifest(forged_path, forged_entry)
+
+    # Runtime materialization decodes byte-identical periodic checkpoint and verifies tensors.
+    inputs = tmp_path / "inputs"
+    for row in uploads:
+        (inputs / row["dest"]).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(row["path"], inputs / row["dest"])
+    materialized = materialize_compact_resume(ledger, inputs, allowlist_path=allowlist_path)
+    decoded_target = inputs / f"resume/{stem}.pt"
+    assert decoded_target.read_bytes() == (export_dir / f"{stem}.pt").read_bytes()
+    loaded_state = torch.load(decoded_target, map_location="cpu", weights_only=False)
+    verify_decoded_state(loaded_state, materialized)
+    ledger_on_vm = inputs / "verified-ledger.json"
+    ledger_on_vm.write_text(json.dumps(ledger))
+    verified = load_ledger(
+        ledger_on_vm, dst_control, input_root=inputs, allowlist_path=allowlist_path
+    )
+    assert list(verified) == [iteration]
+
+
 real = pytest.mark.skipif(
     not (REAL_ORIGINAL.is_file() and REAL_DERIVATIVE.is_file() and REAL_MANIFEST.is_file()),
     reason="train01-11 iteration-0000 artifacts are only present on the operator Mac",
@@ -447,3 +557,134 @@ def test_real_snapshot_round_trip_is_exact_for_every_tensor() -> None:
 
     same(original, from_decoded)
     assert compared == 209
+
+
+def test_compact_at_source_publish_verify_mac_preflight_and_materialize_without_raw_pt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Colab compact-at-source export writes zero raw .pt files and verifies/resumes end-to-end."""
+    from research.sandbox_a_resident.training_compact import (
+        publish_compact_snapshot,
+        verify_compact_snapshot_export,
+    )
+
+    c1_commit = "c" * 40
+    c2_commit = "d" * 40
+    monkeypatch.setattr(
+        training_units,
+        "allowed_migration_source_commits",
+        lambda **_kwargs: frozenset({TRAIN01_15_SOURCE_COMMIT, c1_commit}),
+    )
+    src_control = {
+        "study": "sandbox-a-train01",
+        "source_commit": c1_commit,
+        "outer_iterations": 384,
+        "snapshot_interval": 16,
+    }
+    dst_control = {**src_control, "source_commit": c2_commit}
+    export_dir = tmp_path / "c1-exports"
+    export_dir.mkdir(parents=True)
+
+    state = sample_state()
+    state["iteration"] = 96
+    torch.manual_seed(123456)
+    rng_before = torch.get_rng_state().clone()
+    published = publish_compact_snapshot(
+        export_dir,
+        96,
+        lambda path: torch.save(state, path),
+        metadata={
+            "allocation": allocation(src_control),
+            "source_commit": c1_commit,
+            "prepare_phase": "ready",
+        },
+        source_packet_id="packet-train01-15-c1-i0064",
+    )
+    assert torch.equal(torch.get_rng_state(), rng_before)
+    publish(export_dir / "iteration-0096-actor.pth", lambda path: path.write_bytes(b"actor-96"))
+
+    assert not (export_dir / "iteration-0096.pt").exists()
+    assert list(export_dir.glob("*.pt")) == []
+    assert (export_dir / "iteration-0096.pt.xz").is_file()
+    assert (export_dir / "iteration-0096.pt.xz.manifest").is_file()
+    assert (export_dir / "iteration-0096.json").is_file()
+    assert published["compact_snapshot"]["schema"] == "sandbox-a-train-compact-export/v1"
+
+    verified = verify_compact_snapshot_export(
+        export_dir,
+        96,
+        source_packet_id="packet-train01-15-c1-i0064",
+        source_commit=c1_commit,
+    )
+    assert verified["status"] == "PASS"
+    allowlist_entry = verified["allowlist_entry"]
+
+    # Adversarial tampering checks on Mac verification of compact-at-source export.
+    bad_tensor_dir = tmp_path / "tampered-tensor"
+    shutil.copytree(export_dir, bad_tensor_dir)
+    man_file = bad_tensor_dir / "iteration-0096.pt.xz.manifest"
+    man_obj = json.loads(man_file.read_text())
+    man_obj["tensors"][0]["sha256"] = "0" * 64
+    for suffix in ("", ".sha256", ".complete"):
+        Path(f"{man_file}{suffix}").unlink()
+    publish(man_file, lambda dst: dst.write_text(json.dumps(man_obj) + "\n"))
+    info_file = bad_tensor_dir / "iteration-0096.json"
+    info_obj = json.loads(info_file.read_text())
+    info_obj["compact_snapshot"]["manifest"] = {
+        "name": man_file.name,
+        "size": man_file.stat().st_size,
+        "sha256": digest(man_file),
+    }
+    for suffix in ("", ".sha256", ".complete"):
+        Path(f"{info_file}{suffix}").unlink()
+    publish(info_file, lambda dst: dst.write_text(json.dumps(info_obj) + "\n"))
+    with pytest.raises(CompactResumeRefused, match="decoded tensor differs"):
+        verify_compact_snapshot_export(bad_tensor_dir, 96)
+
+    # Chain c1 -> c2 ledger, Mac preflight (validate_uploaded_ledger), and VM materialization.
+    allowlist_path = tmp_path / "compact_allowlist.json"
+    allowlist_path.write_text(json.dumps({"schema": COMPACT_ALLOWLIST_SCHEMA, "entries": []}))
+    register_compact_allowlist_entry(allowlist_entry, path=allowlist_path)
+
+    ledger, uploads, latest = build_ledger(
+        export_dir, dst_control, source_control=src_control, allowlist_path=allowlist_path
+    )
+    assert latest == 96
+    upload_dests = [row["dest"] for row in uploads]
+    assert "resume/iteration-0096.pt" not in upload_dests
+    assert "resume/iteration-0096.pt.sha256" not in upload_dests
+    assert "resume/iteration-0096.pt.complete" not in upload_dests
+    assert "resume/iteration-0096.pt.xz" in upload_dests
+    assert "resume/iteration-0096.pt.xz.manifest" in upload_dests
+
+    ledger, uploads = attach_compact_resume(
+        ledger,
+        uploads,
+        export_dir,
+        source_packet_id="packet-train01-15-c1-i0064",
+        allowlist_path=allowlist_path,
+    )
+    packet = tmp_path / "packet-c2"
+    packet.mkdir()
+    (packet / "verified-ledger.json").write_text(json.dumps(ledger))
+    broker = {"inputs": [{"dest": "b8-s3.pth", "path": "/x", "sha256": "0" * 64}, *uploads]}
+    validate_uploaded_ledger(packet, broker, dst_control, allowlist_path=allowlist_path)
+
+    vm_inputs = tmp_path / "vm-inputs-c2"
+    for row in uploads:
+        (vm_inputs / row["dest"]).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(row["path"], vm_inputs / row["dest"])
+    materialized = materialize_compact_resume(ledger, vm_inputs, allowlist_path=allowlist_path)
+    decoded_pt = vm_inputs / "resume/iteration-0096.pt"
+    assert decoded_pt.is_file()
+    assert Path(f"{decoded_pt}.sha256").read_text().strip() == allowlist_entry["original"]["sha256"]
+    assert Path(f"{decoded_pt}.complete").read_text() == "complete\n"
+    verify_decoded_state(
+        torch.load(decoded_pt, map_location="cpu", weights_only=False), materialized
+    )
+    vm_ledger_path = vm_inputs / "verified-ledger.json"
+    vm_ledger_path.write_text(json.dumps(ledger))
+    loaded = load_ledger(
+        vm_ledger_path, dst_control, input_root=vm_inputs, allowlist_path=allowlist_path
+    )
+    assert list(loaded) == [96]

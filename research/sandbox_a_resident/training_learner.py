@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import torch
 from torch import nn
@@ -19,6 +19,24 @@ from research.sandbox_a_resident.training_model import (
     masked_categorical_kl,
     masked_logits,
 )
+
+
+class GracefulSignalStop(Exception):
+    """Raised at a clean minibatch or tick boundary after SIGUSR1 is received."""
+
+    def __init__(
+        self,
+        stage: str,
+        *,
+        minibatch_completed: bool = False,
+        epoch: int | None = None,
+        minibatch: int | None = None,
+    ) -> None:
+        super().__init__(stage)
+        self.stage = stage
+        self.minibatch_completed = minibatch_completed
+        self.epoch = epoch
+        self.minibatch = minibatch
 
 
 @dataclass(frozen=True)
@@ -439,7 +457,13 @@ class PPOTrainer:
             metrics[f"{base}_numerator"] = numerator
             metrics[base] = numerator.to(torch.float32) / denominator.clamp_min(1)
 
-    def update(self, rollout: PPORollout, *, diagnostics: bool = True) -> dict[str, float]:
+    def update(
+        self,
+        rollout: PPORollout,
+        *,
+        diagnostics: bool = True,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> dict[str, float]:
         """Apply up to two shuffled PPO epochs and return loss/KL diagnostics."""
         advantages, returns = compute_gae(rollout)
 
@@ -534,6 +558,10 @@ class PPOTrainer:
         for _epoch in range(self.config.epochs):
             permutation = torch.randperm(n, device=actions.device)
             for start in range(0, n, self.config.minibatch):
+                is_final_minibatch = (
+                    _epoch == self.config.epochs - 1 and start + self.config.minibatch >= n
+                )
+                minibatch_ordinal = start // self.config.minibatch + 1
                 index = permutation[start : start + self.config.minibatch]
                 values = self.critic(local[index], glob[index], scalars[index], clocks[index])
                 value_terms = (
@@ -551,6 +579,13 @@ class PPOTrainer:
                 self.critic_optimizer.step()
                 metrics["value"].append(value_loss.detach())
                 if actor_stopped:
+                    if should_stop is not None and should_stop() and not is_final_minibatch:
+                        raise GracefulSignalStop(
+                            "learner-minibatch",
+                            minibatch_completed=True,
+                            epoch=_epoch + 1,
+                            minibatch=minibatch_ordinal,
+                        )
                     continue
                 logits = self.actor(local[index], glob[index], scalars[index])
                 distribution = categorical(logits, masks[index])
@@ -677,6 +712,13 @@ class PPOTrainer:
                                 mix_ids[index],
                                 logical_lengths[index] if logical_lengths is not None else None,
                             )
+                    if should_stop is not None and should_stop() and not is_final_minibatch:
+                        raise GracefulSignalStop(
+                            "learner-minibatch",
+                            minibatch_completed=True,
+                            epoch=_epoch + 1,
+                            minibatch=minibatch_ordinal,
+                        )
                     continue
                 policy_terms = -torch.minimum(
                     ratio * advantage[index],
@@ -791,6 +833,13 @@ class PPOTrainer:
                     ("loss", actor_loss + critic_loss),
                 ):
                     metrics[name].append(value.detach())
+                if should_stop is not None and should_stop() and not is_final_minibatch:
+                    raise GracefulSignalStop(
+                        "learner-minibatch",
+                        minibatch_completed=True,
+                        epoch=_epoch + 1,
+                        minibatch=minibatch_ordinal,
+                    )
             if actor_stopped:
                 stopped_epochs += 1
         if not finite_check_emitted:

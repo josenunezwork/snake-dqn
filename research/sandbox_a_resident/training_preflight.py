@@ -6,12 +6,18 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from research.sandbox_a_resident.training_prepare import STUDY, seed_allocations
+from research.sandbox_a_resident.training_resume import (
+    HOST_ENOSPC_RECOVERY_SCHEMA,
+    verify_host_enospc_recovery,
+    verify_mechanical_stop,
+)
 from research.sandbox_a_resident.training_units import (
     COMPACT_DERIVATIVE_SUFFIX,
     COMPACT_MANIFEST_SUFFIX,
@@ -25,20 +31,202 @@ from tools.sandbox.registry import digest
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def validate_uploaded_ledger(packet: Path, broker: dict, control: dict) -> None:
+def _regular_packet_file(path: Path) -> None:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"missing or symlinked continuation proof: {path}")
+
+
+def _validate_continuation_stop(packet: Path, broker: dict) -> None:
+    """Reopen the committed seal and its underlying stop proof on every admission."""
+    seal_file = packet / "SEAL.json"
+    recovery_file = packet / "recovery-evidence.json"
+    tracked = (
+        subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", "SEAL.json"],
+            cwd=packet,
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    )
+    if not (
+        tracked
+        or "completion_attempt" in broker
+        or seal_file.exists()
+        or seal_file.is_symlink()
+        or recovery_file.exists()
+        or recovery_file.is_symlink()
+    ):
+        return
+    _regular_packet_file(seal_file)
+    verify_committed_manifest(seal_file)
+    seal = json.loads(seal_file.read_text())
+    if (
+        "completion_attempt" not in broker
+        and seal.get("schema") == "sandbox-a-train01-resident-prep-seal/v1"
+        and not (recovery_file.exists() or recovery_file.is_symlink())
+    ):
+        return
+    if seal.get("schema") != "sandbox-a-train01-continuation-seal/v1":
+        raise ValueError("unsupported continuation SEAL.json schema")
+    kind = seal.get("prior_stop_evidence_kind")
+    # 'supervisor_receipt' is the existing builder's canonical spelling.
+    if kind not in {"receipt", "supervisor_receipt", "host_enospc_recovery_certificate"}:
+        raise ValueError("SEAL.json has unsupported prior_stop_evidence_kind")
+    prior_name = seal.get("prior_packet")
+    if (
+        not isinstance(prior_name, str)
+        or not prior_name
+        or prior_name in {".", ".."}
+        or Path(prior_name).name != prior_name
+    ):
+        raise ValueError("SEAL.json prior_packet must be a packet name")
+    packet_dir = packet.resolve()
+    checkout = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=packet_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    checkout_root = (
+        Path(checkout.stdout.strip()).resolve() if checkout.returncode == 0 else packet_dir.parent
+    )
+    raw_source = seal.get("prior_packet_path", str(packet_dir.parent / prior_name))
+    if not isinstance(raw_source, str) or not raw_source or not Path(raw_source).is_absolute():
+        raise ValueError("SEAL.json prior_packet_path must be an absolute path string")
+    source_packet = Path(raw_source)
+    try:
+        source_resolved = source_packet.resolve()
+        source_resolved.relative_to(checkout_root)
+        if source_packet.name != prior_name or ".." in source_packet.parts:
+            raise ValueError("prior packet path differs")
+        cursor = source_packet
+        while cursor.resolve() != checkout_root:
+            if cursor.is_symlink() or cursor == cursor.parent:
+                raise ValueError("symlink below checkout root")
+            cursor = cursor.parent
+        if tracked and source_resolved != packet_dir.parent / prior_name:
+            raise ValueError("tracked prior packet differs")
+        source_packet = source_resolved
+    except (OSError, RuntimeError, ValueError) as error:
+        raise ValueError("SEAL.json prior_packet_path differs from prior_packet") from error
+    source_packet_manifest = source_packet / "dispatch-manifest.json"
+    for path in (source_packet_manifest, source_packet / "control.json"):
+        _regular_packet_file(path)
+        verify_committed_manifest(path)
+    source_frozen = json.loads(source_packet_manifest.read_text())
+    if kind == "host_enospc_recovery_certificate":
+        if not recovery_file.is_file() or recovery_file.is_symlink():
+            raise ValueError(
+                "SEAL.json requires recovery-evidence.json; admission proof is missing"
+            )
+        verify_committed_manifest(recovery_file)
+        recovery = json.loads(recovery_file.read_text())
+        if (
+            recovery.get("schema") != HOST_ENOSPC_RECOVERY_SCHEMA
+            or seal.get("prior_recovery_evidence_schema") != HOST_ENOSPC_RECOVERY_SCHEMA
+            or seal.get("prior_receipt_present") is not False
+            or seal.get("prior_receipt_sha256") is not None
+            or seal.get("prior_recovery_evidence_sha256") != digest(recovery_file)
+        ):
+            raise ValueError("SEAL.json does not bind committed recovery-evidence.json")
+        identities = recovery["identities"]
+        if identities["source_packet_id"] != prior_name:
+            raise ValueError("recovery evidence source packet differs from SEAL.json")
+        source_output = Path(identities["output_dir"])
+    else:
+        if recovery_file.exists() or recovery_file.is_symlink():
+            raise ValueError("receipt stop proof conflicts with recovery-evidence.json")
+        source_output = Path(seal.get("prior_output_dir", source_frozen["output_dir"]))
+    if not source_output.is_absolute() or any(
+        p.is_symlink() for p in (source_output, *source_output.parents)
+    ):
+        raise ValueError("prior output root must be an absolute path without symlinks")
+    source_manifest_path = source_output / "manifest.json"
+    _regular_packet_file(source_manifest_path)
+    source_manifest = json.loads(source_manifest_path.read_text())
+    if (
+        seal.get("prior_executed_manifest_sha256") != digest(source_manifest_path)
+        or seal.get("prior_job_id") != source_manifest.get("job_id")
+        or broker.get("completion_attempt", {}).get("prior_job_id") != seal.get("prior_job_id")
+    ):
+        raise ValueError("prior executed manifest identity differs from SEAL.json")
+    if kind == "host_enospc_recovery_certificate":
+        verify_host_enospc_recovery(
+            recovery_file,
+            source_manifest,
+            digest(source_manifest_path),
+            output_root=source_output,
+            source_control=json.loads((source_packet / "control.json").read_text()),
+            source_packet_id=source_packet.name,
+            source_packet_manifest_sha256=digest(source_packet_manifest),
+        )
+    else:
+        receipt_file = source_output / "receipt.json"
+        _regular_packet_file(receipt_file)
+        if seal.get("prior_receipt_present") is not True or seal.get(
+            "prior_receipt_sha256"
+        ) != digest(receipt_file):
+            raise ValueError("SEAL.json does not bind prior receipt")
+        log = seal.get("prior_supervisor_log")
+        log_path = None
+        if log is not None:
+            log_path = Path(log["path"])
+            _regular_packet_file(log_path)
+            if log.get("size") != log_path.stat().st_size or log.get("sha256") != digest(log_path):
+                raise ValueError("SEAL.json prior supervisor log binding differs")
+        verify_mechanical_stop(
+            json.loads(receipt_file.read_text()),
+            source_manifest,
+            digest(source_manifest_path),
+            output_root=source_output,
+            supervisor_log_path=log_path,
+        )
+
+
+def _verify_mac_compact_sidecars(path: Path) -> None:
+    sidecar = Path(f"{path}.sha256")
+    complete = Path(f"{path}.complete")
+    if not (path.is_file() and sidecar.is_file() and complete.is_file()):
+        raise ValueError(f"incomplete Mac compact export or sidecars: {path.name}")
+    if any(item.is_symlink() for item in (path, sidecar, complete)):
+        raise ValueError(f"symlinked Mac compact export or sidecars: {path.name}")
+    if sidecar.read_text().strip().split()[0] != digest(path):
+        raise ValueError(f"corrupt Mac compact export SHA-256 sidecar: {path.name}")
+
+
+def validate_uploaded_ledger(
+    packet: Path,
+    broker: dict,
+    control: dict,
+    *,
+    allowlist_path: Path | None = None,
+) -> None:
     """Verify relative runtime ledger paths against the actual Mac upload set.
 
     With an allowlisted ``compact_resume`` binding, the full-state ``.pt`` is not
     uploaded: its derivative and manifest are, as exact hash-bound siblings of
-    the Mac original, together with the original's completion sidecars.  The
-    Mac original itself is still verified by path/size/hash below.
+    the Mac original (plus the original's completion sidecars when a raw ``.pt``
+    exists on Mac, or decoded and verified on Mac from the compact-at-source
+    ``.pt.xz`` + ``.pt.xz.manifest`` export when the runtime exported compactly).
     """
+    from research.sandbox_a_resident.training_compact import (
+        CompactResumeRefused,
+        decode_stream,
+        load_manifest,
+    )
+
+    resolved_allowlist = allowlist_path
+    if resolved_allowlist is None and (packet.parent / "compact_allowlist.json").is_file():
+        resolved_allowlist = packet.parent / "compact_allowlist.json"
     ledger = json.loads((packet / "verified-ledger.json").read_text())
-    compact = validate_compact_resume(ledger)
+    compact = validate_compact_resume(ledger, allowlist_path=resolved_allowlist)
     uploads = {row["dest"]: row for row in broker["inputs"]}
     if len(uploads) != len(broker["inputs"]):
         raise ValueError("duplicate runtime input destination")
     referenced = set()
+    pending_compact_decodes: list[tuple[dict[str, Any], Path, str]] = []
     for unit in ledger.get("units", []):
         expected = [
             f"resume/iteration-{unit['iteration']:04d}{suffix}"
@@ -72,12 +260,39 @@ def validate_uploaded_ledger(packet: Path, broker: dict, control: dict) -> None:
                 if sources[0] != sources[1]:
                     raise ValueError("compact derivative and manifest must be original siblings")
                 source = sources[0]
-                for suffix in (".sha256", ".complete"):
-                    item = uploads.get(destination + suffix)
-                    if item is None or Path(item["path"]) != Path(str(source) + suffix):
-                        raise ValueError("resume sidecars must be exact uploaded siblings")
-                    referenced.add(destination + suffix)
-                row["path"] = str(source)
+                if source.is_symlink():
+                    raise ValueError("symlinked Mac full-state snapshot")
+                if source.is_file():
+                    for suffix in (".sha256", ".complete"):
+                        item = uploads.get(destination + suffix)
+                        if item is None or Path(item["path"]) != Path(str(source) + suffix):
+                            raise ValueError("resume sidecars must be exact uploaded siblings")
+                        referenced.add(destination + suffix)
+                    row["path"] = str(source)
+                else:
+                    if source.exists():
+                        raise ValueError("non-regular Mac full-state snapshot")
+                    for suffix in (".sha256", ".complete"):
+                        raw_sidecar = Path(str(source) + suffix)
+                        if raw_sidecar.exists() or raw_sidecar.is_symlink():
+                            raise ValueError(
+                                "orphan raw full-state sidecar on compact-at-source snapshot"
+                            )
+                        if (destination + suffix) in uploads:
+                            raise ValueError(
+                                "compact-at-source resume must not upload raw .pt sidecars"
+                            )
+                    derivative_file = Path(str(source) + COMPACT_DERIVATIVE_SUFFIX)
+                    manifest_file = Path(str(source) + COMPACT_MANIFEST_SUFFIX)
+                    _verify_mac_compact_sidecars(derivative_file)
+                    _verify_mac_compact_sidecars(manifest_file)
+                    try:
+                        load_manifest(manifest_file, compact)
+                    except CompactResumeRefused as error:
+                        raise ValueError(
+                            f"compact-at-source manifest verification failed: {error}"
+                        ) from error
+                    pending_compact_decodes.append((row, derivative_file, Path(destination).name))
                 continue
             upload = uploads.get(destination)
             if upload is None or row["sha256"] != upload["sha256"]:
@@ -93,13 +308,32 @@ def validate_uploaded_ledger(packet: Path, broker: dict, control: dict) -> None:
     if referenced != {name for name in uploads if name.startswith("resume/")}:
         raise ValueError("unreferenced resume upload")
     # The compact binding was validated against relative paths above; the Mac
-    # copy below verifies the local original by path/size/hash only.
+    # copy below verifies the local original (or stream-decoded compact-at-source
+    # original) by path/size/hash without loading Torch payloads.
     ledger.pop(COMPACT_RESUME_FIELD, None)
-    # Only metadata/path/size/hash are examined; Torch payloads stay opaque.
     with tempfile.TemporaryDirectory(prefix="train01-verify-ledger-") as directory:
-        path = Path(directory) / "ledger.json"
+        temp_root = Path(directory)
+        for target_row, derivative_file, filename in pending_compact_decodes:
+            assert compact is not None
+            decoded_pt = temp_root / filename
+            try:
+                with decoded_pt.open("xb") as stream:
+                    decode_stream(
+                        derivative_file,
+                        stream.write,
+                        expected_size=compact["original"]["size"],
+                        expected_sha256=compact["original"]["sha256"],
+                    )
+            except CompactResumeRefused as error:
+                raise ValueError(
+                    f"compact-at-source stream verification failed: {error}"
+                ) from error
+            Path(f"{decoded_pt}.sha256").write_text(compact["original"]["sha256"] + "\n")
+            Path(f"{decoded_pt}.complete").write_text("complete\n")
+            target_row["path"] = str(decoded_pt)
+        path = temp_root / "ledger.json"
         path.write_text(json.dumps(ledger))
-        load_ledger(path, control)
+        load_ledger(path, control, allowlist_path=resolved_allowlist)
 
 
 def validate_packet(packet: Path) -> dict[str, Any]:
@@ -136,6 +370,7 @@ def validate_packet(packet: Path) -> dict[str, Any]:
         raise ValueError("wrong finite actor endpoint")
     for name in ("control.json", "registry-check.json", "verified-ledger.json"):
         verify_committed_manifest(packet / name)
+    _validate_continuation_stop(packet, broker)
     check = json.loads((packet / "registry-check.json").read_text())
     expected = seed_allocations(control)
     registry = next(r for r in payload["inputs"] if r["kind"] == "registry")
@@ -187,12 +422,13 @@ def main() -> int:
         "research/sandbox_a_resident/test_training_rosters.py"
         "::test_runtime_resume_normalizes_relocated_row_identity_to_cpu",
     ]
+    python_exe = ROOT / "venv/bin/python"
     subprocess.run(
         [
             "nice",
             "-n",
             "15",
-            str(ROOT / "venv/bin/python"),
+            str(python_exe if python_exe.exists() else Path(sys.executable)),
             "-m",
             "pytest",
             "-q",

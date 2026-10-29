@@ -143,6 +143,14 @@ def test_prepare_completion_keeps_required_sidecars_and_preflights_successor(
     monkeypatch.setattr(sandbox_preflight, "verify_committed_manifest", lambda *_args, **_kw: None)
     monkeypatch.setattr(training_preflight, "verify_committed_manifest", lambda _path: None)
     assert validate_packet(successor)["status"] == "PASS"
+    seal = json.loads((successor / "SEAL.json").read_text())
+    assert "prior_packet_path" not in seal  # sibling packets remain portable across checkouts
+    assert seal["prior_receipt_sha256"] == digest(receipt)
+    saved_receipt = receipt.read_bytes()
+    receipt.unlink()
+    with pytest.raises(ValueError, match="continuation proof"):
+        validate_packet(successor)
+    receipt.write_bytes(saved_receipt)
 
 
 def test_validate_packet_admits_independent_seed_domain_and_freezes_recipe(
@@ -264,3 +272,110 @@ def test_validate_packet_admits_independent_seed_domain_and_freezes_recipe(
     (packet / "control.json").write_text(json.dumps(tampered, indent=2, sort_keys=True) + "\n")
     with pytest.raises(ValueError, match="frozen production recipe"):
         validate_packet(packet)
+
+
+def test_prepare_completion_admits_compact_v2_periodic_checkpoint_and_wall_timeout(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    import torch
+
+    from research.sandbox_a_resident.training_compact import encode_snapshot
+    from research.sandbox_a_resident.training_units import (
+        COMPACT_ALLOWLIST_SCHEMA,
+        TRAIN01_16_SOURCE_COMMIT,
+        register_compact_allowlist_entry,
+    )
+
+    root = Path(__file__).parent
+    repo = root.parents[1]
+    work = Path(tempfile.mkdtemp(prefix=".test-train-compact-completion-", dir=repo))
+    request.addfinalizer(lambda: shutil.rmtree(work, ignore_errors=True))
+    original = work / "packet-train01-16"
+    shutil.copytree(root / "packet-train01-16", original)
+    original_manifest_path = original / "dispatch-manifest.json"
+    original_manifest = json.loads(original_manifest_path.read_text())
+    original_manifest["source_paths"] = ["src/core/game_config.py"]
+    primary = repo.parent / "snake-dqn"
+    fixed_paths = {
+        "b8-s3.pth": str(primary / "saved_snakes/b8_s3_t7_20261016.pth"),
+        "frp3-s12.pth": str(primary / "saved_snakes/frp3_m3_s12_u60000_20261005.pth"),
+        "champion.pth": str(primary / "saved_snakes/champion_a5_freespace_20260621.pth"),
+        "registry.json": str(repo / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json"),
+        "verified-ledger.json": str(original / "verified-ledger.json"),
+    }
+    for row in original_manifest["inputs"]:
+        row["path"] = fixed_paths[row["dest"]]
+    original_manifest_path.write_text(
+        json.dumps(original_manifest, indent=2, sort_keys=True) + "\n"
+    )
+
+    control = json.loads((original / "control.json").read_text())
+    assert control["source_commit"] == TRAIN01_16_SOURCE_COMMIT
+    exports = work / "exports"
+    publish_snapshot(
+        exports,
+        176,
+        lambda path: torch.save({"schema": "sandbox-a-train-state/v1", "iteration": 176}, path),
+        metadata={"allocation": allocation(control), "source_commit": control["source_commit"]},
+    )
+    publish(exports / "iteration-0176-actor.pth", lambda path: path.write_bytes(b"opaque actor"))
+    encoded = encode_snapshot(
+        exports / "iteration-0176.pt",
+        source_packet_id="packet-train01-16",
+        iteration=176,
+        source_commit=control["source_commit"],
+    )
+    allowlist_path = work / "compact_allowlist.json"
+    allowlist_path.write_text(json.dumps({"schema": COMPACT_ALLOWLIST_SCHEMA, "entries": []}))
+    register_compact_allowlist_entry(encoded["allowlist_entry"], path=allowlist_path)
+
+    executed = work / "executed" / "manifest.json"
+    executed.parent.mkdir()
+    executed.write_text(json.dumps(original_manifest, sort_keys=True))
+    receipt = executed.parent / "receipt.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "job_id": original_manifest["job_id"],
+                "commit": original_manifest["commit"],
+                "terminal": None,
+                "generation": "fixture-gen-16",
+                "manifest_sha256": digest(executed),
+                "status": "INCOMPLETE",
+                "failure_class": "SUPERVISOR",
+                "error": "SupervisorError('whole-session wall cap reached')",
+                "stop_verified": True,
+                "cleanup_error": None,
+            }
+        )
+    )
+    successor = work / "packet-train01-16-c1-i0176"
+    output = work / "successor-output"
+    prepare_completion(
+        original,
+        receipt,
+        exports,
+        successor,
+        index=1,
+        job_id="sandbox-a-train01-16-c1-i0176",
+        output=output,
+        compact_source_packet_id="packet-train01-16",
+        allowlist_path=allowlist_path,
+    )
+
+    sandbox = json.loads((successor / "sandbox.json").read_text())
+    resume_inputs = [
+        row
+        for row in sandbox["inputs"]
+        if isinstance(row.get("path"), str) and row["path"].startswith(str(exports))
+    ]
+    assert len(resume_inputs) == 10
+    assert sum(row["kind"] == "training-export-derivative" for row in resume_inputs) == 2
+    assert sum(row["kind"] == "training-export" for row in resume_inputs) == 2
+    assert sum(row["kind"] == "training-export-sidecar" for row in resume_inputs) == 6
+    for row in resume_inputs:
+        validate_input(row, {})
+
+    monkeypatch.setattr(sandbox_preflight, "verify_committed_manifest", lambda *_args, **_kw: None)
+    monkeypatch.setattr(training_preflight, "verify_committed_manifest", lambda _path: None)
+    assert validate_packet(successor)["status"] == "PASS"

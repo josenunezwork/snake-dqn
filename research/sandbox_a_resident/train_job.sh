@@ -49,6 +49,20 @@ on_exit() {
 }
 trap on_exit EXIT
 
+child_pid=""
+on_usr1() {
+  if [[ -n "$child_pid" ]]; then
+    kill -USR1 "$child_pid" 2>/dev/null || true
+  fi
+}
+on_term() {
+  if [[ -n "$child_pid" ]]; then
+    kill -TERM "$child_pid" 2>/dev/null || true
+  fi
+}
+trap on_usr1 USR1
+trap on_term TERM
+
 set +e
 nice -n 15 python -m research.sandbox_a_resident.train \
   --checkpoint "$COLAB_INPUT_DIR/b8-s3.pth" \
@@ -59,7 +73,14 @@ nice -n 15 python -m research.sandbox_a_resident.train \
   --input-root "$COLAB_INPUT_DIR" \
   --output "$COLAB_CLI_ROOT/output/training" --device cuda \
   --stall-timeout-seconds "${SANDBOX_A_STALL_TIMEOUT_SECONDS:-900}" \
-  --stall-diagnostics "$diagnostics"
-status=$?
+  --stall-diagnostics "$diagnostics" &
+child_pid=$!
+while true; do
+  wait "$child_pid"
+  status=$?
+  if ! kill -0 "$child_pid" 2>/dev/null; then
+    break
+  fi
+done
 set -e
 exit "$status"
