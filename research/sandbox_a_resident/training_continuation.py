@@ -1289,7 +1289,11 @@ def build_continuation_packet(
             690
             if any(
                 source_packet_id == family or source_packet_id.startswith(family + "-c")
-                for family in ("packet-train01-s2-02", "packet-train01-s2-03")
+                for family in (
+                    "packet-train01-s2-02",
+                    "packet-train01-s2-03",
+                    "packet-train01-s2-04",
+                )
             )
             else None
         ),

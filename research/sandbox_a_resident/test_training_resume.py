@@ -1921,8 +1921,9 @@ def test_review_r4_unfinalized_poll_sidecars_never_authenticate_payloads(
         with pytest.raises(ResumeRefused):
             _check_output_root_fault_evidence(tmp_path)
     else:
-        # Recognizable unfinished sidecar, ignored as an export binding.
-        _check_output_root_fault_evidence(tmp_path)
+        # The accepted da85 scanner requires the full digest to bind a staged payload.
+        with pytest.raises(ResumeRefused, match="orphan full digest"):
+            _check_output_root_fault_evidence(tmp_path)
 
 
 @pytest.mark.parametrize("prefix", ["spend", "usage"])

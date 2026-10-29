@@ -541,8 +541,11 @@ def run(
     stop_controller: Sigusr1Controller | None = None,
     snapshot_format: str = "raw",
     source_packet_id: str | None = None,
+    early_pre_actor_snapshot: bool = False,
 ) -> dict[str, Any]:
     """Run/resume the bounded trajectory; it never retries failed collection."""
+    if type(early_pre_actor_snapshot) is not bool:
+        raise TypeError("early_pre_actor_snapshot must be boolean")
     if type(monitoring) is not bool:
         raise TypeError("monitoring must be boolean")
     if snapshot_format not in SNAPSHOT_FORMATS:
@@ -972,6 +975,27 @@ def run(
                     }
                 )
             completed_consistent_iteration = 0
+        if start == 0 and not resumed and early_pre_actor_snapshot:
+            initial = _snapshot_state(
+                0, control, actor, critic, trainer, task, generator, metrics, prep_state
+            )
+            _publish_state_snapshot(
+                0,
+                lambda path, value=initial: torch.save(value, path),
+                metadata={
+                    **snapshot_header,
+                    "actor_rows": 0,
+                    "phase": "pre-actor",
+                    "prepare_phase": prep_state.get("stage"),
+                },
+            )
+            _export_actor(
+                output,
+                0,
+                actor,
+                {"iteration": 0, "source_commit": control.source_commit, **provenance},
+            )
+            last_published_iteration = 0
         if monitoring and baseline_cache is None:
             assert factory is not None and proxy is not None
             emit("proxy-baseline-start")
@@ -1039,7 +1063,7 @@ def run(
                 raise ValueError(f"resume snapshot lacks its update-{start} metrics row")
             resumed_row["proxy"] = detached_proxy(start, resumed_proxy_kind)
             resumed_row.pop("proxy_deferred_on_sigusr1", None)
-        if start == 0 and not resumed:
+        if start == 0 and not resumed and not early_pre_actor_snapshot:
             initial = _snapshot_state(
                 0, control, actor, critic, trainer, task, generator, metrics, prep_state
             )
@@ -1372,6 +1396,8 @@ def main() -> int:
                 stop_controller=stop_controller,
                 snapshot_format=resolved_snapshot_format,
                 source_packet_id=args.source_packet_id,
+                early_pre_actor_snapshot=os.environ.get("SANDBOX_A_EARLY_PRE_ACTOR_SNAPSHOT")
+                == "1",
             )
     finally:
         if hasattr(signal, "SIGUSR1") and previous_sigusr1 is not None:
