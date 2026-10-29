@@ -202,12 +202,15 @@ def test_completion_limit_and_mechanical_checks() -> None:
         units.completion_attempt(1, prior, units.empty_ledger(b), b, [0, 1])
 
 
-def fake_worker(tasks, results, b, checkpoints):
+def fake_worker(tasks, b, checkpoints, output):
     while True:
         i = tasks.get()
         if checkpoints.name == "stall" and i == 1:
             time.sleep(60)
-        results.put((i, True, (row(b, i), {"index": i, "engineering_only": True})))
+        units.publish(output / "units" / f"session-{i:02d}.json", row(b, i), b, i)
+        units.export_json(
+            output / "timing" / f"session-{i:02d}.json", {"index": i, "engineering_only": True}
+        )
 
 
 def test_deadline_retains_finished_session_and_exact_skip(tmp_path, monkeypatch) -> None:
@@ -235,13 +238,13 @@ def test_signal_during_publication_finishes_unit_and_reaps(tmp_path, monkeypatch
     from research.watch_lead_p_successor import runtime
 
     monkeypatch.setattr(runtime, "worker", fake_worker)
-    real_publish = runtime.publish
+    real_verify = runtime.verify_metadata
 
     def stopped(*args, **kwargs):
         signal.raise_signal(signal.SIGTERM)
-        return real_publish(*args, **kwargs)
+        return real_verify(*args, **kwargs)
 
-    monkeypatch.setattr(runtime, "publish", stopped)
+    monkeypatch.setattr(runtime, "verify_metadata", stopped)
     b = bound()
     result = runtime.execute(
         b,
@@ -289,3 +292,51 @@ def test_transfer_margin_and_fresh_bank() -> None:
     for seconds in (141.505044, float("nan"), True, 0, 105.01):
         with pytest.raises(ValueError):
             require_transfer_margin({"transfer_seconds": seconds, "elapsed_seconds": 200})
+
+
+def test_scientific_runtime_stays_closed(tmp_path) -> None:
+    from research.watch_lead_p_successor import runtime
+
+    b = bound(False, 32)
+    with pytest.raises(ValueError, match="ratification"):
+        runtime.run_session(b, 0, tmp_path)
+    with pytest.raises(ValueError, match="ratification"):
+        runtime.execute(
+            b, units.empty_ledger(b), [0], tmp_path, tmp_path / "out", workers=1, work_seconds=1
+        )
+    assert not (tmp_path / "out").exists()
+
+
+def test_instrumented_recipe_reports_real_search_support(monkeypatch, tmp_path) -> None:
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from research.watch_lead_p import engine, live, uploaded
+    from research.watch_lead_p_successor import runtime
+    from research.watch_lead_p_successor.test_profile import TinyWorld
+
+    monkeypatch.setattr(
+        TinyWorld, "hero", property(lambda _self: SimpleNamespace(is_alive=True, length=1000))
+    )
+    monkeypatch.setattr(live, "LiveWorld", TinyWorld)
+    monkeypatch.setattr(engine, "LiveWorld", TinyWorld)
+    monkeypatch.setattr(engine, "search", lambda *_: {"chosen": 1})
+    monkeypatch.setattr(uploaded, "uploaded_checkpoints", lambda _: nullcontext())
+    monkeypatch.setattr(runtime, "host_identity", lambda: {"torch_threads": 1, "torch_interop": 1})
+    _, timing = runtime.run_session(bound(), 0, tmp_path, smoke_frames=3)
+    assert timing["smoke"] is True
+    assert timing["arms"]["P0"]["root_lengths"][0]["search_calls"] == 1
+    assert timing["arms"]["P0"]["root_lengths"][0]["length"] == 1000
+    assert timing["arms"]["bare"]["search_calls"] == 0
+    assert timing["session_inclusive_seconds"] > 0
+
+
+def test_long_packet_binder_refuses_missing_transport_pin(tmp_path) -> None:
+    import json
+
+    from research.watch_lead_p_successor.bind_timing import bind
+
+    (tmp_path / "transport-target.json").write_text(json.dumps({"target_transport_tree": None}))
+    with pytest.raises(ValueError, match="re-pin"):
+        bind(tmp_path, tmp_path / "receipt", tmp_path / "qualified", tmp_path / "new-packet")
+    assert not (tmp_path / "new-packet").exists()

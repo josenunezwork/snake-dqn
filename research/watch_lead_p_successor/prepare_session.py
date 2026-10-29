@@ -78,11 +78,25 @@ def source_inventory(pin: str) -> dict[str, str]:
     return hashes
 
 
-def prepare(packet: Path, pin: str) -> None:
+def prepare(packet: Path, pin: str, transport_pin: str | None = None) -> None:
     if not packet.is_absolute():
         raise ValueError("absolute fresh packet path required")
     if subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip() != pin:
         raise ValueError("current committed source pin required")
+    source_tree = subprocess.check_output(
+        ["git", "rev-parse", f"{pin}:research/colab_cli"], cwd=ROOT, text=True
+    ).strip()
+    target_tree = None
+    if transport_pin is not None:
+        import re
+
+        if not re.fullmatch(r"[0-9a-f]{40}", transport_pin):
+            raise ValueError("full published transport commit required")
+        target_tree = subprocess.check_output(
+            ["git", "rev-parse", f"{transport_pin}:research/colab_cli"], cwd=ROOT, text=True
+        ).strip()
+        if source_tree != target_tree:
+            raise ValueError("integrate the final transport before re-pinning a packet")
     sources = source_inventory(pin)
     bank = fresh_bank()
     audit = collision_audit(bank)
@@ -196,11 +210,14 @@ def prepare(packet: Path, pin: str) -> None:
         {
             "required_branch": TRANSPORT_BRANCH,
             "producer": "t34-sol/astra-impl-colab-transport",
-            "source_transport_tree": subprocess.check_output(
-                ["git", "rev-parse", f"{pin}:research/colab_cli"], cwd=ROOT, text=True
-            ).strip(),
-            "target_transport_tree": None,
-            "status": "REPIN_REQUIRED_AFTER_TRANSPORT_LANDS",
+            "source_transport_tree": source_tree,
+            "target_transport_tree": target_tree,
+            "target_transport_commit": transport_pin,
+            "status": (
+                "PINNED_PENDING_INDEPENDENT_TRANSPORT_APPROVAL"
+                if transport_pin
+                else "REPIN_REQUIRED_AFTER_TRANSPORT_LANDS"
+            ),
             "required_independent_review_status": "approved by transport qualification checker",
         },
     )
@@ -238,7 +255,7 @@ def prepare(packet: Path, pin: str) -> None:
         "1. Wait for astra-impl-colab-transport published commit/tree and independent approval.\n"
         "2. In THIS worktree integrate that commit (review conflicts); "
         "commit and push new source.\n"
-        "3. Regenerate a FRESH packet using prepare_session; bind final "
+        "3. Regenerate a FRESH packet using prepare_session --transport-pin FINAL_SHA; bind final "
         "runtime commit, transport tree,\n"
         "   qualified checker/record, all source hashes, checkpoint "
         "inputs, bank, ledger, manifests and seal.\n"
@@ -268,8 +285,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--packet", type=Path, required=True)
     parser.add_argument("--pin", required=True)
+    parser.add_argument("--transport-pin", help="final published transport producer commit")
     args = parser.parse_args()
-    prepare(args.packet, args.pin)
+    prepare(args.packet, args.pin, args.transport_pin)
 
 
 if __name__ == "__main__":

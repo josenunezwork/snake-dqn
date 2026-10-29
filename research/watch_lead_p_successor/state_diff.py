@@ -56,7 +56,11 @@ def reproduce(inputs: Path, seed: int, output: Path, *, frames: int = 4) -> dict
     from research.bl_served_search.exports import digest
     from research.watch_lead_p.live import LiveWorld
     from research.watch_lead_p.uploaded import uploaded_checkpoints
+    from research.watch_lead_p_successor.prepare_session import SMOKE_STUDY
+    from tools.sandbox.registry import world_seed
 
+    if seed != world_seed(SMOKE_STUDY, 0) or frames != 4:
+        raise ValueError("only the frozen excluded path-reproducer fixture is admitted")
     with tempfile.TemporaryDirectory(prefix="p-state-path-") as temporary:
         dirs = [Path(temporary) / label for label in ("allocation-a", "allocation-b")]
         worlds = []

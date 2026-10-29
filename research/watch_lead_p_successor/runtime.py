@@ -7,7 +7,6 @@ import json
 import multiprocessing as mp
 import os
 import platform
-import queue
 import signal
 import sys
 import time
@@ -15,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from research.bl_served_search.exports import digest, export_json
+from research.bl_served_search.exports import digest, export_json, verify_export
 from research.watch_lead_p_successor.units import (
     ARMS,
     aggregate,
@@ -25,6 +24,7 @@ from research.watch_lead_p_successor.units import (
     sha,
     unit_id,
     validate_binding,
+    verify_metadata,
 )
 
 
@@ -65,7 +65,10 @@ def run_session(
     from research.watch_lead_p.uploaded import uploaded_checkpoints
 
     bank = bound["bank"]
+    if not bank["engineering_only"]:
+        raise ValueError("scientific execution awaits prospective ratification/admission")
     unit_id(bound, index)
+    session_started = time.monotonic()
     if smoke_frames is not None and (not bank["engineering_only"] or not 1 <= smoke_frames <= 60):
         raise ValueError("short smoke is engineering-only and never a resume unit")
     frames = smoke_frames or bank["frames"]
@@ -108,9 +111,16 @@ def run_session(
 
             def submit(world: Any, *args: Any, **kwargs: Any) -> Any:
                 started = time.monotonic()
+                before_searches = searches
                 root = {"frame": world.frame, "length": int(world.hero.length)}
                 result = original_submit(world, *args, **kwargs)
-                lengths.append({**root, "inclusive_seconds": time.monotonic() - started})
+                lengths.append(
+                    {
+                        **root,
+                        "inclusive_seconds": time.monotonic() - started,
+                        "search_calls": searches - before_searches,
+                    }
+                )
                 return result
 
             def pulse(progress: dict) -> None:
@@ -165,13 +175,16 @@ def run_session(
             "index": index,
             "host": arms["bare"]["host"],
             "arms": timing,
+            "session_inclusive_seconds": time.monotonic() - session_started,
+            "ended_monotonic": time.monotonic(),
             "engineering_only": bank["engineering_only"],
             "smoke": smoke_frames is not None,
         },
     )
 
 
-def worker(tasks: Any, results: Any, bound: dict, checkpoints: Path) -> None:
+def worker(tasks: Any, bound: dict, checkpoints: Path, output: Path) -> None:
+    """Publish in the owning worker; never send large outcome pickles through a queue."""
     signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGUSR1})
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     signal.signal(signal.SIGUSR1, signal.SIG_DFL)
@@ -179,9 +192,13 @@ def worker(tasks: Any, results: Any, bound: dict, checkpoints: Path) -> None:
     while True:
         i = tasks.get()
         try:
-            results.put((i, True, run_session(bound, i, checkpoints)))
+            row, timing = run_session(bound, i, checkpoints)
+            started = time.monotonic()
+            publish(output / "units" / f"session-{i:02d}.json", row, bound, i)
+            timing["unit_publication_seconds"] = time.monotonic() - started
+            export_json(output / "timing" / f"session-{i:02d}.json", timing)
         except BaseException as exc:
-            results.put((i, False, repr(exc)))
+            export_json(output / "errors" / f"session-{i:02d}.json", {"error": repr(exc)[:512]})
             return
 
 
@@ -216,7 +233,7 @@ def execute(
         output / "entrypoint.json", {"binding": bound, "verified_indices": sorted(verified)}
     )
     ctx = mp.get_context("spawn")
-    tasks, results = ctx.Queue(), ctx.Queue()
+    tasks = ctx.Queue()
     processes, completed = [], []
     started = time.monotonic()
     deadline = started + work_seconds
@@ -226,10 +243,28 @@ def execute(
         nonlocal stopping
         stopping = True  # Never interrupt marker-last publication or worker registration.
 
+    def collect() -> None:
+        # Read public metadata/hash only. File completion is the notification, so a
+        # crash during pipe transmission cannot strand a finished large session.
+        for i in pending:
+            path = output / "units" / f"session-{i:02d}.json"
+            timing = output / "timing" / f"session-{i:02d}.json"
+            if i in completed or not Path(str(path) + ".complete").is_file():
+                continue
+            verify_metadata(path, bound)
+            if Path(str(timing) + ".complete").is_file():
+                verify_export(timing)
+                completed.append(i)
+                print(
+                    f"P_SUCCESSOR completed={len(completed)} skipped={len(verified)} "
+                    f"elapsed={time.monotonic()-started:.1f}s",
+                    flush=True,
+                )
+
     old = {s: signal.signal(s, stop) for s in (signal.SIGTERM, signal.SIGUSR1)}
     try:
         for _ in range(min(workers, len(pending))):
-            p = ctx.Process(target=worker, args=(tasks, results, bound, checkpoints))
+            p = ctx.Process(target=worker, args=(tasks, bound, checkpoints, output))
             processes.append(p)
             blocked = signal.pthread_sigmask(signal.SIG_BLOCK, set(old))
             try:
@@ -239,29 +274,19 @@ def execute(
         for i in pending:
             tasks.put(i)  # Session FIFO: P0/P48/bare retire together before next task.
         while len(completed) < len(pending) and not stopping and time.monotonic() < deadline:
-            try:
-                i, ok, value = results.get(timeout=min(1, max(0.001, deadline - time.monotonic())))
-            except queue.Empty:
-                if any(p.exitcode is not None for p in processes):
-                    raise RuntimeError("session worker exited before completion")
-                continue
-            if not ok:
-                raise RuntimeError(value)
-            row, timing = value
-            if i not in pending or i in completed:
-                raise ValueError("foreign/duplicate worker completion")
-            publish(output / "units" / f"session-{i:02d}.json", row, bound, i)
-            export_json(output / "timing" / f"session-{i:02d}.json", timing)
-            completed.append(i)
-            print(
-                f"P_SUCCESSOR completed={len(completed)} skipped={len(verified)} "
-                f"elapsed={time.monotonic()-started:.1f}s",
-                flush=True,
-            )
+            collect()
+            if any((output / "errors").glob("*.complete")):
+                raise RuntimeError("session worker failed; sealed mechanical diagnostic retained")
+            if len(completed) < len(pending) and any(p.exitcode is not None for p in processes):
+                raise RuntimeError("session worker exited before completion")
+            if len(completed) < len(pending):
+                time.sleep(min(0.2, max(0, deadline - time.monotonic())))
         status = "COMPLETE" if len(completed) == len(pending) else "INCOMPLETE"
     finally:
         try:
             reap(processes)  # Only children created above; never external jobs.
+            collect()  # Capture a marker published immediately before stop/deadline.
+            status = "COMPLETE" if len(completed) == len(pending) else "INCOMPLETE"
             inventory = {
                 "binding": bound,
                 "status": status,
@@ -276,7 +301,6 @@ def execute(
             for s, handler in old.items():
                 signal.signal(s, handler)
             tasks.close()
-            results.close()
     return inventory
 
 
