@@ -95,7 +95,10 @@ there is no job retry for model quality or observed support. Mac tiny timing is
 mechanical evidence, not a GPU throughput measurement. The full 32-wave guard is a
 worst-case collection envelope; actual stop is only the registered support endpoint.
 
-The packet uses existing TRAIN-01 input admission; the narrow ops extension routes
+The packet retains TRAIN-01 sandbox lineage. A separate read-only critic-snapshot
+input kind admits only the two owner-named original/derivative SHA pairs. Seed 2
+has a failed-preparation snapshot without an actor export; this diagnostic kind
+does not loosen the full-trajectory continuation requirements. The narrow ops extension routes
 only `critic_rescore/job.sh` to this package's own offline preflight. Transport
 implementation and training/prep/gate/serving algorithms remain untouched.
 

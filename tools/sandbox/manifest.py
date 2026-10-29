@@ -108,6 +108,7 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
             "closed-f0",
             "frozen-checkpoint",
             "frozen-opponent",
+            "prepared-critic-snapshot",
             "training-export",
             "training-export-sidecar",
             "training-export-derivative",
@@ -145,6 +146,7 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
             kind
             in {
                 "frozen-opponent",
+                "prepared-critic-snapshot",
                 "training-export",
                 "training-export-sidecar",
                 "training-export-derivative",

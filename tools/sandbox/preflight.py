@@ -167,7 +167,13 @@ def _validate_registry_inputs(payload: dict[str, Any], registry_path: Path) -> N
         ):
             raise PreflightError("TRAIN-01 requires exactly the two canonical fixed opponents")
         kinds = {r["kind"] for r in payload["inputs"]}
-        if kinds - {
+        packet = json.loads(Path(payload["outputs"]["broker_manifest"]["path"]).read_text())
+        optional_units = (
+            {"verified-unit", "prepared-critic-snapshot"}
+            if packet.get("script") == "research/sandbox_a_resident/critic_rescore/job.sh"
+            else set()
+        )
+        if kinds - optional_units - {
             "training-export",
             "training-export-sidecar",
             "training-export-derivative",

@@ -71,11 +71,11 @@ def prepare(packet: Path, commit: str) -> None:
         source = directory / "exports/training/iteration-0000.pt.xz"
         sources.extend(
             [
-                (f"seed{seed}.pt.xz", source, "training-export-derivative"),
+                (f"seed{seed}.pt.xz", source, "prepared-critic-snapshot"),
                 (
                     f"seed{seed}.manifest",
                     Path(str(source) + ".manifest"),
-                    "training-export-derivative",
+                    "prepared-critic-snapshot",
                 ),
             ]
         )

@@ -46,7 +46,17 @@ def check(packet: Path, *, run_tests: bool = True) -> dict:
     registry = next(Path(r["path"]) for r in manifest["inputs"] if r["dest"] == "registry.json")
     if audit(control, registry) != json.loads((packet / "seed-audit.json").read_text()):
         raise ValueError("seed audit mismatch")
-    load_ledger(packet / "verified-ledger.json", control)
+    verified = load_ledger(packet / "verified-ledger.json", control)
+    priors = [item for item in manifest["inputs"] if item["dest"].startswith("prior/")]
+    expected = {
+        (Path(item["path"]).name, item["size"], item["sha256"]) for item in verified.values()
+    }
+    actual = {
+        (Path(item["dest"]).name, Path(item["path"]).stat().st_size, item["sha256"])
+        for item in priors
+    }
+    if expected != actual or len(priors) != len(verified):
+        raise ValueError("verified ledger and prior uploaded unit set differ")
     if run_tests:
         env = os.environ.copy()
         env.update(

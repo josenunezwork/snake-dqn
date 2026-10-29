@@ -24,6 +24,17 @@ TRAINING_OPPONENTS = frozenset(
     }
 )
 DENIED = re.compile(r"(?:^|[/_.-])(?:f5|d4096|t34-round0-study-01|colab_cli)(?=$|[/_.-])")
+PREPARED_CRITIC_SNAPSHOTS = {
+    "2b5478e895e7b2b68c02e3bd118612257ea4e97c0cfab727013d7e2143338ab6": (
+        "a25562d7e95e5dd486620dbe3eee3e744" "5396c8eb5f5f5f6f1f0f4fdda05fb7b"
+    ),
+    "33863b37377f781c26846961c5b53cb5e44f65f8e3f14bec2d3ecfb83f363737": (
+        "c95a54b8aea658227e6b3599051966d6b" "7dac658062d9759ad3f29243beced0f"
+    ),
+}
+CRITIC_UNIT_NAME = re.compile(
+    r"[0-9a-f]{64}-(?P<phase>baseline|holdout)-(?P<wave>[0-9]{4})\.json\.gz"
+)
 B1_UNIT_NAME = re.compile(
     r"[0-9]{2}-(linear|gated_mlp|cosine)-kl(1|2|4|8|16)-survival(1|2|4|8)\.tar"
 )
@@ -188,6 +199,27 @@ def validate_input(record: dict, registry: dict | None = None) -> None:
     elif kind == "frozen-opponent":
         if claimed not in TRAINING_OPPONENTS:
             raise ValueError("only canonical released TRAIN-01 opponents admitted")
+    elif kind == "prepared-critic-snapshot":
+        # Read-only diagnostics may load the two owner-named prepared critics,
+        # including seed2's failed-gate snapshot without an exported actor.
+        # This does not admit either snapshot for TRAIN-01 continuation.
+        if path.name not in {"iteration-0000.pt.xz", "iteration-0000.pt.xz.manifest"}:
+            raise ValueError("canonical prepared critic snapshot required")
+        compressed = path if path.name.endswith(".xz") else path.with_name("iteration-0000.pt.xz")
+        meta_path = Path(str(compressed) + ".manifest")
+        for member in (compressed, meta_path):
+            if not Path(str(member) + ".complete").is_file() or Path(
+                str(member) + ".sha256"
+            ).read_text().strip() != digest(member):
+                raise ValueError("incomplete prepared critic snapshot")
+        meta = json.loads(meta_path.read_text())
+        expected = PREPARED_CRITIC_SNAPSHOTS.get(meta["original"]["sha256"])
+        if (
+            expected is None
+            or expected != digest(compressed)
+            or expected != meta["derivative"]["sha256"]
+        ):
+            raise ValueError("unadmitted prepared critic snapshot")
     elif kind == "training-export":
         if not re.fullmatch(r"iteration-[0-9]{4}(?:\.pt|\.json|-actor\.pth)", path.name):
             raise ValueError("canonical TRAIN-01 exported snapshot path required")
@@ -240,6 +272,17 @@ def validate_input(record: dict, registry: dict | None = None) -> None:
         if not isinstance(value, dict) or not isinstance(value.get("units"), list):
             raise ValueError("verified ledger object/units required")
     elif kind == "verified-unit":
+        critic = CRITIC_UNIT_NAME.fullmatch(path.name)
+        if critic is not None:
+            wave = int(critic["wave"])
+            if wave >= 32 or (critic["phase"] == "baseline" and wave != 0):
+                raise ValueError("foreign critic wave allocation")
+            if (
+                not Path(str(path) + ".complete").is_file()
+                or Path(str(path) + ".sha256").read_text().strip() != claimed
+            ):
+                raise ValueError("incomplete critic unit")
+            return
         if B1_UNIT_NAME.fullmatch(path.name):
             return
         match = B2_UNIT_NAME.fullmatch(path.name)

@@ -138,3 +138,21 @@ def test_outcome_blind_ledger_refuses_foreign_allocation_filename(tmp_path: Path
     write_json_unit(p, dict(values=[1]))
     with pytest.raises(ValueError, match="foreign unit path"):
         build_ledger(c, [p])
+
+
+def test_registry_admits_only_complete_bounded_critic_units(tmp_path: Path) -> None:
+    from research.sandbox_a_resident.units import digest
+    from tools.sandbox.registry import validate_input
+
+    c = fixture_control()
+    p = tmp_path / unit_filename(c, "holdout", 0)
+    write_json_unit(p, dict(values=[1]))
+    record = dict(kind="verified-unit", path=str(p), sha256=digest(p))
+    validate_input(record)
+    Path(str(p) + ".complete").unlink()
+    with pytest.raises(ValueError, match="incomplete"):
+        validate_input(record)
+    q = tmp_path / unit_filename(c, "holdout", 32)
+    write_json_unit(q, dict(values=[1]))
+    with pytest.raises(ValueError, match="foreign critic"):
+        validate_input(dict(kind="verified-unit", path=str(q), sha256=digest(q)))
