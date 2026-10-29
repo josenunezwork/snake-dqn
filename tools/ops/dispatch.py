@@ -514,6 +514,11 @@ def require_no_control_priority_drift() -> None:
 def supervisor_launcher(broker: Path, manifest: dict[str, Any]) -> Path:
     """Use the explicit host admission adapter only for declared sandbox jobs."""
     collector = sandbox_collector_directory(manifest)
+    if "p_profile_source_delivery" in manifest:
+        from research.watch_lead_p_successor.host import require_profile
+
+        require_profile(manifest, broker)
+        return broker / "research/watch_lead_p_successor/launch.sh"
     if "sandbox_admission" in manifest:
         if broker.resolve() != HERE.parents[1]:
             raise Refused("sandbox adapter must run from the selected broker checkout")
