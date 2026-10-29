@@ -116,3 +116,44 @@ $PY -m research.sandbox_a_resident.critic_rescore.run analyse \
   --units /absolute/verified/rescore/*-{baseline,holdout}-*.json.gz \
   --output /absolute/fresh/analysis.json
 ```
+# Packet-03 staging revision (2026-10-29)
+
+Packet-02 is **SPENT**: H100 was unavailable; A100 calibrated, then staging
+failed `UPLOAD_CAP` with verified stop before any holdout computation. Its
+committed files and runtime pin remain historical evidence, not dispatch inputs.
+
+Packet-03 uses fresh job `critic-rescore-20261029-02` and attempt-02 output/state
+paths. Scientific roots, seeds, rosters, endpoint and update counts are unchanged.
+`models.py` constructs a 14,857,860-byte XZ inference projection from the exact
+five original networks. It retains the B8 actor, FRP3 and champion opponents,
+and both iteration-zero critics including PopArt state. It excludes target
+networks, optimizer state, duplicate actor copies and simulator buffers. Both
+opponents are necessary: frozen/mixed roster slots alternate their identities.
+Mac admission independently reopens the hash-verified originals and compares
+every projected tensor and metadata value; the runtime input SHA binds the
+verified projection. This input is exclusive to the frozen diagnostic and
+cannot resume TRAIN-01. The registry remains committed Mac admission evidence;
+it is not uploaded because runtime does not consume it. The empty ledger remains
+an uploaded input. Total uploads: **14,858,047 bytes**, versus **38,684,914** in
+packet-02 (61.6% fewer bytes).
+
+The qualified transport is unchanged: `research/colab_cli` tree
+`3a7b2188e3afd47a57ed87cff46d95deb49146aa`, identical to current origin/main
+`7c0c7bb5e63a17315b22a087bd0e36fdb647d02f`; its external registry now says ACCEPT.
+The staging wall cap remains 300 seconds. TRAIN-01 bulk uploads ranged
+0.428–1.321 MiB/s (median 0.894); packet-03 bulk bytes project to 33.1 seconds
+at that historical minimum. Failure-day B8's effective rate was only
+0.0515 MiB/s and includes RPC latency. At that conservative rate plus observed
+51.8 seconds of nontransfer overhead, packet-03 projects to **327.1 seconds**.
+Thus the historical byte load was not intrinsically excessive, but compaction
+cannot guarantee admission during a repeat of the failure-day control outage.
+The log's three warnings contain one 120-second calibration timeout and two
+30-second staging timeouts; they are not three 120-second staging timeouts.
+
+Proposed only: qualify a separate bounded staging envelope (for example a
+600-second effective wall cap with separately bounded control recovery), with
+fault tests for stalls, cleanup and verified stop. No cap, retry, watchdog or
+transport behavior is changed in this packet. Do not dispatch from this build
+task. Exact operator command is retained in packet-03/DISPATCH-NOT-RUN.txt.
+Full evidence: `snake-dqn-artifacts/t34-sol/astra-impl-critic-rescore2/`.
+

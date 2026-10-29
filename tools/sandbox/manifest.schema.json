@@ -42,6 +42,7 @@
                   "frozen-checkpoint",
                   "frozen-opponent",
                   "prepared-critic-snapshot",
+                  "critic-rescore-models",
                   "verified-ledger",
                   "verified-unit",
                   "registry"

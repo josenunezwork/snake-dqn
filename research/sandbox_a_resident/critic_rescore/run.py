@@ -25,6 +25,7 @@ from research.sandbox_a_resident.training_rosters import (
 )
 from research.sandbox_a_resident.training_task import ResidentTrainingTask, TrainingTaskConfig
 from research.sandbox_a_resident.units import digest, publish, verified_descriptor
+from src.model.ego2s_network import Ego2sNet
 from src.model.inference_agent import InferenceAgent
 
 NAMESPACE = "a100-dev/sandbox-a-train01"
@@ -131,6 +132,30 @@ def load_critics(inputs: Path, actor: B8Actor, device: str) -> list[ClockedPopAr
             critics.append(critic)
             del state
     return critics
+
+
+def load_models(inputs: Path, device: str) -> tuple[B8Actor, list, dict]:
+    """Load the Mac-verified inference projection, preserving all five networks."""
+    from research.sandbox_a_resident.critic_rescore.models import (
+        CHAMPION_SHA,
+        FRP_SHA,
+        load_bundle,
+    )
+
+    models = load_bundle(inputs / "models.pt.xz")["models"]
+    reference = Ego2sNet(**models["b8"]["config"])
+    reference.load_state_dict(models["b8"]["state_dict"])
+    actor = B8Actor(b8_model=reference).to(device).eval().requires_grad_(False)
+    critics = []
+    for seed in (1, 2):
+        critic = ClockedPopArtCritic(actor.reference).to(device).eval()
+        critic.load_state_dict(models[f"seed{seed}"])
+        critics.append(critic.requires_grad_(False))
+    frozen = {
+        sha: InferenceAgent.from_checkpoint_blob(models[name], device=torch.device(device)).network
+        for name, sha in (("frp", FRP_SHA), ("champion", CHAMPION_SHA))
+    }
+    return actor, critics, frozen
 
 
 def emit(output: Path, started: float, **fields: Any) -> None:
@@ -316,18 +341,24 @@ def collect(inputs: Path, output: Path, device: str, control_path: Path | None =
     for name, sha in control["input_hashes"].items():
         if digest(inputs / name) != sha:
             raise ValueError("hash-bound runtime input mismatch: " + name)
-    if digest(inputs / "b8-s3.pth") != B8_SHA:
-        raise ValueError("released B8 identity mismatch")
-    for name, expected in (("frp3-s12.pth", FRP3_S12_SHA256), ("champion.pth", CHAMPION_SHA256)):
-        if digest(inputs / name) != expected:
-            raise ValueError("released opponent identity mismatch")
-    actor = B8Actor(inputs / "b8-s3.pth").to(device).eval().requires_grad_(False)
-    critics = load_critics(inputs, actor, device)
-    frozen = {}
-    for name, sha in (("frp3-s12.pth", FRP3_S12_SHA256), ("champion.pth", CHAMPION_SHA256)):
-        frozen[sha] = InferenceAgent.from_checkpoint(
-            str(inputs / name), device=torch.device(device)
-        ).network
+    if "models.pt.xz" in control["input_hashes"]:
+        actor, critics, frozen = load_models(inputs, device)
+    else:
+        if digest(inputs / "b8-s3.pth") != B8_SHA:
+            raise ValueError("released B8 identity mismatch")
+        for name, expected in (
+            ("frp3-s12.pth", FRP3_S12_SHA256),
+            ("champion.pth", CHAMPION_SHA256),
+        ):
+            if digest(inputs / name) != expected:
+                raise ValueError("released opponent identity mismatch")
+        actor = B8Actor(inputs / "b8-s3.pth").to(device).eval().requires_grad_(False)
+        critics = load_critics(inputs, actor, device)
+        frozen = {}
+        for name, sha in (("frp3-s12.pth", FRP3_S12_SHA256), ("champion.pth", CHAMPION_SHA256)):
+            frozen[sha] = InferenceAgent.from_checkpoint(
+                str(inputs / name), device=torch.device(device)
+            ).network
     heldout = []
     units = []
     for phase, wave, offset in specs(control):

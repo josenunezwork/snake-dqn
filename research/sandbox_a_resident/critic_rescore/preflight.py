@@ -43,7 +43,8 @@ def check(packet: Path, *, run_tests: bool = True) -> dict:
     upload_hashes = {r["dest"]: r["sha256"] for r in manifest["inputs"]}
     if {k: upload_hashes[k] for k in control["input_hashes"]} != control["input_hashes"]:
         raise ValueError("runtime input identities differ")
-    registry = next(Path(r["path"]) for r in manifest["inputs"] if r["dest"] == "registry.json")
+    sandbox = json.loads((packet / "sandbox.json").read_text())
+    registry = next(Path(r["path"]) for r in sandbox["inputs"] if r["kind"] == "registry")
     if audit(control, registry) != json.loads((packet / "seed-audit.json").read_text()):
         raise ValueError("seed audit mismatch")
     verified = load_ledger(packet / "verified-ledger.json", control)

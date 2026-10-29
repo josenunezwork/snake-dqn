@@ -156,7 +156,22 @@ def _validate_registry_inputs(payload: dict[str, Any], registry_path: Path) -> N
         # manifest validation has already rejected protected strings, before any
         # record path is opened by the registry loader/validator.
         validate_input(record, registry)
-    if payload["study"] == "sandbox-a-train01" or any(
+    compact_models = [r for r in payload["inputs"] if r["kind"] == "critic-rescore-models"]
+    if compact_models:
+        packet = json.loads(Path(payload["outputs"]["broker_manifest"]["path"]).read_text())
+        kinds = [r["kind"] for r in payload["inputs"]]
+        if (
+            payload["study"] != "sandbox-a-train01"
+            or packet.get("script") != "research/sandbox_a_resident/critic_rescore/job.sh"
+            or any(
+                kinds.count(k) != 1
+                for k in ("worlds", "critic-rescore-models", "verified-ledger", "registry")
+            )
+            or set(kinds)
+            - {"worlds", "critic-rescore-models", "verified-ledger", "registry", "verified-unit"}
+        ):
+            raise PreflightError("inference projection is exclusive to frozen critic rescore")
+    elif payload["study"] == "sandbox-a-train01" or any(
         r["kind"] == "frozen-opponent" for r in payload["inputs"]
     ):
         from .registry import TRAINING_OPPONENTS
@@ -264,6 +279,17 @@ def _verify_broker_binding(payload: dict[str, Any]) -> None:
         for record in payload["inputs"]
         if "path" in record
     }
+    # The registry is Mac-only exclusion/admission evidence for the compact
+    # diagnostic. It is never consumed by runtime; keep its committed hash
+    # checked above, while refusing any other omitted or additional upload.
+    if script == "research/sandbox_a_resident/critic_rescore/job.sh" and any(
+        r["kind"] == "critic-rescore-models" for r in payload["inputs"]
+    ):
+        allowed -= {
+            (r["sha256"], str(Path(r["path"]).resolve()))
+            for r in payload["inputs"]
+            if r["kind"] == "registry"
+        }
     shipped = set()
     for record in packet.get("inputs", []):
         source = _assert_safe_path(record.get("path", ""), "broker input").resolve()

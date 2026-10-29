@@ -78,33 +78,14 @@ def audit(control: dict, registry: Path) -> dict:
     )
 
 
-def prepare(packet: Path, commit: str) -> None:
+def prepare(packet: Path, commit: str, models: Path, job_id: str, output: Path) -> None:
     commit = subprocess.check_output(
         ["git", "rev-parse", "--verify", f"{commit}^{{commit}}"], cwd=ROOT, text=True
     ).strip()
-    checkpoint_dir = ARTIFACTS.parent / "snake-dqn" / "saved_snakes"
     registry = ROOT / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json"
     sources = [
-        ("b8-s3.pth", checkpoint_dir / "b8_s3_t7_20261016.pth", "frozen-checkpoint"),
-        ("frp3-s12.pth", checkpoint_dir / "frp3_m3_s12_u60000_20261005.pth", "frozen-opponent"),
-        ("champion.pth", checkpoint_dir / "champion_a5_freespace_20260621.pth", "frozen-opponent"),
-        ("registry.json", registry, "registry"),
+        ("models.pt.xz", models, "critic-rescore-models"),
     ]
-    for seed, directory in [
-        (1, ARTIFACTS / "sandbox-a-resident/train01-attempt-11/output"),
-        (2, ARTIFACTS / "sandbox-a-resident/train01-s2-attempt-04/output-a100-fallback"),
-    ]:
-        source = directory / "exports/training/iteration-0000.pt.xz"
-        sources.extend(
-            [
-                (f"seed{seed}.pt.xz", source, "prepared-critic-snapshot"),
-                (
-                    f"seed{seed}.manifest",
-                    Path(str(source) + ".manifest"),
-                    "prepared-critic-snapshot",
-                ),
-            ]
-        )
     for _, path, kind in sources:
         validate_input(dict(kind=kind, path=str(path), sha256=digest(path)))
     hashes = {name: digest(path) for name, path, _ in sources}
@@ -147,9 +128,8 @@ def prepare(packet: Path, commit: str) -> None:
         set(source_paths(commit))
         | {p for p in own if p.endswith((".py", ".sh")) and not Path(p).name.startswith("test_")}
     )
-    output = ARTIFACTS / "sandbox-a-resident/critic-rescore-20261029-attempt-01/output"
     manifest = dict(
-        job_id="critic-rescore-20261029-01",
+        job_id=job_id,
         commit=commit,
         script="research/sandbox_a_resident/critic_rescore/job.sh",
         device="cuda",
@@ -194,6 +174,7 @@ def prepare(packet: Path, commit: str) -> None:
         )
     ]
     inputs += [dict(kind=k, path=str(p.resolve()), sha256=digest(p)) for _, p, k in sources]
+    inputs.append(dict(kind="registry", path=str(registry), sha256=digest(registry)))
     sandbox = dict(
         schema="standing-a100-development-sandbox/v1",
         study="sandbox-a-train01",
@@ -239,5 +220,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--packet", type=Path, required=True)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--models", type=Path, required=True)
+    parser.add_argument("--job-id", required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
     a = parser.parse_args()
-    prepare(a.packet.resolve(), a.commit)
+    prepare(a.packet.resolve(), a.commit, a.models.resolve(), a.job_id, a.output_dir.resolve())

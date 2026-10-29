@@ -194,3 +194,54 @@ def test_numerical_merge_refuses_foreign_payload_header(tmp_path: Path) -> None:
     assert len(build_ledger(c, [p])["units"]) == 1
     with pytest.raises(ValueError, match="foreign unit identity"):
         aggregate(c, [p], 10)
+
+
+def test_inference_projection_refuses_changed_weights_and_missing_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+    import lzma
+
+    import torch
+
+    from research.sandbox_a_resident.critic_rescore import models
+    from research.sandbox_a_resident.units import publish
+
+    original = dict(
+        schema=models.SCHEMA,
+        originals=models.ORIGINALS,
+        models={k: {"weight": torch.tensor([1.0])} for k in models.ORIGINALS},
+    )
+    monkeypatch.setattr(models, "original_projection", lambda: original)
+    path = tmp_path / "models.pt.xz"
+    models.build_bundle(path)
+    changed = copy.deepcopy(original)
+    changed["models"]["seed2"]["weight"][0] = 2
+    stream = io.BytesIO()
+    torch.save(changed, stream)
+    bad = tmp_path / "bad.pt.xz"
+    publish(bad, lambda p: p.write_bytes(lzma.compress(stream.getvalue())))
+    with pytest.raises(ValueError, match="differs from original"):
+        models.verify_bundle(bad)
+    Path(str(path) + ".complete").unlink()
+    with pytest.raises(ValueError, match="incomplete"):
+        models.verify_bundle(path)
+
+
+def test_inference_projection_rejects_trailing_data_and_foreign_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from research.sandbox_a_resident.critic_rescore import models
+
+    original = dict(
+        schema=models.SCHEMA, originals=models.ORIGINALS, models={k: {} for k in models.ORIGINALS}
+    )
+    monkeypatch.setattr(models, "original_projection", lambda: original)
+    path = tmp_path / "models.pt.xz"
+    models.build_bundle(path)
+    path.write_bytes(path.read_bytes() + b"foreign")
+    with pytest.raises(ValueError, match="trailing"):
+        models.load_bundle(path)
+    original["originals"] = dict(models.ORIGINALS, seed1="0" * 64)
+    with pytest.raises(ValueError, match="foreign"):
+        models.build_bundle(tmp_path / "foreign.pt.xz")

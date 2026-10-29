@@ -109,6 +109,7 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
             "frozen-checkpoint",
             "frozen-opponent",
             "prepared-critic-snapshot",
+            "critic-rescore-models",
             "training-export",
             "training-export-sidecar",
             "training-export-derivative",
@@ -147,6 +148,7 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
             in {
                 "frozen-opponent",
                 "prepared-critic-snapshot",
+                "critic-rescore-models",
                 "training-export",
                 "training-export-sidecar",
                 "training-export-derivative",

@@ -199,6 +199,10 @@ def validate_input(record: dict, registry: dict | None = None) -> None:
     elif kind == "frozen-opponent":
         if claimed not in TRAINING_OPPONENTS:
             raise ValueError("only canonical released TRAIN-01 opponents admitted")
+    elif kind == "critic-rescore-models":
+        from research.sandbox_a_resident.critic_rescore.models import verify_bundle
+
+        verify_bundle(path)
     elif kind == "prepared-critic-snapshot":
         # Read-only diagnostics may load the two owner-named prepared critics,
         # including seed2's failed-gate snapshot without an exported actor.
