@@ -1,0 +1,236 @@
+{
+  "admission_replays": {
+    "allocations": 0,
+    "calls": [
+      {
+        "elapsed_seconds": 54.355084917042404,
+        "gpu": "H100",
+        "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-H100-1.log",
+        "repeat": 1,
+        "returncode": 0
+      },
+      {
+        "elapsed_seconds": 51.782964708982036,
+        "gpu": "H100",
+        "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-H100-2.log",
+        "repeat": 2,
+        "returncode": 0
+      },
+      {
+        "elapsed_seconds": 51.568617624929175,
+        "gpu": "H100",
+        "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-H100-3.log",
+        "repeat": 3,
+        "returncode": 0
+      },
+      {
+        "elapsed_seconds": 52.07257912494242,
+        "gpu": "A100",
+        "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-A100-1.log",
+        "repeat": 1,
+        "returncode": 0
+      },
+      {
+        "elapsed_seconds": 52.311603375012055,
+        "gpu": "A100",
+        "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-A100-2.log",
+        "repeat": 2,
+        "returncode": 0
+      },
+      {
+        "elapsed_seconds": 52.20472224999685,
+        "gpu": "A100",
+        "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-A100-3.log",
+        "repeat": 3,
+        "returncode": 0
+      }
+    ],
+    "entrypoint": "tools.ops.dispatch.require_sandbox_admission",
+    "status": "PASS"
+  },
+  "branch": "astra-train01-s2-20261028",
+  "diagnostics": [
+    "Initial focused run imported allowlist before S2-03 edit completed: 2 failures; final877 suite and6 continuation cases pass.",
+    "Initial review setup raced worktree creation: corrected before invocation.",
+    "Launcher first invocation lacked PYTHONPATH: corrected; final46.21s smoke passed."
+  ],
+  "dry_run": "PASS_DRY_RUN sandbox-a-train01-20261028-s2-03 variants=H100,A100 allocations=0 live_accounting=NOT_CHECKED",
+  "evidence_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/argon-code-review-bounded/answer.md": "bd0f5ec8c4093c119e3acc37461d734b14831369268534093854bfaaa7cdbf6b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/argon-packet-resolution/answer.md": "ea5a2a18abe311b773b83e8775dd298b1cbe716549f5921753d7298a00477658",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/argon-packet-review/answer.md": "046815c85e05d0831e51422e0539f2f9eb3130bc59494f4c275479923e564279",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/dispatch-command.sh": "7977c944e8c3eec145b45392fec529c785d3293542b9a072aca7c1091e1fc7e8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/accounting-live.json": "21f61a9551346fed6f612fff697be685c3769a16c64384faa115c768dc01d2a0",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/accounting-s2-03.json": "7fe64b9dacdf16934822061a17b2f02718e7494f17fc1dea42a8811058f9c523",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-A100-1.log": "58184c0aa2775368ec427c3fa7bd8a6437551bc7594338e4f5a9a42a13234e83",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-A100-2.log": "c486c0a547bb21eacec903b9802fcb3712f831c286d1d4b76cf8aa2e48b01efc",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-A100-3.log": "00d8482d5c20e81e752f033215ca68eb342d132f0e57af7c0dd709a673aed806",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-H100-1.log": "5b3f109c2b6d626333e6222ddfcc4cef862c1dd76f1f9460adedc180614731df",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-H100-2.log": "5e00b39e3d98f29eafb72808e45bece0b991c9f0b53f2db7d4c9875c432523f0",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-H100-3.log": "e9b2b1244cee63796f6d2877618b5adf09bedd7e7c8ea1186c83783ba1a2a68e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/admission-replays.json": "0a98e8621b9f547059e3137d438617baa0c9264aeefe55d2c3f3b06809b82e65",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/broker-collection.log": "8d73228c3e778bb08eb76b3231a6e79c5342396f97fce84ffee13053c85ab974",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/broker-supervisor-tests.log": "bf48ad811e0527078e93c550cdffba56b88616256838823fce5abb3b8ff36d6f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/checkout-integrity.json": "b89b41e4dfe9337fb65478877124d56fcc35c906fd196b9782f75d337e74fee0",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/colab-limits-checklist.json": "427ef2ce653547b7d7e9f2fc2cd148eee27cbc8c3087005e5f006ecd05499a1e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/dispatch-dry-run.log": "562dd9b6def80e324d0882c32d801b6c923fa4ae2b105346302a10f8b23f37da",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/focused-tests.log": "86e346a083d0048821f2be9cefbcb25ca75e6415ea2b3096511dcd29f8cfa503",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/launcher-measurement-final.log": "7bed8c43b89bfb91017b648c1e95d20a6f867f4edd3e202719a2e9c09b333565",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/launcher-measurement.log": "01e5cf69842077675634acb19879f9cae68cbe03b47046421a5fa30328f49b20",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/launcher-smoke/measurement.json": "7bed8c43b89bfb91017b648c1e95d20a6f867f4edd3e202719a2e9c09b333565",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/lint.log": "26a5fd9505f2b5608a20c4fed4b4c4795e0783d03b72ade02a6af34dae8ad086",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/repeat-log-inventory.json": "44013494545d2f4cc407f33743c7f0c53ca3169768284906180c0abf6ffb5056",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/repeat-results.json": "1dac39aaf762725bc1c01abce982866bb4f1f8567b1b7ac7e69badc1db10d0a7",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/resident-sandbox-tests.log": "ca501f744fcbe7540c280e112e64083bf24eafeba507c2914fb968346554ffb9",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/root-cause.json": "e2322ac5b73e9cf8fa7b478e8d74bec607a4678dcc9fe13393c8ebbb6aaada55",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/runtime-parity.json": "8caf482c71cc95ed9eb5c2bd6af98c30a7a3e8e5116dc749986e8497ad9a674e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/s2-continuation-tests-final.log": "872b1b970b2cc8775199786c38b27246e7a79c59608d7c04f2aa7c29ec99e1b0",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/source-launch.json": "25af9ceb3eb2879767622df9b975b4bff59061cb8a973448e86002c4e978ed2b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/source-measurement.log": "6845ade8af039e4c17b60bdbb96ad7eed5d0cd19231e65d0830385af2542f900",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/staging-projection.json": "6845ade8af039e4c17b60bdbb96ad7eed5d0cd19231e65d0830385af2542f900"
+  },
+  "implementation_commit": "459bfb58cf1f4966f59ce06fa33fc94539f80d9b",
+  "independent_reviews": {
+    "code": "PASS",
+    "first_high_effort": "empty response at 240s; excluded",
+    "packet_initial": "source payload omitted; resolved by supplying complete reviewed diff",
+    "packet_resolution": "PASS"
+  },
+  "job_id": "sandbox-a-train01-20261028-s2-03",
+  "limits": {
+    "early_failures_can_exhaust_attempts": true,
+    "h100_throughput": "unmeasured",
+    "max_manual_completions": 2,
+    "native_cuda_executed": false,
+    "no_automatic_retries": true
+  },
+  "lint": "black/isort/flake8/shell syntax/diff checks passed",
+  "packet_manifest_sha256": "af174df0c5913cbda8a71b671d4dc67861ab544ab4c86a7946d2c0a16bfd53cb",
+  "packet_seal_commit": "8c72704a23ca9efd74f0a5367b08fb339f21bb7d",
+  "packet_seal_sha256": "38bb8c6584ae6cb57b64b3125400550a63e154e809fd79404b72dc51206836fe",
+  "repeat_results": {
+    "after_failure_rate": 0,
+    "after_failures": 0,
+    "after_summary_sha256": "c819f08439f0e5067f775ef4cb896c3d32031e7df9f8a141373a8c1e34433266",
+    "after_test_sha256": "25957fa9dedf71332eadb99c8eaafd8c21d9d2306b8315d4fb57bab9eea4d789",
+    "all_baseline_failures_exact_original_assertion": true,
+    "baseline_test_byte_identical_to_c119fbc4": true,
+    "baseline_test_sha256": "c5d5c4511b0b862895c0e0d484f2996eba82a2de7c889c1b7757bfd96972c872",
+    "before_failure_rate": 0.05,
+    "before_failures": 10,
+    "before_summary_sha256": "66b144b9d11ea314f215276ce721b9690ef34e149e75d33b1c3fc33639980f7f",
+    "fresh_pytest_processes_per_version": 200,
+    "status": "PASS"
+  },
+  "root_cause": {
+    "conclusion": "Float32 rounding made the test mutation a no-op; no verifier hole exposed. r6 uses the byte-identical unchanged compact verifier.",
+    "controlled_rounding": [
+      {
+        "accepted": false,
+        "after_hex": "0x1.0000020000000p+0",
+        "before_hex": "0x1.0000000000000p+0",
+        "bytes_equal": false,
+        "value": 1.0
+      },
+      {
+        "accepted": true,
+        "after_hex": "0x1.0000000000000p+1",
+        "before_hex": "0x1.0000000000000p+1",
+        "bytes_equal": true,
+        "value": 2.0
+      },
+      {
+        "accepted": true,
+        "after_hex": "0x1.8000000000000p+1",
+        "before_hex": "0x1.8000000000000p+1",
+        "bytes_equal": true,
+        "value": 3.0
+      },
+      {
+        "accepted": false,
+        "after_hex": "-0x1.fffffe0000000p+0",
+        "before_hex": "-0x1.0000000000000p+1",
+        "bytes_equal": false,
+        "value": -2.0
+      },
+      {
+        "accepted": true,
+        "after_hex": "-0x1.8000000000000p+1",
+        "before_hex": "-0x1.8000000000000p+1",
+        "bytes_equal": true,
+        "value": -3.0
+      }
+    ],
+    "current_compact_module_sha256": "518b0d7853ee1ae1aefb63018414613dd335db27ae6f73f369c253a5bd2be41e",
+    "r6_compact_module_sha256": "518b0d7853ee1ae1aefb63018414613dd335db27ae6f73f369c253a5bd2be41e",
+    "r6_manifest_sha256": "141129351731a342f38294e5057018e226aef69921d964784b11e53b2dc38dbd",
+    "r6_runtime_pin": "dccf7e25a5fb3ebc2fe303b2dc072aeb83efd213",
+    "r6_same_compact_module": true,
+    "verifier_code_changed": false
+  },
+  "runtime_parity": {
+    "changed_runtime_files": [
+      {
+        "new_sha256": "a88fc83986bc24a408df3fefe8e61c8b6d66830c39e00fd83418aa75fc430894",
+        "old_sha256": "92d86d3a47d5bbf5c367b86cca068b664c29fe530a3bacb939fbca3f54f62813",
+        "path": "research/sandbox_a_resident/training_units.py"
+      }
+    ],
+    "compact_verifier_unchanged": true,
+    "numerical_training_model_task_learner_simulator_unchanged": true,
+    "previous_runtime": "dec8c2630c6d0beeee0bd4ef19a94ebbdc0b0b94",
+    "runtime": "459bfb58cf1f4966f59ce06fa33fc94539f80d9b",
+    "source_paths_count": 188
+  },
+  "schema": "sandbox-a-train01-s2-03-verification/v1",
+  "source_integrity": {
+    "checkouts": [
+      {
+        "cache_files": [],
+        "clean": true,
+        "detached": true,
+        "head": "459bfb58cf1f4966f59ce06fa33fc94539f80d9b",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2c-runtime.noindex"
+      },
+      {
+        "cache_files": [],
+        "clean": true,
+        "detached": true,
+        "head": "8c72704a23ca9efd74f0a5367b08fb339f21bb7d",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2c-broker.noindex"
+      },
+      {
+        "cache_files": [],
+        "clean": true,
+        "detached": true,
+        "head": "459bfb58cf1f4966f59ce06fa33fc94539f80d9b",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2c-review.noindex"
+      }
+    ],
+    "new_state_outputs_absent": true,
+    "old_s2_packets_unchanged": true,
+    "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+    "status": "PASS"
+  },
+  "status": "PREPARED_NOT_DISPATCHED",
+  "test_results": {
+    "resident_and_sandbox": {
+      "deselected": 0,
+      "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/resident-sandbox-tests.log",
+      "passed": 877,
+      "seconds": 239.25
+    },
+    "s2_family_gpu_continuations": {
+      "deselected": 18,
+      "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/s2-continuation-tests-final.log",
+      "passed": 6,
+      "seconds": 56.06
+    },
+    "supervisor_accounting_preference_dispatch": {
+      "deselected": 0,
+      "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2c/evidence/broker-supervisor-tests.log",
+      "passed": 248,
+      "seconds": 736.54
+    }
+  }
+}
