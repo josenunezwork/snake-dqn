@@ -69,7 +69,9 @@ unit identities, then takes the numerical look:
 
 ## Resume and execution boundaries
 
-Unit identity = namespace + phase + frozen wave index + seed offset. One compressed
+Unit identity = namespace + phase + frozen wave index + seed offset. Filenames
+include the full recipe/allocation fingerprint, allowing outcome-blind ledger
+admission to refuse foreign allocations without opening numerical payloads. One compressed
 JSON payload per full wave; deterministic gzip, atomic immutable publication, SHA
 sidecar, completion marker last. An incomplete wave is not a unit. The first
 attempt uploads an empty hash-bound ledger. `ledger` builds the Mac-verified ledger
@@ -102,10 +104,10 @@ PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 # After verified exports; paths include baseline-0000 and each holdout unit once:
 $PY -m research.sandbox_a_resident.critic_rescore.run ledger \
   --inputs research/sandbox_a_resident/critic_rescore/packet-01 \
-  --units /absolute/verified/rescore/{baseline,holdout}-*.json.gz \
+  --units /absolute/verified/rescore/*-{baseline,holdout}-*.json.gz \
   --output /absolute/fresh/verified-ledger.json
 $PY -m research.sandbox_a_resident.critic_rescore.run analyse \
   --inputs research/sandbox_a_resident/critic_rescore/packet-01 \
-  --units /absolute/verified/rescore/{baseline,holdout}-*.json.gz \
+  --units /absolute/verified/rescore/*-{baseline,holdout}-*.json.gz \
   --output /absolute/fresh/analysis.json
 ```

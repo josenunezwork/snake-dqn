@@ -18,6 +18,7 @@ from research.sandbox_a_resident.critic_rescore.run import (
     load_ledger,
     scarcity,
     selected_late,
+    unit_filename,
     write_json_unit,
 )
 
@@ -30,6 +31,8 @@ def fixture_control() -> dict:
         max_waves=2,
         late_length=800,
         late_lives_per_mix=1,
+        horizon=4,
+        test_only=True,
     )
 
 
@@ -38,7 +41,9 @@ def life(i: int, mix: str, bias: float = 0) -> dict:
         id=i,
         mix=mix,
         length=[1, 800, 801, 802],
-        clock=[1, 0.9, 0.8, 0.7],
+        clock=[1, 0.9998, 0.9996, 0.9994],
+        rewards=[10.0, 5.0, 5.0, 0.0],
+        end_reason="fixture-cut",
         target=[20.0, 10.0, 5.0, 0.0],
         predictions=[[20.0, 10.0 + bias, 5.0 + bias, bias], [20.0, 8.0, 4.0, 0.0]],
     )
@@ -73,7 +78,7 @@ def test_sparse_160_rows_reports_life_shortfall() -> None:
 
 def test_immutable_unit_ledger_skip_and_foreign_refusal(tmp_path: Path) -> None:
     c = fixture_control()
-    p = tmp_path / "holdout-0000.json.gz"
+    p = tmp_path / unit_filename(c, "holdout", 0)
     write_json_unit(p, dict(values=[1, 2]))
     ledger = build_ledger(c, [p])
     q = tmp_path / "ledger.json"
@@ -94,10 +99,11 @@ def test_aggregate_disjoint_bank_and_old_support(tmp_path: Path) -> None:
     c = fixture_control()
     paths = []
     for phase, offset in [("baseline", 100), ("holdout", 200)]:
-        p = tmp_path / f"{phase}-0000.json.gz"
+        p = tmp_path / unit_filename(c, phase, 0)
         write_json_unit(
             p,
             dict(
+                schema="critic-rescore-wave/v1",
                 allocation=fingerprint(c),
                 id=identity(phase, 0, offset),
                 phase=phase,
@@ -123,3 +129,12 @@ def test_duplicate_or_foreign_ledger_units(tmp_path: Path) -> None:
     p.write_text(json.dumps(ledger))
     with pytest.raises(ValueError, match="duplicate"):
         load_ledger(p, c)
+
+
+def test_outcome_blind_ledger_refuses_foreign_allocation_filename(tmp_path: Path) -> None:
+    c = fixture_control()
+    foreign = dict(c, late_lives_per_mix=2)
+    p = tmp_path / unit_filename(foreign, "holdout", 0)
+    write_json_unit(p, dict(values=[1]))
+    with pytest.raises(ValueError, match="foreign unit path"):
+        build_ledger(c, [p])

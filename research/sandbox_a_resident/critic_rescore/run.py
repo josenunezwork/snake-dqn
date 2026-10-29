@@ -56,6 +56,11 @@ def identity(phase: str, wave: int, offset: int) -> str:
     return f"{NAMESPACE}/critic-rescore/{phase}/{wave:04d}/{offset}"
 
 
+def unit_filename(control: dict, phase: str, wave: int) -> str:
+    """Bind namespace/recipe to the filename for outcome-blind Mac admission."""
+    return f"{fingerprint(control)}-{phase}-{wave:04d}.json.gz"
+
+
 def load_ledger(path: Path, control: dict) -> dict[str, dict]:
     """Refuse foreign or duplicated verified descriptors before any collection."""
     ledger = json.loads(path.read_text())
@@ -87,7 +92,7 @@ def read_unit(path: Path) -> dict:
 def build_ledger(control: dict, paths: list[Path]) -> dict:
     """Outcome-blind Mac verification: descriptor path/size/hash, never decode data."""
     ledger = empty_ledger(control)
-    expected = {f"{p}-{w:04d}.json.gz": identity(p, w, o) for p, w, o in specs(control)}
+    expected = {unit_filename(control, p, w): identity(p, w, o) for p, w, o in specs(control)}
     for path in paths:
         if path.name not in expected:
             raise ValueError("foreign unit path")
@@ -174,6 +179,7 @@ def collect_wave(
     predictions = np.zeros((2, horizon, e), dtype=np.float32)
     active = torch.ones(e, dtype=torch.bool, device=device)
     ends = np.zeros(e, dtype=np.int32)
+    reasons = [None] * e
     last_progress = time.monotonic()
     for tick in range(horizon):
         local, glob, scalars, legal = task.observe()
@@ -191,7 +197,13 @@ def collect_wave(
         lengths[tick] = mass.cpu().numpy()
         rewards[tick] = step.reward.cpu().numpy()
         done = active & (step.terminal | step.cut | (tick + 1 == horizon))
-        ends[done.cpu().numpy()] = tick + 1
+        completed_slots = done.cpu().numpy()
+        terminals = step.terminal.cpu().numpy()
+        ends[completed_slots] = tick + 1
+        for slot in np.flatnonzero(completed_slots):
+            reasons[slot] = (
+                "death" if terminals[slot] else ("fixture-cut" if control["test_only"] else "H5000")
+            )
         active &= ~done
         if tick == 0 or time.monotonic() - last_progress >= 60 or not bool(active.any()):
             emit(
@@ -218,6 +230,8 @@ def collect_wave(
             mix=task.rosters[slot].mix,
             length=lengths[:end, slot].tolist(),
             target=target.tolist(),
+            rewards=reward.tolist(),
+            end_reason=reasons[slot],
             clock=((5000 - np.arange(end)) / 5000).tolist(),
             predictions=predictions[:, :end, slot].tolist(),
         )
@@ -230,6 +244,45 @@ def collect_wave(
         wave=wave,
         lives=lives,
     )
+
+
+def validate_unit(payload: dict, control: dict, phase: str, wave: int, offset: int) -> None:
+    """Verify structure and complete-life identities before merging any outputs."""
+    if (
+        payload.get("schema") != "critic-rescore-wave/v1"
+        or payload.get("allocation") != fingerprint(control)
+        or payload.get("id") != identity(phase, wave, offset)
+        or payload.get("phase") != phase
+        or payload.get("wave") != wave
+    ):
+        raise ValueError("foreign payload identity")
+    lives = payload["lives"]
+    if [life["id"] for life in lives] != list(range(offset, offset + control["worlds"])):
+        raise ValueError("foreign or missing life allocation")
+    for slot, life in enumerate(lives):
+        n = len(life["length"])
+        if not 0 < n <= control["horizon"] or life["mix"] != MIXES[slot % 3]:
+            raise ValueError("invalid life support/mix")
+        vectors = [life[k] for k in ("length", "clock", "target", "rewards")]
+        vectors += life["predictions"]
+        if len(life["predictions"]) != 2 or any(len(v) != n for v in vectors):
+            raise ValueError("invalid row shapes")
+        if any(not np.isfinite(v).all() for v in vectors):
+            raise ValueError("nonfinite row payload")
+        if not np.array_equal(life["target"], np.cumsum(np.array(life["rewards"])[::-1])[::-1]):
+            raise ValueError("non-complete-life suffix targets")
+        expected_clock = (5000 - np.arange(n)) / 5000
+        if not np.array_equal(life["clock"], expected_clock):
+            raise ValueError("foreign clock")
+        reason = life["end_reason"]
+        if reason == "death":
+            if life["rewards"][-1] != 0:
+                raise ValueError("death target includes terminal mass")
+        elif reason == "H5000":
+            if n != 5000 or control["test_only"]:
+                raise ValueError("censored horizon")
+        elif reason != "fixture-cut" or not control["test_only"] or n != control["horizon"]:
+            raise ValueError("censored life")
 
 
 def selected_late(lives: list[dict], control: dict) -> tuple[list[dict], dict]:
@@ -263,6 +316,11 @@ def collect(inputs: Path, output: Path, device: str, control_path: Path | None =
     for name, sha in control["input_hashes"].items():
         if digest(inputs / name) != sha:
             raise ValueError("hash-bound runtime input mismatch: " + name)
+    if digest(inputs / "b8-s3.pth") != B8_SHA:
+        raise ValueError("released B8 identity mismatch")
+    for name, expected in (("frp3-s12.pth", FRP3_S12_SHA256), ("champion.pth", CHAMPION_SHA256)):
+        if digest(inputs / name) != expected:
+            raise ValueError("released opponent identity mismatch")
     actor = B8Actor(inputs / "b8-s3.pth").to(device).eval().requires_grad_(False)
     critics = load_critics(inputs, actor, device)
     frozen = {}
@@ -274,7 +332,7 @@ def collect(inputs: Path, output: Path, device: str, control_path: Path | None =
     units = []
     for phase, wave, offset in specs(control):
         unit_id = identity(phase, wave, offset)
-        filename = f"{phase}-{wave:04d}.json.gz"
+        filename = unit_filename(control, phase, wave)
         if unit_id in verified:
             descriptor = verified[unit_id]
             path = inputs / "prior" / filename
@@ -288,8 +346,7 @@ def collect(inputs: Path, output: Path, device: str, control_path: Path | None =
             )
             write_json_unit(output / filename, payload)
             action = "collected"
-        if payload["allocation"] != fingerprint(control) or payload["id"] != unit_id:
-            raise ValueError("foreign payload identity")
+        validate_unit(payload, control, phase, wave, offset)
         units.append(unit_id)
         if phase == "holdout":
             heldout.extend(payload["lives"])
@@ -449,6 +506,10 @@ def aggregate(control: dict, paths: list[Path], repeats: int = 2000) -> dict:
     )
     seen, all_lives, baseline = set(), [], []
     for unit in units:
+        match = next((s for s in specs(control) if identity(*s) == unit["id"]), None)
+        if match is None:
+            raise ValueError("foreign unit identity")
+        validate_unit(unit, control, *match)
         if unit["allocation"] != fingerprint(control) or unit["id"] not in {
             identity(*s) for s in specs(control)
         }:
