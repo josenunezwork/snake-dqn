@@ -1,0 +1,31 @@
+{
+  "aliases": 0,
+  "allocations": [
+    {
+      "count": 2100020,
+      "offset": 0,
+      "phase": "training"
+    },
+    {
+      "count": 1024,
+      "offset": 10000000,
+      "phase": "validation"
+    },
+    {
+      "count": 522444,
+      "offset": 20000000,
+      "phase": "assessment"
+    }
+  ],
+  "canonical_uint64_sha256": "6de73673f30693c119e40717ee1f86e107c3eaeade095830d80fe429b4ee4c0e",
+  "count": 2623488,
+  "effective_seed_bits": 63,
+  "excluded_intersection": 0,
+  "namespace": "a100-dev/t34-cf-1028/",
+  "registry_sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+  "schema": "t34-cf-seed-audit/v1",
+  "status": "PASS",
+  "study": "t34-cf-1028",
+  "train01_excluded_intersection": 0,
+  "train01_protected_count": 1056
+}
