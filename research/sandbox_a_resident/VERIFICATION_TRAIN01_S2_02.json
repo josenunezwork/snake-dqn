@@ -1,0 +1,213 @@
+{
+  "branch": "astra-train01-s2-20261028",
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2b-broker.noindex",
+  "burned_identity": {
+    "allocated": false,
+    "consumes_completion_retry": false,
+    "job_id": "sandbox-a-train01-20261028-s2-01",
+    "receipt_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-01/output/receipt.json",
+    "receipt_sha256": "deddcdae339d005cf0c64b913b2481bd5792b6920dc92c20cf0c89a145aff498"
+  },
+  "diagnostics": {
+    "first_dry_run": "fresh checkout missing shared venv link; corrected links; packet bytes unchanged",
+    "initial_accounting_probe": "argv error, excluded; real sealed-manifest replays passed",
+    "initial_continuation_test_run": "2 fixture path collisions,20 passed; corrected before commit and all867 suite passed"
+  },
+  "dry_run": "PASS_DRY_RUN sandbox-a-train01-20261028-s2-02 variants=H100,A100 allocations=0 live_accounting=NOT_CHECKED",
+  "envelopes": {
+    "a100_base_effective_cap": [
+      92,
+      184
+    ],
+    "base_timeout_minutes": 690,
+    "effective_timeout_minutes": 1380,
+    "estimate_scope": "per-attempt",
+    "full_workload_forecast_minutes": 2009.04,
+    "h100_base_effective_cap": [
+      138,
+      276
+    ],
+    "reserves": [
+      0,
+      0
+    ],
+    "s2_02_continuation_guards_bounded": true,
+    "status": "PASS"
+  },
+  "evidence_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/argon-packet-resolution/answer.md": "393102d3e17bafcf1bfb732274c75fae28f4235c292d86a1573056d30091cc39",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/argon-packet-review/answer.md": "362b5f3e9c1132530c442553e3811d41ba3eff94fa6eca027557dc5d410ef637",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/argon-review-bounded/answer.md": "e71bff57f352689cba26fb188c6be42a174d0c6075ed9c3865db0a1359be5377",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/dispatch-command.sh": "6044599e96050d14dd3796d13f05960366b285eaaabf875e254c3e29d76fa07a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/evidence/accounting-final.json": "dcacd3d23704a80ee14ec123a618a3a62cea224584b729dc63821cbfefa991ed",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/evidence/accounting-live.json": "8882ff66a733d45ca86eaacb549015568b4a481b1d0dbd94a20b5f7737b4055e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/evidence/checkout-integrity.json": "6d87676305bb690cce9576dabad9bb9a589b198ae470a62ab22bbbf16aa59acb",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/evidence/colab-limits-checklist.json": "442faf5e23674440ecc620aa688ec29e2cf7020aa41a46d2eefe2fa47ef85513",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/evidence/dispatch-dry-run-final.log": "14cafefaff384dc46e286da21c1c4ce924fe0afe9d313aa1f138899fa486e9f7",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/evidence/launcher-smoke/measurement.json": "f1ad0bc27d98cb3a3ed454a17e08379c3f7cfe9c72be8176407ef06a91491179",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/evidence/resident-sandbox-tests.log": "c71cb105833447ef7297e13c8229e28b0aa7fb17e8c1ad069bcf31cd42aa9496",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/evidence/runtime-parity.json": "cc5636df99e286ef82ce30b66150ca36edd0772d7d0f9fc9c2f1d9f2a784f827",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/evidence/s2-continuation-tests-fixed.log": "c1f06e95040b936af6b9c0e978f3b73a800d13c3337d783142edc6e971600fc8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/evidence/source-launch.json": "2d386bb982bf1d23ed2c8a15764eb844c7a983dc700f2e79242a518085ebe5aa",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2b/evidence/staging-projection.json": "de190de68db6b4fbd60c917ca309a9f0b0178d3a10b136eb6e0c23839f6afee9"
+  },
+  "implementation_commit": "dec8c2630c6d0beeee0bd4ef19a94ebbdc0b0b94",
+  "independent_reviews": {
+    "code": "PASS",
+    "first_high_effort_review": "empty response, excluded",
+    "packet_initial": "CONDITIONAL on omitted unchanged source context",
+    "packet_resolution": "PASS after actual accounting and retry source supplied"
+  },
+  "job_id": "sandbox-a-train01-20261028-s2-02",
+  "launcher": {
+    "arch_flags": {
+      "arch_list": "8.0;9.0",
+      "cuda_executed": false,
+      "flags": [
+        "-gencode=arch=compute_80,code=sm_80",
+        "-gencode=arch=compute_90,code=sm_90"
+      ]
+    },
+    "compact_export_verification": "PASS",
+    "compact_full_state_bytes": 12808464,
+    "device_override": "Mac CPU shim; actual launcher and real training entrypoint executed",
+    "full_seconds": 48.491021333029494,
+    "full_updates": 3,
+    "launcher": "research/sandbox_a_resident/train_job.sh",
+    "native_cuda_executed": false,
+    "rollout_horizon": 2,
+    "source_commit": "dec8c2630c6d0beeee0bd4ef19a94ebbdc0b0b94",
+    "status": "PASS",
+    "tiny_worlds": 3
+  },
+  "limitations": [
+    "No live dispatch/allocation or native CUDA execution",
+    "H100 rate remains provisional12u/h ceiling, throughput unmeasured",
+    "Early mechanical failures may exhaust2 manual completions before384 updates; report INCOMPLETE without raising caps mid-series"
+  ],
+  "lint": {
+    "black_check": "PASS",
+    "files": [
+      "research/sandbox_a_resident/training_continuation.py",
+      "research/sandbox_a_resident/training_units.py",
+      "research/sandbox_a_resident/test_training_continuation.py"
+    ],
+    "flake8": "PASS",
+    "git_diff_check": "PASS",
+    "isort_check": "PASS",
+    "shell_syntax": "PASS"
+  },
+  "native_cuda_execution": false,
+  "packet_manifest_sha256": "8b87410f24e6a1826bc5817ad5c631713c651e86150bdc368ff8d8bd82d31063",
+  "packet_seal_commit": "2270dc02f4f105107251fb9f1f7db02a2211a136",
+  "packet_seal_sha256": "49271554318451ecb5ccb40e926cbd5c6bad42f92df83f16655c047feb16e4ed",
+  "read_only_live_accounting": {
+    "balance": 882.59,
+    "committed_units": 383.63,
+    "existing_records_unchanged": true,
+    "observed_at_utc": "2026-10-29T07:01:15.817765+00:00",
+    "variants": [
+      {
+        "accounted_assignments": {
+          "assignments": [
+            {
+              "endpoint": "gpu-a100-s-ass1c0-2y6u91cdmjrix",
+              "rate_units_per_hour": 5.3,
+              "session": "?",
+              "source": "broker.active"
+            },
+            {
+              "endpoint": "gpu-l4-s-ass1a1-32qh9oc3q618f",
+              "rate_units_per_hour": 1.54,
+              "session": "?",
+              "source": "broker.active"
+            }
+          ],
+          "baseline_balance_units": 882.59,
+          "baseline_rate_units_per_hour": 6.84,
+          "declared_other_rate_units_per_hour": 6.84,
+          "unaccounted_endpoints": []
+        },
+        "admit_account": "PASS",
+        "cap": 276.0,
+        "gpu": "H100",
+        "headroom": 222.96,
+        "job_id": "sandbox-a-train01-20261028-s2-02",
+        "reserve": 0,
+        "strict_balance_check": "PASS",
+        "threshold": 659.63
+      },
+      {
+        "accounted_assignments": {
+          "assignments": [
+            {
+              "endpoint": "gpu-a100-s-ass1c0-2y6u91cdmjrix",
+              "rate_units_per_hour": 5.3,
+              "session": "?",
+              "source": "broker.active"
+            },
+            {
+              "endpoint": "gpu-l4-s-ass1a1-32qh9oc3q618f",
+              "rate_units_per_hour": 1.54,
+              "session": "?",
+              "source": "broker.active"
+            }
+          ],
+          "baseline_balance_units": 882.59,
+          "baseline_rate_units_per_hour": 6.84,
+          "declared_other_rate_units_per_hour": 6.84,
+          "unaccounted_endpoints": []
+        },
+        "admit_account": "PASS",
+        "cap": 184.0,
+        "gpu": "A100",
+        "headroom": 314.96,
+        "job_id": "sandbox-a-train01-20261028-s2-02-a100-fallback",
+        "reserve": 0,
+        "strict_balance_check": "PASS",
+        "threshold": 567.63
+      }
+    ]
+  },
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2b-runtime.noindex",
+  "schema": "sandbox-a-train01-s2-02-verification/v1",
+  "source_integrity": {
+    "checkouts": [
+      {
+        "cache_files": [],
+        "clean": true,
+        "detached": true,
+        "head": "dec8c2630c6d0beeee0bd4ef19a94ebbdc0b0b94",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2b-runtime.noindex",
+        "venv_link": "/Users/josenunez/Projects/ml/snake-dqn/venv"
+      },
+      {
+        "cache_files": [],
+        "clean": true,
+        "detached": true,
+        "head": "2270dc02f4f105107251fb9f1f7db02a2211a136",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2b-broker.noindex",
+        "venv_link": "/Users/josenunez/Projects/ml/snake-dqn/venv"
+      }
+    ],
+    "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+    "s2_01_packet_unchanged": true,
+    "s2_02_state_outputs_absent": true,
+    "status": "PASS"
+  },
+  "status": "PREPARED_NOT_DISPATCHED",
+  "test_results": {
+    "resident_and_sandbox": {
+      "command": "python -m pytest -q research/sandbox_a_resident tools/sandbox/tests",
+      "cwd": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2b-runtime.noindex",
+      "passed": 867,
+      "seconds": 208.6
+    },
+    "s2_primary_fallback_families": {
+      "command": "python -m pytest -q research/sandbox_a_resident/test_training_continuation.py -k second_seed",
+      "deselected": 18,
+      "passed": 4,
+      "seconds": 38.41
+    }
+  }
+}
