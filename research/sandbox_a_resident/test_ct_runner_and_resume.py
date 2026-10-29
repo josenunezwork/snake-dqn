@@ -1126,6 +1126,7 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                 "/tests/fixtures/ct-supervisor-06-entrypoint-main/",
                 "/tests/fixtures/ct-cuda-smoke-08/",
                 "/tests/fixtures/ct-cuda-smoke-09/",
+                "/tests/fixtures/ct-uv-packet11/",
                 "/docs/research/governance_a100_sandbox_20261026/",
             ],
             check=True,
