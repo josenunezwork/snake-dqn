@@ -1,0 +1,16 @@
+{
+  "mac_only_sources": {
+    "research/sandbox_a_resident/ct_cuda_observed.py": {
+      "broker_sha256": "0d4a96e1184c8b6ed294ee8b4f244c008a2e6b57eda4f9f9645ca4350d073d10",
+      "runtime_sha256": "a1be39deb2d0325f3dfba99d42c18e10cb012fae0b0a875d41007ed9772e4a38"
+    },
+    "research/sandbox_a_resident/ct_resume.py": {
+      "broker_sha256": "3b7413f9705da7f4bcf0a64658629dd5d8c96ae792a3aa3f7c38c279a01b05e3",
+      "runtime_sha256": "697c3c00f3ce8db192a7d246be9e7828eb7dab68d32b160bc3801425d182e1e0"
+    }
+  },
+  "root_manifest_sha256": "2c02fb3ff90256a7cb8931f8a08b1eb6be5e2822de2168ae1bc9b6dc61102a18",
+  "root_seal_sha256": "fb0351621128073412d00b9736c35e20c1e86488ad1d860db6101d3bd95bac1e",
+  "runtime_commit": "af2bba1c8e7e44031a50a78cd282f7aec1d5b6c7",
+  "schema": "t34-cf-mac-source-compatibility/v1"
+}

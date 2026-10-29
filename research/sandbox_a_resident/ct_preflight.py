@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from research.sandbox_a_resident import ct_json as json
+from research.sandbox_a_resident.ct_dispatch_binding import resolve_dispatch_binding
 from research.sandbox_a_resident.ct_prepare import STUDY, ct_endpoint_steps
 from research.sandbox_a_resident.ct_resume import (
     _EVIDENCE_CACHE,
@@ -63,7 +64,9 @@ CT_FOCUSED_TESTS: tuple[str, ...] = (
     "research/sandbox_a_resident/test_ct_review14.py",
     "research/sandbox_a_resident/test_stall_watchdog.py",
     "research/sandbox_a_resident/test_ct_gpu_preference.py",
+    "research/sandbox_a_resident/test_ct_dispatch_binding.py",
     "tools/sandbox/tests/test_source_delivery.py",
+    "tools/sandbox/tests/test_ct_mac_compatibility.py",
 )
 
 
@@ -144,6 +147,7 @@ def _check_lineage_graph(
     if _load_json(raw_manifest) != broker:
         raise ValueError("lineage manifest differs from verified bytes")
     output_jobs: dict[str, str] = {}
+    execution = broker
     while True:
         _no_symlink_path(current)
         canonical = current / "dispatch-manifest.json"
@@ -159,11 +163,11 @@ def _check_lineage_graph(
         if index > 2 or len(indices) > 2:
             raise ValueError("continuation lineage exceeds two completion attempts")
         indices.append(index)
-        if isinstance(manifest.get("output_dir"), str):
-            outputs.add(manifest["output_dir"])
-            if not isinstance(manifest.get("job_id"), str) or not manifest["job_id"]:
+        if isinstance(execution.get("output_dir"), str):
+            outputs.add(execution["output_dir"])
+            if not isinstance(execution.get("job_id"), str) or not execution["job_id"]:
                 raise ValueError("lineage lacks job identity")
-            output_jobs[manifest["output_dir"]] = manifest["job_id"]
+            output_jobs[execution["output_dir"]] = execution["job_id"]
         if comp is None:
             break
         raw = comp.get("prior_manifest_path")
@@ -182,6 +186,12 @@ def _check_lineage_graph(
         if not isinstance(manifest, dict):
             raise ValueError("malformed prior manifest")
         current = path.parent
+        execution = manifest
+        if "dispatch_binding" in comp:
+            child_proof = _load_json((canonical.parent / "provenance.json").read_text())
+            execution, _, _ = resolve_dispatch_binding(
+                current, manifest, child_proof["receipt"], binding=comp["dispatch_binding"]
+            )
     if any(index != prior + 1 for index, prior in zip(indices, indices[1:])):
         raise ValueError("continuation index must equal prior index + 1")
     cache = _EVIDENCE_CACHE.get()
@@ -330,7 +340,17 @@ def validate_uploaded_ledger(
             or digest(pm_path) != comp["prior_manifest_sha256"]
         ):
             raise ValueError("prior_manifest_path missing, symlinked, or SHA-256 mismatched")
-        prior_broker = _load_json(pm_path.read_text())
+        canonical_prior = _load_json(pm_path.read_text())
+        prior_broker = canonical_prior
+        execution_sha = comp["prior_manifest_sha256"]
+        if "dispatch_binding" in comp:
+            bound_proof = _load_json((packet / "provenance.json").read_text())
+            prior_broker, execution_sha, _ = resolve_dispatch_binding(
+                pm_path.parent,
+                canonical_prior,
+                bound_proof["receipt"],
+                binding=comp["dispatch_binding"],
+            )
         if (
             not isinstance(prior_broker, dict)
             or prior_broker.get("job_id") != comp["prior_job_id"]
@@ -346,7 +366,7 @@ def validate_uploaded_ledger(
             prior_packet_dir=pm_path.parent,
         )
         validate_uploaded_ledger(
-            pm_path.parent, prior_broker, control, require_committed=require_committed
+            pm_path.parent, canonical_prior, control, require_committed=require_committed
         )
         if comp.get("prior_ledger_sha256") != disk_lsha:
             raise ValueError("prior_ledger_sha256 differs from bound prior verified-ledger.json")
@@ -412,7 +432,7 @@ def validate_uploaded_ledger(
         verify_mechanical_stop(
             receipt,
             prior_broker,
-            comp["prior_manifest_sha256"],
+            execution_sha,
             export_root=[Path(r) for r in raw_exp_dirs],
             supervisor_log_path=log_path,
         )

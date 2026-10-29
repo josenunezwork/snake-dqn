@@ -2475,6 +2475,13 @@ def completion_packet(
         completion_meta["prior_manifest_path"] = str(prior_manifest_path.resolve())
 
     successor = copy.deepcopy(dict(original_manifest))
+    # A fallback's inherited preference describes its parent dispatch, not a new
+    # H100 primary. Continue that selected A100 identity as an explicit A100 job.
+    if successor.get("requirements", {}).get("gpu") == "A100":
+        successor["requirements"].pop("prefer", None)
+    # A successor's account membership is refreshed under the allocation lock.
+    # Do not seal the preceding attempt's transient account inventory into it.
+    successor["budget"]["other_assignments"] = {}
     successor["job_id"] = job_id
     successor["output_dir"] = resolved_new_output
     successor["completion_attempt"] = completion_meta
@@ -2529,6 +2536,7 @@ def write_continuation_packet(
     auto_encode_compact_xz: bool = True,
     supervisor_log_path: Path | None = None,
     validate_registry_inputs: bool = True,
+    dispatch_evidence: Mapping[str, Path] | None = None,
 ) -> dict[str, Any]:
     """Create-only 6-file admitted C/T continuation packet directory; never dispatches."""
     packet = packet_dir.resolve()
@@ -2605,15 +2613,22 @@ def write_continuation_packet(
     # Preparation can precede the local packet commit; production admission always
     # reopens all components with require_committed=True.
     validate_uploaded_ledger(prior, copy.deepcopy(prior_manifest), control, require_committed=False)
+    execution_manifest, execution_sha, dispatch_binding = prior_manifest, prior_manifest_sha, None
+    if dispatch_evidence is not None:
+        from research.sandbox_a_resident.ct_dispatch_binding import resolve_dispatch_binding
+
+        execution_manifest, execution_sha, dispatch_binding = resolve_dispatch_binding(
+            prior, prior_manifest, terminal_receipt, paths=dispatch_evidence
+        )
     built = completion_packet(
-        prior_manifest,
+        execution_manifest,
         terminal_receipt,
         export_root,
         control,
         completion_index=completion_index,
         job_id=job_id,
         output_dir=output_dir,
-        original_manifest_sha256=prior_manifest_sha,
+        original_manifest_sha256=execution_sha,
         use_compact_xz_for_stages=use_compact_xz_for_stages,
         auto_encode_compact_xz=auto_encode_compact_xz,
         packet_dir=packet,
@@ -2621,6 +2636,12 @@ def write_continuation_packet(
         prior_packet_dir=prior,
         prior_manifest_path=prior_manifest_path,
     )
+
+    # The canonical packet remains the lineage authority; execution has a separate
+    # revalidated binding, including the supervisor's normalized manifest hash.
+    built.manifest["completion_attempt"]["prior_manifest_sha256"] = prior_manifest_sha
+    if dispatch_binding is not None:
+        built.manifest["completion_attempt"]["dispatch_binding"] = dispatch_binding
 
     provenance_roots = sorted(
         set(
@@ -2763,8 +2784,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="stage index to upload via compact .pt.xz (defaults to stage 1)",
     )
     parser.add_argument("--supervisor-log", type=Path, default=None)
+    parser.add_argument("--gpu-preference", type=Path)
+    parser.add_argument("--accounting", type=Path)
+    parser.add_argument("--gpu-receipt", type=Path)
     args = parser.parse_args(argv)
     compact_stages = tuple(args.compact_stage) if args.compact_stage is not None else (1,)
+    evidence_args = (args.gpu_preference, args.accounting, args.gpu_receipt)
+    if (args.gpu_preference or args.gpu_receipt) and not all(evidence_args):
+        parser.error("preferred dispatch requires --gpu-preference, --accounting and --gpu-receipt")
+    dispatch_evidence = (
+        {
+            name: path
+            for name, path in zip(("preference", "accounting", "gpu_receipt"), evidence_args)
+            if path is not None
+        }
+        if any(evidence_args)
+        else None
+    )
     receipt_payload = _load_json(args.receipt.read_text())
     summary = write_continuation_packet(
         args.packet_dir,
@@ -2777,6 +2813,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         use_compact_xz_for_stages=compact_stages,
         auto_encode_compact_xz=True,
         supervisor_log_path=args.supervisor_log,
+        dispatch_evidence=dispatch_evidence,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0

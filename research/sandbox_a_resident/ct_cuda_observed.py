@@ -23,6 +23,7 @@ BOOTSTRAP_PATTERNS = (UV_VERSION_PATTERN,) + tuple(
 BOOTSTRAP_LINES: frozenset[str] = frozenset(
     [
         "2.9.1+cu126 12.6 (8, 0)",
+        "2.9.1+cu126 12.6 (9, 0)",
         "Activate with: source .venv/bin/activate",
         "Creating virtual environment with seed packages at: .venv",
         (
