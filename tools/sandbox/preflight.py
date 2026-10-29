@@ -302,6 +302,8 @@ def _verify_broker_binding(payload: dict[str, Any]) -> None:
 def run_focused_tests() -> None:
     """Run the local sandbox tests with the owner-required low-impact settings."""
     env = os.environ.copy()
+    env.pop("SNAKE_SANDBOX_TEST_RECEIPT", None)
+    env.pop("SNAKE_SANDBOX_ALLOCATION_LEASE", None)
     env.update(
         {
             "OMP_NUM_THREADS": "1",
@@ -327,7 +329,10 @@ def run_focused_tests() -> None:
         "tools/sandbox/tests",
         "research/sandbox_b_heads/tests",
     ]
-    completed = subprocess.run(command, cwd=REPO_ROOT, text=True, env=env, check=False)
+    from tools.ops.processes import run
+    from tools.sandbox.admission import TEST_SECONDS
+
+    completed = run(command, cwd=REPO_ROOT, text=True, env=env, timeout=TEST_SECONDS)
     if completed.returncode:
         raise PreflightError("focused sandbox tests failed")
 

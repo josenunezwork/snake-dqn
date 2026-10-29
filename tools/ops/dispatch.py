@@ -41,16 +41,16 @@ from research.colab_cli.accounting import budget_warning, warning_threshold  # n
 from research.compute.colab_control import POLICY_ID as CONTROL_POLICY_ID  # noqa: E402
 from research.compute.colab_control import RULING_SHA256 as CONTROL_RULING_SHA256  # noqa: E402
 from research.compute.gpu_preference import FALLBACK_SUFFIX, sibling_id, variants  # noqa: E402
+from tools.ops.processes import run as run_process_tree  # noqa: E402
 
 EXACT_ERROR = "AccountingError('assignment endpoints changed during allocation')"
 BLOCK = re.compile(r"^\s*(?:BLOCK|HOLD)\b|RUNTIME BLOCKED|do not run this|PREPARED_NOT_DISPATCHED")
 NICE_FLOOR = 15
-# Sandbox admission executes its sealed focused test suite before invoking the
-# unchanged qualified supervisor.  Keep ordinary host subprocesses at 60s while
-# giving only that offline admission step a bounded window large enough for the
-# suite on a busy Mac.
+# Full sandbox suites run before allocation in a separate 1200s host window
+# (base 600s, owner 2x). Byte-identical passes reuse a create-only test receipt;
+# refreshed/native checks still share the unchanged <=600s allocation window.
 COMMAND_TIMEOUT_SECONDS = 60.0
-SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS = 180.0
+SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS = 1200.0
 SANDBOX_OUTPUT_ROOTS = {
     "sandbox-b-heads-v1": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b-20261026",
     "sandbox-b-heads-v2": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b2-20261026",
@@ -264,7 +264,7 @@ def command(
     )
     if remaining <= 0:
         raise TimeoutError("allocation lock deadline expired")
-    return subprocess.run(args, timeout=remaining, check=True, **kwargs)
+    return run_process_tree(args, timeout=remaining, check=True, **kwargs)
 
 
 def note(log: Path, value: str) -> None:
@@ -275,7 +275,12 @@ def note(log: Path, value: str) -> None:
 
 @contextlib.contextmanager
 def allocation_lock(
-    path: Path, seconds: float, *, wait: bool = False, poll_seconds: float = 1.0
+    path: Path,
+    seconds: float,
+    *,
+    wait: bool = False,
+    poll_seconds: float = 1.0,
+    handoff: dict[str, Any] | None = None,
 ) -> Iterator[float]:
     """Own the flock; optional contention polling consumes the same deadline."""
     if not math.isfinite(seconds) or seconds <= 0:
@@ -296,8 +301,12 @@ def allocation_lock(
                 if time.monotonic() >= deadline:
                     raise Refused(f"account allocation lock is held: {path}") from exc
         try:
+            if handoff is not None:
+                handoff["handle"] = stream
             yield deadline
         finally:
+            if handoff is not None and "lease" in handoff:
+                handoff["lease"].unlink(missing_ok=True)
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
@@ -682,7 +691,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
     ]:
         raise Refused("sandbox permits only an explicit H100 or A100 assignment")
     path = preflight._assert_safe_path(admission["manifest_path"], "sandbox manifest")
-    payload = preflight.preflight(path, run_tests=True)
+    payload = preflight.preflight(path, run_tests=False)
     if payload["study"] != study:
         raise Refused("sandbox study differs from entrypoint")
     original = read_json(Path(payload["outputs"]["broker_manifest"]["path"]))
@@ -720,6 +729,12 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         expected.update(job_id=retry_id, output_dir=expected["output_dir"] + "-retry-1")
     if current != expected:
         raise Refused("sandbox runtime packet differs from committed preflight binding")
+    from tools.sandbox.admission import TEST_RECEIPT_ENV, cached_tests, publish_tests, test_identity
+
+    identity = test_identity(broker, original, path) if os.environ.get(TEST_RECEIPT_ENV) else None
+    reused = identity is not None and cached_tests(identity)
+    if not reused:
+        preflight.run_focused_tests()
     # Retain all non-receipt checks that ordinary canary.check performs.
     from research.colab_cli import canary, transfer_policy
 
@@ -734,13 +749,27 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
             else "research.sandbox_a_resident.preflight"
         )
         command(
-            [sys.executable, "-m", module, str(path.parent)],
+            [sys.executable, "-m", module, str(path.parent)]
+            + (["--checks-only"] if reused else []),
             cwd=broker,
+            timeout_seconds=600.0,
         )
+    if identity is not None:
+        if test_identity(broker, original, path) != identity:
+            raise Refused("sandbox admission bytes changed during validation")
+        if not reused:
+            publish_tests(identity)
 
 
 def validate(
-    broker: Path, cwd: Path, state: Path, manifest: Path, log: Path, deadline: float | None = None
+    broker: Path,
+    cwd: Path,
+    state: Path,
+    manifest: Path,
+    log: Path,
+    deadline: float | None = None,
+    *,
+    test_receipt: Path | None = None,
 ) -> None:
     """Run real validation; launch.sh --check would only print and return."""
     packet = read_json(manifest)
@@ -754,6 +783,13 @@ def validate(
         if "sandbox_admission" in packet
         else COMMAND_TIMEOUT_SECONDS
     )
+    validation_env = None
+    if "sandbox_admission" in packet:
+        from tools.sandbox.admission import environment
+
+        validation_env = environment(
+            test_receipt or log.with_suffix(".tests.json"), require=deadline is not None
+        )
     with log.open("x") as stream:
         command(
             [
@@ -770,6 +806,7 @@ def validate(
             stderr=subprocess.STDOUT,
             deadline=deadline,
             timeout_seconds=timeout_seconds,
+            **({"env": validation_env} if validation_env is not None else {}),
         )
 
 
@@ -792,6 +829,8 @@ def start(
     control_admission: Path | None = None,
     small_bench_config: Path | None = None,
     gpu_receipt: Path | None = None,
+    sandbox_test_receipt: Path | None = None,
+    sandbox_lease: Path | None = None,
 ) -> None:
     """Submit one shell command with preserved argument boundaries and exit evidence."""
     packet = read_json(manifest)
@@ -836,6 +875,16 @@ def start(
             *launcher,
         ]
     environment_items = ["env", f"HOME={Path.home()}", f'PATH={os.environ["PATH"]}']
+    if sandbox_test_receipt is not None:
+        from tools.sandbox.admission import LEASE_ENV
+        from tools.sandbox.admission import environment as sandbox_environment
+
+        environment_items = ["env", "-i"] + [
+            f"{key}={item}"
+            for key, item in sandbox_environment(sandbox_test_receipt, require=True).items()
+        ]
+        if sandbox_lease is not None:
+            environment_items.append(f"{LEASE_ENV}={sandbox_lease}")
     if collector is not None:
         environment_items.append(f"SNAKE_SANDBOX_COLLECTOR_DIR={collector}")
     if small_bench_config is not None:
@@ -2476,7 +2525,19 @@ def dispatch(args: argparse.Namespace) -> str:
     manifest = ops / "manifests" / f"{args.name}.json"
     with manifest.open("xb") as stream:
         stream.write(original_bytes)
-    validate(broker, cwd, state, manifest, ops / "logs" / f"{args.name}.validate")
+    test_receipt = (
+        ops / "dispatch" / args.name / "admission-tests.json"
+        if "sandbox_admission" in value
+        else None
+    )
+    validate(
+        broker,
+        cwd,
+        state,
+        manifest,
+        ops / "logs" / f"{args.name}.validate",
+        **({"test_receipt": test_receipt} if test_receipt is not None else {}),
+    )
     seconds = float(os.environ.get("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "600"))
     poll = float(os.environ.get("OPS_ALLOC_POLL_INTERVAL_SECONDS", "1"))
     if not math.isfinite(seconds) or not 0 < seconds <= 600:
@@ -2484,7 +2545,10 @@ def dispatch(args: argparse.Namespace) -> str:
     if not math.isfinite(poll) or poll <= 0:
         raise Refused("allocation poll interval must be positive and finite")
     expected = value
-    with allocation_lock(ops / "alloc.lock", seconds) as deadline:
+    handoff = {} if test_receipt is not None else None
+    with allocation_lock(
+        ops / "alloc.lock", seconds, **({"handoff": handoff} if handoff is not None else {})
+    ) as deadline:
         for attempt in range(2):
             name = args.name if attempt == 0 else f"{args.name}-retry-1"
             if read_json(manifest) != expected:
@@ -2494,7 +2558,13 @@ def dispatch(args: argparse.Namespace) -> str:
             evidence = ops / "dispatch" / args.name / f"{name}.accounting.json"
             live_manifest = refresh_assignments(manifest, evidence, deadline)
             validate(
-                broker, cwd, state, live_manifest, ops / "logs" / f"{name}.live.validate", deadline
+                broker,
+                cwd,
+                state,
+                live_manifest,
+                ops / "logs" / f"{name}.live.validate",
+                deadline,
+                **({"test_receipt": test_receipt} if test_receipt is not None else {}),
             )
             if (
                 hashlib.sha256(live_manifest.read_bytes()).hexdigest()
@@ -2504,6 +2574,32 @@ def dispatch(args: argparse.Namespace) -> str:
             if control_nice0:
                 require_no_control_priority_drift()
                 control_admission = ops / "colab-control-admissions" / f"{name}.json"
+            sandbox_launch = {}
+            if handoff is not None:
+                from tools.sandbox.admission import digest
+
+                if "lease" in handoff:
+                    handoff["lease"].unlink(missing_ok=True)
+                lease = ops / "dispatch" / args.name / f"{name}.allocation-lease.json"
+                write_create_only_json(
+                    lease,
+                    {
+                        "schema": "sandbox-allocation-lease/v1",
+                        "parent_pid": os.getpid(),
+                        "deadline": deadline,
+                        "lock": str(ops / "alloc.lock"),
+                        "manifest": str(live_manifest),
+                        "manifest_sha256": digest(live_manifest),
+                    },
+                )
+                handoff["lease"] = lease
+                # Other dispatchers still require EX. The detached runner may
+                # share this exact critical section through durable calibration.
+                fcntl.flock(handoff["handle"], fcntl.LOCK_SH | fcntl.LOCK_NB)
+                sandbox_launch = {
+                    "sandbox_test_receipt": test_receipt,
+                    "sandbox_lease": lease,
+                }
             start(
                 broker,
                 cwd,
@@ -2515,6 +2611,7 @@ def dispatch(args: argparse.Namespace) -> str:
                 control_nice0=control_nice0,
                 control_admission=control_admission,
                 **({"small_bench_config": small_config} if small_config is not None else {}),
+                **sandbox_launch,
             )
             outcome = wait_allocation(Path(output), log, deadline, poll)
             if outcome == "retry" and no_automatic_retry:
@@ -2561,6 +2658,7 @@ def dispatch(args: argparse.Namespace) -> str:
                 manifest,
                 ops / "logs" / f"{args.name}-retry-1.validate",
                 deadline,
+                **({"test_receipt": test_receipt} if test_receipt is not None else {}),
             )
     ensure_watcher(ops, broker)
     return f"DISPATCHED {args.name} allocation={outcome} log={log}"
