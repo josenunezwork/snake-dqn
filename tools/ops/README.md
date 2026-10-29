@@ -21,7 +21,7 @@ refuses staged, unstaged, or untracked transport changes. Unrelated commits do n
 invalidate the registry. Dispatch preserves a create-only manifest snapshot before
 validation and launch, so concurrent edits to the source manifest cannot change the
 job being monitored. The broker remains responsible for scientific admission,
-canaries, budgets, leases, verified exports, and release.
+canaries, usage measurements, leases, verified exports, and release.
 
 Dispatch serializes account allocation using `ops/alloc.lock` with POSIX `flock`
 (via Python `fcntl`, so the macOS host needs no external `flock` binary). The lock
@@ -29,11 +29,11 @@ covers launch through allocation success/failure, with a maximum ten-minute hold
 Immediately before each launch (including the one authorized allocation retry),
 dispatch reads `colab --auth oauth2 sessions` under that lock and joins every live
 endpoint to `~/.config/colab-cli/snake/active-*.json`. A manifest declaration alone
-cannot establish broker ownership. Unknown endpoints, ambiguous records, missing
-calibrated prices, or unregistered hardware refuse launch. L4 is registered at
+cannot establish broker ownership. Unknown endpoints, ambiguous records, or unregistered hardware refuse launch.
+Missing calibrated prices and price differences produce structured warnings. L4 is registered at
 1.54 u/hour and CPU at 0.08 u/hour; A100 uses its broker-record rate. For records
-with a priced ceiling, the observed calibrated rate is required; the ceiling is
-never substituted for the observed rate.
+with a priced ceiling, accounting uses the observed calibrated rate; an unavailable
+rate is recorded as unknown with a warning and zero estimated units.
 
 The wrapper replaces only `budget.other_assignments` in a create-only
 `ops/manifests/NAME.live.json` sibling, validates that exact sibling, and checks
@@ -41,9 +41,10 @@ its hash before submitting it. `ops/dispatch/NAME/ATTEMPT.accounting.json` recor
 the original and refreshed manifest paths/SHA256, raw inventory, active-record
 hashes, and refreshed rates. The original snapshot and source pack remain
 unchanged. Departed manifest declarations disappear and new broker-owned endpoints
-are included. The supervisor still checks account count, baseline provider rate,
-balance/reserves, stale broker records, and membership changes during allocation;
-this refresh does not relax those refusals or modify the qualified transport.
+are included. The supervisor still checks account count, stale broker records, and membership
+changes during allocation. Baseline price differences, unit caps and reserves
+produce structured `WARNING` lines on stderr and retain usage/spend evidence.
+Only a depleted balance (`<= 0`) refuses admission.
 
 An unconfirmed allocation reaches the time limit without authorizing a retry; the
 supervisor continues to own cleanup. A submitted job records its `EXIT=` marker
@@ -276,7 +277,11 @@ that plan's SHA-256 (`1c87898be554d8e66788da6f0a09ee7b842a514e530c1d0e1c624bcf58
 in `resume_exemption.authority_sha256` and use the A1 entrypoint. This does not
 change the generic 60-minute ceiling or the qualified transport tree.
 
-The supervisor still enforces its other admission, budget, and timeout checks.
+The supervisor still enforces identity, concurrency, pending-record, science,
+wall-time and operation-timeout checks. Budget fields are optional measurement
+thresholds; they never shorten deadlines or stop polling (owner 2026-10-29).
+Builders may retain legacy unit/reserve fields for evidence only.
+Retained chains likewise enforce wall time independently of unit thresholds.
 Never declare both blocks. Names, scripts, and environment flags do not imply an
 exemption. A resume canary should itself use `resume` when testing that contract;
 an exemption only waives the declaration, not proof of the path under test.

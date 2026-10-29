@@ -14,7 +14,7 @@ from research.colab_cli import cli_guard, supervisor
 from research.colab_cli.acceptance_faults import AcceptanceObserver
 
 
-@pytest.mark.parametrize("cap", ["deadline", "priced_deadline", "explicit"])
+@pytest.mark.parametrize("cap", ["deadline", "explicit"])
 def test_telemetry_recovery_cannot_extend_real_or_explicit_caps(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: str
 ) -> None:

@@ -250,15 +250,16 @@ def test_fallback_existing_output_refuses_primary(fixture):
 @pytest.mark.parametrize(
     "field,value", [("unit_cap", 1.99), ("rate_units_per_hour", 7.5), ("unit_cap", True)]
 )
-def test_pricing_refuses_before_reservation(fixture, field, value):
+def test_pricing_thresholds_warn_and_continue(fixture, field, value):
     f = fixture
     preferred(f)
     packet = json.loads(f["manifest"].read_text())
     packet["budget"][field] = value
     f["manifest"].write_text(json.dumps(packet))
     result = f["invoke"]()
-    assert result.returncode != 0
-    assert not (f["ops"] / "dispatch").exists()
+    assert result.returncode == 0, result.stderr
+    if value is not True:
+        assert "WARNING" in result.stderr
 
 
 @pytest.mark.parametrize(

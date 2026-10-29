@@ -7,6 +7,8 @@ import hashlib
 import math
 from typing import Any
 
+from research.colab_cli.accounting import budget_warning
+
 PREFERENCE = ["H100", "A100"]
 RATES = {"H100": 12.0, "A100": 8.0}  # H100 provisional; A100 covers 40/80 GB.
 FALLBACK_SUFFIX = "-a100-fallback"
@@ -22,10 +24,10 @@ def sibling_id(job: str) -> str:
 
 
 def variants(manifest: dict[str, Any]) -> list[dict[str, Any]]:
-    """Admit both whole-timeout prices before either request is submitted.
+    """Derive explicit hardware siblings with informational price forecasts.
 
-    The submitted preference is already H100-priced. No implicit cap increase,
-    recipe change, or migration of sealed A100 packets is allowed here.
+    Unit thresholds cannot refuse a variant. Recipe, identity, canary bindings
+    and the whole-session timeout remain fixed before either submission.
     """
     req = manifest.get("requirements", {})
     if "prefer" not in req:
@@ -38,19 +40,19 @@ def variants(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     numbers = {
         "estimate": req.get("est_minutes"),
         "timeout": manifest.get("timeout_minutes"),
-        "rate": budget.get("rate_units_per_hour"),
-        "cap": budget.get("unit_cap"),
     }
     for name, value in numbers.items():
         if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
             raise ValueError(f"preference {name} must be finite and positive")
     if numbers["timeout"] < max(3, 2 * numbers["estimate"]):
         raise ValueError("preference timeout must cover 2x estimate")
-    if numbers["rate"] != RATES["H100"]:
-        raise ValueError("preference requires the provisional H100 ceiling of 12 u/h")
-    for rate in RATES.values():
-        if numbers["cap"] < numbers["timeout"] * rate / 60:
-            raise ValueError("preference cap must price the whole timeout at each ceiling")
+    if budget.get("rate_units_per_hour", RATES["H100"]) != RATES["H100"]:
+        budget_warning(
+            "PREFERENCE_RATE_DIFFERS_FROM_FORECAST", rate=budget.get("rate_units_per_hour")
+        )
+    cap = budget.get("unit_cap")
+    if type(cap) in (int, float) and cap < numbers["timeout"] * RATES["H100"] / 60:
+        budget_warning("PREFERENCE_UNIT_THRESHOLD", unit_cap=cap)
     primary, fallback = copy.deepcopy(manifest), copy.deepcopy(manifest)
     proofs = req.get("hardware_canaries")
     if proofs is not None:
@@ -67,7 +69,7 @@ def variants(manifest: dict[str, Any]) -> list[dict[str, Any]]:
         primary["canary"] = {"receipt": copy.deepcopy(proofs["H100"])}
         fallback["canary"] = {"receipt": copy.deepcopy(proofs["A100"])}
     fallback["requirements"].update(gpu="A100", allowed_gpus=["A100"])
-    fallback["budget"]["rate_units_per_hour"] = RATES["A100"]
+    fallback.setdefault("budget", {})["rate_units_per_hour"] = RATES["A100"]
     fallback_cap = numbers["timeout"] * RATES["A100"] / 60
     fallback["budget"]["unit_cap"] = fallback_cap
     if "technical_envelope" in fallback:
@@ -81,7 +83,7 @@ def variants(manifest: dict[str, Any]) -> list[dict[str, Any]]:
 
 def prepare_preference(manifest: dict[str, Any]) -> None:
     """Price a newly built generic development packet before it is sealed."""
-    req, budget = manifest["requirements"], manifest["budget"]
+    req, budget = manifest["requirements"], manifest.setdefault("budget", {})
     req.update(gpu="H100", allowed_gpus=["H100"], prefer=PREFERENCE.copy())
     budget["rate_units_per_hour"] = RATES["H100"]
     # New pre-data envelopes come from the timeout/rate forecast, not an old cap.

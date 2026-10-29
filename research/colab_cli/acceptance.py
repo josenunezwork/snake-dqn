@@ -21,7 +21,9 @@ from typing import Any
 
 from research.colab_cli import supervisor, transfer_policy
 from research.colab_cli.acceptance_faults import AcceptanceObserver
+from research.colab_cli.accounting import budget_warning, measurement_rate
 
+# Legacy measurement thresholds only; wall-clock limits remain binding.
 MAX_UNITS = 4.0
 RESERVE_UNITS = 0.8
 USABLE_UNITS = 3.2
@@ -924,10 +926,8 @@ def build_plan(
 ) -> dict[str, Any]:
     if cpu_rate is None:
         cpu_rate = CPU_RATE_UNITS_PER_HOUR
-    if not math.isfinite(cpu_rate) or cpu_rate <= 0:
-        raise ValueError("--cpu-rate must be finite and positive")
-    if not math.isfinite(l4_rate) or l4_rate <= 0:
-        raise ValueError("--l4-rate must be finite and positive")
+    cpu_rate = measurement_rate(cpu_rate, "acceptance.cpu_rate")
+    l4_rate = measurement_rate(l4_rate, "acceptance.l4_rate")
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
     ).stdout.strip()
@@ -960,20 +960,21 @@ def build_plan(
             f5_inventory["sha256"], "acceptance"
         )
     other_assignments = other_assignments or {}
-    if not all(
-        isinstance(endpoint, str)
-        and endpoint
-        and isinstance(rate, (int, float))
-        and not isinstance(rate, bool)
-        and rate > 0
-        for endpoint, rate in other_assignments.items()
+    if not isinstance(other_assignments, dict) or any(
+        not isinstance(endpoint, str) or not endpoint for endpoint in other_assignments
     ):
-        raise ValueError("other assignment rates must map nonempty endpoints to positive numbers")
+        raise ValueError("other assignments must map nonempty endpoints to measurements")
+    other_assignments = {
+        endpoint: measurement_rate(rate, f"other assignment {endpoint}")
+        for endpoint, rate in other_assignments.items()
+    }
     cpu_expected = cpu_rate * CPU_MAX_MINUTES / 60.0
     l4_expected = l4_rate * L4_MAX_MINUTES / 60.0
     if cpu_expected + l4_expected > USABLE_UNITS:
-        raise ValueError(
-            f"expected {cpu_expected + l4_expected:.3f} units exceeds usable {USABLE_UNITS:.1f}"
+        budget_warning(
+            "ACCEPTANCE_UNIT_THRESHOLD",
+            expected_units=cpu_expected + l4_expected,
+            legacy_usable_units=USABLE_UNITS,
         )
     state_dir.mkdir(parents=True, exist_ok=True)
     run_id = f"acceptance-{int(time.time())}"
@@ -1053,6 +1054,7 @@ def build_plan(
         "baseline_context": BASELINE,
         "limits": {
             "max_units_including_reserve": MAX_UNITS,
+            "unit_limits_warning_only": True,
             "reserve_units": RESERVE_UNITS,
             "usable_units": USABLE_UNITS,
             "first_cap_wins": True,
@@ -1086,14 +1088,15 @@ def load_other_assignments(path: Path | None) -> dict[str, float]:
         raise ValueError("--other-assignments must contain a JSON object")
     result: dict[str, float] = {}
     for endpoint, rate in value.items():
-        if not isinstance(endpoint, str) or not endpoint or isinstance(rate, bool):
-            raise ValueError("--other-assignments has an invalid endpoint/rate")
+        if not isinstance(endpoint, str) or not endpoint:
+            raise ValueError("--other-assignments has an invalid endpoint")
         try:
             numeric = float(rate)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("--other-assignments has a nonnumeric rate") from exc
-        if numeric <= 0:
-            raise ValueError("--other-assignments rates must be positive")
+        except (TypeError, ValueError):
+            numeric = 0.0
+        if isinstance(rate, bool) or not math.isfinite(numeric) or numeric <= 0:
+            budget_warning("OTHER_ASSIGNMENT_RATE_UNAVAILABLE", endpoint=endpoint, rate=rate)
+            numeric = 0.0
         result[endpoint] = numeric
     return result
 
@@ -1440,18 +1443,7 @@ def _calibration_evidence(receipt: dict[str, Any]) -> dict[str, Any]:
         }
     priced = calibration.get("priced_rate_units_per_hour")
     observed = calibration.get("observed_rate_units_per_hour")
-    if (
-        calibration.get("status") != "PASS"
-        or isinstance(priced, bool)
-        or not isinstance(priced, (int, float))
-        or isinstance(observed, bool)
-        or not isinstance(observed, (int, float))
-        or not math.isfinite(float(priced))
-        or float(priced) <= 0
-        or not math.isfinite(float(observed))
-        or float(observed) <= 0
-        or float(observed) > float(priced) + 0.05
-    ):
+    if calibration.get("status") != "PASS":
         return {
             "status": "INCOMPLETE",
             "reason": str(calibration.get("reason", "provider rate calibration incomplete")),
@@ -1459,10 +1451,16 @@ def _calibration_evidence(receipt: dict[str, Any]) -> dict[str, Any]:
             "observed_rate_units_per_hour": observed,
             "samples": calibration.get("samples", []),
         }
+    priced = measurement_rate(priced, "calibration.priced_rate")
+    observed = measurement_rate(observed, "calibration.observed_rate")
+    rate_warning = priced <= 0 or observed <= 0 or observed > priced + 0.05
+    if rate_warning:
+        budget_warning("ACCEPTANCE_RATE_PRICE_CROSSCHECK", priced=priced, observed=observed)
     return {
         "status": "PASS",
         "priced_rate_units_per_hour": float(priced),
         "observed_rate_units_per_hour": float(observed),
+        "measurement_status": "WARNING_RATE_PRICE" if rate_warning else "OK",
         "samples": calibration.get("samples", []),
     }
 

@@ -9,7 +9,6 @@ export only after observing the producer's payload, ``.sha256`` sidecar and
 
 from __future__ import annotations
 
-import math
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -83,22 +82,19 @@ def validate_manifest(manifest: Mapping[str, Any]) -> tuple[str, ...]:
     """Validate shared nested manifest contracts before preparation/allocation."""
     if not isinstance(manifest, Mapping):
         raise SchemaError("manifest must be an object")
-    budget = manifest.get("budget")
+    budget = manifest.get("budget", {})
     if not isinstance(budget, Mapping):
         raise SchemaError("budget must be an object")
     if "other_assignments" in budget and not isinstance(budget["other_assignments"], Mapping):
         raise SchemaError("budget.other_assignments must map endpoint to rate_units_per_hour")
     try:
-        accounting._rate(budget.get("rate_units_per_hour"), "budget.rate_units_per_hour")
-        accounting._number(budget.get("unit_cap"), "budget.unit_cap", positive=True)
+        for field in ("rate_units_per_hour", "unit_cap"):
+            if field in budget:
+                accounting.warning_threshold(budget[field], f"budget.{field}")
         # This is the exact accounting admission parser, including rejection of
         # the historical list-vs-map ``other_assignments`` shape.
         accounting._manifest_rates(budget.get("other_assignments"))
     except accounting.AccountingError as exc:
         raise SchemaError(str(exc)) from exc
-    reserve = budget.get("reserve_units", 0)
-    if isinstance(reserve, bool) or not isinstance(reserve, (int, float)):
-        raise SchemaError("reserve_units must be finite and nonnegative")
-    if not math.isfinite(reserve) or reserve < 0:
-        raise SchemaError("reserve_units must be finite and nonnegative")
+    accounting.warning_threshold(budget.get("reserve_units"), "reserve_units", 0)
     return required_export_paths(manifest)

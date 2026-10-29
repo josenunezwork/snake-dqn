@@ -68,7 +68,7 @@ def test_verify_recovers_exec_and_idle_helper_timeouts_before_replay(
     ]
 
 
-@pytest.mark.parametrize("cap", ["recovery", "staging", "deadline", "priced_deadline"])
+@pytest.mark.parametrize("cap", ["recovery", "staging", "deadline"])
 def test_repeated_exec_and_idle_timeouts_keep_first_cap_and_uncertainty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: str
 ) -> None:
@@ -163,7 +163,7 @@ def test_slow_foreground_heartbeat_preserves_successful_put_and_verified_upload(
     assert cli.transfer_records[-1]["status"] == "verified"
 
 
-@pytest.mark.parametrize("cap", ["staging", "deadline", "priced_deadline"])
+@pytest.mark.parametrize("cap", ["staging", "deadline"])
 def test_foreground_heartbeat_never_borrows_past_real_caps(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: str
 ) -> None:

@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from research.colab_cli.accounting import budget_warning, measurement_rate
+
 ROOT = Path(__file__).resolve().parents[2]
 BASE = Path("/Users/josenunez/Projects/ml")
 ARTIFACT = BASE / "snake-dqn-artifacts/big-lever/exp/gpu-r2-padding-20261024"
@@ -64,30 +66,28 @@ def _suffix(attempt: int) -> str:
 def attempt_manifest(
     first: dict[str, Any], prior_units: float, output_dir: Path, attempt: int = 2
 ) -> dict[str, Any]:
-    """Fresh canary attempt: same science/inputs/env; only identity and remaining cap change.
+    """Derive one fresh retry while retaining the original wall-clock envelope.
 
-    The failed attempt's charge is deducted from the 2 u canary allowance. The
-    whole-session timeout is the largest value that the remaining cap prices
-    (qualified rule ``timeout * rate / 60 <= cap``) and the declared estimate
-    stays at the qualified half-timeout (``timeout >= 2 * est``). The producer
-    deadline (``R2_BENCH_SECONDS``) is unchanged.
+    Remaining unit allowance is evidence and warnings only. Producer settings,
+    sample counts and the one-retry identity rule remain unchanged.
     """
     if attempt != 2:
         raise ValueError("the canary allows exactly one fresh attempt (attempt 2)")
     if not math.isfinite(prior_units) or prior_units < 0:
         raise ValueError("prior canary charge must be finite and nonnegative")
-    rate = float(first["budget"]["rate_units_per_hour"])
+    rate = measurement_rate(first.get("budget", {}).get("rate_units_per_hour", 0), "canary rate")
     cap = math.floor((CANARY_CAP_UNITS - prior_units) * 100) / 100
-    timeout = math.floor(cap * 60 / rate * 10) / 10
+    timeout = first["timeout_minutes"]
     producer_minutes = int(first["env"][FAMILY.producer_key]) / 60
-    if cap <= 0 or timeout < producer_minutes + 3:
-        raise ValueError("remaining canary allowance cannot fit the unchanged producer deadline")
+    if cap <= 0 or (rate > 0 and cap * 60 / rate < producer_minutes + 3):
+        budget_warning("CANARY_UNIT_THRESHOLD", prior_units=prior_units, remaining_units=cap)
+    cap = max(0.0, cap)
     job = copy.deepcopy(first)
     if not job["job_id"].endswith("-01"):
         raise ValueError("first canary job id does not end in -01")
     job["job_id"] = job["job_id"][:-3] + f"-{attempt:02d}"
     job["output_dir"] = str(output_dir)
-    job["budget"]["unit_cap"] = cap
+    job.setdefault("budget", {})["unit_cap"] = cap
     job["budget"]["reserve_units"] = cap / 6
     job["timeout_minutes"] = timeout
     job["requirements"]["est_minutes"] = timeout / 2
@@ -96,6 +96,7 @@ def attempt_manifest(
         "allowance_units": CANARY_CAP_UNITS,
         "prior_attempt_charged_units": prior_units,
         "remaining_unit_cap": cap,
+        "unit_threshold_warning_only": True,
         "changed_fields": [
             "job_id",
             "output_dir",

@@ -389,12 +389,17 @@ def test_refuses_mixed_valid_and_unparsed_inventory(fixture, tail):
         ("G4", active("owned", 8)),
     ],
 )
-def test_refuses_unpriced_or_unregistered_owned_endpoint(fixture, hardware, record):
+def test_prices_warn_but_hardware_ownership_still_refuses(fixture, hardware, record):
     f = fixture
     f["inventory"]({"owned": hardware}, [record])
     result = f["invoke"]()
-    assert result.returncode == 1
-    assert not runs(f)
+    if hardware == "G4":
+        assert result.returncode == 1
+        assert not runs(f)
+    else:
+        assert result.returncode == 0, result.stderr
+        assert "WARNING" in result.stderr
+        assert runs(f)
 
 
 def test_live_manifest_is_create_only(fixture):
