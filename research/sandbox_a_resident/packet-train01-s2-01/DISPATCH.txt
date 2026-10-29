@@ -1,0 +1,12 @@
+TRAIN-01 independent seed replicate: prepared only; operator dispatch required.
+Runtime pin: 98018ea4d962dfb55ca184c9f4d03c7234c6dada
+Accepted runtime dccf7e25 plus reviewed main H100 launcher/preference.
+Frozen recipe, fresh allocation_index=2, train_seed_offset=2000000000; shared proxy/nomination banks.
+Compact-at-source full-trajectory exports; empty first-attempt verified ledger; at most two manual outcome-blind completions after verified mechanical failure and release.
+Base/effective timeout 2040/4080 minutes; whole-timeout H10012u/h cap816; A1008u/h cap544.
+Development-only simulator-D.
+
+Exact operator dispatch:
+/usr/bin/caffeinate -dimsu env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTEST_ADDOPTS='-p no:cacheprovider -o addopts=' nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-train01-s2-broker-v2.noindex/tools/ops/dispatch.sh sandbox-a-train01-20261028-s2-01 /Users/josenunez/Projects/ml/snake-dqn-train01-s2-broker-v2.noindex/research/sandbox_a_resident/packet-train01-s2-01/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-train01-s2-broker-v2.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-train01-s2-runtime-final.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-01/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-train01-s2-broker-v2.noindex/research/sandbox_a_resident/packet-train01-s2-01/DISPATCH.txt
+
+Dry-run: append --dry-run.

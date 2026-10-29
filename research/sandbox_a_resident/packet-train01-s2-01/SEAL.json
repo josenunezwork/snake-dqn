@@ -1,0 +1,45 @@
+{
+  "a100_fallback": {
+    "base_unit_cap": 272,
+    "effective_unit_cap": 544,
+    "rate_units_per_hour": 8
+  },
+  "accepted_runtime": "dccf7e25a5fb3ebc2fe303b2dc072aeb83efd213",
+  "allocation_index": 2,
+  "base_reserve_units": 0,
+  "base_timeout_minutes": 2040,
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2-broker-v2.noindex",
+  "compact_exports_enabled": true,
+  "cross_domain_union_roots": 342894912,
+  "dispatch_identity": "sandbox-a-train01-20261028-s2-01",
+  "effective_reserve_units": 0,
+  "effective_timeout_minutes": 4080,
+  "fresh_start_from_b8": true,
+  "h100": {
+    "base_unit_cap": 408,
+    "effective_unit_cap": 816,
+    "rate_status": "UNMEASURED_PROVISIONAL_CEILING",
+    "rate_units_per_hour": 12
+  },
+  "packet_file_sha256": {
+    "DISPATCH.txt": "1e3306b4fe55694d7379d8eba62c5474460f04f9883064eb33ace3f8700bf499",
+    "control.json": "d2a9893f4aec9966eb8b292b4ea24e1883c028924c8f272dda939eb7ca4c014f",
+    "dispatch-manifest.json": "36d82d289b7175752f0d4ed3af071c9e2ebb7550331f536797004c1f6d451e4d",
+    "registry-check.json": "e01abbc8bbb61be9f0f137812230fb73396610d010da22b8eb2f84cfa3202fd7",
+    "sandbox.json": "bbfdc9716c9c80adaba7fde1f044c6ea6d840fb863fb718f1b17f21a9600a6c3",
+    "seed-disjointness.json": "89e8bfab75be51429d8a2deecd5beab14f0f77f7b15174e96831a71d7b9f612a",
+    "verified-ledger.json": "f5781af4ff29fcca36bba249a10957bba34ecf0a4d10918d7a07da9d55ab711d"
+  },
+  "prepared_not_dispatched": true,
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "recipe_unchanged": true,
+  "resume_max_outcome_blind_retries": 2,
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2-runtime-final.noindex",
+  "runtime_parity_proof_sha256": "457e55a2c1664ea07cf954ab9e7de9bf8c5f5556c643b84e54b93767f6da41eb",
+  "runtime_pin": "98018ea4d962dfb55ca184c9f4d03c7234c6dada",
+  "schema": "sandbox-a-train01-resident-prep-seal/v1",
+  "seed_registry_roots": 114299008,
+  "source_launch_proof_sha256": "87581838a08dc65ff9ce5c325716b5619b29c5fb1cad89e49e0b4cbf82b416cb",
+  "staging_projection_sha256": "c07d74fa154731ac37cbcf9613e42057ed17351a055cebd0d8255ab337a1378f",
+  "train_seed_offset": 2000000000
+}
