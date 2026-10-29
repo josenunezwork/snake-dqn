@@ -617,10 +617,6 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
     study = packages.get(manifest.get("script"))
     if study is None:
         raise Refused("sandbox script is outside adopted development packages")
-    if study == "t34-cf-1028":
-        from research.sandbox_a_resident.ct_uv import require_manifest_uv
-
-        require_manifest_uv(manifest)
     if "completion_attempt" in manifest and study not in {"sandbox-a-train01", "t34-cf-1028"}:
         raise Refused("training completion metadata is exclusive to TRAIN-01 and t34-cf-1028")
     output = preflight._assert_safe_path(manifest.get("output_dir", ""), "sandbox output")
@@ -644,7 +640,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
     else:
         allowed_env.update({"SANDBOX_A_CONTROL_JSON", "SANDBOX_A_SOURCE_COMMIT", "MAX_JOBS"})
         if study == "t34-cf-1028":
-            allowed_env.update({"SANDBOX_CT_CONTROL_JSON", "CT_QUALIFIED_UV_VERSION"})
+            allowed_env.add("SANDBOX_CT_CONTROL_JSON")
         prefixes = (
             "src/",
             "tools/sandbox/",

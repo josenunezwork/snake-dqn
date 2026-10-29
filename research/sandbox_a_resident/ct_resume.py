@@ -1602,11 +1602,20 @@ def _scan_supervisor_log(
                 if prefix
                 else None
             )
-            if start >= 0 and (not prefix or timestamp):
+            if start >= 0:
                 _refuse_if_supervisor_log_fault(stripped[:start], field_name=label)
                 try:
                     record = _load_json(stripped[start:])
+                except json.JSONDecodeError as error:
+                    if not prefix or timestamp:
+                        raise CTResumeRefused(f"corrupt supervisor JSON record: {label}") from error
+                    # Ordinary prose may contain braces. A syntactically valid
+                    # trailing object always receives structured fault scanning.
+                    _refuse_if_supervisor_log_fault(line, field_name=label)
+                    continue
                 except ValueError as error:
+                    # Non-finite numbers, duplicate keys and excessive nesting
+                    # are semantic faults, never the ordinary-prose fallback.
                     raise CTResumeRefused(f"corrupt supervisor JSON record: {label}") from error
                 _scan_json_faults(
                     record,

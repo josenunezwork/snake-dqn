@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from research.sandbox_a_resident import ct_json, ct_liveness, ct_resume, ct_uv
+from research.sandbox_a_resident import ct_json, ct_liveness, ct_resume
 from research.sandbox_a_resident.test_ct_review10 import _lines
 
 
@@ -209,44 +208,12 @@ def test_all_real_and_decimal_finite_twins(kind) -> None:
                 ct_resume._scan_json_faults(row, label="decoded")
 
 
-def test_uv_capture_version_dispatch_and_runtime_twins(monkeypatch) -> None:
-    calls = []
-
-    def run(command, **kwargs):
-        calls.append(command)
-        return subprocess.CompletedProcess(command, 0, "uv 0.13.1 (abcdef012 2026-10-14)\n", "")
-
-    monkeypatch.setattr(ct_uv.subprocess, "run", run)
-    manifest = {"env": {ct_uv.UV_VERSION_ENV: ct_uv.QUALIFIED_UV_VERSION}}
-    ct_uv.require_manifest_uv(manifest)
-    assert calls == [["uv", "--version"]]
-    ct_uv.require_uv_version(ct_uv.QUALIFIED_UV_VERSION, ["uv", "--version"])
-    for text in (
-        "uv 0.13.2\n",
-        "uv 0.13.1 LookupError: injected\n",
-        "uv 0.13.1 (LookupError: injected)\n",
-        "unknown\n",
-    ):
-        monkeypatch.setattr(
-            ct_uv.subprocess,
-            "run",
-            lambda command, **kwargs: subprocess.CompletedProcess(command, 0, text, ""),
-        )
-        with pytest.raises(ValueError, match="uv version"):
-            ct_uv.require_manifest_uv(manifest)
-    for env in ({}, {ct_uv.UV_VERSION_ENV: "0.13.2"}):
-        with pytest.raises(ValueError, match="qualified uv"):
-            ct_uv.require_manifest_uv({"env": env})
-    script = (Path(__file__).parent / "ct_job.sh").read_text()
-    assert script.index("ct_uv") < script.index("ct_entrypoint")
-
-
 def test_uv_capture_matches_closed_warning_and_recorded_version() -> None:
     capture = json.loads(
         (Path(__file__).parents[2] / "tests/fixtures/ct-uv-packet11/capture.json").read_text()
     )
     assert capture["returncode"] == 0
-    assert capture["version"].split()[1] == ct_uv.QUALIFIED_UV_VERSION
+    ct_resume._scan_job_tail(capture["version"], label="historical-Mac-uv-version")
     warning = capture["stderr"].splitlines()[0]
     ct_resume._scan_job_tail(warning, label="qualified-uv-warning")
     with pytest.raises(ct_resume.CTResumeRefused):

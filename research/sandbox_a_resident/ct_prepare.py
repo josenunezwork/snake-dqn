@@ -19,7 +19,6 @@ from research.sandbox_a_resident.ct_task import (
 )
 from research.sandbox_a_resident.ct_topology import TOPOLOGY_SPEC
 from research.sandbox_a_resident.ct_units import empty_ledger
-from research.sandbox_a_resident.ct_uv import QUALIFIED_UV_VERSION, UV_VERSION_ENV
 from research.sandbox_a_resident.prepare import runtime_source_paths
 from tools.sandbox.registry import (
     TRAINING_OPPONENTS,
@@ -241,7 +240,6 @@ def prepare(
     env = {
         "SANDBOX_CT_CONTROL_JSON": json.dumps(control, sort_keys=True),
         "SANDBOX_A_SOURCE_COMMIT": commit,
-        UV_VERSION_ENV: QUALIFIED_UV_VERSION,
         "SNAKE_DQN_DEVICE": "cuda",
         "MAX_JOBS": "1",
         "COLAB_CLI_REQUIREMENTS": "research/sandbox_a_resident/requirements.txt",

@@ -108,6 +108,14 @@
       ],
       "successor": "packet-ct-1028-11",
       "reason": "Opus packet-10 fixes: immutable in-flight history segments survive slow polls; prose brace, qualified uv version and all-real finite checks. Prior packet and captures unchanged."
+    },
+    {
+      "packet_dir": "packet-ct-1028-11",
+      "job_ids": [
+        "sandbox-ct-cf-20261028-11"
+      ],
+      "successor": "packet-ct-1028-12",
+      "reason": "Opus packet-11 review: remove Mac-only uv startup fence, log closed version line, and restore structured scanning of word-prefixed host JSON. Prior packet and evidence preserved."
     }
   ]
 }

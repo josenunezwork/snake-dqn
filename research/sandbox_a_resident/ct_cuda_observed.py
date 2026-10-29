@@ -2,8 +2,10 @@
 
 import re
 
+from research.sandbox_a_resident.ct_uv import UV_VERSION_PATTERN
+
 # Only variable fields emitted by uv are patterns; warning text remains exact.
-BOOTSTRAP_PATTERNS = tuple(
+BOOTSTRAP_PATTERNS = (UV_VERSION_PATTERN,) + tuple(
     re.compile(pattern)
     for pattern in (
         r"Installed Python 3\.12\.[0-9]+ in [0-9]+(?:\.[0-9]+)?(?:ms|s)",
