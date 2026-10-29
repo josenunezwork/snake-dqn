@@ -146,6 +146,15 @@
       "manifest_sha256": "8dd9a4d61969d2ae85f517c4c64c07d95aa2ccbde1958544e6e89aa3bdb77d2b",
       "successor": "packet-ct-1028-14/reseal-02",
       "reason": "Reseal01 passed both consecutive real science dry-runs, but serial nested c1 admission remained load-sensitive at the unchanged180-second bound. Reseal02 runs every historical preflight test with two single-thread pytest workers, preserving file-local order, all assertions and all bounds; product/science source unchanged. Prior seals/logs retained."
+    },
+    {
+      "packet_dir": "packet-ct-1028-14/reseal-02",
+      "job_ids": [
+        "sandbox-ct-cf-20261028-14"
+      ],
+      "manifest_sha256": "e8a442930b8bee22f6464f9652ceafecb9d36481910cf8dd4b9becd328208a10",
+      "successor": "packet-ct-1028-14/reseal-03",
+      "reason": "Reseal-02 identity spent by 2026-10-29 A100 HTTP503 allocation failure with no endpoint. Reseal-03 uses a fresh identity, H100-first with pre-admitted whole-timeout-priced A100 sibling, current GPU-preference dispatcher, sm90 adapter and accepted focused-test MINOR. Science unchanged; all prior evidence immutable."
     }
   ]
 }

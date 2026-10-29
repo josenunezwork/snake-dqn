@@ -164,6 +164,7 @@ def prepare(
     unit_cap: float = 193.0,
     sandbox_source_delivery: str | None = "background-sparse-v1",
     stall_timeout_seconds: int | None = 900,
+    prefer_h100: bool = False,
 ) -> None:
     """Create a finite C/T packet and ten-line adopted sandbox manifest."""
     if (
@@ -306,6 +307,10 @@ def prepare(
         if sandbox_source_delivery != "background-sparse-v1":
             raise ValueError("sandbox_source_delivery must be background-sparse-v1")
         manifest["sandbox_source_delivery"] = sandbox_source_delivery
+    if prefer_h100:
+        from research.compute.gpu_preference import prepare_preference
+
+        prepare_preference(manifest)
     write_once(packet / "dispatch-manifest.json", manifest)
 
     roots = [row["offset"] for row in allocations]
@@ -389,6 +394,7 @@ def main() -> int:
     parser.add_argument("--unit-cap", type=float, default=193.0)
     parser.add_argument("--sandbox-source-delivery", default="background-sparse-v1")
     parser.add_argument("--stall-timeout-seconds", type=int, default=900)
+    parser.add_argument("--prefer-h100", action="store_true")
     args = parser.parse_args()
     prepare(
         args.packet.resolve(),
@@ -409,6 +415,7 @@ def main() -> int:
         unit_cap=args.unit_cap,
         sandbox_source_delivery=args.sandbox_source_delivery,
         stall_timeout_seconds=args.stall_timeout_seconds,
+        prefer_h100=args.prefer_h100,
     )
     return 0
 
