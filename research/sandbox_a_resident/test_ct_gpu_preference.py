@@ -41,7 +41,9 @@ def test_ct_adapter_compiles_for_requested_hardware(
     _check_launcher(tmp_path, "ct_job.sh", gpu, arch, missing_hopper)
 
 
-def test_preference_prices_whole_timeout_and_preserves_science() -> None:
+def test_preference_prices_whole_timeout_and_preserves_science(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     packet = Path(__file__).parent / "packet-ct-1028-14/reseal-02/dispatch-manifest.json"
     original = json.loads(packet.read_text())
     preferred = copy.deepcopy(original)
@@ -64,8 +66,8 @@ def test_preference_prices_whole_timeout_and_preserves_science() -> None:
     assert fallback["job_id"] == original["job_id"] + "-a100-fallback"
     assert fallback["output_dir"] == original["output_dir"] + "-a100-fallback"
     primary["budget"]["unit_cap"] -= 0.01
-    with pytest.raises(ValueError, match="whole timeout"):
-        variants(primary)
+    assert len(variants(primary)) == 2
+    assert "PREFERENCE_UNIT_THRESHOLD" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("gpu", ["H100", "A100"])
