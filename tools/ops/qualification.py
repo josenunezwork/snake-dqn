@@ -38,7 +38,7 @@ def clean_transport(repo: Path) -> None:
         raise ValueError("broker transport has working-tree changes")
 
 
-def check(repo: Path, record: Path, ref: str = "HEAD") -> str:
+def check(repo: Path, record: Path, ref: str = "HEAD", *, offline: bool = False) -> str:
     """Require the recorded tree, independent of the enclosing commit."""
     saved = json.loads(record.read_text())
     if not isinstance(saved, dict):
@@ -50,6 +50,9 @@ def check(repo: Path, record: Path, ref: str = "HEAD") -> str:
         or not re.fullmatch(r"[0-9a-f]{40}", expected)
     ):
         raise ValueError("invalid qualification registry")
+    status = saved.get("independent_review_status")
+    if status != "ACCEPT" and not (offline and status == "PENDING"):
+        raise ValueError(f"COLAB_CLI_INDEPENDENT_REVIEW_REQUIRED status={status!r}")
     actual = tree(repo, ref)
     if actual != expected:
         raise ValueError(f"COLAB_CLI_UNQUALIFIED ref={ref} tree={actual} qualified={expected}")
@@ -82,11 +85,14 @@ def main() -> int:
     parser.add_argument("--record", type=Path, required=True)
     parser.add_argument("--ref", default="HEAD")
     parser.add_argument("--fetch", action="store_true")
+    parser.add_argument(
+        "--offline", action="store_true", help="read-only pending-review validation"
+    )
     args = parser.parse_args()
     try:
         if args.fetch:
             git(args.repo, "fetch", "--quiet", "origin", "main")
-        print(check(args.repo, args.record, args.ref))
+        print(check(args.repo, args.record, args.ref, offline=args.offline))
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         print(f"REFUSE: COLAB_CLI_UNQUALIFIED {exc}", file=sys.stderr)
         return 1
