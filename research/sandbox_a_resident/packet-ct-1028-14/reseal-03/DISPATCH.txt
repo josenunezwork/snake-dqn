@@ -1,0 +1,12 @@
+C/T packet-ct-1028-14/reseal-03: PREPARED ONLY; independent review pending; NOT DISPATCHED.
+Runtime pin: af2bba1c8e7e44031a50a78cd282f7aec1d5b6c7
+Fresh primary identity: sandbox-ct-cf-20261028-14-r3; fallback: sandbox-ct-cf-20261028-14-r3-a100-fallback.
+Owner2026-10-28: H100 first, A100 only after qualified pre-endpoint unavailability reconciliation. Retained old pending record is handled by separate gpu-pref6 operator work; dry-runs do not allocate.
+Science control differs from reseal02 only in source_commit. Runtime adapter adds sm90 alongside sm80; review14/watchdog tests now in complete two-worker admission. All original bounds unchanged.
+Estimate/base/effective wall720/720/1440min; H100 base/effective144/288units at provisional unmeasured12u/h; A100 sibling96/192units at8u/h; reserve0/0. Empty initial ledger, frozen science sizes, at most2 manual outcome-blind completion attempts. Transport tree unchanged.
+Actual hardware is recorded by qualified supervisor output/hardware.json and the separate create-only ops gpu-receipt.json. No new Linux/CUDA, hardware, VRAM, throughput or live-account proof is claimed.
+Prior reseal02 identity spent by A100 HTTP503 without endpoint; registry retires it. All prior evidence preserved.
+Exact live operator command (NOT RUN; independent review required):
+PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin SNAKE_DQN_PYTHON=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTEST_ADDOPTS='-p no:cacheprovider' nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-14-r3-broker.noindex/tools/ops/dispatch.sh sandbox-ct-cf-20261028-14-r3 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-14-r3-broker.noindex/research/sandbox_a_resident/packet-ct-1028-14/reseal-03/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-ct-1028-14-r3-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-ct-1028-14-r3-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-cf-1028/attempt-14-r3/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-ct-1028-14-r3-broker.noindex/research/sandbox_a_resident/packet-ct-1028-14/reseal-03/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve both detached checkouts. See CT_1028_14_RESEAL_03.md and astra-impl-ct17/SUMMARY.md.
