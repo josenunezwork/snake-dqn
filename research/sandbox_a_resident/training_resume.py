@@ -59,6 +59,9 @@ TRACKED_OPTIONAL_OUTPUT_FILES = (
     "exports/training/stall-watchdog/faulthandler-stacks.log",
 )
 RUNTIME_ROOT = "resume"
+ACCOUNTING_RATE_DRIFT_ERROR = (
+    "AccountingError('provider usage rate drift is not explained by accounted active assignments')"
+)
 MECHANICAL_TERMINAL_REASONS = frozenset({"timeout", "lease_expired", "release_credential_expiring"})
 MECHANICAL_SUPERVISOR_ERROR_MARKERS = (
     "whole-session wall cap reached",
@@ -785,6 +788,8 @@ def _check_mechanical_receipt_class(record: Mapping[str, Any]) -> None:
         raise ResumeRefused(
             f"prior receipt failure_class {failure!r} is not an eligible mechanical trigger"
         )
+    if record.get("error") == ACCOUNTING_RATE_DRIFT_ERROR and failure != "ACCOUNTING":
+        raise ResumeRefused("rate-drift guard requires the exact ACCOUNTING receipt class")
     if failure == "RPC_EXEC_POLL_TIMEOUT" and (
         terminal is None or reason in MECHANICAL_TERMINAL_REASONS
     ):
@@ -801,6 +806,7 @@ def _check_mechanical_receipt_class(record: Mapping[str, Any]) -> None:
         if terminal is None and record.get("error") in {
             "AccountingError('priced session unit cap reached')",
             'AccountingError("priced session unit cap reached")',
+            ACCOUNTING_RATE_DRIFT_ERROR,
         }:
             return
         raise ResumeRefused("ACCOUNTING receipt lacks the exact priced session runaway guard")
@@ -836,6 +842,8 @@ def _check_retained_execution(
     that exception is never propagated to a child mapping.
     """
     record = _normalised_record(record, label)
+    if record.get("error") == ACCOUNTING_RATE_DRIFT_ERROR and not allow_validated_incomplete:
+        raise ResumeRefused(f"{label} rate-drift guard is outside the validated receipt root")
     for key, expected in (("job_id", expected_job_id), ("generation", expected_generation)):
         if key == "generation" and scientific_data and not require_identity:
             # Metadata may use integer counters or hardware names ("Ampere").
@@ -992,6 +1000,10 @@ def _mechanical_supervisor_error(value: Any) -> bool:
     """Match only complete qualified transport causes, never compound errors."""
     if not isinstance(value, str):
         return False
+    # This exact native host accounting guard says nothing about trainer quality.
+    # Receipt class/release checks and every retained scientific-fault scan still apply.
+    if value == ACCOUNTING_RATE_DRIFT_ERROR:
+        return True
     causes = set(MECHANICAL_SUPERVISOR_ERROR_MARKERS) | {
         "whole-session wall cap reached (including setup/export)",
         "whole-session deadline reached before helper",
@@ -2234,7 +2246,10 @@ def verify_mechanical_stop(
       tripwires, or missing/corrupt exports),
     - ``CHILD_NONZERO_EXIT`` only when ``terminal.reason`` explicitly records a
       mechanical VM timeout/lease/credential stop and no conflicting scientific
-      or stall fault evidence is present.
+      or stall fault evidence is present,
+    - ``ACCOUNTING`` with no retained terminal and the exact native priced-cap
+      error or ``ACCOUNTING_RATE_DRIFT_ERROR``. These are host guards, never
+      evidence of trainer failure or an explanation of provider billing.
     """
     terminal = receipt.get("terminal")
     if not _is_hex(manifest_sha256, 64):

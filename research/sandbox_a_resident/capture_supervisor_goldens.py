@@ -34,6 +34,7 @@ SCENARIOS = (
     "helper-deadline",
     "cli-deadline",
     "runaway-guard",
+    "rate-drift",
     "calibration-reserve",
     "lease-renewal-timeout",
     "rpc-exec-poll-timeout",
@@ -481,6 +482,11 @@ def _capture_one(destination: Path, scenario: str) -> dict[str, Any]:
                         return value
 
                     cli.sessions = advance_during_read
+                elif scenario == "rate-drift":
+                    state_path = root / "fake-state.json"
+                    state = json.loads(state_path.read_text())
+                    state["rate"] += 1.0
+                    state_path.write_text(json.dumps(state))
                 elif scenario in {"helper-deadline", "cli-deadline"}:
                     cli.deadline = -1
                     if scenario == "helper-deadline":
@@ -557,6 +563,10 @@ def _capture_one(destination: Path, scenario: str) -> dict[str, Any]:
                             "first post-ready provider sessions read advances virtual clock "
                             "to 600s; AccountTracker.check priced cap fires after loop wall "
                             "check"
+                        ),
+                        "rate-drift": (
+                            "after native rate calibration, fake account rate rises by 1 u/h; "
+                            "sessions remain unchanged; actual AccountTracker.check guard fires"
                         ),
                         "helper-deadline": (
                             "at ready, expire CLI.deadline and invoke actual " "remaining_seconds"
