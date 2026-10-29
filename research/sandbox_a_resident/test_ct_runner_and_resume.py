@@ -1108,7 +1108,15 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                 "sparse-checkout",
                 "set",
                 "--no-cone",
-                "/.github/workflows/ci.yml",
+                # Admission receipts hash every tracked code/config file, including
+                # files outside the fixture's runtime package directories.
+                "*.py",
+                "*.sh",
+                "*.toml",
+                "*.cfg",
+                "*.ini",
+                "*.yaml",
+                "*.yml",
                 "/src/",
                 "/tools/",
                 "/research/colab_cli/",
