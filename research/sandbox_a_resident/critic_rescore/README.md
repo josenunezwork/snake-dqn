@@ -15,7 +15,9 @@ state, and all encoders are retained; no optimizer is constructed.
 Retain the admitted `a100-dev/sandbox-a-train01` root function, with **new index
 ranges**: holdout `[9000000000, 9000003072)` and independent comparator bank
 `[9100000000, 9100000096)`. These are distinct from training, calibration, critic
-prep/holdout, proxy and nomination allocations in both seed packets. Mac admission
+prep/holdout, proxy and nomination allocations in both seed packets (seed 1 offset 0, seed 2 offset 2000000000).
+Their full source-manifest allocation ranges and metadata hashes are retained in
+the seed audit. Mac admission
 checks every new root's low-63-bit simulator alias against the frozen sandbox
 exclusion inventory (including protected-bank exclusions), and refuses duplicates
 and zero. This does not inventory opaque or unregistered external runs.

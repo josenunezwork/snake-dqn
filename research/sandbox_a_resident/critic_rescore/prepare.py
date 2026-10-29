@@ -10,6 +10,7 @@ from pathlib import Path
 from research.compute.gpu_preference import prepare_preference
 from research.sandbox_a_resident.critic_rescore.run import empty_ledger, specs
 from research.sandbox_a_resident.training_prepare import source_paths
+from research.sandbox_a_resident.training_task import seed_allocations
 from research.sandbox_a_resident.units import digest
 from tools.sandbox.registry import load_registry, validate_input, verify_sources, world_seed
 
@@ -28,7 +29,7 @@ def audit(control: dict, registry: Path) -> dict:
 
     Retain TRAIN-01's registered a100-dev domain, reserve a new remote index
     range above nine billion. Existing two-seed train/prep ranges are below
-    one billion; fixed proxy roots are 400M/500M. Protected-bank seeds are
+    three billion; fixed proxy roots are 400M/500M. Protected-bank seeds are
     represented by the Mac-built exclusion inventory, never opened here.
     """
     value = load_registry(registry)
@@ -36,6 +37,27 @@ def audit(control: dict, registry: Path) -> dict:
     indices = [offset + i for _, _, offset in specs(control) for i in range(control["worlds"])]
     if min(indices) < 9_000_000_000 or len(set(indices)) != len(indices):
         raise ValueError("new disjoint critic-rescore range required")
+    prior = []
+    for source in (
+        ARTIFACTS / "sandbox-a-resident/train01-attempt-11/output/manifest.json",
+        ARTIFACTS / "sandbox-a-resident/train01-s2-attempt-04/output-a100-fallback/manifest.json",
+    ):
+        manifest = json.loads(source.read_text())
+        previous_control = json.loads(manifest["env"]["SANDBOX_A_CONTROL_JSON"])
+        ranges = seed_allocations(previous_control)
+        for row in ranges:
+            if any(row["offset"] <= i < row["offset"] + row["count"] for i in indices):
+                raise ValueError(
+                    "new root range intersects source training/prep/proxy/holdout allocation"
+                )
+        prior.append(
+            dict(
+                manifest=str(source),
+                sha256=digest(source),
+                train_seed_offset=previous_control["train_seed_offset"],
+                allocations=ranges,
+            )
+        )
     seeds = [world_seed("sandbox-a-train01", i) for i in indices]
     effective = [s & 0x7FFFFFFFFFFFFFFF for s in seeds]
     excluded = {int(s) & 0x7FFFFFFFFFFFFFFF for s in value["excluded_seeds"]}
@@ -50,7 +72,8 @@ def audit(control: dict, registry: Path) -> dict:
         aliases=0,
         excluded_intersection=0,
         registry_sha256=digest(registry),
-        coverage="Frozen sandbox exclusions plus disjoint canonical TRAIN-01 index ranges; "
+        prior_source_allocations=prior,
+        coverage="Frozen sandbox exclusions plus disjoint original seed1/2 TRAIN-01 index ranges; "
         "no protected payload access; opaque unregistered external runs unknown",
     )
 
