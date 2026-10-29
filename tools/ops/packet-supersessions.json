@@ -124,6 +124,14 @@
       ],
       "successor": "packet-ct-1028-13",
       "reason": "Packet 12 native traceback dump can hang before _exit, including uv-managed CPython 3.12.15 on Mac. Packet 13 adds independent bounded hard termination and healthy/blocked-dump twins. Prior packet, HOLD note and evidence remain immutable."
+    },
+    {
+      "packet_dir": "packet-ct-1028-13",
+      "job_ids": [
+        "sandbox-ct-cf-20261028-13"
+      ],
+      "successor": "packet-ct-1028-14",
+      "reason": "Opus packet-13 corrections: same-group guard ignores SIGUSR1/SIGINT before readiness, real runtime group-stop admission regression, optional uv diagnostic, every-brace structured log scanning and two-second dump grace. Prior packet and evidence remain immutable."
     }
   ]
 }

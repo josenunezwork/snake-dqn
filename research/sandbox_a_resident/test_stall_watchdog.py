@@ -320,7 +320,7 @@ for i in range(10):
 watchdog.close()
 watchdog.close()
 assert helper.poll() == 0
-time.sleep(0.5)
+time.sleep(2.5)
 print('healthy-rearmed-closed', flush=True)
 """
     result = subprocess.run(
@@ -365,3 +365,106 @@ def test_guard_source_is_in_both_runtime_closures() -> None:
     # These are the actual Git-derived closures shipped to the VM.
     assert helper in ct_prepare.source_paths(pin)
     assert helper in training_prepare.source_paths(pin)
+
+
+@pytest.mark.parametrize("signum", [signal.SIGUSR1, signal.SIGINT])
+def test_group_preemption_keeps_guard_alive_for_progress(tmp_path: Path, signum: int) -> None:
+    """Signal the real group, then finish work and rearm the independent guard."""
+    script = r"""
+import os, signal, sys, time
+from pathlib import Path
+from research.sandbox_a_resident.stall_watchdog import StallWatchdog
+signum = int(sys.argv[2])
+received = []
+signal.signal(signum, lambda *_: received.append(True))
+watchdog = StallWatchdog(Path(sys.argv[1]), 0.5)
+watchdog.start('before-group-stop')
+helper = watchdog._exit_guard.process
+assert os.getpgid(helper.pid) == os.getpgrp()
+os.killpg(os.getpgrp(), signum)
+time.sleep(0.05)
+assert received and helper.poll() is None
+watchdog.progress('after-group-stop')
+watchdog.close()
+assert helper.poll() == 0
+print('group-stop-progress-clean', flush=True)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), str(signum)],
+        start_new_session=True,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "group-stop-progress-clean\n"
+    assert json.loads((tmp_path / "stall-watchdog.json").read_text())["stage"] == "after-group-stop"
+
+
+def test_slow_dump_finishes_within_grace_and_stalled_twin_still_dies(tmp_path: Path) -> None:
+    """A real dump blocked for >0.25s gets time to finish; forever-blocked twin dies."""
+    from research.sandbox_a_resident.stall_watchdog import DUMP_GRACE_SECONDS
+
+    assert DUMP_GRACE_SECONDS == 2.0
+    script = r"""
+import ctypes, os, sys, threading, time
+from pathlib import Path
+from research.sandbox_a_resident.stall_watchdog import StallWatchdog
+watchdog = StallWatchdog(Path(sys.argv[1]), 0.2)
+watchdog.start('slow-dump')
+r, w = os.pipe()
+os.set_blocking(w, False)
+try:
+    while True: os.write(w, b'x' * 4096)
+except BlockingIOError:
+    pass
+os.set_blocking(w, True)
+watchdog._stack_file.close()
+watchdog._stack_file = os.fdopen(w, 'w')
+watchdog.progress('slow-dump')
+if sys.argv[2] == 'drain':
+    def drain():
+        time.sleep(0.8)  # Native dump is blocked beyond the former grace.
+        while os.read(r, 4096): pass
+    threading.Thread(target=drain, daemon=True).start()
+    time.sleep(30)
+else:
+    ctypes.PyDLL(None).sleep(30)
+"""
+    for mode, status in (("drain", 1), ("stuck", -signal.SIGKILL)):
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(tmp_path / mode), mode],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        assert result.returncode == status, result.stderr
+
+
+def test_guard_keeps_final_group_cleanup_and_eof_disarm(tmp_path: Path) -> None:
+    """Ignoring preemption must preserve TERM cleanup and EOF parent-death disarm."""
+    helper = Path(__file__).with_name("ct_watchdog_guard.py")
+    for termination in ("term", "eof"):
+        process = subprocess.Popen(
+            [sys.executable, "-I", "-S", str(helper), str(os.getpid())],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        try:
+            assert os.read(process.stdout.fileno(), 1) == b"R"
+            os.killpg(process.pid, signal.SIGUSR1)
+            os.killpg(process.pid, signal.SIGINT)
+            if termination == "term":
+                os.killpg(process.pid, signal.SIGTERM)
+            else:
+                process.stdin.close()  # Same private-pipe EOF as unexpected parent death.
+            process.wait(timeout=5)
+            assert process.returncode == (-signal.SIGTERM if termination == "term" else 0)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+            for pipe in (process.stdin, process.stdout, process.stderr):
+                pipe.close()

@@ -12,7 +12,7 @@ export CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONUNBUFFERED=1
 export GPU_SIM_VECTOR_GEOMETRY=native GPU_SIM_VECTOR_FLOOD=static GPU_SIM_V8_INDEXED=0
 # Record the actual post-bootstrap VM package; continuation admission accepts
 # only its closed version-line grammar and the literal observed warnings.
-nice -n 15 uv --version
+nice -n 15 uv --version || true
 nice -n 15 python -c 'import os; from pathlib import Path; Path(os.environ["COLAB_CLI_ROOT"], "ct-control.json").write_text(os.environ["SANDBOX_CT_CONTROL_JSON"])'
 diagnostics="$COLAB_CLI_ROOT/output/ct/stall-watchdog"
 

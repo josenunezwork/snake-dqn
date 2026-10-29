@@ -21,7 +21,7 @@ from typing import Any, Mapping
 # A diagnostic grace, not a reset or extension of the completed-work deadline.
 # The original native timer still fires at timeout_seconds. Only its dump gets
 # this fixed bound before the independent process sends an uncatchable SIGKILL.
-DUMP_GRACE_SECONDS = 0.25
+DUMP_GRACE_SECONDS = 2.0
 
 
 class _ExitGuard:
@@ -79,7 +79,7 @@ class StallWatchdog:
     ``progress`` must be called only after an observable unit of work completes;
     supervisor polling is deliberately not a source of liveness.  On expiry,
     ``faulthandler`` attempts thread stacks and ``_exit(1)`` at the deadline.
-    If that dump blocks, the guard kills the worker after at most 0.25 seconds
+    If that dump blocks, the guard kills the worker after at most 2 seconds
     of diagnostic grace. The pre-written JSON survives either hard-exit path.
     """
 

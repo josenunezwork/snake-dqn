@@ -35,6 +35,7 @@ import re
 import stat
 import tarfile
 from dataclasses import dataclass
+from json import JSONDecoder
 from pathlib import Path
 from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
@@ -1603,39 +1604,51 @@ def _scan_supervisor_log(
                 else None
             )
             if start >= 0:
-                _refuse_if_supervisor_log_fault(stripped[:start], field_name=label)
-                try:
-                    record = _load_json(stripped[start:])
-                except json.JSONDecodeError as error:
-                    if not prefix or timestamp:
-                        raise CTResumeRefused(f"corrupt supervisor JSON record: {label}") from error
-                    # Ordinary prose may contain braces. A syntactically valid
-                    # trailing object always receives structured fault scanning.
-                    _refuse_if_supervisor_log_fault(line, field_name=label)
-                    continue
-                except ValueError as error:
-                    # Non-finite numbers, duplicate keys and excessive nesting
-                    # are semantic faults, never the ordinary-prose fallback.
-                    raise CTResumeRefused(f"corrupt supervisor JSON record: {label}") from error
-                _scan_json_faults(
-                    record,
-                    label=label,
-                    expected_job_id=job_id,
-                    expected_generation=generation,
-                    supervisor_transport=True,
-                    supervisor_log=True,
-                    fixture_completion=fixture_completion,
+                # Prose may contain non-JSON braces before an object, and a
+                # valid object may have trailing prose or another object.
+                # Attempt every opening brace; never let a failed first decode
+                # or trailing text conceal structured fault evidence.
+                decoder = JSONDecoder(
+                    object_pairs_hook=_json_without_duplicates,
+                    parse_constant=json.refuse_constant,
                 )
-                if not isinstance(record, Mapping):
-                    raise CTResumeRefused(f"malformed supervisor JSON record: {label}")
-                for field in ("state", "terminal"):
-                    item = record.get(field)
-                    if field == "terminal" and type(item) is bool:
-                        continue  # Broker stdout records presence, not terminal payload.
-                    if item is not None and not (field == "terminal" and item is False):
-                        if not isinstance(item, Mapping):
-                            raise CTResumeRefused(f"malformed supervisor {field}: {label}")
-                _refuse_if_fault_exports(record.get("exports"), source_name=label)
+                prose_start = 0
+                for candidate in re.finditer(r"\{", stripped):
+                    offset = candidate.start()
+                    try:
+                        record, end = decoder.raw_decode(stripped, offset)
+                        json.require_finite(record)
+                    except json.JSONDecodeError as error:
+                        if offset == start and (not prefix or timestamp):
+                            raise CTResumeRefused(
+                                f"corrupt supervisor JSON record: {label}"
+                            ) from error
+                        continue  # Ordinary prose braces; later objects still get scanned.
+                    except (ValueError, RecursionError) as error:
+                        raise CTResumeRefused(f"corrupt supervisor JSON record: {label}") from error
+                    if offset >= prose_start:
+                        _refuse_if_supervisor_log_fault(
+                            stripped[prose_start:offset], field_name=label
+                        )
+                        prose_start = end
+                    _scan_json_faults(
+                        record,
+                        label=label,
+                        expected_job_id=job_id,
+                        expected_generation=generation,
+                        supervisor_transport=True,
+                        supervisor_log=True,
+                        fixture_completion=fixture_completion,
+                    )
+                    for field in ("state", "terminal"):
+                        item = record.get(field)
+                        if field == "terminal" and type(item) is bool:
+                            continue  # Broker stdout records presence, not terminal payload.
+                        if item is not None and not (field == "terminal" and item is False):
+                            if not isinstance(item, Mapping):
+                                raise CTResumeRefused(f"malformed supervisor {field}: {label}")
+                    _refuse_if_fault_exports(record.get("exports"), source_name=label)
+                _refuse_if_supervisor_log_fault(stripped[prose_start:], field_name=label)
             else:
                 if (
                     stripped.startswith(("[", '"'))

@@ -17,6 +17,12 @@ import time
 
 def guard(parent_pid: int) -> None:
     """Kill only our still-living parent when its completed-work lease expires."""
+    # Mechanical preemption targets the whole process group. Remain in that
+    # group for final SIGTERM/SIGKILL cleanup, but protect progress rearming
+    # while the worker handles its graceful SIGUSR1 fence. Publish readiness
+    # only after both dispositions are installed. EOF still disarms on death.
+    signal.signal(signal.SIGUSR1, signal.SIG_IGN)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     deadline: float | None = None
     pending = b""
     os.write(1, b"R")
