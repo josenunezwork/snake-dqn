@@ -50,6 +50,9 @@ def check(repo: Path, record: Path, ref: str = "HEAD") -> str:
         or not re.fullmatch(r"[0-9a-f]{40}", expected)
     ):
         raise ValueError("invalid qualification registry")
+    status = saved.get("independent_review_status")
+    if status != "ACCEPT":
+        raise ValueError(f"COLAB_CLI_INDEPENDENT_REVIEW_REQUIRED status={status!r}")
     actual = tree(repo, ref)
     if actual != expected:
         raise ValueError(f"COLAB_CLI_UNQUALIFIED ref={ref} tree={actual} qualified={expected}")

@@ -168,6 +168,13 @@ def _publish(combined: tuple, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(acceptance, "execute", execute)
     registry = saved.parent / "test-qualified.json"
     requalify.execute(saved, registry, acceptance.REVIEW_TOKEN, "/never/oauth")
+    with pytest.raises(ValueError, match="INDEPENDENT_REVIEW_REQUIRED"):
+        qualification.check(repo, registry)
+    saved = json.loads(registry.read_text())
+    assert saved["independent_review_status"] == "PENDING"
+    # Simulate the independent review, distinct from acceptance execution.
+    saved["independent_review_status"] = "ACCEPT"
+    qualification.save(registry, saved)
     assert qualification.check(repo, registry) == result["qualified_tree_hash"]
     acceptance.verify_qualified_transport_record(repo, registry)
     return registry

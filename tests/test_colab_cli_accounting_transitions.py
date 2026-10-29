@@ -234,3 +234,28 @@ def test_stable_broker_endpoint_rate_change_is_not_hidden_by_an_arrival() -> Non
                 {"endpoint": "new", "rate_units_per_hour": 1.0},
             ],
         )
+
+
+@pytest.mark.parametrize("rate", [0.0, 7.0, 999.0])
+@pytest.mark.parametrize("settles", [False, True])
+def test_count_lag_grace_never_depends_on_rate(rate, settles, capsys):
+    tracker = _tracker()
+    other = [{"endpoint": "arriving", "rate_units_per_hour": 1.0}]
+    sessions = {"ours": "our-lane", "arriving": "other-lane"}
+    for now in (1.0, 2.0):
+        spend = tracker.check(_usage(rate, 1), now=now, sessions=sessions, active_records=other)
+        assert spend["provider_transition_mismatch_polls"] == int(now)
+    if settles:
+        spend = tracker.check(_usage(rate, 2), now=3, sessions=sessions, active_records=other)
+        assert spend["provider_transition_status"] == "OK"
+    else:
+        with pytest.raises(accounting.AccountingError, match="count disagrees"):
+            tracker.check(_usage(rate, 1), now=3, sessions=sessions, active_records=other)
+    assert '"WARNING": "PROVIDER_RATE_DRIFT"' in capsys.readouterr().err
+
+
+def test_failed_rate_measurement_without_price_keeps_numeric_receipt():
+    tracker = accounting.admit_account({}, _usage(0, 0), {}, now=0)
+    tracker.confirm_own_assignment({"ours": "our-lane"}, _usage(0, 1), "ours", rate_confirmed=False)
+    assert tracker.receipt()["own_rate_units_per_hour"] == 0.0
+    assert tracker.receipt()["rate_measurement_unavailable"] is True
