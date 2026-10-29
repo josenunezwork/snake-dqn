@@ -1,15 +1,15 @@
 """Per-session Colab unit accounting.
 
-The provider reports an account-wide balance and rate, while a broker owns one
-session.  This module makes that distinction explicit: every pre-existing
-assignment must have a declared price, a session is capped by its own
-pre-priced wall-clock charge, and the account balance is only a reconciled
-cross-check after the measured baseline charge has been removed.
+Provider prices, unit caps, balances and drift are measurement and warning
+thresholds only. Assignment identity, reconciliation and concurrency remain
+safety boundaries. The supervisor enforces whole-session wall time separately.
 """
 
 from __future__ import annotations
 
+import json
 import math
+import sys
 import time
 from dataclasses import dataclass
 from itertools import product
@@ -23,10 +23,35 @@ class AccountingError(ValueError):
 # `usage` is rendered to two decimal places and provider debits can arrive late.
 # Permit five minutes of the fully accounted rate plus one rendered cent before
 # labelling a balance observation unexplained. This is evidence/alert only:
-# the session's priced wall clock remains its spending stop.
+# the session's wall timeout remains its runaway stop.
 BALANCE_ROUNDING_TOLERANCE_UNITS = 0.01
 BALANCE_LAG_TOLERANCE_SECONDS = 300.0
 TRANSITION_MISMATCH_POLLS = 2
+
+
+def budget_warning(code: str, **evidence: Any) -> None:
+    """Emit a structured, non-fatal accounting warning without losing evidence."""
+    print(json.dumps({"WARNING": code, **evidence}), file=sys.stderr, flush=True)
+
+
+def measurement_rate(value: Any, label: str) -> float:
+    """Keep a usable measurement even when a legacy price is unavailable."""
+    try:
+        return _number(value, label)
+    except AccountingError:
+        budget_warning("RATE_UNAVAILABLE", field=label, value=value)
+        return 0.0
+
+
+def warning_threshold(value: Any, label: str, default: float | None = None) -> float | None:
+    """Ignore invalid legacy thresholds rather than making them admission gates."""
+    if value is None:
+        return default
+    try:
+        return _number(value, label)
+    except AccountingError:
+        budget_warning("INVALID_LEGACY_THRESHOLD", field=label, value=value)
+        return default
 
 
 def _number(value: Any, label: str, *, positive: bool = False) -> float:
@@ -46,21 +71,23 @@ def _usage(value: Mapping[str, Any]) -> dict[str, float]:
             raise TypeError
         if int(assignments) != assignments or assignments < 0:
             raise ValueError
+        if isinstance(value["balance"], bool) or not math.isfinite(float(value["balance"])):
+            raise ValueError
         return {
-            "balance": _number(value["balance"], "usage.balance"),
-            "rate": _number(value["rate"], "usage.rate"),
+            "balance": float(value["balance"]),
+            "rate": measurement_rate(value["rate"], "usage.rate"),
             "assignments": float(assignments),
         }
     except (KeyError, TypeError, ValueError) as exc:
         raise AccountingError(
-            "usage must contain nonnegative balance, rate, and integer assignments"
+            "usage must contain finite balance, a rate field, and integer assignments"
         ) from exc
 
 
 def _rate(value: Any, label: str) -> float:
     if isinstance(value, Mapping):
         value = value.get("rate_units_per_hour")
-    return _number(value, label, positive=True)
+    return measurement_rate(value, label)
 
 
 def _active_rates(active_records: Iterable[Mapping[str, Any]]) -> dict[str, tuple[float, str]]:
@@ -70,17 +97,32 @@ def _active_rates(active_records: Iterable[Mapping[str, Any]]) -> dict[str, tupl
         endpoint = record.get("endpoint")
         if not isinstance(endpoint, str) or not endpoint:
             raise AccountingError("active broker record lacks endpoint")
-        # New broker records reserve a priced ceiling before calibration. That
-        # ceiling is never evidence of what another assignment actually bills.
+        # A priced fallback is informational when bounded calibration cannot
+        # establish a settled observed rate. The active record marks that gap.
         field = (
             "observed_rate_units_per_hour"
             if "priced_rate_units_per_hour" in record
             else "rate_units_per_hour"
         )
-        rate = _rate(record.get(field), f"active record {endpoint} {field}")
+        if record.get(field) is None:
+            budget_warning(
+                "RATE_UNAVAILABLE",
+                endpoint=endpoint,
+                informational_rate=record.get("priced_rate_units_per_hour"),
+            )
+        rate = _rate(
+            (
+                record.get(field)
+                if record.get(field) is not None
+                else record.get("priced_rate_units_per_hour")
+            ),
+            f"active record {endpoint} {field}",
+        )
         existing = result.get(endpoint)
         if existing and existing[0] != rate:
-            raise AccountingError(f"conflicting active broker rates for {endpoint}")
+            budget_warning(
+                "CONFLICTING_ACTIVE_RATES", endpoint=endpoint, previous=existing[0], rate=rate
+            )
         result[endpoint] = (rate, "broker.active")
     return result
 
@@ -108,7 +150,12 @@ def _merge_rates(
     for endpoint, declaration in manifest.items():
         existing = result.get(endpoint)
         if existing and not math.isclose(existing[0], declaration[0], rel_tol=0, abs_tol=1e-9):
-            raise AccountingError(f"conflicting manifest and active broker rates for {endpoint}")
+            budget_warning(
+                "CONFLICTING_DECLARED_RATE",
+                endpoint=endpoint,
+                declared=declaration[0],
+                observed=existing[0],
+            )
         # Keep broker provenance when both sources price the same endpoint.
         # The manifest proves its rate, while broker ownership is required to
         # distinguish a bounded membership transition from generic rate drift.
@@ -126,14 +173,14 @@ class AccountTracker:
     baseline_endpoints: dict[str, str]
     known_rates: dict[str, tuple[float, str]]
     own_rate_units_per_hour: float
-    unit_cap: float
+    unit_cap: float | None
     started_monotonic: float
     rate_tolerance_units_per_hour: float
     endpoint: str | None = None
     last_reconciled_monotonic: float | None = None
     integrated_other_units: float = 0.0
     current_other_rates: dict[str, tuple[float, str]] | None = None
-    last_crosscheck: dict[str, float] | None = None
+    last_crosscheck: dict[str, Any] | None = None
     observed_rate_units_per_hour: float | None = None
     calibration: dict[str, Any] | None = None
     transition_mismatch_polls: int = 0
@@ -164,13 +211,24 @@ class AccountTracker:
             "unaccounted_endpoints": [],
         }
 
+    @property
+    def effective_rate(self) -> float:
+        """Use the priced informational estimate until a rate is settled."""
+        return self.observed_rate_units_per_hour or self.own_rate_units_per_hour or 0.0
+
     def receipt(self) -> dict[str, Any]:
         """Return durable accounting evidence without claiming exact provider billing."""
         result = self.accounted_assignments()
         result.update(
             {
                 "allocated_endpoint": self.endpoint,
-                "own_rate_units_per_hour": self.own_rate_units_per_hour,
+                "own_rate_units_per_hour": self.own_rate_units_per_hour or self.effective_rate,
+                "rate_measurement_unavailable": self.observed_rate_units_per_hour is None,
+                "accounting_rate_basis": (
+                    "observed"
+                    if self.observed_rate_units_per_hour is not None
+                    else "priced_informational"
+                ),
                 "priced_rate_units_per_hour": self.own_rate_units_per_hour,
                 "observed_rate_units_per_hour": self.observed_rate_units_per_hour,
                 "calibration": self.calibration,
@@ -189,9 +247,9 @@ class AccountTracker:
     ) -> float | None:
         """Validate one provider sample; None means a still-lagging observation.
 
-        The broker requires repeated stable positive samples within its bounded
+        The broker requires repeated identity samples within its bounded
         calibration window before calling confirm_own_assignment. Unknown
-        endpoints and an above-ceiling rate always fail immediately.
+        endpoints fail immediately; rates produce warnings only.
         """
         if not isinstance(endpoint, str) or not endpoint:
             raise AccountingError("allocated endpoint must be a nonempty string")
@@ -208,26 +266,30 @@ class AccountTracker:
             )
         observed = current["rate"] - self.baseline_rate_units_per_hour
         if observed > self.own_rate_units_per_hour + self.rate_tolerance_units_per_hour:
-            raise AccountingError("observed session rate exceeds priced upper bound plus tolerance")
-        if (
-            set(now_sessions) != expected
-            or int(current["assignments"]) != len(expected)
-            or observed <= 0
-        ):
+            budget_warning(
+                "OBSERVED_RATE_ABOVE_PRICED_BOUND",
+                observed=observed,
+                priced=self.own_rate_units_per_hour,
+            )
+        if set(now_sessions) != expected or int(current["assignments"]) != len(expected):
             return None
-        return observed
+        if observed <= 0:
+            budget_warning("NONPOSITIVE_OBSERVED_RATE", observed=observed)
+        return max(0.0, observed)
 
     def confirm_own_assignment(
         self,
         sessions: Mapping[str, str],
         usage: Mapping[str, Any],
         endpoint: str,
+        *,
+        rate_confirmed: bool = True,
     ) -> dict[str, Any]:
         """Record a stable provider rate after broker-side bounded calibration."""
         observed = self.calibration_read(sessions, usage, endpoint)
         if observed is None:
-            raise AccountingError("provider session rate is unknown or not stabilized")
-        self.observed_rate_units_per_hour = observed
+            raise AccountingError("allocated assignment identity/count not confirmed")
+        self.observed_rate_units_per_hour = observed if rate_confirmed and observed > 0 else None
         self.endpoint = endpoint
         self.last_reconciled_monotonic = self.started_monotonic
         self.current_other_rates = dict(self.known_rates)
@@ -237,7 +299,7 @@ class AccountTracker:
                 "allocated_endpoint": endpoint,
                 "allocated_rate_units_per_hour": self.own_rate_units_per_hour,
                 "priced_rate_units_per_hour": self.own_rate_units_per_hour,
-                "observed_rate_units_per_hour": observed,
+                "observed_rate_units_per_hour": self.observed_rate_units_per_hour,
                 "observed_account_rate_units_per_hour": _usage(usage)["rate"],
             }
         )
@@ -259,7 +321,7 @@ class AccountTracker:
         intentionally allowed: their old price is integrated only through the
         last observation.
         """
-        if self.endpoint is None or self.observed_rate_units_per_hour is None:
+        if self.endpoint is None:
             raise AccountingError("allocation was not rate-confirmed")
         current = dict(sessions)
         if self.endpoint not in current:
@@ -308,8 +370,8 @@ class AccountTracker:
         A departing broker lane can disappear from its durable active record
         before the provider read loses it.  Conversely, a newly durable
         broker record can appear before the provider read includes it.  Test
-        count and rate together against every intermediate membership state;
-        a bare rate discrepancy never earns this grace period.
+        count alone against every intermediate membership state;
+        rate differences remain informational and never decide count grace.
         """
         previous_endpoints = set(previous)
         current_endpoints = set(current)
@@ -329,39 +391,24 @@ class AccountTracker:
         departures = sorted(departure_rates)
         changed = arrivals + departures
         fixed = (previous_endpoints & current_endpoints) - set(departures)
-        if any(
-            not math.isclose(previous[endpoint][0], current[endpoint][0], rel_tol=0, abs_tol=1e-9)
-            for endpoint in fixed
-        ):
-            return False
         # A manifest-only membership change is declared, but is not a broker
         # transition whose provider lag can be trusted.
         if not changed:
             return False
         base_count = 1 + len(fixed) + len(departures)
-        base_rate = self.observed_rate_units_per_hour + sum(previous[e][0] for e in fixed)
-        base_rate += sum(previous[e][0] for e in departures)
         settled_count = 1 + len(current_endpoints)
-        settled_rate = self.observed_rate_units_per_hour + sum(rate for rate, _ in current.values())
         for applied in product((False, True), repeat=len(changed)):
             count = base_count
-            rate = base_rate
             for endpoint, is_applied in zip(changed, applied):
                 if not is_applied:
                     continue
                 if endpoint in arrivals:
                     count += 1
-                    rate += arrival_rates[endpoint][0]
                 else:
                     count -= 1
-                    rate -= departure_rates[endpoint][0]
-            if count == settled_count and math.isclose(
-                rate, settled_rate, rel_tol=0, abs_tol=self.rate_tolerance_units_per_hour
-            ):
+            if count == settled_count:
                 continue
-            if int(usage["assignments"]) == count and math.isclose(
-                usage["rate"], rate, rel_tol=0, abs_tol=self.rate_tolerance_units_per_hour
-            ):
+            if int(usage["assignments"]) == count:
                 return True
         return False
 
@@ -374,23 +421,29 @@ class AccountTracker:
         active_records: Iterable[Mapping[str, Any]] = (),
         budget_other_assignments: Any = None,
     ) -> dict[str, Any]:
-        """Enforce the session's own cap and reconcile account debit separately.
+        """Measure session usage and reconcile account debit without budget stops.
 
-        Account balance never directly trips the cap because it also includes
-        declared notebook and other broker sessions.  The attributable debit is
-        retained as conservative evidence after subtracting the measured
-        pre-allocation provider rate integrated over this session's lifetime.
+        Balance includes notebook and other broker sessions. Retain attributable
+        debit after subtracting their measured rates, without stopping work.
         """
         if self.endpoint is None:
             raise AccountingError("allocation was not rate-confirmed")
         current = _usage(usage)
+        if int(current["assignments"]) > 3:
+            raise AccountingError("account-wide assignment cap exceeded during polling")
         now = time.monotonic() if now is None else _number(now, "now")
         elapsed = now - self.started_monotonic
         if elapsed < 0:
             raise AccountingError("monotonic clock moved backward")
-        own_elapsed_units = elapsed * self.own_rate_units_per_hour / 3600.0
-        if own_elapsed_units >= self.unit_cap:
-            raise AccountingError("priced session unit cap reached")
+        own_elapsed_units = (
+            elapsed
+            * (self.own_rate_units_per_hour or self.observed_rate_units_per_hour or 0)
+            / 3600.0
+        )
+        if self.unit_cap is not None and own_elapsed_units >= self.unit_cap:
+            budget_warning(
+                "SESSION_UNIT_CAP_REACHED", units=own_elapsed_units, unit_cap=self.unit_cap
+            )
         if self.last_reconciled_monotonic is None or self.current_other_rates is None:
             raise AccountingError("allocation was not rate-confirmed")
         interval = now - self.last_reconciled_monotonic
@@ -429,20 +482,17 @@ class AccountTracker:
                 )
                 for endpoint in broker_departed
             ):
-                raise AccountingError(
-                    "provider usage rate drift is not explained by accounted active assignments"
+                budget_warning(
+                    "PROVIDER_RATE_DRIFT", observed=current["rate"], endpoints=broker_departed
                 )
-            expected_rate = self.observed_rate_units_per_hour + sum(
+            expected_rate = self.effective_rate + sum(
                 rate for rate, _ in current_other_rates.values()
             )
-            provider_settled = int(current["assignments"]) == len(
-                current_sessions
-            ) and math.isclose(
-                current["rate"],
-                expected_rate,
-                rel_tol=0,
-                abs_tol=self.rate_tolerance_units_per_hour,
-            )
+            provider_settled = int(current["assignments"]) == len(current_sessions)
+            if abs(current["rate"] - expected_rate) > self.rate_tolerance_units_per_hour:
+                budget_warning(
+                    "PROVIDER_RATE_DRIFT", observed=current["rate"], expected=expected_rate
+                )
             # Matching provider reads do not renew broker ownership. Keep the
             # known price, but share the existing bounded transition window
             # until sessions drops the endpoint or the broker re-lists it.
@@ -480,8 +530,8 @@ class AccountTracker:
                         raise AccountingError(
                             "provider assignment count disagrees with sessions during polling"
                         )
-                    raise AccountingError(
-                        "provider usage rate drift is not explained by accounted active assignments"
+                    budget_warning(
+                        "PROVIDER_RATE_DRIFT", observed=current["rate"], expected=expected_rate
                     )
                 self.transition_from_other_rates = dict(transition_from)
                 self.transition_to_other_rates = dict(transition_to)
@@ -491,25 +541,43 @@ class AccountTracker:
                     "provider assignment count disagrees with sessions during polling"
                 )
             elif not settled:
-                raise AccountingError(
-                    "provider usage rate drift is not explained by accounted active assignments"
+                budget_warning(
+                    "PROVIDER_RATE_DRIFT", observed=current["rate"], endpoints=broker_departed
                 )
             self.current_other_rates = current_other_rates
+        else:
+            expected_rate = self.effective_rate + sum(
+                rate for rate, _ in self.current_other_rates.values()
+            )
+            if abs(current["rate"] - expected_rate) > self.rate_tolerance_units_per_hour:
+                budget_warning(
+                    "PROVIDER_RATE_DRIFT", observed=current["rate"], expected=expected_rate
+                )
         observed_account_debit = self.baseline_balance_units - current["balance"]
         attributable_debit = max(0.0, observed_account_debit - self.integrated_other_units)
-        observed_elapsed_units = elapsed * self.observed_rate_units_per_hour / 3600.0
+        observed_elapsed_units = elapsed * self.effective_rate / 3600.0
         expected_account_debit = self.integrated_other_units + observed_elapsed_units
         balance_discrepancy = observed_account_debit - expected_account_debit
-        rate_for_lag = self.observed_rate_units_per_hour + sum(
+        rate_for_lag = self.effective_rate + sum(
             rate for rate, _ in self.current_other_rates.values()
         )
         balance_tolerance = (
             BALANCE_ROUNDING_TOLERANCE_UNITS + rate_for_lag * BALANCE_LAG_TOLERANCE_SECONDS / 3600.0
         )
-        # Provider billing can lag or batch.  The result is evidence, never a
-        # raw-account cap; the wall-clock charge above is authoritative.
+        # Provider billing can lag or batch. All prices and debits are evidence;
+        # only the supervisor's wall-clock timeout bounds session lifetime.
         result = {
             "elapsed_seconds": elapsed,
+            "unit_cap_status": (
+                "WARNING_UNIT_CAP_REACHED"
+                if self.unit_cap is not None and own_elapsed_units >= self.unit_cap
+                else "OK"
+            ),
+            "rate_crosscheck_status": (
+                "WARNING_RATE_DRIFT"
+                if abs(current["rate"] - expected_rate) > self.rate_tolerance_units_per_hour
+                else "OK"
+            ),
             "own_elapsed_units": own_elapsed_units,
             "observed_elapsed_units": observed_elapsed_units,
             "observed_account_debit_units": observed_account_debit,
@@ -529,6 +597,8 @@ class AccountTracker:
             ),
             "provider_transition_mismatch_polls": self.transition_mismatch_polls,
         }
+        if result["balance_crosscheck_status"] != "OK":
+            budget_warning("UNEXPLAINED_ACCOUNT_DEBIT", spend=result)
         self.last_crosscheck = result
         return result
 
@@ -542,23 +612,27 @@ def admit_account(
     now: float | None = None,
     rate_tolerance_units_per_hour: float = 0.05,
 ) -> AccountTracker:
-    """Require full attribution of pre-existing assignments before allocation."""
+    """Require known endpoints and record available price measurements."""
     endpoint_sessions = dict(sessions)
     if any(not isinstance(endpoint, str) or not endpoint for endpoint in endpoint_sessions):
         raise AccountingError("session endpoint must be a nonempty string")
     baseline = _usage(usage)
+    if max(int(baseline["assignments"]), len(endpoint_sessions)) > 3:
+        raise AccountingError("account-wide assignment cap exceeded at admission")
     if int(baseline["assignments"]) != len(endpoint_sessions):
         raise AccountingError("provider assignment count disagrees with sessions at admission")
     tolerance = _number(rate_tolerance_units_per_hour, "rate tolerance")
     if not isinstance(budget, Mapping):
         raise AccountingError("budget must be a mapping")
     if "rate_tolerance_units_per_hour" in budget:
-        requested = _number(budget["rate_tolerance_units_per_hour"], "manifest rate tolerance")
+        requested = warning_threshold(
+            budget["rate_tolerance_units_per_hour"], "manifest rate tolerance", tolerance
+        )
         if requested > tolerance:
-            raise AccountingError("manifest may only tighten rate tolerance")
+            budget_warning("RATE_TOLERANCE_RELAXED", requested=requested, previous=tolerance)
         tolerance = requested
-    own_rate = _rate(budget.get("rate_units_per_hour"), "budget.rate_units_per_hour")
-    unit_cap = _number(budget.get("unit_cap"), "budget.unit_cap", positive=True)
+    own_rate = _rate(budget.get("rate_units_per_hour", 0), "budget.rate_units_per_hour")
+    unit_cap = warning_threshold(budget.get("unit_cap"), "budget.unit_cap")
     known = _merge_rates(
         _manifest_rates(budget.get("other_assignments")), _active_rates(active_records)
     )
@@ -572,7 +646,7 @@ def admit_account(
         )
     declared_rate = sum(rate for rate, _ in known.values())
     if abs(baseline["rate"] - declared_rate) > tolerance:
-        raise AccountingError("provider baseline rate does not match accounted active assignments")
+        budget_warning("BASELINE_RATE_MISMATCH", observed=baseline["rate"], declared=declared_rate)
     started = time.monotonic() if now is None else _number(now, "now")
     return AccountTracker(
         baseline_balance_units=baseline["balance"],
