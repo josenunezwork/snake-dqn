@@ -384,8 +384,8 @@ def test_attach_refuses_unallowlisted_or_incomplete_derivative(tmp_path: Path, m
         ("packet-train01-15", TRAIN01_15_SOURCE_COMMIT, 192),
         ("packet-train01-16", TRAIN01_16_SOURCE_COMMIT, 176),
         ("packet-train01-17", "e" * 40, 176),
-        ("packet-train01-s2-01", "f" * 40, 64),
-        ("packet-train01-s2-01-c1-i0064", "f" * 40, 176),
+        ("packet-train01-s2-01", "1" * 40, 64),
+        ("packet-train01-s2-01-c1-i0064", "2" * 40, 176),
     ],
 )
 def test_v2_periodic_checkpoint_compact_encode_attach_preflight_and_materialize(

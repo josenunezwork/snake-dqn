@@ -1364,3 +1364,79 @@ def test_continuation_builder_admits_receipt_less_host_enospc_and_chains_compact
     assert "resume/iteration-0128.pt" not in c2_dests
     assert "resume/iteration-0128.pt.sha256" not in c2_dests
     assert "resume/iteration-0128.pt.complete" not in c2_dests
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+def test_second_seed_preference_continuation_preserves_domain_and_whole_timeout_price(
+    fixture_workspace: Path, fallback: bool
+) -> None:
+    """Both admitted GPU identities can continue S2 with the same audited recipe."""
+    from research.compute.gpu_preference import prepare_preference, variants
+    from research.sandbox_a_resident.training_task import seed_allocations
+    from research.sandbox_a_resident.training_units import empty_ledger
+    from tools.sandbox.registry import world_seed
+
+    repo = fixture_workspace / "snake-dqn-fixture"
+    packet = repo / "research/sandbox_a_resident/packet-train01-s2-01"
+    if not packet.exists():
+        shutil.copytree(packet.with_name("packet-train01-16"), packet)
+        control = json.loads((packet / "control.json").read_text())
+        control.update(allocation_index=2, train_seed_offset=2_000_000_000)
+        (packet / "control.json").write_text(json.dumps(control))
+        (packet / "verified-ledger.json").write_text(json.dumps(empty_ledger(control)))
+        allocations = seed_allocations(control)
+        audit = json.loads((packet / "registry-check.json").read_text())
+        audit["allocations"] = allocations
+        (packet / "registry-check.json").write_text(json.dumps(audit))
+        manifest_path = packet / "dispatch-manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["job_id"] = "sandbox-a-train01-20261028-s2-01"
+        manifest["env"].update(
+            SANDBOX_A_CONTROL_JSON=json.dumps(control),
+            SANDBOX_A_SNAPSHOT_FORMAT="compact",
+            SANDBOX_A_PACKET_ID=packet.name,
+        )
+        manifest["sandbox_a"].update(
+            seed_allocations=allocations, seed_audit_sha256=digest(packet / "registry-check.json")
+        )
+        prepare_preference(manifest)
+        manifest_path.write_text(json.dumps(manifest))
+        sandbox = json.loads((packet / "sandbox.json").read_text())
+        worlds = next(row for row in sandbox["inputs"] if row["kind"] == "worlds")
+        worlds["indices"] = [row["offset"] for row in allocations]
+        worlds["seeds"] = [world_seed("sandbox-a-train01", index) for index in worlds["indices"]]
+        _write_ten_line_sandbox(packet / "sandbox.json", sandbox)
+        _rebind_packet_to_fixture_repo(repo, packet.name)
+        subprocess.run(["git", "-C", str(repo), "add", str(packet)], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-qm", "S2 preference fixture"], check=True
+        )
+    artifacts = fixture_workspace / "snake-dqn-artifacts/sandbox-a-resident"
+    suffix = "fallback" if fallback else "primary"
+    attempt = _populate_attempt(artifacts / f"s2-{suffix}", packet, [64], receipt_overrides={})
+    if fallback:
+        executed_path = attempt / "output/manifest.json"
+        selected = variants(json.loads(executed_path.read_text()))[1]
+        executed_path.write_text(json.dumps(selected))
+        receipt_path = attempt / "output/receipt.json"
+        receipt = json.loads(receipt_path.read_text())
+        receipt.update(job_id=selected["job_id"], manifest_sha256=digest(executed_path))
+        receipt_path.write_text(json.dumps(receipt))
+    result = build_continuation_packet(
+        attempt,
+        64,
+        source_packet=packet,
+        repo_root=repo,
+        checkout_parent=fixture_workspace,
+        artifacts_root=artifacts,
+        slug=f"train01-s2-01-c1-i0064-{suffix}",
+        skip_dry_run=True,
+    )
+    successor = Path(result["packet_dir"])
+    manifest = json.loads((successor / "dispatch-manifest.json").read_text())
+    control = json.loads((successor / "control.json").read_text())
+    assert control["allocation_index"] == 2 and control["train_seed_offset"] == 2_000_000_000
+    assert manifest["requirements"]["prefer"] == ["H100", "A100"]
+    assert manifest["env"]["SANDBOX_A_PACKET_ID"] == successor.name
+    assert manifest["budget"]["unit_cap"] == manifest["timeout_minutes"] * 12 / 60
+    assert variants(manifest)[1]["budget"]["unit_cap"] == manifest["timeout_minutes"] * 8 / 60
