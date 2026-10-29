@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import faulthandler
 import hashlib
 import json
 import queue
@@ -99,7 +98,10 @@ def scan(seed: int, frames: int, *, scratch: Path) -> dict:
         patch.object(engine, "LiveWorld", Factory),
         patch.object(engine, "NAMESPACE", bank_record()["namespace"]),
     ):
-        row = engine.run_arm(seed, "bare", frames=frames)
+        try:
+            row = engine.run_arm(seed, "bare", frames=frames)
+        finally:
+            del world.step
     value = measurement(row, time.monotonic() - begun, time.process_time() - cpu, 0, 0)
     value.update(
         construction_seconds=construction,
@@ -118,13 +120,9 @@ def scan(seed: int, frames: int, *, scratch: Path) -> dict:
 
 
 def detail_task(seed: int, arm: str, frames: int, payload: bytes) -> dict:
-    """Exact P path with separate restore/final-digest and exhaustive CPU-tail timing.
-
-    The extra all-legal 300-tick continuation is engineering stress, separate
-    from the unchanged exact-P window. It deliberately continues after deaths;
-    no branch result, action, survival, Q, mass or death count is exported.
-    """
+    """Exact P path with separate restore and digest timings."""
     restores = []
+    digests = []
     final_digest_s = 0.0
     original_restore, original_digest = LiveWorld.restore, LiveWorld.digest
 
@@ -139,66 +137,22 @@ def detail_task(seed: int, arm: str, frames: int, payload: bytes) -> dict:
         started = time.monotonic()
         result = original_digest(world)
         final_digest_s = time.monotonic() - started
+        digests.append(final_digest_s)
         return result
 
-    with patch.object(LiveWorld, "restore", restore), patch.object(LiveWorld, "digest", digest):
+    with (
+        patch.object(LiveWorld, "restore", staticmethod(restore)),
+        patch.object(LiveWorld, "digest", digest),
+    ):
         row = task(seed, arm, frames, payload)
     row.update(
         construction_seconds=restores[0],
         restore_total_seconds=sum(restores),
         final_digest_seconds=final_digest_s,
+        digest_calls=len(digests),
+        digest_total_seconds=sum(digests),
     )
     return row
-
-
-def stress_task(seed: int, _arm: str, frames: int, payload: bytes) -> dict:
-    """Separate full-continuation load; never substitute for exact P cost."""
-    started, cpu = time.monotonic(), time.process_time()
-    root = LiveWorld.restore(payload)
-    initial = root.digest()
-    proposal = root.proposal()
-    clone_s = 0.0
-    branches = 0
-    trace = hashlib.sha256()
-    for action, legal in enumerate(proposal["mask"]):
-        if not legal:
-            continue
-        before = time.monotonic()
-        branch = root.clone()
-        clone_s += time.monotonic() - before
-        for frame in range(frames):
-            branch.step(action if frame == 0 else None)
-        branches += 1
-        trace.update(branch.digest().encode())
-    if not branches:
-        raise ValueError("no supported legal branch at tail root")
-    ended = time.monotonic()
-    row = measurement(
-        {
-            "seed": seed,
-            "arm": "all-legal-stress",
-            "frames": frames * branches,
-            "initial_state": initial,
-            "final_state": root.digest(),
-            "trace_sha256": trace.hexdigest(),
-        },
-        ended - started,
-        time.process_time() - cpu,
-        0,
-        0,
-    )
-    return {
-        **row,
-        "clone_seconds": clone_s,
-        "requested_frames_per_branch": frames,
-        "legal_branches": branches,
-        "continues_after_death": True,
-        "exact_P_search": False,
-        "search_calls": 0,
-        "search_seconds": 0,
-        "started_monotonic": started,
-        "ended_monotonic": ended,
-    }
 
 
 def tail_roots(
@@ -244,36 +198,56 @@ def tail_roots(
         pool.close()
 
 
-def execute(bank: Path, output: Path, *, smoke: bool = False) -> None:
+def execute(bank: Path, output: Path, *, smoke: bool = False, phase: str = "tail") -> None:
+    if phase not in ("contention", "bare", "tail"):
+        raise ValueError("foreign follow-up phase")
     if json.loads(bank.read_text()) != bank_record():
         raise ValueError("foreign engineering bank")
     output.mkdir(parents=True, exist_ok=False)
     export_json(output / "host.json", host_record())
     deadline = time.monotonic() + (120 if smoke else WORK_SECONDS)
-    seeds = bank_record()["seeds"][:1] if smoke else bank_record()["seeds"]
     with coordinator_signals():
-        if not smoke:
-            roots = prepare_roots(seeds, output, deadline)
-            jobs = [(seeds[i % len(seeds)], "P0", 1) for i in range(11)]
-            for count in (8, 11):
+        if phase == "contention":
+            seeds = bank_record()["seeds"]
+            if smoke:
+                from research.watch_lead_p.uploaded import uploaded_checkpoints
+
+                with uploaded_checkpoints():
+                    roots = {seeds[0]: LiveWorld(seeds[0]).snapshot()}
+                seeds = seeds[:1]
+            else:
+                roots = prepare_roots(seeds, output, deadline)
+            jobs = [(seeds[i % len(seeds)], "P0", 1) for i in range(1 if smoke else 11)]
+            values = [
                 sweep(jobs, roots, count, output, deadline, "missing-contention")
-        roots, metadata = tail_roots(
-            seeds, 2 if smoke else 6000, output, deadline, 1 if smoke else 4
-        )
-        results = []
-        for label in ("peak", "late"):
-            if not roots[label]:
-                continue
-            # No replacement: missing roots explicitly prevent qualification.
-            jobs = [
-                (seed, arm, 2 if smoke else WINDOWS[arm])
-                for _repeat in range(2)
-                for seed in seeds
-                if seed in roots[label]
-                for arm in ("P0", "P48", "bare")
+                for count in ((1,) if smoke else (8, 11))
             ]
-            results.append(
-                sweep(
+            keys = ("seed", "arm", "initial_state", "final_state", "trace_sha256")
+            identities = [[tuple(r[k] for k in keys) for r in v["rows"]] for v in values]
+            if any(x != identities[0] for x in identities[1:]):
+                raise ValueError("contention trajectory identity differs")
+            covered = False
+        else:
+            # A fixed FIRST seed, selected before any new tail measurement.
+            # This is a bounded support diagnostic, never a representative N estimate.
+            seeds = bank_record()["seeds"][:1]
+            roots, metadata = tail_roots(
+                seeds, 2 if smoke else (6000 if phase == "bare" else 5000), output, deadline, 1
+            )
+            results = []
+            for label in (() if phase == "bare" else ("peak", "late")):
+                if not roots[label]:
+                    export_json(
+                        output / f"tail-{label}-w4.json",
+                        {"supported": False, "rows": [], "workers": 4},
+                    )
+                    continue
+                seed = seeds[0]
+                jobs = [
+                    (seed, arm, 2 if smoke else WINDOWS[arm])
+                    for arm in ("P0", "P48", "bare", "bare")
+                ]
+                result = sweep(
                     jobs,
                     roots[label],
                     1 if smoke else 4,
@@ -282,44 +256,36 @@ def execute(bank: Path, output: Path, *, smoke: bool = False) -> None:
                     f"tail-{label}",
                     kind="tail-window",
                 )
+                results.append(result)
+                keys = ("initial_state", "final_state", "trace_sha256")
+                if [result["rows"][2][k] for k in keys] != [result["rows"][3][k] for k in keys]:
+                    raise ValueError("repeated bare engineering window differs")
+            covered = (
+                phase == "tail"
+                and not smoke
+                and all(
+                    "late" in m["selected"] and m["selected"]["peak"]["length"] >= 1000
+                    for m in metadata.values()
+                )
+                and all(
+                    r["search_calls"] > 0
+                    for value in results
+                    for r in value["rows"]
+                    if r["arm"] != "bare"
+                )
             )
-            stress_jobs = [
-                (seed, "all-legal-stress", 2 if smoke else 300)
-                for seed in seeds
-                if seed in roots[label]
-            ]
-            sweep(
-                stress_jobs,
-                roots[label],
-                1 if smoke else 4,
-                output,
-                deadline,
-                f"stress-{label}",
-                kind="tail-stress",
-            )
-        for result in results:
-            rows = result["rows"]
-            half = len(rows) // 2
-            keys = ("seed", "arm", "initial_state", "final_state", "trace_sha256")
-            if [tuple(r[k] for k in keys) for r in rows[:half]] != [
-                tuple(r[k] for k in keys) for r in rows[half:]
-            ]:
-                raise ValueError("repeated engineering windows differ")
-        covered = not smoke and all(
-            "late" in m["selected"] and m["selected"]["peak"]["length"] >= 1000
-            for m in metadata.values()
-        )
         export_json(
             output / "followup.json",
             {
                 "engineering_only": True,
                 "complete": True,
                 "smoke": smoke,
+                "phase": phase,
                 "long_body_and_late_root_support": covered,
                 "repeated_window_identity": True,
                 "successor_envelope_qualified": False,
-                "reason": "Full searched sessions and sustained tail-pressure remain unmeasured; "
-                "stress timings must be reviewed before filling envelopes.",
+                "reason": "Full searched sessions, exhaustive branch stress and sustained "
+                "tail-pressure remain unmeasured; no successor envelope qualification.",
             },
         )
 
@@ -329,11 +295,9 @@ def main() -> None:
     parser.add_argument("--bank", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--phase", choices=("contention", "bare", "tail"), required=True)
     args = parser.parse_args()
-    try:
-        execute(args.bank, args.output, smoke=args.smoke)
-    finally:
-        faulthandler.cancel_dump_traceback_later()
+    execute(args.bank, args.output, smoke=args.smoke, phase=args.phase)
 
 
 if __name__ == "__main__":

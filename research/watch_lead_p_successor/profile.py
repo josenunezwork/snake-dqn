@@ -98,8 +98,7 @@ def task(seed: int, arm: str, frames: int, payload: bytes | None) -> dict:
         return result
 
     def pulse(_row: dict) -> None:
-        faulthandler.cancel_dump_traceback_later()
-        faulthandler.dump_traceback_later(900, exit=True)
+        pass  # Pool worker watchdog follows its frozen remaining coordinator deadline.
 
     from research.watch_lead_p_successor.prepare import STUDY
 
@@ -125,14 +124,16 @@ def task(seed: int, arm: str, frames: int, payload: bytes | None) -> dict:
     }
 
 
-def worker(tasks: Any, results: Any, ready: Any, roots: dict, seed: int, scratch: str) -> None:
+def worker(
+    tasks: Any, results: Any, ready: Any, roots: dict, seed: int, scratch: str, deadline: float
+) -> None:
     """Initialize each fixed worker once; there is no executor respawn thread."""
     global ROOTS
     signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGUSR1})
     for sig in (signal.SIGTERM, signal.SIGUSR1):
         signal.signal(sig, signal.SIG_DFL)
     lower_worker_priority()
-    faulthandler.dump_traceback_later(900, exit=True)
+    faulthandler.dump_traceback_later(max(1, deadline - time.monotonic()) + 5, exit=True)
     try:
         initialized = time.monotonic()
         with uploaded_checkpoints():
@@ -176,10 +177,6 @@ def worker(tasks: Any, results: Any, ready: Any, roots: dict, seed: int, scratch
                         from research.watch_lead_p_successor.followup import detail_task
 
                         value = detail_task(*args, ROOTS[args[0]])
-                    elif kind == "tail-stress":
-                        from research.watch_lead_p_successor.followup import stress_task
-
-                        value = stress_task(*args, ROOTS[args[0]])
                     else:
                         value = task(*args, ROOTS[args[0]])
                     results.put((job_id, True, value))
@@ -232,7 +229,15 @@ class Workers:
             for _ in range(count):
                 process = ctx.Process(
                     target=worker,
-                    args=(self.tasks, self.results, self.ready, staged, seed, self.scratch.name),
+                    args=(
+                        self.tasks,
+                        self.results,
+                        self.ready,
+                        staged,
+                        seed,
+                        self.scratch.name,
+                        deadline,
+                    ),
                 )
                 self.processes.append(process)
                 # Deferral covers the fork-to-PID registration window. Children

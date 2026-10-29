@@ -24,6 +24,11 @@ def require_profile(manifest: dict, broker: Path) -> None:
         or manifest.get("timeout_minutes") != 30
         or manifest.get("resume_exemption", {}).get("kind") != "short-canary"
         or manifest.get("env", {}).get("SNAKE_COLAB_CANARY") != "1"
+        or (
+            manifest.get("script") == FOLLOWUP_SCRIPT
+            and manifest.get("env", {}).get("P_PROFILE_FOLLOWUP_PHASE")
+            not in ("contention", "bare", "tail")
+        )
         or "sandbox_admission" in manifest
         or broker.resolve() != Path(__file__).resolve().parents[2]
     ):

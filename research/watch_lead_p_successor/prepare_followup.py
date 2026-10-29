@@ -13,18 +13,26 @@ from research.watch_lead_p_successor.host import FOLLOWUP_SCRIPT
 from research.watch_lead_p_successor.prepare import ROOT, audit_bank, bank_record, write
 
 
-def prepare(pin: str, packet: Path, preflight: Path) -> None:
+def prepare(pin: str, packet: Path, preflight: Path, phase: str) -> None:
     """Reuse only engineering input identities, never a used manifest/output."""
     if subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip() != pin:
         raise ValueError("full current committed source pin required")
+    if phase not in ("contention", "bare", "tail"):
+        raise ValueError("foreign follow-up phase")
     summary = json.loads((preflight / "followup.json").read_text())
     if not (
         summary.get("complete") is True
         and summary.get("smoke") is True
         and summary.get("repeated_window_identity") is True
+        and summary.get("phase") == phase
     ):
         raise ValueError("real follow-up smoke required")
-    for path in preflight.glob("*.json"):
+    files = sorted(preflight.glob("*.json"))
+    if {p.name for p in preflight.iterdir()} != {
+        p.name + suffix for p in files for suffix in ("", ".sha256", ".complete")
+    }:
+        raise ValueError("orphan preflight export")
+    for path in files:
         verify_export(path)
     paths = json.loads((ROOT / "research/watch_lead_p/runtime-sources.json").read_text())
     paths += [
@@ -50,7 +58,7 @@ def prepare(pin: str, packet: Path, preflight: Path) -> None:
         (packet / "profile-bank.json", "profile-bank.json"),
     ]
     manifest = {
-        "job_id": "p-successor-missing-v3-l4",
+        "job_id": f"p-successor-missing-v4-{phase}-l4",
         "p_profile_source_delivery": "background-sparse-v1",
         "commit": pin,
         "script": FOLLOWUP_SCRIPT,
@@ -64,6 +72,7 @@ def prepare(pin: str, packet: Path, preflight: Path) -> None:
         "inputs": [{"path": str(p), "dest": dest, "sha256": digest(p)} for p, dest in inputs],
         "env": {
             "SNAKE_DQN_DEVICE": "cpu",
+            "P_PROFILE_FOLLOWUP_PHASE": phase,
             "SNAKE_COLAB_CANARY": "1",
             "SNAKE_COLAB_CANARY_PACKAGE": "research/watch_lead_p_successor",
             "COLAB_CLI_REQUIREMENTS": "research/watch_lead_p/requirements.txt",
@@ -81,19 +90,19 @@ def prepare(pin: str, packet: Path, preflight: Path) -> None:
             "stress; whole-session science units are never produced",
         },
         "canary": {"schema": "colab-family-canary/v1", "mode": "probe", "family": FOLLOWUP_SCRIPT},
-        "required_exports": [
-            "profile/host.json",
-            "profile/followup.json",
-            "profile/missing-contention-w8.json",
-            "profile/missing-contention-w11.json",
-            "profile/scan-summary.json",
-            "profile/tail-peak-w4.json",
-            "profile/tail-late-w4.json",
-            "profile/stress-peak-w4.json",
-            "profile/stress-late-w4.json",
-        ]
-        + [f"profile/scan-{s}.json" for s in bank_record()["seeds"]],
+        "required_exports": ["profile/host.json", "profile/followup.json"]
+        + (
+            ["profile/missing-contention-w8.json", "profile/missing-contention-w11.json"]
+            if phase == "contention"
+            else ["profile/scan-summary.json", f"profile/scan-{bank_record()['seeds'][0]}.json"]
+            + (
+                ["profile/tail-peak-w4.json", "profile/tail-late-w4.json"]
+                if phase == "tail"
+                else []
+            )
+        ),
     }
+
     write(packet / "l4-manifest.json", manifest)
     write(packet / "source-hashes.json", {p: digest(ROOT / p) for p in paths})
     write(
@@ -150,8 +159,9 @@ def main() -> None:
     parser.add_argument("--pin", required=True)
     parser.add_argument("--packet", type=Path, required=True)
     parser.add_argument("--preflight", type=Path, required=True)
+    parser.add_argument("--phase", choices=("contention", "bare", "tail"), required=True)
     args = parser.parse_args()
-    prepare(args.pin, args.packet.resolve(), args.preflight.resolve())
+    prepare(args.pin, args.packet.resolve(), args.preflight.resolve(), args.phase)
 
 
 if __name__ == "__main__":
