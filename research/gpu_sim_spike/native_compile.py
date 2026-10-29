@@ -1,7 +1,7 @@
 """Compile every native extension without launching kernels or scoring outcomes.
 
 The host compiler is a CPU workload. An L4 allocation supplies the CUDA toolkit;
-explicit fatbin targets also compile A100 code. This is never gameplay proof.
+explicit fatbin targets also compile A100 and H100 code. This is never gameplay proof.
 """
 
 from __future__ import annotations
@@ -19,7 +19,8 @@ from typing import Any
 
 PACKAGE = "research/gpu_sim_spike"
 ROOT = Path(__file__).resolve().parents[2]
-ARCHES = "8.0;8.9"
+ARCHES = "8.0;8.9;9.0"
+LEGACY_ARCHES = "8.0;8.9"
 T4A_A100_ARCH_MODE = "a100-8.0"
 T4A_A100_ARCHES = "8.0"
 SCHEMA = "gpu-native-compile/v1"
@@ -48,6 +49,8 @@ def report_architectures(report: dict[str, Any]) -> tuple[str | None, str]:
     if mode is not None and not isinstance(mode, str):
         raise ValueError("native compile architecture mode is malformed")
     architectures = architectures_for_mode(mode)
+    if mode in (None, "") and report.get("architectures") == LEGACY_ARCHES:
+        architectures = LEGACY_ARCHES
     if report.get("architectures") != architectures:
         raise ValueError("native compile architectures differ")
     return mode, architectures
@@ -229,7 +232,9 @@ def run(output: Path, commit: str) -> dict[str, Any]:
     return result
 
 
-def binding(path: Path, commit: str, repo: Path = ROOT) -> dict[str, str]:
+def binding(
+    path: Path, commit: str, repo: Path = ROOT, *, requested_gpu: str | None = None
+) -> dict[str, str]:
     """Verify supervisor success/release and the hash-bound complete native export."""
     path = path.resolve(strict=True)
     receipt = json.loads(path.read_text())
@@ -285,6 +290,11 @@ def binding(path: Path, commit: str, repo: Path = ROOT) -> dict[str, str]:
         report_mode, report_arches = report_architectures(report)
     except ValueError as exc:
         raise ValueError("native compile source/flags/architectures/PASS differs") from exc
+    required_arch = {"H100": "9.0", "A100": "8.0"}.get(requested_gpu)
+    if requested_gpu is not None and required_arch is None:
+        raise ValueError("unsupported native compile target GPU")
+    if required_arch is not None and required_arch not in report_arches.split(";"):
+        raise ValueError(f"native compile lacks {requested_gpu} architecture {required_arch}")
     if manifest.get("env", {}).get(T4A_ARCH_MODE_ENV, "") != (report_mode or ""):
         raise ValueError("native compile manifest architecture mode differs")
     if (
@@ -430,7 +440,12 @@ def require_for_a100_canary(manifest: dict[str, Any], repo: Path = ROOT) -> None
     proof = manifest.get("native_cuda_compile", {}).get("receipt", {})
     if not isinstance(proof, dict) or not proof.get("path") or not proof.get("sha256"):
         raise ValueError("H100/A100 canary requires native CUDA compile PASS receipt")
-    if binding(Path(proof["path"]), manifest["commit"], repo) != proof:
+    target = (
+        "H100"
+        if requirements.get("gpu") == "H100" or "H100" in requirements.get("allowed_gpus", [])
+        else "A100"
+    )
+    if binding(Path(proof["path"]), manifest["commit"], repo, requested_gpu=target) != proof:
         raise ValueError("native compile receipt SHA256 differs")
 
 

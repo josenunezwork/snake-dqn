@@ -85,6 +85,7 @@ def test_allocation_unavailable_reconciles_then_uses_a100(fixture):
     fallback = json.loads((f["ops"] / "manifests/lane-a100-fallback.live.json").read_text())
     assert fallback["requirements"]["allowed_gpus"] == ["A100"]
     assert fallback["budget"]["rate_units_per_hour"] == 8.0
+    assert fallback["budget"]["unit_cap"] == pytest.approx(10 * 8 / 60)
     receipt_path = f["ops"] / "dispatch/lane-a100-fallback/gpu-receipt.json"
     wait_for(receipt_path.exists)
     assert json.loads(receipt_path.read_text())["observed_hardware"]["hardware"]["kind"] == "A100"
@@ -222,3 +223,86 @@ def test_preparation_changes_only_new_operational_envelope():
     assert a100["output_dir"] == "/tmp/never-dispatch-a100-fallback"
     assert h100["budget"]["unit_cap"] == 4
     assert h100["technical_envelope"]["base_unit_cap"] == 2
+
+
+@pytest.mark.parametrize("fail_finalize", [False, True])
+def test_receipt_finalization_records_exit_and_diagnostics(fixture, fail_finalize):
+    f = fixture
+    preferred(f)
+    f["env"]["EXIT_DELAY"] = ".6"
+    result = f["invoke"]()
+    assert result.returncode == 0, result.stderr
+    destination = f["ops"] / "dispatch/lane/gpu-receipt.json"
+    if fail_finalize:
+        # A create-only collision exercises the real finalizer's traceback.
+        destination.write_text("preserved evidence\n")
+    log = f["ops"] / "logs/lane.log"
+    wait_for(lambda: "EXIT=" in log.read_text())
+    if fail_finalize:
+        assert "FileExistsError" in log.read_text()
+        assert "Traceback" in log.read_text()
+        assert "EXIT=1\n" in log.read_text()
+        assert destination.read_text() == "preserved evidence\n"
+    else:
+        assert "EXIT=0\n" in log.read_text()
+        assert json.loads(destination.read_text())["requested_gpu"] == "H100"
+        assert "Traceback" not in log.read_text()
+
+
+@pytest.mark.parametrize("custom_state", [False, True])
+def test_long_fallback_name_uses_matching_default_or_explicit_state(fixture, custom_state):
+    f = fixture
+    preferred(f, "gpu_unavailable")
+    name = "x" * 64
+    state = f["tmp"] / "explicit state" if custom_state else None
+    result = f["invoke"](name=name, state_dir=state)
+    assert result.returncode == 0, result.stderr
+    assert "requested_gpu=A100" in result.stdout
+    expected = (
+        Path(str(state) + "-a100-fallback")
+        if custom_state
+        else f["ops"] / "state" / sibling_id(name)
+    )
+    assert (expected / "job-a100-fallback").is_dir()
+    if not custom_state:
+        assert len(expected.name) == 64
+        assert not (f["ops"] / "state" / (name + "-a100-fallback")).exists()
+
+
+@pytest.mark.parametrize("custom_state", [False, True])
+def test_existing_long_fallback_state_refuses_before_primary(fixture, custom_state):
+    f = fixture
+    preferred(f)
+    name = "x" * 64
+    state = f["tmp"] / "explicit state" if custom_state else None
+    expected = (
+        Path(str(state) + "-a100-fallback")
+        if custom_state
+        else f["ops"] / "state" / sibling_id(name)
+    )
+    expected.mkdir(parents=True)
+    result = f["invoke"](name=name, state_dir=state)
+    assert result.returncode != 0
+    assert "identity already used" in result.stderr
+    assert not Path(f["env"]["TRACE"]).exists()
+
+
+@pytest.mark.parametrize("old_cap", [1.0, 4.0, 99.0])
+def test_new_envelopes_price_each_hardware_forecast_not_inherited_cap(old_cap):
+    packet = {
+        "job_id": "new-packet",
+        "output_dir": "/tmp/new-packet-output",
+        "timeout_minutes": 20,
+        "requirements": {"est_minutes": 10},
+        "budget": {"unit_cap": old_cap, "reserve_units": 2},
+    }
+    prepare_preference(packet)
+    for item, rate in zip(variants(packet), (12, 8)):
+        envelope = item["technical_envelope"]
+        assert item["budget"]["unit_cap"] == pytest.approx(20 * rate / 60)
+        assert envelope["base_unit_cap"] == pytest.approx(10 * rate / 60)
+        assert envelope["effective_unit_cap"] == item["budget"]["unit_cap"]
+        assert envelope["effective_unit_cap"] == 2 * envelope["base_unit_cap"]
+        assert envelope["base_timeout_minutes"] == 10
+        assert envelope["effective_timeout_minutes"] == 20
+        assert item["budget"]["reserve_units"] == 2

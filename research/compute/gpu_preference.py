@@ -68,6 +68,12 @@ def variants(manifest: dict[str, Any]) -> list[dict[str, Any]]:
         fallback["canary"] = {"receipt": copy.deepcopy(proofs["A100"])}
     fallback["requirements"].update(gpu="A100", allowed_gpus=["A100"])
     fallback["budget"]["rate_units_per_hour"] = RATES["A100"]
+    fallback_cap = numbers["timeout"] * RATES["A100"] / 60
+    fallback["budget"]["unit_cap"] = fallback_cap
+    if "technical_envelope" in fallback:
+        fallback["technical_envelope"].update(
+            base_unit_cap=fallback_cap / 2, effective_unit_cap=fallback_cap
+        )
     fallback["job_id"] = sibling_id(manifest["job_id"])
     fallback["output_dir"] = manifest["output_dir"].rstrip("/") + FALLBACK_SUFFIX
     return [primary, fallback]
@@ -78,7 +84,8 @@ def prepare_preference(manifest: dict[str, Any]) -> None:
     req, budget = manifest["requirements"], manifest["budget"]
     req.update(gpu="H100", allowed_gpus=["H100"], prefer=PREFERENCE.copy())
     budget["rate_units_per_hour"] = RATES["H100"]
-    budget["unit_cap"] = max(budget["unit_cap"], manifest["timeout_minutes"] * 12 / 60)
+    # New pre-data envelopes come from the timeout/rate forecast, not an old cap.
+    budget["unit_cap"] = manifest["timeout_minutes"] * RATES["H100"] / 60
     # This is a new pre-data envelope, including its undoubled forecast.
     envelope = manifest.setdefault("technical_envelope", {})
     envelope.update(

@@ -216,8 +216,10 @@ raise SystemExit(1)
             path = account / f"active-{record['session']}.json"
             path.write_text(json.dumps(record))
 
-    def invoke(name="lane", *, capture=True, dry_run=False):
+    def invoke(name="lane", *, capture=True, dry_run=False, state_dir=None):
         argv = [str(SCRIPT), name, str(manifest), "--broker", str(broker), "--cwd", str(broker)]
+        if state_dir is not None:
+            argv.extend(["--state-dir", str(state_dir)])
         if dry_run:
             argv.append("--dry-run")
         if capture:

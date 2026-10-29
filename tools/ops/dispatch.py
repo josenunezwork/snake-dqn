@@ -857,6 +857,7 @@ def start(
             shlex.join(
                 [sys.executable, str(HERE / "gpu_receipt.py"), str(manifest), str(gpu_receipt)]
             )
+            + f" >> {shlex.quote(str(log))} 2>&1"
             + '; proof_rc=$?; if [ "$proof_rc" != 0 ]; then rc="$proof_rc"; fi; '
         )
     body = (
@@ -2152,7 +2153,12 @@ def dispatch_preferred(
         )
     packets = variants(value)
     names = [args.name, sibling_id(args.name)]
-    states = [state, Path(str(state) + FALLBACK_SUFFIX)]
+    fallback_state = (
+        Path(str(state) + FALLBACK_SUFFIX)
+        if args.state_dir is not None
+        else (ops / "state" / names[1]).resolve()
+    )
+    states = [state, fallback_state]
     paths = [ops / "manifests" / f"{name}.json" for name in names]
     logs = [ops / "logs" / f"{name}.log" for name in names]
     for name, packet, lane, path, log in zip(names, packets, states, paths, logs):

@@ -43,7 +43,7 @@ def test_compile_builds_all_extensions_without_kernel_calls(tmp_path, monkeypatc
     report = native.run(tmp_path / "output/native-compile.json", PIN)
     assert report["status"] == "PASS" and report["kernels_launched"] is False
     assert len(calls) == 5
-    assert report["architectures"] == "8.0;8.9"
+    assert report["architectures"] == "8.0;8.9;9.0"
     assert all(c["verbose"] for c in calls)
     assert all(Path(c["sources"][0]).suffix == ".cpp" for c in calls)
     sparse_units._verify(tmp_path / "output/native-compile.json")
@@ -507,3 +507,40 @@ def test_allowed_a100_substitution_also_requires_compile_proof():
     }
     with pytest.raises(ValueError, match="requires native CUDA compile PASS"):
         native.require_for_a100_canary(value)
+
+
+@pytest.mark.parametrize("architectures", [native.ARCHES, native.LEGACY_ARCHES])
+@pytest.mark.parametrize("gpu", ["H100", "A100"])
+def test_compile_binding_checks_requested_hardware_architecture(
+    tmp_path, monkeypatch, architectures, gpu
+):
+    path, receipt, manifest = _proof(tmp_path, monkeypatch)
+    report = path.parent / "exports/native-compile.json"
+    body = json.loads(report.read_text())
+    body["architectures"] = architectures
+    report.write_text(json.dumps(body))
+    _reseal_report(path, receipt, report)
+    proof = {"path": str(path), "sha256": native.digest(path)}
+    manifest["requirements"] = {"gpu": gpu, "allowed_gpus": [gpu]}
+    manifest["native_cuda_compile"]["receipt"] = proof
+    if gpu == "H100" and architectures == native.LEGACY_ARCHES:
+        with pytest.raises(ValueError, match="lacks H100 architecture 9.0"):
+            native.binding(path, PIN, requested_gpu=gpu)
+        with pytest.raises(ValueError, match="lacks H100 architecture 9.0"):
+            native.require_for_a100_canary(manifest)
+    else:
+        assert native.binding(path, PIN, requested_gpu=gpu) == proof
+        native.require_for_a100_canary(manifest)
+
+
+def test_allowed_h100_substitution_requires_hopper_compile_architecture(tmp_path, monkeypatch):
+    path, receipt, manifest = _proof(tmp_path, monkeypatch)
+    report = path.parent / "exports/native-compile.json"
+    body = json.loads(report.read_text())
+    body["architectures"] = native.LEGACY_ARCHES
+    report.write_text(json.dumps(body))
+    _reseal_report(path, receipt, report)
+    manifest["native_cuda_compile"]["receipt"]["sha256"] = native.digest(path)
+    manifest["requirements"] = {"gpu": "L4", "allowed_gpus": ["L4", "H100"]}
+    with pytest.raises(ValueError, match="lacks H100 architecture 9.0"):
+        native.require_for_a100_canary(manifest)

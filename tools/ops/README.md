@@ -75,13 +75,21 @@ New hardware-generic GPU packets may declare:
 
 Price the primary at the provisional **12 u/h H100 ceiling**, with a cap that
 covers the **whole timeout** and a timeout at least twice the estimate. The
-wrapper derives an **8 u/h A100** sibling (covers 40/80 GB) with distinct job,
+wrapper derives an **8 u/h A100** sibling (covers 40/80 GB), reducing its cap to
+`timeout_minutes * 8 / 60`, with distinct job,
 dispatch, state, output, log and receipt identities. It does not enlarge submitted
 caps. Both manifests are sealed, reserved and validated before the first launch;
 `--dry-run` validates both with zero allocations or name reservations. The future
 sandbox A assay, TRAIN-01 and sandbox B/B2 (also used by B3) builders emit this
 preference and freeze their new pre-data operational envelopes. Existing sealed
 packets and host-bound L4 builders retain their declared hardware.
+
+New builder caps come from each variant's complete timeout and rate, even when
+the builder receives a larger old cap. Each recorded base cap is the price of
+the base timeout; the effective timeout and cap are twice those base values.
+Sandbox A and TRAIN-01 compile native kernels for both `8.0` and `9.0`.
+GPU-sprint H100 canaries require a native-compile receipt that includes `9.0`;
+historical `8.0;8.9` receipts remain valid only for their supported hardware.
 
 Fallback occurs once, only after the installed 0.7.4 CLI's exact exit-1/412
 allocation rejection, supervisor termination, and independent proof that no
