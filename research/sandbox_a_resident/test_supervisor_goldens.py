@@ -106,8 +106,15 @@ def test_golden_bytes_match_capture_inventory(case: str) -> None:
     )
 
     assert provenance["provider"].startswith("tests/fixtures/fake_colab.py")
-    assert provenance["source_sha256"]["research/colab_cli/supervisor.py"] == _bytes_hash(
-        Path(__file__).parents[1] / "colab_cli/supervisor.py"
+    # Historical captures bind their actual producer commit, not a later
+    # transport whose budget semantics were prospectively changed by 041a01b6.
+    producer = subprocess.check_output(
+        ["git", "show", provenance["source_commit"] + ":research/colab_cli/supervisor.py"],
+        cwd=Path(__file__).resolve().parents[2],
+    )
+    assert (
+        provenance["source_sha256"]["research/colab_cli/supervisor.py"]
+        == hashlib.sha256(producer).hexdigest()
     )
     files = provenance["files"]
     actual = {
