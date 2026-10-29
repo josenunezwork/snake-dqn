@@ -174,7 +174,7 @@ def parent_lease(lock: Path, lease_path: Path, manifest: Path, seconds: float) -
 class AllocationLease:
     """Child's shared flock, held from before new until durable calibration."""
 
-    def __init__(self, path: Path, manifest: Path):
+    def __init__(self, path: Path, manifest: Path) -> None:
         self.path = path
         self.manifest = manifest
         self.handle: Any = None
