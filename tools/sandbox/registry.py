@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REGISTRY = Path(__file__).with_name("SANDBOX_INPUT_REGISTRY.json")
-TRANSPORT_TREE = "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+TRANSPORT_TREE = "cfd50f45145489c87ff986b9d1a2eed18b07377d"
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 # Positive, training-only extension: released fixed opponents, never label banks.
 # The original hash-bound input registry and B8-only checkpoint kind stay intact.
