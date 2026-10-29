@@ -9,7 +9,14 @@ import threading
 from typing import Any
 
 
-def run(args: list[str], *, timeout: float, check: bool = False, **kwargs: Any) -> Any:
+def run(
+    args: list[str],
+    *,
+    timeout: float,
+    check: bool = False,
+    descendant_groups: bool = True,
+    **kwargs: Any,
+) -> Any:
     """Run in an owned group; terminate descendants and reap on every interruption.
 
     Nested callers forward TERM while waiting, so each group owner cleans its
@@ -27,9 +34,33 @@ def run(args: list[str], *, timeout: float, check: bool = False, **kwargs: Any) 
     def interrupted(signum: int, frame: Any) -> None:
         raise SystemExit(128 + signum)
 
-    def signal_group(signum: int) -> None:
+    def owned_groups() -> set[int]:
+        """Snapshot descendants before TERM can orphan a nested group leader."""
+        inventory = subprocess.run(
+            ["/bin/ps", "-axo", "pid=,ppid=,pgid="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=True,
+        )
+        rows = [
+            tuple(map(int, row.split())) for row in inventory.stdout.splitlines() if row.strip()
+        ]
+        owned = {process.pid}
+        while True:
+            expanded = owned | {pid for pid, parent, _group in rows if parent in owned}
+            if expanded == owned:
+                break
+            owned = expanded
+        # Each newly-created session/group must have a leader in this owned
+        # tree. Never signal the caller's group or an unrelated existing group.
+        return {process.pid} | {
+            group for pid, _parent, group in rows if pid in owned and group in owned
+        }
+
+    def signal_group(group: int, signum: int) -> None:
         try:
-            os.killpg(process.pid, signum)
+            os.killpg(group, signum)
         except ProcessLookupError:
             pass
         except PermissionError:
@@ -45,18 +76,33 @@ def run(args: list[str], *, timeout: float, check: bool = False, **kwargs: Any) 
             )
             for row in inventory.stdout.splitlines():
                 fields = row.split()
-                if fields and int(fields[0]) == process.pid and not fields[1].startswith("Z"):
+                if fields and int(fields[0]) == group and not fields[1].startswith("Z"):
                     raise
 
     def terminate() -> None:
-        signal_group(signal.SIGTERM)
+        inventory_error = None
+        try:
+            groups = owned_groups() if descendant_groups else {process.pid}
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            groups = {process.pid}
+            inventory_error = exc
+        for group in groups:
+            signal_group(group, signal.SIGTERM)
         try:
             process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
             pass
         # Kill surviving descendants even if the immediate child already exited.
-        signal_group(signal.SIGKILL)
+        # Reap every observed group even if an outer launcher was killed before
+        # its nested timeout handler could escalate. Group ownership survives
+        # reparenting because it was captured before the first signal.
+        for group in groups:
+            signal_group(group, signal.SIGKILL)
         process.communicate()
+        if inventory_error is not None:
+            raise subprocess.SubprocessError(
+                "owned root group reaped; descendant inventory unavailable, cleanup unverified"
+            ) from inventory_error
 
     if install_handler:
         previous = signal.signal(signal.SIGTERM, interrupted)
