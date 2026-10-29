@@ -130,7 +130,7 @@ def test_both_unavailable_never_attempts_a_third_allocation(fixture):
     assert [row["job"] for row in trace(f, "run")] == ["job", "job-a100-fallback"]
 
 
-@pytest.mark.parametrize("fallback_seconds", [100, 181])
+@pytest.mark.parametrize("fallback_seconds", [100, 601])
 def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch, fallback_seconds):
     """Simulate the 100s C/T preflight after 545s spent on the primary."""
     from tools.ops import dispatch as module
@@ -138,7 +138,7 @@ def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch
     f = fixture
     preferred(f, "gpu_unavailable")
     packet = json.loads(f["manifest"].read_text())
-    packet["sandbox_admission"] = {}  # Select the real 180s validation bound.
+    packet["sandbox_admission"] = {}  # Select the bounded host-admission window.
     monkeypatch.setenv("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "600")
     now = [1000.0]
     monkeypatch.setattr(module.time, "monotonic", lambda: now[0])
@@ -165,7 +165,7 @@ def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch
         return subprocess.CompletedProcess(argv, 0)
 
     # Exercise validate() and command() themselves; only the subprocess is fake.
-    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(module, "run_process_tree", run)
     monkeypatch.setattr(module, "qualified", lambda *_args, **_kwargs: assert_locked())
 
     def refresh(path, evidence, deadline):
@@ -209,7 +209,7 @@ def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch
             args, packet, f["ops"], f["broker"], f["broker"], f["ops"] / "state/lane"
         )
 
-    if fallback_seconds > 180:
+    if fallback_seconds > 600:
         with pytest.raises(subprocess.TimeoutExpired):
             call()
         assert starts == ["lane"]
@@ -218,10 +218,10 @@ def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch
         assert starts == ["lane", "lane-a100-fallback"]
     assert windows == [600, 600]
     assert validations == [
-        (False, False, 180),
-        (False, True, 180),
-        (True, False, 180),
-        (True, True, 180),
+        (False, False, module.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS),
+        (False, True, module.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS),
+        (True, False, 600),
+        (True, True, 600),
     ]
     # Exclusion is released after either success or validation timeout.
     with (f["ops"] / "alloc.lock").open("a") as lock:
