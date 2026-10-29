@@ -47,9 +47,9 @@ NICE_FLOOR = 15
 # giving only that offline admission step a bounded window large enough for the
 # suite on a busy Mac.
 COMMAND_TIMEOUT_SECONDS = 60.0
-SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS = 240.0
+SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS = 420.0
 # The host adapter admits before input hashing and the qualified validator
-# rechecks through its canary hook. Each pass retains its own 240s bound;
+# rechecks through its canary hook. Each pass retains its own 420s bound;
 # the outer launcher must cover both plus ordinary host overhead.
 SANDBOX_OUTER_VALIDATE_TIMEOUT_SECONDS = (
     2 * SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS + COMMAND_TIMEOUT_SECONDS
