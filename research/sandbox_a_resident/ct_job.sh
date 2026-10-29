@@ -25,7 +25,8 @@ import sys
 from pathlib import Path
 
 payload = Path(sys.argv[1])
-if not payload.is_file() or payload.stat().st_size > 1024 * 1024:
+limit = (4 if payload.name == "progress-history.log" else 1) * 1024 * 1024
+if not payload.is_file() or payload.stat().st_size > limit:
     raise SystemExit("refusing absent or oversized stall diagnostic")
 sidecar = Path(f"{payload}.sha256")
 complete = Path(f"{payload}.complete")

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import signal
 import subprocess
 import sys
@@ -18,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from research.sandbox_a_resident import ct_json as json
 from research.sandbox_a_resident.ct_liveness import (
     finish_status,
     owns_output,

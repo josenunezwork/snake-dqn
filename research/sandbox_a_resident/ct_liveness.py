@@ -7,11 +7,12 @@ and periodic status lines are diagnostics only, never evidence of completed work
 
 from __future__ import annotations
 
-import json
 import threading
 import time
 from pathlib import Path
 from typing import Any
+
+from research.sandbox_a_resident import ct_json as json
 
 _OUTPUT_LOCK = threading.RLock()
 _CURRENT: StatusHeartbeat | None = None

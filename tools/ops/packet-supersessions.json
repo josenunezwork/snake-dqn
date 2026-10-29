@@ -92,6 +92,14 @@
       ],
       "successor": "packet-ct-1028-09",
       "reason": "Second real A100 capture resolves C/T startup status HOLD; new immutable packet binds cadence and new producer shapes. Prior packet and all evidence preserved."
+    },
+    {
+      "packet_dir": "packet-ct-1028-09",
+      "job_ids": [
+        "sandbox-ct-cf-20261028-09"
+      ],
+      "successor": "packet-ct-1028-10",
+      "reason": "Argon packet-09 rejection: strict finite JSON, structural bootstrap admission, long-stop suffix witnesses and import/accounting corrections. Prior packet and captures preserved immutable."
     }
   ]
 }

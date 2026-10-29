@@ -7,12 +7,12 @@ No scientific output is opened by this measurement.
 
 from __future__ import annotations
 
-import json
 import math
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from research.sandbox_a_resident import ct_json as json
 from research.sandbox_a_resident.ct_progress import (
     capture_inventory,
     validate_heartbeat,

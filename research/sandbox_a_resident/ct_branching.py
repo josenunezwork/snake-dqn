@@ -18,7 +18,6 @@ Implements Ruling §4:
 from __future__ import annotations
 
 import hashlib
-import json
 import time
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping, Sequence
@@ -28,6 +27,7 @@ import torch
 from torch import nn
 
 from research.gpu_sim_spike import r2_cache
+from research.sandbox_a_resident import ct_json as json
 from research.sandbox_a_resident.ct_mechanics import (
     RNG_CONSUMER_INVENTORY,
     CTDeviceSim,

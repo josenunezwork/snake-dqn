@@ -9,11 +9,12 @@ from __future__ import annotations
 import ast
 import functools
 import hashlib
-import json
 import math
 import re
 from pathlib import Path
 from typing import Any
+
+from research.sandbox_a_resident import ct_json as json
 
 HERE = Path(__file__).parent
 CALLBACKS = {

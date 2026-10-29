@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import io
-import json
 import lzma
 import time
 from pathlib import Path
@@ -21,6 +20,7 @@ import numpy as np
 import torch
 
 from research.gpu_sim_spike import r2_cache
+from research.sandbox_a_resident import ct_json as json
 from research.sandbox_a_resident.ct_branching import score_root_chunk
 from research.sandbox_a_resident.ct_fit import (
     float64_masked_kl_from_logits,

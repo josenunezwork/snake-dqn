@@ -107,7 +107,14 @@ def test_real_supervisor_mechanical_formats_and_compound_twins(
 
     if fault:
         receipt["error"] += "; FloatingPointError: non-finite appended fault"
-        with pytest.raises(ct_resume.CTResumeRefused, match="scientific/non-mechanical"):
+        with pytest.raises(
+            ct_resume.CTResumeRefused,
+            match=(
+                "not a qualified mechanical trigger"
+                if receipt["failure_class"] == "RPC_EXEC_POLL_TIMEOUT"
+                else "scientific/non-mechanical"
+            ),
+        ):
             admit()
     elif scenario in {
         "lease-renewal-timeout",
@@ -118,9 +125,9 @@ def test_real_supervisor_mechanical_formats_and_compound_twins(
         with pytest.raises(
             ct_resume.CTResumeRefused,
             match=(
-                "scientific/non-mechanical exception"
-                if scenario in {"lease-renewal-timeout", "rpc-exec-poll-timeout"}
-                else "unexplained retained receipt error"
+                "not a qualified mechanical trigger"
+                if receipt["failure_class"] == "RPC_EXEC_POLL_TIMEOUT"
+                else "scientific/non-mechanical exception"
             ),
         ):
             admit()

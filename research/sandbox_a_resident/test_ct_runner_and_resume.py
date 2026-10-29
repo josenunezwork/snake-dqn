@@ -290,7 +290,7 @@ def test_incomplete_support_stops_before_branch_scoring_and_blocks_continuation(
     assert (out / "stage-0001.pt").is_file()
     assert not (out / "stage-0002.pt").exists()
 
-    # Scientific-fault precedence: even if summary.json is missing under RPC_EXEC_POLL_TIMEOUT,
+    # Scientific-fault precedence: even if summary.json is missing under a host wall cap,
     # stage-0001.json's support_status="INCOMPLETE_SUPPORT" MUST refuse continuation!
     only_stage1 = tmp_path / "only_stage1"
     only_stage1.mkdir()
@@ -305,7 +305,8 @@ def test_incomplete_support_stops_before_branch_scoring_and_blocks_continuation(
         "commit": "b" * 40,
         "manifest_sha256": m_sha,
         "status": "INCOMPLETE",
-        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "failure_class": "SUPERVISOR",
+        "error": "whole-session wall cap reached",
         "stop_verified": True,
         "cleanup_error": None,
     }
@@ -322,7 +323,7 @@ def test_incomplete_support_stops_before_branch_scoring_and_blocks_continuation(
         )
 
 
-def test_scientific_fault_precedence_over_rpc_timeout(tmp_path: Path) -> None:
+def test_scientific_fault_precedence_over_host_wall_cap(tmp_path: Path) -> None:
     manifest = {"job_id": "job-1", "commit": "d" * 40}
     m_sha = "e" * 64
     timeout_receipt = {
@@ -330,7 +331,8 @@ def test_scientific_fault_precedence_over_rpc_timeout(tmp_path: Path) -> None:
         "commit": "d" * 40,
         "manifest_sha256": m_sha,
         "status": "INCOMPLETE",
-        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "failure_class": "SUPERVISOR",
+        "error": "whole-session wall cap reached",
         "stop_verified": True,
         "cleanup_error": None,
     }
@@ -343,7 +345,7 @@ def test_scientific_fault_precedence_over_rpc_timeout(tmp_path: Path) -> None:
         timeout_receipt, {**manifest, "output_dir": str(clean_dir)}, m_sha, export_root=clean_dir
     )
 
-    # Non-empty faulthandler-stacks.log MUST refuse continuation even under RPC_EXEC_POLL_TIMEOUT!
+    # Non-empty faulthandler-stacks.log MUST refuse continuation even under a host wall cap!
     stall_dir = tmp_path / "stall_ct"
     (stall_dir / "stall-watchdog").mkdir(parents=True)
     (stall_dir / "stall-watchdog/faulthandler-stacks.log").write_text("Thread 0x01 stack...\n")
@@ -355,7 +357,7 @@ def test_scientific_fault_precedence_over_rpc_timeout(tmp_path: Path) -> None:
             export_root=stall_dir,
         )
 
-    # fault.json MUST refuse continuation even under RPC_EXEC_POLL_TIMEOUT!
+    # fault.json MUST refuse continuation even under a host wall cap!
     fault_dir = tmp_path / "fault_ct"
     fault_dir.mkdir()
     (fault_dir / "fault.json").write_text('{"status": "INVALID"}\n')
@@ -367,7 +369,7 @@ def test_scientific_fault_precedence_over_rpc_timeout(tmp_path: Path) -> None:
             export_root=fault_dir,
         )
 
-    # summary.json MUST refuse continuation even under RPC_EXEC_POLL_TIMEOUT!
+    # summary.json MUST refuse continuation even under a host wall cap!
     sum_dir = tmp_path / "sum_ct"
     sum_dir.mkdir()
     (sum_dir / "summary.json").write_text('{"verdict": "STOP"}\n')
@@ -580,28 +582,24 @@ def test_qualified_mechanical_stop_receipts_and_fault_precedence(tmp_path: Path)
         )
         verify_mechanical_stop(qualified_sigusr1, manifest, m_sha, export_root=clean_dir)
 
-    # 2) RPC_EXEC_POLL_TIMEOUT both without terminal and with mechanical terminal.status="failed".
-    verify_mechanical_stop(
-        _base_receipt(failure_class="RPC_EXEC_POLL_TIMEOUT"),
-        manifest,
-        m_sha,
-        export_root=clean_dir,
-    )
-    verify_mechanical_stop(
-        _base_receipt(
-            failure_class="RPC_EXEC_POLL_TIMEOUT",
-            terminal={
-                "job_id": "sandbox-ct-cf-qual-01",
-                "generation": "gen-01",
-                "status": "failed",
-                "reason": "timeout",
-                "returncode": 138,
-            },
-        ),
-        manifest,
-        m_sha,
-        export_root=clean_dir,
-    )
+    # RPC timeouts remain ambiguous provider failures, even with mechanical terminal text.
+    for terminal in (
+        None,
+        {
+            "job_id": "sandbox-ct-cf-qual-01",
+            "generation": "gen-01",
+            "status": "failed",
+            "reason": "timeout",
+            "returncode": 138,
+        },
+    ):
+        with pytest.raises(CTResumeRefused, match="not a qualified mechanical trigger"):
+            verify_mechanical_stop(
+                _base_receipt(failure_class="RPC_EXEC_POLL_TIMEOUT", terminal=terminal),
+                manifest,
+                m_sha,
+                export_root=clean_dir,
+            )
 
     # 3) Mechanical SUPERVISOR stops (wall/unit/lease/read-retry or mechanical terminal).
     for sup_err in (
@@ -680,7 +678,7 @@ def test_qualified_mechanical_stop_receipts_and_fault_precedence(tmp_path: Path)
     manifest["output_dir"] = str(tmp_path / "poll_fault_out")
     with pytest.raises(CTResumeRefused, match="explicit scientific/non-mechanical fault"):
         verify_mechanical_stop(
-            _base_receipt(failure_class="RPC_EXEC_POLL_TIMEOUT"),
+            _base_receipt(failure_class="SUPERVISOR", error="whole-session wall cap reached"),
             manifest,
             m_sha,
             export_root=poll_fault_dir,
@@ -691,7 +689,7 @@ def test_qualified_mechanical_stop_receipts_and_fault_precedence(tmp_path: Path)
     sup_log.write_text("INFO starting\nCUDA out of memory while allocating tensor\n")
     with pytest.raises(CTResumeRefused, match="cuda out of memory"):
         verify_mechanical_stop(
-            _base_receipt(failure_class="RPC_EXEC_POLL_TIMEOUT"),
+            _base_receipt(failure_class="SUPERVISOR", error="whole-session wall cap reached"),
             manifest,
             m_sha,
             export_root=clean_dir,
@@ -1029,7 +1027,8 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
         "commit": ctrl.source_commit,
         "manifest_sha256": digest(packet_c1 / "dispatch-manifest.json"),
         "status": "INCOMPLETE",
-        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "failure_class": "SUPERVISOR",
+        "error": "whole-session wall cap reached",
         "stop_verified": True,
         "cleanup_error": None,
         "generation": "gen-c1",
@@ -1377,7 +1376,8 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                     "commit": impl_pin,
                     "manifest_sha256": digest(prod_c1 / "dispatch-manifest.json"),
                     "status": "INCOMPLETE",
-                    "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+                    "failure_class": "SUPERVISOR",
+                    "error": "whole-session wall cap reached",
                     "stop_verified": True,
                     "cleanup_error": None,
                     "generation": "gen-c1",
@@ -1562,14 +1562,15 @@ def test_qualified_nested_poll_shapes_fault_precedence_and_all_polls_scan(tmp_pa
         "commit": "d" * 40,
         "manifest_sha256": m_sha,
         "status": "INCOMPLETE",
-        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "failure_class": "SUPERVISOR",
+        "error": "whole-session wall cap reached",
         "stop_verified": True,
         "cleanup_error": None,
         "generation": "gen-p1",
     }
 
     # 1) Astra's exact verbatim counterexample (REVIEW.md §1):
-    #    <attempt>/poll-000001.json + <attempt>/exports/ct + RPC_EXEC_POLL_TIMEOUT w/ terminal=None.
+    #    <attempt>/poll-000001.json + <attempt>/exports/ct + SUPERVISOR wall cap w/ terminal=None.
     astra_attempt = tmp_path / "astra_attempt_01"
     astra_export_root = astra_attempt / "exports" / "ct"
     astra_export_root.mkdir(parents=True)
@@ -1915,7 +1916,8 @@ def test_successor_packet_refuses_omitted_or_conflicting_prior_coverage_and_hidd
         "commit": ctrl.source_commit,
         "manifest_sha256": c1_sha,
         "status": "INCOMPLETE",
-        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "failure_class": "SUPERVISOR",
+        "error": "whole-session wall cap reached",
         "stop_verified": True,
         "cleanup_error": None,
         "generation": "g1",
@@ -2200,7 +2202,8 @@ def test_ct3_retained_fault_probes_refuse_writer_and_admission(
         "commit": ctrl.source_commit,
         "manifest_sha256": digest(initial / "dispatch-manifest.json"),
         "status": "INCOMPLETE",
-        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "failure_class": "SUPERVISOR",
+        "error": "whole-session wall cap reached",
         "stop_verified": True,
         "cleanup_error": None,
         "generation": "g0",

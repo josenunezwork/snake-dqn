@@ -15,7 +15,6 @@ Implements Ruling §4 & §5:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import signal
 import time
@@ -25,6 +24,7 @@ from typing import Any, Mapping
 
 import torch
 
+from research.sandbox_a_resident import ct_json as json
 from research.sandbox_a_resident.ct_branching import (
     ScoredRootChunk,
     merge_scored_chunks,

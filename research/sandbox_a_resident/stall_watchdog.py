@@ -75,7 +75,9 @@ class StallWatchdog:
             "counters": dict(counters or {}),
         }
         temporary = self._diagnostics_dir / "stall-watchdog.json.partial"
-        temporary.write_text(json.dumps(record, sort_keys=True, default=str) + "\n")
+        temporary.write_text(
+            json.dumps(record, sort_keys=True, default=str, allow_nan=False) + "\n"
+        )
         os.replace(temporary, self._diagnostics_dir / "stall-watchdog.json")
         faulthandler.cancel_dump_traceback_later()
         # exit=True is essential: a traceback alone cannot release a stuck

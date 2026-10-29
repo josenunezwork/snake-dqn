@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
 
+from research.sandbox_a_resident import ct_json as json
 from research.sandbox_a_resident.ct_mechanics import CT_DOMAIN_PREFIX, CT_STUDY_SLUG
 from research.sandbox_a_resident.ct_task import (
     CTControl,

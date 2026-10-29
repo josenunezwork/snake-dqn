@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
-import json
 import os
 import subprocess
 import sys
@@ -13,6 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from research.sandbox_a_resident import ct_json as json
 from research.sandbox_a_resident.ct_prepare import STUDY, ct_endpoint_steps
 from research.sandbox_a_resident.ct_resume import (
     _EVIDENCE_CACHE,
@@ -57,6 +57,7 @@ CT_FOCUSED_TESTS: tuple[str, ...] = (
     "research/sandbox_a_resident/test_ct_cuda_capture09.py",
     "research/sandbox_a_resident/test_ct_packet08.py",
     "research/sandbox_a_resident/test_ct_startup_heartbeat.py",
+    "research/sandbox_a_resident/test_ct_review10.py",
     "tools/sandbox/tests/test_source_delivery.py",
 )
 

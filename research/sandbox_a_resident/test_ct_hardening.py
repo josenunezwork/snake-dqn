@@ -97,8 +97,8 @@ def test_ct4_fault_uses_terminal_tail(tmp_path: Path, monkeypatch: pytest.Monkey
     ctrl = CTControl(
         source_commit="a" * 40,
         tiny=True,
-        max_stage_export_bytes=5 * 1024 * 1024,
-        max_total_export_bytes=5 * 1024 * 1024,
+        max_stage_export_bytes=16 * 1024 * 1024,
+        max_total_export_bytes=16 * 1024 * 1024,
     )
     output = tmp_path / "out"
 
@@ -170,7 +170,8 @@ def _continuation_fixture(tmp_path: Path) -> tuple[Path, dict, dict, Path, dict]
         "commit": ctrl.source_commit,
         "manifest_sha256": ct_resume.digest(initial / "dispatch-manifest.json"),
         "status": "INCOMPLETE",
-        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "failure_class": "SUPERVISOR",
+        "error": "whole-session wall cap reached",
         "cleanup_error": None,
         "stop_verified": True,
     }
@@ -593,9 +594,7 @@ def test_exact_generation_bound_signal_footer_without_caller_identity(tmp_path: 
         ct_resume._check_attempt_base_fault_evidence(tmp_path)
 
 
-@pytest.mark.parametrize(
-    "failure_class", ["SUPERVISOR", "RPC_EXEC_POLL_TIMEOUT", "CHILD_NONZERO_EXIT"]
-)
+@pytest.mark.parametrize("failure_class", ["SUPERVISOR", "CHILD_NONZERO_EXIT"])
 def test_structured_mechanical_reason_never_overrides_non_signal_exit(failure_class: str) -> None:
     record = {
         "status": "INCOMPLETE",

@@ -11,11 +11,11 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
-import json
 import math
 from pathlib import Path
 from typing import Any
 
+from research.sandbox_a_resident import ct_json as json
 from research.sandbox_a_resident import ct_resume as admission
 
 ROOT = Path(__file__).resolve().parents[2]

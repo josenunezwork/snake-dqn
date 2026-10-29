@@ -5,7 +5,7 @@ Implements Ruling §4 & §5 and JUDGMENT_RESUME_POLICY.md:
   size, and SHA-256 sidecars only (never opening numerical ``.pt`` payloads
   unless explicitly encoding a new ``.pt.xz`` derivative on request).
 - Qualified mechanical-stop acceptance aligned with ``research/colab_cli`` and
-  TRAIN-01: admits verified ``RPC_EXEC_POLL_TIMEOUT``, ``CHILD_NONZERO_EXIT``
+  TRAIN-01: admits verified ``CHILD_NONZERO_EXIT``
   with mechanical ``terminal.reason`` (``timeout``, ``lease_expired``,
   ``release_credential_expiring``, e.g. ``SIGUSR1`` exit ``138``), and
   mechanical ``SUPERVISOR`` wall/unit/lease/read-retry stops.
@@ -30,7 +30,6 @@ import contextvars
 import copy
 import functools
 import hashlib
-import json
 import os
 import re
 import stat
@@ -39,7 +38,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, ParamSpec, Sequence, TypeVar
 
-from research.sandbox_a_resident.ct_cuda_observed import BOOTSTRAP_LINES, CAPTURE_LABELS
+from research.sandbox_a_resident import ct_json as json
+from research.sandbox_a_resident.ct_cuda_observed import (
+    BOOTSTRAP_LINES,
+    BOOTSTRAP_PATTERNS,
+    CAPTURE_LABELS,
+)
 from research.sandbox_a_resident.ct_prepare import STUDY, ct_endpoint_steps, write_once
 from research.sandbox_a_resident.ct_progress import (
     capture_inventory,
@@ -688,7 +692,16 @@ def _scan_job_tail(
     # discard a partial line: require its exact suffix in a fully validated,
     # retained producer history. An appended fault cannot obtain this witness.
     for index, line in enumerate(lines):
-        if not line or line in BOOTSTRAP_LINES or _observed_signal_line(line, generation):
+        if not line:
+            continue
+        if line in BOOTSTRAP_LINES or _observed_signal_line(line, generation):
+            _remember_tail_line(line)
+            continue
+        # Dynamic bootstrap fields are closed structural tokens, never free text.
+        # The two exact observed uv warnings above remain literal exceptions.
+        _refuse_if_fault_text(line, field_name=label)
+        if any(pattern.fullmatch(line) for pattern in BOOTSTRAP_PATTERNS):
+            _remember_tail_line(line)
             continue
         prefix, _, payload = line.partition(" ")
         try:
@@ -717,14 +730,26 @@ def _scan_job_tail(
                 continue
             # Values can contain outcome-bearing counters. Keep refusals blind.
             raise CTResumeRefused(f"unrecognized job_log_tail line in {label}") from None
+        _remember_tail_line(line)
+
+
+def _remember_tail_line(line: str) -> None:
+    """A witness is published only after complete closed-form line validation."""
+    cache = _EVIDENCE_CACHE.get()
+    if cache is not None:
+        cache.setdefault("progress_history_lines", set()).add(line)
 
 
 def _check_retained_receipt(record: Any, *, label: str) -> None:
+    try:
+        json.require_finite(record)
+    except ValueError as error:
+        raise CTResumeRefused(f"{label} contains non-finite or malformed JSON") from error
     if not isinstance(record, Mapping):
         raise CTResumeRefused(f"malformed retained receipt: {label}")
     if record.get("failure_class") not in {
         "SUPERVISOR",
-        "RPC_EXEC_POLL_TIMEOUT",
+        "ACCOUNTING",
         "CHILD_NONZERO_EXIT",
     }:
         raise CTResumeRefused(
@@ -735,12 +760,19 @@ def _check_retained_receipt(record: Any, *, label: str) -> None:
         record.get("status") != "INCOMPLETE"
         or record.get("stop_verified") is not True
         or record.get("cleanup_error") is not None
-        or record.get("failure_class")
-        not in {"SUPERVISOR", "RPC_EXEC_POLL_TIMEOUT", "CHILD_NONZERO_EXIT"}
+        or record.get("failure_class") not in {"SUPERVISOR", "ACCOUNTING", "CHILD_NONZERO_EXIT"}
     ):
         raise CTResumeRefused(f"non-resumable retained receipt: {label}")
     error = record.get("error")
-    _refuse_if_fault_text(error, field_name=label, check_supervisor_denylist=True)
+    accounting_stop = (
+        record["failure_class"] == "ACCOUNTING"
+        and record.get("terminal") is None
+        and error == "AccountingError('priced session unit cap reached')"
+    )
+    if record["failure_class"] == "ACCOUNTING" and not accounting_stop:
+        raise CTResumeRefused(f"non-mechanical accounting error: {label}")
+    if not accounting_stop:
+        _refuse_if_fault_text(error, field_name=label, check_supervisor_denylist=True)
     terminal = record.get("terminal")
     if isinstance(terminal, Mapping) and terminal.get("returncode") == 124:
         raise CTResumeRefused(f"{label} records watchdog timeout exit code 124")
@@ -769,7 +801,9 @@ def _check_retained_receipt(record: Any, *, label: str) -> None:
             "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/out/ct/stall-watchdog"
         )
         child_error = error in (detail, f"ClassifiedFailure({detail!r})", legacy_detail)
-    if error not in (None, "") and not (_mechanical_supervisor_error(error) or child_error):
+    if error not in (None, "") and not (
+        _mechanical_supervisor_error(error) or child_error or accounting_stop
+    ):
         raise CTResumeRefused(f"unexplained retained receipt error: {label}")
     terminal = record.get("terminal")
     if record["failure_class"] == "CHILD_NONZERO_EXIT" and (
@@ -794,7 +828,29 @@ def _scan_json_faults(
     fixture_completion: bool = False,
 ) -> None:
     """Inspect nested diagnostic fields, including error fields in snapshot headers."""
+    try:
+        json.require_finite(value)
+    except ValueError as error:
+        raise CTResumeRefused(f"{label} contains non-finite or malformed JSON") from error
     if isinstance(value, Mapping):
+        for key in value:
+            if key in {
+                "canary",
+                "canary_evidence",
+                "canary_observations",
+                "SNAKE_COLAB_CANARY",
+                "SNAKE_COLAB_CANARY_PACKAGE",
+            }:
+                continue  # Exact qualified inventory/env names; values are scanned below.
+            if (
+                fixture_completion
+                and label.endswith(".transport_identity")
+                and isinstance(key, str)
+                and key in {"research/colab_cli/canary.py", "research/colab_cli/canary_observer.py"}
+                and value[key] == digest(Path(__file__).resolve().parents[2] / key)
+            ):
+                continue  # Exact qualified producer source key/hash, not arbitrary text.
+            _refuse_if_fault_text(key, field_name=f"{label} JSON key")
         receipt = value.get("status") == "INCOMPLETE" and any(
             key in value for key in ("stop_verified", "failure_class", "cleanup_error")
         )
@@ -835,6 +891,8 @@ def _scan_json_faults(
         )
         execution_record = {k: v for k, v in value.items() if not (receipt and k == "status")}
         for key, item in value.items():
+            if receipt and key == "error":
+                continue  # Exact cause was fully checked by _check_retained_receipt.
             name = f"{label}.{key}"
             mechanical_error = key == "error" and (
                 receipt or supervisor_transport and _mechanical_supervisor_error(item)
@@ -1092,7 +1150,37 @@ def _scan_diagnostic_bytes(path: Path, *, json_mode: bool = False, collect: bool
         )
     if invalid:
         raise CTResumeRefused(f"unreadable retained diagnostic evidence: {path}")
-    return "".join(chunks) + tail
+    text = "".join(chunks) + tail
+    if not json_mode and collect:
+        for line in text.splitlines():
+            stripped = line.strip()
+            start = stripped.find("{")
+            candidate = stripped[start:] if start >= 0 else stripped
+            if (
+                candidate.startswith(("{", "[", '"'))
+                or candidate in {"NaN", "Infinity", "-Infinity"}
+                or re.fullmatch(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", candidate)
+            ):
+                try:
+                    record = _load_json(candidate)
+                except json.JSONDecodeError:
+                    continue  # Byte-cut/truncated text is still scanned for faults above.
+                _scan_json_text_keys(record, label=str(path))
+    return text
+
+
+def _scan_json_text_keys(value: Any, *, label: str) -> None:
+    """Decode escaped fault keys in JSON log lines, in addition to the raw pass."""
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, Mapping):
+            for key, item in current.items():
+                if key != "canary_observations":
+                    _refuse_if_fault_text(key, field_name=f"{label} JSON key")
+                pending.append(item)
+        elif isinstance(current, list):
+            pending.extend(current)
 
 
 def _json_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -1109,6 +1197,10 @@ def _load_json(text: str | bytes) -> Any:
         value = json.loads(text, object_pairs_hook=_json_without_duplicates)
     except RecursionError as error:
         raise CTResumeRefused("excessively nested diagnostic JSON") from error
+    except ValueError as error:
+        if isinstance(error, json.JSONDecodeError):
+            raise
+        raise CTResumeRefused(str(error)) from error
     # JSON's C decoder and Python walkers have different recursion limits.
     # Bound nesting iteratively before any recursive diagnostic inspection.
     pending = [(value, 0)]
@@ -1299,6 +1391,7 @@ def retained_inventory(root: Path) -> dict[str, Any]:
     }
 
 
+@_evidence_session
 def _check_attempt_base_fault_evidence(
     base: Path,
     *,
@@ -1334,7 +1427,24 @@ def _check_attempt_base_fault_evidence(
         _scan_job_tail(text, label=str(history), generation=expected_generation)
         if cache is not None:
             cache.setdefault("progress_history_lines", set()).update(text.splitlines())
+    # Host-side stops do not export the history. Earlier complete poll lines
+    # witness later byte-cut first lines. Never learn witnesses from unvalidated
+    # tail fragments, and never depend on final exports for this path.
+    polls = sorted(
+        (p for p in retained_files if re.fullmatch(r"poll-\d{6}\.json", p.name)),
+        key=lambda p: (int(p.name[5:11]), str(p)),
+    )
+    for path in polls:
+        _scan_retained_text(
+            path,
+            output_root=base,
+            expected_job_id=expected_job_id,
+            expected_generation=expected_generation,
+        )
+    poll_paths = set(polls)
     for path in retained_files:
+        if path in poll_paths:
+            continue
         if _publication_sidecar(path):
             continue  # Sidecar bytes are not the payload's diagnostic content.
         name = path.name.lower().lstrip(".")
@@ -1391,14 +1501,11 @@ def assert_no_scientific_or_fault_precedence(
         _check_single_root_fault_evidence(root)
 
     _scan_json_faults(
-        {k: v for k, v in receipt.items() if k != "error"},
+        receipt,
         label="receipt",
         expected_job_id=receipt.get("job_id"),
         expected_generation=receipt.get("generation"),
         supervisor_transport=True,
-    )
-    _refuse_if_fault_text(
-        receipt.get("error"), field_name="receipt.error", check_supervisor_denylist=True
     )
     _refuse_if_fault_exports(receipt.get("exports"), source_name="receipt")
     terminal = receipt.get("terminal")
@@ -1450,9 +1557,11 @@ def _scan_supervisor_log(
                         f"supervisor CLI footer differs from bound receipt: {label}"
                     )
                 continue
-            if stripped.startswith("{"):
+            start = stripped.find("{")
+            if start >= 0:
+                _refuse_if_supervisor_log_fault(stripped[:start], field_name=label)
                 try:
-                    record = _load_json(stripped)
+                    record = _load_json(stripped[start:])
                 except ValueError as error:
                     raise CTResumeRefused(f"corrupt supervisor JSON record: {label}") from error
                 _scan_json_faults(
@@ -1464,6 +1573,8 @@ def _scan_supervisor_log(
                     supervisor_log=True,
                     fixture_completion=fixture_completion,
                 )
+                if not isinstance(record, Mapping):
+                    raise CTResumeRefused(f"malformed supervisor JSON record: {label}")
                 for field in ("state", "terminal"):
                     item = record.get(field)
                     if field == "terminal" and type(item) is bool:
@@ -1473,6 +1584,12 @@ def _scan_supervisor_log(
                             raise CTResumeRefused(f"malformed supervisor {field}: {label}")
                 _refuse_if_fault_exports(record.get("exports"), source_name=label)
             else:
+                if (
+                    stripped.startswith(("[", '"'))
+                    or stripped in {"NaN", "Infinity", "-Infinity"}
+                    or re.fullmatch(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", stripped)
+                ):
+                    _scan_json_faults(_load_json(stripped), label=label, supervisor_log=True)
                 _refuse_if_supervisor_log_fault(line, field_name=label)
 
 
@@ -1537,9 +1654,9 @@ def verify_mechanical_stop(
             raise CTResumeRefused("terminal records a non-mechanical child failure")
 
     failure_class = receipt.get("failure_class")
-    if failure_class == "RPC_EXEC_POLL_TIMEOUT":
-        if terminal is not None and terminal_reason not in MECHANICAL_TERMINAL_REASONS:
-            raise CTResumeRefused("RPC poll timeout receipt carries a non-mechanical terminal")
+    if failure_class == "ACCOUNTING":
+        # _check_retained_receipt already checked the exact producer error and
+        # absence of a terminal. Balance, repricing and provider errors refuse.
         return
     if failure_class == "CHILD_NONZERO_EXIT":
         if isinstance(terminal, Mapping) and terminal_reason in MECHANICAL_TERMINAL_REASONS:

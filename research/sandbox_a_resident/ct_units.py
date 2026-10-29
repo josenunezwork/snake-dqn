@@ -14,12 +14,12 @@ Implements Ruling §4 & §5 and JUDGMENT_RESUME_POLICY.md:
 from __future__ import annotations
 
 import hashlib
-import json
 import lzma
 import os
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from research.sandbox_a_resident import ct_json as json
 from research.sandbox_a_resident.training_compact import (
     CODEC,
     XZ_PRESET,
@@ -41,11 +41,11 @@ COMPACT_MANIFEST_SUFFIX = ".xz.manifest"
 _READ_BYTES = 1024 * 1024
 # units.publish() writes "<64-hex>\n" (65 B) + "complete\n" (9 B) = 74 B of sidecars per artifact.
 PUBLISH_SIDECAR_BYTES = 65 + 9
-# ct_job.sh:seal_stall_diagnostics caps each of the 2 stall-watchdog files at <= 1 MiB + sidecars,
-# plus 8 KiB slack for stall-diagnostic sidecar filenames and final progress.json replacement.
-STALL_DIAGNOSTIC_SEAL_RESERVE_BYTES = 2 * (1024 * 1024) + 8192
+# ct_job.sh caps two watchdog files at 1 MiB each and history at 4 MiB;
+# 8 KiB covers all three sets of sidecars and final progress.json replacement.
+STALL_DIAGNOSTIC_SEAL_RESERVE_BYTES = 6 * (1024 * 1024) + 8192
 # Reserved tail inside max_total_export_bytes (384 MiB) for summary/sigusr1/fault + stall sealing.
-TAIL_SUMMARY_AND_DIAGNOSTIC_RESERVE_BYTES = 2_228_224
+TAIL_SUMMARY_AND_DIAGNOSTIC_RESERVE_BYTES = 2_228_224 + 4 * (1024 * 1024)
 
 
 class StageExportOverflowError(RuntimeError):
@@ -95,6 +95,7 @@ def validate_compact_resume(payload: Mapping[str, Any]) -> dict[str, dict[str, A
     Returns ``{unit_id: entry_dict}`` mapping each compact-transported unit to its
     bound ``original``, ``derivative``, and ``manifest`` descriptors.
     """
+    json.require_finite(payload)
     if COMPACT_RESUME_FIELD not in payload:
         return {}
     block = payload[COMPACT_RESUME_FIELD]

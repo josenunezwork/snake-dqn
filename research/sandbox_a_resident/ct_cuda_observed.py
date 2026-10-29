@@ -1,19 +1,28 @@
-"""Exact benign bootstrap lines observed in immutable A100 captures 08 and 09.
+"""Closed bootstrap grammar from the qualified producer and real A100 captures."""
 
-No pattern expansion or warning-class exemptions. Version/timing drift refuses."""
+import re
+
+# Only variable fields emitted by uv are patterns; warning text remains exact.
+BOOTSTRAP_PATTERNS = tuple(
+    re.compile(pattern)
+    for pattern in (
+        r"Installed Python 3\.12\.[0-9]+ in [0-9]+(?:\.[0-9]+)?(?:ms|s)",
+        (
+            r"Downloading cpython-3\.12\.[0-9]+-linux-x86_64-gnu \(download\) "
+            r"\([0-9]+(?:\.[0-9]+)?MiB\)"
+        ),
+        r" Downloaded cpython-3\.12\.[0-9]+-linux-x86_64-gnu \(download\)",
+        r"Using CPython 3\.12\.[0-9]+",
+        r" \+ cpython-3\.12\.[0-9]+-linux-x86_64-gnu \(python3\.12\)",
+        r" \+ pip==[0-9]+\.[0-9]+(?:\.[0-9]+)?",
+    )
+)
 
 BOOTSTRAP_LINES: frozenset[str] = frozenset(
     [
-        " + cpython-3.12.16-linux-x86_64-gnu (python3.12)",
-        " + pip==26.2.2",
-        " Downloaded cpython-3.12.16-linux-x86_64-gnu (download)",
         "2.9.1+cu126 12.6 (8, 0)",
         "Activate with: source .venv/bin/activate",
         "Creating virtual environment with seed packages at: .venv",
-        "Downloading cpython-3.12.16-linux-x86_64-gnu (download) (32.9MiB)",
-        "Installed Python 3.12.16 in 989ms",
-        "Installed Python 3.12.16 in 1.17s",
-        "Using CPython 3.12.16",
         (
             "warning: The `--system` flag has no effect, `uv venv` always igno"
             "res virtual environments when finding a Python interpreter; did y"
