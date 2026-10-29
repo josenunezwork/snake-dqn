@@ -56,6 +56,9 @@ def audit(control: dict, registry: Path) -> dict:
 
 
 def prepare(packet: Path, commit: str) -> None:
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "--verify", f"{commit}^{{commit}}"], cwd=ROOT, text=True
+    ).strip()
     checkpoint_dir = ARTIFACTS.parent / "snake-dqn" / "saved_snakes"
     registry = ROOT / "tools/sandbox/SANDBOX_INPUT_REGISTRY.json"
     sources = [
