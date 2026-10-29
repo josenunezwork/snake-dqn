@@ -100,6 +100,14 @@
       ],
       "successor": "packet-ct-1028-10",
       "reason": "Argon packet-09 rejection: strict finite JSON, structural bootstrap admission, long-stop suffix witnesses and import/accounting corrections. Prior packet and captures preserved immutable."
+    },
+    {
+      "packet_dir": "packet-ct-1028-10",
+      "job_ids": [
+        "sandbox-ct-cf-20261028-10"
+      ],
+      "successor": "packet-ct-1028-11",
+      "reason": "Opus packet-10 fixes: immutable in-flight history segments survive slow polls; prose brace, qualified uv version and all-real finite checks. Prior packet and captures unchanged."
     }
   ]
 }

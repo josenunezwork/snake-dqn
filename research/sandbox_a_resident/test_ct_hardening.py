@@ -97,9 +97,10 @@ def test_ct4_fault_uses_terminal_tail(tmp_path: Path, monkeypatch: pytest.Monkey
     ctrl = CTControl(
         source_commit="a" * 40,
         tiny=True,
-        max_stage_export_bytes=16 * 1024 * 1024,
-        max_total_export_bytes=16 * 1024 * 1024,
+        max_stage_export_bytes=32 * 1024 * 1024,
+        max_total_export_bytes=32 * 1024 * 1024,
     )
+    assert ct_run._summary_tail_reserve_bytes(ctrl) > 0
     output = tmp_path / "out"
 
     def explode(_device: object) -> None:

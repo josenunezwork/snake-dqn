@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json as _json
 import math
+from decimal import Decimal
+from numbers import Real
 from typing import Any, Mapping
 
 JSONDecodeError = _json.JSONDecodeError
@@ -21,8 +23,13 @@ def require_finite(value: Any) -> None:
         item, depth = pending.pop()
         if depth > 128:
             raise ValueError("excessively nested diagnostic JSON")
-        if isinstance(item, float) and not math.isfinite(item):
-            raise ValueError("non-finite JSON float")
+        if not isinstance(item, bool) and isinstance(item, (Real, Decimal)):
+            try:
+                finite = math.isfinite(item)
+            except (ValueError, TypeError, OverflowError) as error:
+                raise ValueError("non-finite or unrepresentable JSON number") from error
+            if not finite:
+                raise ValueError("non-finite JSON number")
         if isinstance(item, Mapping):
             pending.extend((part, depth + 1) for pair in item.items() for part in pair)
         elif isinstance(item, (list, tuple)):

@@ -41,11 +41,11 @@ COMPACT_MANIFEST_SUFFIX = ".xz.manifest"
 _READ_BYTES = 1024 * 1024
 # units.publish() writes "<64-hex>\n" (65 B) + "complete\n" (9 B) = 74 B of sidecars per artifact.
 PUBLISH_SIDECAR_BYTES = 65 + 9
-# ct_job.sh caps two watchdog files at 1 MiB each and history at 4 MiB;
-# 8 KiB covers all three sets of sidecars and final progress.json replacement.
-STALL_DIAGNOSTIC_SEAL_RESERVE_BYTES = 6 * (1024 * 1024) + 8192
+# Two 1 MiB watchdog files, full history and immutable segments at 4 MiB each.
+# 256 KiB covers up to 1024 segment sidecar sets and progress.json replacement.
+STALL_DIAGNOSTIC_SEAL_RESERVE_BYTES = 10 * (1024 * 1024) + 256 * 1024
 # Reserved tail inside max_total_export_bytes (384 MiB) for summary/sigusr1/fault + stall sealing.
-TAIL_SUMMARY_AND_DIAGNOSTIC_RESERVE_BYTES = 2_228_224 + 4 * (1024 * 1024)
+TAIL_SUMMARY_AND_DIAGNOSTIC_RESERVE_BYTES = 2_228_224 + 8 * (1024 * 1024) + 256 * 1024
 
 
 class StageExportOverflowError(RuntimeError):

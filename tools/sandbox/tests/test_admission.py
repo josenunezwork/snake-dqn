@@ -142,11 +142,15 @@ def test_ct_nested_preflight_uses_its_bounded_test_window(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A passing C/T suite over 60 seconds must not hit the generic host limit."""
+    from research.sandbox_a_resident import ct_uv
+
     packet = json.loads(
         (
             ROOT / "research/sandbox_a_resident/packet-ct-1028-06/reseal-01/dispatch-manifest.json"
         ).read_text()
     )
+    packet["env"][ct_uv.UV_VERSION_ENV] = ct_uv.QUALIFIED_UV_VERSION
+    monkeypatch.setattr(ct_uv, "require_uv_version", lambda *_args: ct_uv.QUALIFIED_UV_VERSION)
     output_root = tmp_path / "ct-artifacts"
     monkeypatch.setitem(dispatch.SANDBOX_OUTPUT_ROOTS, "t34-cf-1028", output_root)
     packet["output_dir"] = str(output_root / "output")

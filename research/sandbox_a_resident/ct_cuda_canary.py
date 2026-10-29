@@ -272,16 +272,18 @@ def run_capture(inputs: Path, output: Path, commit: str, *, device: str = "cuda"
         "qualification": "AWAITING_OPERATOR_CAPTURE_REVIEW" if device == "cuda" else "CPU_ONLY",
     }
     set_phase("export-sealing")
+    # Join the segment publisher before enumerating raw files: a live .partial
+    # must never be mistaken for another raw canary artifact to seal.
+    status_cadence = finish_status()
     # Seal all raw evidence with the same completion-last publication primitive.
     for path in sorted(output.rglob("*")):
-        if path.name == "progress-history.log" and path.parent == output and owns_output(output):
-            continue  # Active parent history is sealed only after its thread joins.
+        if path.name == "progress-history.log" and path.parent == output:
+            continue  # Parent history is sealed exactly once below.
         if path.is_file() and not path.name.endswith((".sha256", ".complete")):
             sidecar = Path(str(path) + ".sha256")
             if not sidecar.exists():
                 sidecar.write_text(f"{digest(path)}  {path.name}\n")
                 Path(str(path) + ".complete").write_text("complete\n")
-    status_cadence = finish_status()
     if status_cadence is not None:
         if status_cadence["max_gap_seconds"] > 30:
             raise RuntimeError("canary parent heartbeat gap exceeds 30 seconds")

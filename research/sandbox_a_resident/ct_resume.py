@@ -680,7 +680,12 @@ def _validate_signal_marker(row: Any) -> None:
 
 
 def _scan_job_tail(
-    value: Any, *, label: str, generation: str | None = None, fixture_completion: bool = False
+    value: Any,
+    *,
+    label: str,
+    generation: str | None = None,
+    fixture_completion: bool = False,
+    allow_fragment: bool = True,
 ) -> None:
     """Accept observed lines or closed C/T progress schemas, never arbitrary log text."""
     if value in (None, ""):
@@ -722,7 +727,8 @@ def _scan_job_tail(
                 "progress_history_lines", set()
             ) | BOOTSTRAP_LINES
             if (
-                index == 0
+                allow_fragment
+                and index == 0
                 and prefix not in {"CT_PROGRESS", "CT_HEARTBEAT", "CT_SIGUSR1_CLEAN_EXIT"}
                 and len(value.encode("utf-8")) in {4096, 65536}
                 and any(known.endswith(line) for known in witnesses)
@@ -1422,6 +1428,36 @@ def _check_attempt_base_fault_evidence(
             raise CTResumeRefused("retained receipt belongs to foreign job_id")
         expected_generation = expected_generation or retained_receipt.get("generation")
     retained_files = _retained_files(base)
+    # The runtime publishes these while it runs; the qualified downloader already
+    # retains them on each poll. A slow poll may skip an entire tail window.
+    # Validate immutable complete segments before allowing any suffix witnesses.
+    from research.sandbox_a_resident.ct_liveness import (
+        HISTORY_LIMIT_BYTES,
+        MAX_SEGMENTS,
+        SEGMENT_LIMIT_BYTES,
+    )
+
+    segments = sorted(
+        p for p in retained_files if re.fullmatch(r"progress-history-\d{4}\.log", p.name)
+    )
+    groups: dict[Path, list[Path]] = {}
+    for segment in segments:
+        groups.setdefault(segment.parent, []).append(segment)
+    for group in groups.values():
+        if len(group) > MAX_SEGMENTS or sum(p.stat().st_size for p in group) > HISTORY_LIMIT_BYTES:
+            raise CTResumeRefused("progress segment inventory exceeds bound")
+        for index, segment in enumerate(group):
+            if segment.name != f"progress-history-{index:04d}.log":
+                raise CTResumeRefused("missing or unordered progress segment")
+            _descriptor(segment, runtime_path=segment.name)
+            if not 0 < segment.stat().st_size <= SEGMENT_LIMIT_BYTES:
+                raise CTResumeRefused("oversized or empty progress segment")
+            text = _scan_diagnostic_bytes(segment)
+            if not text.endswith("\n"):
+                raise CTResumeRefused("partial progress segment line")
+            _scan_job_tail(
+                text, label=str(segment), generation=expected_generation, allow_fragment=False
+            )
     for history in (p for p in retained_files if p.name == "progress-history.log"):
         text = _scan_diagnostic_bytes(history)
         _scan_job_tail(text, label=str(history), generation=expected_generation)
@@ -1558,7 +1594,15 @@ def _scan_supervisor_log(
                     )
                 continue
             start = stripped.find("{")
-            if start >= 0:
+            prefix = stripped[:start].strip() if start >= 0 else None
+            timestamp = (
+                re.fullmatch(
+                    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})", prefix
+                )
+                if prefix
+                else None
+            )
+            if start >= 0 and (not prefix or timestamp):
                 _refuse_if_supervisor_log_fault(stripped[:start], field_name=label)
                 try:
                     record = _load_json(stripped[start:])

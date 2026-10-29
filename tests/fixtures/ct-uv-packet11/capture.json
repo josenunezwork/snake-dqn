@@ -1,0 +1,14 @@
+{
+  "version": "uv 0.13.1 (Homebrew 2026-10-14 aarch64-apple-darwin)\n",
+  "args": [
+    "/opt/homebrew/bin/uv",
+    "venv",
+    "--offline",
+    "--python",
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "/private/tmp/astra-impl-ct13.iPiorU/tmp1zyp110d/venv"
+  ],
+  "returncode": 0,
+  "stdout": "",
+  "stderr": "warning: The `--system` flag has no effect, `uv venv` always ignores virtual environments when finding a Python interpreter; did you mean `--no-managed-python`?\nUsing CPython 3.12.3 interpreter at: /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python\nCreating virtual environment at: /private/tmp/astra-impl-ct13.iPiorU/tmp1zyp110d/venv\nActivate with: source /private/tmp/astra-impl-ct13.iPiorU/tmp1zyp110d/venv/bin/activate\n"
+}

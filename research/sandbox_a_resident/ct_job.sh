@@ -10,6 +10,9 @@ export VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 NUMEXPR_NUM_THREADS=1 MAX_JOB
 export TORCHINDUCTOR_COMPILE_THREADS=1
 export CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONUNBUFFERED=1
 export GPU_SIM_VECTOR_GEOMETRY=native GPU_SIM_VECTOR_FLOOD=static GPU_SIM_V8_INDEXED=0
+# Host dispatch fences its uv capture too. Check the fresh VM's actual package
+# after the unchanged qualified bootstrap, before the C/T producer can run.
+nice -n 15 python -m research.sandbox_a_resident.ct_uv "${CT_QUALIFIED_UV_VERSION:?qualified uv version required}"
 nice -n 15 python -c 'import os; from pathlib import Path; Path(os.environ["COLAB_CLI_ROOT"], "ct-control.json").write_text(os.environ["SANDBOX_CT_CONTROL_JSON"])'
 diagnostics="$COLAB_CLI_ROOT/output/ct/stall-watchdog"
 
