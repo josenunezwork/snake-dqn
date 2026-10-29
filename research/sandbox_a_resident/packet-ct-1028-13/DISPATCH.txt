@@ -1,0 +1,12 @@
+C/T-1028-13: locally resealed; independent Argon review pending; NOT DISPATCHED.
+Runtime pin: 02f0f9cf3e85750d28cfd2aec7d3c3da285c4ab4
+Packet12 native watchdog HOLD repaired with an independent bounded hard-exit guard; see root-cause evidence and healthy/fault twins.
+Actual VM uv version is printed; no Mac/VM expected-version fence. Closed version grammar; exact literal warnings; prefixed host JSON receives structured fault scanning.
+Science control differs only in source_commit. requirements.gpu remains A100; H100-first adoption is separate.
+Base720/effective1440minutes; base96.5/effective193units at8u/h; reserve0; empty initial ledger; at most2 manual completion attempts.
+Historical smoke09 startup status maximum17.3s and SIGUSR1 exit3.096602841s are retained observations, not qualification of the new pin or production VRAM/throughput.
+See CT_1028_13.md for corrections, tests and colab-limits walk.
+Exact operator command (NOT RUN; independent Argon review required):
+PATH=/Users/josenunez/Projects/ml/snake-dqn/venv/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin SNAKE_DQN_PYTHON=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1 PYTHONDONTWRITEBYTECODE=1 PYTEST_ADDOPTS='-p no:cacheprovider' nice -n 15 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-13-broker.noindex/tools/ops/dispatch.sh sandbox-ct-cf-20261028-13 /Users/josenunez/Projects/ml/snake-dqn-ct-1028-13-broker.noindex/research/sandbox_a_resident/packet-ct-1028-13/dispatch-manifest.json --broker /Users/josenunez/Projects/ml/snake-dqn-ct-1028-13-broker.noindex --cwd /Users/josenunez/Projects/ml/snake-dqn-ct-1028-13-runtime.noindex --state-dir /Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-cf-1028/attempt-13/state --dispatch-txt /Users/josenunez/Projects/ml/snake-dqn-ct-1028-13-broker.noindex/research/sandbox_a_resident/packet-ct-1028-13/DISPATCH.txt
+
+Dry-run: append --dry-run. Preserve both detached checkouts and all prior evidence.
