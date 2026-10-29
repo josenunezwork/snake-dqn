@@ -1989,13 +1989,15 @@ ALLOCATION_UNAVAILABLE = (
 )
 
 
-def allocation_unavailable(output: Path, log: Path) -> bool:
+def allocation_unavailable(output: Path, log: Path, accelerator: str) -> bool:
     """Recognize the measured 0.7.4 pre-assignment scarcity errors only.
 
     This is only a candidate: reconciliation below must independently prove
     no assignment. Timeout, entitlement, accounting and post-endpoint errors
     never qualify. The qualified supervisor intentionally retains uncertainty.
     """
+    if not isinstance(accelerator, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", accelerator):
+        return False
     if not re.search(r"^EXIT=[1-9]\d*$", log.read_text(), re.MULTILINE):
         return False
     path = output / "receipt.json"
@@ -2027,7 +2029,7 @@ def allocation_unavailable(output: Path, log: Path) -> bool:
             re.fullmatch(
                 r"ColabRequestError: Failed to issue request POST "
                 r"https://colab\.research\.google\.com/tun/m/assign"
-                r"\?nbh=[a-f0-9_.-]+&variant=GPU&accelerator=H100: "
+                r"\?nbh=[a-f0-9_.-]+&variant=GPU&accelerator=" + re.escape(accelerator) + r": "
                 r"(?:Service Unavailable|503(?: Service Unavailable)?)",
                 lines[-1] if lines else "",
             )
@@ -2075,11 +2077,10 @@ def reconcile_unavailable(
     failure or unrelated pending record leaves the account fenced for an operator.
     """
     packet = read_json(manifest)
-    if packet.get("requirements", {}).get("gpu") != "H100":
-        raise Refused("only H100 allocation reconciliation is supported")
+    accelerator = packet.get("requirements", {}).get("gpu")
     output = Path(packet["output_dir"])
-    if not allocation_unavailable(output, log):
-        raise Refused("H100 allocation unavailability is not proven")
+    if not allocation_unavailable(output, log, accelerator):
+        raise Refused("requested accelerator allocation unavailability is not proven")
     receipt_path = output / "receipt.json"
     receipt = read_json(receipt_path)
     session = receipt.get("session", "")
@@ -2139,7 +2140,7 @@ def reconcile_unavailable(
             text=True,
         )
         if json.loads(recovered.stdout) != {"endpoint": None}:
-            raise Refused("H100 endpoint recovered; fallback forbidden")
+            raise Refused("allocation endpoint recovered; retirement and fallback forbidden")
         inventory = command(
             [str(Path.home() / ".local/bin/colab"), "--auth", "oauth2", "sessions"],
             deadline=deadline,
@@ -2161,6 +2162,7 @@ def reconcile_unavailable(
         evidence = {
             "schema": "colab-allocation-unavailable/v1",
             "classification": "ALLOCATION_UNAVAILABLE",
+            "requested_accelerator": accelerator,
             "receipt": {
                 "path": str(receipt_path),
                 "sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
@@ -2313,7 +2315,9 @@ def dispatch_preferred(
             if (
                 index == 0
                 and outcome == "failed"
-                and allocation_unavailable(Path(packet["output_dir"]), log)
+                and allocation_unavailable(
+                    Path(packet["output_dir"]), log, packet["requirements"]["gpu"]
+                )
             ):
                 reconcile_unavailable(
                     broker, live, lane, log, ops / "dispatch" / name / "unavailable.json", deadline

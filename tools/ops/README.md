@@ -104,7 +104,7 @@ an invented `stop_verified` flag. Unknown errors, timeout, 400 entitlement error
 uncertain recovery, changed inventory, or any endpoint forbid fallback. Preference
 packets never use the legacy accounting retry after an endpoint failure.
 
-For a retained H100 pending record from either recognized error, use
+For a retained pending record for any accelerator from either recognized error, use
 `python tools/ops/reconcile_gpu_pending.py --manifest <executed-live-manifest>
 --state-dir <state-root> --log <terminated-dispatch-log> --pending <exact-account-pending>
 --proof <fresh-archive.json> --broker <qualified-broker> --dry-run`. The preview runs
@@ -115,6 +115,13 @@ it leaves the pending record and archive path untouched. Replace `--dry-run` wit
 No allocation, stop, active-record mutation, fallback dispatch, or receipt rewrite
 is performed by this command. Any recovered endpoint, inventory drift, other
 pending intent, archive collision or evidence mismatch keeps the pending fence.
+The assign-POST 503 error must name the exact accelerator in the executed manifest;
+an error for another accelerator is refused. The proof records that requested
+accelerator. This retirement support does not change dispatch preferences or grant
+permission to substitute hardware: a sealed A100-only packet stays A100-only after
+retirement. An H100 retry needs a newly sealed and admitted successor with fresh
+job/output/state/receipt identities and an H100-priced envelope (and any required
+hardware-specific canary evidence); never edit the original packet.
 Both automatic fallback reconciliation and this operator tool poll a contended
 account broker lock once per second within their remaining deadline (at most
 600 seconds including preceding work). They retain the ops-then-account lock

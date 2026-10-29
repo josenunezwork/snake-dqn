@@ -118,14 +118,15 @@ if mode.startswith('gpu_'):
     receipt['error']=repr(RuntimeError())  # overwritten with supervisor's Refused repr
     detail="colab new failed (1): [colab] Creating session '"+session+"'...\\n"+message+"\\n"
     receipt['error']='Refused('+repr(detail)+')'
-    if mode == 'gpu_service_unavailable':
+    if mode in {'gpu_service_unavailable', 'gpu_retained_service_unavailable'}:
         receipt['error']=json.loads(Path(os.environ['GPU_FAILURE_FIXTURE']).read_text())['error']
     account=Path.home()/'.config/colab-cli/snake'
     account.mkdir(parents=True, exist_ok=True)
     intent={'session':session,'config':str(state/job/'sessions.json'), 'output':str(output),
             'before':[], 'notebook_hash':'b'*32,
             'assignment_record':str(state/job/'sessions.assignment.json')}
-    if (gpu == 'A100' and mode != 'gpu_both_unavailable') or mode == 'gpu_success':
+    if (gpu == 'A100' and mode not in {'gpu_both_unavailable',
+                                     'gpu_retained_service_unavailable'}) or mode == 'gpu_success':
         (output/'hardware.json').write_text(json.dumps({'hardware':{'kind':gpu, 'name':gpu}}))
         (output/'rate-calibration.json').write_text(json.dumps({'status':'PASS'}))
         receipt.update(status='PASS', endpoint='endpoint-'+gpu, error=None, cleanup_error=None,
