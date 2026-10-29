@@ -1367,8 +1367,9 @@ def test_continuation_builder_admits_receipt_less_host_enospc_and_chains_compact
 
 
 @pytest.mark.parametrize("fallback", [False, True])
+@pytest.mark.parametrize("packet_family", ["s2-01", "s2-02"])
 def test_second_seed_preference_continuation_preserves_domain_and_whole_timeout_price(
-    fixture_workspace: Path, fallback: bool
+    fixture_workspace: Path, fallback: bool, packet_family: str
 ) -> None:
     """Both admitted GPU identities can continue S2 with the same audited recipe."""
     from research.compute.gpu_preference import prepare_preference, variants
@@ -1377,7 +1378,7 @@ def test_second_seed_preference_continuation_preserves_domain_and_whole_timeout_
     from tools.sandbox.registry import world_seed
 
     repo = fixture_workspace / "snake-dqn-fixture"
-    packet = repo / "research/sandbox_a_resident/packet-train01-s2-01"
+    packet = repo / f"research/sandbox_a_resident/packet-train01-{packet_family}"
     if not packet.exists():
         shutil.copytree(packet.with_name("packet-train01-16"), packet)
         control = json.loads((packet / "control.json").read_text())
@@ -1390,7 +1391,7 @@ def test_second_seed_preference_continuation_preserves_domain_and_whole_timeout_
         (packet / "registry-check.json").write_text(json.dumps(audit))
         manifest_path = packet / "dispatch-manifest.json"
         manifest = json.loads(manifest_path.read_text())
-        manifest["job_id"] = "sandbox-a-train01-20261028-s2-01"
+        manifest["job_id"] = f"sandbox-a-train01-20261028-{packet_family}"
         manifest["env"].update(
             SANDBOX_A_CONTROL_JSON=json.dumps(control),
             SANDBOX_A_SNAPSHOT_FORMAT="compact",
@@ -1413,7 +1414,9 @@ def test_second_seed_preference_continuation_preserves_domain_and_whole_timeout_
         )
     artifacts = fixture_workspace / "snake-dqn-artifacts/sandbox-a-resident"
     suffix = "fallback" if fallback else "primary"
-    attempt = _populate_attempt(artifacts / f"s2-{suffix}", packet, [64], receipt_overrides={})
+    attempt = _populate_attempt(
+        artifacts / f"{packet_family}-{suffix}", packet, [64], receipt_overrides={}
+    )
     if fallback:
         executed_path = attempt / "output/manifest.json"
         selected = variants(json.loads(executed_path.read_text()))[1]
@@ -1429,7 +1432,7 @@ def test_second_seed_preference_continuation_preserves_domain_and_whole_timeout_
         repo_root=repo,
         checkout_parent=fixture_workspace,
         artifacts_root=artifacts,
-        slug=f"train01-s2-01-c1-i0064-{suffix}",
+        slug=f"train01-{packet_family}-c1-i0064-{suffix}",
         skip_dry_run=True,
     )
     successor = Path(result["packet_dir"])
@@ -1440,3 +1443,10 @@ def test_second_seed_preference_continuation_preserves_domain_and_whole_timeout_
     assert manifest["env"]["SANDBOX_A_PACKET_ID"] == successor.name
     assert manifest["budget"]["unit_cap"] == manifest["timeout_minutes"] * 12 / 60
     assert variants(manifest)[1]["budget"]["unit_cap"] == manifest["timeout_minutes"] * 8 / 60
+    if packet_family == "s2-02":
+        assert manifest["requirements"]["est_minutes"] == 690
+        assert manifest["timeout_minutes"] == 1380
+        assert manifest["budget"]["unit_cap"] == 276
+        assert variants(manifest)[1]["budget"]["unit_cap"] == 184
+        assert result["remaining_envelope"]["full_remaining_est_minutes"] > 690
+        assert result["remaining_envelope"]["may_require_further_completion"] is True

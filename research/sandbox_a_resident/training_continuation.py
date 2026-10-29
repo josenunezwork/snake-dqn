@@ -90,9 +90,9 @@ WORKLOAD_MANIFEST_KEYS = (
     "inputs",
     "resume",
 )
-SLUG_RE = re.compile(r"^train01-(?:11|15|16|17|s2-01)-c[12]-[a-z0-9][a-z0-9_-]*$")
+SLUG_RE = re.compile(r"^train01-(?:11|15|16|17|s2-0[12])-c[12]-[a-z0-9][a-z0-9_-]*$")
 SOURCE_PACKET_BASE_RE = re.compile(
-    r"^packet-(train01-(?:11|15|16|17|s2-01))(?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?$"
+    r"^packet-(train01-(?:11|15|16|17|s2-0[12]))(?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?$"
 )
 # Prospectively frozen whole-input staging bounds reconciled with measured
 # A100 upload-measurement.json anchors (train01-attempt-15 18-file compact
@@ -735,6 +735,7 @@ def compute_remaining_envelope(
     snapshot_interval: int = 16,
     deferred_proxy: bool = False,
     needs_baseline_proxy: bool = False,
+    attempt_est_minutes_limit: int | None = None,
 ) -> dict[str, Any]:
     """Size remaining A100 base and 2x effective envelopes per colab-limits §4.3-4.4."""
     if type(iteration) is not int or not 0 <= iteration < outer_iterations:
@@ -778,6 +779,11 @@ def compute_remaining_envelope(
     nominal_seconds = round(sum(phases_nominal.values()), 2)
     conservative_seconds = round(sum(phases_conservative.values()), 2)
     est_minutes = max(60, int(math.ceil((conservative_seconds / 60.0) / 10.0) * 10))
+    forecast_est_minutes = est_minutes
+    if attempt_est_minutes_limit is not None:
+        if type(attempt_est_minutes_limit) is not int or attempt_est_minutes_limit < 60:
+            raise ContinuationRefused("attempt estimate limit must be an integer >= 60 minutes")
+        est_minutes = min(est_minutes, attempt_est_minutes_limit)
     timeout_minutes = 2 * est_minutes
     base_seconds = est_minutes * 60
     effective_seconds = timeout_minutes * 60
@@ -802,6 +808,9 @@ def compute_remaining_envelope(
         "nominal_hours": round(nominal_seconds / 3600.0, 2),
         "conservative_base_seconds": conservative_seconds,
         "conservative_base_hours": round(conservative_seconds / 3600.0, 2),
+        "full_remaining_est_minutes": forecast_est_minutes,
+        "attempt_est_minutes_limit": attempt_est_minutes_limit,
+        "may_require_further_completion": forecast_est_minutes > est_minutes,
         "est_minutes": est_minutes,
         "timeout_minutes": timeout_minutes,
         "base_seconds": base_seconds,
@@ -1273,6 +1282,15 @@ def build_continuation_packet(
         snapshot_interval=int(source_control["snapshot_interval"]),
         deferred_proxy=deferred_proxy,
         needs_baseline_proxy=needs_baseline_proxy,
+        # S2-02 freezes a per-attempt guard below Colab's 24-hour ceiling.
+        # Keep the full remaining forecast and endpoint; verified snapshots
+        # carry work across at most two manual completion attempts.
+        attempt_est_minutes_limit=(
+            690
+            if source_packet_id == "packet-train01-s2-02"
+            or source_packet_id.startswith("packet-train01-s2-02-c")
+            else None
+        ),
     )
     storage_projection = compute_storage_projection(
         output_dir,
