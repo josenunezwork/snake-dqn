@@ -656,8 +656,13 @@ def main() -> int:
             "addopts=",
             "-p",
             "no:cacheprovider",
-            "-p",
-            "no:xdist",
+            # Mac-ops permits two CPU test processes, each capped to one
+            # numerical thread. Keep every historical target and preserve
+            # file-local order while leaving the 180/420-second bounds intact.
+            "-n",
+            "2",
+            "--dist",
+            "loadfile",
             *targets,
         ],
         cwd=ROOT,
