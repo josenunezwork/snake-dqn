@@ -1,0 +1,302 @@
+{
+  "admission": {
+    "accepted_admission_commit": "da85a426f94b6a4f2d6bfb8cb8507e26df417501",
+    "accepted_module": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-sbxA/research/sandbox_a_resident/training_resume.py",
+      "sha256": "4e6548125caed75f19a944e0cde742bf59db01c09dba451b71cc21eb26d00bd4",
+      "size": 128416
+    },
+    "accepted_source_clean": true,
+    "allocations": 0,
+    "cleanup_error": null,
+    "dispatch_dry_run": "NOT_RUN_NO_ADMISSIBLE_PACKET",
+    "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+    "full_output_admission": "REFUSE",
+    "full_output_refusal": "oversized retained diagnostic: /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/exports/training/calibrated-boundary.pt",
+    "header": {
+      "metadata": {
+        "allocation": "c4d6f5a5a1296a46b959227a866c8d71c4288514e783bac44378854ff1db9315",
+        "phase": "calibrated",
+        "prepare_phase": "calibrated",
+        "provenance": {
+          "b8_s3_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+          "champion_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "engine": "simulator-D",
+          "frp3_s12_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+          "roster_definition": "research.t34_round0.bank._rows"
+        },
+        "source_commit": "459bfb58cf1f4966f59ce06fa33fc94539f80d9b"
+      },
+      "schema": "sandbox-a-train-calibrated-boundary/v1"
+    },
+    "iteration_headers": [],
+    "ledger_refusal": "no complete full-trajectory snapshot triples",
+    "manifest": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/manifest.json",
+      "sha256": "1d242667730c5295725d9f90c93217b53a8e95fdcb0820a65d28feda9193cefb",
+      "size": 12142
+    },
+    "mechanical_receipt_and_full_supervisor_log": "REFUSE_NATIVE_TIMEOUTEXPIRED_SHAPE",
+    "mechanical_receipt_class": "ELIGIBLE_RPC_EXEC_POLL_TIMEOUT",
+    "packet_created": false,
+    "poll_count": 81,
+    "receipt": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/receipt.json",
+      "sha256": "4b6d2d2a9d71b2a99bdb53a4e4b4f0e040af978d7bb846d2f75c0b023a05c45b",
+      "size": 445176
+    },
+    "receipt_refusal": "receipt.error records explicit scientific/non-mechanical fault: \"TimeoutExpired(['/Users/josenunez/.local/bin/colab', '--auth', 'oauth2', '--config', '/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/state-a100-fallback/sandbox-a-train01-20261028-s2-03-a100-fallback/sessions.json', 'exec', '-s', 'snake-sandbox-a-train01-20261028-s2-03-a100-fallback-4021faaaf8fa', '-f', '/var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/tmpfs8bpjy_.py', '--timeout', '16.617396665969864'], 16.617395332898013)\"",
+    "receipt_status": "INCOMPLETE",
+    "replay_scope": "Same retained source evidence repeated 3x per prospective GPU; NOT GPU admission preflight and NOT a successor packet",
+    "replays": [
+      {
+        "prospective_gpu": "H100",
+        "reason": "oversized retained diagnostic: /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/exports/training/calibrated-boundary.pt",
+        "repeat": 1,
+        "verdict": "REFUSE"
+      },
+      {
+        "prospective_gpu": "H100",
+        "reason": "oversized retained diagnostic: /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/exports/training/calibrated-boundary.pt",
+        "repeat": 2,
+        "verdict": "REFUSE"
+      },
+      {
+        "prospective_gpu": "H100",
+        "reason": "oversized retained diagnostic: /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/exports/training/calibrated-boundary.pt",
+        "repeat": 3,
+        "verdict": "REFUSE"
+      },
+      {
+        "prospective_gpu": "A100",
+        "reason": "oversized retained diagnostic: /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/exports/training/calibrated-boundary.pt",
+        "repeat": 1,
+        "verdict": "REFUSE"
+      },
+      {
+        "prospective_gpu": "A100",
+        "reason": "oversized retained diagnostic: /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/exports/training/calibrated-boundary.pt",
+        "repeat": 2,
+        "verdict": "REFUSE"
+      },
+      {
+        "prospective_gpu": "A100",
+        "reason": "oversized retained diagnostic: /Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/exports/training/calibrated-boundary.pt",
+        "repeat": 3,
+        "verdict": "REFUSE"
+      }
+    ],
+    "source_evidence_unchanged": true,
+    "status": "C1_REFUSED_CALIBRATION_ONLY",
+    "stop_verified": true,
+    "supervisor_log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/sandbox-a-train01-20261028-s2-03-a100-fallback.log",
+      "sha256": "feebbb9cadd585b31a1ecef15c97fd354ff70eb91214f389d61e11c3f207911e",
+      "size": 322875
+    },
+    "transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+    "verified_exports": [
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/exports/training/distribution-screen.json",
+        "sha256": "79b10517c9ca3fdc9fd92622a47243e6134da131ac679e849b0275e0dc74c312",
+        "size": 6849
+      },
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/exports/training/calibrated-boundary.json",
+        "sha256": "bba20cea53a9fbc675de00ebb1250514ca818d60b42540c7aec925b2db42fcde",
+        "size": 618
+      },
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/exports/training/calibrated-boundary.pt",
+        "sha256": "6d594f7bc6393730df2887009b8065a3dbdd6c6f3bf4adacb5f8d6fd3f51c7c0",
+        "size": 1327612072
+      }
+    ]
+  },
+  "census": {
+    "a100_assignment_receipts": 13,
+    "a100_rpc_exec_poll_timeout": 4,
+    "limitations": "Retained-receipt census, excluding absent receipts, live runs without receipts, preallocation failures, and other artifact roots. Not an incidence estimate across all campaign A100 runs.",
+    "receipts": [
+      {
+        "endpoint": "gpu-a100-s-usc1f0-2jjaqnj0gjhy2",
+        "error": null,
+        "failure_class": null,
+        "generation": "0352d3403c8147828adf395e6110ad3d",
+        "job_id": "sandbox-a-resident-a2-20261026-01",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a2-attempt-01/output/receipt.json",
+        "session": "snake-sandbox-a-resident-a2-20261026-01-0352d3403c81",
+        "sha256": "87ef4b7b43202ea2db629cbfb4808787e7fed91e9e0416178d6d8c89b0d9afd6",
+        "status": "PASS",
+        "stop_verified": true
+      },
+      {
+        "endpoint": "gpu-a100-s-use1b0-i7zo8eso857g",
+        "error": null,
+        "failure_class": null,
+        "generation": "6c5f425183194b709fe511109309a9dc",
+        "job_id": "sandbox-a-resident-a3-20261026-04",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-attempt-04/output/receipt.json",
+        "session": "snake-sandbox-a-resident-a3-20261026-04-6c5f42518319",
+        "sha256": "a4e44cf0af1ec2da467c1aa961cf14cd9a94dbffc7a468006a835d23454dd7fe",
+        "status": "PASS",
+        "stop_verified": true
+      },
+      {
+        "endpoint": "gpu-a100-s-kkb-usc1f0-2gfe7onhxnuo2",
+        "error": null,
+        "failure_class": null,
+        "generation": "ea5d7b9e04dd47a8af257147698fb09d",
+        "job_id": "sandbox-a-resident-a3-eager-20261026-02",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/a3-eager-attempt-02/output/receipt.json",
+        "session": "snake-sandbox-a-resident-a3-eager-20261026-02-ea5d7b9e04dd",
+        "sha256": "d532714b3f85d8300531fa1ce420ed4e8ddba99c527ba5493d5e7f411c3c0da1",
+        "status": "PASS",
+        "stop_verified": true
+      },
+      {
+        "endpoint": "gpu-a100-s-ass1c0-2ipbxev93yorv",
+        "error": null,
+        "failure_class": null,
+        "generation": "fe7220237afb4f17b73fc7a8b57ef32e",
+        "job_id": "sandbox-a-resident-20261026-02",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/attempt-02/output/receipt.json",
+        "session": "snake-sandbox-a-resident-20261026-02-fe7220237afb",
+        "sha256": "91935b1fe0397fdb2ef6eca55e7f9fa8df0c3ccf2f29d734dae9272e4d6de769",
+        "status": "PASS",
+        "stop_verified": true
+      },
+      {
+        "endpoint": "gpu-a100-s-usc1b0-3lcfo1p8dxex5",
+        "error": "KeyboardInterrupt()",
+        "failure_class": "SUPERVISOR",
+        "generation": "def325a6f69f42a081ddd6e2d481d3fa",
+        "job_id": "sandbox-a-train01-20261027-05",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-05/output/receipt.json",
+        "session": "snake-sandbox-a-train01-20261027-05-def325a6f69f",
+        "sha256": "70ec7582bb344b4fc673a2d1acbe8775cf0f7c08ef12dc0286faa03cbad2d3f7",
+        "status": "INCOMPLETE",
+        "stop_verified": true
+      },
+      {
+        "endpoint": "gpu-a100-s-usc1b0-32mvn31zyed40",
+        "error": "KeyboardInterrupt()",
+        "failure_class": "SUPERVISOR",
+        "generation": "97544cf808314d89b2eb39dcdfbd0f12",
+        "job_id": "sandbox-a-train01-20261027-07",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-07/output/receipt.json",
+        "session": "snake-sandbox-a-train01-20261027-07-97544cf80831",
+        "sha256": "13ffaabdfde1b8303b522a3ab95d95b4174d628f21445f3dd5ee586ae8cc151c",
+        "status": "INCOMPLETE",
+        "stop_verified": true
+      },
+      {
+        "endpoint": "gpu-a100-s-kkb-usw4b2-1od9ngi5kr5bu",
+        "error": "Refused('kernel remains busy/unknown after telemetry hiccup')",
+        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "generation": "87767d8b47764dc98a4701abdfb9204f",
+        "job_id": "sandbox-a-train01-20261027-08",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-08/output/receipt.json",
+        "session": "snake-sandbox-a-train01-20261027-08-87767d8b4776",
+        "sha256": "f56f9b9ec99204932fd9d34f7f698c6425ecc09a137336c2f662c3660479c899",
+        "status": "INCOMPLETE",
+        "stop_verified": true
+      },
+      {
+        "endpoint": "gpu-a100-s-usc1b0-2ttq49tixmxqv",
+        "error": "Refused('kernel remains busy/unknown after telemetry hiccup')",
+        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "generation": "1c47a2ed87a743c9811fb2f9acea2b7b",
+        "job_id": "sandbox-a-train01-20261027-09",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-09/output/receipt.json",
+        "session": "snake-sandbox-a-train01-20261027-09-1c47a2ed87a7",
+        "sha256": "88b6c03f06d0baa119acb954df9d2bca89e383c8884d09fa85bd1f348441a0ab",
+        "status": "INCOMPLETE",
+        "stop_verified": true
+      },
+      {
+        "endpoint": "gpu-a100-s-ass1c0-1uc1yqxsgci9t",
+        "error": "KeyboardInterrupt()",
+        "failure_class": "SUPERVISOR",
+        "generation": "0db9d85416f4481cbf29f1aaff1fe0cf",
+        "job_id": "sandbox-a-train01-20261027-10",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-10/output/receipt.json",
+        "session": "snake-sandbox-a-train01-20261027-10-0db9d85416f4",
+        "sha256": "9ea391de790c2d3292c2cd625cc95c26b93d7d518b1a09fae2e6c4e08a9c1912",
+        "status": "INCOMPLETE",
+        "stop_verified": true
+      },
+      {
+        "endpoint": "gpu-a100-s-ass1b0-2r5niu28h06w2",
+        "error": "ClassifiedFailure('remote child exited 1: STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/snake-cli/1508d733d6cc4bbdb4a0cfb2aeba7f69/output/training/stall-watchdog')",
+        "failure_class": "CHILD_NONZERO_EXIT",
+        "generation": "1508d733d6cc4bbdb4a0cfb2aeba7f69",
+        "job_id": "sandbox-a-train01-20261027-11",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-11/output/receipt.json",
+        "session": "snake-sandbox-a-train01-20261027-11-1508d733d6cc",
+        "sha256": "72fab09af0768cfef9831531018fb5732e217edb9221eac7de88b51aa9a312b1",
+        "status": "INCOMPLETE",
+        "stop_verified": true
+      },
+      {
+        "endpoint": "gpu-a100-s-usc1f0-3044j5w3my5ga",
+        "error": "TransferError('upload /content/snake-cli/f97a40ae3c834c169f9db7cd945334a7/inputs/resume/iteration-0000.pt called at /Users/josenunez/Projects/ml/snake-dqn-train01-13-broker.noindex/research/colab_cli/supervisor.py:1604: total upload time cap reached at upload /content/snake-cli/f97a40ae3c834c169f9db7cd945334a7/inputs/resume/.snake-transfer-c407a248ea8b4c38890b9fa428be237f/00000212.part')",
+        "failure_class": "UPLOAD_CAP",
+        "generation": "f97a40ae3c834c169f9db7cd945334a7",
+        "job_id": "sandbox-a-train01-20261027-13",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-13/output/receipt.json",
+        "session": "snake-sandbox-a-train01-20261027-13-f97a40ae3c83",
+        "sha256": "b7156cf7881400e4c3a83fc0322f40e98f45ba6d632ae7028e022d3d65ed800c",
+        "status": "INCOMPLETE",
+        "stop_verified": true
+      },
+      {
+        "endpoint": "gpu-a100-s-ass1c0-3rkrbo2c7yjga",
+        "error": "TimeoutExpired(['/Users/josenunez/.local/bin/colab', '--auth', 'oauth2', '--config', '/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-16/state/sandbox-a-train01-20261027-16/sessions.json', 'exec', '-s', 'snake-sandbox-a-train01-20261027-16-2c605b47d627', '-f', '/var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/tmppzx37nu3.py', '--timeout', '25.01416695804801'], 25.014165791100822)",
+        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "generation": "2c605b47d6274e94b35b37321e31f1f5",
+        "job_id": "sandbox-a-train01-20261027-16",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-16/output/receipt.json",
+        "session": "snake-sandbox-a-train01-20261027-16-2c605b47d627",
+        "sha256": "77d693aa0e92a6525e5036ed86d063677f57a6d0bec0d9351541e9f69c3b1b8f",
+        "status": "INCOMPLETE",
+        "stop_verified": true
+      },
+      {
+        "endpoint": "gpu-a100-s-ass1c0-18cnas1worjju",
+        "error": "TimeoutExpired(['/Users/josenunez/.local/bin/colab', '--auth', 'oauth2', '--config', '/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/state-a100-fallback/sandbox-a-train01-20261028-s2-03-a100-fallback/sessions.json', 'exec', '-s', 'snake-sandbox-a-train01-20261028-s2-03-a100-fallback-4021faaaf8fa', '-f', '/var/folders/h2/r_nk05n12vg4v5f_rxyf65v40000gn/T/tmpfs8bpjy_.py', '--timeout', '16.617396665969864'], 16.617395332898013)",
+        "failure_class": "RPC_EXEC_POLL_TIMEOUT",
+        "generation": "4021faaaf8fa47faabedd2b42f82e2f5",
+        "job_id": "sandbox-a-train01-20261028-s2-03-a100-fallback",
+        "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-03/output-a100-fallback/receipt.json",
+        "session": "snake-sandbox-a-train01-20261028-s2-03-a100-fallback-4021faaaf8fa",
+        "sha256": "4b6d2d2a9d71b2a99bdb53a4e4b4f0e040af978d7bb846d2f75c0b023a05c45b",
+        "status": "INCOMPLETE",
+        "stop_verified": true
+      }
+    ],
+    "scope": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/**/receipt.json",
+    "train01_a100_assignment_receipts": 9,
+    "train01_a100_rpc_exec_poll_timeout": 4
+  },
+  "code_changed": false,
+  "dispatchable": false,
+  "independent_review": {
+    "model": "gemini-4-argon-low",
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2d/evidence/argon-review.json",
+    "reviewer": "Argon via Antigravity CLI",
+    "scope": "static documentation/eligibility report; no implementation or governance approval",
+    "sha256": "c27623a9fb7dcdad77c15dfb7d65622068ea1a95fc912933d48ed6aad50df961",
+    "verdict": "PASS"
+  },
+  "schema": "sandbox-a-train01-c1-eligibility-status/v1",
+  "tests": {
+    "accepted_modules": [
+      "test_c2_readiness3.py",
+      "test_c2_readiness4.py",
+      "test_c2_readiness6.py"
+    ],
+    "passed": 299,
+    "seconds": 17.9
+  }
+}
