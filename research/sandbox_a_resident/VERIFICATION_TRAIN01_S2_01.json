@@ -1,0 +1,235 @@
+{
+  "accepted_runtime": "dccf7e25a5fb3ebc2fe303b2dc072aeb83efd213",
+  "allocations": 0,
+  "branch": "astra-train01-s2-20261028",
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2-broker-v2.noindex",
+  "colab_limits_checklist": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2/evidence/colab-limits-checklist.json",
+  "compact_export": "explicitly enabled; latest verified full-state trajectory only",
+  "dry_run": "PASS_DRY_RUN sandbox-a-train01-20261028-s2-01 variants=H100,A100 allocations=0 live_accounting=NOT_CHECKED",
+  "effective_seed_collisions": 0,
+  "envelopes": [
+    {
+      "budget": {
+        "other_assignments": {},
+        "rate_units_per_hour": 12.0,
+        "reserve_units": 0,
+        "unit_cap": 816.0
+      },
+      "job_id": "sandbox-a-train01-20261028-s2-01",
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-01/output",
+      "requirements": {
+        "allowed_gpus": [
+          "H100"
+        ],
+        "est_minutes": 2040,
+        "gpu": "H100",
+        "min_vcpu": 2,
+        "prefer": [
+          "H100",
+          "A100"
+        ]
+      },
+      "timeout_minutes": 4080
+    },
+    {
+      "budget": {
+        "other_assignments": {},
+        "rate_units_per_hour": 8.0,
+        "reserve_units": 0,
+        "unit_cap": 544.0
+      },
+      "job_id": "sandbox-a-train01-20261028-s2-01-a100-fallback",
+      "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-01/output-a100-fallback",
+      "requirements": {
+        "allowed_gpus": [
+          "A100"
+        ],
+        "est_minutes": 2040,
+        "gpu": "A100",
+        "min_vcpu": 2,
+        "prefer": [
+          "H100",
+          "A100"
+        ]
+      },
+      "timeout_minutes": 4080
+    }
+  ],
+  "implementation_commit": "2cefda241428ca0a4368df1a08f9582773ab5057",
+  "independent_reviews": [
+    {
+      "independent_test_execution": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2/argon-integration-bounded/result.json",
+      "reviewer": "Argon (Gemini 4 Argon)",
+      "scope": "integration",
+      "sha256": "ebc4d7aa1c5e963e3cc2b5e460b7741ee2848e4fe9cc858d68fb8356dc871e99",
+      "verdict": "PASS"
+    },
+    {
+      "independent_test_execution": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2/argon-host-bounded/result.json",
+      "reviewer": "Argon (Gemini 4 Argon)",
+      "scope": "host-controls",
+      "sha256": "a72469cd60bb5bc8fb5f24210dda3cb5cd2df13024a4e7a6684e9ee813d17dcd",
+      "verdict": "PASS"
+    },
+    {
+      "independent_test_execution": false,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2/argon-review-final/admission-result.json",
+      "reviewer": "Argon (Gemini 4 Argon)",
+      "scope": "admission-selection",
+      "sha256": "6a63ff1d7ea6d78f1f98b40418f4463d06d06cdfddca38e24576e8a926bdc131",
+      "verdict": "PASS"
+    }
+  ],
+  "input_sha256": {
+    "b8-s3.pth": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "champion.pth": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+    "frp3-s12.pth": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+    "registry.json": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+    "verified-ledger.json": "f5781af4ff29fcca36bba249a10957bba34ecf0a4d10918d7a07da9d55ab711d"
+  },
+  "job_id": "sandbox-a-train01-20261028-s2-01",
+  "limitations": [
+    "Mac proves real launcher architecture flag generation and CPU tiny training, not native CUDA execution.",
+    "H100 rate is a provisional ceiling and performance is unmeasured; live broker calibration/admission remains mandatory.",
+    "No workload was dispatched."
+  ],
+  "lint": {
+    "bash_n": "PASS",
+    "black": "PASS",
+    "flake8": "PASS",
+    "git_diff_check": "PASS",
+    "isort": "PASS"
+  },
+  "live_accounting": "NOT_CHECKED",
+  "mac_launcher_measurement": {
+    "arch_flags": {
+      "arch_list": "8.0;9.0",
+      "cuda_executed": false,
+      "flags": [
+        "-gencode=arch=compute_80,code=sm_80",
+        "-gencode=arch=compute_90,code=sm_90"
+      ]
+    },
+    "compact_export_verification": "PASS",
+    "compact_full_state_bytes": 12811500,
+    "device_override": "Mac CPU shim; actual launcher and real training entrypoint executed",
+    "full_seconds": 49.22463362501003,
+    "full_updates": 3,
+    "launcher": "research/sandbox_a_resident/train_job.sh",
+    "native_cuda_executed": false,
+    "rollout_horizon": 2,
+    "source_commit": "98018ea4d962dfb55ca184c9f4d03c7234c6dada",
+    "status": "PASS",
+    "tiny_worlds": 3
+  },
+  "manifest_sha256": "36d82d289b7175752f0d4ed3af071c9e2ebb7550331f536797004c1f6d451e4d",
+  "packet_seal_commit": "37a0511f",
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2-runtime-final.noindex",
+  "runtime_pin": "98018ea4d962dfb55ca184c9f4d03c7234c6dada",
+  "schema": "sandbox-a-train01-s2-verification/v1",
+  "seed_audit_roots": 114299008,
+  "source_delivery": {
+    "bound_seconds": 2.0,
+    "files_verified": 193,
+    "runs": [
+      {
+        "completion_seconds": 0.26421241695061326,
+        "index": 0,
+        "launch_seconds": 0.007117707980796695,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.25884179200511426,
+        "index": 1,
+        "launch_seconds": 0.0070194159634411335,
+        "status": "completed"
+      },
+      {
+        "completion_seconds": 0.2639145830180496,
+        "index": 2,
+        "launch_seconds": 0.007338916067965329,
+        "status": "completed"
+      }
+    ],
+    "source_tar_gz_bytes": 964564,
+    "source_unpacked_bytes": 3995266,
+    "status": "PASS"
+  },
+  "staging_projection": {
+    "canary_bar_seconds": 150.0,
+    "design_target_nominal_seconds": 120.0,
+    "design_target_worst_seconds": 210.0,
+    "fraction_of_300s_cap_nominal": 0.1203,
+    "fraction_of_300s_cap_worst": 0.2084,
+    "hard_cap_seconds": 300.0,
+    "max_private_input_bytes": 100000000,
+    "measured_calibration_anchors": {
+      "attempt_13_sustained_2worker_chunk_bytes_per_second": 1624000,
+      "attempt_15_compact_18files_bytes": 31438403,
+      "attempt_15_compact_18files_elapsed_seconds": 57.91,
+      "attempt_15_pt_xz_8804704b_transfer_seconds": 6.87,
+      "conservative_bytes_per_second": 810734,
+      "conservative_per_file_overhead_seconds": 3.67
+    },
+    "nominal_seconds": 36.1,
+    "private_input_bytes": 21601751,
+    "private_input_count": 5,
+    "private_inputs": {
+      "b8-s3.pth": 6562005,
+      "champion.pth": 6898955,
+      "frp3-s12.pth": 6906247,
+      "registry.json": 1234356,
+      "verified-ledger.json": 188
+    },
+    "schema": "sandbox-a-train01-continuation-upload-projection/v1",
+    "skill_reference": "colab-limits \u00a73.1, \u00a74.1",
+    "status": "PASS",
+    "supervisor_pinned_files": {
+      "bootstrap.sh": 3244,
+      "source.py": 14511,
+      "source.tar.gz": 964564
+    },
+    "total_upload_bytes": 22584070,
+    "total_upload_file_count": 8,
+    "worst_case_seconds": 62.51
+  },
+  "state_output_absent": [
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-01/state",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-01/state-a100-fallback",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-01/output",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-01/output-a100-fallback"
+  ],
+  "status": "PREPARED_NOT_DISPATCHED",
+  "test_results": {
+    "admission_runtime_safety_and_host": {
+      "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2/evidence/admission-safety-tests.log",
+      "passed": 154,
+      "seconds": 33.77
+    },
+    "broker_and_supervisor": {
+      "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2/evidence/broker-tests.log",
+      "passed": 346,
+      "scope": "main broker/supervisor plus sandbox-B tests; host delta separately covered below",
+      "seconds": 767.63
+    },
+    "cuda_api_contracts": {
+      "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2/evidence/final-cuda-semantics.log",
+      "passed": 4,
+      "seconds": 1.47
+    },
+    "resident_and_sandbox": {
+      "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2/evidence/final-resident-sandbox-tests.log",
+      "passed": 861,
+      "seconds": 209.3
+    },
+    "s2_primary_and_fallback_continuation": {
+      "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2/evidence/s2-continuation-tests.log",
+      "passed": 2,
+      "seconds": 24.77
+    }
+  },
+  "union_seed_audit_roots": 342894912
+}
