@@ -505,3 +505,9 @@ and reports cleanup as unverified after reaping the known root group. A tmux cli
 never sweeps a detached shared tmux server. TRAIN-01 allocation remains fenced
 by the owned ops lease. No process is selected by a global name match. These are host-only adapters; the
 qualified `research/colab_cli` tree and remote science/runtime recipe are unchanged.
+
+Read-only `dispatch.sh --dry-run` may validate a PENDING transport review via
+`qualification.py --offline`; the exact clean transport tree is still required.
+REJECT or missing review status still refuses. Every live dispatch and its
+locked refresh use the default qualification check and require ACCEPT before
+side effects. Preparation never edits the real qualification record.

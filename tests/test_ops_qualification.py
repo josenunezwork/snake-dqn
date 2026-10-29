@@ -78,6 +78,13 @@ def test_pending_offline_check_still_requires_exact_clean_tree(broker, tmp_path)
     assert qualification.check(broker, record, offline=True)
     with pytest.raises(ValueError, match="INDEPENDENT_REVIEW_REQUIRED"):
         qualification.check(broker, record)
+    for rejected in ("REJECT", None):
+        saved["independent_review_status"] = rejected
+        record.write_text(json.dumps(saved))
+        with pytest.raises(ValueError, match="INDEPENDENT_REVIEW_REQUIRED"):
+            qualification.check(broker, record, offline=True)
+    saved["independent_review_status"] = "PENDING"
+    record.write_text(json.dumps(saved))
     (broker / "research/colab_cli/launch.sh").write_text("changed")
     with pytest.raises(ValueError, match="working-tree"):
         qualification.check(broker, record, offline=True)
