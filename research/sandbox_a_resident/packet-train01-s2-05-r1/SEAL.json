@@ -1,0 +1,58 @@
+{
+  "a100_fallback": {
+    "base_unit_cap": 92,
+    "effective_unit_cap": 184,
+    "rate_units_per_hour": 8
+  },
+  "allocation_index": 2,
+  "argon_code_review_sha256": "916ef65fed65b39eb5d8802c97ad8304ebce478d554ce05c18d6f29a78f0113b",
+  "attempt_accounting": {
+    "classification": "fresh same-seed diagnostic replay; not mechanical recovery or independent efficacy replicate",
+    "completion_attempt": null,
+    "fresh_run_explicit_operator_authority": "2026-10-29 task requests fresh s2-05 reseal; inherited owner all approvals 8h from 2026-10-28 22:05 PT",
+    "prior_s2_04": "INCOMPLETE CHILD_NONZERO_EXIT; critic preparation endpoint failed; no eligible trajectory; never salvaged or erased; zero reused state",
+    "run_original_attempt": 1
+  },
+  "base_reserve_units": 0,
+  "base_timeout_minutes": 690,
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2f-broker.noindex",
+  "compact_exports_enabled": true,
+  "cross_domain_union_roots": 342894912,
+  "diagnostic_intent": {
+    "path": "research/sandbox_a_resident/TRAIN01_S2_05.md",
+    "sha256": "b4b4d7a523c439c248a5329588260af1661c94ba93d0cf398720ed395c5b64e5"
+  },
+  "dispatch_identity": "sandbox-a-train01-20261029-s2-05",
+  "early_pre_actor_snapshot": true,
+  "effective_reserve_units": 0,
+  "effective_timeout_minutes": 1380,
+  "estimate_scope": "per-attempt window; full endpoint spans verified manual continuations",
+  "forecast_full_workload_minutes": 2009.04,
+  "fresh_start_from_b8": true,
+  "h100": {
+    "base_unit_cap": 138,
+    "effective_unit_cap": 276,
+    "rate_status": "UNMEASURED_PROVISIONAL_CEILING",
+    "rate_units_per_hour": 12
+  },
+  "packet_file_sha256": {
+    "DISPATCH.txt": "c8f576ff8a9e379adf49bc4c2fbe28915afef7e11783ae0e2a99dff5671c5a6f",
+    "control.json": "e0bb92a32c72998fcf6971acdc9e46169478847d06d7503940577cb89d1d41b6",
+    "dispatch-manifest.json": "b3a38d4828a50aafc37f1965006ff948cef5cf30d275472d3cabd13772be840f",
+    "registry-check.json": "e01abbc8bbb61be9f0f137812230fb73396610d010da22b8eb2f84cfa3202fd7",
+    "sandbox.json": "5c35b629ab40ed9b417fe37a4c97ff8acad7401d84e99a9ad421469bf4d2199e",
+    "seed-disjointness.json": "89e8bfab75be51429d8a2deecd5beab14f0f77f7b15174e96831a71d7b9f612a",
+    "verified-ledger.json": "b02a4ba2f11864ae053a2bb19d51496a3f35ded4afd1af807fb813ccf5e37291"
+  },
+  "prepared_not_dispatched": true,
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "recipe_unchanged": true,
+  "resume_max_outcome_blind_retries": 2,
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2f-runtime.noindex",
+  "runtime_pin": "011791f64aa43be911acf3feae451b984b93756e",
+  "schema": "sandbox-a-train01-resident-prep-seal/v1",
+  "seed_audits_reused_byte_exact": true,
+  "seed_registry_roots": 114299008,
+  "supersedes_unqualified_seal_sha256": "0d7729ac511bb168f3889b9071629f90cd2c1ff4c0bcf93c7b0cd3ceeea1a415",
+  "train_seed_offset": 2000000000
+}
