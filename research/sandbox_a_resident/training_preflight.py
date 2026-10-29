@@ -400,6 +400,11 @@ def main() -> int:
         action="store_true",
         help="run strict CUDA API-contract mocks without a GPU",
     )
+    parser.add_argument(
+        "--admission",
+        action="store_true",
+        help="run bounded runtime safety tests; full engineering suite remains the default",
+    )
     args = parser.parse_args()
     check = validate_packet(args.packet.resolve())
     env = dict(os.environ)
@@ -422,6 +427,15 @@ def main() -> int:
         "research/sandbox_a_resident/test_training_rosters.py"
         "::test_runtime_resume_normalizes_relocated_row_identity_to_cpu",
     ]
+    admission_tests = [
+        "research/sandbox_a_resident/test_training_prepare.py",
+        "research/sandbox_a_resident/test_training_units.py",
+        "research/sandbox_a_resident/test_training_runner.py",
+        "research/sandbox_a_resident/test_training_compact.py",
+        "research/sandbox_a_resident/test_training_sigusr1.py",
+        "research/sandbox_a_resident/test_training_learner.py",
+        "tools/sandbox/tests/test_source_delivery.py",
+    ]
     python_exe = ROOT / "venv/bin/python"
     subprocess.run(
         [
@@ -439,7 +453,11 @@ def main() -> int:
             *(
                 cuda_contract_tests
                 if args.cuda_semantics
-                else ["research/sandbox_a_resident", "tools/sandbox/tests/test_source_delivery.py"]
+                else (
+                    admission_tests
+                    if args.admission
+                    else ["research/sandbox_a_resident", "tools/sandbox/tests/test_source_delivery.py"]
+                )
             ),
         ],
         cwd=ROOT,

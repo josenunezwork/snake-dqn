@@ -747,7 +747,13 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
             else "research.sandbox_a_resident.preflight"
         )
         command(
-            [sys.executable, "-m", module, str(path.parent)],
+            [
+                sys.executable,
+                "-m",
+                module,
+                str(path.parent),
+                *(["--admission"] if study == "sandbox-a-train01" else []),
+            ],
             cwd=broker,
         )
 
