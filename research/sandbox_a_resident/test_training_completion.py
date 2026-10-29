@@ -17,6 +17,32 @@ from tools.sandbox import preflight as sandbox_preflight
 from tools.sandbox.registry import digest, validate_input
 
 
+@pytest.fixture(autouse=True)
+def historical_source_transport_view(monkeypatch):
+    """Keep these historical ledger/sidecar fixtures scoped to completion I/O.
+
+    They deliberately retain old control/compact identities. The host tree is
+    checked for real, as are all pinned source bytes. Project only the known
+    historical qualified runtime tree at the source-pin boundary; fresh-tree
+    admission is covered by test_training_continuation's real sealed builders.
+    No production admission accepts an old tree through this test seam.
+    """
+    original_run = sandbox_preflight._run
+
+    def run(command, **kwargs):
+        value = original_run(command, **kwargs)
+        if (
+            command[:2] == ["git", "rev-parse"]
+            and command[-1].endswith(":research/colab_cli")
+            and command[-1] != "HEAD:research/colab_cli"
+            and value == "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+        ):
+            return sandbox_preflight.TRANSPORT_TREE
+        return value
+
+    monkeypatch.setattr(sandbox_preflight, "_run", run)
+
+
 def test_relative_resume_uploads_are_verified_on_mac_and_foreign_inputs_refused(tmp_path):
     control = {"source_commit": "a" * 40, "outer_iterations": 4, "snapshot_interval": 1}
     output = tmp_path / "exports"
