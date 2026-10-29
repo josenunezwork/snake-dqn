@@ -108,11 +108,11 @@ implementation and training/prep/gate/serving algorithms remain untouched.
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
 # After verified exports; paths include baseline-0000 and each holdout unit once:
 $PY -m research.sandbox_a_resident.critic_rescore.run ledger \
-  --inputs research/sandbox_a_resident/critic_rescore/packet-01 \
+  --inputs /absolute/committed-packet \
   --units /absolute/verified/rescore/*-{baseline,holdout}-*.json.gz \
   --output /absolute/fresh/verified-ledger.json
 $PY -m research.sandbox_a_resident.critic_rescore.run analyse \
-  --inputs research/sandbox_a_resident/critic_rescore/packet-01 \
+  --inputs /absolute/committed-packet \
   --units /absolute/verified/rescore/*-{baseline,holdout}-*.json.gz \
   --output /absolute/fresh/analysis.json
 ```
