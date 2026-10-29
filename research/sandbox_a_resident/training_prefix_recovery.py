@@ -15,14 +15,23 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from research.sandbox_a_resident import training_resume as r
+from research.sandbox_a_resident.training_prefix_release import (
+    verify_prefix_release as _verify_prefix_release,
+)
 from research.sandbox_a_resident.units import digest
 
-SCHEMA = "sandbox-a-train01-retained-export-prefix/v2"
-STOP_KINDS = frozenset({"host_loss", "lease_expired", "runtime_timeout"})
+SCHEMA = "sandbox-a-train01-retained-export-prefix/v3"
+STOP_KINDS = frozenset({"host_loss"})
 
 
-SELF_RELEASE_ERROR = "AccountingError('supervised assignment disappeared from sessions')"
-SELF_RELEASE_REASONS = frozenset({"timeout", "lease_expired"})
+def canonical_supervisor_log(output_root: Path, job: str) -> Path:
+    """Use the ops artifact tree paired with this attempt, never a supplied copy."""
+    if not job or Path(job).name != job or len(output_root.parents) < 3:
+        raise r.ResumeRefused("malformed job/output for canonical supervisor log")
+    path = output_root.parents[2] / "ops/logs" / f"{job}.log"
+    if any(p.is_symlink() for p in (path, *path.parents)):
+        raise r.ResumeRefused("canonical supervisor log has a symlinked path")
+    return path
 
 
 def _export_inventory(root: Path) -> list[dict[str, Any]]:
@@ -31,60 +40,6 @@ def _export_inventory(root: Path) -> list[dict[str, Any]]:
         {"path": str(p.relative_to(root)), "size": p.stat().st_size, "sha256": digest(p)}
         for p in r._retained_files(root)
     ]
-
-
-def _terminal(record: Any, job: str, generation: str) -> str:
-    if (
-        not isinstance(record, Mapping)
-        or record.get("job_id") != job
-        or record.get("generation") != generation
-        or record.get("status") != "failed"
-        or record.get("reason") not in SELF_RELEASE_REASONS
-        or type(record.get("returncode")) is not int
-        or record["returncode"] not in {0, -9, -10, -15, -30}
-    ):
-        raise r.ResumeRefused("retained-prefix terminal is not a known mechanical self-release")
-    r._scan_json_faults(
-        record, label="self_release_terminal", expected_job_id=job, expected_generation=generation
-    )
-    return record["reason"]
-
-
-def _receipt(record: Any, manifest: Mapping[str, Any], manifest_sha: str, generation: str) -> None:
-    """Validate a narrow producer envelope, then scan every other field recursively."""
-    if (
-        not isinstance(record, Mapping)
-        or record.get("job_id") != manifest.get("job_id")
-        or record.get("commit") != manifest.get("commit")
-        or record.get("manifest_sha256") != manifest_sha
-        or record.get("generation") != generation
-        or record.get("status") != "INCOMPLETE"
-        or record.get("failure_class") != "ACCOUNTING"
-        or record.get("error") != SELF_RELEASE_ERROR
-        or record.get("stop_verified") is not True
-        or "cleanup_error" not in record
-        or record["cleanup_error"] is not None
-    ):
-        raise r.ResumeRefused("retained-prefix receipt is not a known mechanical self-release")
-    _terminal(record.get("terminal"), str(manifest["job_id"]), generation)
-    if "returncode" in record and (
-        type(record["returncode"]) is not int
-        or record["returncode"] != record["terminal"]["returncode"]
-    ):
-        raise r.ResumeRefused("retained-prefix receipt returncode differs from terminal")
-    # Only the exact already-validated producer envelope fields are omitted.
-    # No exception is propagated into nested accounting, diagnostics or terminal.
-    r._scan_json_faults(
-        {
-            k: v
-            for k, v in record.items()
-            if k not in {"status", "failure_class", "error", "returncode"}
-        },
-        label="self_release_receipt",
-        expected_job_id=str(manifest["job_id"]),
-        expected_generation=generation,
-        supervisor_transport=True,
-    )
 
 
 def _event_matches(event: Any, poll: Mapping[str, Any], job: str) -> bool:
@@ -193,28 +148,16 @@ def _scan_suffix_and_output(
     generation: str,
     transport: r._RetainedTransport,
     latest: int,
-) -> tuple[Mapping[str, Any] | None, set[str], float]:
+) -> None:
     """All suffix/output bytes can poison admission; none bind a resume payload."""
     job = str(manifest["job_id"])
-    receipt = None
-    reasons: set[str] = set()
-    terminals: list[Mapping[str, Any]] = []
-    elapsed = 0.0
-    receipt_path = root / "receipt.json"
-    if receipt_path.exists() or receipt_path.is_symlink():
-        receipt = r._retained_json_records(receipt_path)[0]
-        _receipt(receipt, manifest, manifest_sha, generation)
-        reasons.add(receipt["terminal"]["reason"])
-        terminals.append(receipt["terminal"])
+    if any(root.glob("receipt.json*")) or any(root.glob("terminal.json*")):
+        raise r.ResumeRefused(
+            "host-loss-only recovery forbids receipt/terminal; use ordinary receipt admission"
+        )
     for path in r._retained_files(root):
         rel = str(path.relative_to(root))
-        if (
-            path.name.startswith("receipt.json")
-            and path != receipt_path
-            and not r._publication_sidecar(path)
-        ):
-            raise r.ResumeRefused("unsupported retained-prefix receipt variant")
-        if path == receipt_path or path.resolve() == log_path.resolve():
+        if path.resolve() == log_path.resolve():
             continue  # Supplied supervisor log is scanned below, including its whole suffix.
         if path.name.startswith("summary.json") and path.parent == root / "exports/training":
             raise r.ResumeRefused("exported summary.json already exists; prior run completed")
@@ -235,12 +178,8 @@ def _scan_suffix_and_output(
         if is_json and not r._publication_sidecar(path):
             for record in r._retained_json_records(path):
                 r._check_scientific_publication(path, root, record)
-                if path.name.startswith("terminal.json"):
-                    reasons.add(_terminal(record, job, generation))
-                    terminals.append(record)
-                if isinstance(record, Mapping) and record.get("terminal") is not None:
-                    reasons.add(_terminal(record["terminal"], job, generation))
-                    terminals.append(record["terminal"])
+                if isinstance(record, Mapping) and record.get("terminal") not in (None, False):
+                    raise r.ResumeRefused("host-loss-only recovery forbids retained terminals")
                 if isinstance(record, Mapping):
                     for entry in record.get("exports", []):
                         if isinstance(entry, Mapping):
@@ -264,59 +203,15 @@ def _scan_suffix_and_output(
     if len(data) > r.MAX_RETAINED_JSON_BYTES:
         raise r.ResumeRefused("oversized retained-prefix supervisor log")
     lines = data[cutoff:].decode("utf-8").splitlines()
-    footer = [f"INCOMPLETE: {SELF_RELEASE_ERROR}; receipt: {root / 'receipt.json'}", "EXIT=1"]
-    if receipt is not None and [line.strip() for line in lines[-2:]] == footer:
-        lines = lines[:-2]
     for line_index, line in enumerate(lines):
         try:
             record = r._json_loads(line)
         except json.JSONDecodeError:
             record = None
-        if receipt is not None and record == receipt:
-            _receipt(record, manifest, manifest_sha, generation)
-            continue
-        if isinstance(record, Mapping):
-            if isinstance(record.get("terminal"), Mapping):
-                reasons.add(_terminal(record["terminal"], job, generation))
-            if "reason" in record:
-                reasons.add(_terminal(record, job, generation))
-            current = record.get("elapsed")
-            if (
-                type(current) in (int, float)
-                and math.isfinite(current)
-                and (record.get("job") == job or record.get("job_id") == job)
-            ):
-                elapsed = max(elapsed, current)
-        if (
-            isinstance(record, Mapping)
-            and record.get("terminal") is True
-            and set(record) <= {"job", "elapsed", "status", "terminal", "exports", "job_log_tail"}
-            and record.get("job") == job
-            and type(record.get("exports")) is int
+        if isinstance(record, Mapping) and (
+            record.get("terminal") not in (None, False) or "reason" in record
         ):
-            matches = [
-                t
-                for t in terminals
-                if record.get("status") == t.get("status")
-                and isinstance(t.get("exports"), list)
-                and record["exports"] == len(t["exports"])
-            ]
-            if matches and len({t["reason"] for t in matches}) == 1:
-                # The qualified native terminal event omits generation/reason.
-                # Bind those fields only from an already validated retained terminal.
-                r._scan_json_faults(
-                    {
-                        **{k: v for k, v in record.items() if k != "job"},
-                        "job_id": job,
-                        "generation": generation,
-                        "reason": matches[0]["reason"],
-                    },
-                    label="supervisor_log_suffix",
-                    expected_job_id=job,
-                    expected_generation=generation,
-                    supervisor_transport=True,
-                )
-                continue
+            raise r.ResumeRefused("host-loss-only recovery forbids retained terminal log events")
         if line_index == len(lines) - 1 and _scan_incomplete_text(
             line, label="supervisor_log_suffix", job=job, generation=generation
         ):
@@ -327,9 +222,7 @@ def _scan_suffix_and_output(
             expected_job_id=job,
             expected_generation=generation,
             supervisor_transport=True,
-            validated_receipt=receipt,
         )
-    return receipt, reasons, elapsed
 
 
 def verify_prefix_recovery(
@@ -516,6 +409,9 @@ def verify_prefix_recovery(
     if not isinstance(log, Mapping) or not isinstance(log.get("path"), str):
         raise r.ResumeRefused("missing retained-prefix supervisor log")
     path, length = Path(log["path"]), log.get("size")
+    canonical = canonical_supervisor_log(output_root, job)
+    if path.resolve() != canonical.resolve():
+        raise r.ResumeRefused("supervisor log is not canonical ops/logs/<job_id>.log")
     if (
         any(p.is_symlink() for p in (path, *path.parents))
         or not path.is_file()
@@ -523,6 +419,13 @@ def verify_prefix_recovery(
         or not 0 < length <= r.MAX_RETAINED_JSON_BYTES
     ):
         raise r.ResumeRefused("malformed retained-prefix supervisor log")
+    if (
+        type(log.get("full_size")) is not int
+        or log["full_size"] < length
+        or path.stat().st_size != log["full_size"]
+        or digest(path) != log.get("full_sha256")
+    ):
+        raise r.ResumeRefused("canonical supervisor log full size or SHA-256 differs")
     with path.open("rb") as stream:
         prefix = stream.read(length)
     if (
@@ -547,8 +450,8 @@ def verify_prefix_recovery(
         or event.get("job_log_tail") != poll.get("job_log_tail", "")[-4096:]
     ):
         raise r.ResumeRefused("retained-prefix log cutoff differs from last verified poll")
-    elapsed = _prefix_events(prefix, polls, job)
-    receipt, reasons, suffix_elapsed = _scan_suffix_and_output(
+    _prefix_events(prefix, polls, job)
+    _scan_suffix_and_output(
         output_root,
         path,
         length,
@@ -559,28 +462,12 @@ def verify_prefix_recovery(
         transport,
         latest,
     )
-    elapsed = max(elapsed, suffix_elapsed)
-    kind = cert["stop_kind"]
-    timeout = manifest.get("timeout_minutes")
-    if kind == "lease_expired" and reasons != {"lease_expired"}:
-        raise r.ResumeRefused("declared lease_expired lacks matching mechanical terminal evidence")
-    if kind == "runtime_timeout" and (
-        reasons != {"timeout"}
-        or type(timeout) not in (int, float)
-        or not math.isfinite(timeout)
-        or timeout <= 0
-        or not timeout * 60 - 60 <= elapsed <= timeout * 60 + 600
-    ):
-        raise r.ResumeRefused(
-            "declared runtime_timeout differs from terminal or elapsed timeout evidence"
-        )
-    if kind == "host_loss" and (reasons or receipt is not None):
-        raise r.ResumeRefused(
-            "declared host_loss conflicts with retained mechanical terminal evidence"
-        )
-    capture = r._verify_account_release_capture(
+    capture = _verify_prefix_release(
         cert.get("account_status_capture"),
         path,
+        output_root,
+        job,
+        generation,
         now_unix_seconds=now_unix_seconds,
         max_capture_age_seconds=max_capture_age_seconds,
     )
@@ -597,10 +484,8 @@ def verify_prefix_recovery(
         "certificate_sha256": desc["sha256"],
         "certificate_size": desc["size"],
         "failure_class": "RECEIPTLESS_RETAINED_EXPORT_PREFIX",
-        "original_receipt_present": receipt is not None,
-        "original_receipt_sha256": (
-            digest(output_root / "receipt.json") if receipt is not None else None
-        ),
+        "original_receipt_present": False,
+        "original_receipt_sha256": None,
         "original_receipt_used": False,
         "receipt_less": True,
         "stop_kind": cert["stop_kind"],
@@ -614,6 +499,9 @@ def verify_prefix_recovery(
         "last_verified_poll": last,
         "supervisor_log_sha256": log["sha256"],
         "supervisor_log_prefix_bytes": length,
+        "supervisor_log_full_size": log["full_size"],
+        "supervisor_log_full_sha256": log["full_sha256"],
+        "broker_reconciliation_sha256": capture["broker_reconciliation"]["sha256"],
         "latest_eligible_iteration": latest,
         "retained_files": dict(retained),
     }
@@ -642,8 +530,15 @@ def build_prefix_recovery_certificate(
         raise FileExistsError(certificate_output)
     if certificate_output.resolve().is_relative_to(output_root.resolve()):
         raise r.ResumeRefused("prefix certificate must be outside prior output")
+    if stop_kind != "host_loss":
+        raise r.ResumeRefused("receipt-less recovery is HOST-LOSS ONLY")
     manifest_path = output_root / "manifest.json"
     manifest = r._retained_json_records(manifest_path)[0]
+    if (
+        supervisor_log.resolve()
+        != canonical_supervisor_log(output_root, manifest["job_id"]).resolve()
+    ):
+        raise r.ResumeRefused("supervisor log is not canonical ops/logs/<job_id>.log")
     ledger, uploads, _ = r.build_ledger(output_root / "exports/training", source_control)
     required = set()
     files = {"manifest.json", *(str(Path(row["path"]).relative_to(output_root)) for row in uploads)}
@@ -728,6 +623,8 @@ def build_prefix_recovery_certificate(
         },
         "supervisor_log_prefix": {
             "path": str(supervisor_log.resolve()),
+            "full_size": supervisor_log.stat().st_size,
+            "full_sha256": digest(supervisor_log),
             "size": len(prefix),
             "sha256": hashlib.sha256(prefix).hexdigest(),
         },

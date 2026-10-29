@@ -12,8 +12,8 @@ from research.sandbox_a_resident import training_resume as r
 from research.sandbox_a_resident.test_training_prefix_recovery import (
     build,
     fixture,
-    mechanical_stop,
     rewrite,
+    synthetic_terminal_fault,
     verify,
 )
 from research.sandbox_a_resident.units import digest
@@ -85,7 +85,7 @@ def test_review_attacks_refuse_builder_verifier_and_completion(tmp_path: Path, a
         "returncode": 1,
     }
     if attack.startswith("receipt") or attack == "recombined-review-attack":
-        mechanical_stop(fx, "runtime_timeout", receipt=True)
+        synthetic_terminal_fault(fx, "runtime_timeout", receipt=True)
         value = json.loads((fx["output"] / "receipt.json").read_text())
         if attack in {"receipt-nonfinite", "recombined-review-attack"}:
             value.update(
@@ -164,22 +164,16 @@ def test_review_attacks_refuse_builder_verifier_and_completion(tmp_path: Path, a
     assert not (tmp_path / "bad.json").exists()
 
 
-@pytest.mark.parametrize("kind", ["runtime_timeout", "lease_expired"])
-@pytest.mark.parametrize("with_receipt", [False, True])
-def test_known_self_release_and_suffix_truncation_admit(
-    tmp_path: Path, kind: str, with_receipt: bool
-) -> None:
+def test_host_loss_suffix_truncation_admits(tmp_path: Path) -> None:
     fx = fixture(tmp_path)
-    mechanical_stop(fx, kind, receipt=with_receipt)
-    # A genuinely EOF-truncated file after cutoff may be retained but cannot bind payloads.
     (fx["output"] / "poll-000002.json").write_text('{"state": {"job_id": "train01-r6", "progress":')
     (fx["exports"] / "progress.json.partial").write_text('{"stage": "update-running", "data":')
     with fx["log"].open("a") as stream:
         stream.write('{"progress":')
     cert = tmp_path / "good.json"
-    result = build(fx, cert, kind)
+    result = build(fx, cert)
     assert result["post_hoc_release_verified"] is True
-    assert result["original_receipt_present"] is with_receipt
+    assert result["original_receipt_present"] is False
     assert result["suffix_scanned_for_poison"] is True
     assert completion(fx, cert).latest_iteration == 96
 
@@ -189,7 +183,6 @@ def test_known_self_release_and_suffix_truncation_admit(
     [
         "missing-capture",
         "busy-sessions",
-        "nonzero-rate",
         "pending",
         "stale",
         "future",
@@ -206,16 +199,23 @@ def test_release_and_cause_evidence_fault_twins(tmp_path: Path, attack: str) -> 
     kind = "host_loss"
     if attack == "missing-capture":
         value.pop("account_status_capture")
-    elif attack in {"busy-sessions", "nonzero-rate", "pending", "stale", "future"}:
+    elif attack in {"busy-sessions", "pending", "stale", "future"}:
         capture = json.loads(fx["capture"].read_text())
         if attack == "busy-sessions":
-            capture["status"]["sessions"] = {"r6": {"endpoint": "live"}}
+            capture["status"]["sessions"] = {"target-endpoint": "live"}
         elif attack == "nonzero-rate":
             capture["status"]["usage"]["rate"] = 8.4
         elif attack == "pending":
-            capture["status"]["unresolved"] = ["active-r6"]
+            capture["status"]["unresolved"] = ["pending-snake-train01-r6-" + "b" * 12 + ".json"]
         else:
             capture["captured_unix_seconds"] += -90000 if attack == "stale" else 3600
+        reconciliation = Path(capture["broker_reconciliation"]["path"])
+        rec = json.loads(reconciliation.read_text())
+        rec.update(status=capture["status"], captured_unix_seconds=capture["captured_unix_seconds"])
+        rewrite(reconciliation, rec)
+        capture["broker_reconciliation"].update(
+            size=reconciliation.stat().st_size, sha256=digest(reconciliation)
+        )
         rewrite(fx["capture"], capture)
         value["account_status_capture"].update(
             size=fx["capture"].stat().st_size,
@@ -223,7 +223,7 @@ def test_release_and_cause_evidence_fault_twins(tmp_path: Path, attack: str) -> 
             captured_unix_seconds=capture["captured_unix_seconds"],
         )
     elif attack == "timeout-hour3-of46":
-        mechanical_stop(fx, "runtime_timeout")
+        synthetic_terminal_fault(fx, "runtime_timeout")
         fx["manifest"]["timeout_minutes"] = 46 * 60
         (fx["output"] / "manifest.json").write_text(json.dumps(fx["manifest"]))
         value["identities"]["manifest_sha256"] = digest(fx["output"] / "manifest.json")
@@ -236,7 +236,7 @@ def test_release_and_cause_evidence_fault_twins(tmp_path: Path, attack: str) -> 
     elif attack == "lease-no-terminal":
         kind = "lease_expired"
     else:
-        mechanical_stop(fx, "runtime_timeout")
+        synthetic_terminal_fault(fx, "runtime_timeout")
     value["stop_kind"] = kind
     rewrite(cert, value)
     for action in (lambda: verify(fx, cert), lambda: completion(fx, cert)):
@@ -275,6 +275,9 @@ def test_every_prefix_event_is_bound_not_only_the_last(tmp_path: Path) -> None:
     fx["log"].write_text(data)
     value = json.loads(cert.read_text())
     value["supervisor_log_prefix"].update(size=fx["log"].stat().st_size, sha256=digest(fx["log"]))
+    value["supervisor_log_prefix"].update(
+        full_size=fx["log"].stat().st_size, full_sha256=digest(fx["log"])
+    )
     rewrite(cert, value)
     with pytest.raises(r.ResumeRefused, match="ordered poll prefix"):
         verify(fx, cert)
@@ -373,30 +376,10 @@ def test_truncated_suffix_keeps_every_negative_fact(
 
 
 @pytest.mark.parametrize("kind", ["runtime_timeout", "lease_expired"])
-def test_native_terminal_event_and_exact_receipt_footer_twins(tmp_path: Path, kind: str) -> None:
+def test_synthetic_terminal_is_never_positive_recovery_evidence(tmp_path: Path, kind: str) -> None:
     fx = fixture(tmp_path)
-    mechanical_stop(fx, kind, receipt=True)
-    receipt_path = fx["output"] / "receipt.json"
-    value = json.loads(receipt_path.read_text())
-    value["terminal"]["exports"] = fx["poll"]["exports"]
-    value["exports"] = fx["poll"]["exports"]
-    receipt_path.write_text(json.dumps(value))
-    (fx["output"] / "terminal.json").write_text(json.dumps(value["terminal"]))
-    lines = fx["log"].read_text().splitlines()
-    lines[-1] = json.dumps({**fx["event"], "terminal": True, "status": "failed", "elapsed": 3600.0})
-    # Exact qualified wrapper footer is allowed only for the verified mechanical receipt.
-    lines.extend(
-        [
-            json.dumps(value),
-            f"INCOMPLETE: {p.SELF_RELEASE_ERROR}; receipt: {receipt_path}",
-            "EXIT=1",
-        ]
-    )
-    fx["log"].write_text("\n".join(lines) + "\n")
-    cert = tmp_path / "good.json"
-    build(fx, cert, kind)
-    assert completion(fx, cert).latest_iteration == 96
-    with fx["log"].open("a") as stream:
-        stream.write("NovelScientificException('after known footer')\n")
-    with pytest.raises(r.ResumeRefused):
-        verify(fx, cert)
+    synthetic_terminal_fault(fx, kind, receipt=True)
+    with pytest.raises(r.ResumeRefused, match="HOST-LOSS ONLY"):
+        build(fx, tmp_path / "bad.json", kind)
+    with pytest.raises(r.ResumeRefused, match="host-loss-only"):
+        build(fx, tmp_path / "bad-host.json")

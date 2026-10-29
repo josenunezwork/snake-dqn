@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import json
-import time
 from pathlib import Path
 
 import pytest
@@ -20,7 +19,7 @@ from research.sandbox_a_resident.units import digest, publish
 
 
 def fixture(tmp_path: Path) -> dict:
-    output = tmp_path / "attempt/output"
+    output = tmp_path / "sandbox-a-resident/attempt/output"
     exports = output / "exports/training"
     exports.mkdir(parents=True)
     control = {
@@ -65,7 +64,8 @@ def fixture(tmp_path: Path) -> dict:
     }
     (output / "poll-000000.json").write_text(json.dumps({**poll, "exports": []}))
     (output / "poll-000001.json").write_text(json.dumps(poll))
-    log = tmp_path / "supervisor.log"
+    log = tmp_path / "ops/logs/train01-r6.log"
+    log.parent.mkdir(parents=True)
     event = {
         "job": manifest["job_id"],
         "elapsed": 100.0,
@@ -81,23 +81,11 @@ def fixture(tmp_path: Path) -> dict:
         + json.dumps(event)
         + "\n"
     )
-    capture = tmp_path / "account-release-status.json"
-    publish(
-        capture,
-        lambda dst: dst.write_text(
-            json.dumps(
-                {
-                    "schema": r.ACCOUNT_RELEASE_CAPTURE_SCHEMA,
-                    "captured_unix_seconds": time.time(),
-                    "status": {
-                        "sessions": {},
-                        "usage": {"assignments": 0, "rate": 0.0, "balance": 1000.0},
-                        "unresolved": [],
-                    },
-                }
-            )
-        ),
-    )
+    # The fake provider is the only substituted boundary; production Broker.status
+    # and the capture/reconciliation producer run unchanged and only issue reads.
+    from research.sandbox_a_resident.test_c2_readiness6 import release_capture
+
+    capture = release_capture(tmp_path, output, manifest["job_id"], generation)
     return {
         "capture": capture,
         "output": output,
@@ -110,7 +98,7 @@ def fixture(tmp_path: Path) -> dict:
     }
 
 
-def mechanical_stop(fx: dict, kind: str, *, receipt: bool = False) -> None:
+def synthetic_terminal_fault(fx: dict, kind: str, *, receipt: bool = False) -> None:
     reason = {"runtime_timeout": "timeout", "lease_expired": "lease_expired"}[kind]
     terminal = {
         "job_id": fx["manifest"]["job_id"],
@@ -143,7 +131,7 @@ def mechanical_stop(fx: dict, kind: str, *, receipt: bool = False) -> None:
             "stop_verified": True,
             "cleanup_error": None,
             "failure_class": "ACCOUNTING",
-            "error": prefix.SELF_RELEASE_ERROR,
+            "error": "AccountingError('supervised assignment disappeared from sessions')",
             "terminal": terminal,
         }
         (fx["output"] / "receipt.json").write_text(json.dumps(value))
@@ -186,7 +174,7 @@ def test_receiptless_stops_admit_c2_and_fault_twins(tmp_path: Path, kind: str) -
     fx = fixture(tmp_path)
     cert = tmp_path / "certificate.json"
     if kind != "host_loss":
-        mechanical_stop(fx, kind)
+        synthetic_terminal_fault(fx, kind)
     summary = build(fx, cert, kind)
     assert summary["receipt_less"] is True
     assert summary["post_hoc_release_verified"] is True
@@ -209,7 +197,7 @@ def test_receiptless_stops_admit_c2_and_fault_twins(tmp_path: Path, kind: str) -
     # Suffix evidence never supplies payloads, but faults must poison admission.
     with fx["log"].open("a") as stream:
         stream.write("NovelDiagnosticException('after cutoff; untrusted')\n")
-    with pytest.raises(r.ResumeRefused, match="scientific/non-mechanical fault"):
+    with pytest.raises(r.ResumeRefused, match="full size or SHA-256 differs"):
         verify(fx, cert)
     fx["log"].write_text(
         fx["log"].read_text().replace("NovelDiagnosticException('after cutoff; untrusted')\n", "")
@@ -277,6 +265,10 @@ def test_receiptless_exact_message_fault_twins(tmp_path: Path, fault: str, messa
         )
         value["supervisor_log_prefix"].update(
             size=fx["log"].stat().st_size, sha256=digest(fx["log"])
+        )
+    if fault == "log-fault":
+        value["supervisor_log_prefix"].update(
+            full_size=fx["log"].stat().st_size, full_sha256=digest(fx["log"])
         )
     rewrite(cert, value)
     refuses(lambda: verify(fx, cert), message)

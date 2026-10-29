@@ -1012,6 +1012,35 @@ def _mechanical_supervisor_error(value: Any) -> bool:
     )
 
 
+OBSERVATION_EAGER_FALLBACK_REASON = "ValueError: compiled integer/bool output differs from eager"
+
+
+def _reference_observation_scan_view(value: Any) -> Any:
+    """Exempt only the operator-admitted observation report pair, without mutation.
+
+    Every other field still receives the normal scan. Exact dictionary traversal
+    prevents dotted keys, aliases, list wrappers or other compile blocks from
+    acquiring this exception. This is a scanner view, never changed evidence.
+    """
+    keys = ("metadata", "metrics", "compile", "report", "observation")
+    chain = [value]
+    for key in keys:
+        if not isinstance(chain[-1], Mapping) or key not in chain[-1]:
+            return value
+        chain.append(chain[-1][key])
+    observation = chain[-1]
+    if (
+        not isinstance(observation, Mapping)
+        or observation.get("status") != "eager_fallback"
+        or observation.get("fallback_reason") != OBSERVATION_EAGER_FALLBACK_REASON
+    ):
+        return value
+    revised = {**observation, "status": "compiled", "fallback_reason": None}
+    for parent, key in zip(reversed(chain[:-1]), reversed(keys)):
+        revised = {**parent, key: revised}
+    return revised
+
+
 def _scan_json_faults(
     value: Any,
     *,
@@ -1025,6 +1054,7 @@ def _scan_json_faults(
     allow_completed: bool = False,
 ) -> None:
     """Inspect nested diagnostic fields, including error fields in snapshot headers."""
+    value = _reference_observation_scan_view(value)
     pending = [
         (
             value,
@@ -1302,6 +1332,9 @@ def _scan_diagnostic_record_line(
         allow_completed=allow_completed,
     )
     raw = stripped
+    if _reference_observation_scan_view(record) is not record:
+        # The structured scan above has already refused any other occurrence.
+        raw = raw.replace(json.dumps(OBSERVATION_EAGER_FALLBACK_REASON), '""')
     raw = raw.replace('"canary_observations"', '"observations"')
     pending = [record]
     while pending:
@@ -2366,28 +2399,13 @@ def _verify_account_release_capture(
         or capture_payload.get("schema") != ACCOUNT_RELEASE_CAPTURE_SCHEMA
     ):
         raise ResumeRefused("malformed account_status_capture schema")
-    captured_ts = capture_payload.get("captured_unix_seconds")
-    if (
-        isinstance(captured_ts, bool)
-        or not isinstance(captured_ts, (int, float))
-        or not math.isfinite(float(captured_ts))
-        or capture_desc.get("captured_unix_seconds") != captured_ts
-    ):
-        raise ResumeRefused("malformed or mismatched captured_unix_seconds in release capture")
-    log_mtime = supervisor_log_path.stat().st_mtime
-    now_ts = time.time() if now_unix_seconds is None else float(now_unix_seconds)
-    if float(captured_ts) < log_mtime - 1.0:
-        raise ResumeRefused(
-            "stale account_status_capture predates supervisor_log ENOSPC termination"
-        )
-    if float(captured_ts) > now_ts + 60.0:
-        raise ResumeRefused("account_status_capture timestamp lies in the future")
-    if (
-        max_capture_age_seconds is not None
-        and (now_ts - float(captured_ts)) > max_capture_age_seconds
-    ):
-        raise ResumeRefused("stale account_status_capture exceeds maximum admission age")
-
+    _verify_capture_timestamp(
+        capture_payload,
+        capture_desc,
+        supervisor_log_path,
+        now_unix_seconds=now_unix_seconds,
+        max_capture_age_seconds=max_capture_age_seconds,
+    )
     status_obj = capture_payload.get("status")
     if not isinstance(status_obj, Mapping):
         raise ResumeRefused("account_status_capture lacks status object")
@@ -2414,8 +2432,39 @@ def _verify_account_release_capture(
             "account_status_capture does not prove empty server sessions, 0 assignments, "
             "0.0 rate, and empty unresolved pending state"
         )
-
     return dict(capture_payload)
+
+
+def _verify_capture_timestamp(
+    capture_payload: Mapping[str, Any],
+    capture_desc: Mapping[str, Any],
+    supervisor_log_path: Path,
+    *,
+    now_unix_seconds: float | None,
+    max_capture_age_seconds: float | None,
+) -> None:
+    """Check the bound capture clock independently of account-wide policy."""
+    captured_ts = capture_payload.get("captured_unix_seconds")
+    if (
+        isinstance(captured_ts, bool)
+        or not isinstance(captured_ts, (int, float))
+        or not math.isfinite(float(captured_ts))
+        or capture_desc.get("captured_unix_seconds") != captured_ts
+    ):
+        raise ResumeRefused("malformed or mismatched captured_unix_seconds in release capture")
+    log_mtime = supervisor_log_path.stat().st_mtime
+    now_ts = time.time() if now_unix_seconds is None else float(now_unix_seconds)
+    if float(captured_ts) < log_mtime - 1.0:
+        raise ResumeRefused(
+            "stale account_status_capture predates supervisor_log ENOSPC termination"
+        )
+    if float(captured_ts) > now_ts + 60.0:
+        raise ResumeRefused("account_status_capture timestamp lies in the future")
+    if (
+        max_capture_age_seconds is not None
+        and (now_ts - float(captured_ts)) > max_capture_age_seconds
+    ):
+        raise ResumeRefused("stale account_status_capture exceeds maximum admission age")
 
 
 def verify_host_enospc_recovery(

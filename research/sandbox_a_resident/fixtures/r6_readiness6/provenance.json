@@ -1,0 +1,13 @@
+{
+  "started_utc": "2026-10-29T07:00:51.360952+00:00",
+  "finished_utc": "2026-10-29T07:00:52.090413+00:00",
+  "scratch": "/private/tmp/astra-c2-r6-mloy_ojd",
+  "source": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15-c1-i0064-r6/output",
+  "files": 1802,
+  "bytes": 424428694,
+  "scope": "real r6 iteration-0208 header, byte copy from full-root scratch; source untouched",
+  "provider_calls": 0,
+  "file": "iteration-0208.json",
+  "size": 8026,
+  "sha256": "36d74dbd9610601b26f0fd8f7ee27493f744bf599860ae7230ca0172acaa2159"
+}

@@ -1,109 +1,145 @@
-# TRAIN-01 c2 admission and liveness boundary (readiness 5)
+# TRAIN-01 c2 admission and liveness boundary (readiness 6)
 
-Implementation for independent Opus/Argon review. This revision addresses the
-readiness-4 REJECT and supersedes that revision's policy of ignoring suffixes and
-accepting operator-only release assertions. No production seal, dispatch or
-transport change is made. `research/colab_cli` stays at tree
+This tooling revision supersedes readiness 5. It is Astra's implementation for
+independent Opus/Argon review, with no production seal, dispatch, account operation
+or change to live r6. Qualified `research/colab_cli` remains at tree
 `5833e54e9c5396121cbbf99a5cd4e52006e564fd`.
 
-## Explicit receipt-less c2 recovery
+## Operator ruling on the real observation fallback (verbatim)
 
-`training_prefix_recovery.py` uses schema
-`sandbox-a-train01-retained-export-prefix/v2`. Version 1 is refused. It remains
-an explicit recovery mode, never an exception fallback, and is restricted to
-completion index 2 by completion-packet admission and packet preflight.
+> OPERATOR RULING on BLOCKER 1 (decided under owner's delegated authority; record it verbatim in the liveness doc): torch.compile eager_fallback with the exact real reason "ValueError: compiled integer/bool output differs from eager" is ADMISSIBLE. Eager is the reference semantics; the producer's guard detected a compiled mismatch and ran the reference path, so the science is the eager recipe and only speed is affected. Admit exactly that status + exact reason in that exact metadata location (compile report observation) — the same text anywhere else still refuses — with twins built from a real r6 header (copied read-only). Also check the c1 continuation that r6 itself was admitted under: did any earlier admission accept or refuse this, and are TRAIN-01 results from r6 interpretable (note it in the doc, do not change r6).
 
-The operator prepares a certificate only after a stop, using the existing
-`build_prefix_recovery_certificate` API with a new required keyword:
-`account_status_capture=Path(...)`. That file must be an existing immutable
-`sandbox-a-colab-account-release-capture/v1` capture, with SHA/completion sidecars,
-created by the qualified account-capture tool. The builder does not query an
-account, contact Colab, stop a runtime or dispatch. Its destination is create-only
-and outside the prior output. It validates a private candidate before publishing.
-No capture or recovery certificate for the currently live r6 was created here.
+The only admitted pair is at the exact dictionary path
+`metadata.metrics.compile.report.observation`: `status: eager_fallback` and
+`fallback_reason: ValueError: compiled integer/bool output differs from eager`.
+`training_resume._reference_observation_scan_view` recognizes both fields together
+and constructs a private scanner view. It does not mutate headers or reports. All
+other fields still receive normal fault checks. The same reason in an actor block,
+self-check, diagnostic, extra observation field, nested wrapper or dotted key
+refuses. A changed reason, missing status/reason or a second exception also
+refuses. No generic `eager_fallback` vocabulary was added. Structured JSON/log
+scans check every other occurrence before masking the one admitted string in the
+raw lexical pass.
 
-Admission requires all of the following:
+`fixtures/r6_readiness6/iteration-0208.json` is a byte copy of the real header from
+the fresh full-root scratch capture. The committed twins exercise that header,
+not a hand-assembled compile report. Native `runtime_tools.CompiledBlock.__call__`
+validates compiled output against the no-grad eager reference, calls `_fallback`
+on the mismatch, then returns `self.eager(*args, **kwargs)`; later calls also use
+eager because `self.compiled` is cleared. Observation fallback is therefore an
+eager observation recipe, with compiled actor/v8-feature blocks independently
+validated in the same real header. Under the operator ruling, TRAIN-01 r6 results
+are interpretable as that recipe. This does not declare a training success,
+statistical decision, speed qualification or release.
 
-1. The frozen executed manifest, source commit, packet identity and digest,
-   absolute output root, and exact generation agree. The latest eligible compact
-   full-state snapshot and its original/derivative/header/actor bindings pass all
-   existing completion-last and SHA checks. A final endpoint cannot continue.
-2. A contiguous poll prefix ends at the first poll listing every required compact
-   snapshot payload. The entire supervisor prefix is hash-bound and scanned;
-   **every** native event matches its poll in order (job, status, terminal=false,
-   export count and log tail), with finite monotonic elapsed time. Matching only
-   the last event is insufficient. Suffix exports cannot bind any resume bytes.
-3. The certificate records the complete recursive export-directory listing,
-   including unfinished files and sidecars, by path/size/SHA. Any listing drift
-   invalidates it. A newer snapshot advertised by any retained poll poisons an
-   older cutoff, even if its local payloads were removed before rebuilding the
-   certificate. Offline admission cannot reconstruct evidence removed before
-   capture from every retained source; preserving original evidence is mandatory.
-4. **All** retained output files and the complete supervisor-log suffix are scanned
-   for scientific faults, failed stages, non-finite values, foreign identities,
-   distribution material gaps, stack dumps, completed summaries and unknown
-   execution failures. A later fault refuses even if it happened after the last
-   verified export. EOF-truncated post-cutoff JSON is tolerated only after raw
-   scans and checks of complete retained execution/fault fields. Incomplete files
-   never support admission. Existing receipt/terminal files must be complete.
-5. Any receipt must match the exact known ACCOUNTING assignment-disappearance
-   envelope with verified stop, null cleanup error, frozen identities and a
-   retained mechanical terminal. Every terminal must match the same job and
-   generation, status `failed`, reason `timeout` or `lease_expired`, and a known
-   producer stop returncode (0, -9, -10, -15 or -30). All other fields, including
-   nested diagnostics, still receive the recursive fault scan. An arbitrary child
-   failure plus a mechanical reason cannot enter this path. The only omitted
-   receipt fields are the exact independently validated envelope values. The
-   ordinary receipt path and its eligibility rules are unchanged.
-6. The declared cause agrees with retained evidence. `lease_expired` needs exactly
-   that mechanical terminal reason. `runtime_timeout` needs exactly `timeout` and
-   same-job elapsed evidence within 60 seconds before through 600 seconds after
-   the manifest timeout. Three hours of a 46-hour run cannot qualify. `host_loss`
-   requires an interrupted healthy prefix and no contradictory terminal/receipt;
-   its cause remains an operator assertion constrained by the retained evidence.
-7. The shared ENOSPC-path account-capture verifier checks the immutable release
-   capture's timestamp (after the supervisor log, no future timestamp, maximum
-   age 24 hours), empty server sessions, zero assignments, zero rate and empty
-   unresolved state. The helper reads the supplied capture only. It does not read
-   live account state. Future dispatch still requires the qualified operator's
-   normal admission process; an old capture does not assert perpetual emptiness.
+### c1 lineage audit
 
-The packet's explicit `receiptless_retained_export_prefix` label remains.
-`receipt_less=true` and `original_receipt_used=false` mean that no ordinary receipt
-provides positive resume authority; an existing known mechanical receipt is
-nevertheless inspected, hashed and reported. `original_receipt_present` is now a
-boolean, and its digest is bound when present. `post_hoc_release_verified=true`
-records the checked capture, `suffix_scanned_for_poison=true` records the scan,
-and `after_last_verified_export_trusted=false` denies suffix snapshot authority.
-Preflight reopens the certificate, repeats all checks and compares the summary,
-receipt presence/hash and both c2 labels. The full-state decoder, migration/source
-pins, frozen science/cadence, storage, envelopes and retry limit remain mandatory.
+The r6 c1 runtime pin is `dccf7e25a5fb3ebc2fe303b2dc072aeb83efd213`; its frozen
+recovery certificate is SHA-256
+`3060c1e318541e89870585f64f8f228b361aa74daa9923a4b619da82cfee9d46`.
+That admission inspected attempt-15 iterations 16/32/48/64. All four observation
+reports say `compiled`, with `fallback_reason: null`. It did not admit or exercise
+the r6 mismatch. Replaying the **real r6 header** against that pinned scanner
+explicitly REFUSES `eager_fallback` as an unknown execution status. Readiness 2–5
+also refused it in a full-root scan; their log/poll-only positive replays did not
+exercise exports. No earlier acceptance of this fallback was established. The
+new operator ruling resolves this tooling liveness gap prospectively; it does not
+rewrite c1 evidence or alter r6. Exact lineage evidence is retained externally in
+`astra-impl-c2-readiness6/C1_LINEAGE.json`.
 
-## Diagnostic regressions and evidence
+## Receipt-less recovery is HOST-LOSS ONLY, c2 only
 
-`test_c2_readiness5.py` commits each readiness-4 demonstrated attack as a refusal
-twin across certificate building, verification and completion admission. It also
-covers account/cause contradictions, arbitrary suffix exceptions, truncated fault
-fields, binding every prefix event, export-list drift, deleted newer snapshots,
-and suffix inventory attempts to support a prefix. The earlier test that admitted
-a later arbitrary receipt/fault is replaced by a refusal assertion.
+Schema `sandbox-a-train01-retained-export-prefix/v3` accepts only
+`stop_kind: host_loss`. Older v1/v2 certificates refuse. Neither builder nor
+verifier can admit a receipt-less timeout or lease-expiry declaration. Any retained
+receipt, terminal file or positive terminal event refuses this path and directs
+the operator to ordinary receipt admission. The synthetic terminal helper is now
+used solely for refusal tests; it supplies no positive liveness evidence.
 
-The first-line diagnostic fragment scan now catches arbitrary failed stage/phase
-values, including `"stage": "update-failed"}`. The non-finite text boundary admits
-hyphenated words such as `mode: nan-guard`, while actual `loss=nan`, `loss: inf` and
-Infinity values refuse. Existing exact Torch TF32-warning and fragment policies
-remain covered by the readiness-4 suite.
+The exact native v2 goldens for `runtime-timeout` and `runtime-lease-expiry` have
+`terminal: null`, `failure_class: ACCOUNTING`, and error
+`AccountingError('supervised assignment disappeared from sessions')`. **Ordinary
+receipt admission also REFUSES these actual shapes**, with the explicit message
+`ACCOUNTING receipt records assignment disappearance without a retained terminal;
+not admissible`. They are therefore currently unavailable for continuation on
+both paths. No transport patch or claim of timeout/lease liveness is made. The
+ordinary real-producer wall/deadline/reserve/renewal/poll mechanical goldens retain
+their existing admitted shapes and fault twins. A future timeout/lease path needs
+real retained producer evidence and independent review; an invented terminal
+cannot fill the gap.
 
-The original immutable attempt-15 corpus remains unchanged: 1,428 log lines and
-1,279 polls, verified against its inventory before full replay. The fresh
-`fixtures/r6_readiness5_liveness` corpus contains byte copies of 1,296 log lines,
-1,088 polls and the executed manifest, captured 2026-10-29 06:35:48 UTC using only
-local reads into private scratch. Every copied file is inventory-verified before
-admission. These are diagnostic-liveness regressions; neither manufactures account
-release, a healthy suffix, an experimental outcome or dispatch authorization.
+Host loss still requires an operator declaration, constrained by all retained
+evidence and positive post-stop release reconciliation. A healthy prefix alone
+cannot establish that r6 stopped. Live r6 has no authentic release record from
+this task and is **not admitted to production continuation**.
 
-The native supervisor goldens retain their prior ordinary-admission behavior.
-Actual native timeout/lease captures without the required retained terminal and
-compact-export evidence remain refused; this revision does not reconstruct or
-invent absent evidence. No new live timeout/lease trial or transport qualification
-is claimed by offline positive/fault twins.
+## Evidence requirements
+
+1. Frozen manifest/source/packet identity, complete compact-at-source exports,
+   original/derivative/header/actor SHA bindings, all earlier eligible snapshots,
+   contiguous poll prefix and ordered same-job supervisor events must agree.
+   The latest eligible snapshot is used. A completed endpoint refuses. The
+   full-state decoder, science/cadence, storage/envelope and completion-limit
+   gates remain mandatory.
+2. The supervisor log must resolve to canonical
+   `<artifact-root>/ops/logs/<job_id>.log`, with the artifact root determined by
+   the attempt's `<artifact-root>/sandbox-a-resident/<attempt>/output` layout.
+   A clean log supplied elsewhere refuses. The certificate records both prefix
+   size/SHA and **full log size/SHA at certificate construction**. Verification
+   refuses a shorter, changed or appended full log. To inspect newly appended
+   evidence, build a new create-only certificate after scanning it. A suffix can
+   poison admission but can never support resume bytes.
+3. The complete recursive export inventory, including unfinished files/sidecars,
+   is bound by path/size/SHA. Every retained output file and the entire log suffix
+   are scanned for faults, non-finite values, failed stages, foreign identities,
+   material gaps, nonempty stacks, completed summaries and unknown exceptions.
+   EOF truncation can be inert only after all retained complete negative facts
+   are checked. A newer advertised snapshot poisons an older cutoff even when
+   its payload was deleted. Truncation before certificate construction can hide
+   a fault removed from every source; this inherent offline limit remains.
+4. A release capture must bind an immutable qualified broker reconciliation
+   record by path/size/SHA and publication sidecars. The record binds the native
+   assignment bytes, generation, output, job-derived session and endpoint, plus
+   the exact qualified `Broker.status` result, producer, transport tree and
+   timestamp. A hand-written capture without that record refuses. Target
+   endpoint **and** target session must be absent from server sessions, active
+   records and unresolved pending records. Other account sessions and their
+   nonzero assignment counts/rates are permitted. Those account-wide checks
+   remain the dispatcher's responsibility. Capture time must be after the log,
+   not future, and at most 24 hours old; preflight reopens all bindings.
+
+`training_prefix_release.capture_prefix_release` is the sandbox capture wrapper
+for a future operator. It calls unchanged qualified `Broker.status`, whose only
+provider operations are authenticated `usage` and `sessions` reads, and publishes
+create-only reconciliation/capture files outside the prior output. Offline tests
+run that actual producer against the subprocess fake provider and assert exactly
+those two GET/read operations. It performs no allocation, kernel call, stop, or
+pending/active deletion. **It does not call `Broker.recover`**, because the
+qualified native `recover` implementation calls `stop_verified`, including a stop
+attempt even when the endpoint was already absent. The target broker records
+must already have been reconciled by the operator; this wrapper refuses them
+while present. No new live qualification is claimed. As with existing local
+broker receipts, hashes bind local evidence, not an external digital signature;
+the trusted operator must preserve the genuine producer record and assignment.
+
+The c2 packet remains explicitly labelled `receiptless_retained_export_prefix`,
+`receipt_less=true`, `original_receipt_present=false`,
+`original_receipt_used=false`, `post_hoc_release_verified=true`,
+`suffix_scanned_for_poison=true`, and
+`after_last_verified_export_trusted=false`. Summary bindings now include the full
+log size/SHA and broker reconciliation SHA. Preflight re-verifies and compares the
+whole summary; c1 cannot use this authority.
+
+## Full-root replay scope
+
+The fresh capture contains the **entire** real r6 output root, including exports
+and staging, plus its canonical supervisor log. Inventory/provenance and results
+are under external `astra-impl-c2-readiness6/`. All copied source bytes are checked
+before replay and before owned-scratch cleanup. Both ordinary full-root fault
+scanning and receipt-less prefix scanning are replayed. Conditional host-loss
+admission uses unmistakably synthetic post-stop GET-only reconciliation from the
+offline fake; it is diagnostic evidence only. Actual production receipt admission
+still lacks a receipt; actual receipt-less admission still lacks an authentic
+post-stop release reconciliation. No live r6 stop, seal, dispatch or experimental
+outcome follows from these replays. The immutable attempt-15 corpus remains
+unchanged and retains its admission regression.
