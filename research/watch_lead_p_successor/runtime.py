@@ -275,6 +275,8 @@ def execute(
             tasks.put(i)  # Session FIFO: P0/P48/bare retire together before next task.
         while len(completed) < len(pending) and not stopping and time.monotonic() < deadline:
             collect()
+            if stopping:
+                break
             if any((output / "errors").glob("*.complete")):
                 raise RuntimeError("session worker failed; sealed mechanical diagnostic retained")
             if len(completed) < len(pending) and any(p.exitcode is not None for p in processes):
@@ -300,6 +302,7 @@ def execute(
         finally:
             for s, handler in old.items():
                 signal.signal(s, handler)
+            tasks.cancel_join_thread()
             tasks.close()
     return inventory
 

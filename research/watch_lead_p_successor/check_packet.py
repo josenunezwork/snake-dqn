@@ -28,7 +28,9 @@ def check(packet: Path, repo: Path) -> dict:
     sources = json.loads((packet / "inputs/sources.json").read_text())
     verify_sources(repo, sources, bound)
     ledger = json.loads((packet / "inputs/verified-ledger.json").read_text())
-    if read_ledger(ledger, bound):
+    attempt = json.loads((packet / "envelope.json").read_text())["attempt"]
+    verified = read_ledger(ledger, bound)
+    if not attempt and verified:
         raise ValueError("initial engineering packet requires empty first ledger")
     for name, checksum in CHECKPOINTS.items():
         if digest(packet / "inputs" / name) != checksum:

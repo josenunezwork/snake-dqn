@@ -11,7 +11,14 @@ from pathlib import Path
 from research.bl_served_search.exports import digest
 from research.watch_lead_p_successor.delivery import B8_BYTES, B8_URL
 from research.watch_lead_p_successor.prepare import audit_bank, write
-from research.watch_lead_p_successor.units import CHECKPOINTS, allocation, binding, empty_ledger
+from research.watch_lead_p_successor.units import (
+    CHECKPOINTS,
+    allocation,
+    binding,
+    completion_attempt,
+    empty_ledger,
+    read_ledger,
+)
 from tools.sandbox.registry import load_registry, world_seed
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -78,7 +85,15 @@ def source_inventory(pin: str) -> dict[str, str]:
     return hashes
 
 
-def prepare(packet: Path, pin: str, transport_pin: str | None = None) -> None:
+def prepare(
+    packet: Path,
+    pin: str,
+    transport_pin: str | None = None,
+    *,
+    ledger: Path | None = None,
+    prior: Path | None = None,
+    attempt: int = 0,
+) -> None:
     if not packet.is_absolute():
         raise ValueError("absolute fresh packet path required")
     if subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip() != pin:
@@ -101,14 +116,38 @@ def prepare(packet: Path, pin: str, transport_pin: str | None = None) -> None:
     bank = fresh_bank()
     audit = collision_audit(bank)
     bound = binding(bank, sources)
+    verified_ledger = empty_ledger(bound)
+    if type(attempt) is not int or attempt not in (0, 1, 2):
+        raise ValueError("original plus at most two manual completions")
+    if attempt:
+        if ledger is None or prior is None:
+            raise ValueError("completion needs Mac-verified ledger and mechanical stop record")
+        verified_ledger = json.loads(ledger.read_text())
+        completion_attempt(attempt, json.loads(prior.read_text()), verified_ledger, bound, [0, 1])
+    elif ledger is not None or prior is not None:
+        raise ValueError("original attempt must use empty first ledger")
+    read_ledger(verified_ledger, bound)
     packet.mkdir(parents=True, exist_ok=False)
+    if attempt:
+        write(
+            packet / "completion-eligibility.json",
+            {
+                "attempt": attempt,
+                "ledger_path": str(ledger),
+                "ledger_sha256": digest(ledger),
+                "prior_path": str(prior),
+                "prior_sha256": digest(prior),
+                "fresh_native_probe_required": True,
+                "automatic_retry": False,
+            },
+        )
     inputs = packet / "inputs"
     inputs.mkdir()
     for name, value in (
         ("allocation.json", bank),
         ("binding.json", bound),
         ("sources.json", sources),
-        ("verified-ledger.json", empty_ledger(bound)),
+        ("verified-ledger.json", verified_ledger),
     ):
         write(inputs / name, value)
     checks = ROOT.parent / "snake-dqn/saved_snakes"
@@ -138,7 +177,7 @@ def prepare(packet: Path, pin: str, transport_pin: str | None = None) -> None:
     ]
     # Existing supported supervisor HTTPS route; exact complete B8 bytes, not a new service/upload.
     manifest = {
-        "job_id": "p-successor-full-timing-dev01",
+        "job_id": f"p-successor-full-timing-dev01-a{attempt}",
         "commit": pin,
         "script": SCRIPT,
         "device": "cpu",
@@ -152,6 +191,7 @@ def prepare(packet: Path, pin: str, transport_pin: str | None = None) -> None:
             "P_SUCCESSOR_STAGE": "full",
             "P_SUCCESSOR_WORK_SECONDS": "42540",
             "P_SUCCESSOR_WORKERS": "1",
+            "P_SUCCESSOR_INDICES": "0,1",
             "COLAB_CLI_REQUIREMENTS": "research/watch_lead_p/requirements.txt",
         },
         "inputs": local_inputs
@@ -179,7 +219,7 @@ def prepare(packet: Path, pin: str, transport_pin: str | None = None) -> None:
         },
         # Shared producer export proves source/checkpoint/ledger construction. Dynamic
         # session exports are also scanned; COMPLETE runtime exit is required separately.
-        "required_exports": ["successor/entrypoint.json"],
+        "required_exports": ["successor/entrypoint.json", "successor-startup.json"],
         "canary": {
             "receipt": {
                 "path": str(packet / "NOT-YET-QUALIFIED-family-receipt.json"),
@@ -191,11 +231,15 @@ def prepare(packet: Path, pin: str, transport_pin: str | None = None) -> None:
     # Native proof is limited to 30min; same entrypoint and full input inventory.
     probe = json.loads(json.dumps(manifest))
     probe.update(
-        job_id="p-successor-transport-dev01",
+        job_id=f"p-successor-transport-dev01-a{attempt}",
         timeout_minutes=30,
         output_dir=str(packet / "transport/output"),
         canary={"schema": "colab-family-canary/v1", "mode": "probe", "family": SCRIPT},
-        required_exports=["successor/entrypoint.json", "successor/transport-smoke.json"],
+        required_exports=[
+            "successor/entrypoint.json",
+            "successor/transport-smoke.json",
+            "successor-startup.json",
+        ],
     )
     probe["requirements"]["est_minutes"] = 15
     probe["env"].update(
@@ -236,7 +280,13 @@ def prepare(packet: Path, pin: str, transport_pin: str | None = None) -> None:
             "effective_units_informational": 18.48,
             "base_reserve_informational": 1.848,
             "effective_reserve_informational": 3.696,
+            "attempt": attempt,
             "original_plus_two_manual_completion_hours": 36,
+            "native_probes_per_original_or_completion": 1,
+            "native_probe_series_hours": 1.5,
+            "complete_series_hours_including_fresh_probes": 37.5,
+            "complete_series_units_informational": 57.75,
+            "changed_ledger_requires_fresh_probe": True,
             "unit_caps_are_not_current_owner_budget_policy": True,
             "workers": 1,
             "concurrency_qualification": "serial baseline only; sustained w>1 remains needed",
@@ -270,6 +320,10 @@ def prepare(packet: Path, pin: str, transport_pin: str | None = None) -> None:
         "arm engineering sessions on L4 CPU.\n"
         "   12h cap is a doubled runaway guard, not a completion "
         "prediction. Publish each whole session.\n"
+        "Each manual completion uses --attempt 1 or 2 --ledger VERIFIED --prior STOP_RECORD.\n"
+        "Changing the ledger requires a FRESH 30min native family probe "
+        "with exactly those inputs;\n"
+        "never reuse the original receipt or relax the native input SHA/size checks.\n"
         "7. Price measured full-session tails and sustained concurrency "
         "before scientific registration.\n"
         "No scientific manifest, registration, closed-bank look, automatic"
@@ -286,8 +340,18 @@ def main() -> None:
     parser.add_argument("--packet", type=Path, required=True)
     parser.add_argument("--pin", required=True)
     parser.add_argument("--transport-pin", help="final published transport producer commit")
+    parser.add_argument("--ledger", type=Path)
+    parser.add_argument("--prior", type=Path)
+    parser.add_argument("--attempt", type=int, default=0)
     args = parser.parse_args()
-    prepare(args.packet, args.pin, args.transport_pin)
+    prepare(
+        args.packet,
+        args.pin,
+        args.transport_pin,
+        ledger=args.ledger,
+        prior=args.prior,
+        attempt=args.attempt,
+    )
 
 
 if __name__ == "__main__":

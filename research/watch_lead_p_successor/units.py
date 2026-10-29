@@ -158,7 +158,12 @@ def validate_row(row: dict, bound: dict, index: int) -> None:
     ):
         raise ValueError("foreign/incomplete session")
     arms = row["arms"]
-    if not isinstance(row.get("host"), dict) or not row["host"]:
+    if (
+        not isinstance(row.get("host"), dict)
+        or not row["host"]
+        or row["host"].get("torch_threads") != 1
+        or row["host"].get("torch_interop") != 1
+    ):
         raise ValueError("missing host/software identity")
     for arm, r in arms.items():
         if (
@@ -227,6 +232,8 @@ def verify_metadata(path: Path, bound: dict) -> dict:
         or meta["sha256"] != checksum
         or not isinstance(meta["host"], dict)
         or not meta["host"]
+        or meta["host"].get("torch_threads") != 1
+        or meta["host"].get("torch_interop") != 1
         or not re.fullmatch(r"[0-9a-f]{64}", str(meta["initial_state"]))
     ):
         raise ValueError("foreign/corrupt unit metadata")
@@ -251,7 +258,9 @@ def aggregate(paths: list[Path], bound: dict, output: Path) -> dict:
     """No payload is parsed before metadata proves all 32 unique scientific sessions."""
     if platform.system() != "Darwin" or bound["bank"]["engineering_only"]:
         raise ValueError("scientific terminal reducer is Mac-only; engineering is excluded")
-    if output.exists():
+    if any(p.is_symlink() for p in (output, *output.parents)):
+        raise ValueError("unsafe reducer output path")
+    if any(Path(str(output) + suffix).exists() for suffix in ("", ".sha256", ".complete")):
         raise FileExistsError(output)
     ledger = make_ledger(paths, bound)
     records = read_ledger(ledger, bound)
@@ -264,7 +273,12 @@ def aggregate(paths: list[Path], bound: dict, output: Path) -> dict:
     }
     if set(records) == set(range(32)):
         rows = []
-        for path in sorted(paths):
+        ordered = sorted(paths, key=lambda p: int(p.stem.removeprefix("session-")))
+        for path in ordered:
+            i = int(path.stem.removeprefix("session-"))
+            if verify_metadata(path, bound) != records[i]:
+                raise ValueError("unit changed after complete-N gate")
+        for path in ordered:
             i = int(path.stem.removeprefix("session-"))
             # Recheck custody immediately before opening the first outcome.
             if verify_metadata(path, bound) != records[i]:

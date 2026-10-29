@@ -18,7 +18,12 @@ def bound(engineering: bool = True, count: int = 2) -> dict:
 
 
 def row(b: dict, index: int) -> dict:
-    host = {"cpu": "test-host", "software": "frozen-test-software"}
+    host = {
+        "cpu": "test-host",
+        "software": "frozen-test-software",
+        "torch_threads": 1,
+        "torch_interop": 1,
+    }
     return {
         "binding": b,
         "index": index,
@@ -340,3 +345,124 @@ def test_long_packet_binder_refuses_missing_transport_pin(tmp_path) -> None:
     with pytest.raises(ValueError, match="re-pin"):
         bind(tmp_path, tmp_path / "receipt", tmp_path / "qualified", tmp_path / "new-packet")
     assert not (tmp_path / "new-packet").exists()
+
+
+def test_multi_attempt_nonconstant_union_is_index_ordered(tmp_path, monkeypatch) -> None:
+    b = bound(False, 32)
+    paths, canonical_rows = [], []
+    for i in range(32):
+        r = row(b, i)
+        r["arms"]["bare"].update(deaths=i % 7 + 1, mass=100 + i * 3)
+        r["arms"]["P48"].update(deaths=i % 5, mass=97 + i * 4)
+        canonical_rows.append(r)
+        parent = "z-original" if i < 16 else "a-completion"
+        p = tmp_path / parent / "units" / f"session-{i:02d}.json"
+        units.publish(p, r, b, i)
+        paths.append(p)
+    monkeypatch.setattr(units.platform, "system", lambda: "Darwin")
+    from research.watch_lead_p.protocol import statistics
+
+    report = units.aggregate(list(reversed(paths)), b, tmp_path / "decision.json")
+    assert report["P48_primary"] == statistics(canonical_rows)
+    assert report["P0_descriptive_only"] == statistics(canonical_rows, "P0")
+    assert statistics(canonical_rows) != statistics(canonical_rows[16:] + canonical_rows[:16])
+
+
+def test_reducer_output_sidecar_refuses_before_any_payload_open(tmp_path, monkeypatch) -> None:
+    b = bound(False, 32)
+    paths = [unit(tmp_path, b, i) for i in range(32)]
+    output = tmp_path / "decision.json"
+    Path(str(output) + ".complete").write_text("orphan")
+    monkeypatch.setattr(units.platform, "system", lambda: "Darwin")
+    original = Path.read_text
+
+    def guarded(path, *args, **kwargs):
+        if path in paths:
+            raise AssertionError("OUTCOME OPENED before output custody refusal")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", guarded)
+    with pytest.raises(FileExistsError):
+        units.aggregate(paths, b, output)
+
+
+def test_completion_packet_seals_changed_ledger_for_fresh_probe(tmp_path, monkeypatch) -> None:
+    import json
+
+    from research.watch_lead_p_successor import prepare_session as prep
+
+    fixture_bank = bound()["bank"]
+    sources = {"fixture": "a" * 64}
+    b = units.binding(fixture_bank, sources)
+    monkeypatch.setattr(prep, "ROOT", tmp_path / "worktree")
+    monkeypatch.setattr(prep, "fresh_bank", lambda: fixture_bank)
+    monkeypatch.setattr(prep, "collision_audit", lambda _: {"collisions": []})
+    monkeypatch.setattr(prep, "source_inventory", lambda _: sources)
+    monkeypatch.setattr(prep.subprocess, "check_output", lambda *args, **kwargs: "f" * 40 + "\n")
+    checks = tmp_path / "snake-dqn/saved_snakes"
+    checks.mkdir(parents=True)
+    actual = Path("/Users/josenunez/Projects/ml/snake-dqn/saved_snakes")
+    for name in ("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth"):
+        (checks / name).hardlink_to(actual / name)
+    p = unit(tmp_path / "fixture-prior", b, 0)
+    ledger = tmp_path / "verified.json"
+    ledger.write_text(json.dumps(units.make_ledger([p], b)))
+    prior = tmp_path / "mechanical.json"
+    prior.write_text(
+        json.dumps(
+            {
+                "attempt": 0,
+                "binding": b,
+                "indices": [0, 1],
+                "failure_class": "timeout",
+                "stop_verified": True,
+                "disappearance_verified": True,
+            }
+        )
+    )
+    packet = tmp_path / "completion-packet"
+    prep.prepare(packet, "f" * 40, ledger=ledger, prior=prior, attempt=1)
+    native = json.loads((packet / "transport-manifest.TEMPLATE.json").read_text())
+    full = json.loads((packet / "full-session-manifest.TEMPLATE.json").read_text())
+    assert native["inputs"] == full["inputs"]
+    assert native["job_id"].endswith("a1") and full["job_id"].endswith("a1")
+    staged = json.loads((packet / "inputs/verified-ledger.json").read_text())
+    assert list(units.read_ledger(staged, b)) == [0]
+    assert (packet / "completion-eligibility.json").is_file()
+    assert "FRESH 30min" in (packet / "DISPATCH-NOT-RUN.txt").read_text()
+    assert (
+        json.loads((packet / "envelope.json").read_text())[
+            "complete_series_hours_including_fresh_probes"
+        ]
+        == 37.5
+    )
+
+
+def stop_worker(tasks, b, checkpoints, output):
+    import os
+
+    i = tasks.get()
+    units.publish(output / "units" / f"session-{i:02d}.json", row(b, i), b, i)
+    units.export_json(output / "timing" / f"session-{i:02d}.json", {"index": i})
+    os.kill(os.getppid(), signal.SIGUSR1)
+    os.kill(os.getpid(), signal.SIGUSR1)
+
+
+def test_owned_worker_and_coordinator_stop_is_clean_incomplete(tmp_path, monkeypatch) -> None:
+    from research.watch_lead_p_successor import runtime
+
+    monkeypatch.setattr(runtime, "worker", stop_worker)
+    b = bound()
+    result = runtime.execute(
+        b, units.empty_ledger(b), [0, 1], Path("stop"), tmp_path / "out", workers=1, work_seconds=10
+    )
+    assert result["status"] == "INCOMPLETE" and result["completed"] == [0]
+    units.verify_metadata(tmp_path / "out/units/session-00.json", b)
+
+
+def test_mac_custody_refuses_non_single_thread_host(tmp_path) -> None:
+    b = bound()
+    r = row(b, 0)
+    r["host"]["torch_threads"] = 2
+    with pytest.raises(ValueError, match="host"):
+        units.publish(tmp_path / "session-00.json", r, b, 0)
