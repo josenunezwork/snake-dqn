@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 
+from research.compute.gpu_preference import prepare_preference
 from research.sandbox_a_resident.prepare import runtime_source_paths
 from research.sandbox_a_resident.training_task import seed_allocations
 from research.sandbox_a_resident.training_units import empty_ledger
@@ -267,6 +268,7 @@ def prepare(
         if sandbox_source_delivery != "background-sparse-v1":
             raise ValueError("sandbox_source_delivery must be background-sparse-v1")
         manifest["sandbox_source_delivery"] = sandbox_source_delivery
+    prepare_preference(manifest)
     write_once(packet / "dispatch-manifest.json", manifest)
     roots = [row["offset"] for row in allocations]
     inputs = [

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import fcntl
 import hashlib
@@ -36,24 +37,20 @@ _guard_spec.loader.exec_module(_guard_module)
 _guard_module.verify(HERE.parents[1])
 if str(HERE.parents[1]) not in sys.path:
     sys.path.insert(0, str(HERE.parents[1]))
+from research.colab_cli.accounting import budget_warning, warning_threshold  # noqa: E402
 from research.compute.colab_control import POLICY_ID as CONTROL_POLICY_ID  # noqa: E402
 from research.compute.colab_control import RULING_SHA256 as CONTROL_RULING_SHA256  # noqa: E402
+from research.compute.gpu_preference import FALLBACK_SUFFIX, sibling_id, variants  # noqa: E402
+from tools.ops.processes import run as run_process_tree  # noqa: E402
 
 EXACT_ERROR = "AccountingError('assignment endpoints changed during allocation')"
 BLOCK = re.compile(r"^\s*(?:BLOCK|HOLD)\b|RUNTIME BLOCKED|do not run this|PREPARED_NOT_DISPATCHED")
 NICE_FLOOR = 15
-# Sandbox admission executes its sealed focused test suite before invoking the
-# unchanged qualified supervisor.  Keep ordinary host subprocesses at 60s while
-# giving only that offline admission step a bounded window large enough for the
-# suite on a busy Mac.
+# Full sandbox suites run before allocation in a separate 1200s host window
+# (base 600s, owner 2x). Byte-identical passes reuse a create-only test receipt;
+# refreshed/native checks still share the unchanged <=600s allocation window.
 COMMAND_TIMEOUT_SECONDS = 60.0
-SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS = 240.0
-# The host adapter admits before input hashing and the qualified validator
-# rechecks through its canary hook. Each pass retains its own 240s bound;
-# the outer launcher must cover both plus ordinary host overhead.
-SANDBOX_OUTER_VALIDATE_TIMEOUT_SECONDS = (
-    2 * SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS + COMMAND_TIMEOUT_SECONDS
-)
+SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS = 1200.0
 SANDBOX_OUTPUT_ROOTS = {
     "sandbox-b-heads-v1": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b-20261026",
     "sandbox-b-heads-v2": HERE.parents[1].parent / "snake-dqn-artifacts/a100-sandbox-b2-20261026",
@@ -267,7 +264,7 @@ def command(
     )
     if remaining <= 0:
         raise TimeoutError("allocation lock deadline expired")
-    return subprocess.run(args, timeout=remaining, check=True, **kwargs)
+    return run_process_tree(args, timeout=remaining, check=True, **kwargs)
 
 
 def note(log: Path, value: str) -> None:
@@ -277,16 +274,39 @@ def note(log: Path, value: str) -> None:
 
 
 @contextlib.contextmanager
-def allocation_lock(path: Path, seconds: float) -> Iterator[float]:
-    """Own the flock here; termination, including SIGKILL, closes the descriptor."""
+def allocation_lock(
+    path: Path,
+    seconds: float,
+    *,
+    wait: bool = False,
+    poll_seconds: float = 1.0,
+    handoff: dict[str, Any] | None = None,
+) -> Iterator[float]:
+    """Own the flock; optional contention polling consumes the same deadline."""
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise Refused("allocation lock deadline expired")
+    if not math.isfinite(poll_seconds) or poll_seconds <= 0:
+        raise Refused("invalid allocation lock poll interval")
+    deadline = time.monotonic() + seconds
     with path.open("a") as stream:
+        while True:
+            try:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                remaining = deadline - time.monotonic()
+                if not wait or remaining <= 0:
+                    raise Refused(f"account allocation lock is held: {path}") from exc
+                time.sleep(min(poll_seconds, remaining))
+                if time.monotonic() >= deadline:
+                    raise Refused(f"account allocation lock is held: {path}") from exc
         try:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise Refused(f"account allocation lock is held: {path}") from exc
-        try:
-            yield time.monotonic() + seconds
+            if handoff is not None:
+                handoff["handle"] = stream
+            yield deadline
         finally:
+            if handoff is not None and "lease" in handoff:
+                handoff["lease"].unlink(missing_ok=True)
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
@@ -665,10 +685,13 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
             or (source not in shared and not source.startswith(prefixes))
         ):
             raise Refused("sandbox source is outside its engineering dependency closure")
-    if manifest.get("requirements", {}).get("allowed_gpus", ["A100"]) != ["A100"]:
-        raise Refused("sandbox permits only its adopted A100 assignment")
+    req = manifest.get("requirements", {})
+    if req.get("gpu") not in {"H100", "A100"} or req.get("allowed_gpus", [req["gpu"]]) != [
+        req["gpu"]
+    ]:
+        raise Refused("sandbox permits only an explicit H100 or A100 assignment")
     path = preflight._assert_safe_path(admission["manifest_path"], "sandbox manifest")
-    payload = preflight.preflight(path, run_tests=True)
+    payload = preflight.preflight(path, run_tests=False)
     if payload["study"] != study:
         raise Refused("sandbox study differs from entrypoint")
     original = read_json(Path(payload["outputs"]["broker_manifest"]["path"]))
@@ -677,7 +700,8 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         result = json.loads(json.dumps(value))
         req = result["requirements"]
         req.setdefault("allowed_gpus", [req["gpu"]])
-        result["budget"].setdefault("reserve_units", 0)
+        result.setdefault("budget", {}).setdefault("reserve_units", 0)
+        result["budget"].setdefault("rate_units_per_hour", 0)
         result["budget"]["other_assignments"] = {}  # Fresh broker prices only.
         result.setdefault("env", {})
         result.setdefault("lease_seconds", 180)
@@ -688,6 +712,15 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         return result
 
     expected, current = normalized(original), normalized(manifest)
+    if original.get("requirements", {}).get("prefer") is not None:
+        expected = next(
+            (
+                normalized(item)
+                for item in variants(original)
+                if item["job_id"] == current["job_id"]
+            ),
+            expected,
+        )
     retry_id = original["job_id"] + "-retry-1"
     if len(retry_id) > 64:
         digest = hashlib.sha256(original["job_id"].encode()).hexdigest()[:8]
@@ -696,6 +729,12 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
         expected.update(job_id=retry_id, output_dir=expected["output_dir"] + "-retry-1")
     if current != expected:
         raise Refused("sandbox runtime packet differs from committed preflight binding")
+    from tools.sandbox.admission import TEST_RECEIPT_ENV, cached_tests, publish_tests, test_identity
+
+    identity = test_identity(broker, original, path) if os.environ.get(TEST_RECEIPT_ENV) else None
+    reused = identity is not None and cached_tests(identity)
+    if not reused:
+        preflight.run_focused_tests()
     # Retain all non-receipt checks that ordinary canary.check performs.
     from research.colab_cli import canary, transfer_policy
 
@@ -710,14 +749,27 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
             else "research.sandbox_a_resident.preflight"
         )
         command(
-            [sys.executable, "-m", module, str(path.parent)],
+            [sys.executable, "-m", module, str(path.parent)]
+            + (["--checks-only"] if reused else []),
             cwd=broker,
-            timeout_seconds=SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS,
+            timeout_seconds=600.0,
         )
+    if identity is not None:
+        if test_identity(broker, original, path) != identity:
+            raise Refused("sandbox admission bytes changed during validation")
+        if not reused:
+            publish_tests(identity)
 
 
 def validate(
-    broker: Path, cwd: Path, state: Path, manifest: Path, log: Path, deadline: float | None = None
+    broker: Path,
+    cwd: Path,
+    state: Path,
+    manifest: Path,
+    log: Path,
+    deadline: float | None = None,
+    *,
+    test_receipt: Path | None = None,
 ) -> None:
     """Run real validation; launch.sh --check would only print and return."""
     packet = read_json(manifest)
@@ -727,10 +779,17 @@ def validate(
         # Keep the venv shebang script, but resolve the ~/.local/bin alias.
         colab = colab.resolve()
     timeout_seconds = (
-        SANDBOX_OUTER_VALIDATE_TIMEOUT_SECONDS
+        SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS
         if "sandbox_admission" in packet
         else COMMAND_TIMEOUT_SECONDS
     )
+    validation_env = None
+    if "sandbox_admission" in packet:
+        from tools.sandbox.admission import environment
+
+        validation_env = environment(
+            test_receipt or log.with_suffix(".tests.json"), require=deadline is not None
+        )
     with log.open("x") as stream:
         command(
             [
@@ -747,6 +806,7 @@ def validate(
             stderr=subprocess.STDOUT,
             deadline=deadline,
             timeout_seconds=timeout_seconds,
+            **({"env": validation_env} if validation_env is not None else {}),
         )
 
 
@@ -768,6 +828,9 @@ def start(
     control_nice0: bool = False,
     control_admission: Path | None = None,
     small_bench_config: Path | None = None,
+    gpu_receipt: Path | None = None,
+    sandbox_test_receipt: Path | None = None,
+    sandbox_lease: Path | None = None,
 ) -> None:
     """Submit one shell command with preserved argument boundaries and exit evidence."""
     packet = read_json(manifest)
@@ -812,6 +875,16 @@ def start(
             *launcher,
         ]
     environment_items = ["env", f"HOME={Path.home()}", f'PATH={os.environ["PATH"]}']
+    if sandbox_test_receipt is not None:
+        from tools.sandbox.admission import LEASE_ENV
+        from tools.sandbox.admission import environment as sandbox_environment
+
+        environment_items = ["env", "-i"] + [
+            f"{key}={item}"
+            for key, item in sandbox_environment(sandbox_test_receipt, require=True).items()
+        ]
+        if sandbox_lease is not None:
+            environment_items.append(f"{LEASE_ENV}={sandbox_lease}")
     if collector is not None:
         environment_items.append(f"SNAKE_SANDBOX_COLLECTOR_DIR={collector}")
     if small_bench_config is not None:
@@ -843,9 +916,19 @@ def start(
             ]
         )
     environment = shlex.join(environment_items)
+    finalize = ""
+    if gpu_receipt is not None:
+        finalize = (
+            shlex.join(
+                [sys.executable, str(HERE / "gpu_receipt.py"), str(manifest), str(gpu_receipt)]
+            )
+            + f" >> {shlex.quote(str(log))} 2>&1"
+            + '; proof_rc=$?; if [ "$proof_rc" != 0 ]; then rc="$proof_rc"; fi; '
+        )
     body = (
         f"{{ cd {shlex.quote(str(cwd))} && {environment} {shlex.join(launcher)}; }} "
         f">> {shlex.quote(str(log))} 2>&1; rc=$?; "
+        f"{finalize}"
         f'printf "EXIT=%s\\n" "$rc" >> {shlex.quote(str(log))}; exit "$rc"'
     )
     if control_nice0:
@@ -905,10 +988,13 @@ def _chain_values(manifests: list[dict[str, Any]], minutes: float, units: float)
         raise Refused("retained dispatch has duplicate job identifiers")
     if len({item.get("output_dir") for item in manifests}) != len(manifests):
         raise Refused("retained dispatch requires separate output roots")
-    if not all(math.isfinite(value) and value > 0 for value in (minutes, units)):
-        raise Refused("retention minutes and units must be finite positive values")
-    if minutes > 240 or units > 40:
-        raise Refused("retained ready-work chain exceeds the ruled 4 h / 40 u ceiling")
+    if not math.isfinite(minutes) or minutes <= 0:
+        raise Refused("retention minutes must be finite and positive")
+    units = warning_threshold(units, "retention_units")
+    if minutes > 240:
+        raise Refused("retained ready-work chain exceeds the ruled 4 h ceiling")
+    if units is not None and units > 40:
+        budget_warning("RETENTION_UNIT_THRESHOLD", units=units, legacy_threshold=40)
     if any(
         item.get("resume_exemption", {}).get("kind") == "acceptance"
         and item.get("timeout_minutes", math.inf) > 60
@@ -964,7 +1050,7 @@ def start_chain(
         "--retention-minutes",
         str(minutes),
         "--retention-units",
-        str(units),
+        str(units or 0),
     ]
     environment = shlex.join(["env", f"HOME={Path.home()}", f'PATH={os.environ["PATH"]}'])
     body = (
@@ -1102,6 +1188,25 @@ def read_json(path: Path) -> dict:
     return value
 
 
+def session_rows(stdout: str) -> list[tuple[str, str, str]]:
+    """Parse complete CLI inventory, refusing ambiguous or contradictory rows."""
+    rows = []
+    for line in stdout.splitlines():
+        if not line.startswith("[") or line.startswith("[colab]"):
+            continue
+        match = re.fullmatch(r"\[([^\]]+)\]\s+(\S+)\s+\| Hardware:\s*([^|]+?)(?:\s+\|.*)?", line)
+        if match is None or not match[3].strip():
+            raise Refused("unrecognized account session row")
+        rows.append(match.groups())
+    if not rows and "No active sessions found on server." not in stdout:
+        raise Refused("unrecognized account sessions output")
+    if rows and "No active sessions found on server." in stdout:
+        raise Refused("contradictory account sessions output")
+    if len({endpoint for _, endpoint, _ in rows}) != len(rows):
+        raise Refused("duplicate endpoint in account sessions output")
+    return rows
+
+
 def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path:
     """Snapshot live broker-owned prices into a create-only sibling under the lock."""
     result = command(
@@ -1110,18 +1215,7 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
         capture_output=True,
         text=True,
     )
-    rows = []
-    for line in result.stdout.splitlines():
-        if not line.startswith("[") or line.startswith("[colab]"):
-            continue
-        match = re.fullmatch(r"\[([^\]]+)\]\s+(\S+)\s+\| Hardware:\s*([^|]+?)(?:\s+\|.*)?", line)
-        if match is None or not match[3].strip():
-            raise Refused("unrecognized account session row")
-        rows.append(match.groups())
-    if not rows and "No active sessions found on server." not in result.stdout:
-        raise Refused("unrecognized account sessions output")
-    if rows and "No active sessions found on server." in result.stdout:
-        raise Refused("contradictory account sessions output")
+    rows = session_rows(result.stdout)
     sessions = {endpoint: hardware.strip() for _, endpoint, hardware in rows}
     if (
         sessions
@@ -1178,17 +1272,23 @@ def refresh_assignments(manifest: Path, evidence: Path, deadline: float) -> Path
             or not math.isfinite(rate)
             or rate <= 0
         ):
-            raise Refused(f"broker endpoint lacks a calibrated positive rate: {endpoint}")
+            budget_warning("BROKER_RATE_UNAVAILABLE", endpoint=endpoint, rate=rate)
+            rate = 0.0
         registered = {"L4": 1.54, "CPU": 0.08}.get(hardware.upper())
         if registered is not None and not math.isclose(rate, registered, rel_tol=0, abs_tol=1e-9):
-            raise Refused(f"broker rate differs from registered {hardware} rate: {endpoint}")
-        if hardware.upper() not in ("L4", "CPU", "A100"):
+            budget_warning(
+                "BROKER_RATE_DIFFERS_FROM_REGISTERED",
+                endpoint=endpoint,
+                rate=rate,
+                registered=registered,
+            )
+        if hardware.upper() not in ("L4", "CPU", "A100", "H100"):
             raise Refused(f"unregistered live hardware: {hardware}")
         rates[endpoint] = rate
     original = manifest.read_bytes()
     value = json.loads(original)
     require_f5_plan_live_assignment_match(value, {"budget": {"other_assignments": rates}})
-    value["budget"]["other_assignments"] = rates
+    value.setdefault("budget", {})["other_assignments"] = rates
     refreshed = manifest.with_name(f"{manifest.stem}.live.json")
     payload = (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
     with refreshed.open("xb") as stream:
@@ -1214,7 +1314,9 @@ A1_AUTHORITY_SHA256 = "1c87898be554d8e66788da6f0a09ee7b842a514e530c1d0e1c624bcf5
 
 
 def a1_acceptance_limit(manifest: dict[str, Any], exemption: dict[str, Any]) -> bool:
-    """Recognize only the source-bound A1 ruler's authorized 2 h / 20 u envelope."""
+    """Recognize the source-bound A1 ruler's authorized two-hour envelope."""
+    if manifest.get("budget", {}).get("unit_cap") not in (None, 20):
+        budget_warning("A1_LEGACY_UNIT_THRESHOLD", unit_cap=manifest["budget"]["unit_cap"])
     return (
         exemption.get("kind") == "acceptance"
         and exemption.get("authority_sha256") == A1_AUTHORITY_SHA256
@@ -1222,7 +1324,6 @@ def a1_acceptance_limit(manifest: dict[str, Any], exemption: dict[str, Any]) -> 
         and manifest.get("env", {}).get("GPU_SIM_SPIKE_ENTRYPOINT") == "a1-ruler"
         and manifest.get("requirements", {}).get("gpu") == "A100"
         and manifest.get("requirements", {}).get("allowed_gpus") == ["A100"]
-        and manifest.get("budget", {}).get("unit_cap") == 20
         and manifest.get("a1", {}).get("shapes") == [6, 256, 1024]
         and manifest.get("a1", {}).get("mixes") == ["scripted", "frozen", "mixed"]
         and manifest.get("a1", {}).get("repeats") == 3
@@ -1878,10 +1979,12 @@ def require_f5_plan_live_assignment_match(original: dict[str, Any], live: dict[s
         F5_PLAN_ADMISSION_SCHEMA,
         F5_TIMING_ADMISSION_SCHEMA,
     }:
-        if live.get("budget", {}).get("other_assignments") != original.get("budget", {}).get(
-            "other_assignments"
-        ):
+        expected = original.get("budget", {}).get("other_assignments", {})
+        observed = live.get("budget", {}).get("other_assignments", {})
+        if set(observed) != set(expected):
             raise Refused("F5 live assignments differ from sealed admission; seal a successor")
+        if observed != expected:
+            budget_warning("F5_LIVE_RATE_CHANGED", expected=expected, observed=observed)
 
 
 def wait_allocation(output: Path, log: Path, deadline: float, poll: float) -> str:
@@ -1941,6 +2044,361 @@ def ensure_watcher(ops: Path, broker: Path) -> None:
         )
 
 
+ALLOCATION_UNAVAILABLE = (
+    "[colab] Allocation refused (precondition failed). This can mean "
+    "too many active sessions, or a temporary usage or capacity "
+    "limit for the requested runtime. Run `colab stop` to free up a "
+    "session, wait and retry, or try a different accelerator."
+)
+
+
+def allocation_unavailable(output: Path, log: Path, accelerator: str) -> bool:
+    """Recognize the measured 0.7.4 pre-assignment scarcity errors only.
+
+    This is only a candidate: reconciliation below must independently prove
+    no assignment. Timeout, entitlement, accounting and post-endpoint errors
+    never qualify. The qualified supervisor intentionally retains uncertainty.
+    """
+    if not isinstance(accelerator, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", accelerator):
+        return False
+    if not re.search(r"^EXIT=[1-9]\d*$", log.read_text(), re.MULTILINE):
+        return False
+    path = output / "receipt.json"
+    if not path.is_file():
+        return False
+    receipt = read_json(path)
+    error = receipt.get("error", "")
+    if not isinstance(error, str):
+        return False
+    try:
+        detail = (
+            ast.literal_eval(error[len("Refused(") : -1]) if error.startswith("Refused(") else ""
+        )
+    except (ValueError, SyntaxError):
+        return False
+    session = receipt.get("session")
+    expected = (
+        f"colab new failed (1): [colab] Creating session '{session}'...\n"
+        + ALLOCATION_UNAVAILABLE
+        + "\n"
+    )
+    # The real 2026-10-28 producer renders a traceback, truncated by the
+    # supervisor, followed by this exact exception line. Match the terminal
+    # line and assignment URL, never a loose "Service Unavailable" substring.
+    service_unavailable = isinstance(detail, str) and detail.startswith("colab new failed (1): ")
+    if service_unavailable:
+        lines = detail.removeprefix("colab new failed (1): ").strip().splitlines()
+        service_unavailable = (
+            re.fullmatch(
+                r"ColabRequestError: Failed to issue request POST "
+                r"https://colab\.research\.google\.com/tun/m/assign"
+                r"\?nbh=[a-f0-9_.-]+&variant=GPU&accelerator=" + re.escape(accelerator) + r": "
+                r"(?:Service Unavailable|503(?: Service Unavailable)?)",
+                lines[-1] if lines else "",
+            )
+            is not None
+        )
+    calls = receipt.get("cli_calls")
+    return (
+        (detail == expected or service_unavailable)
+        and receipt.get("status") == "INCOMPLETE"
+        and receipt.get("failure_class") == "SUPERVISOR"
+        and receipt.get("endpoint") is None
+        and isinstance(receipt.get("accounting"), dict)
+        and receipt["accounting"].get("allocated_endpoint") is None
+        and receipt.get("terminal") is None
+        and receipt.get("cleanup_error") == "ALLOCATION_UNRESOLVED: retained pending record"
+        and receipt.get("stop_verified") is False
+        and all(receipt.get(key) == [] for key in ("exports", "transfers", "contents_transfers"))
+        and isinstance(calls, list)
+        and all(isinstance(call, dict) for call in calls)
+        and sum(call.get("command") == "new" for call in calls) == 1
+        and all(call.get("command") in {"version", "sessions", "usage", "new"} for call in calls)
+        and next(call for call in calls if call["command"] == "new").get("status") == "failed"
+        and not any(
+            (output / name).exists()
+            for name in ("hardware.json", "terminal.json", "rate-calibration.json")
+        )
+    )
+
+
+def reconcile_unavailable(
+    broker: Path,
+    manifest: Path,
+    state: Path,
+    log: Path,
+    proof: Path,
+    deadline: float,
+    *,
+    dry_run: bool = False,
+    expected_pending: Path | None = None,
+) -> dict[str, Any]:
+    """Archive and retire only the rejected request's proven empty pending intent.
+
+    Hold the same account mutation lock as the supervisor while issuing GET-only
+    recovery/inventory. Any endpoint, missing evidence, changed baseline, helper
+    failure or unrelated pending record leaves the account fenced for an operator.
+    """
+    packet = read_json(manifest)
+    accelerator = packet.get("requirements", {}).get("gpu")
+    output = Path(packet["output_dir"])
+    if not allocation_unavailable(output, log, accelerator):
+        raise Refused("requested accelerator allocation unavailability is not proven")
+    receipt_path = output / "receipt.json"
+    receipt = read_json(receipt_path)
+    session = receipt.get("session", "")
+    if not re.fullmatch(r"snake-[a-z0-9_-]+-[a-f0-9]{12}", session):
+        raise Refused("unavailable allocation lacks an exact supervisor session")
+    executed = output / "manifest.json"
+    if (
+        not executed.is_file()
+        or hashlib.sha256(executed.read_bytes()).hexdigest() != receipt.get("manifest_sha256")
+        or read_json(executed).get("job_id") != packet["job_id"]
+        or read_json(executed).get("requirements") != packet["requirements"]
+        or receipt.get("job_id") != packet["job_id"]
+        or receipt.get("commit") != packet["commit"]
+    ):
+        raise Refused("unavailable allocation receipt/manifest identity differs")
+    account = Path.home() / ".config/colab-cli/snake"
+    with allocation_lock(account / "broker.lock", deadline - time.monotonic(), wait=True):
+        pending = account / f"pending-{session}.json"
+        if expected_pending is not None and expected_pending != pending:
+            raise Refused("requested pending path differs from receipt session")
+        if set(account.glob("pending-*.json")) != {pending}:
+            raise Refused("unavailable allocation has ambiguous pending ownership")
+        raw = pending.read_bytes()
+        intent = read_json(pending)
+        lane = state / packet["job_id"]
+        config = lane / "sessions.json"
+        assignment = config.with_suffix(".assignment.json")
+        # The durable identity filename comes from the supervisor's CLI class.
+        if intent.get("assignment_record") != str(assignment):
+            raise Refused("unavailable allocation assignment record path differs")
+        if (
+            intent.get("session") != session
+            or intent.get("output") != str(output)
+            or intent.get("config") != str(config)
+            or "endpoint" in intent
+            or pending.is_symlink()
+            or config.is_symlink()
+            or assignment.exists()
+            or assignment.is_symlink()
+            or (lane / "assignment.json").exists()
+            or (account / f"active-{session}.json").exists()
+            or (config.exists() and read_json(config).get(session))
+        ):
+            raise Refused("an allocation identity exists or pending binding differs")
+        notebook = intent.get("notebook_hash", "")
+        if not re.fullmatch(r"[a-f0-9]{32}", notebook):
+            raise Refused("unavailable allocation notebook identity missing")
+        recovered = command(
+            [
+                str(CONTROL_OAUTH_INTERPRETER),
+                str(broker / "research/colab_cli/cli_guard.py"),
+                "--recover-assignment",
+                notebook,
+            ],
+            deadline=deadline,
+            capture_output=True,
+            text=True,
+        )
+        if json.loads(recovered.stdout) != {"endpoint": None}:
+            raise Refused("allocation endpoint recovered; retirement and fallback forbidden")
+        inventory = command(
+            [str(Path.home() / ".local/bin/colab"), "--auth", "oauth2", "sessions"],
+            deadline=deadline,
+            capture_output=True,
+            text=True,
+        ).stdout
+        rows = session_rows(inventory)
+        before = intent.get("before")
+        if (
+            not isinstance(before, list)
+            or len(before) >= 3
+            or set(before) != {endpoint for _, endpoint, _ in rows}
+            or len(rows) != len(before)
+            or any(name == session for name, _, _ in rows)
+        ):
+            raise Refused("account membership changed; fallback forbidden")
+        if raw != pending.read_bytes():
+            raise Refused("pending allocation changed during reconciliation")
+        evidence = {
+            "schema": "colab-allocation-unavailable/v1",
+            "classification": "ALLOCATION_UNAVAILABLE",
+            "requested_accelerator": accelerator,
+            "receipt": {
+                "path": str(receipt_path),
+                "sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+            },
+            "pending": {
+                "path": str(pending),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "record": intent,
+            },
+            "recovery": {"endpoint": None},
+            "sessions_stdout": inventory,
+            "endpoint_ever_assigned": False,
+            "vm_compute_started": False,
+            "mode": "DRY_RUN" if dry_run else "LIVE",
+            "pending_action": "preserve" if dry_run else "unlink_after_archive",
+        }
+        if not dry_run:
+            # Publish the full pending payload and proof before retirement.
+            # A collision or publication error preserves the pending fence.
+            write_create_only_json(proof, evidence)
+            pending.unlink()
+        return evidence
+
+
+def dispatch_preferred(
+    args: argparse.Namespace, value: dict[str, Any], ops: Path, broker: Path, cwd: Path, state: Path
+) -> str:
+    """Seal/admit both variants, then permit one proven pre-assignment fallback."""
+    if getattr(args, "colab_control_nice0", False) or getattr(args, "small_bench_config", None):
+        raise Refused("GPU preference requires ordinary control admission")
+    if (
+        value.get("timing_calibration")
+        or value.get("operational_admission")
+        or value.get("p1_attempt2")
+    ):
+        raise Refused(
+            "hardware-specific/timing admissions require separate preference ratification"
+        )
+    packets = variants(value)
+    names = [args.name, sibling_id(args.name)]
+    fallback_state = (
+        Path(str(state) + FALLBACK_SUFFIX)
+        if args.state_dir is not None
+        else (ops / "state" / names[1]).resolve()
+    )
+    states = [state, fallback_state]
+    paths = [ops / "manifests" / f"{name}.json" for name in names]
+    logs = [ops / "logs" / f"{name}.log" for name in names]
+    for name, packet, lane, path, log in zip(names, packets, states, paths, logs):
+        require_resume_policy(packet)
+        require_scientific_or_f5_plan_admission(packet)
+        candidates = [
+            ops / "dispatch" / name,
+            log,
+            path,
+            path.with_suffix(".live.json"),
+            lane,
+            Path(packet["output_dir"]),
+        ]
+        collector = sandbox_collector_directory(packet)
+        if collector is not None:
+            candidates.append(collector)
+        for candidate in candidates:
+            if candidate.exists() or candidate.is_symlink():
+                raise Refused(f"dispatch identity already used: {candidate}")
+    if getattr(args, "dry_run", False):
+        with tempfile.TemporaryDirectory(prefix="gpu-preference-validate-") as temporary:
+            root = Path(temporary)
+            for index, packet in enumerate(packets):
+                path = root / f"{index}.json"
+                write_create_only_json(path, packet)
+                validate(broker, cwd, root / f"state-{index}", path, root / f"log-{index}")
+                if read_json(path) != packet:
+                    raise Refused("GPU preference manifest changed during validation")
+        return (
+            f"PASS_DRY_RUN {args.name} variants=H100,A100 allocations=0 live_accounting=NOT_CHECKED"
+        )
+    for subdir in ("logs", "state", "manifests", "dispatch"):
+        (ops / subdir).mkdir(parents=True, exist_ok=True)
+    # Reserve both identities before validation, and validate both before first submit.
+    for name in names:
+        (ops / "dispatch" / name).mkdir()
+    for packet, path in zip(packets, paths):
+        write_create_only_json(path, packet)
+    seals = [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
+    for path, lane, name in zip(paths, states, names):
+        validate(broker, cwd, lane, path, ops / "logs" / f"{name}.validate")
+        if any(hashlib.sha256(p.read_bytes()).hexdigest() != seal for p, seal in zip(paths, seals)):
+            raise Refused("GPU preference manifest changed during validation")
+    write_create_only_json(
+        ops / "dispatch" / args.name / "gpu-preference.json",
+        {
+            "schema": "colab-gpu-preference/v1",
+            "preference": ["H100", "A100"],
+            "variants": [
+                {
+                    "manifest": str(path),
+                    "sha256": seal,
+                    "name": name,
+                    "gpu": packet["requirements"]["gpu"],
+                    "budget": packet.get("budget", {}),
+                    "receipt": str(ops / "dispatch" / name / "gpu-receipt.json"),
+                }
+                for name, path, seal, packet in zip(names, paths, seals, packets)
+            ],
+        },
+    )
+    seconds = float(os.environ.get("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "600"))
+    poll = float(os.environ.get("OPS_ALLOC_POLL_INTERVAL_SECONDS", "1"))
+    if not math.isfinite(seconds) or not 0 < seconds <= 600 or not math.isfinite(poll) or poll <= 0:
+        raise Refused("invalid allocation wait bounds")
+    # Keep exclusion across both variants, but do not charge the sibling's
+    # admission/allocation window for time already spent on the primary.
+    # Each variant retains the ordinary bound; the whole pair is bounded too.
+    with allocation_lock(ops / "alloc.lock", seconds * len(packets)) as preference_deadline:
+        for index, (packet, path, lane, log, name) in enumerate(
+            zip(packets, paths, states, logs, names)
+        ):
+            deadline = min(preference_deadline, time.monotonic() + seconds)
+            if any(
+                hashlib.sha256(p.read_bytes()).hexdigest() != seal for p, seal in zip(paths, seals)
+            ):
+                raise Refused("GPU preference manifest changed after admission")
+            qualified(broker, ops, deadline)
+            qualified(broker, ops, deadline, ref=packet["commit"])
+            evidence = ops / "dispatch" / name / f"{name}.accounting.json"
+            live = refresh_assignments(path, evidence, deadline)
+            validate(broker, cwd, lane, live, ops / "logs" / f"{name}.live.validate", deadline)
+            if (
+                hashlib.sha256(live.read_bytes()).hexdigest()
+                != read_json(evidence)["manifest_sha256"]
+            ):
+                raise Refused("refreshed preference manifest changed after validation")
+            start(
+                broker,
+                cwd,
+                lane,
+                live,
+                log,
+                name,
+                deadline,
+                gpu_receipt=ops / "dispatch" / name / "gpu-receipt.json",
+            )
+            outcome = wait_allocation(Path(packet["output_dir"]), log, deadline, poll)
+            if outcome == "failed":
+                while time.monotonic() < deadline and not re.search(
+                    r"^EXIT=\d+$", log.read_text(), re.MULTILINE
+                ):
+                    time.sleep(min(poll, max(0, deadline - time.monotonic())))
+            # Never use the legacy accounting retry for a preference packet.
+            if outcome == "retry":
+                note(log, "OPS_ALLOCATION_RETRY_REFUSED GPU preference post-endpoint failure")
+                outcome = "failed"
+            if (
+                index == 0
+                and outcome == "failed"
+                and allocation_unavailable(
+                    Path(packet["output_dir"]), log, packet["requirements"]["gpu"]
+                )
+            ):
+                reconcile_unavailable(
+                    broker, live, lane, log, ops / "dispatch" / name / "unavailable.json", deadline
+                )
+                note(log, f"OPS_GPU_FALLBACK preadmitted={paths[1]} allocation_unavailable=true")
+                continue
+            break
+    ensure_watcher(ops, broker)
+    return (
+        f"DISPATCHED {args.name} requested_gpu={packet['requirements']['gpu']} "
+        f"allocation={outcome} log={log}"
+    )
+
+
 def dispatch(args: argparse.Namespace) -> str:
     """Validate first, then serialize one allocation and at most one exact retry."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.name):
@@ -1995,8 +2453,11 @@ def dispatch(args: argparse.Namespace) -> str:
             raise Refused("P1 attempt-2 remains a quiet-host control window")
     if (
         (
-            value.get("requirements", {}).get("gpu") == "A100"
-            or "A100" in value.get("requirements", {}).get("allowed_gpus", [])
+            value.get("requirements", {}).get("gpu") in {"A100", "H100"}
+            or any(
+                gpu in value.get("requirements", {}).get("allowed_gpus", [])
+                for gpu in ("A100", "H100")
+            )
         )
         and value.get("canary", {}).get("mode") == "probe"
         and str(value.get("script", "")).startswith("research/gpu_sim_spike/")
@@ -2039,6 +2500,8 @@ def dispatch(args: argparse.Namespace) -> str:
         raise Refused("manifest commit must be a full published SHA")
     qualified(broker, ops)
     qualified(broker, ops, ref=commit)
+    if "prefer" in value.get("requirements", {}):
+        return dispatch_preferred(args, value, ops, broker, cwd, state)
     if getattr(args, "dry_run", False):
         for candidate in (
             ops / "dispatch" / args.name,
@@ -2062,7 +2525,19 @@ def dispatch(args: argparse.Namespace) -> str:
     manifest = ops / "manifests" / f"{args.name}.json"
     with manifest.open("xb") as stream:
         stream.write(original_bytes)
-    validate(broker, cwd, state, manifest, ops / "logs" / f"{args.name}.validate")
+    test_receipt = (
+        ops / "dispatch" / args.name / "admission-tests.json"
+        if "sandbox_admission" in value
+        else None
+    )
+    validate(
+        broker,
+        cwd,
+        state,
+        manifest,
+        ops / "logs" / f"{args.name}.validate",
+        **({"test_receipt": test_receipt} if test_receipt is not None else {}),
+    )
     seconds = float(os.environ.get("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "600"))
     poll = float(os.environ.get("OPS_ALLOC_POLL_INTERVAL_SECONDS", "1"))
     if not math.isfinite(seconds) or not 0 < seconds <= 600:
@@ -2070,7 +2545,10 @@ def dispatch(args: argparse.Namespace) -> str:
     if not math.isfinite(poll) or poll <= 0:
         raise Refused("allocation poll interval must be positive and finite")
     expected = value
-    with allocation_lock(ops / "alloc.lock", seconds) as deadline:
+    handoff = {} if test_receipt is not None else None
+    with allocation_lock(
+        ops / "alloc.lock", seconds, **({"handoff": handoff} if handoff is not None else {})
+    ) as deadline:
         for attempt in range(2):
             name = args.name if attempt == 0 else f"{args.name}-retry-1"
             if read_json(manifest) != expected:
@@ -2080,7 +2558,13 @@ def dispatch(args: argparse.Namespace) -> str:
             evidence = ops / "dispatch" / args.name / f"{name}.accounting.json"
             live_manifest = refresh_assignments(manifest, evidence, deadline)
             validate(
-                broker, cwd, state, live_manifest, ops / "logs" / f"{name}.live.validate", deadline
+                broker,
+                cwd,
+                state,
+                live_manifest,
+                ops / "logs" / f"{name}.live.validate",
+                deadline,
+                **({"test_receipt": test_receipt} if test_receipt is not None else {}),
             )
             if (
                 hashlib.sha256(live_manifest.read_bytes()).hexdigest()
@@ -2090,6 +2574,32 @@ def dispatch(args: argparse.Namespace) -> str:
             if control_nice0:
                 require_no_control_priority_drift()
                 control_admission = ops / "colab-control-admissions" / f"{name}.json"
+            sandbox_launch = {}
+            if handoff is not None:
+                from tools.sandbox.admission import digest
+
+                if "lease" in handoff:
+                    handoff["lease"].unlink(missing_ok=True)
+                lease = ops / "dispatch" / args.name / f"{name}.allocation-lease.json"
+                write_create_only_json(
+                    lease,
+                    {
+                        "schema": "sandbox-allocation-lease/v1",
+                        "parent_pid": os.getpid(),
+                        "deadline": deadline,
+                        "lock": str(ops / "alloc.lock"),
+                        "manifest": str(live_manifest),
+                        "manifest_sha256": digest(live_manifest),
+                    },
+                )
+                handoff["lease"] = lease
+                # Other dispatchers still require EX. The detached runner may
+                # share this exact critical section through durable calibration.
+                fcntl.flock(handoff["handle"], fcntl.LOCK_SH | fcntl.LOCK_NB)
+                sandbox_launch = {
+                    "sandbox_test_receipt": test_receipt,
+                    "sandbox_lease": lease,
+                }
             start(
                 broker,
                 cwd,
@@ -2101,6 +2611,7 @@ def dispatch(args: argparse.Namespace) -> str:
                 control_nice0=control_nice0,
                 control_admission=control_admission,
                 **({"small_bench_config": small_config} if small_config is not None else {}),
+                **sandbox_launch,
             )
             outcome = wait_allocation(Path(output), log, deadline, poll)
             if outcome == "retry" and no_automatic_retry:
@@ -2147,6 +2658,7 @@ def dispatch(args: argparse.Namespace) -> str:
                 manifest,
                 ops / "logs" / f"{args.name}-retry-1.validate",
                 deadline,
+                **({"test_receipt": test_receipt} if test_receipt is not None else {}),
             )
     ensure_watcher(ops, broker)
     return f"DISPATCHED {args.name} allocation={outcome} log={log}"
@@ -2202,8 +2714,8 @@ def main() -> int:
         elif args.name is None or args.manifest is None:
             raise Refused("ordinary dispatch requires NAME and MANIFEST")
         elif args.chain_manifest:
-            if args.retention_minutes is None or args.retention_units is None:
-                raise Refused("retained chain requires --retention-minutes and --retention-units")
+            if args.retention_minutes is None:
+                raise Refused("retained chain requires --retention-minutes")
             print(dispatch_chain(args))
         elif args.retention_minutes is not None or args.retention_units is not None:
             raise Refused("retention arguments require --chain-manifest")

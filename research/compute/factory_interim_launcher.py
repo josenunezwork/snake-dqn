@@ -1,4 +1,4 @@
-"""Minimal, lease-aware launcher for the 2026-10-23 factory nice interim.
+"""Minimal, lease-aware launcher for the factory nice interim.
 
 This is intentionally separate from the unqualified full companion supervisor.
 It has two routes only: low-priority light work and one reviewed, serial test

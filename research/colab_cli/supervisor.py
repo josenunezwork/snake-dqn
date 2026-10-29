@@ -26,6 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterator
 
 from research.colab_cli import policy
+from research.colab_cli.accounting import budget_warning, measurement_rate, warning_threshold
 
 ACCOUNT_ROOT = Path.home() / ".config/colab-cli/snake"
 REPO = Path(__file__).resolve().parents[2]
@@ -113,12 +114,6 @@ def account_locked(cli: Any, *, cleanup: bool = False) -> Iterator[None]:
                     raise Refused("STOP_LOCK_UNAVAILABLE after 600s")
                 if not cleanup and cli.deadline is not None and time.monotonic() >= cli.deadline:
                     raise Refused("deadline reached while awaiting account broker")
-                if (
-                    not cleanup
-                    and cli.priced_deadline is not None
-                    and time.monotonic() >= cli.priced_deadline
-                ):
-                    raise Refused("priced session unit cap reached while awaiting account broker")
                 if not cleanup and cli.renew is not None:
                     cli.renew()
                 time.sleep(2)
@@ -196,16 +191,20 @@ def validate(manifest: dict[str, Any], repo: Path | None = None) -> dict[str, An
         raise Refused("timeout_minutes must be >=3 for allocation and guarded cleanup")
     if timeout < 2 * estimate:
         raise Refused("timeout must include at least 2x measured estimate")
-    budget = m["budget"]
-    rate = positive(budget["rate_units_per_hour"], "prepriced rate ceiling")
-    cap = positive(budget["unit_cap"], "unit_cap")
-    reserve = budget.get("reserve_units", 0)
-    if isinstance(reserve, bool) or not math.isfinite(reserve) or reserve < 0:
-        raise Refused("reserve_units must be finite and nonnegative")
+    budget = m.setdefault("budget", {})
+    rate = budget["rate_units_per_hour"] = measurement_rate(
+        budget.get("rate_units_per_hour", 0), "budget.rate_units_per_hour"
+    )
+    cap = warning_threshold(budget.get("unit_cap"), "budget.unit_cap")
+    if "unit_cap" in budget:
+        budget["unit_cap"] = cap
+    reserve = warning_threshold(budget.get("reserve_units"), "reserve_units", 0)
     budget["reserve_units"] = reserve
     # Includes allocation, bootstrap and final transfer/stop, not just trainer time.
-    if timeout * rate / 60 > cap:
-        raise Refused("whole-session timeout priced above unit cap")
+    if cap is not None and timeout * rate / 60 > cap:
+        budget_warning(
+            "TIMEOUT_PRICE_ABOVE_UNIT_CAP", priced_units=timeout * rate / 60, unit_cap=cap
+        )
     output = Path(m["output_dir"]).expanduser()
     if not output.is_absolute() or output.exists():
         raise Refused("output_dir must be an absolute fresh Mac directory")
@@ -317,8 +316,6 @@ class CLI:
             ),
             staging_deadline - time.monotonic(),
             (self.deadline if self.deadline is not None else math.inf) - time.monotonic(),
-            (self.priced_deadline if self.priced_deadline is not None else math.inf)
-            - time.monotonic(),
         )
         if remaining <= 0:
             raise Refused("whole-session deadline reached before helper")
@@ -490,7 +487,6 @@ class CLI:
         if args[0] != "stop" and not (args[0] == "sessions" and self.cleanup_mode):
             deadline = min(
                 self.deadline if self.deadline is not None else math.inf,
-                self.priced_deadline if self.priced_deadline is not None else math.inf,
                 getattr(self._control_context, "deadline", math.inf),
             )
             timeout = min(timeout, deadline - time.monotonic())
@@ -583,7 +579,7 @@ class CLI:
             ("rate", "Usage rate"),
             ("assignments", "Active assignments"),
         ):
-            match = re.search(rf"{label}:\s*([0-9]+(?:\.[0-9]+)?)", output)
+            match = re.search(rf"{label}:\s*(-?[0-9]+(?:\.[0-9]+)?)", output)
             if not match:
                 raise Refused("unrecognized account usage output")
             result[key] = float(match[1])
@@ -766,7 +762,6 @@ class CLI:
         deadline = min(
             time.monotonic() + timeout,
             self.deadline if self.deadline is not None else math.inf,
-            self.priced_deadline if self.priced_deadline is not None else math.inf,
             staging_deadline,
             (
                 time.monotonic() + policy.STAGING_RECOVERY_SECONDS
@@ -1063,9 +1058,7 @@ class Broker:
             cli.deadline = min(
                 started + m["timeout_minutes"] * 60 - 45, (retained or {}).get("deadline", math.inf)
             )
-            cli.priced_deadline = (
-                started + m["budget"]["unit_cap"] * 3600 / m["budget"]["rate_units_per_hour"]
-            )
+            cli.priced_deadline = None  # Legacy unit thresholds never bound operations.
             endpoint = None
             usage_before = None
             accounting = None
@@ -1110,13 +1103,28 @@ class Broker:
                         for p in ACCOUNT_ROOT.glob("active-*.json")
                         if p != active
                     ]
-                    committed = sum(r["unit_cap"] for r in reservations)
-                    reserve = max(
-                        [m["budget"]["reserve_units"]] + [r["reserve_units"] for r in reservations]
+                    committed = sum(
+                        warning_threshold(r.get("unit_cap"), "active.unit_cap", 0)
+                        for r in reservations
                     )
-                    reserved_cap = (retained or {}).get("unit_cap", m["budget"]["unit_cap"])
-                    if usage_before["balance"] <= reserved_cap + committed + reserve:
-                        raise Refused("insufficient balance for cap plus study reserve")
+                    reserve = max(
+                        [m["budget"]["reserve_units"]]
+                        + [
+                            warning_threshold(r.get("reserve_units"), "active.reserve_units", 0)
+                            for r in reservations
+                        ]
+                    )
+                    reserved_cap = (retained or {}).get("unit_cap", m["budget"].get("unit_cap"))
+                    if usage_before["balance"] <= 0:
+                        raise Refused("account balance is depleted")
+                    if usage_before["balance"] <= (reserved_cap or 0) + committed + reserve:
+                        budget_warning(
+                            "BALANCE_BELOW_LEGACY_RESERVATIONS",
+                            balance=usage_before["balance"],
+                            unit_cap=reserved_cap,
+                            committed=committed,
+                            reserve=reserve,
+                        )
                     from research.colab_cli.accounting import admit_account
 
                     account_before = {e: n for e, n in before.items() if e != endpoint}
@@ -1330,7 +1338,7 @@ class Broker:
         *,
         account_lock_held: bool = False,
     ) -> None:
-        """Bound provider lag before admitting useful work; ceilings still cap spend.
+        """Confirm assignment identity with bounded reads; prices only warn.
 
         The pending record blocks new broker allocations while this assignment
         is uncalibrated. The armed watchdog is renewed between reads. Existing
@@ -1343,7 +1351,6 @@ class Broker:
         deadline = min(
             original_deadline,
             calibration_started + RATE_CALIBRATION_SECONDS,
-            started + tracker.unit_cap * 3600 / tracker.own_rate_units_per_hour,
         )
         cli.deadline = deadline
         evidence = {
@@ -1363,7 +1370,9 @@ class Broker:
         def remaining() -> float:
             seconds = deadline - time.monotonic()
             if seconds <= 0:
-                raise Refused("provider rate calibration did not stabilize within bounded window")
+                raise Refused(
+                    "provider assignment calibration did not stabilize within bounded window"
+                )
             return min(policy.READ_SECONDS, seconds)
 
         try:
@@ -1373,9 +1382,13 @@ class Broker:
             ):
                 remaining()
                 if (
-                    time.monotonic() - started
-                ) * tracker.own_rate_units_per_hour / 3600 >= tracker.unit_cap:
-                    raise Refused("priced session unit cap reached during calibration")
+                    tracker.unit_cap is not None
+                    and (time.monotonic() - started) * tracker.own_rate_units_per_hour / 3600
+                    >= tracker.unit_cap
+                ):
+                    budget_warning(
+                        "SESSION_UNIT_CAP_REACHED", phase="calibration", unit_cap=tracker.unit_cap
+                    )
                 if cli.renew:
                     cli.renew()
                 with contextlib.nullcontext() if account_lock_held else account_locked(cli):
@@ -1392,7 +1405,12 @@ class Broker:
                     if max(len(assignments), usage["assignments"]) > 3:
                         raise Refused("account concurrency changed during allocation")
                     if usage["balance"] <= m["budget"]["reserve_units"]:
-                        raise Refused("study reserve reached during calibration")
+                        budget_warning(
+                            "RESERVE_CROSSED",
+                            phase="calibration",
+                            balance=usage["balance"],
+                            reserve=m["budget"]["reserve_units"],
+                        )
                     if endpoint in assignments and assignments[endpoint] != cli.session:
                         raise Refused("allocated assignment identity not confirmed by backend")
                     observed = tracker.calibration_read(assignments, usage, endpoint)
@@ -1405,14 +1423,18 @@ class Broker:
                             max(stable) - min(stable)
                             > RATE_CALIBRATION_STABILITY_UNITS_PER_HOUR + 1e-9
                         ):
-                            stable = [observed]
+                            budget_warning("CALIBRATION_RATE_VARIATION", samples=stable)
                     if len(stable) == RATE_CALIBRATION_STABLE_READS:
                         previous = (retained or {}).get("observed_rate_units_per_hour")
                         if (
                             previous is not None
                             and abs(observed - previous) > tracker.rate_tolerance_units_per_hour
                         ):
-                            raise Refused("provider usage rate drift in retained assignment")
+                            budget_warning(
+                                "RETAINED_ASSIGNMENT_RATE_DRIFT",
+                                previous=previous,
+                                observed=observed,
+                            )
                         tracker.confirm_own_assignment(assignments, usage, endpoint)
                         active = ACCOUNT_ROOT / f"active-{cli.session}.json"
                         record = json.loads(active.read_text())
@@ -1430,7 +1452,7 @@ class Broker:
                 delay = min(RATE_CALIBRATION_INTERVAL_SECONDS, max(0, deadline - time.monotonic()))
                 if delay:
                     time.sleep(delay)
-            raise Refused("provider rate calibration did not stabilize within bounded window")
+            raise Refused("provider assignment calibration did not stabilize within bounded window")
         except BaseException as exc:
             evidence["error"] = redact(repr(exc))
             raise
@@ -1770,8 +1792,16 @@ class Broker:
             elapsed = time.monotonic() - started
             if elapsed >= m["timeout_minutes"] * 60 - 45:
                 raise Refused("whole-session wall cap reached (including setup/export)")
-            if elapsed * m["budget"]["rate_units_per_hour"] / 3600 >= m["budget"]["unit_cap"]:
-                raise Refused("priced session unit cap reached")
+            if (
+                m["budget"].get("unit_cap") is not None
+                and elapsed * m["budget"]["rate_units_per_hour"] / 3600 >= m["budget"]["unit_cap"]
+            ):
+                budget_warning(
+                    "SESSION_UNIT_CAP_REACHED",
+                    job=m["job_id"],
+                    elapsed=elapsed,
+                    unit_cap=m["budget"]["unit_cap"],
+                )
             if poll % 4 == 0:
                 with account_locked(cli):
                     current = cli.usage()
@@ -1803,7 +1833,7 @@ class Broker:
                     print(
                         json.dumps(
                             {
-                                "ALERT": "UNEXPLAINED_ACCOUNT_DEBIT",
+                                "WARNING": "UNEXPLAINED_ACCOUNT_DEBIT",
                                 "job": m["job_id"],
                                 "spend": spend,
                             }
@@ -1814,7 +1844,12 @@ class Broker:
                 if current["assignments"] > 3:
                     raise Refused("account-wide assignment cap exceeded during job")
                 if current["balance"] <= m["budget"]["reserve_units"]:
-                    raise Refused("study reserve reached")
+                    budget_warning(
+                        "RESERVE_CROSSED",
+                        job=m["job_id"],
+                        balance=current["balance"],
+                        reserve=m["budget"]["reserve_units"],
+                    )
             state = renew(force=True)
             write_once(output / f"poll-{poll:06d}.json", state)
             print(
@@ -1935,9 +1970,11 @@ class Broker:
             raise Refused("duplicate chain job identifiers")
         rate = max(m["budget"]["rate_units_per_hour"] for m in jobs)
         minutes = positive(retention_minutes, "retention_minutes")
-        units = positive(retention_units, "retention_units")
-        if sum(m["timeout_minutes"] for m in jobs) > minutes or minutes * rate / 60 > units:
-            raise Refused("approved chain does not fit priced retention lease")
+        units = warning_threshold(retention_units, "retention_units")
+        if sum(m["timeout_minutes"] for m in jobs) > minutes:
+            raise Refused("approved chain does not fit wall-clock retention lease")
+        if units is not None and minutes * rate / 60 > units:
+            budget_warning("RETENTION_UNIT_THRESHOLD", forecast=minutes * rate / 60, units=units)
         started = time.monotonic()
         retained: dict[str, Any] = {"deadline": started + minutes * 60 - 45, "unit_cap": units}
         failure = None
@@ -2063,7 +2100,7 @@ def main() -> None:
     chain = sub.add_parser("chain")
     chain.add_argument("manifests", nargs="+", type=Path)
     chain.add_argument("--retention-minutes", type=float, required=True)
-    chain.add_argument("--retention-units", type=float, required=True)
+    chain.add_argument("--retention-units", type=float, default=0)
     args = parser.parse_args()
     try:
         if args.command == "validate":

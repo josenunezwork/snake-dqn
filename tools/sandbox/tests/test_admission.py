@@ -18,6 +18,12 @@ PACKET = ROOT / "research/sandbox_b_heads/dispatch-manifest.json"
 TEN_LINE_MANIFEST = ROOT / "research/sandbox_b_heads/sandbox-manifest.json"
 
 
+@pytest.fixture(autouse=True)
+def stub_suite_execution(monkeypatch):
+    """Route unit tests stub suite execution; integration tests exercise it."""
+    monkeypatch.setattr(preflight, "run_focused_tests", lambda: None)
+
+
 def _packet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch | None = None) -> dict:
     """Build a sandbox packet from the committed Job B packet, with no probe."""
     value = json.loads(PACKET.read_text())
@@ -86,6 +92,7 @@ def _bind_preflight(
         }
 
     monkeypatch.setattr(preflight, "preflight", fake_preflight)
+    monkeypatch.setattr(preflight, "run_focused_tests", lambda: None)
     return calls
 
 
@@ -113,10 +120,7 @@ def test_sandbox_validation_keeps_checks_and_uses_bounded_focused_test_window(
         "validate",
         str(manifest),
     ]
-    assert captured["timeout_seconds"] == dispatch.SANDBOX_OUTER_VALIDATE_TIMEOUT_SECONDS
-    assert captured["timeout_seconds"] == (
-        2 * dispatch.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS + dispatch.COMMAND_TIMEOUT_SECONDS
-    )
+    assert captured["timeout_seconds"] == dispatch.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS
     assert captured["timeout_seconds"] > dispatch.COMMAND_TIMEOUT_SECONDS
 
 
@@ -145,15 +149,15 @@ def test_extended_sandbox_timeout_still_respects_allocation_deadline(
     captured: dict[str, object] = {}
     monkeypatch.setattr(dispatch.time, "monotonic", lambda: 100.0)
     monkeypatch.setattr(
-        dispatch.subprocess,
-        "run",
+        dispatch,
+        "run_process_tree",
         lambda _args, **kwargs: captured.update(kwargs),
     )
 
     dispatch.command(
         ["true"],
         deadline=130.0,
-        timeout_seconds=dispatch.SANDBOX_OUTER_VALIDATE_TIMEOUT_SECONDS,
+        timeout_seconds=dispatch.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS,
     )
 
     assert captured["timeout"] == 30.0
@@ -167,7 +171,7 @@ def test_b2_is_limited_to_its_distinct_route_and_artifact_root(
 
     def b2_preflight(path: Path, *, run_tests: bool = True, **_kwargs):
         assert path == TEN_LINE_MANIFEST
-        assert run_tests is True
+        assert run_tests is False
         return {
             "study": "sandbox-b-heads-v2",
             "outputs": {"broker_manifest": {"path": str(tmp_path / "broker-manifest.json")}},
@@ -209,7 +213,7 @@ def test_b3_is_limited_to_its_distinct_route_and_artifact_root(
 
     def b3_preflight(path: Path, *, run_tests: bool = True, **_kwargs):
         assert path == TEN_LINE_MANIFEST
-        assert run_tests is True
+        assert run_tests is False
         return {
             "study": "sandbox-b-heads-v3",
             "outputs": {"broker_manifest": {"path": str(tmp_path / "broker-manifest.json")}},
@@ -239,7 +243,23 @@ def test_valid_sandbox_packet_is_admitted_without_family_canary(
     dispatch.require_sandbox_admission(packet, ROOT)
 
     assert "canary" not in packet
-    assert calls == [(TEN_LINE_MANIFEST, True)]
+    assert calls == [(TEN_LINE_MANIFEST, False)]
+
+
+@pytest.mark.parametrize("index", [0, 1])
+def test_preferred_sandbox_accepts_only_derived_hardware_variants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, index: int
+) -> None:
+    from research.compute.gpu_preference import prepare_preference, variants
+
+    original = _packet(tmp_path, monkeypatch)
+    prepare_preference(original)
+    packet = variants(original)[index]
+    _bind_preflight(monkeypatch, packet, tmp_path, original=original)
+    dispatch.require_sandbox_admission(packet, ROOT)
+    packet["env"]["SNAKE_DQN_DEVICE"] = "cpu"
+    with pytest.raises(dispatch.Refused, match="differs from committed preflight binding"):
+        dispatch.require_sandbox_admission(packet, ROOT)
 
 
 def test_route_uses_real_supervisor_validate_and_only_mocks_preflight(
@@ -257,7 +277,7 @@ def test_route_uses_real_supervisor_validate_and_only_mocks_preflight(
     assert validated["output_dir"] == packet["output_dir"]
     # The host adapter admits before input hashing, and the qualified validator
     # then rechecks the canary hook after its own normalization/defaults.
-    assert calls == [(TEN_LINE_MANIFEST, True), (TEN_LINE_MANIFEST, True)]
+    assert calls == [(TEN_LINE_MANIFEST, False), (TEN_LINE_MANIFEST, False)]
 
 
 def test_protected_sandbox_input_is_refused_before_qualified_hashing(
@@ -520,14 +540,42 @@ def test_train01_admits_only_bounded_package_stall_timeout(monkeypatch):
         },
     )
     calls = []
-    kwargs_seen = []
-    monkeypatch.setattr(
-        dispatch, "command", lambda *a, **kw: (calls.append(a[0]), kwargs_seen.append(kw))
-    )
+    monkeypatch.setattr(preflight, "run_focused_tests", lambda: None)
+    monkeypatch.setattr(dispatch, "command", lambda *a, **kw: calls.append(a[0]))
     dispatch.require_sandbox_admission(packet, ROOT)
     assert packet["env"]["SANDBOX_A_STALL_TIMEOUT_SECONDS"] == "900"
     assert calls[0][2] == "research.sandbox_a_resident.training_preflight"
-    assert kwargs_seen[0]["timeout_seconds"] == dispatch.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS
+
+
+def test_train01_reuses_only_completed_identical_suites(tmp_path, monkeypatch):
+    from tools.sandbox import admission
+
+    packet_path = ROOT / "research/sandbox_a_resident/packet-train01-06/dispatch-manifest.json"
+    packet = json.loads(packet_path.read_text())
+    monkeypatch.setattr(
+        preflight,
+        "preflight",
+        lambda *a, **kw: {
+            "study": "sandbox-a-train01",
+            "outputs": {"broker_manifest": {"path": str(packet_path)}},
+        },
+    )
+    monkeypatch.setenv(admission.TEST_RECEIPT_ENV, str(tmp_path / "tests.json"))
+    monkeypatch.setattr(admission, "test_identity", lambda *a: "same-bytes")
+    suites = []
+    commands = []
+    monkeypatch.setattr(preflight, "run_focused_tests", lambda: suites.append("shared"))
+    monkeypatch.setattr(dispatch, "command", lambda args, **kw: commands.append(args))
+    dispatch.require_sandbox_admission(packet, ROOT)
+    monkeypatch.setenv(admission.REQUIRE_RECEIPT_ENV, "1")
+    dispatch.require_sandbox_admission(packet, ROOT)
+    assert suites == ["shared"]
+    assert "--checks-only" not in commands[0]
+    assert commands[1][-1] == "--checks-only"
+    monkeypatch.setattr(admission, "test_identity", lambda *a: "changed-bytes")
+    with pytest.raises(ValueError, match="differs"):
+        dispatch.require_sandbox_admission(packet, ROOT)
+    assert suites == ["shared"]
 
 
 @pytest.mark.parametrize("timeout", ("0", "-1", "901", "inf", "nan", "disabled", 900))

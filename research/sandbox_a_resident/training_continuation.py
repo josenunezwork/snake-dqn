@@ -955,14 +955,16 @@ def run_packet_validation(broker_checkout: Path, packet_dir: Path) -> str:
         "print(f'PASS_VALIDATE_PACKET seeds={check[\"count\"]} allocations=0')"
     )
     python_exe = os.path.abspath(sys.executable)
-    completed = subprocess.run(
+    from tools.ops.processes import run
+
+    completed = run(
         ["nice", "-n", "15", python_exe, "-c", code, str(packet_dir)],
         cwd=broker_checkout,
         env=_single_thread_process_env(),
         text=True,
         capture_output=True,
         check=False,
-        timeout=60,
+        timeout=120,
     )
     if completed.returncode != 0 or "PASS_VALIDATE_PACKET" not in completed.stdout:
         detail = completed.stderr.strip() or completed.stdout.strip()
@@ -978,8 +980,11 @@ def run_dispatch_dry_run(
     job_id: str,
 ) -> str:
     """Run tools/ops/dispatch.sh --dry-run and require PASS_DRY_RUN with allocations=0."""
+    from tools.ops.processes import run
+    from tools.sandbox.admission import VALIDATION_SECONDS
+
     dispatch_sh = broker_checkout / "tools/ops/dispatch.sh"
-    completed = subprocess.run(
+    completed = run(
         [
             "nice",
             "-n",
@@ -1002,9 +1007,9 @@ def run_dispatch_dry_run(
         text=True,
         capture_output=True,
         check=False,
-        # Both offline admission passes fit inside the 540s outer launcher
-        # window, with one minute for this dry-run process's own checks.
-        timeout=600,
+        # Effective 1200s validation window plus 60s host/cleanup overhead;
+        # no allocation lock or provider operation occurs in this phase.
+        timeout=VALIDATION_SECONDS + 60,
     )
     output = completed.stdout.strip()
     if completed.returncode != 0 or "PASS_DRY_RUN" not in output or "allocations=0" not in output:

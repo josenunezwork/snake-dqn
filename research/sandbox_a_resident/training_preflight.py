@@ -435,9 +435,18 @@ def main() -> int:
         action="store_true",
         help="run strict CUDA API-contract mocks without a GPU",
     )
+    parser.add_argument(
+        "--checks-only", action="store_true", help="structural checks; no test PASS"
+    )
     args = parser.parse_args()
     check = validate_packet(args.packet.resolve())
+    if args.checks_only:
+        print("PASS_TRAIN01_STRUCTURAL_CHECKS tests=REUSED_BY_HOST allocations=0")
+        return 0
     env = dict(os.environ)
+    env.pop("SNAKE_SANDBOX_TEST_RECEIPT", None)
+    env.pop("SNAKE_SANDBOX_ALLOCATION_LEASE", None)
+    env.pop("SNAKE_SANDBOX_REQUIRE_TEST_RECEIPT", None)
     for key in (
         "OMP_NUM_THREADS",
         "MKL_NUM_THREADS",
@@ -458,7 +467,10 @@ def main() -> int:
         "::test_runtime_resume_normalizes_relocated_row_identity_to_cpu",
     ]
     python_exe = ROOT / "venv/bin/python"
-    subprocess.run(
+    from tools.ops.processes import run
+    from tools.sandbox.admission import TEST_SECONDS
+
+    run(
         [
             "nice",
             "-n",
@@ -480,6 +492,7 @@ def main() -> int:
         cwd=ROOT,
         env=env,
         check=True,
+        timeout=TEST_SECONDS,
     )
     label = "PASS_TRAIN01_CUDA_SEMANTICS" if args.cuda_semantics else "PASS_TRAIN01_PREFLIGHT"
     print(f"{label} seeds={check['count']} schema=PASS registry=PASS tests=PASS allocations=0")

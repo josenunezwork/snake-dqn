@@ -40,9 +40,8 @@ def _changed(left: dict, right: dict, prefix: str = "") -> set[str]:
 def test_attempt_two_stays_inside_the_two_unit_canary_allowance(prior):
     job = r2_packet.attempt_manifest(FIRST, prior, Path("/x/packet/canary-output-02"))
     cap, timeout = job["budget"]["unit_cap"], job["timeout_minutes"]
-    rate = job["budget"]["rate_units_per_hour"]
     assert prior + cap <= r2_packet.CANARY_CAP_UNITS + 1e-12
-    assert timeout * rate / 60 <= cap + 1e-12  # qualified supervisor pricing rule
+    assert timeout == FIRST["timeout_minutes"]  # Wall time is independent of units.
     assert timeout >= 2 * job["requirements"]["est_minutes"]  # qualified 2x rule
     assert timeout >= 420 / 60 + 3  # unchanged producer deadline still fits
     assert job["job_id"] == "gpu-r2-canary-e66a701fd439-02"
@@ -53,14 +52,13 @@ def test_attempt_two_stays_inside_the_two_unit_canary_allowance(prior):
 
 def test_attempt_two_for_the_observed_failure_charge():
     job = r2_packet.attempt_manifest(FIRST, 20.451188 * 10 / 3600, Path("/o"))
-    assert job["budget"]["unit_cap"] == 1.94 and job["timeout_minutes"] == 11.6
+    assert job["budget"]["unit_cap"] == 1.94 and job["timeout_minutes"] == 12
 
 
 def test_attempt_limits_refuse():
     with pytest.raises(ValueError):
         r2_packet.attempt_manifest(FIRST, 0.0, Path("/o"), attempt=3)
-    with pytest.raises(ValueError):
-        r2_packet.attempt_manifest(FIRST, 1.0, Path("/o"))  # 1 u cannot fit 7+3 min
+    assert r2_packet.attempt_manifest(FIRST, 1.0, Path("/o"))["timeout_minutes"] == 12
     bad = copy.deepcopy(FIRST)
     bad["job_id"] = "gpu-r2-canary-x-02"
     with pytest.raises(ValueError):

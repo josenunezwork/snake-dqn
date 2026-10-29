@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+
 import pytest
 
 from research.colab_cli import accounting
+
+
+@contextlib.contextmanager
+def _warns(code: str):
+    captured = io.StringIO()
+    with contextlib.redirect_stderr(captured):
+        yield
+    assert '"WARNING":' in captured.getvalue()
+    assert code in captured.getvalue()
 
 
 def _budget(**extra: object) -> dict[str, object]:
@@ -31,7 +43,7 @@ def test_admission_requires_every_existing_endpoint_to_be_priced() -> None:
 
 
 def test_admission_crosschecks_provider_baseline_against_priced_assignments() -> None:
-    with pytest.raises(accounting.AccountingError, match="baseline rate"):
+    with _warns("BASELINE_RATE_MISMATCH"):
         accounting.admit_account(
             {"notebook-endpoint": "q1", "other-endpoint": "other"},
             _usage(rate=3.0),
@@ -89,7 +101,7 @@ def test_confirm_requires_one_known_new_endpoint_and_expected_rate() -> None:
         _budget(other_assignments={"notebook-endpoint": 1.0}),
         now=10,
     )
-    with pytest.raises(accounting.AccountingError, match="exceeds priced upper bound"):
+    with _warns("OBSERVED_RATE_ABOVE_PRICED_BOUND"):
         unconfirmed.confirm_own_assignment(
             {"notebook-endpoint": "q1", "our-endpoint": "snake-lane"},
             _usage(rate=3.5, assignments=2),
@@ -97,7 +109,7 @@ def test_confirm_requires_one_known_new_endpoint_and_expected_rate() -> None:
         )
 
 
-def test_observed_rate_drives_drift_and_balance_but_priced_ceiling_still_caps() -> None:
+def test_observed_rate_and_unit_thresholds_warn_and_retain_measurements() -> None:
     tracker = accounting.admit_account({}, _usage(rate=0, assignments=0), _budget(), now=0)
     tracker.confirm_own_assignment({"own": "lane"}, _usage(rate=1.54, assignments=1), "own")
     result = tracker.check(_usage(rate=1.54, assignments=1), now=60, sessions={"own": "lane"})
@@ -105,9 +117,9 @@ def test_observed_rate_drives_drift_and_balance_but_priced_ceiling_still_caps() 
     assert result["observed_elapsed_units"] == pytest.approx(1.54 / 60)
     assert tracker.receipt()["priced_rate_units_per_hour"] == 2
     assert tracker.receipt()["observed_rate_units_per_hour"] == 1.54
-    with pytest.raises(accounting.AccountingError, match="rate drift"):
+    with _warns("PROVIDER_RATE_DRIFT"):
         tracker.check(_usage(rate=2, assignments=1), now=61, sessions={"own": "lane"})
-    with pytest.raises(accounting.AccountingError, match="priced session unit cap"):
+    with _warns("SESSION_UNIT_CAP_REACHED"):
         tracker.check(_usage(rate=1.54, assignments=1), now=1800)
 
 
@@ -126,7 +138,7 @@ def test_other_broker_lane_uses_observed_rate_instead_of_its_priced_ceiling() ->
         ],
     )
     assert tracker.accounted_assignments()["assignments"][0]["rate_units_per_hour"] == 1.54
-    with pytest.raises(accounting.AccountingError, match="observed_rate_units_per_hour"):
+    with _warns("RATE_UNAVAILABLE"):
         accounting.admit_account(
             {"other": "lane"},
             _usage(rate=2, assignments=1),
@@ -155,7 +167,7 @@ def test_balance_crosscheck_subtracts_measured_baseline_before_attribution() -> 
     assert crosscheck["attributable_account_debit_units"] == pytest.approx(0.0)
 
 
-def test_own_wall_clock_cap_remains_authoritative_with_other_spend() -> None:
+def test_unit_threshold_warns_with_other_spend() -> None:
     tracker = accounting.admit_account(
         {"notebook-endpoint": "q1"},
         _usage(balance=100.0, rate=7.0, assignments=1),
@@ -167,7 +179,7 @@ def test_own_wall_clock_cap_remains_authoritative_with_other_spend() -> None:
         _usage(balance=100.0, rate=9.0, assignments=2),
         "our-endpoint",
     )
-    with pytest.raises(accounting.AccountingError, match="priced session unit cap"):
+    with _warns("SESSION_UNIT_CAP_REACHED"):
         tracker.check(_usage(balance=91.0, rate=9.0, assignments=2), now=1800)
 
 
@@ -226,14 +238,14 @@ def test_reconcile_refuses_a_new_unaccounted_endpoint() -> None:
         )
 
 
-def test_poll_refuses_provider_rate_drift_not_explained_by_priced_assignments() -> None:
+def test_poll_warns_provider_rate_drift_and_continues() -> None:
     tracker = accounting.admit_account(
         {}, _usage(rate=0.0, assignments=0), _budget(unit_cap=5.0), now=0
     )
     tracker.confirm_own_assignment(
         {"our-endpoint": "snake-lane"}, _usage(rate=2.0, assignments=1), "our-endpoint"
     )
-    with pytest.raises(accounting.AccountingError, match="rate drift"):
+    with _warns("PROVIDER_RATE_DRIFT"):
         tracker.check(
             _usage(rate=20.0, assignments=1),
             now=60,
@@ -263,7 +275,7 @@ def test_batched_balance_debit_becomes_a_loud_crosscheck_warning_not_raw_cap() -
 
 
 def test_manifest_can_require_exact_priced_ceiling_but_cannot_loosen_tolerance():
-    from research.colab_cli.accounting import AccountingError, admit_account
+    from research.colab_cli.accounting import admit_account
 
     budget = {
         "rate_units_per_hour": 1.54,
@@ -278,13 +290,41 @@ def test_manifest_can_require_exact_priced_ceiling_but_cannot_loosen_tolerance()
         )
         == 1.54
     )
-    with pytest.raises(AccountingError, match="exceeds priced"):
+    with _warns("OBSERVED_RATE_ABOVE_PRICED_BOUND"):
         tracker.calibration_read(
             {"new": "test"}, {"assignments": 1, "balance": 100, "rate": 1.55}, "new"
         )
-    with pytest.raises(AccountingError, match="only tighten"):
+    with _warns("RATE_TOLERANCE_RELAXED"):
         admit_account(
             {},
             {"assignments": 0, "balance": 100, "rate": 0},
             budget | {"rate_tolerance_units_per_hour": 0.06},
         )
+
+
+def test_hundreds_of_drift_alerts_never_stop_polling(capsys):
+    tracker = accounting.admit_account(
+        {}, _usage(rate=0, assignments=0), _budget(unit_cap=0), now=0
+    )
+    tracker.confirm_own_assignment({"own": "lane"}, _usage(rate=2, assignments=1), "own")
+    for poll in range(1, 401):
+        spend = tracker.check(
+            _usage(balance=-1, rate=20, assignments=1), now=poll, sessions={"own": "lane"}
+        )
+        assert spend["rate_crosscheck_status"] == "WARNING_RATE_DRIFT"
+        assert spend["unit_cap_status"] == "WARNING_UNIT_CAP_REACHED"
+    assert tracker.receipt()["last_crosscheck"]["elapsed_seconds"] == 400
+    warnings = capsys.readouterr().err
+    assert warnings.count('"WARNING": "PROVIDER_RATE_DRIFT"') == 400
+    assert warnings.count('"WARNING": "UNEXPLAINED_ACCOUNT_DEBIT"') == 400
+
+
+@pytest.mark.parametrize(
+    "budget", [{}, {"unit_cap": None}, {"unit_cap": -1, "rate_units_per_hour": None}]
+)
+def test_optional_or_invalid_budget_measurements_do_not_stop_accounting(budget):
+    tracker = accounting.admit_account({}, _usage(rate=0, assignments=0), budget, now=0)
+    tracker.confirm_own_assignment({"own": "lane"}, _usage(rate=2, assignments=1), "own")
+    assert tracker.check(_usage(rate=2, assignments=1), now=60, sessions={"own": "lane"})[
+        "own_elapsed_units"
+    ] == pytest.approx(2 / 60)
