@@ -6,6 +6,7 @@ the original checker. Allocation, runtime, accounting and cleanup stay qualified
 
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -21,6 +22,44 @@ def sandbox_admission_route() -> Iterator[None]:
     original = canary.check
     original_validate = supervisor.validate
     original_execute = supervisor.Broker.execute
+    original_run = supervisor.Broker.run
+    original_call_once = supervisor.CLI._call_once
+    original_calibrate = supervisor.Broker.calibrate_rate
+    from tools.sandbox.admission import LEASE_ENV, AllocationLease
+
+    lease: AllocationLease | None = None
+
+    def run(self: Any, manifest: dict[str, Any], *args: Any, **kwargs: Any) -> Any:
+        nonlocal lease
+        if "sandbox_admission" not in manifest:
+            return original_run(self, manifest, *args, **kwargs)
+        path = os.environ.get(LEASE_ENV)
+        if not path and manifest.get("script") != "research/sandbox_a_resident/train_job.sh":
+            return original_run(self, manifest, *args, **kwargs)
+        if not path:
+            raise ValueError("sandbox run requires an ops allocation lease")
+        import sys
+
+        lease = AllocationLease(Path(path), Path(sys.argv[-1]).resolve())
+        try:
+            return original_run(self, manifest, *args, **kwargs)
+        finally:
+            lease.close()
+            lease = None
+
+    def call_once(self: Any, *args: str, timeout: float) -> str:
+        if lease is not None:
+            if args[0] == "new":
+                lease.acquire()
+            if lease.handle is not None and args[0] != "stop" and not self.cleanup_mode:
+                timeout = lease.remaining(timeout)
+        return original_call_once(self, *args, timeout=timeout)
+
+    def calibrate(self: Any, *args: Any, **kwargs: Any) -> Any:
+        result = original_calibrate(self, *args, **kwargs)
+        if lease is not None:
+            lease.close()
+        return result
 
     def check(manifest: dict[str, Any], repo: Path) -> None:
         if "sandbox_admission" in manifest:
@@ -58,12 +97,18 @@ def sandbox_admission_route() -> Iterator[None]:
     canary.check = check
     supervisor.validate = validate
     supervisor.Broker.execute = execute
+    supervisor.Broker.run = run
+    supervisor.CLI._call_once = call_once
+    supervisor.Broker.calibrate_rate = calibrate
     try:
         yield
     finally:
         canary.check = original
         supervisor.validate = original_validate
         supervisor.Broker.execute = original_execute
+        supervisor.Broker.run = original_run
+        supervisor.CLI._call_once = original_call_once
+        supervisor.Broker.calibrate_rate = original_calibrate
 
 
 def main() -> None:

@@ -636,18 +636,31 @@ def validate_packet(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("packet", type=Path, nargs="?")
+    parser.add_argument("--checks-only", action="store_true")
     parser.add_argument(
         "--cuda-semantics",
         action="store_true",
         help="run the logical-CUDA / meta-device semantics suite (also included in full preflight)",
     )
     args = parser.parse_args()
+    if args.checks_only and (args.packet is None or args.cuda_semantics):
+        parser.error("--checks-only requires a packet and cannot select CUDA semantics")
     if not args.cuda_semantics and args.packet is None:
         parser.error("packet directory is required unless --cuda-semantics is specified")
     check: dict[str, Any] | None = None
     if args.packet is not None:
         check = validate_packet(args.packet)
+    if args.checks_only:
+        assert check is not None
+        print(f"PASS_CT1028_CHECKS seeds={check['count']} tests=NOT_RUN allocations=0")
+        return 0
     env = dict(os.environ)
+    for key in (
+        "SNAKE_SANDBOX_TEST_RECEIPT",
+        "SNAKE_SANDBOX_ALLOCATION_LEASE",
+        "SNAKE_SANDBOX_REQUIRE_TEST_RECEIPT",
+    ):
+        env.pop(key, None)
     for key in (
         "OMP_NUM_THREADS",
         "MKL_NUM_THREADS",

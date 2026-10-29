@@ -16,8 +16,8 @@ from typing import Any, Sequence
 
 from .manifest import ManifestError, _forbidden, load_manifest, protected_name
 
-TRANSPORT_TREE = "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
-QUALIFIED_TRANSPORT_TREES = frozenset({TRANSPORT_TREE, "cfd50f45145489c87ff986b9d1a2eed18b07377d"})
+TRANSPORT_TREE = "cfd50f45145489c87ff986b9d1a2eed18b07377d"
+QUALIFIED_TRANSPORT_TREES = frozenset({TRANSPORT_TREE, "5833e54e9c5396121cbbf99a5cd4e52006e564fd"})
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -319,6 +319,9 @@ def _verify_broker_binding(payload: dict[str, Any]) -> None:
 def run_focused_tests() -> None:
     """Run the local sandbox tests with the owner-required low-impact settings."""
     env = os.environ.copy()
+    env.pop("SNAKE_SANDBOX_TEST_RECEIPT", None)
+    env.pop("SNAKE_SANDBOX_ALLOCATION_LEASE", None)
+    env.pop("SNAKE_SANDBOX_REQUIRE_TEST_RECEIPT", None)
     env.update(
         {
             "OMP_NUM_THREADS": "1",
@@ -349,7 +352,10 @@ def run_focused_tests() -> None:
         "tools/sandbox/tests",
         "research/sandbox_b_heads/tests",
     ]
-    completed = subprocess.run(command, cwd=REPO_ROOT, text=True, env=env, check=False)
+    from tools.ops.processes import run
+    from tools.sandbox.admission import TEST_SECONDS
+
+    completed = run(command, cwd=REPO_ROOT, text=True, env=env, timeout=TEST_SECONDS)
     if completed.returncode:
         raise PreflightError("focused sandbox tests failed")
 

@@ -310,6 +310,7 @@ def test_admission_accepts_only_train01_background_source_delivery(
             "outputs": {"broker_manifest": {"path": str(bound)}},
         },
     )
+    monkeypatch.setattr(preflight, "run_focused_tests", lambda: None)
     monkeypatch.setattr(dispatch, "command", lambda *_args, **_kwargs: None)
     dispatch.require_sandbox_admission(packet, Path.cwd())
     packet["script"] = "research/sandbox_a_resident/job.sh"

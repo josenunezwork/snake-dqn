@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 from pathlib import Path
 
 from research.sandbox_a_resident.prepare import registry_check
@@ -16,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("packet", type=Path)
+    parser.add_argument("--checks-only", action="store_true")
     args = parser.parse_args()
     packet = args.packet.resolve()
     from tools.sandbox.preflight import preflight
@@ -36,7 +36,13 @@ def main() -> int:
     )
     registry = next(Path(r["path"]) for r in payload["inputs"] if r["kind"] == "registry")
     checked = registry_check(control, registry, checkpoint)
+    if args.checks_only:
+        print("PASS_SANDBOX_A_STRUCTURAL_CHECKS tests=REUSED_BY_HOST allocations=0")
+        return 0
     environment = dict(os.environ)
+    environment.pop("SNAKE_SANDBOX_TEST_RECEIPT", None)
+    environment.pop("SNAKE_SANDBOX_ALLOCATION_LEASE", None)
+    environment.pop("SNAKE_SANDBOX_REQUIRE_TEST_RECEIPT", None)
     environment.update(
         {
             key: "1"
@@ -51,7 +57,10 @@ def main() -> int:
         }
     )
     environment["SNAKE_DQN_DEVICE"] = "cpu"
-    subprocess.run(
+    from tools.ops.processes import run
+    from tools.sandbox.admission import TEST_SECONDS
+
+    run(
         [
             "nice",
             "-n",
@@ -67,6 +76,7 @@ def main() -> int:
         cwd=ROOT,
         env=environment,
         check=True,
+        timeout=TEST_SECONDS,
     )
     print(
         f"PASS_SANDBOX_A_PREFLIGHT seeds={checked['allocated_uint64_seeds']} "

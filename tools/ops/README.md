@@ -469,3 +469,35 @@ its digest in the pack receipt. The regression suite uses real clean venvs and
 proves both direct and transitive lazy dependency failures cannot borrow from
 `PYTHONPATH` or the Mac venv. This is an offline package gate; the qualified
 `research/colab_cli` transport is unchanged.
+
+### Sandbox host admission and allocation ownership
+
+Sandbox dispatch runs full host admission before acquiring `alloc.lock`, within
+an independent 1,200-second window (base 600 seconds, effective 2x). Each focused
+suite has a 600-second limit (base 300 seconds, effective 2x; the TRAIN-01 suite
+was measured at about 262 seconds). Ordinary commands retain their 60-second
+limit; the allocation window remains at most 600 seconds.
+
+A create-only `admission-tests.json` binds the clean broker Git identity, tracked
+code/config bytes, packet bytes, external input hashes and explicit host test
+environment. Refreshed validation and native startup reuse completed tests only
+when this identity matches. They still execute structural admission, schema,
+input/source/registry/seed checks and qualified accounting. Missing or changed
+reuse evidence refuses before allocation; it cannot trigger full tests inside
+the allocation window. Accounting refresh and the existing exact allocation retry
+remain subject to the original packet's normalization rules.
+
+Before detached startup, the exclusive parent ops lock becomes shared. The child
+acquires its own shared descriptor immediately before native `new`, after checking
+the create-only grant's manifest hash, parent liveness and monotonic deadline.
+Every competing dispatcher still needs an exclusive lock. The child holds its
+descriptor until durable rate calibration, or through native failure cleanup.
+Parent revocation precedes unlock. A delayed runner refuses a revoked or expired
+grant, and a child already in allocation keeps competitors fenced even if its
+parent exits. TRAIN-01 native `run` requires this host grant.
+
+Timed admission subprocesses run in owned process groups. Timeout/interruption
+terminates their descendants, escalates surviving group members and reaps the
+owned child; nested group owners forward termination to their descendants. No
+process is selected by a global name match. These are host-only adapters; the
+qualified `research/colab_cli` tree and remote science/runtime recipe are unchanged.

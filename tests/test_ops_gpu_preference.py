@@ -130,20 +130,30 @@ def test_both_unavailable_never_attempts_a_third_allocation(fixture):
     assert [row["job"] for row in trace(f, "run")] == ["job", "job-a100-fallback"]
 
 
-@pytest.mark.parametrize("fallback_seconds", [100, 421])
-def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch, fallback_seconds):
+@pytest.mark.parametrize("ct_packet", [False, True])
+@pytest.mark.parametrize("fallback_seconds", [100, 601])
+def test_slow_fallback_validation_gets_fresh_bounded_window(
+    fixture, monkeypatch, fallback_seconds, ct_packet
+):
     """Simulate the 100s C/T preflight after 545s spent on the primary."""
     from tools.ops import dispatch as module
 
     f = fixture
     preferred(f, "gpu_unavailable")
     packet = json.loads(f["manifest"].read_text())
-    packet["sandbox_admission"] = {}  # Select the real sandbox outer validation bound.
+    packet["sandbox_admission"] = {}  # Select the bounded host-admission window.
+    if ct_packet:
+        packet["script"] = "research/sandbox_a_resident/ct_job.sh"
+        if fallback_seconds > 100:
+            fallback_seconds = 421
+    bound = module.CT_OUTER_VALIDATE_TIMEOUT_SECONDS if ct_packet else 600
+    initial_bound = bound if ct_packet else module.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS
     monkeypatch.setenv("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "600")
     now = [1000.0]
     monkeypatch.setattr(module.time, "monotonic", lambda: now[0])
     monkeypatch.setattr(module, "supervisor_launcher", lambda *_: Path("/fake/launch.sh"))
     starts, validations, windows = [], [], []
+    receipt_paths, lease_paths = [], []
 
     def assert_locked():
         with (f["ops"] / "alloc.lock").open("a") as lock:
@@ -159,13 +169,16 @@ def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch
         if live:
             assert_locked()
         validations.append((live, fallback, timeout))
+        env = kwargs["env"]
+        receipt_paths.append((live, fallback, env["SNAKE_SANDBOX_TEST_RECEIPT"]))
+        assert bool(env.get("SNAKE_SANDBOX_REQUIRE_TEST_RECEIPT")) is live
         now[0] += min(duration, timeout)
         if duration > timeout:
             raise subprocess.TimeoutExpired(argv, timeout)
         return subprocess.CompletedProcess(argv, 0)
 
     # Exercise validate() and command() themselves; only the subprocess is fake.
-    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(module, "run_process_tree", run)
     monkeypatch.setattr(module, "qualified", lambda *_args, **_kwargs: assert_locked())
 
     def refresh(path, evidence, deadline):
@@ -181,6 +194,19 @@ def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch
     def start(_broker, _cwd, _lane, _live, log, name, deadline, **_kwargs):
         assert_locked()
         assert deadline > now[0]
+        from tools.sandbox.admission import AllocationLease
+
+        assert _kwargs["sandbox_test_receipt"] == Path(receipt_paths[-1][2])
+        if lease_paths:
+            assert not lease_paths[-1].exists()
+        lease_path = _kwargs["sandbox_lease"]
+        lease_paths.append(lease_path)
+        lease = AllocationLease(lease_path, _live)
+        lease.acquire()
+        try:
+            assert lease.remaining(9999) == deadline - now[0]
+        finally:
+            lease.close()
         starts.append(name)
         log.write_text("EXIT=1\n" if len(starts) == 1 else "EXIT=0\n")
 
@@ -209,22 +235,29 @@ def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch
             args, packet, f["ops"], f["broker"], f["broker"], f["ops"] / "state/lane"
         )
 
-    bound = module.SANDBOX_OUTER_VALIDATE_TIMEOUT_SECONDS
     if fallback_seconds > bound:
-        with pytest.raises(module.Refused, match="validation failed:.*timed out") as error:
-            call()
-        assert isinstance(error.value.__cause__, subprocess.TimeoutExpired)
+        if ct_packet:
+            with pytest.raises(module.Refused, match="validation failed:.*timed out") as error:
+                call()
+            assert isinstance(error.value.__cause__, subprocess.TimeoutExpired)
+        else:
+            with pytest.raises(subprocess.TimeoutExpired):
+                call()
         assert starts == ["lane"]
     else:
         assert "requested_gpu=A100" in call()
         assert starts == ["lane", "lane-a100-fallback"]
     assert windows == [600, 600]
     assert validations == [
-        (False, False, bound),
-        (False, True, bound),
+        (False, False, initial_bound),
+        (False, True, initial_bound),
         (True, False, bound),
         (True, True, bound),
     ]
+    assert receipt_paths[0][2] == receipt_paths[2][2]
+    assert receipt_paths[1][2] == receipt_paths[3][2]
+    assert receipt_paths[0][2] != receipt_paths[1][2]
+    assert all(not path.exists() for path in lease_paths)
     # Exclusion is released after either success or validation timeout.
     with (f["ops"] / "alloc.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

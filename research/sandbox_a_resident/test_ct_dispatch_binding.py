@@ -111,7 +111,7 @@ def dispatched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fallback: bool) 
     monkeypatch.setenv("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "5")
     monkeypatch.setenv("OPS_ALLOC_POLL_INTERVAL_SECONDS", ".01")
 
-    def start(broker, cwd, state, manifest, log, name, deadline, *, gpu_receipt):
+    def start(broker, cwd, state, manifest, log, name, deadline, *, gpu_receipt, **sandbox_launch):
         selected = json.loads(manifest.read_text())
         output = Path(selected["output_dir"])
         if fallback and selected["requirements"]["gpu"] == "H100":
