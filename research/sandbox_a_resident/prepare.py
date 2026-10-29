@@ -22,6 +22,7 @@ from research.sandbox_a_resident.units import (
     unit_id,
     unit_stem,
 )
+from tools.sandbox.registry import TRANSPORT_TREE
 
 ROOT = Path(__file__).resolve().parents[2]
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
@@ -215,7 +216,7 @@ def prepare(
     transport = subprocess.check_output(
         ["git", "rev-parse", f"{commit}:research/colab_cli"], cwd=ROOT, text=True
     ).strip()
-    if transport != "5833e54e9c5396121cbbf99a5cd4e52006e564fd":
+    if transport != TRANSPORT_TREE:
         raise ValueError("qualified transport changed")
     packet.mkdir(parents=True, exist_ok=False)
     control = {
