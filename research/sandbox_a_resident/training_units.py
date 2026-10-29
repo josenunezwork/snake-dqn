@@ -44,7 +44,7 @@ COMPACT_ALLOWLIST_PATH = Path(__file__).resolve().with_name("compact_allowlist.j
 COMPACT_DERIVATIVE_SUFFIX = ".xz"
 COMPACT_MANIFEST_SUFFIX = ".xz.manifest"
 TRAIN01_COMPACT_SOURCE_PACKET_RE = re.compile(
-    r"^packet-train01-(?:11|15|16|17|s2-0[12])(?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?$"
+    r"^packet-train01-(?:11|15|16|17|s2-0[123])(?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?$"
 )
 # Legacy v1 allowlist retained verbatim so frozen packet-train01-15 preflight
 # and historical v1 ledger bindings remain byte-exact.  Periodic continuations

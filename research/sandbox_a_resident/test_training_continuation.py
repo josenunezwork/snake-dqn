@@ -1367,7 +1367,7 @@ def test_continuation_builder_admits_receipt_less_host_enospc_and_chains_compact
 
 
 @pytest.mark.parametrize("fallback", [False, True])
-@pytest.mark.parametrize("packet_family", ["s2-01", "s2-02"])
+@pytest.mark.parametrize("packet_family", ["s2-01", "s2-02", "s2-03"])
 def test_second_seed_preference_continuation_preserves_domain_and_whole_timeout_price(
     fixture_workspace: Path, fallback: bool, packet_family: str
 ) -> None:
@@ -1443,7 +1443,7 @@ def test_second_seed_preference_continuation_preserves_domain_and_whole_timeout_
     assert manifest["env"]["SANDBOX_A_PACKET_ID"] == successor.name
     assert manifest["budget"]["unit_cap"] == manifest["timeout_minutes"] * 12 / 60
     assert variants(manifest)[1]["budget"]["unit_cap"] == manifest["timeout_minutes"] * 8 / 60
-    if packet_family == "s2-02":
+    if packet_family in {"s2-02", "s2-03"}:
         assert manifest["requirements"]["est_minutes"] == 690
         assert manifest["timeout_minutes"] == 1380
         assert manifest["budget"]["unit_cap"] == 276

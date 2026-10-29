@@ -90,9 +90,9 @@ WORKLOAD_MANIFEST_KEYS = (
     "inputs",
     "resume",
 )
-SLUG_RE = re.compile(r"^train01-(?:11|15|16|17|s2-0[12])-c[12]-[a-z0-9][a-z0-9_-]*$")
+SLUG_RE = re.compile(r"^train01-(?:11|15|16|17|s2-0[123])-c[12]-[a-z0-9][a-z0-9_-]*$")
 SOURCE_PACKET_BASE_RE = re.compile(
-    r"^packet-(train01-(?:11|15|16|17|s2-0[12]))(?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?$"
+    r"^packet-(train01-(?:11|15|16|17|s2-0[123]))(?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?$"
 )
 # Prospectively frozen whole-input staging bounds reconciled with measured
 # A100 upload-measurement.json anchors (train01-attempt-15 18-file compact
@@ -1282,13 +1282,15 @@ def build_continuation_packet(
         snapshot_interval=int(source_control["snapshot_interval"]),
         deferred_proxy=deferred_proxy,
         needs_baseline_proxy=needs_baseline_proxy,
-        # S2-02 freezes a per-attempt guard below Colab's 24-hour ceiling.
+        # S2-02/03 freeze a per-attempt guard below Colab's 24-hour ceiling.
         # Keep the full remaining forecast and endpoint; verified snapshots
         # carry work across at most two manual completion attempts.
         attempt_est_minutes_limit=(
             690
-            if source_packet_id == "packet-train01-s2-02"
-            or source_packet_id.startswith("packet-train01-s2-02-c")
+            if any(
+                source_packet_id == family or source_packet_id.startswith(family + "-c")
+                for family in ("packet-train01-s2-02", "packet-train01-s2-03")
+            )
             else None
         ),
     )

@@ -66,12 +66,17 @@ def sample_state() -> dict:
         "schema": "sandbox-a-train-state/v1",
         "iteration": 0,
         "actor": OrderedDict(
-            [("weight", torch.randn(8, 4)), ("_temperature", torch.tensor(0.0084397))]
+            [
+                ("weight", torch.randn(8, 4, generator=generator)),
+                ("_temperature", torch.tensor(0.0084397)),
+            ]
         ),
         "trainer": {"actor_rows": 0, "popart": {"mu": torch.zeros(1), "beta": 0.999}},
         "task": {
             "sim": {"bodies": bodies, "food_present": torch.zeros(4, 9, dtype=torch.bool)},
-            "groups": {2: {"random_slots": [torch.randint(0, 3, (3, 5, 3)), None]}},
+            "groups": {
+                2: {"random_slots": [torch.randint(0, 3, (3, 5, 3), generator=generator), None]}
+            },
         },
         "rng": {
             "torch": torch.get_rng_state(),
@@ -181,10 +186,19 @@ def test_encode_refuses_corrupt_original(tmp_path: Path) -> None:
     assert not Path(f"{original}.xz").exists()
 
 
+def _mutate_weight_one_ulp(state: dict) -> None:
+    """Change a finite weight's bytes even when a fixed epsilon would round away."""
+    weight = state["actor"]["weight"].view(-1)[3]
+    before = weight.clone()
+    assert torch.isfinite(weight)
+    weight.copy_(torch.nextafter(weight, torch.full_like(weight, float("inf"))))
+    assert not torch.equal(before.reshape(1).view(torch.uint8), weight.reshape(1).view(torch.uint8))
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
-        lambda s: s["actor"]["weight"].view(-1)[3].add_(1e-7),
+        lambda s: _mutate_weight_one_ulp(s),
         lambda s: s["task"]["sim"]["bodies"].view(-1)[-1].fill_(1),
         lambda s: s["task"]["sim"].__setitem__(
             "food_present", s["task"]["sim"]["food_present"].to(torch.uint8)
@@ -210,6 +224,39 @@ def test_verify_decoded_state_refuses_any_tensor_or_structure_difference(mutate)
     changed = copy.deepcopy(state)
     mutate(changed)
     with pytest.raises(CompactResumeRefused):
+        verify_decoded_state(changed, manifest)
+
+
+@pytest.mark.parametrize("value", [2.0, 3.0, -3.0])
+def test_verify_decoded_state_refuses_one_ulp_when_fixed_epsilon_rounds_away(value: float) -> None:
+    """Reproduce the admission flake and require rejection of an actual tiny change."""
+    state = sample_state()
+    state["actor"]["weight"].view(-1)[3] = value
+    manifest = describe_state(state)
+    unchanged = copy.deepcopy(state)
+    unchanged["actor"]["weight"].view(-1)[3].add_(1e-7)
+    assert torch.equal(unchanged["actor"]["weight"], state["actor"]["weight"])
+    verify_decoded_state(unchanged, manifest)
+    changed = copy.deepcopy(state)
+    _mutate_weight_one_ulp(changed)
+    # Deepcopy must isolate the mutation from the original and its frozen manifest.
+    assert state["actor"]["weight"].view(-1)[3].item() == value
+    assert describe_state(state) == manifest
+    with pytest.raises(CompactResumeRefused, match="decoded tensor differs"):
+        verify_decoded_state(changed, manifest)
+
+
+@pytest.mark.parametrize("bits", [0, -2147483648, 0x7FC00000, 0x7FC00001, 0x7F800000])
+def test_verify_decoded_state_compares_float_bits_including_zero_and_nan(bits: int) -> None:
+    """Numeric equality and NaN behavior must not hide changed tensor bytes."""
+    original = {"weight": torch.tensor([bits], dtype=torch.int32).view(torch.float32)}
+    manifest = describe_state(original)
+    changed = copy.deepcopy(original)
+    changed["weight"].view(torch.int32).bitwise_xor_(1)
+    assert not torch.equal(
+        original["weight"].view(torch.uint8), changed["weight"].view(torch.uint8)
+    )
+    with pytest.raises(CompactResumeRefused, match="decoded tensor differs"):
         verify_decoded_state(changed, manifest)
 
 
