@@ -1,0 +1,16 @@
+{
+  "audited_union_roots": 342894912,
+  "effective_low63_collisions": 0,
+  "elapsed_seconds": 445.49210541695356,
+  "index_interval_overlaps": 0,
+  "master_seed": 4850087679558976618,
+  "new_allocation_index": 2,
+  "new_offset": 2000000000,
+  "prior_offsets": [
+    0,
+    1000000000
+  ],
+  "registry_sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+  "shared_monitor_nomination_roots": 1056,
+  "status": "PASS"
+}

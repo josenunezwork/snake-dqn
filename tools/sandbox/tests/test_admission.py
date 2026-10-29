@@ -586,8 +586,11 @@ def test_train01_compact_export_controls_bind_exact_admitted_packet(monkeypatch,
 
 
 @pytest.mark.parametrize("mutation", [None, "disabled", "foreign", "raw", "missing"])
-def test_s2_04_early_snapshot_control_is_narrow(monkeypatch, mutation):
-    packet_path = ROOT / "research/sandbox_a_resident/packet-train01-s2-04/dispatch-manifest.json"
+@pytest.mark.parametrize("packet_number", ["04", "05"])
+def test_s2_04_early_snapshot_control_is_narrow(monkeypatch, mutation, packet_number):
+    packet_path = ROOT / (
+        f"research/sandbox_a_resident/packet-train01-s2-{packet_number}/dispatch-manifest.json"
+    )
     packet = json.loads(packet_path.read_text())
     monkeypatch.setattr(
         preflight,
