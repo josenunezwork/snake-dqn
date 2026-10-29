@@ -74,6 +74,10 @@ def test_sparse_160_rows_reports_life_shortfall() -> None:
     result = scarcity([row], 800, 50)
     assert result["160_late_rows"]["frequency"] == 1
     assert result["160_all_rows"]["frequency"] == 1
+    old = result["old_complete_life_stopping_permutation"]
+    assert old["status"] == "INSUFFICIENT_SUPPORT"
+    assert old["eligible_replicates"] == 0
+    assert old["frequency_fewer_than_3_late_lives"] is None
 
 
 def test_immutable_unit_ledger_skip_and_foreign_refusal(tmp_path: Path) -> None:

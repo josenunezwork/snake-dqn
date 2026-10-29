@@ -479,6 +479,7 @@ def scarcity(lives: list[dict], late_length: int, repeats: int) -> dict:
         )
     # Reproduce the old collection's complete-life, 160-late-row stopping mechanism.
     failures = 0
+    eligible = 0
     late_counts = [sum(v >= late_length for v in life["length"]) for life in lives]
     for _ in range(repeats):
         late_rows, late_lives, done = 0, 0, {m: 0 for m in MIXES}
@@ -490,10 +491,14 @@ def scarcity(lives: list[dict], late_length: int, repeats: int) -> dict:
             done[life["mix"]] += 1
             if late_rows >= 160 and sum(done.values()) >= 40 and min(done.values()) >= 8:
                 break
-        if late_rows >= 160 and late_lives < 3:
-            failures += 1
+        if late_rows >= 160 and sum(done.values()) >= 40 and min(done.values()) >= 8:
+            eligible += 1
+            failures += late_lives < 3
     result["old_complete_life_stopping_permutation"] = dict(
-        replicates=repeats, frequency_fewer_than_3_late_lives=failures / repeats
+        status="COMPLETE" if eligible == repeats else "INSUFFICIENT_SUPPORT",
+        replicates=repeats,
+        eligible_replicates=eligible,
+        frequency_fewer_than_3_late_lives=failures / eligible if eligible else None,
     )
     return result
 
