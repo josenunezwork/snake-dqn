@@ -2274,10 +2274,14 @@ def dispatch_preferred(
     poll = float(os.environ.get("OPS_ALLOC_POLL_INTERVAL_SECONDS", "1"))
     if not math.isfinite(seconds) or not 0 < seconds <= 600 or not math.isfinite(poll) or poll <= 0:
         raise Refused("invalid allocation wait bounds")
-    with allocation_lock(ops / "alloc.lock", seconds) as deadline:
+    # Keep exclusion across both variants, but do not charge the sibling's
+    # admission/allocation window for time already spent on the primary.
+    # Each variant retains the ordinary bound; the whole pair is bounded too.
+    with allocation_lock(ops / "alloc.lock", seconds * len(packets)) as preference_deadline:
         for index, (packet, path, lane, log, name) in enumerate(
             zip(packets, paths, states, logs, names)
         ):
+            deadline = min(preference_deadline, time.monotonic() + seconds)
             if any(
                 hashlib.sha256(p.read_bytes()).hexdigest() != seal for p, seal in zip(paths, seals)
             ):

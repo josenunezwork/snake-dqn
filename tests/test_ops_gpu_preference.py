@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import ast
 import fcntl
 import hashlib
@@ -127,6 +128,104 @@ def test_both_unavailable_never_attempts_a_third_allocation(fixture):
     assert result.returncode == 0, result.stderr
     assert "allocation=failed" in result.stdout
     assert [row["job"] for row in trace(f, "run")] == ["job", "job-a100-fallback"]
+
+
+@pytest.mark.parametrize("fallback_seconds", [100, 181])
+def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch, fallback_seconds):
+    """Simulate the 100s C/T preflight after 545s spent on the primary."""
+    from tools.ops import dispatch as module
+
+    f = fixture
+    preferred(f, "gpu_unavailable")
+    packet = json.loads(f["manifest"].read_text())
+    packet["sandbox_admission"] = {}  # Select the real 180s validation bound.
+    monkeypatch.setenv("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "600")
+    now = [1000.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(module, "supervisor_launcher", lambda *_: Path("/fake/launch.sh"))
+    starts, validations, windows = [], [], []
+
+    def assert_locked():
+        with (f["ops"] / "alloc.lock").open("a") as lock:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def run(argv, *, timeout, **kwargs):
+        assert argv[0] == "/fake/launch.sh"
+        manifest = Path(argv[-1])
+        live = manifest.name.endswith(".live.json")
+        fallback = "a100-fallback" in manifest.name
+        duration = fallback_seconds if live and fallback else 100
+        if live:
+            assert_locked()
+        validations.append((live, fallback, timeout))
+        now[0] += min(duration, timeout)
+        if duration > timeout:
+            raise subprocess.TimeoutExpired(argv, timeout)
+        return subprocess.CompletedProcess(argv, 0)
+
+    # Exercise validate() and command() themselves; only the subprocess is fake.
+    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(module, "qualified", lambda *_args, **_kwargs: assert_locked())
+
+    def refresh(path, evidence, deadline):
+        assert_locked()
+        windows.append(deadline - now[0])
+        live = path.with_suffix(".live.json")
+        live.write_bytes(path.read_bytes())
+        evidence.write_text(
+            json.dumps({"manifest_sha256": hashlib.sha256(live.read_bytes()).hexdigest()})
+        )
+        return live
+
+    def start(_broker, _cwd, _lane, _live, log, name, deadline, **_kwargs):
+        assert_locked()
+        assert deadline > now[0]
+        starts.append(name)
+        log.write_text("EXIT=1\n" if len(starts) == 1 else "EXIT=0\n")
+
+    def wait(_output, _log, deadline, _poll):
+        assert_locked()
+        if len(starts) == 1:
+            now[0] += 445
+            assert deadline - now[0] == 55
+            return "failed"
+        return "allocated"
+
+    def reconcile(*args):
+        assert_locked()
+        assert args[-1] - now[0] == 55
+
+    monkeypatch.setattr(module, "refresh_assignments", refresh)
+    monkeypatch.setattr(module, "start", start)
+    monkeypatch.setattr(module, "wait_allocation", wait)
+    monkeypatch.setattr(module, "allocation_unavailable", lambda *_: True)
+    monkeypatch.setattr(module, "reconcile_unavailable", reconcile)
+    monkeypatch.setattr(module, "ensure_watcher", lambda *_: None)
+    args = argparse.Namespace(name="lane", state_dir=None)
+
+    def call():
+        return module.dispatch_preferred(
+            args, packet, f["ops"], f["broker"], f["broker"], f["ops"] / "state/lane"
+        )
+
+    if fallback_seconds > 180:
+        with pytest.raises(subprocess.TimeoutExpired):
+            call()
+        assert starts == ["lane"]
+    else:
+        assert "requested_gpu=A100" in call()
+        assert starts == ["lane", "lane-a100-fallback"]
+    assert windows == [600, 600]
+    assert validations == [
+        (False, False, 180),
+        (False, True, 180),
+        (True, False, 180),
+        (True, True, 180),
+    ]
+    # Exclusion is released after either success or validation timeout.
+    with (f["ops"] / "alloc.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 def test_post_endpoint_accounting_failure_never_uses_legacy_retry(fixture):

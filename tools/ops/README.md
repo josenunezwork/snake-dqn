@@ -127,6 +127,15 @@ account broker lock once per second within their remaining deadline (at most
 600 seconds including preceding work). They retain the ops-then-account lock
 order. Deadline expiry refuses without publishing proof, retiring the pending
 record or starting fallback; contention never relaxes any evidence check.
+Each pre-admitted GPU variant gets its own allocation/admission deadline of
+`OPS_ALLOC_LOCK_TIMEOUT_SECONDS` (default and maximum 600 seconds). The ops lock
+stays held across primary reconciliation and sibling admission, with a total bound
+of twice that value for the pair. The sibling repeats live accounting and full
+validation within its fresh window; it never reuses earlier host preflight proof.
+The sandbox validation subprocess still has its separate 180-second maximum,
+clipped to the current variant's remaining time. Reconciliation must finish within
+the primary's deadline before any sibling window begins. No failure or timeout
+within a variant refreshes that variant's deadline.
 The operator tool's `--timeout-seconds` may shorten its 600-second total bound;
 zero, nonfinite values and values above 600 are refused.
 The qualified supervisor refuses **all new allocations** while any pending record
