@@ -13,9 +13,18 @@ from research.sandbox_a_resident import test_training_production as production_t
 from research.sandbox_a_resident import train, training_compact
 from research.sandbox_a_resident.training_prep import PreparationFailure
 from research.sandbox_a_resident.training_resume import ResumeRefused, build_ledger
+from research.sandbox_a_resident.training_units import validate_compact_source_packet
 from research.sandbox_a_resident.units import publish
 
 production = production_tests.production
+
+
+@pytest.mark.parametrize("suffix", ["", "-c1", "-c2-i0016"])
+def test_corrected_packet_family_is_bounded(suffix):
+    validate_compact_source_packet("packet-train01-s2-05-r1" + suffix, 0)
+    for name in ("packet-train01-s2-05-r2", "packet-train01-s2-05-r1-c3"):
+        with pytest.raises(ValueError):
+            validate_compact_source_packet(name, 0)
 
 
 def test_failed_preparation_snapshot_never_enters_early_publication_or_proxy(

@@ -1294,6 +1294,7 @@ def build_continuation_packet(
                     "packet-train01-s2-03",
                     "packet-train01-s2-04",
                     "packet-train01-s2-05",
+                    "packet-train01-s2-05-r1",
                 )
             )
             else None

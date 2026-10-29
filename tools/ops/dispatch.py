@@ -673,7 +673,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
                 env[early_key] != "1"
                 or env.get("SANDBOX_A_SNAPSHOT_FORMAT") != "compact"
                 or not re.fullmatch(
-                    r"packet-train01-s2-0[45](?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?",
+                    r"packet-train01-s2-(?:04|05|05-r1)(?:-c[12](?:-[a-z0-9][a-z0-9_-]*)?)?",
                     env.get("SANDBOX_A_PACKET_ID", ""),
                 )
             ):
