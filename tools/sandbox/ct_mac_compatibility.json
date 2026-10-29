@@ -1,4 +1,10 @@
 {
+  "additional_roots": [
+    {
+      "root_manifest_sha256": "c47833a2a26e26cf9f28ed93a0a196b2d54e7fcb568142371817d73e9bccc205",
+      "root_seal_sha256": "dab92db9c4b7280248126801efc825a6c0fb9baec14fc38d00002d2a0232183a"
+    }
+  ],
   "mac_only_sources": {
     "research/sandbox_a_resident/ct_cuda_observed.py": {
       "broker_sha256": "0d4a96e1184c8b6ed294ee8b4f244c008a2e6b57eda4f9f9645ca4350d073d10",
