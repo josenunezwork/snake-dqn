@@ -46,8 +46,9 @@ def test_relative_resume_uploads_are_verified_on_mac_and_foreign_inputs_refused(
         validate_uploaded_ledger(packet, {"inputs": uploads + [foreign]}, control)
 
 
+@pytest.mark.parametrize("compact", [False, True])
 def test_prepare_completion_keeps_required_sidecars_and_preflights_successor(
-    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest, compact: bool
 ) -> None:
     """Exercise the create-only completion writer with its TRAIN-01 preflight.
 
@@ -85,13 +86,20 @@ def test_prepare_completion_keeps_required_sidecars_and_preflights_successor(
     )
     control = json.loads((original / "control.json").read_text())
     exports = work / "exports"
+    import torch
+
+    from research.sandbox_a_resident.training_compact import encode_snapshot
+    from research.sandbox_a_resident.training_units import unit_id
+
     publish_snapshot(
         exports,
         16,
-        lambda path: path.write_bytes(b"opaque full state"),
+        lambda path: torch.save({"tensor": torch.arange(6), "iteration": 16}, path),
         metadata={"allocation": allocation(control), "source_commit": control["source_commit"]},
     )
     publish(exports / "iteration-0016-actor.pth", lambda path: path.write_bytes(b"opaque actor"))
+    if compact:
+        encode_snapshot(exports / "iteration-0016.pt", unit=unit_id(16))
     manifest = json.loads(original_manifest_path.read_text())
     executed = work / "executed" / "manifest.json"
     executed.parent.mkdir()
@@ -122,6 +130,7 @@ def test_prepare_completion_keeps_required_sidecars_and_preflights_successor(
         index=1,
         job_id="sandbox-a-train01-fixture-completion-1",
         output=output,
+        compact=compact,
     )
 
     sandbox = json.loads((successor / "sandbox.json").read_text())
@@ -130,8 +139,8 @@ def test_prepare_completion_keeps_required_sidecars_and_preflights_successor(
         for row in sandbox["inputs"]
         if isinstance(row.get("path"), str) and row["path"].startswith(str(exports))
     ]
-    assert len(resume) == 9
-    assert sum(row["kind"] == "training-export" for row in resume) == 3
+    assert len(resume) == (10 if compact else 9)
+    assert sum(row["kind"] == "training-export" for row in resume) == (2 if compact else 3)
     assert sum(row["kind"] == "training-export-sidecar" for row in resume) == 6
     for row in resume:
         validate_input(row, {})

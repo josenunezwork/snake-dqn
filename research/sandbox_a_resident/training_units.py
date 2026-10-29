@@ -25,6 +25,7 @@ ALLOWED_MIGRATION_SOURCE_COMMITS = frozenset({TRAIN01_07_SOURCE_COMMIT, TRAIN01_
 
 COMPACT_RESUME_FIELD = "compact_resume"
 COMPACT_RESUME_SCHEMA = "sandbox-a-train-compact-resume/v1"
+COMPACT_CONTROL_SCHEMA = "sandbox-a-train-compact-resume/v2"
 COMPACT_DERIVATIVE_SUFFIX = ".xz"
 COMPACT_MANIFEST_SUFFIX = ".xz.manifest"
 # The only full-state snapshot that may be resumed through a compact transport
@@ -131,20 +132,72 @@ def validate_compact_resume(
         return None
     entry = payload[COMPACT_RESUME_FIELD]
     frozen = COMPACT_RESUME_ALLOWLIST if allowlist is None else allowlist
-    if not isinstance(entry, dict) or set(entry) != {
+    if not isinstance(entry, dict):
+        raise ValueError("malformed compact resume binding")
+    version2 = entry.get("schema") == COMPACT_CONTROL_SCHEMA
+    if set(entry) != {
         "schema",
         "unit",
         "original",
         "derivative",
         "manifest",
-    }:
+    } | ({"control"} if version2 else set()):
         raise ValueError("malformed compact resume binding")
-    expected = frozen.get(entry.get("unit")) if isinstance(entry.get("unit"), str) else None
-    if entry["schema"] != COMPACT_RESUME_SCHEMA or expected is None:
-        raise ValueError("compact resume unit is not allowlisted")
-    for role in ("original", "derivative", "manifest"):
-        if entry[role] != expected[role]:
-            raise ValueError(f"compact resume {role} differs from the frozen allowlist")
+    if version2:
+        # New trajectories bind to their complete frozen control, not a historical
+        # snapshot's hard-coded bytes. The ordinary ledger/header checks still
+        # verify the actual runtime control and original payload before restore.
+        from research.sandbox_a_resident.train import TrainControl
+
+        control = entry["control"]
+        if not isinstance(control, dict):
+            raise ValueError("compact resume requires a full frozen control")
+        validated = TrainControl.from_json(control)
+        if (
+            payload.get("namespace") != NAMESPACE
+            or payload.get("allocation") != allocation(control)
+            or payload.get("source_migration") is not None
+        ):
+            raise ValueError("foreign compact resume namespace/allocation")
+        units = payload.get("units")
+        if not isinstance(units, list) or len(units) != 1 or not isinstance(units[0], dict):
+            raise ValueError("compact resume requires one latest verified unit")
+        iteration = units[0].get("iteration")
+        if (
+            type(iteration) is not int
+            or iteration < 0
+            or iteration > validated.outer_iterations
+            or iteration not in (0, validated.outer_iterations)
+            and iteration % validated.snapshot_interval != 0
+            or entry["unit"] != unit_id(iteration)
+            or entry["unit"] != units[0].get("id")
+        ):
+            raise ValueError("compact resume is outside frozen snapshot cadence")
+        stem = f"resume/iteration-{iteration:04d}.pt"
+        for role, suffix, limit in (
+            ("original", "", 2 * 1024**3),
+            ("derivative", COMPACT_DERIVATIVE_SUFFIX, 128 * 1024**2),
+            ("manifest", COMPACT_MANIFEST_SUFFIX, 4 * 1024**2),
+        ):
+            descriptor = entry[role]
+            if (
+                not isinstance(descriptor, dict)
+                or set(descriptor) != {"path", "size", "sha256"}
+                or descriptor["path"] != stem + suffix
+                or type(descriptor["size"]) is not int
+                or not 0 < descriptor["size"] <= limit
+                or not isinstance(descriptor["sha256"], str)
+                or len(descriptor["sha256"]) != 64
+                or any(c not in "0123456789abcdef" for c in descriptor["sha256"])
+            ):
+                raise ValueError(f"malformed compact resume {role} descriptor")
+    else:
+        expected = frozen.get(entry.get("unit")) if isinstance(entry.get("unit"), str) else None
+        if entry["schema"] != COMPACT_RESUME_SCHEMA or expected is None:
+            raise ValueError("compact resume unit is not allowlisted")
+        for role in ("original", "derivative", "manifest"):
+            if entry[role] != expected[role]:
+                raise ValueError(f"compact resume {role} differs from the frozen allowlist")
     units = payload.get("units")
     if (
         not isinstance(units, list)
