@@ -1,0 +1,52 @@
+{
+  "a100_fallback": {
+    "base_unit_cap": 92,
+    "effective_unit_cap": 184,
+    "rate_units_per_hour": 8
+  },
+  "allocation_index": 2,
+  "argon_code_review_sha256": "592336fde3bfd5a9a49c54f9255c4a7009b1ee6d48fa88a11399a3f2c6e77c22",
+  "attempt_accounting": {
+    "completion_attempt": null,
+    "fresh_run_explicit_operator_authority": "2026-10-29 user task",
+    "prior_s2_03": "INCOMPLETE; no eligible trajectory; zero dispatched completions; no reused state; evidence retained",
+    "run_original_attempt": 1
+  },
+  "base_reserve_units": 0,
+  "base_timeout_minutes": 690,
+  "broker_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2e-broker.noindex",
+  "compact_exports_enabled": true,
+  "cross_domain_union_roots": 342894912,
+  "dispatch_identity": "sandbox-a-train01-20261028-s2-04",
+  "early_pre_actor_snapshot": true,
+  "effective_reserve_units": 0,
+  "effective_timeout_minutes": 1380,
+  "estimate_scope": "per-attempt window; full endpoint spans verified manual continuations",
+  "forecast_full_workload_minutes": 2009.04,
+  "fresh_start_from_b8": true,
+  "h100": {
+    "base_unit_cap": 138,
+    "effective_unit_cap": 276,
+    "rate_status": "UNMEASURED_PROVISIONAL_CEILING",
+    "rate_units_per_hour": 12
+  },
+  "packet_file_sha256": {
+    "DISPATCH.txt": "235fed7f7352b2df24add334eac3b318dc44f31dfa636a23ca6dd12dfb6e8efd",
+    "control.json": "ac6850092783fb931e72a8b4606dfb5ad8773d25d638a5456198dd13711c1de1",
+    "dispatch-manifest.json": "16b0a2452c674ffd885f8fee3d9dbce978ce0e7b570da17caaeb138258b3da61",
+    "registry-check.json": "e01abbc8bbb61be9f0f137812230fb73396610d010da22b8eb2f84cfa3202fd7",
+    "sandbox.json": "87d0c266c4d2c6e83c3816e699940fc2573b553e76b87cdeae1db72e8a771a2c",
+    "seed-disjointness.json": "89e8bfab75be51429d8a2deecd5beab14f0f77f7b15174e96831a71d7b9f612a",
+    "verified-ledger.json": "e8e571ff5d55e72046acd616b0e4c6ac6fe6f1fcf0f118ffa0836fbe18df6abb"
+  },
+  "prepared_not_dispatched": true,
+  "qualified_transport_tree": "5833e54e9c5396121cbbf99a5cd4e52006e564fd",
+  "recipe_unchanged": true,
+  "resume_max_outcome_blind_retries": 2,
+  "runtime_checkout": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2e-runtime.noindex",
+  "runtime_pin": "b0c9a4be9c50a6ec191612c7e0c487cd9b73a3ad",
+  "schema": "sandbox-a-train01-resident-prep-seal/v1",
+  "seed_audits_reused_byte_exact": true,
+  "seed_registry_roots": 114299008,
+  "train_seed_offset": 2000000000
+}
