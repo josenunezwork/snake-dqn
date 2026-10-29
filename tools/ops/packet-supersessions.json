@@ -132,6 +132,13 @@
       ],
       "successor": "packet-ct-1028-14",
       "reason": "Opus packet-13 corrections: same-group guard ignores SIGUSR1/SIGINT before readiness, real runtime group-stop admission regression, optional uv diagnostic, every-brace structured log scanning and two-second dump grace. Prior packet and evidence remain immutable."
+    },
+    {
+      "packet_dir": "packet-ct-1028-14",
+      "job_ids": [],
+      "manifest_sha256": "e4b578724ce2b13699ec9ddb889b7dd7ba28992ba92adb66da0fa7c462bcf930",
+      "successor": "packet-ct-1028-14/reseal-01",
+      "reason": "Initial packet-14 full preflight passed but real dry-run hit the unchanged180-second nested admission bound. Reseal-01 runs the unchanged full15-second group-stop integration explicitly outside the historical nested test selection; no assertion or deadline is loosened. Initial seal/logs preserved."
     }
   ]
 }
