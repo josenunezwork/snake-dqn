@@ -76,3 +76,9 @@ The ops registry records `OWNER_AUTHORIZED_OFFLINE_NO_BUDGETS` qualification and
 that transport. Prior `5833e54e` seals and their evidence remain historical and
 immutable; the new tree requires fresh runtime/broker pins and host validation.
 No live acceptance or dispatch is implied.
+
+Fresh c2 r3 preparation adopts the subsequent owner-authorized offline transport
+requalification at `a61a1819`, tree `3a7b2188e3afd47a57ed87cff46d95deb49146aa`.
+Its independent review remains PENDING. Read-only `--dry-run` validates that exact
+tree while pending; live dispatch continues to require ACCEPT. No qualification
+registry or independent-review result is changed by preparation.

@@ -215,7 +215,13 @@ def test_dispatch_recovers_missing_kernel_metadata_before_first_upload(tmp_path:
     ).strip()
     ops.mkdir()
     (ops / "colab-cli-qualified.json").write_text(
-        json.dumps({"schema": "snake-dqn-colab-cli-qualified/v1", "tree_hash": tree})
+        json.dumps(
+            {
+                "schema": "snake-dqn-colab-cli-qualified/v1",
+                "independent_review_status": "ACCEPT",
+                "tree_hash": tree,
+            }
+        )
     )
     payload = tmp_path / "input.bin"
     payload.write_bytes(b"warmup input")
@@ -269,7 +275,7 @@ def test_dispatch_recovers_missing_kernel_metadata_before_first_upload(tmp_path:
         "WARMUP_STATE_LOG": str(state_log),
         "OPS_DIR": str(ops),
         "OPS_ALLOC_POLL_INTERVAL_SECONDS": "0.02",
-        "OPS_ALLOC_LOCK_TIMEOUT_SECONDS": "20",
+        "OPS_ALLOC_LOCK_TIMEOUT_SECONDS": "60",
     }
     result = subprocess.run(
         [
@@ -284,7 +290,8 @@ def test_dispatch_recovers_missing_kernel_metadata_before_first_upload(tmp_path:
         env=env,
         text=True,
         capture_output=True,
-        timeout=20,
+        # Offline fixture guard for a shared nice-15 host, not production policy.
+        timeout=60,
     )
     assert result.returncode == 0, result.stderr
     assert "allocation=success" in result.stdout

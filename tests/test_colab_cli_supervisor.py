@@ -866,7 +866,10 @@ def test_l4_observed_rate_below_priced_ceiling_calibrates_and_passes(
     assert accounting["priced_rate_units_per_hour"] == 2.0
     assert accounting["observed_rate_units_per_hour"] == pytest.approx(1.54)
     assert accounting["calibration"]["status"] == "PASS"
-    assert len(accounting["calibration"]["samples"]) == supervisor.RATE_CALIBRATION_STABLE_READS
+    assert len(accounting["calibration"]["samples"]) == supervisor.RATE_CALIBRATION_STABLE_READS + 1
+    assert [
+        sample["usage"]["rate"] for sample in accounting["calibration"]["samples"][-3:]
+    ] == pytest.approx([other + 1.54] * 3)
     assert (
         accounting["last_crosscheck"]["own_elapsed_units"]
         >= accounting["last_crosscheck"]["observed_elapsed_units"]
@@ -896,8 +899,15 @@ def _continue_past_first_poll(monkeypatch):
     return observer
 
 
-@pytest.mark.parametrize("rates", [[2.06], [0.0], [1.54, 1.7] * 6, [1.54, 1.54, 1.54, 1.7]])
-def test_rate_price_and_drift_warn_and_continue(monkeypatch, tmp_path, capsys, rates):
+@pytest.mark.parametrize(
+    "rates,code",
+    [
+        ([2.06], "OBSERVED_RATE_ABOVE_PRICED_BOUND"),
+        ([1.54, 1.7] * 6, "CALIBRATION_RATE_VARIATION"),
+        ([1.54, 1.54, 1.54, 1.7], "PROVIDER_RATE_DRIFT"),
+    ],
+)
+def test_rate_price_and_drift_warn_and_continue(monkeypatch, tmp_path, capsys, rates, code):
     binary = _fake_env(monkeypatch, tmp_path)
     monkeypatch.setattr(supervisor.time, "sleep", lambda _: None)
     manifest = _manifest(tmp_path, gpu="L4", rate=2.0)
@@ -907,7 +917,7 @@ def test_rate_price_and_drift_warn_and_continue(monkeypatch, tmp_path, capsys, r
     supervisor.Broker(tmp_path / "lanes", binary, observer=observer).run(manifest)
     receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
     assert receipt["status"] == "PASS" and receipt["stop_verified"]
-    assert '"WARNING":' in capsys.readouterr().err
+    assert f'"WARNING": "{code}"' in capsys.readouterr().err
     assert (tmp_path / "job-output/spend-000000.json").exists()
     assert (tmp_path / "job-output/poll-000001.json").exists()
     _assert_transport(tmp_path)
@@ -930,6 +940,9 @@ def test_provider_calibration_timeout_is_a_real_elapsed_bound(
     assert receipt["stop_verified"] is True
     assert receipt["accounting"]["calibration"]["status"] == "INCOMPLETE"
     assert receipt["elapsed_seconds"] == pytest.approx(135, abs=0.002)  # Wall cap wins.
+    # Another lane must never see an uncalibrated active record after lock release.
+    with supervisor.locked(supervisor.ACCOUNT_ROOT / "broker.lock", blocking=False):
+        assert not list(supervisor.ACCOUNT_ROOT.glob("active-*.json"))
 
 
 def test_stop_success_exit_is_rejected_when_backend_keeps_assignment(
@@ -2119,12 +2132,111 @@ def test_fake_provider_broker_departed_endpoint_carryover_is_bounded(
     _assert_transport(tmp_path)
 
 
-def test_depleted_balance_still_refuses_before_allocation(monkeypatch, tmp_path):
+@pytest.mark.parametrize("balance", [-1, 0])
+def test_depleted_balance_warns_and_provider_allows_allocation(
+    monkeypatch, tmp_path, capsys, balance
+):
     binary = _fake_env(monkeypatch, tmp_path)
     state_path = tmp_path / "fake-state.json"
     state = json.loads(state_path.read_text())
-    state["balance"] = 0
+    state["balance"] = balance
     state_path.write_text(json.dumps(state))
-    with pytest.raises(supervisor.Refused, match="balance is depleted"):
-        supervisor.Broker(tmp_path / "lanes", binary).run(_manifest(tmp_path))
-    assert not any(event["argv"][4] == "new" for event in _events(tmp_path))
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _: None)
+    supervisor.Broker(tmp_path / "lanes", binary).run(_manifest(tmp_path))
+    assert any(event["argv"][4] == "new" for event in _events(tmp_path))
+    receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
+    assert receipt["status"] == "PASS" and receipt["stop_verified"]
+    assert '"WARNING": "BALANCE_DEPLETED"' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("rates", [[0.0], [0.0, 0.5, 1.0] * 12])
+def test_unsettled_calibration_uses_only_priced_informational_rate(
+    monkeypatch, tmp_path, capsys, rates
+):
+    binary = _fake_env(monkeypatch, tmp_path)
+    now = [0.0]
+    _patch_virtual_clock(monkeypatch, now, advance_sleep=True)
+    monkeypatch.setattr(supervisor, "RATE_CALIBRATION_SECONDS", 30)
+    manifest = _manifest(tmp_path, gpu="L4", rate=2.0)
+    monkeypatch.setenv("FAKE_COLAB_USAGE_RATES", json.dumps(rates))
+    records = []
+
+    def observer(event, context):
+        if event == "runtime_started":
+            records.append(
+                json.loads(next(supervisor.ACCOUNT_ROOT.glob("active-*.json")).read_text())
+            )
+
+    supervisor.Broker(tmp_path / "lanes", binary, observer=observer).run(manifest)
+    receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
+    assert receipt["status"] == "PASS" and receipt["stop_verified"]
+    assert receipt["accounting"]["observed_rate_units_per_hour"] is None
+    assert receipt["accounting"]["own_rate_units_per_hour"] == 2.0
+    assert receipt["accounting"]["rate_measurement_unavailable"] is True
+    assert records[0]["observed_rate_units_per_hour"] is None
+    assert '"WARNING": "CALIBRATION_RATE_UNSTABLE"' in capsys.readouterr().err
+
+
+def test_zero_and_mid_lag_rates_do_not_publish_before_settling(monkeypatch, tmp_path):
+    binary = _fake_env(monkeypatch, tmp_path)
+    now = [0.0]
+    _patch_virtual_clock(monkeypatch, now, advance_sleep=True)
+    manifest = _manifest(tmp_path, gpu="L4", rate=2.0)
+    monkeypatch.setenv("FAKE_COLAB_USAGE_RATES", json.dumps([0, 0, 0, 0.5, 1, 1.54, 1.54, 1.54]))
+    supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+    receipt = json.loads((tmp_path / "job-output/receipt.json").read_text())
+    assert receipt["status"] == "PASS" and receipt["stop_verified"]
+    calibration = receipt["accounting"]["calibration"]
+    assert calibration["status"] == "PASS"
+    assert calibration["observed_rate_units_per_hour"] == 1.54
+    assert len(calibration["samples"]) >= 6
+    assert [x["usage"]["rate"] for x in calibration["samples"][-3:]] == [1.54] * 3
+
+
+def test_retention_units_cli_default_is_unset(monkeypatch, tmp_path):
+    manifest = tmp_path / "chain.json"
+    manifest.write_text("{}")
+    seen = []
+    monkeypatch.setattr(
+        supervisor.Broker, "chain", lambda self, jobs, minutes, units: seen.append(units)
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "supervisor",
+            "--state-dir",
+            str(tmp_path / "state"),
+            "chain",
+            str(manifest),
+            "--retention-minutes",
+            "30",
+        ],
+    )
+    supervisor.main()
+    assert seen == [None]
+
+
+def test_retained_chain_without_measured_rates_uses_informational_estimate(
+    monkeypatch, tmp_path, capsys
+):
+    binary = _fake_env(monkeypatch, tmp_path)
+    now = [0.0]
+    _patch_virtual_clock(monkeypatch, now, advance_sleep=True)
+    monkeypatch.setattr(supervisor, "RATE_CALIBRATION_SECONDS", 30)
+    monkeypatch.setenv("FAKE_COLAB_USAGE_RATES", "[0.0]")
+    first = _manifest(tmp_path, job_id="chain-a", output=tmp_path / "chain-a", gpu="H100", rate=2)
+    second = _manifest(tmp_path, job_id="chain-b", output=tmp_path / "chain-b", gpu="H100", rate=2)
+    supervisor.Broker(tmp_path / "lanes", binary).chain([first, second], 10, None)
+    for name in ("chain-a", "chain-b"):
+        receipt = json.loads((tmp_path / name / "receipt.json").read_text())
+        assert receipt["status"] == "COMPLETED_SESSION_RETAINED"
+        assert receipt["accounting"]["observed_rate_units_per_hour"] is None
+        assert receipt["accounting"]["accounting_rate_basis"] == "priced_informational"
+        assert (
+            json.loads((tmp_path / name / "session-release.json").read_text())["stop_verified"]
+            is True
+        )
+    assert supervisor.CLI(binary, tmp_path / "status.json").sessions() == {}
+    assert '"WARNING": "RETENTION_UNIT_THRESHOLD"' not in capsys.readouterr().err
+    assert sum(e["argv"][4] == "new" for e in _events(tmp_path)) == 1

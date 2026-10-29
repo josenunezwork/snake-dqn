@@ -314,7 +314,14 @@ def allocation_lock(
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
-def qualified(broker: Path, ops: Path, deadline: float | None = None, ref: str = "HEAD") -> None:
+def qualified(
+    broker: Path,
+    ops: Path,
+    deadline: float | None = None,
+    ref: str = "HEAD",
+    *,
+    offline: bool = False,
+) -> None:
     """Check actual broker bytes both before validation and under allocation lock."""
     command(
         [
@@ -327,7 +334,8 @@ def qualified(broker: Path, ops: Path, deadline: float | None = None, ref: str =
             str(ops / "colab-cli-qualified.json"),
             "--ref",
             ref,
-        ],
+        ]
+        + (["--offline"] if offline else []),
         deadline=deadline,
         stdout=subprocess.DEVNULL,
     )
@@ -976,7 +984,7 @@ def start(
         raise
 
 
-def _chain_values(manifests: list[dict[str, Any]], minutes: float, units: float) -> None:
+def _chain_values(manifests: list[dict[str, Any]], minutes: float, units: float | None) -> None:
     """Fence the narrow A100 retained-main route before it reaches the broker."""
     if len(manifests) < 2:
         raise Refused("retained dispatch requires two or more packets")
@@ -1037,7 +1045,7 @@ def start_chain(
     log: Path,
     name: str,
     minutes: float,
-    units: float,
+    units: float | None,
     deadline: float,
 ) -> None:
     """Submit one qualified serial chain; the broker retains/release-checks it."""
@@ -1053,9 +1061,9 @@ def start_chain(
         *[str(path) for path in manifests],
         "--retention-minutes",
         str(minutes),
-        "--retention-units",
-        str(units or 0),
     ]
+    if units is not None:
+        launcher.extend(["--retention-units", str(units)])
     environment = shlex.join(["env", f"HOME={Path.home()}", f'PATH={os.environ["PATH"]}'])
     body = (
         f"{{ cd {shlex.quote(str(cwd))} && {environment} {shlex.join(launcher)}; }} "
@@ -2502,8 +2510,9 @@ def dispatch(args: argparse.Namespace) -> str:
     commit = value.get("commit")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise Refused("manifest commit must be a full published SHA")
-    qualified(broker, ops)
-    qualified(broker, ops, ref=commit)
+    offline = bool(getattr(args, "dry_run", False))
+    qualified(broker, ops, **({"offline": True} if offline else {}))
+    qualified(broker, ops, ref=commit, **({"offline": True} if offline else {}))
     if "prefer" in value.get("requirements", {}):
         return dispatch_preferred(args, value, ops, broker, cwd, state)
     if getattr(args, "dry_run", False):
