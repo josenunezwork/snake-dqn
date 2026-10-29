@@ -1108,6 +1108,7 @@ def test_two_successive_completions_preserve_union_and_pass_production_admission
                 "sparse-checkout",
                 "set",
                 "--no-cone",
+                "/.github/workflows/ci.yml",
                 "/src/",
                 "/tools/",
                 "/research/colab_cli/",
