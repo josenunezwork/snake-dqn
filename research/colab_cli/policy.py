@@ -21,6 +21,10 @@ STAGING_HEARTBEAT_SECONDS = 60.0
 # One full exec timeout must leave room for independent idle proof and a read
 # retry. Contents heartbeats continue under the unchanged runtime lease.
 TELEMETRY_SECONDS = 300.0
+# Owner 2026-10-29: base 10 minutes, effective 20 minutes (standing 2x rule).
+# Only healthy owned assignments receive this consecutive-failure window.
+EXEC_POLL_RECOVERY_SECONDS = 1200.0
+EXEC_POLL_BACKOFF_SECONDS = (2.0, 5.0, 10.0, 20.0, 30.0)
 ALLOCATION_SECONDS = 180.0
 # Runtime allocation is not readiness of its Contents and kernel transports.
 # This separate startup allowance still borrows from the whole-session caps.

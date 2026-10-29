@@ -249,6 +249,10 @@ def validate(manifest: dict[str, Any], repo: Path | None = None) -> dict[str, An
         if sha256(path) != item["sha256"]:
             raise Refused(f"input hash mismatch: {path}")
         item["path"] = str(path)
+    if "exec_poll_recovery_seconds" in m:
+        recovery = positive(m["exec_poll_recovery_seconds"], "exec_poll_recovery_seconds")
+        if recovery > policy.EXEC_POLL_RECOVERY_SECONDS:
+            raise Refused("exec_poll_recovery_seconds must be <=1200")
     lease = positive(m.get("lease_seconds", 180), "lease_seconds")
     if not 180 <= lease <= 600:
         raise Refused("lease_seconds must be 180..600 (bounded transfer margin)")
@@ -287,6 +291,8 @@ class CLI:
     def __init__(self, binary: str, config: Path, session: str = "") -> None:
         self.binary, self.config, self.session = binary, config, session
         self.exec_uncertain = False
+        self.poll_recovery_endpoint: str | None = None
+        self.exec_poll_recovery_seconds = policy.EXEC_POLL_RECOVERY_SECONDS
         self.cleanup_mode = False
         self.deadline: float | None = None
         self.priced_deadline: float | None = None
@@ -714,7 +720,7 @@ class CLI:
             evidence["elapsed_seconds"] = self.warmup_seconds
             write_once(output / "warmup-measurement.json", evidence)
 
-    def recoverable_rpc(self, code: str, timeout: float = policy.TELEMETRY_SECONDS) -> Any:
+    def recoverable_rpc(self, code: str, timeout: float | None = None) -> Any:
         """Recover an acknowledgement without repeating a committed mutation.
 
         One durable UUID record fences the operation across verified-idle
@@ -749,18 +755,50 @@ class CLI:
         )
         return self.poll_rpc(guarded, timeout=timeout)
 
-    def poll_rpc(self, code: str, timeout: float = policy.TELEMETRY_SECONDS) -> Any:
-        """Recover idempotent reads/controls only after independent kernel-idle proof.
+    def recovery_identity(self, timeout: float) -> None:
+        """Recheck durable ownership and backend membership before retrying exec."""
+        record = json.loads(self.assignment_record.read_text())
+        config = json.loads(self.config.read_text()).get(self.session, {})
+        endpoint = self.poll_recovery_endpoint
+        try:
+            # The CLI guard persists str(UUID), while this process retains hex.
+            nonce_matches = uuid.UUID(record.get("notebook_hash", "")) == uuid.UUID(
+                self.notebook_hash
+            )
+        except (ValueError, TypeError, AttributeError):
+            nonce_matches = False
+        if (
+            not endpoint
+            or record.get("endpoint") != endpoint
+            or not nonce_matches
+            or config.get("endpoint") != endpoint
+        ):
+            raise Refused("assignment identity changed during telemetry recovery")
+        sessions = self.sessions(timeout=timeout)
+        if endpoint not in sessions:
+            raise Refused("supervised assignment disappeared during telemetry recovery")
+        if sessions[endpoint] != self.session:
+            raise Refused("assignment identity changed during telemetry recovery")
+        if len(sessions) > 3:
+            raise Refused("account-wide assignment cap exceeded during telemetry recovery")
 
-        Each exec is bounded by RPC_SECONDS; all attempts, idle probes, and
-        backoff share one separate operation budget, clipped to session caps.
-        Neither a kernel error nor an exhausted deadline is a retry trigger.
+    def poll_rpc(self, code: str, timeout: float | None = None) -> Any:
+        """Retry transient reads on an owned assignment inside a wall-clock window.
+
+        Uncertain execs require fresh backend ownership and independent kernel-idle
+        proof before replay. Permanent errors, staging caps and session caps fail
+        immediately. The Contents heartbeat continues independently throughout.
+        Explicit caller timeouts can only narrow the recovery window.
         """
         from research.colab_cli.cli_guard import kernel_idle
 
         staging_deadline = getattr(self._control_context, "deadline", math.inf)
+        extended = bool(self.poll_recovery_endpoint) and staging_deadline == math.inf
+        allowance = self.exec_poll_recovery_seconds if extended else policy.TELEMETRY_SECONDS
+        if timeout is not None:
+            allowance = min(allowance, positive(timeout, "poll timeout"))
         deadline = min(
-            time.monotonic() + timeout,
+            time.monotonic() + allowance,
             self.deadline if self.deadline is not None else math.inf,
             staging_deadline,
             (
@@ -769,29 +807,39 @@ class CLI:
                 else math.inf
             ),
         )
-        for attempt in range(policy.ATTEMPTS):
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+
+        def remaining() -> float:
+            seconds = deadline - time.monotonic()
+            if seconds <= 0:
                 if time.monotonic() >= staging_deadline:
                     raise Refused("total upload time cap reached during control recovery")
                 raise Refused("deadline reached during telemetry recovery")
+            return seconds
+
+        attempt = 0
+        while True:
+            remaining()
             try:
-                attempt_seconds = min(policy.RPC_SECONDS, remaining)
-                # Bound this call directly: narrowing shared self.deadline here
-                # would also starve the independent Contents heartbeat thread.
-                return self.rpc(code, attempt_seconds, completion_grace=0)
-            except (Refused, subprocess.SubprocessError):
-                if not self.exec_uncertain or attempt == policy.ATTEMPTS - 1:
+                return self.rpc(code, min(policy.RPC_SECONDS, remaining()), completion_grace=0)
+            except (Refused, OSError, subprocess.SubprocessError) as exc:
+                if not self.exec_uncertain or not policy.transient_error(exc):
                     raise
-                # Never enqueue work while the previous exec could still be busy.
-                idle = False
-                for probe in range(policy.ATTEMPTS):
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        if time.monotonic() >= staging_deadline:
-                            raise Refused("total upload time cap reached during control recovery")
-                        raise Refused("deadline reached during telemetry recovery")
+                attempt += 1
+                if not extended and attempt >= policy.ATTEMPTS:
+                    raise
+                budget_warning(
+                    "RPC_EXEC_POLL_RETRY",
+                    attempt=attempt,
+                    remaining_seconds=max(0, deadline - time.monotonic()),
+                    error=redact(str(exc))[-1000:],
+                )
+                probe = 0
+                while True:
+                    remaining()
+                    idle = False
                     try:
+                        if extended:
+                            self.recovery_identity(min(policy.READ_SECONDS, remaining()))
                         with self.operation("recovery-idle"):
                             idle = kernel_idle(
                                 self.oauth_python,
@@ -803,24 +851,28 @@ class CLI:
                                         if staging_deadline != math.inf
                                         else policy.READ_SECONDS
                                     ),
-                                    remaining,
+                                    remaining(),
                                 ),
                             )
-                    except Exception as exc:
-                        if not policy.transient_error(exc):
+                    except Exception as failure:
+                        if not policy.transient_error(failure):
                             raise
                     if idle:
+                        # An expired idle proof must never clear uncertainty.
+                        remaining()
+                        self.exec_uncertain = False
                         break
-                    delay = min(2, max(0, deadline - time.monotonic()))
-                    if delay:
-                        time.sleep(delay)
-                if not idle:
-                    raise Refused("kernel remains busy/unknown after telemetry hiccup")
-                self.exec_uncertain = False
-                delay = min(policy.BACKOFF_SECONDS[attempt], max(0, deadline - time.monotonic()))
-                if delay:
-                    time.sleep(delay)
-        raise Refused("telemetry recovery exhausted")
+                    probe += 1
+                    if not extended and probe >= policy.ATTEMPTS:
+                        raise Refused("kernel remains busy/unknown after telemetry hiccup")
+                    delay = policy.EXEC_POLL_BACKOFF_SECONDS[min(probe - 1, 4)] if extended else 2
+                    time.sleep(min(delay, remaining()))
+                delay = (
+                    policy.EXEC_POLL_BACKOFF_SECONDS[min(attempt - 1, 4)]
+                    if extended
+                    else policy.BACKOFF_SECONDS[attempt - 1]
+                )
+                time.sleep(min(delay, remaining()))
 
 
 def stop_verified(cli: CLI, endpoint: str) -> None:
@@ -1054,6 +1106,9 @@ class Broker:
                 cli.operation_records = []
                 cli.verified_exports = {}
                 cli.warmup_seconds = 0.0
+            cli.exec_poll_recovery_seconds = m.get(
+                "exec_poll_recovery_seconds", policy.EXEC_POLL_RECOVERY_SECONDS
+            )
             started = time.monotonic()
             cli.deadline = min(
                 started + m["timeout_minutes"] * 60 - 45, (retained or {}).get("deadline", math.inf)
@@ -1086,7 +1141,7 @@ class Broker:
                     cli.release_credential = mint_release_credential(
                         cli.oauth_python,
                         endpoint="",
-                        min_valid_seconds=m["lease_seconds"] + 900,
+                        min_valid_seconds=m["lease_seconds"] + cli.exec_poll_recovery_seconds + 300,
                         timeout=cli.remaining_seconds(150),
                     )
                     before = cli.sessions()
@@ -1116,7 +1171,7 @@ class Broker:
                     )
                     reserved_cap = (retained or {}).get("unit_cap", m["budget"].get("unit_cap"))
                     if usage_before["balance"] <= 0:
-                        raise Refused("account balance is depleted")
+                        budget_warning("BALANCE_DEPLETED", balance=usage_before["balance"])
                     if usage_before["balance"] <= (reserved_cap or 0) + committed + reserve:
                         budget_warning(
                             "BALANCE_BELOW_LEGACY_RESERVATIONS",
@@ -1131,7 +1186,9 @@ class Broker:
                     measured_before = dict(usage_before)
                     if reusing:
                         measured_before["assignments"] -= 1
-                        measured_before["rate"] -= retained["observed_rate_units_per_hour"]
+                        measured_before["rate"] -= retained.get(
+                            "observed_rate_units_per_hour"
+                        ) or retained.get("informational_rate_units_per_hour", 0.0)
                     accounting = admit_account(
                         account_before, measured_before, m["budget"], active_records=reservations
                     )
@@ -1280,6 +1337,8 @@ class Broker:
                         "accounting": accounting.receipt() if accounting else None,
                         "elapsed_seconds": time.monotonic() - started,
                         "warmup_seconds": cli.warmup_seconds,
+                        "exec_poll_recovery_seconds": cli.exec_poll_recovery_seconds,
+                        "exec_poll_recovery_base_seconds": cli.exec_poll_recovery_seconds / 2,
                         "terminal": terminal,
                         "exports": exports,
                         "transfers": cli.transfer_records,
@@ -1314,6 +1373,7 @@ class Broker:
                             active=active,
                             intent=intent,
                             observed_rate_units_per_hour=accounting.observed_rate_units_per_hour,
+                            informational_rate_units_per_hour=accounting.effective_rate,
                         )
                         retained.setdefault("completed", []).append(
                             ("/content/snake-cli/" + generation, generation)
@@ -1375,11 +1435,37 @@ class Broker:
                 )
             return min(policy.READ_SECONDS, seconds)
 
+        def publish(assignments: dict[str, str], usage: dict[str, float], *, settled: bool) -> None:
+            if time.monotonic() >= original_deadline:
+                raise Refused("whole-session deadline reached during calibration")
+            tracker.confirm_own_assignment(assignments, usage, endpoint, rate_confirmed=settled)
+            observed = tracker.observed_rate_units_per_hour
+            active = ACCOUNT_ROOT / f"active-{cli.session}.json"
+            record = json.loads(active.read_text())
+            record["observed_rate_units_per_hour"] = observed
+            record["rate_measurement_unavailable"] = observed is None
+            replacement = active.with_name(f".calibrated-{uuid.uuid4().hex}.json")
+            try:
+                write_once(replacement, record)
+                os.replace(replacement, active)
+            finally:
+                replacement.unlink(missing_ok=True)
+            write_once(output / "usage-allocated.json", usage)
+            (ACCOUNT_ROOT / f"pending-{cli.session}.json").unlink(missing_ok=True)
+            evidence.update(
+                status="PASS" if settled else "WARNING_RATE_UNSTABLE",
+                observed_rate_units_per_hour=observed,
+                informational_rate_units_per_hour=tracker.effective_rate,
+            )
+
+        identity_reads = 0
         try:
             # Count bound also protects against a stalled/test monotonic clock.
             for sample in range(
                 int(RATE_CALIBRATION_SECONDS / RATE_CALIBRATION_INTERVAL_SECONDS) + 1
             ):
+                if time.monotonic() >= deadline:
+                    break
                 remaining()
                 if (
                     tracker.unit_cap is not None
@@ -1414,16 +1500,21 @@ class Broker:
                     if endpoint in assignments and assignments[endpoint] != cli.session:
                         raise Refused("allocated assignment identity not confirmed by backend")
                     observed = tracker.calibration_read(assignments, usage, endpoint)
-                    if observed is None:
+                    identity_reads = identity_reads + 1 if observed is not None else 0
+                    if observed is None or observed <= 0:
                         stable = []
                     else:
-                        stable.append(observed)
-                        stable = stable[-RATE_CALIBRATION_STABLE_READS:]
                         if (
-                            max(stable) - min(stable)
+                            stable
+                            and abs(observed - stable[0])
                             > RATE_CALIBRATION_STABILITY_UNITS_PER_HOUR + 1e-9
                         ):
-                            budget_warning("CALIBRATION_RATE_VARIATION", samples=stable)
+                            budget_warning(
+                                "CALIBRATION_RATE_VARIATION", samples=[*stable, observed]
+                            )
+                            stable = []
+                        stable.append(observed)
+                        stable = stable[-RATE_CALIBRATION_STABLE_READS:]
                     if len(stable) == RATE_CALIBRATION_STABLE_READS:
                         previous = (retained or {}).get("observed_rate_units_per_hour")
                         if (
@@ -1435,23 +1526,17 @@ class Broker:
                                 previous=previous,
                                 observed=observed,
                             )
-                        tracker.confirm_own_assignment(assignments, usage, endpoint)
-                        active = ACCOUNT_ROOT / f"active-{cli.session}.json"
-                        record = json.loads(active.read_text())
-                        record["observed_rate_units_per_hour"] = observed
-                        replacement = active.with_name(f".calibrated-{uuid.uuid4().hex}.json")
-                        try:
-                            write_once(replacement, record)
-                            os.replace(replacement, active)
-                        finally:
-                            replacement.unlink(missing_ok=True)
-                        write_once(output / "usage-allocated.json", usage)
-                        (ACCOUNT_ROOT / f"pending-{cli.session}.json").unlink(missing_ok=True)
-                        evidence.update(status="PASS", observed_rate_units_per_hour=observed)
+                        publish(assignments, usage, settled=True)
                         return
                 delay = min(RATE_CALIBRATION_INTERVAL_SECONDS, max(0, deadline - time.monotonic()))
                 if delay:
                     time.sleep(delay)
+            if identity_reads >= RATE_CALIBRATION_STABLE_READS:
+                budget_warning(
+                    "CALIBRATION_RATE_UNSTABLE", informational_rate=tracker.own_rate_units_per_hour
+                )
+                publish(assignments, usage, settled=False)
+                return
             raise Refused("provider assignment calibration did not stabilize within bounded window")
         except BaseException as exc:
             evidence["error"] = redact(repr(exc))
@@ -1473,6 +1558,10 @@ class Broker:
     ) -> tuple[Any, list[Any]]:
         """Warm the transport, then arm the watchdog before dependency work."""
         root = "/content/snake-cli/" + generation
+        cli.exec_poll_recovery_seconds = m.get(
+            "exec_poll_recovery_seconds", policy.EXEC_POLL_RECOVERY_SECONDS
+        )
+        cli.poll_recovery_endpoint = json.loads(cli.config.read_text())[cli.session]["endpoint"]
         cli.wait_runtime_ready(output)
         startup_context = {"cli": cli, "manifest": m, "output": output}
         if self.observer:
@@ -1570,12 +1659,17 @@ class Broker:
 
                 # The independent Contents heartbeat covers slow credential
                 # work; rotation borrows no time beyond the first real cap.
-                result = cli.renew_runtime_lease(root, generation, force=force)
-                if credential_renewal_due(cli.release_credential, "", safety_window_seconds=900):
+                # Rotate before entering a long poll so its outage window cannot
+                # consume the watchdog's lease/grace/unassignment credential margin.
+                if credential_renewal_due(
+                    cli.release_credential,
+                    "",
+                    safety_window_seconds=m["lease_seconds"] + cli.exec_poll_recovery_seconds + 300,
+                ):
                     cli.release_credential = mint_release_credential(
                         cli.oauth_python,
                         endpoint="",
-                        min_valid_seconds=m["lease_seconds"] + 900,
+                        min_valid_seconds=m["lease_seconds"] + cli.exec_poll_recovery_seconds + 300,
                         timeout=cli.remaining_seconds(150),
                     )
                     credential_deadline = time.monotonic() + cli.remaining_seconds(150)
@@ -1586,6 +1680,7 @@ class Broker:
                         f"p.replace(Path({root!r})/'release-credential.json')\n"
                         "result=True",
                     )
+                result = cli.renew_runtime_lease(root, generation, force=force)
                 self.renew_retained(cli, retained)
                 renewal["at"] = time.monotonic()
                 if force:
@@ -1960,7 +2055,10 @@ class Broker:
             )
 
     def chain(
-        self, manifests: list[dict[str, Any]], retention_minutes: float, retention_units: float
+        self,
+        manifests: list[dict[str, Any]],
+        retention_minutes: float,
+        retention_units: float | None,
     ) -> None:
         """Keep an obtained H100 only for a finite already-approved job list."""
         jobs = [validate(m) for m in manifests]
@@ -2100,7 +2198,7 @@ def main() -> None:
     chain = sub.add_parser("chain")
     chain.add_argument("manifests", nargs="+", type=Path)
     chain.add_argument("--retention-minutes", type=float, required=True)
-    chain.add_argument("--retention-units", type=float, default=0)
+    chain.add_argument("--retention-units", type=float)
     args = parser.parse_args()
     try:
         if args.command == "validate":

@@ -130,7 +130,7 @@ def test_both_unavailable_never_attempts_a_third_allocation(fixture):
     assert [row["job"] for row in trace(f, "run")] == ["job", "job-a100-fallback"]
 
 
-@pytest.mark.parametrize("fallback_seconds", [100, 601])
+@pytest.mark.parametrize("fallback_seconds", [100, 181, 601])
 def test_slow_fallback_validation_gets_fresh_bounded_window(fixture, monkeypatch, fallback_seconds):
     """Simulate the 100s C/T preflight after 545s spent on the primary."""
     from tools.ops import dispatch as module

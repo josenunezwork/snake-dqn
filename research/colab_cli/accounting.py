@@ -80,7 +80,7 @@ def _usage(value: Mapping[str, Any]) -> dict[str, float]:
         }
     except (KeyError, TypeError, ValueError) as exc:
         raise AccountingError(
-            "usage must contain finite balance, nonnegative rate, and integer assignments"
+            "usage must contain finite balance, a rate field, and integer assignments"
         ) from exc
 
 
@@ -97,14 +97,27 @@ def _active_rates(active_records: Iterable[Mapping[str, Any]]) -> dict[str, tupl
         endpoint = record.get("endpoint")
         if not isinstance(endpoint, str) or not endpoint:
             raise AccountingError("active broker record lacks endpoint")
-        # New broker records reserve a priced ceiling before calibration. That
-        # ceiling is never evidence of what another assignment actually bills.
+        # A priced fallback is informational when bounded calibration cannot
+        # establish a settled observed rate. The active record marks that gap.
         field = (
             "observed_rate_units_per_hour"
             if "priced_rate_units_per_hour" in record
             else "rate_units_per_hour"
         )
-        rate = _rate(record.get(field), f"active record {endpoint} {field}")
+        if record.get(field) is None:
+            budget_warning(
+                "RATE_UNAVAILABLE",
+                endpoint=endpoint,
+                informational_rate=record.get("priced_rate_units_per_hour"),
+            )
+        rate = _rate(
+            (
+                record.get(field)
+                if record.get(field) is not None
+                else record.get("priced_rate_units_per_hour")
+            ),
+            f"active record {endpoint} {field}",
+        )
         existing = result.get(endpoint)
         if existing and existing[0] != rate:
             budget_warning(
@@ -198,14 +211,24 @@ class AccountTracker:
             "unaccounted_endpoints": [],
         }
 
+    @property
+    def effective_rate(self) -> float:
+        """Use the priced informational estimate until a rate is settled."""
+        return self.observed_rate_units_per_hour or self.own_rate_units_per_hour or 0.0
+
     def receipt(self) -> dict[str, Any]:
         """Return durable accounting evidence without claiming exact provider billing."""
         result = self.accounted_assignments()
         result.update(
             {
                 "allocated_endpoint": self.endpoint,
-                "own_rate_units_per_hour": self.own_rate_units_per_hour
-                or self.observed_rate_units_per_hour,
+                "own_rate_units_per_hour": self.own_rate_units_per_hour or self.effective_rate,
+                "rate_measurement_unavailable": self.observed_rate_units_per_hour is None,
+                "accounting_rate_basis": (
+                    "observed"
+                    if self.observed_rate_units_per_hour is not None
+                    else "priced_informational"
+                ),
                 "priced_rate_units_per_hour": self.own_rate_units_per_hour,
                 "observed_rate_units_per_hour": self.observed_rate_units_per_hour,
                 "calibration": self.calibration,
@@ -259,12 +282,14 @@ class AccountTracker:
         sessions: Mapping[str, str],
         usage: Mapping[str, Any],
         endpoint: str,
+        *,
+        rate_confirmed: bool = True,
     ) -> dict[str, Any]:
         """Record a stable provider rate after broker-side bounded calibration."""
         observed = self.calibration_read(sessions, usage, endpoint)
         if observed is None:
             raise AccountingError("allocated assignment identity/count not confirmed")
-        self.observed_rate_units_per_hour = observed
+        self.observed_rate_units_per_hour = observed if rate_confirmed and observed > 0 else None
         self.endpoint = endpoint
         self.last_reconciled_monotonic = self.started_monotonic
         self.current_other_rates = dict(self.known_rates)
@@ -274,7 +299,7 @@ class AccountTracker:
                 "allocated_endpoint": endpoint,
                 "allocated_rate_units_per_hour": self.own_rate_units_per_hour,
                 "priced_rate_units_per_hour": self.own_rate_units_per_hour,
-                "observed_rate_units_per_hour": observed,
+                "observed_rate_units_per_hour": self.observed_rate_units_per_hour,
                 "observed_account_rate_units_per_hour": _usage(usage)["rate"],
             }
         )
@@ -296,7 +321,7 @@ class AccountTracker:
         intentionally allowed: their old price is integrated only through the
         last observation.
         """
-        if self.endpoint is None or self.observed_rate_units_per_hour is None:
+        if self.endpoint is None:
             raise AccountingError("allocation was not rate-confirmed")
         current = dict(sessions)
         if self.endpoint not in current:
@@ -345,8 +370,8 @@ class AccountTracker:
         A departing broker lane can disappear from its durable active record
         before the provider read loses it.  Conversely, a newly durable
         broker record can appear before the provider read includes it.  Test
-        count and rate together against every intermediate membership state;
-        a bare rate discrepancy never earns this grace period.
+        count alone against every intermediate membership state;
+        rate differences remain informational and never decide count grace.
         """
         previous_endpoints = set(previous)
         current_endpoints = set(current)
@@ -366,39 +391,24 @@ class AccountTracker:
         departures = sorted(departure_rates)
         changed = arrivals + departures
         fixed = (previous_endpoints & current_endpoints) - set(departures)
-        if any(
-            not math.isclose(previous[endpoint][0], current[endpoint][0], rel_tol=0, abs_tol=1e-9)
-            for endpoint in fixed
-        ):
-            return False
         # A manifest-only membership change is declared, but is not a broker
         # transition whose provider lag can be trusted.
         if not changed:
             return False
         base_count = 1 + len(fixed) + len(departures)
-        base_rate = self.observed_rate_units_per_hour + sum(previous[e][0] for e in fixed)
-        base_rate += sum(previous[e][0] for e in departures)
         settled_count = 1 + len(current_endpoints)
-        settled_rate = self.observed_rate_units_per_hour + sum(rate for rate, _ in current.values())
         for applied in product((False, True), repeat=len(changed)):
             count = base_count
-            rate = base_rate
             for endpoint, is_applied in zip(changed, applied):
                 if not is_applied:
                     continue
                 if endpoint in arrivals:
                     count += 1
-                    rate += arrival_rates[endpoint][0]
                 else:
                     count -= 1
-                    rate -= departure_rates[endpoint][0]
-            if count == settled_count and math.isclose(
-                rate, settled_rate, rel_tol=0, abs_tol=self.rate_tolerance_units_per_hour
-            ):
+            if count == settled_count:
                 continue
-            if int(usage["assignments"]) == count and math.isclose(
-                usage["rate"], rate, rel_tol=0, abs_tol=self.rate_tolerance_units_per_hour
-            ):
+            if int(usage["assignments"]) == count:
                 return True
         return False
 
@@ -475,17 +485,14 @@ class AccountTracker:
                 budget_warning(
                     "PROVIDER_RATE_DRIFT", observed=current["rate"], endpoints=broker_departed
                 )
-            expected_rate = self.observed_rate_units_per_hour + sum(
+            expected_rate = self.effective_rate + sum(
                 rate for rate, _ in current_other_rates.values()
             )
-            provider_settled = int(current["assignments"]) == len(
-                current_sessions
-            ) and math.isclose(
-                current["rate"],
-                expected_rate,
-                rel_tol=0,
-                abs_tol=self.rate_tolerance_units_per_hour,
-            )
+            provider_settled = int(current["assignments"]) == len(current_sessions)
+            if abs(current["rate"] - expected_rate) > self.rate_tolerance_units_per_hour:
+                budget_warning(
+                    "PROVIDER_RATE_DRIFT", observed=current["rate"], expected=expected_rate
+                )
             # Matching provider reads do not renew broker ownership. Keep the
             # known price, but share the existing bounded transition window
             # until sessions drops the endpoint or the broker re-lists it.
@@ -539,7 +546,7 @@ class AccountTracker:
                 )
             self.current_other_rates = current_other_rates
         else:
-            expected_rate = self.observed_rate_units_per_hour + sum(
+            expected_rate = self.effective_rate + sum(
                 rate for rate, _ in self.current_other_rates.values()
             )
             if abs(current["rate"] - expected_rate) > self.rate_tolerance_units_per_hour:
@@ -548,10 +555,10 @@ class AccountTracker:
                 )
         observed_account_debit = self.baseline_balance_units - current["balance"]
         attributable_debit = max(0.0, observed_account_debit - self.integrated_other_units)
-        observed_elapsed_units = elapsed * self.observed_rate_units_per_hour / 3600.0
+        observed_elapsed_units = elapsed * self.effective_rate / 3600.0
         expected_account_debit = self.integrated_other_units + observed_elapsed_units
         balance_discrepancy = observed_account_debit - expected_account_debit
-        rate_for_lag = self.observed_rate_units_per_hour + sum(
+        rate_for_lag = self.effective_rate + sum(
             rate for rate, _ in self.current_other_rates.values()
         )
         balance_tolerance = (

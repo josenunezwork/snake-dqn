@@ -1,3 +1,12 @@
+> **2026-10-29 owner-authorized offline re-qualification:** Unit caps, prices,
+> balances, reserves and rate drift are informational warnings, including a
+> depleted balance; provider allocation decides availability. Historical unit
+> limits below describe prior evidence only. Offline fake-provider qualification
+> is authorized for this change; no live acceptance is claimed. The mutable ops
+> registry pins the new transport tree with `independent_review_status: PENDING`;
+> dispatch refuses until independent review sets `ACCEPT`. Prior live evidence
+> remains historical and does not qualify these changed bytes.
+
 # Colab CLI source qualification for T34
 
 **QUALIFIED 2026-10-19:** live `final-only` acceptance PASS on `dab00823` (accounting lag + carry-over

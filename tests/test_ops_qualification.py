@@ -43,6 +43,7 @@ def registry(repo, tmp_path):
         path,
         {
             "schema": "snake-dqn-colab-cli-qualified/v1",
+            "independent_review_status": "ACCEPT",
             "tree_hash": qualification.tree(repo),
         },
     )
@@ -87,6 +88,7 @@ def test_watcher_reports_remote_tree_mismatch_once(broker, tmp_path):
         ops / "colab-cli-qualified.json",
         {
             "schema": "snake-dqn-colab-cli-qualified/v1",
+            "independent_review_status": "ACCEPT",
             "tree_hash": "0" * 40,
         },
     )
@@ -209,7 +211,9 @@ def test_execute_updates_only_after_verified_pass_and_cannot_repeat(broker, tmp_
     saved, _, calls = execution_fixture(broker, tmp_path, monkeypatch)
     target = tmp_path / "qualified.json"
     requalify.execute(saved, target, "COLAB_CLI_ACCEPTANCE_REVIEWED", "/fake/python")
-    assert qualification.check(broker, target)
+    with pytest.raises(ValueError, match="INDEPENDENT_REVIEW_REQUIRED"):
+        qualification.check(broker, target)
+    assert json.loads(target.read_text())["independent_review_status"] == "PENDING"
     assert calls == ["verify_sources", "execute", "require_final_only", "verify_sources"]
     with pytest.raises(FileExistsError):
         requalify.execute(saved, target, "COLAB_CLI_ACCEPTANCE_REVIEWED", "/fake/python")
@@ -251,3 +255,22 @@ def test_failed_source_bound_admission_preserves_registry(broker, tmp_path, monk
     with pytest.raises(ValueError, match="release evidence"):
         requalify.execute(saved, target, "COLAB_CLI_ACCEPTANCE_REVIEWED", "/fake/python")
     assert target.read_text() == "previous"
+
+
+@pytest.mark.parametrize(
+    "status", ["PENDING", "PENDING_POST_MERGE_OPUS_BEFORE_DISPATCH", "REJECT", "", None]
+)
+@pytest.mark.parametrize("ref", ["HEAD", "origin/main"])
+def test_pending_review_blocks_even_matching_tree(broker, tmp_path, status, ref):
+    record = registry(broker, tmp_path)
+    value = json.loads(record.read_text())
+    value.update(
+        qualification_kind="OWNER_AUTHORIZED_OFFLINE_TRANSPORT", independent_review_status=status
+    )
+    qualification.save(record, value)
+    git(broker, "update-ref", "refs/remotes/origin/main", "HEAD")
+    with pytest.raises(ValueError, match="INDEPENDENT_REVIEW_REQUIRED"):
+        qualification.check(broker, record, ref)
+    value["independent_review_status"] = "ACCEPT"
+    qualification.save(record, value)
+    assert qualification.check(broker, record, ref)

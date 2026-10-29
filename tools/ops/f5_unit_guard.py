@@ -51,11 +51,11 @@ def repair_guard(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def require_admissible(balance: float, committed: float, reserve: float = 0.0) -> None:
-    """Warn about historical thresholds; only depleted balance prevents admission."""
+    """Warn about historical thresholds; provider allocation decides depleted-balance admission."""
     if type(balance) not in (int, float) or not math.isfinite(balance):
         raise ValueError("finite numeric account evidence required")
     if balance <= 0:
-        raise ValueError("account balance is depleted")
+        budget_warning("BALANCE_DEPLETED", balance=balance)
     committed = warning_threshold(committed, "committed", 0)
     reserve = warning_threshold(reserve, "reserve", 0)
     if balance <= EFFECTIVE_UNIT_CAP + committed + reserve:

@@ -177,6 +177,7 @@ raise SystemExit(1)
         json.dumps(
             {
                 "schema": "snake-dqn-colab-cli-qualified/v1",
+                "independent_review_status": "ACCEPT",
                 "tree_hash": git("rev-parse", "HEAD:research/colab_cli"),
             }
         )
@@ -817,3 +818,20 @@ def test_a100_gpu_canary_missing_compile_pass_refuses_before_side_effects(fixtur
     assert "requires native CUDA compile PASS" in result.stderr
     assert not (fixture["ops"] / "dispatch").exists()
     assert not (fixture["tmp"] / "trace").exists()
+
+
+@pytest.mark.parametrize("status", ["PENDING", "REJECT", None])
+def test_pending_independent_review_blocks_before_dispatch_side_effects(fixture, status):
+    f = fixture
+    path = f["ops"] / "colab-cli-qualified.json"
+    value = json.loads(path.read_text())
+    if status is None:
+        value.pop("independent_review_status")
+    else:
+        value["independent_review_status"] = status
+    path.write_text(json.dumps(value))
+    result = f["invoke"]()
+    assert result.returncode != 0
+    assert "INDEPENDENT_REVIEW_REQUIRED" in result.stderr
+    assert not runs(f)
+    assert not (f["ops"] / "dispatch/lane").exists()
