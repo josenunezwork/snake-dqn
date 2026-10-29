@@ -6,6 +6,7 @@ import ast
 import hashlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -154,7 +155,9 @@ raise SystemExit('watchdog did not fire')
         text=True,
         timeout=5,
     )
-    assert result.returncode == 1
+    # Both exact hard-stop outcomes are required: native _exit(1), or the
+    # independent guard's SIGKILL if CPython's best-effort dump cannot return.
+    assert result.returncode in (1, -signal.SIGKILL)
     assert time.monotonic() - started < 5
     assert result.stdout.count("CT_HEARTBEAT ") >= 3
     dump = (tmp_path / "out/stall-watchdog/faulthandler-stacks.log").read_text()

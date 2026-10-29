@@ -116,6 +116,14 @@
       ],
       "successor": "packet-ct-1028-12",
       "reason": "Opus packet-11 review: remove Mac-only uv startup fence, log closed version line, and restore structured scanning of word-prefixed host JSON. Prior packet and evidence preserved."
+    },
+    {
+      "packet_dir": "packet-ct-1028-12",
+      "job_ids": [
+        "sandbox-ct-cf-20261028-12"
+      ],
+      "successor": "packet-ct-1028-13",
+      "reason": "Packet 12 native traceback dump can hang before _exit, including uv-managed CPython 3.12.15 on Mac. Packet 13 adds independent bounded hard termination and healthy/blocked-dump twins. Prior packet, HOLD note and evidence remain immutable."
     }
   ]
 }

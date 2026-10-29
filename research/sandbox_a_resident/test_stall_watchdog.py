@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -255,3 +256,112 @@ def test_job_shell_seals_real_faulthandler_timeout_for_runtime_export(tmp_path: 
 def test_rejects_nonfinite_or_nonpositive_timeout(tmp_path: Path, timeout: float) -> None:
     with pytest.raises(ValueError, match="finite and positive"):
         StallWatchdog(tmp_path, timeout)
+
+
+@pytest.mark.parametrize("blocked_dump", [False, True])
+@pytest.mark.parametrize("closing", [False, True])
+def test_hard_exit_is_independent_of_dump_and_cancel(
+    tmp_path: Path, blocked_dump: bool, closing: bool
+) -> None:
+    """Real full-pipe dump + held GIL cannot obstruct the independent hard stop."""
+    script = r"""
+import ctypes, json, os, sys, time
+from pathlib import Path
+from research.sandbox_a_resident.stall_watchdog import StallWatchdog
+out = Path(sys.argv[1])
+watchdog = StallWatchdog(out, 0.2)
+watchdog.start('real-work-stalled')
+if sys.argv[2] == 'True':
+    # Fill a private pipe and keep its reader open without consuming anything.
+    # The real faulthandler C thread must block writing its timeout header.
+    read_fd, write_fd = os.pipe()
+    os.set_blocking(write_fd, False)
+    try:
+        while True: os.write(write_fd, b'x' * 4096)
+    except BlockingIOError:
+        pass
+    os.set_blocking(write_fd, True)
+    watchdog._stack_file.close()
+    watchdog._stack_file = os.fdopen(write_fd, 'w')
+    watchdog.progress('real-work-stalled')
+if sys.argv[3] == 'True':
+    time.sleep(0.3)
+    watchdog.close()  # cancel_dump_traceback_later joins the stuck C thread.
+else:
+    ctypes.PyDLL(None).sleep(30)  # holds the target GIL; Python timers cannot run.
+raise SystemExit('hard stop failed')
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), str(blocked_dump), str(closing)],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == (-signal.SIGKILL if blocked_dump else 1)
+    record = json.loads((tmp_path / "stall-watchdog.json").read_text())
+    assert record["stage"] == "real-work-stalled"
+    assert record["timeout_seconds"] == 0.2
+    if not blocked_dump:
+        assert "Timeout" in (tmp_path / "faulthandler-stacks.log").read_text()
+
+
+def test_real_progress_rearms_and_close_reaps_guard_without_late_kill(tmp_path: Path) -> None:
+    """Healthy work crosses multiple original deadlines and then safely disarms."""
+    script = r"""
+import time
+from pathlib import Path
+from research.sandbox_a_resident.stall_watchdog import StallWatchdog
+watchdog = StallWatchdog(Path(__import__('sys').argv[1]), 0.2)
+watchdog.start('startup')
+helper = watchdog._exit_guard.process
+for i in range(10):
+    time.sleep(0.05)
+    watchdog.progress('completed-unit', {'i': i})
+watchdog.close()
+watchdog.close()
+assert helper.poll() == 0
+time.sleep(0.5)
+print('healthy-rearmed-closed', flush=True)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "healthy-rearmed-closed\n"
+    assert (tmp_path / "faulthandler-stacks.log").read_bytes() == b""
+    assert json.loads((tmp_path / "stall-watchdog.json").read_text())["counters"] == {"i": 9}
+
+
+def test_dead_guard_refuses_new_progress_and_still_cleans_up(tmp_path: Path) -> None:
+    watchdog = StallWatchdog(tmp_path, 10)
+    watchdog.start()
+    helper = watchdog._exit_guard.process
+    helper.kill()
+    helper.wait(timeout=5)
+    try:
+        with pytest.raises(RuntimeError, match="guard exited unexpectedly"):
+            watchdog.progress("unit")
+    finally:
+        watchdog.close()
+    assert helper.poll() == -signal.SIGKILL
+
+
+def test_invalid_initial_progress_cleans_up_started_guard(tmp_path: Path) -> None:
+    watchdog = StallWatchdog(tmp_path, 10)
+    with pytest.raises(ValueError, match="nonempty"):
+        watchdog.start("")
+    assert watchdog._exit_guard.process.poll() == 0
+
+
+def test_guard_source_is_in_both_runtime_closures() -> None:
+    from research.sandbox_a_resident import ct_prepare, training_prepare
+
+    root = Path(__file__).resolve().parents[2]
+    pin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    helper = "research/sandbox_a_resident/ct_watchdog_guard.py"
+    # These are the actual Git-derived closures shipped to the VM.
+    assert helper in ct_prepare.source_paths(pin)
+    assert helper in training_prepare.source_paths(pin)
