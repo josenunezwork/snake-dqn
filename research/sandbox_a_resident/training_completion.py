@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from research.sandbox_a_resident.training_prepare import write_once
-from research.sandbox_a_resident.training_resume import attach_compact_resume, completion_packet
+from research.sandbox_a_resident.training_resume import completion_packet
 from tools.sandbox.registry import digest, safe_path
 
 
@@ -22,7 +22,6 @@ def prepare_completion(
     job_id: str,
     output: Path,
     successor_template: Path | None = None,
-    compact: bool = False,
 ) -> None:
     """Seal a successor without allocating, selecting weights or reading outcomes."""
     paths = (original, receipt, exports, packet, output)
@@ -72,21 +71,13 @@ def prepare_completion(
         successor_manifest=successor_manifest,
         successor_control=successor_control,
     )
-    ledger = result.ledger
-    broker = result.manifest
-    if compact:
-        ledger, uploads = attach_compact_resume(
-            ledger, result.input_records, exports, control=successor_control
-        )
-        broker["inputs"] = [
-            row for row in broker["inputs"] if not row["dest"].startswith("resume/")
-        ] + uploads
     packet.mkdir(parents=True, exist_ok=False)
     write_once(packet / "control.json", successor_control)
     write_once(
         packet / "registry-check.json", json.loads((template / "registry-check.json").read_text())
     )
-    write_once(packet / "verified-ledger.json", ledger)
+    broker = result.manifest
+    write_once(packet / "verified-ledger.json", result.ledger)
     broker["inputs"].append(
         {
             "path": str(packet / "verified-ledger.json"),
@@ -106,11 +97,7 @@ def prepare_completion(
                 if row["dest"].startswith("resume/")
                 and row["dest"].endswith((".sha256", ".complete"))
                 else (
-                    (
-                        "training-export-derivative"
-                        if row["dest"].endswith((".xz", ".xz.manifest"))
-                        else "training-export"
-                    )
+                    "training-export"
                     if row["dest"].startswith("resume/")
                     else (
                         "verified-ledger"
@@ -157,11 +144,6 @@ def main() -> int:
     parser.add_argument("--index", required=True, type=int, choices=(1, 2))
     parser.add_argument("--job-id", required=True)
     parser.add_argument(
-        "--compact",
-        action="store_true",
-        help="bind verified lossless XZ and tensor-manifest inputs",
-    )
-    parser.add_argument(
         "--successor-template",
         type=Path,
         help="sealed target packet whose control/source pin is the new successor",
@@ -178,7 +160,6 @@ def main() -> int:
         successor_template=(
             None if args.successor_template is None else args.successor_template.resolve()
         ),
-        compact=args.compact,
     )
     return 0
 

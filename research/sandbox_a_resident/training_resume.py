@@ -15,7 +15,6 @@ from typing import Any, Mapping
 
 from research.sandbox_a_resident import training_units
 from research.sandbox_a_resident.training_units import (
-    COMPACT_CONTROL_SCHEMA,
     COMPACT_DERIVATIVE_SUFFIX,
     COMPACT_MANIFEST_SUFFIX,
     COMPACT_RESUME_FIELD,
@@ -244,11 +243,7 @@ def build_ledger(
 
 
 def attach_compact_resume(
-    ledger: Mapping[str, Any],
-    uploads: list[dict[str, str]],
-    export_root: Path,
-    *,
-    control: Mapping[str, Any] | None = None,
+    ledger: Mapping[str, Any], uploads: list[dict[str, str]], export_root: Path
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """Bind the allowlisted compact derivative in place of the full-state upload.
 
@@ -265,19 +260,17 @@ def attach_compact_resume(
         raise ResumeRefused("compact resume binds exactly one latest snapshot")
     unit = units[0]
     frozen = training_units.COMPACT_RESUME_ALLOWLIST.get(unit.get("id"))
-    if frozen is None and control is None:
+    if frozen is None:
         raise ResumeRefused("snapshot is not allowlisted for compact resume")
     original = unit["exports"][0]
-    if control is None and original != frozen["original"]:
+    if original != frozen["original"]:
         raise ResumeRefused("ledger full-state export differs from the allowlisted original")
     stem = Path(original["path"]).name
     entry: dict[str, Any] = {
-        "schema": COMPACT_RESUME_SCHEMA if control is None else COMPACT_CONTROL_SCHEMA,
+        "schema": COMPACT_RESUME_SCHEMA,
         "unit": unit["id"],
         "original": dict(original),
     }
-    if control is not None:
-        entry["control"] = dict(control)
     records: list[dict[str, str]] = []
     for role, suffix in (
         ("derivative", COMPACT_DERIVATIVE_SUFFIX),
