@@ -1,0 +1,7 @@
+FINAL PREPARED PACKET. NOT DISPATCHED. ZERO COLAB ALLOCATIONS.
+Transport imported from published main a61a18195095684105488b23d23adeccb5c0c6dc.
+Transport tree: 3a7b2188e3afd47a57ed87cff46d95deb49146aa.
+The transport qualification record has independent_review_status=PENDING. Its enforced review gate refuses the guarded dispatch dry-run; do not change that status or bypass the gate for execution. Pure offline validation of both explicit hardware variants is allowed and is retained separately.
+Independent Argon code review also remains pending: High and Medium attempts returned individual-quota exhaustion, without a verdict. No self-review substituted.
+No production critic holdout or CUDA execution has run. Mac tiny-input tests are mechanical evidence only.
+This is a pre-data reseal of the unused packet-01, with the same fresh scientific allocation and unused job/output identity. packet-01 is historical preparation evidence only and must not be executed.
