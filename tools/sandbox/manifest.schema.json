@@ -40,6 +40,8 @@
                 "enum": [
                   "closed-f0",
                   "frozen-checkpoint",
+                  "frozen-opponent",
+                  "prepared-critic-snapshot",
                   "verified-ledger",
                   "verified-unit",
                   "registry"
