@@ -1,0 +1,18 @@
+{
+  "base_max_waves": 16,
+  "baseline_offset": 9100000000,
+  "effective_max_waves": 32,
+  "holdout_offset": 9000000000,
+  "horizon": 5000,
+  "input_hashes": {
+    "models.pt.xz": "42c911567ad2e22010a62fea1aa70821146337648791653ee1080d377f51dff5"
+  },
+  "late_length": 800,
+  "late_lives_per_mix": 8,
+  "max_waves": 32,
+  "policy": "released-B8-s3 masked greedy; no veto, no updates",
+  "schema": "critic-rescore-control/v1",
+  "source_commit": "d360768eef1e3d218fe590252f71779dbbc6aa7d",
+  "test_only": false,
+  "worlds": 96
+}
