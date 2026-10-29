@@ -838,13 +838,14 @@ def validate(
                 **({"env": validation_env} if validation_env is not None else {}),
             )
     except (subprocess.SubprocessError, Refused) as exc:
-        if not ct_packet:
-            raise
-        # Retain C/T diagnostics before a dry-run removes its temporary log.
+        # Retain diagnostics before a dry-run removes its temporary log.
         with log.open("rb") as stream:
             stream.seek(0, os.SEEK_END)
             stream.seek(max(0, stream.tell() - 65536))
             detail = stream.read().decode("utf-8", errors="replace")
+        if not ct_packet and isinstance(exc, subprocess.TimeoutExpired):
+            print(detail, file=sys.stderr, flush=True)
+            raise
         raise Refused(f"validation failed: {exc}\n{detail}") from exc
     with log.open(encoding="utf-8", errors="replace") as stream:
         for line in stream:

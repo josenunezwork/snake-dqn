@@ -96,12 +96,16 @@ def _bind_preflight(
     return calls
 
 
+@pytest.mark.parametrize("ct_packet", [False, True])
 def test_sandbox_validation_keeps_checks_and_uses_bounded_focused_test_window(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ct_packet: bool
 ) -> None:
     """Sandbox admission may outlast ordinary host validation, but remains bounded."""
     manifest = tmp_path / "packet.json"
-    manifest.write_text(json.dumps({"sandbox_admission": {}}), encoding="utf-8")
+    value = {"sandbox_admission": {}}
+    if ct_packet:
+        value["script"] = "research/sandbox_a_resident/ct_job.sh"
+    manifest.write_text(json.dumps(value), encoding="utf-8")
     captured: dict[str, object] = {}
 
     def fake_command(args: list[str], **kwargs: object) -> None:
@@ -120,10 +124,13 @@ def test_sandbox_validation_keeps_checks_and_uses_bounded_focused_test_window(
         "validate",
         str(manifest),
     ]
-    assert captured["timeout_seconds"] == dispatch.SANDBOX_OUTER_VALIDATE_TIMEOUT_SECONDS
-    assert captured["timeout_seconds"] == (
-        2 * dispatch.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS + dispatch.COMMAND_TIMEOUT_SECONDS
-    )
+    if ct_packet:
+        assert captured["timeout_seconds"] == dispatch.CT_OUTER_VALIDATE_TIMEOUT_SECONDS
+        assert captured["timeout_seconds"] == (
+            2 * dispatch.CT_ADMISSION_VALIDATE_TIMEOUT_SECONDS + dispatch.COMMAND_TIMEOUT_SECONDS
+        )
+    else:
+        assert captured["timeout_seconds"] == dispatch.SANDBOX_ADMISSION_VALIDATE_TIMEOUT_SECONDS
     assert captured["timeout_seconds"] > dispatch.COMMAND_TIMEOUT_SECONDS
 
 
