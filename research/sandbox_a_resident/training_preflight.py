@@ -149,9 +149,11 @@ def _validate_continuation_stop(packet: Path, broker: dict) -> None:
         if (
             recovery.get("schema") != expected_schema
             or seal.get("prior_recovery_evidence_schema") != expected_schema
-            or seal.get("prior_receipt_present")
-            is not (None if expected_schema == SCHEMA else False)
-            or seal.get("prior_receipt_sha256") is not None
+            or expected_schema != SCHEMA
+            and (
+                seal.get("prior_receipt_present") is not False
+                or seal.get("prior_receipt_sha256") is not None
+            )
             or seal.get("prior_recovery_evidence_sha256") != digest(recovery_file)
         ):
             raise ValueError("SEAL.json does not bind committed recovery-evidence.json")
@@ -187,7 +189,9 @@ def _validate_continuation_stop(packet: Path, broker: dict) -> None:
             source_packet_manifest_sha256=digest(source_packet_manifest),
         )
         if kind == "receiptless_retained_export_prefix" and (
-            seal.get("completion_attempt_index") != 2
+            seal.get("prior_receipt_present") is not recovery_summary["original_receipt_present"]
+            or seal.get("prior_receipt_sha256") != recovery_summary["original_receipt_sha256"]
+            or seal.get("completion_attempt_index") != 2
             or broker.get("completion_attempt", {}).get("index") != 2
             or seal.get("prior_release_proof") != recovery_summary
             or broker.get("completion_attempt", {}).get("admission") != recovery_summary

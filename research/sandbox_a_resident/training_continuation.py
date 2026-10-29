@@ -1609,7 +1609,8 @@ def build_continuation_packet(
     if recovery_summary is not None and recovery_summary.get("receipt_less"):
         prior_stop_kind = "receiptless_retained_export_prefix"
         prior_failure_class = recovery_summary["failure_class"]
-        prior_receipt_present = None  # Presence uninspected; no receipt is used or bound.
+        prior_receipt_present = recovery_summary["original_receipt_present"]
+        prior_receipt_sha256 = recovery_summary["original_receipt_sha256"]
         prior_release_proof = recovery_summary
     seal: dict[str, Any] = {
         "schema": "sandbox-a-train01-continuation-seal/v1",

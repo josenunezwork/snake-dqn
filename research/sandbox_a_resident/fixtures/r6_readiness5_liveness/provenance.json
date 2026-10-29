@@ -1,0 +1,11 @@
+{
+  "capture_started_utc": "2026-10-29T06:35:48.483112+00:00",
+  "capture_finished_utc": "2026-10-29T06:35:48.757968+00:00",
+  "source_output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-attempt-15-c1-i0064-r6/output",
+  "source_log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/sandbox-a-train01-20261028-15-c1-i0064-r6.log",
+  "read_only": true,
+  "provider_or_account_calls": 0,
+  "scope": "manifest plus fixed poll listing, then log; live source can advance",
+  "poll_count": 1088,
+  "log_lines": 1296
+}

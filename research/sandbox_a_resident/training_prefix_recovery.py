@@ -1,13 +1,15 @@
 """Receipt-less c2 admission of a hash-bound pre-loss compact-export prefix.
 
 No account queries, stop operations, payload decoding, or output writes occur.
-A declared stop cause is an operator assertion, never fabricated release proof.
+Every suffix is scanned for poison; admission requires an offline account release capture.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, Mapping
@@ -15,8 +17,319 @@ from typing import Any, Mapping
 from research.sandbox_a_resident import training_resume as r
 from research.sandbox_a_resident.units import digest
 
-SCHEMA = "sandbox-a-train01-retained-export-prefix/v1"
+SCHEMA = "sandbox-a-train01-retained-export-prefix/v2"
 STOP_KINDS = frozenset({"host_loss", "lease_expired", "runtime_timeout"})
+
+
+SELF_RELEASE_ERROR = "AccountingError('supervised assignment disappeared from sessions')"
+SELF_RELEASE_REASONS = frozenset({"timeout", "lease_expired"})
+
+
+def _export_inventory(root: Path) -> list[dict[str, Any]]:
+    """Bind the entire export listing, including unfinished and opaque files."""
+    return [
+        {"path": str(p.relative_to(root)), "size": p.stat().st_size, "sha256": digest(p)}
+        for p in r._retained_files(root)
+    ]
+
+
+def _terminal(record: Any, job: str, generation: str) -> str:
+    if (
+        not isinstance(record, Mapping)
+        or record.get("job_id") != job
+        or record.get("generation") != generation
+        or record.get("status") != "failed"
+        or record.get("reason") not in SELF_RELEASE_REASONS
+        or type(record.get("returncode")) is not int
+        or record["returncode"] not in {0, -9, -10, -15, -30}
+    ):
+        raise r.ResumeRefused("retained-prefix terminal is not a known mechanical self-release")
+    r._scan_json_faults(
+        record, label="self_release_terminal", expected_job_id=job, expected_generation=generation
+    )
+    return record["reason"]
+
+
+def _receipt(record: Any, manifest: Mapping[str, Any], manifest_sha: str, generation: str) -> None:
+    """Validate a narrow producer envelope, then scan every other field recursively."""
+    if (
+        not isinstance(record, Mapping)
+        or record.get("job_id") != manifest.get("job_id")
+        or record.get("commit") != manifest.get("commit")
+        or record.get("manifest_sha256") != manifest_sha
+        or record.get("generation") != generation
+        or record.get("status") != "INCOMPLETE"
+        or record.get("failure_class") != "ACCOUNTING"
+        or record.get("error") != SELF_RELEASE_ERROR
+        or record.get("stop_verified") is not True
+        or "cleanup_error" not in record
+        or record["cleanup_error"] is not None
+    ):
+        raise r.ResumeRefused("retained-prefix receipt is not a known mechanical self-release")
+    _terminal(record.get("terminal"), str(manifest["job_id"]), generation)
+    if "returncode" in record and (
+        type(record["returncode"]) is not int
+        or record["returncode"] != record["terminal"]["returncode"]
+    ):
+        raise r.ResumeRefused("retained-prefix receipt returncode differs from terminal")
+    # Only the exact already-validated producer envelope fields are omitted.
+    # No exception is propagated into nested accounting, diagnostics or terminal.
+    r._scan_json_faults(
+        {
+            k: v
+            for k, v in record.items()
+            if k not in {"status", "failure_class", "error", "returncode"}
+        },
+        label="self_release_receipt",
+        expected_job_id=str(manifest["job_id"]),
+        expected_generation=generation,
+        supervisor_transport=True,
+    )
+
+
+def _event_matches(event: Any, poll: Mapping[str, Any], job: str) -> bool:
+    return (
+        isinstance(event, Mapping)
+        and event.get("job") == job
+        and event.get("status") == poll["state"].get("status")
+        and event.get("terminal") is False
+        and type(event.get("exports")) is int
+        and event["exports"] == len(poll["exports"])
+        and event.get("job_log_tail") == poll.get("job_log_tail", "")[-4096:]
+    )
+
+
+def _prefix_events(data: bytes, polls: list[Mapping[str, Any]], job: str) -> float:
+    events = []
+    for line in data.decode("utf-8").splitlines():
+        try:
+            event = r._json_loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, Mapping) and event.get("job") == job and "terminal" in event:
+            events.append(event)
+    if len(events) != len(polls) or any(
+        not _event_matches(event, poll, job) for event, poll in zip(events, polls)
+    ):
+        raise r.ResumeRefused("retained-prefix log events differ from ordered poll prefix")
+    elapsed = -1.0
+    for event in events:
+        current = event.get("elapsed")
+        if type(current) not in (int, float) or not math.isfinite(current) or current < elapsed:
+            raise r.ResumeRefused("retained-prefix log elapsed history is malformed")
+        elapsed = current
+    return elapsed
+
+
+def _scan_incomplete_text(text: str, *, label: str, job: str, generation: str) -> bool:
+    """Only EOF truncation is inert; complete retained negative facts still poison."""
+    try:
+        r._json_loads(text)
+    except json.JSONDecodeError as error:
+        stripped = text.rstrip()
+        if stripped and (
+            not stripped.lstrip().startswith(("{", "["))
+            or not (error.pos >= len(stripped) or error.msg.startswith("Unterminated string"))
+        ):
+            return False
+        r._refuse_if_fault_text(text, field_name=label)
+        for line in text.splitlines():
+            r._scan_diagnostic_record_line(
+                line,
+                label=label,
+                expected_job_id=job,
+                expected_generation=generation,
+                supervisor_transport=True,
+                allow_first_tail_fragment=True,
+            )
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r'"([^"\\]+)"\s*:\s*', text):
+            key = r._record_key(match[1])
+            try:
+                fact, _ = decoder.raw_decode(text, match.end())
+            except json.JSONDecodeError:
+                if key in {
+                    "status",
+                    "reason",
+                    "returncode",
+                    "failure_class",
+                    "error",
+                    "finite",
+                    "material_gaps",
+                    "stage",
+                    "phase",
+                    "prepare_phase",
+                }:
+                    raise r.ResumeRefused("incomplete suffix truncates an execution/fault fact")
+                continue
+            if key in {"reason", "failure_class", "error"} and fact:
+                raise r.ResumeRefused("incomplete suffix records unverified terminal or failure")
+            r._scan_json_faults(
+                {key: fact},
+                label=label,
+                expected_job_id=job,
+                expected_generation=generation,
+                supervisor_transport=True,
+            )
+        return True
+    return False
+
+
+def _scan_incomplete(path: Path, *, job: str, generation: str) -> bool:
+    if path.stat().st_size > r.MAX_RETAINED_JSON_BYTES:
+        raise r.ResumeRefused(f"oversized retained diagnostic: {path}")
+    return _scan_incomplete_text(
+        path.read_text(encoding="utf-8"), label=str(path), job=job, generation=generation
+    )
+
+
+def _scan_suffix_and_output(
+    root: Path,
+    log_path: Path,
+    cutoff: int,
+    retained: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+    manifest_sha: str,
+    generation: str,
+    transport: r._RetainedTransport,
+    latest: int,
+) -> tuple[Mapping[str, Any] | None, set[str], float]:
+    """All suffix/output bytes can poison admission; none bind a resume payload."""
+    job = str(manifest["job_id"])
+    receipt = None
+    reasons: set[str] = set()
+    terminals: list[Mapping[str, Any]] = []
+    elapsed = 0.0
+    receipt_path = root / "receipt.json"
+    if receipt_path.exists() or receipt_path.is_symlink():
+        receipt = r._retained_json_records(receipt_path)[0]
+        _receipt(receipt, manifest, manifest_sha, generation)
+        reasons.add(receipt["terminal"]["reason"])
+        terminals.append(receipt["terminal"])
+    for path in r._retained_files(root):
+        rel = str(path.relative_to(root))
+        if (
+            path.name.startswith("receipt.json")
+            and path != receipt_path
+            and not r._publication_sidecar(path)
+        ):
+            raise r.ResumeRefused("unsupported retained-prefix receipt variant")
+        if path == receipt_path or path.resolve() == log_path.resolve():
+            continue  # Supplied supervisor log is scanned below, including its whole suffix.
+        if path.name.startswith("summary.json") and path.parent == root / "exports/training":
+            raise r.ResumeRefused("exported summary.json already exists; prior run completed")
+        if path.name == "faulthandler-stacks.log" and path.stat().st_size:
+            raise r.ResumeRefused(
+                "exported faulthandler-stacks.log is non-empty (stall watchdog fired)"
+            )
+        suffix = rel not in retained and not Path(str(path) + ".complete").exists()
+        is_json = any(s in {".json", ".jsonl"} for s in path.suffixes)
+        if (
+            suffix
+            and not path.name.startswith("terminal.json")
+            and is_json
+            and not r._publication_sidecar(path)
+            and _scan_incomplete(path, job=job, generation=generation)
+        ):
+            continue
+        if is_json and not r._publication_sidecar(path):
+            for record in r._retained_json_records(path):
+                r._check_scientific_publication(path, root, record)
+                if path.name.startswith("terminal.json"):
+                    reasons.add(_terminal(record, job, generation))
+                    terminals.append(record)
+                if isinstance(record, Mapping) and record.get("terminal") is not None:
+                    reasons.add(_terminal(record["terminal"], job, generation))
+                    terminals.append(record["terminal"])
+                if isinstance(record, Mapping):
+                    for entry in record.get("exports", []):
+                        if isinstance(entry, Mapping):
+                            match = re.fullmatch(
+                                r"training/iteration-(\d{4})(?:\.pt(?:\.xz)?|\.json|-actor\.pth)",
+                                str(entry.get("path")),
+                            )
+                            if match and int(match[1]) > latest:
+                                raise r.ResumeRefused(
+                                    "retained inventory reveals a newer snapshot "
+                                    "than recovery cutoff"
+                                )
+        r._scan_retained_text(
+            path,
+            output_root=root,
+            expected_job_id=job,
+            expected_generation=generation,
+            transport=transport,
+        )
+    data = log_path.read_bytes()
+    if len(data) > r.MAX_RETAINED_JSON_BYTES:
+        raise r.ResumeRefused("oversized retained-prefix supervisor log")
+    lines = data[cutoff:].decode("utf-8").splitlines()
+    footer = [f"INCOMPLETE: {SELF_RELEASE_ERROR}; receipt: {root / 'receipt.json'}", "EXIT=1"]
+    if receipt is not None and [line.strip() for line in lines[-2:]] == footer:
+        lines = lines[:-2]
+    for line_index, line in enumerate(lines):
+        try:
+            record = r._json_loads(line)
+        except json.JSONDecodeError:
+            record = None
+        if receipt is not None and record == receipt:
+            _receipt(record, manifest, manifest_sha, generation)
+            continue
+        if isinstance(record, Mapping):
+            if isinstance(record.get("terminal"), Mapping):
+                reasons.add(_terminal(record["terminal"], job, generation))
+            if "reason" in record:
+                reasons.add(_terminal(record, job, generation))
+            current = record.get("elapsed")
+            if (
+                type(current) in (int, float)
+                and math.isfinite(current)
+                and (record.get("job") == job or record.get("job_id") == job)
+            ):
+                elapsed = max(elapsed, current)
+        if (
+            isinstance(record, Mapping)
+            and record.get("terminal") is True
+            and set(record) <= {"job", "elapsed", "status", "terminal", "exports", "job_log_tail"}
+            and record.get("job") == job
+            and type(record.get("exports")) is int
+        ):
+            matches = [
+                t
+                for t in terminals
+                if record.get("status") == t.get("status")
+                and isinstance(t.get("exports"), list)
+                and record["exports"] == len(t["exports"])
+            ]
+            if matches and len({t["reason"] for t in matches}) == 1:
+                # The qualified native terminal event omits generation/reason.
+                # Bind those fields only from an already validated retained terminal.
+                r._scan_json_faults(
+                    {
+                        **{k: v for k, v in record.items() if k != "job"},
+                        "job_id": job,
+                        "generation": generation,
+                        "reason": matches[0]["reason"],
+                    },
+                    label="supervisor_log_suffix",
+                    expected_job_id=job,
+                    expected_generation=generation,
+                    supervisor_transport=True,
+                )
+                continue
+        if line_index == len(lines) - 1 and _scan_incomplete_text(
+            line, label="supervisor_log_suffix", job=job, generation=generation
+        ):
+            continue
+        r._scan_diagnostic_record_line(
+            line,
+            label="supervisor_log_suffix",
+            expected_job_id=job,
+            expected_generation=generation,
+            supervisor_transport=True,
+            validated_receipt=receipt,
+        )
+    return receipt, reasons, elapsed
 
 
 def verify_prefix_recovery(
@@ -28,14 +341,15 @@ def verify_prefix_recovery(
     source_control: Mapping[str, Any],
     source_packet_id: str | None = None,
     source_packet_manifest_sha256: str | None = None,
-    **unused: Any,
+    now_unix_seconds: float | None = None,
+    max_capture_age_seconds: float | None = 86400.0,
 ) -> dict[str, Any]:
     """Admit only the frozen retained prefix, with every included byte verified.
 
     The latest locally complete snapshot must be compact and must be inventoried
     in the final retained poll. All earlier polls are mandatory. The log ends at
-    that poll's native supervisor event; its suffix is neither read nor trusted.
-    This is continuation-input admission, not proof of account release.
+    that poll's native supervisor event. All suffix/output evidence can refuse;
+    only the prefix binds snapshots. A post-hoc release capture is mandatory.
     """
     if (
         any(path.is_symlink() for path in (output_root, *output_root.parents))
@@ -143,6 +457,8 @@ def verify_prefix_recovery(
         r._verified_regular_file(output_root / name, record, label=f"retained_prefix:{name}")
     if digest(output_root / "manifest.json") != manifest_sha256:
         raise r.ResumeRefused("retained-prefix executed manifest digest differs")
+    if cert.get("export_directory_inventory") != _export_inventory(output_root / "exports"):
+        raise r.ResumeRefused("retained-prefix full export directory inventory differs")
     job, generation = identity["job_id"], identity["generation"]
     transport = r._RetainedTransport(output_root, job, generation)
     # Avoid transport.bindings(), which deliberately examines the entire ordinary
@@ -179,6 +495,13 @@ def verify_prefix_recovery(
             raise r.ResumeRefused(
                 "retained-prefix cutoff does not bind all compact snapshot exports"
             )
+        for e in exports:
+            if (
+                isinstance(e.get("path"), str)
+                and type(e.get("size")) is int
+                and r._is_hex(e.get("sha256"), 64)
+            ):
+                transport.bounds.setdefault(e["path"], set()).add((e["size"], e["sha256"]))
         polls.append(poll)
     for name in sorted(expected):
         if not name.startswith("poll-"):
@@ -224,6 +547,43 @@ def verify_prefix_recovery(
         or event.get("job_log_tail") != poll.get("job_log_tail", "")[-4096:]
     ):
         raise r.ResumeRefused("retained-prefix log cutoff differs from last verified poll")
+    elapsed = _prefix_events(prefix, polls, job)
+    receipt, reasons, suffix_elapsed = _scan_suffix_and_output(
+        output_root,
+        path,
+        length,
+        retained,
+        manifest,
+        manifest_sha256,
+        generation,
+        transport,
+        latest,
+    )
+    elapsed = max(elapsed, suffix_elapsed)
+    kind = cert["stop_kind"]
+    timeout = manifest.get("timeout_minutes")
+    if kind == "lease_expired" and reasons != {"lease_expired"}:
+        raise r.ResumeRefused("declared lease_expired lacks matching mechanical terminal evidence")
+    if kind == "runtime_timeout" and (
+        reasons != {"timeout"}
+        or type(timeout) not in (int, float)
+        or not math.isfinite(timeout)
+        or timeout <= 0
+        or not timeout * 60 - 60 <= elapsed <= timeout * 60 + 600
+    ):
+        raise r.ResumeRefused(
+            "declared runtime_timeout differs from terminal or elapsed timeout evidence"
+        )
+    if kind == "host_loss" and (reasons or receipt is not None):
+        raise r.ResumeRefused(
+            "declared host_loss conflicts with retained mechanical terminal evidence"
+        )
+    capture = r._verify_account_release_capture(
+        cert.get("account_status_capture"),
+        path,
+        now_unix_seconds=now_unix_seconds,
+        max_capture_age_seconds=max_capture_age_seconds,
+    )
     with tempfile.TemporaryDirectory(prefix="train01-prefix-scan-") as scratch:
         copy = Path(scratch) / "supervisor.log"
         copy.write_bytes(prefix)
@@ -237,12 +597,19 @@ def verify_prefix_recovery(
         "certificate_sha256": desc["sha256"],
         "certificate_size": desc["size"],
         "failure_class": "RECEIPTLESS_RETAINED_EXPORT_PREFIX",
-        "original_receipt_present": None,
+        "original_receipt_present": receipt is not None,
+        "original_receipt_sha256": (
+            digest(output_root / "receipt.json") if receipt is not None else None
+        ),
         "original_receipt_used": False,
         "receipt_less": True,
         "stop_kind": cert["stop_kind"],
-        "stop_cause_basis": "operator_declaration",
-        "post_hoc_release_verified": False,
+        "stop_cause_basis": "operator_declaration_checked_against_retained_evidence",
+        "post_hoc_release_verified": True,
+        "account_status_capture_sha256": cert["account_status_capture"]["sha256"],
+        "captured_unix_seconds": capture["captured_unix_seconds"],
+        "suffix_scanned_for_poison": True,
+        "export_directory_inventory": cert["export_directory_inventory"],
         "after_last_verified_export_trusted": False,
         "last_verified_poll": last,
         "supervisor_log_sha256": log["sha256"],
@@ -258,6 +625,7 @@ def build_prefix_recovery_certificate(
     supervisor_log: Path,
     certificate_output: Path,
     *,
+    account_status_capture: Path,
     stop_kind: str,
     operator_confirmed_stopped: bool,
     source_packet_id: str,
@@ -305,6 +673,10 @@ def build_prefix_recovery_certificate(
     else:
         raise r.ResumeRefused("no retained poll binds all compact snapshot exports")
     prefix = bytearray()
+    poll_prefix = [
+        r._retained_json_records(output_root / f"poll-{i:06d}.json")[0] for i in range(index + 1)
+    ]
+    matched = 0
     with supervisor_log.open("rb") as stream:
         for line in stream:
             prefix.extend(line)
@@ -317,12 +689,15 @@ def build_prefix_recovery_certificate(
             if (
                 isinstance(event, Mapping)
                 and event.get("job") == manifest.get("job_id")
-                and event.get("terminal") is False
-                and event.get("status") == poll.get("state", {}).get("status")
-                and event.get("exports") == len(poll["exports"])
-                and event.get("job_log_tail") == poll.get("job_log_tail", "")[-4096:]
+                and "terminal" in event
             ):
-                break
+                if not _event_matches(event, poll_prefix[matched], manifest["job_id"]):
+                    raise r.ResumeRefused(
+                        "retained-prefix log events differ from ordered poll prefix"
+                    )
+                matched += 1
+                if matched == len(poll_prefix):
+                    break
         else:
             raise r.ResumeRefused("no supervisor event matches last verified export poll")
     cert = {
@@ -336,6 +711,10 @@ def build_prefix_recovery_certificate(
             "source_packet_id": source_packet_id,
             "source_packet_manifest_sha256": source_packet_manifest_sha256,
         },
+        "account_status_capture": r._descriptor(
+            account_status_capture, runtime_path=account_status_capture.name
+        ),
+        "export_directory_inventory": _export_inventory(output_root / "exports"),
         "stop_kind": stop_kind,
         "operator_confirmed_stopped": operator_confirmed_stopped,
         "last_verified_poll": index,
@@ -353,6 +732,10 @@ def build_prefix_recovery_certificate(
             "sha256": hashlib.sha256(prefix).hexdigest(),
         },
     }
+    cert["account_status_capture"]["captured_unix_seconds"] = r._json_loads(
+        account_status_capture.read_text()
+    ).get("captured_unix_seconds")
+    cert["account_status_capture"]["path"] = str(account_status_capture.resolve())
     content = json.dumps(cert, indent=2, sort_keys=True) + "\n"
     with tempfile.TemporaryDirectory(prefix="train01-prefix-certificate-") as scratch:
         candidate = Path(scratch) / "candidate.json"

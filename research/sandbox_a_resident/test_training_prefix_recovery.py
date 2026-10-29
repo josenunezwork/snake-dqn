@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -42,7 +43,13 @@ def fixture(tmp_path: Path) -> dict:
         source_packet_id="packet-train01-15-c1-i0064",
     )
     publish(exports / "iteration-0096-actor.pth", lambda dst: dst.write_bytes(b"actor"))
-    manifest = {"job_id": "train01-r6", "commit": "a" * 40, "output_dir": str(output), "inputs": []}
+    manifest = {
+        "job_id": "train01-r6",
+        "commit": "a" * 40,
+        "output_dir": str(output),
+        "inputs": [],
+        "timeout_minutes": 60,
+    }
     (output / "manifest.json").write_text(json.dumps(manifest))
     generation = "b" * 32
     inventory = [
@@ -67,8 +74,32 @@ def fixture(tmp_path: Path) -> dict:
         "exports": len(inventory),
         "job_log_tail": poll["job_log_tail"],
     }
-    log.write_text("PREFLIGHT_OK\n" + json.dumps(event) + "\n")
+    log.write_text(
+        "PREFLIGHT_OK\n"
+        + json.dumps({**event, "elapsed": 90.0, "exports": 0})
+        + "\n"
+        + json.dumps(event)
+        + "\n"
+    )
+    capture = tmp_path / "account-release-status.json"
+    publish(
+        capture,
+        lambda dst: dst.write_text(
+            json.dumps(
+                {
+                    "schema": r.ACCOUNT_RELEASE_CAPTURE_SCHEMA,
+                    "captured_unix_seconds": time.time(),
+                    "status": {
+                        "sessions": {},
+                        "usage": {"assignments": 0, "rate": 0.0, "balance": 1000.0},
+                        "unresolved": [],
+                    },
+                }
+            )
+        ),
+    )
     return {
+        "capture": capture,
         "output": output,
         "exports": exports,
         "control": control,
@@ -79,12 +110,52 @@ def fixture(tmp_path: Path) -> dict:
     }
 
 
+def mechanical_stop(fx: dict, kind: str, *, receipt: bool = False) -> None:
+    reason = {"runtime_timeout": "timeout", "lease_expired": "lease_expired"}[kind]
+    terminal = {
+        "job_id": fx["manifest"]["job_id"],
+        "generation": "b" * 32,
+        "status": "failed",
+        "reason": reason,
+        "returncode": -15,
+    }
+    (fx["output"] / "terminal.json").write_text(json.dumps(terminal))
+    event = {
+        **fx["event"],
+        "elapsed": 3600.0,
+        "terminal": terminal,
+        "reason": reason,
+        "job_id": fx["manifest"]["job_id"],
+        "generation": "b" * 32,
+        "status": "failed",
+        "returncode": -15,
+    }
+    event.pop("job")
+    with fx["log"].open("a") as stream:
+        stream.write(json.dumps(event) + "\n")
+    if receipt:
+        value = {
+            "job_id": fx["manifest"]["job_id"],
+            "commit": fx["manifest"]["commit"],
+            "manifest_sha256": digest(fx["output"] / "manifest.json"),
+            "generation": "b" * 32,
+            "status": "INCOMPLETE",
+            "stop_verified": True,
+            "cleanup_error": None,
+            "failure_class": "ACCOUNTING",
+            "error": prefix.SELF_RELEASE_ERROR,
+            "terminal": terminal,
+        }
+        (fx["output"] / "receipt.json").write_text(json.dumps(value))
+
+
 def build(fx: dict, path: Path, kind: str = "host_loss") -> dict:
     return prefix.build_prefix_recovery_certificate(
         fx["output"],
         fx["control"],
         fx["log"],
         path,
+        account_status_capture=fx["capture"],
         stop_kind=kind,
         operator_confirmed_stopped=True,
         source_packet_id="packet-train01-15-c1-i0064",
@@ -114,9 +185,11 @@ def rewrite(path: Path, value: dict) -> None:
 def test_receiptless_stops_admit_c2_and_fault_twins(tmp_path: Path, kind: str) -> None:
     fx = fixture(tmp_path)
     cert = tmp_path / "certificate.json"
+    if kind != "host_loss":
+        mechanical_stop(fx, kind)
     summary = build(fx, cert, kind)
     assert summary["receipt_less"] is True
-    assert summary["post_hoc_release_verified"] is False
+    assert summary["post_hoc_release_verified"] is True
     assert summary["last_verified_poll"] == 1
     result = r.completion_packet(
         fx["manifest"],
@@ -133,14 +206,14 @@ def test_receiptless_stops_admit_c2_and_fault_twins(tmp_path: Path, kind: str) -
     assert result.latest_iteration == 96
     assert result.manifest["completion_attempt"]["admission"]["receipt_less"] is True
     assert not (fx["output"] / "receipt.json").exists()
-    # No suffix bytes, later receipt, later corrupt poll or unfinished publication
-    # can support admission. They are outside this explicitly labelled evidence cut.
+    # Suffix evidence never supplies payloads, but faults must poison admission.
     with fx["log"].open("a") as stream:
         stream.write("NovelDiagnosticException('after cutoff; untrusted')\n")
-    (fx["output"] / "poll-000002.json").write_text("corrupt after cutoff")
-    (fx["output"] / "receipt.json").write_text("untrusted after cutoff")
-    (fx["exports"] / "progress.json.partial").write_text("untrusted after cutoff")
-    assert verify(fx, cert)["after_last_verified_export_trusted"] is False
+    with pytest.raises(r.ResumeRefused, match="scientific/non-mechanical fault"):
+        verify(fx, cert)
+    fx["log"].write_text(
+        fx["log"].read_text().replace("NovelDiagnosticException('after cutoff; untrusted')\n", "")
+    )
     # A retained prefix fault refuses even after rebinding every affected hash.
     poll = fx["output"] / "poll-000000.json"
     value = json.loads(poll.read_text())
@@ -199,7 +272,9 @@ def test_receiptless_exact_message_fault_twins(tmp_path: Path, fault: str, messa
         path.write_text(json.dumps(poll))
         value["retained_files"][path.name].update(size=path.stat().st_size, sha256=digest(path))
     elif fault == "log-fault":
-        fx["log"].write_text("NovelDiagnosticException('x')\n" + json.dumps(fx["event"]) + "\n")
+        fx["log"].write_text(
+            "NovelDiagnosticException('x')\n" + fx["log"].read_text().split("\n", 1)[1]
+        )
         value["supervisor_log_prefix"].update(
             size=fx["log"].stat().st_size, sha256=digest(fx["log"])
         )
@@ -280,6 +355,7 @@ def test_packet_preflight_reopens_receiptless_c2_proof_and_labels(
         fx["control"],
         fx["log"],
         cert,
+        account_status_capture=fx["capture"],
         stop_kind="host_loss",
         operator_confirmed_stopped=True,
         source_packet_id=prior.name,
@@ -303,7 +379,7 @@ def test_packet_preflight_reopens_receiptless_c2_proof_and_labels(
         "prior_packet": prior.name,
         "prior_packet_path": str(prior),
         "prior_recovery_evidence_schema": prefix.SCHEMA,
-        "prior_receipt_present": None,
+        "prior_receipt_present": False,
         "prior_receipt_sha256": None,
         "prior_recovery_evidence_sha256": digest(recovery),
         "prior_executed_manifest_sha256": digest(fx["output"] / "manifest.json"),
@@ -332,7 +408,7 @@ def test_packet_preflight_reopens_receiptless_c2_proof_and_labels(
         message = "SEAL.json requires recovery-evidence.json; admission proof is missing"
     elif fault == "label":
         broker = copy.deepcopy(broker)
-        broker["completion_attempt"]["admission"]["post_hoc_release_verified"] = True
+        broker["completion_attempt"]["admission"]["post_hoc_release_verified"] = False
         message = "receipt-less c2 packet labels differ from verified retained prefix"
     elif fault == "index":
         broker["completion_attempt"]["index"] = 1

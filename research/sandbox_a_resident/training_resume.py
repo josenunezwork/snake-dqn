@@ -625,13 +625,19 @@ def _refuse_if_fault_text(
         )
     if re.search(
         r"\b[A-Za-z_][A-Za-z0-9_.]*['\"]?\s*[=:]\s*['\"]?"
-        r"[+-]?(?:nan|inf(?:inity)?)(?![A-Za-z0-9_])",
+        r"[+-]?(?:nan|inf(?:inity)?)(?![A-Za-z0-9_-])",
         lowered,
     ):
         raise ResumeRefused(
             f"prior evidence records explicit scientific/non-mechanical fault "
             f"in {field_name}: non-finite numeric text"
         )
+    if re.search(
+        r"[\"']?(?:stage|phase|prepare_phase)[\"']?\s*[:=]\s*[\"']"
+        r"[^\"']*(?:failed|failure)[^\"']*[\"']",
+        lowered,
+    ):
+        raise ResumeRefused(f"{field_name} records failed stage fragment")
     if check_supervisor_denylist:
         for marker in NON_MECHANICAL_SUPERVISOR_ERROR_MARKERS:
             if marker in lowered:
@@ -2333,6 +2339,85 @@ def compute_retained_evidence_inventory(output_root: Path) -> dict[str, Any]:
     }
 
 
+def _verify_account_release_capture(
+    capture_desc: Any,
+    supervisor_log_path: Path,
+    *,
+    endpoint: str | None = None,
+    now_unix_seconds: float | None = None,
+    max_capture_age_seconds: float | None = 86400.0,
+) -> dict[str, Any]:
+    """Verify an existing immutable offline capture; never query the account."""
+    if not isinstance(capture_desc, Mapping) or not isinstance(capture_desc.get("path"), str):
+        raise ResumeRefused("recovery certificate lacks account_status_capture")
+    capture_path = Path(capture_desc["path"])
+    capture_sidecar_desc = _descriptor(capture_path, runtime_path=capture_path.name)
+    if (
+        capture_desc.get("size") != capture_sidecar_desc["size"]
+        or capture_desc.get("sha256") != capture_sidecar_desc["sha256"]
+    ):
+        raise ResumeRefused("account_status_capture size or SHA-256 differs from certificate")
+    try:
+        capture_payload = _json_loads(capture_path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ResumeRefused("unreadable account_status_capture file") from error
+    if (
+        not isinstance(capture_payload, Mapping)
+        or capture_payload.get("schema") != ACCOUNT_RELEASE_CAPTURE_SCHEMA
+    ):
+        raise ResumeRefused("malformed account_status_capture schema")
+    captured_ts = capture_payload.get("captured_unix_seconds")
+    if (
+        isinstance(captured_ts, bool)
+        or not isinstance(captured_ts, (int, float))
+        or not math.isfinite(float(captured_ts))
+        or capture_desc.get("captured_unix_seconds") != captured_ts
+    ):
+        raise ResumeRefused("malformed or mismatched captured_unix_seconds in release capture")
+    log_mtime = supervisor_log_path.stat().st_mtime
+    now_ts = time.time() if now_unix_seconds is None else float(now_unix_seconds)
+    if float(captured_ts) < log_mtime - 1.0:
+        raise ResumeRefused(
+            "stale account_status_capture predates supervisor_log ENOSPC termination"
+        )
+    if float(captured_ts) > now_ts + 60.0:
+        raise ResumeRefused("account_status_capture timestamp lies in the future")
+    if (
+        max_capture_age_seconds is not None
+        and (now_ts - float(captured_ts)) > max_capture_age_seconds
+    ):
+        raise ResumeRefused("stale account_status_capture exceeds maximum admission age")
+
+    status_obj = capture_payload.get("status")
+    if not isinstance(status_obj, Mapping):
+        raise ResumeRefused("account_status_capture lacks status object")
+    sessions_obj = status_obj.get("sessions")
+    usage_obj = status_obj.get("usage")
+    unresolved_obj = status_obj.get("unresolved")
+    if (
+        not isinstance(sessions_obj, Mapping)
+        or len(sessions_obj) != 0
+        or endpoint in sessions_obj
+        or not isinstance(usage_obj, Mapping)
+        or isinstance(usage_obj.get("assignments"), bool)
+        or not isinstance(usage_obj.get("assignments"), (int, float))
+        or float(usage_obj["assignments"]) != 0.0
+        or isinstance(usage_obj.get("rate"), bool)
+        or not isinstance(usage_obj.get("rate"), (int, float))
+        or float(usage_obj["rate"]) != 0.0
+        or isinstance(usage_obj.get("balance"), bool)
+        or not isinstance(usage_obj.get("balance"), (int, float))
+        or not math.isfinite(float(usage_obj["balance"]))
+        or unresolved_obj != []
+    ):
+        raise ResumeRefused(
+            "account_status_capture does not prove empty server sessions, 0 assignments, "
+            "0.0 rate, and empty unresolved pending state"
+        )
+
+    return dict(capture_payload)
+
+
 def verify_host_enospc_recovery(
     recovery_evidence_path: Path,
     manifest: Mapping[str, Any],
@@ -2513,72 +2598,14 @@ def verify_host_enospc_recovery(
     if not isinstance(release, Mapping):
         raise ResumeRefused("recovery certificate lacks release_evidence")
     capture_desc = release.get("account_status_capture")
-    if not isinstance(capture_desc, Mapping) or not isinstance(capture_desc.get("path"), str):
-        raise ResumeRefused("recovery certificate lacks account_status_capture")
-    capture_path = Path(capture_desc["path"])
-    capture_sidecar_desc = _descriptor(capture_path, runtime_path=capture_path.name)
-    if (
-        capture_desc.get("size") != capture_sidecar_desc["size"]
-        or capture_desc.get("sha256") != capture_sidecar_desc["sha256"]
-    ):
-        raise ResumeRefused("account_status_capture size or SHA-256 differs from certificate")
-    try:
-        capture_payload = _json_loads(capture_path.read_text())
-    except (OSError, json.JSONDecodeError) as error:
-        raise ResumeRefused("unreadable account_status_capture file") from error
-    if (
-        not isinstance(capture_payload, Mapping)
-        or capture_payload.get("schema") != ACCOUNT_RELEASE_CAPTURE_SCHEMA
-    ):
-        raise ResumeRefused("malformed account_status_capture schema")
-    captured_ts = capture_payload.get("captured_unix_seconds")
-    if (
-        isinstance(captured_ts, bool)
-        or not isinstance(captured_ts, (int, float))
-        or not math.isfinite(float(captured_ts))
-        or capture_desc.get("captured_unix_seconds") != captured_ts
-    ):
-        raise ResumeRefused("malformed or mismatched captured_unix_seconds in release capture")
-    log_mtime = sup_log_path.stat().st_mtime
-    now_ts = time.time() if now_unix_seconds is None else float(now_unix_seconds)
-    if float(captured_ts) < log_mtime - 1.0:
-        raise ResumeRefused(
-            "stale account_status_capture predates supervisor_log ENOSPC termination"
-        )
-    if float(captured_ts) > now_ts + 60.0:
-        raise ResumeRefused("account_status_capture timestamp lies in the future")
-    if (
-        max_capture_age_seconds is not None
-        and (now_ts - float(captured_ts)) > max_capture_age_seconds
-    ):
-        raise ResumeRefused("stale account_status_capture exceeds maximum admission age")
-
-    status_obj = capture_payload.get("status")
-    if not isinstance(status_obj, Mapping):
-        raise ResumeRefused("account_status_capture lacks status object")
-    sessions_obj = status_obj.get("sessions")
-    usage_obj = status_obj.get("usage")
-    unresolved_obj = status_obj.get("unresolved")
-    if (
-        not isinstance(sessions_obj, Mapping)
-        or len(sessions_obj) != 0
-        or endpoint in sessions_obj
-        or not isinstance(usage_obj, Mapping)
-        or isinstance(usage_obj.get("assignments"), bool)
-        or not isinstance(usage_obj.get("assignments"), (int, float))
-        or float(usage_obj["assignments"]) != 0.0
-        or isinstance(usage_obj.get("rate"), bool)
-        or not isinstance(usage_obj.get("rate"), (int, float))
-        or float(usage_obj["rate"]) != 0.0
-        or isinstance(usage_obj.get("balance"), bool)
-        or not isinstance(usage_obj.get("balance"), (int, float))
-        or not math.isfinite(float(usage_obj["balance"]))
-        or unresolved_obj != []
-    ):
-        raise ResumeRefused(
-            "account_status_capture does not prove empty server sessions, 0 assignments, "
-            "0.0 rate, and empty unresolved pending state"
-        )
+    capture_payload = _verify_account_release_capture(
+        capture_desc,
+        sup_log_path,
+        endpoint=endpoint,
+        now_unix_seconds=now_unix_seconds,
+        max_capture_age_seconds=max_capture_age_seconds,
+    )
+    captured_ts = capture_payload["captured_unix_seconds"]
 
     broker_rec = release.get("broker_reconciliation")
     if not isinstance(broker_rec, Mapping) or not isinstance(broker_rec.get("account_root"), str):
@@ -2654,7 +2681,7 @@ def verify_host_enospc_recovery(
         "original_supervisor_error": "UNKNOWN_UNAVAILABLE",
         "original_cleanup_error": "UNKNOWN_UNAVAILABLE",
         "post_hoc_release_verified": True,
-        "account_status_capture_sha256": capture_sidecar_desc["sha256"],
+        "account_status_capture_sha256": capture_desc["sha256"],
         "captured_at_utc": capture_payload.get("captured_at_utc"),
         "captured_unix_seconds": captured_ts,
         "broker_reconciliation_mode": rec_mode,
