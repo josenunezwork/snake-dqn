@@ -1,0 +1,393 @@
+{
+  "schema": "astra-train01-s2-05-verification/v1",
+  "status": "PREPARED_NOT_DISPATCHED",
+  "root_cause": "critic preparation quality endpoint failed; not a stall",
+  "source_s2_04_c1_eligible": false,
+  "classification": "fresh diagnostic original attempt; not completion/efficacy replacement",
+  "branch": "astra-train01-s2-20261028",
+  "runtime_pin": "011791f64aa43be911acf3feae451b984b93756e",
+  "broker_pin": "58f8c84011413e894e7bf35c5f016d315c853760",
+  "packet_path": "/Users/josenunez/Projects/ml/snake-dqn-train01-s2/research/sandbox_a_resident/packet-train01-s2-05-r1",
+  "packet_manifest_sha256": "b3a38d4828a50aafc37f1965006ff948cef5cf30d275472d3cabd13772be840f",
+  "diagnosis": {
+    "source_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/sandbox-a-resident/train01-s2-attempt-04/output-a100-fallback",
+    "status": "PREPARATION_FAILURE_NOT_STALL",
+    "receipt": {
+      "status": "INCOMPLETE",
+      "failure_class": "CHILD_NONZERO_EXIT",
+      "elapsed_seconds": 7654.726557917078,
+      "stop_verified": true,
+      "cleanup_error": null
+    },
+    "terminal": {
+      "started_at": 1793268178.4105134,
+      "finished_at": 1793275812.3077354,
+      "returncode": 1,
+      "status": "failed",
+      "last_traceback_line": "STALL_WATCHDOG_DIAGNOSTICS sealed_dir=/content/snake-cli/7e6d98fbf36649038a39b21246aa414e/output/training/stall-watchdog"
+    },
+    "watchdog": {
+      "counters": {
+        "derivative_bytes": 8140268,
+        "iteration": 0,
+        "stage": "snapshot-compact-complete"
+      },
+      "deadline_monotonic_seconds": 8641.343479891,
+      "pid": 1399,
+      "progress_monotonic_seconds": 7741.343479694,
+      "schema": "sandbox-a-stall-watchdog/v1",
+      "stage": "snapshot-compact-complete",
+      "timeout_seconds": 900.0
+    },
+    "snapshot_metadata": {
+      "allocation": "48806fce3158a3a4d5b51408f3c0ba9740d0b063ca4c337662f67f310fe83f4a",
+      "phase": "preparation-failed",
+      "prepare_phase": "failed",
+      "provenance": {
+        "b8_s3_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+        "champion_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+        "engine": "simulator-D",
+        "frp3_s12_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+        "roster_definition": "research.t34_round0.bank._rows"
+      },
+      "source_commit": "b0c9a4be9c50a6ec191612c7e0c487cd9b73a3ad"
+    },
+    "events": [
+      {
+        "file": "poll-000417.json",
+        "observed_at_pt": "2026-10-29T05:00:31.687146-07:00",
+        "elapsed_seconds": 6285,
+        "holdout_rows": 35747,
+        "limit": 8388608,
+        "rows": 4767480,
+        "stage": "critic-holdout"
+      },
+      {
+        "file": "poll-000421.json",
+        "observed_at_pt": "2026-10-29T05:01:32.097731-07:00",
+        "elapsed_seconds": 6345,
+        "holdout_rows": 37720,
+        "limit": 8388608,
+        "rows": 4823280,
+        "stage": "critic-holdout"
+      },
+      {
+        "file": "poll-000425.json",
+        "observed_at_pt": "2026-10-29T05:02:32.510341-07:00",
+        "elapsed_seconds": 6406,
+        "holdout_rows": 52779,
+        "limit": 8388608,
+        "rows": 4876920,
+        "stage": "critic-holdout"
+      },
+      {
+        "file": "poll-000428.json",
+        "observed_at_pt": "2026-10-29T05:03:32.922140-07:00",
+        "elapsed_seconds": 6466,
+        "holdout_rows": 54963,
+        "limit": 8388608,
+        "rows": 4930920,
+        "stage": "critic-holdout"
+      },
+      {
+        "file": "poll-000432.json",
+        "observed_at_pt": "2026-10-29T05:04:33.335829-07:00",
+        "elapsed_seconds": 6527,
+        "holdout_rows": 64353,
+        "limit": 8388608,
+        "rows": 4984560,
+        "stage": "critic-holdout"
+      },
+      {
+        "file": "poll-000436.json",
+        "observed_at_pt": "2026-10-29T05:05:33.750749-07:00",
+        "elapsed_seconds": 6587,
+        "holdout_rows": 65144,
+        "limit": 8388608,
+        "rows": 5037120,
+        "stage": "critic-holdout"
+      },
+      {
+        "file": "poll-000440.json",
+        "observed_at_pt": "2026-10-29T05:06:34.163574-07:00",
+        "elapsed_seconds": 6647,
+        "holdout_rows": 70492,
+        "limit": 8388608,
+        "rows": 5090040,
+        "stage": "critic-holdout"
+      },
+      {
+        "file": "poll-000443.json",
+        "observed_at_pt": "2026-10-29T05:07:34.579573-07:00",
+        "elapsed_seconds": 6708,
+        "holdout_rows": 87877,
+        "limit": 8388608,
+        "rows": 5142960,
+        "stage": "critic-holdout"
+      },
+      {
+        "file": "poll-000447.json",
+        "observed_at_pt": "2026-10-29T05:08:35.000070-07:00",
+        "elapsed_seconds": 6768,
+        "holdout_rows": 89626,
+        "limit": 8388608,
+        "rows": 5196240,
+        "stage": "critic-holdout"
+      },
+      {
+        "file": "poll-000449.json",
+        "observed_at_pt": "2026-10-29T05:09:05.210234-07:00",
+        "elapsed_seconds": 6794,
+        "holdout_rows": 92747,
+        "limit": 8388608,
+        "rows": 5220360,
+        "stage": "critic-holdout-end"
+      },
+      {
+        "file": "poll-000449.json",
+        "observed_at_pt": "2026-10-29T05:09:05.210234-07:00",
+        "elapsed_seconds": 6795,
+        "limit": 16384,
+        "rows": 92747,
+        "stage": "critic-quality-start"
+      },
+      {
+        "file": "poll-000449.json",
+        "observed_at_pt": "2026-10-29T05:09:05.210234-07:00",
+        "elapsed_seconds": 6795,
+        "limit": 16384,
+        "rows": 92747,
+        "stage": "critic-quality-end"
+      },
+      {
+        "file": "poll-000449.json",
+        "observed_at_pt": "2026-10-29T05:09:05.210234-07:00",
+        "iteration": 0,
+        "stage": "snapshot-compact-start"
+      },
+      {
+        "file": "poll-000453.json",
+        "observed_at_pt": "2026-10-29T05:10:12.311210-07:00",
+        "derivative_bytes": 8140268,
+        "iteration": 0,
+        "stage": "snapshot-compact-complete"
+      }
+    ],
+    "continuation_refusals": {
+      "mechanical_stop": "terminal records a non-mechanical child failure",
+      "build_ledger": "no complete full-trajectory snapshot triples",
+      "terminal_poll_fault_scan": "prior evidence records explicit scientific/non-mechanical fault in retained.final_poll.job_log_tail: 'preparationfailure'"
+    },
+    "evidence_sha256": {
+      "manifest.json": "4564f2ad4ceba682205a5e3cc1a03399607c1302d5e8542fde0d43f00c93ee39",
+      "receipt.json": "e6a3b8e019fa00d999e9fbeffdb21740281787634dc8a71eda67b321ef44ee92",
+      "terminal.json": "a05a0adf68cd6b7a397c6f12ad18795d0055a4546c69c96bc2ddbcba2271c5b9",
+      "poll-000449.json": "9f342ee28a38afbf22a313ce70d73e0b808b2c56b3305e9cf98eb26d0f9bccbc",
+      "poll-000453.json": "306a6ac9efef3b5e42f8638d02ab21e1aac163d77154318c51479d06061365cc",
+      "exports/training/iteration-0000.json": "eb2a28b40ff8c27142029879e522b4dde78abb93e18f155c600621b0dd000e6f",
+      "exports/training/stall-watchdog/stall-watchdog.json": "7b984c92de85080f9a84a9d996997149dbeaf78420f4955b449ceb3182ad6125",
+      "exports/training/stall-watchdog/faulthandler-stacks.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "admission": {
+    "status": "PASS",
+    "entrypoint": "tools.ops.dispatch.require_sandbox_admission",
+    "calls": [
+      {
+        "gpu": "H100",
+        "repeat": 1,
+        "returncode": 0,
+        "elapsed_seconds": 53.56536533404142,
+        "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2f/evidence/admission-H100-1-r1-qualified.log"
+      },
+      {
+        "gpu": "H100",
+        "repeat": 2,
+        "returncode": 0,
+        "elapsed_seconds": 53.01163204200566,
+        "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2f/evidence/admission-H100-2-r1-qualified.log"
+      },
+      {
+        "gpu": "H100",
+        "repeat": 3,
+        "returncode": 0,
+        "elapsed_seconds": 52.75788124999963,
+        "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2f/evidence/admission-H100-3-r1-qualified.log"
+      },
+      {
+        "gpu": "A100",
+        "repeat": 1,
+        "returncode": 0,
+        "elapsed_seconds": 51.92240716598462,
+        "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2f/evidence/admission-A100-1-r1-qualified.log"
+      },
+      {
+        "gpu": "A100",
+        "repeat": 2,
+        "returncode": 0,
+        "elapsed_seconds": 52.17972504196223,
+        "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2f/evidence/admission-A100-2-r1-qualified.log"
+      },
+      {
+        "gpu": "A100",
+        "repeat": 3,
+        "returncode": 0,
+        "elapsed_seconds": 51.392031417111866,
+        "log": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-train01-s2f/evidence/admission-A100-3-r1-qualified.log"
+      }
+    ],
+    "allocations": 0
+  },
+  "test_summaries": {
+    "resident-suite.log": [
+      "812 passed, 1 deselected in 225.04s (0:03:45)"
+    ],
+    "focused-committed.log": [
+      "87 passed in 33.44s"
+    ],
+    "final-focused-and-wrapper.log": [
+      "151 passed in 34.72s"
+    ],
+    "transport-ops.log": [
+      "272 passed in 691.87s (0:11:31)"
+    ]
+  },
+  "launcher_smoke": {
+    "status": "PASS",
+    "source_commit": "011791f64aa43be911acf3feae451b984b93756e",
+    "launcher": "research/sandbox_a_resident/train_job.sh",
+    "full_seconds": 47.82708350010216,
+    "tiny_worlds": 3,
+    "rollout_horizon": 2,
+    "full_updates": 3,
+    "arch_flags": {
+      "flags": [
+        "-gencode=arch=compute_80,code=sm_80",
+        "-gencode=arch=compute_90,code=sm_90"
+      ],
+      "arch_list": "8.0;9.0",
+      "cuda_executed": false
+    },
+    "native_cuda_executed": false,
+    "device_override": "Mac CPU shim; actual launcher and real training entrypoint executed",
+    "compact_export_verification": "PASS",
+    "compact_full_state_bytes": 12809880
+  },
+  "source_install": {
+    "status": "PASS",
+    "bound_seconds": 2,
+    "files_verified": 194,
+    "source_tar_gz_bytes": 973979,
+    "source_unpacked_bytes": 4033558,
+    "runs": [
+      {
+        "index": 0,
+        "launch_seconds": 0.0021706660045310855,
+        "completion_seconds": 0.2637573750689626,
+        "status": "completed"
+      },
+      {
+        "index": 1,
+        "launch_seconds": 0.00198433396872133,
+        "completion_seconds": 0.2630664589814842,
+        "status": "completed"
+      },
+      {
+        "index": 2,
+        "launch_seconds": 0.002221749979071319,
+        "completion_seconds": 0.263710833969526,
+        "status": "completed"
+      }
+    ]
+  },
+  "staging_projection": {
+    "status": "PASS_PROJECTION",
+    "private_inputs": {
+      "b8-s3.pth": 6562005,
+      "frp3-s12.pth": 6906247,
+      "champion.pth": 6898955,
+      "registry.json": 1234356,
+      "verified-ledger.json": 188
+    },
+    "supervisor_pinned_files": {
+      "bootstrap.sh": 3244,
+      "source.py": 14511,
+      "source.tar.gz": 973979
+    },
+    "total_upload_bytes": 22593485,
+    "total_upload_file_count": 8,
+    "nominal_seconds": 36.64574361190769,
+    "worst_case_seconds": 62.51793818934447,
+    "hard_cap_seconds": 300
+  },
+  "frozen_contract_parity": {
+    "status": "PASS",
+    "prior_runtime": "b0c9a4be9c50a6ec191612c7e0c487cd9b73a3ad",
+    "runtime": "011791f64aa43be911acf3feae451b984b93756e",
+    "controls_equal_except_source_commit": true,
+    "seed_audits_byte_exact": [
+      "registry-check.json",
+      "seed-disjointness.json"
+    ],
+    "unchanged_science_modules": [
+      "training_model.py",
+      "training_learner.py",
+      "training_prep.py",
+      "training_proxy.py",
+      "training_task.py",
+      "training_rosters.py"
+    ],
+    "ledger_units": 0,
+    "faulthandler_guard_matches_ct_signal_fix": true,
+    "packet_manifest_sha256": "b3a38d4828a50aafc37f1965006ff948cef5cf30d275472d3cabd13772be840f"
+  },
+  "clean_checkouts": {
+    "snake-dqn-train01-s2f-broker.noindex": {
+      "pin": "58f8c84011413e894e7bf35c5f016d315c853760",
+      "clean": true,
+      "checkout_caches": []
+    },
+    "snake-dqn-train01-s2f-runtime.noindex": {
+      "pin": "011791f64aa43be911acf3feae451b984b93756e",
+      "clean": true,
+      "checkout_caches": []
+    },
+    "snake-dqn-train01-s2f-review.noindex": {
+      "pin": "58f8c84011413e894e7bf35c5f016d315c853760",
+      "clean": true,
+      "checkout_caches": []
+    }
+  },
+  "review_sha256": {
+    "argon-final-code-review-02": "e2a8c9f07be9216ee1b817050625b848be919a17af7c4d4bce3612df40261022",
+    "argon-packaging-code-review": "916ef65fed65b39eb5d8802c97ad8304ebce478d554ce05c18d6f29a78f0113b",
+    "argon-packet-review": "30cd3d15bab545bd8292c2dfee55a6bd4c4a036b0857d1746ee1fb3ba9adff24"
+  },
+  "evidence_sha256": {
+    "live-diagnosis.json": "61347d883a1c43dc73a2c1374beb607a9a18e58093ba136ab3d73168c691a153",
+    "resident-suite.log": "d009e2bbbfc020f5690b75da321be5eb6236ce335cfd0bd10ed737e0b28efb5a",
+    "focused-committed.log": "be4f1a9ef34eb4314db669cc52ab52af987b09a111bff9bb2d0c14cef8261e2a",
+    "frozen-byte-twin.log": "585fae06605fcd729232b1f483905d57092b0a81d08869e82c4e844bac35532c",
+    "revision-family-twins.log": "8a822b283878ae8f9c36a681df8b16aea95c9892b8751a934ca163a04a7fa0f8",
+    "final-focused-and-wrapper.log": "b4a010fa74062313a8c596e879607039a16413a8c133bb84f8ce9848f54ec21c",
+    "transport-ops.log": "b8cd9c5ddde98dbb2876427020225eb3caafae0e2d429aaa5fd0625d38a8b495",
+    "admission-replays.json": "88f7037029b3d873c78bc18340ccf966d92d8c2287818b98c37f31411138509f",
+    "dispatch-dry-run.log": "d59472a5fbce8487f72bbb092145de1d84a5a6f47bc6db2474c8b0b299ffa910",
+    "source-launch-r1.json": "f48251c831384c664dea9e05c477ec4e697d5a53ddc1c5a708da60e78ecac17c",
+    "staging-projection-r1.json": "5dafd41ac4ef9c95a663560f3ff01e631406d9530101e9cae799bad4a4897ed9",
+    "frozen-contract-parity.json": "43b3212198cbba8e78b0ff7fddea542a857b68c25aa312950b9d549c842922d4",
+    "launcher-smoke-final-pin/measurement.json": "74c228399e355ea8d672f8b834837c043bb2f7bfae02ae496f77778c23e5340b"
+  },
+  "retained_unqualified_seal": {
+    "path": "research/sandbox_a_resident/packet-train01-s2-05/SEAL.json",
+    "sha256": "0d7729ac511bb168f3889b9071629f90cd2c1ff4c0bcf93c7b0cd3ceeea1a415",
+    "side_effects": "first offline admission refused foreign sandbox path; zero allocations"
+  },
+  "limits": {
+    "native_cuda_executed": false,
+    "new_colab_allocations": 0,
+    "serving_changes": false,
+    "main_pushed": false,
+    "prior_failure_erased": false
+  }
+}
