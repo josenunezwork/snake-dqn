@@ -274,8 +274,15 @@ def _verify_broker_binding(payload: dict[str, Any]) -> None:
         seconds, payload["timeout"]["seconds"], abs_tol=1e-8
     ):
         raise PreflightError("broker timeout differs from sandbox timeout")
-    if packet.get("requirements", {}).get("gpu") != "A100":
-        raise PreflightError("sandbox broker must request A100")
+    req = packet.get("requirements", {})
+    if req.get("gpu") not in {"A100", "H100"} or req.get("allowed_gpus", [req["gpu"]]) != [
+        req["gpu"]
+    ]:
+        raise PreflightError("sandbox broker must request explicit H100 or A100")
+    if "prefer" in req:
+        from research.compute.gpu_preference import variants
+
+        variants(packet)
     commit = packet.get("commit", "")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise PreflightError("broker runtime pin must be a full commit SHA")

@@ -359,11 +359,14 @@ def binding(path: Path, commit: str, repo: Path = ROOT) -> dict[str, str]:
 
 
 def require_for_a100_canary(manifest: dict[str, Any], repo: Path = ROOT) -> None:
-    """Refuse A100 GPU-sprint probes before any allocation side effects."""
+    """Refuse H100/A100 GPU-sprint probes before any allocation side effects."""
     if not (
         (
-            manifest.get("requirements", {}).get("gpu") == "A100"
-            or "A100" in manifest.get("requirements", {}).get("allowed_gpus", [])
+            manifest.get("requirements", {}).get("gpu") in {"A100", "H100"}
+            or any(
+                gpu in manifest.get("requirements", {}).get("allowed_gpus", [])
+                for gpu in ("A100", "H100")
+            )
         )
         and manifest.get("canary", {}).get("mode") == "probe"
         and str(manifest.get("script", "")).startswith(PACKAGE + "/")
@@ -426,7 +429,7 @@ def require_for_a100_canary(manifest: dict[str, Any], repo: Path = ROOT) -> None
         return
     proof = manifest.get("native_cuda_compile", {}).get("receipt", {})
     if not isinstance(proof, dict) or not proof.get("path") or not proof.get("sha256"):
-        raise ValueError("A100 canary requires native CUDA compile PASS receipt")
+        raise ValueError("H100/A100 canary requires native CUDA compile PASS receipt")
     if binding(Path(proof["path"]), manifest["commit"], repo) != proof:
         raise ValueError("native compile receipt SHA256 differs")
 
