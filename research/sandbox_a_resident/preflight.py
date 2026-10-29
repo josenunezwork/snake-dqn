@@ -42,6 +42,7 @@ def main() -> int:
     environment = dict(os.environ)
     environment.pop("SNAKE_SANDBOX_TEST_RECEIPT", None)
     environment.pop("SNAKE_SANDBOX_ALLOCATION_LEASE", None)
+    environment.pop("SNAKE_SANDBOX_REQUIRE_TEST_RECEIPT", None)
     environment.update(
         {
             key: "1"

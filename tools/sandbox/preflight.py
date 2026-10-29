@@ -304,6 +304,7 @@ def run_focused_tests() -> None:
     env = os.environ.copy()
     env.pop("SNAKE_SANDBOX_TEST_RECEIPT", None)
     env.pop("SNAKE_SANDBOX_ALLOCATION_LEASE", None)
+    env.pop("SNAKE_SANDBOX_REQUIRE_TEST_RECEIPT", None)
     env.update(
         {
             "OMP_NUM_THREADS": "1",
