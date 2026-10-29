@@ -92,7 +92,8 @@ GPU-sprint H100 canaries require a native-compile receipt that includes `9.0`;
 historical `8.0;8.9` receipts remain valid only for their supported hardware.
 
 Fallback occurs once, only after the installed 0.7.4 CLI's exact exit-1/412
-allocation rejection, supervisor termination, and independent proof that no
+allocation rejection or the measured H100 assign-POST `ColabRequestError` ending
+in `Service Unavailable`/503, supervisor termination, and independent proof that no
 endpoint was assigned and no VM compute or transfers occurred. Under the broker's
 account lock, dispatch verifies the exact pending/config identity, absence of all
 durable endpoint records, a GET-only notebook recovery returning no endpoint, and
@@ -102,6 +103,22 @@ supervisor's original incomplete receipt remains unchanged; it does not acquire
 an invented `stop_verified` flag. Unknown errors, timeout, 400 entitlement errors,
 uncertain recovery, changed inventory, or any endpoint forbid fallback. Preference
 packets never use the legacy accounting retry after an endpoint failure.
+
+For a retained H100 pending record from either recognized error, use
+`python tools/ops/reconcile_gpu_pending.py --manifest <executed-live-manifest>
+--state-dir <state-root> --log <terminated-dispatch-log> --pending <exact-account-pending>
+--proof <fresh-archive.json> --broker <qualified-broker> --dry-run`. The preview runs
+GET-only recovery and sessions under the same ops/account locks and prints proof;
+it leaves the pending record and archive path untouched. Replace `--dry-run` with
+`--live` for the operator to repeat every check, create the immutable archive
+(including the full pending payload and SHA), then unlink only that pending path.
+No allocation, stop, active-record mutation, fallback dispatch, or receipt rewrite
+is performed by this command. Any recovered endpoint, inventory drift, other
+pending intent, archive collision or evidence mismatch keeps the pending fence.
+The qualified supervisor refuses **all new allocations** while any pending record
+exists, even when fewer than three sessions are active. Historical sealed brokers
+remain fenced until this shared account record is reconciled; no packet change
+is necessary to remove that account-wide blocker.
 
 `gpu-preference.json` binds both admissions. Each submitted variant publishes a
 separate `gpu-receipt.json` after supervisor exit, binding its original receipt,

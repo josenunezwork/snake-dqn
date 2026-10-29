@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -13,6 +16,7 @@ from tests import test_ops_dispatch as shared
 
 fixture = shared.fixture
 wait_for = shared.wait_for
+REAL_FAILURE = Path(__file__).parent / "fixtures/h100_assign_503_20261028"
 
 
 def preferred(f: dict, mode: str = "gpu_success") -> None:
@@ -68,9 +72,11 @@ def test_h100_healthy_path_seals_both_before_submit(fixture):
     assert not (f["tmp"] / "output-a100-fallback").exists()
 
 
-def test_allocation_unavailable_reconciles_then_uses_a100(fixture):
+@pytest.mark.parametrize("mode", ["gpu_unavailable", "gpu_service_unavailable"])
+def test_allocation_unavailable_reconciles_then_uses_a100(fixture, mode):
     f = fixture
-    preferred(f, "gpu_unavailable")
+    preferred(f, mode)
+    f["env"]["GPU_FAILURE_FIXTURE"] = str(REAL_FAILURE / "receipt.json")
     f["env"]["EXIT_DELAY"] = ".15"
     result = f["invoke"]()
     assert result.returncode == 0, result.stderr
@@ -306,3 +312,166 @@ def test_new_envelopes_price_each_hardware_forecast_not_inherited_cap(old_cap):
         assert envelope["base_timeout_minutes"] == 10
         assert envelope["effective_timeout_minutes"] == 20
         assert item["budget"]["reserve_units"] == 2
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "healthy",
+        "503",
+        "400",
+        "timeout",
+        "url",
+        "accelerator",
+        "method",
+        "suffix",
+        "endpoint",
+        "accounting_endpoint",
+        "terminal",
+        "exports",
+        "hardware",
+        "new_completed",
+    ],
+)
+def test_real_producer_allocation_classification(tmp_path, mutation):
+    from tools.ops.dispatch import allocation_unavailable
+
+    receipt = json.loads((REAL_FAILURE / "receipt.json").read_text())
+    detail = ast.literal_eval(receipt["error"][len("Refused(") : -1])
+    replacements = {
+        "503": ("Service Unavailable", "503"),
+        "400": ("Service Unavailable", "Bad Request"),
+        "timeout": ("Service Unavailable", "Read timed out"),
+        "url": ("/tun/m/assign?", "/tun/m/other?"),
+        "accelerator": ("accelerator=H100", "accelerator=A100"),
+        "method": ("request POST", "request GET"),
+        "suffix": ("Service Unavailable", "Service Unavailable extra"),
+    }
+    if mutation in replacements:
+        detail = detail.replace(*replacements[mutation])
+        receipt["error"] = "Refused(" + repr(detail) + ")"
+    if mutation == "endpoint":
+        receipt["endpoint"] = "assigned"
+    if mutation == "accounting_endpoint":
+        receipt["accounting"]["allocated_endpoint"] = "assigned"
+    if mutation == "terminal":
+        receipt["terminal"] = {"status": "FAILED"}
+    if mutation == "exports":
+        receipt["exports"] = [{"path": "payload"}]
+    if mutation == "hardware":
+        (tmp_path / "hardware.json").write_text("{}")
+    if mutation == "new_completed":
+        next(c for c in receipt["cli_calls"] if c["command"] == "new")["status"] = "completed"
+    (tmp_path / "receipt.json").write_text(json.dumps(receipt))
+    log = tmp_path / "producer.log"
+    log.write_bytes((REAL_FAILURE / "producer.log").read_bytes())
+    assert allocation_unavailable(tmp_path, log) is (mutation in {"healthy", "503"})
+
+
+def retained_pending(f):
+    """Produce a failed attempt with the real error and a retained fixture intent."""
+    preferred(f, "gpu_service_unavailable")
+    f["env"]["GPU_FAILURE_FIXTURE"] = str(REAL_FAILURE / "receipt.json")
+    f["env"]["RECOVER_ENDPOINT"] = "uncertain-endpoint"
+    result = f["invoke"]()
+    assert result.returncode != 0 and "endpoint recovered" in result.stderr
+    del f["env"]["RECOVER_ENDPOINT"]
+    account = Path(f["env"]["HOME"]) / ".config/colab-cli/snake"
+    return next(account.glob("pending-*.json"))
+
+
+def reconcile_command(f, pending, *, live=False):
+    return [
+        sys.executable,
+        str(shared.ROOT / "tools/ops/reconcile_gpu_pending.py"),
+        "--manifest",
+        str(f["ops"] / "manifests/lane.live.json"),
+        "--state-dir",
+        str(f["ops"] / "state/lane"),
+        "--log",
+        str(f["ops"] / "logs/lane.log"),
+        "--pending",
+        str(pending),
+        "--proof",
+        str(f["tmp"] / "archive.json"),
+        "--broker",
+        str(f["broker"]),
+        "--live" if live else "--dry-run",
+    ]
+
+
+@pytest.mark.parametrize("live", [False, True])
+def test_operator_reconciliation_repeats_proof_and_preserves_active(fixture, live):
+    f = fixture
+    pending = retained_pending(f)
+    raw = pending.read_bytes()
+    active = pending.parent / "active-preexisting.json"
+    active.write_text('{"session":"preexisting"}')
+    before = active.read_bytes()
+    result = subprocess.run(
+        reconcile_command(f, pending, live=live),
+        env=f["env"],
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    evidence = json.loads(result.stdout)
+    assert evidence["pending"]["record"] == json.loads(raw)
+    assert evidence["pending"]["sha256"] == hashlib.sha256(raw).hexdigest()
+    assert evidence["pending_action"] == ("unlink_after_archive" if live else "preserve")
+    assert pending.exists() is not live
+    archive = f["tmp"] / "archive.json"
+    assert archive.exists() is live
+    if live:
+        assert json.loads(archive.read_text()) == evidence
+    else:
+        assert pending.read_bytes() == raw
+    assert active.read_bytes() == before
+    assert not (Path(f["env"]["HOME"]) / "real-colab-called").exists()
+    assert len(trace(f, "run")) == 1  # Operator path never launches the fallback.
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "recovered",
+        "sessions",
+        "foreign",
+        "archive",
+        "pending_path",
+        "assignment",
+        "manifest",
+        "proof_failure",
+    ],
+)
+def test_operator_reconciliation_refuses_ambiguous_evidence(fixture, fault):
+    f = fixture
+    pending = retained_pending(f)
+    raw = pending.read_bytes()
+    selected = pending
+    if fault == "recovered":
+        f["env"]["RECOVER_ENDPOINT"] = "real-endpoint"
+    elif fault == "sessions":
+        f["env"]["INVENTORY_RAW"] = "[?] another | Hardware: L4 | Shape: Standard | Variant: GPU"
+    elif fault == "foreign":
+        (pending.parent / "pending-foreign.json").write_text("{}")
+    elif fault == "archive":
+        (f["tmp"] / "archive.json").write_text("preserved")
+    elif fault == "pending_path":
+        selected = pending.parent / "active-preexisting.json"
+    elif fault == "assignment":
+        lane = f["ops"] / "state/lane/job"
+        (lane / "sessions.assignment.json").write_text('{"endpoint":"real-endpoint"}')
+    elif fault == "manifest":
+        (f["tmp"] / "output/manifest.json").write_text("{}")
+    elif fault == "proof_failure":
+        (f["tmp"] / "blocked").write_text("not a directory")
+    argv = reconcile_command(f, selected, live=True)
+    if fault == "proof_failure":
+        argv[argv.index("--proof") + 1] = str(f["tmp"] / "blocked/archive.json")
+    result = subprocess.run(argv, env=f["env"], text=True, capture_output=True, timeout=10)
+    assert result.returncode != 0
+    assert "REFUSE:" in result.stderr
+    assert pending.read_bytes() == raw
+    assert len(trace(f, "run")) == 1

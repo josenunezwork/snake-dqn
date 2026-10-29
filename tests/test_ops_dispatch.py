@@ -108,6 +108,7 @@ if mode.startswith('gpu_'):
              'status':'INCOMPLETE', 'endpoint':None, 'terminal':None, 'exports':[],
              'transfers':[], 'contents_transfers':[], 'stop_verified':False,
              'failure_class':'SUPERVISOR',
+             'accounting':{'allocated_endpoint':None},
              'cleanup_error':'ALLOCATION_UNRESOLVED: retained pending record',
              'cli_calls':[{'command':'new', 'status':'failed'}]}
     message=("[colab] Allocation refused (precondition failed). This can mean "
@@ -117,6 +118,8 @@ if mode.startswith('gpu_'):
     receipt['error']=repr(RuntimeError())  # overwritten with supervisor's Refused repr
     detail="colab new failed (1): [colab] Creating session '"+session+"'...\\n"+message+"\\n"
     receipt['error']='Refused('+repr(detail)+')'
+    if mode == 'gpu_service_unavailable':
+        receipt['error']=json.loads(Path(os.environ['GPU_FAILURE_FIXTURE']).read_text())['error']
     account=Path.home()/'.config/colab-cli/snake'
     account.mkdir(parents=True, exist_ok=True)
     intent={'session':session,'config':str(state/job/'sessions.json'), 'output':str(output),

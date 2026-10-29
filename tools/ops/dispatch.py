@@ -1976,7 +1976,7 @@ ALLOCATION_UNAVAILABLE = (
 
 
 def allocation_unavailable(output: Path, log: Path) -> bool:
-    """Recognize only the installed 0.7.4 CLI's explicit allocation rejection.
+    """Recognize the measured 0.7.4 pre-assignment scarcity errors only.
 
     This is only a candidate: reconciliation below must independently prove
     no assignment. Timeout, entitlement, accounting and post-endpoint errors
@@ -2003,12 +2003,30 @@ def allocation_unavailable(output: Path, log: Path) -> bool:
         + ALLOCATION_UNAVAILABLE
         + "\n"
     )
+    # The real 2026-10-28 producer renders a traceback, truncated by the
+    # supervisor, followed by this exact exception line. Match the terminal
+    # line and assignment URL, never a loose "Service Unavailable" substring.
+    service_unavailable = isinstance(detail, str) and detail.startswith("colab new failed (1): ")
+    if service_unavailable:
+        lines = detail.removeprefix("colab new failed (1): ").strip().splitlines()
+        service_unavailable = (
+            re.fullmatch(
+                r"ColabRequestError: Failed to issue request POST "
+                r"https://colab\.research\.google\.com/tun/m/assign"
+                r"\?nbh=[a-f0-9_.-]+&variant=GPU&accelerator=H100: "
+                r"(?:Service Unavailable|503(?: Service Unavailable)?)",
+                lines[-1] if lines else "",
+            )
+            is not None
+        )
     calls = receipt.get("cli_calls")
     return (
-        detail == expected
+        (detail == expected or service_unavailable)
         and receipt.get("status") == "INCOMPLETE"
         and receipt.get("failure_class") == "SUPERVISOR"
         and receipt.get("endpoint") is None
+        and isinstance(receipt.get("accounting"), dict)
+        and receipt["accounting"].get("allocated_endpoint") is None
         and receipt.get("terminal") is None
         and receipt.get("cleanup_error") == "ALLOCATION_UNRESOLVED: retained pending record"
         and receipt.get("stop_verified") is False
@@ -2026,8 +2044,16 @@ def allocation_unavailable(output: Path, log: Path) -> bool:
 
 
 def reconcile_unavailable(
-    broker: Path, manifest: Path, state: Path, log: Path, proof: Path, deadline: float
-) -> None:
+    broker: Path,
+    manifest: Path,
+    state: Path,
+    log: Path,
+    proof: Path,
+    deadline: float,
+    *,
+    dry_run: bool = False,
+    expected_pending: Path | None = None,
+) -> dict[str, Any]:
     """Archive and retire only the rejected request's proven empty pending intent.
 
     Hold the same account mutation lock as the supervisor while issuing GET-only
@@ -2035,6 +2061,8 @@ def reconcile_unavailable(
     failure or unrelated pending record leaves the account fenced for an operator.
     """
     packet = read_json(manifest)
+    if packet.get("requirements", {}).get("gpu") != "H100":
+        raise Refused("only H100 allocation reconciliation is supported")
     output = Path(packet["output_dir"])
     if not allocation_unavailable(output, log):
         raise Refused("H100 allocation unavailability is not proven")
@@ -2056,6 +2084,8 @@ def reconcile_unavailable(
     account = Path.home() / ".config/colab-cli/snake"
     with allocation_lock(account / "broker.lock", max(0.001, deadline - time.monotonic())):
         pending = account / f"pending-{session}.json"
+        if expected_pending is not None and expected_pending != pending:
+            raise Refused("requested pending path differs from receipt session")
         if set(account.glob("pending-*.json")) != {pending}:
             raise Refused("unavailable allocation has ambiguous pending ownership")
         raw = pending.read_bytes()
@@ -2114,27 +2144,31 @@ def reconcile_unavailable(
             raise Refused("account membership changed; fallback forbidden")
         if raw != pending.read_bytes():
             raise Refused("pending allocation changed during reconciliation")
-        write_create_only_json(
-            proof,
-            {
-                "schema": "colab-allocation-unavailable/v1",
-                "classification": "ALLOCATION_UNAVAILABLE",
-                "receipt": {
-                    "path": str(receipt_path),
-                    "sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
-                },
-                "pending": {
-                    "path": str(pending),
-                    "sha256": hashlib.sha256(raw).hexdigest(),
-                    "record": intent,
-                },
-                "recovery": {"endpoint": None},
-                "sessions_stdout": inventory,
-                "endpoint_ever_assigned": False,
-                "vm_compute_started": False,
+        evidence = {
+            "schema": "colab-allocation-unavailable/v1",
+            "classification": "ALLOCATION_UNAVAILABLE",
+            "receipt": {
+                "path": str(receipt_path),
+                "sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
             },
-        )
-        pending.unlink()
+            "pending": {
+                "path": str(pending),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "record": intent,
+            },
+            "recovery": {"endpoint": None},
+            "sessions_stdout": inventory,
+            "endpoint_ever_assigned": False,
+            "vm_compute_started": False,
+            "mode": "DRY_RUN" if dry_run else "LIVE",
+            "pending_action": "preserve" if dry_run else "unlink_after_archive",
+        }
+        if not dry_run:
+            # Publish the full pending payload and proof before retirement.
+            # A collision or publication error preserves the pending fence.
+            write_create_only_json(proof, evidence)
+            pending.unlink()
+        return evidence
 
 
 def dispatch_preferred(
