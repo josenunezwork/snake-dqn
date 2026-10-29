@@ -16,7 +16,7 @@ from typing import Any, Sequence
 
 from .manifest import ManifestError, _forbidden, load_manifest, protected_name
 
-TRANSPORT_TREE = "5833e54e9c5396121cbbf99a5cd4e52006e564fd"
+TRANSPORT_TREE = "cfd50f45145489c87ff986b9d1a2eed18b07377d"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -96,7 +96,7 @@ def verify_transport_tree() -> None:
     """Confirm the qualified transport subtree is bit-identical and untouched."""
     tree = _run(["git", "rev-parse", "HEAD:research/colab_cli"])
     if tree != TRANSPORT_TREE:
-        raise PreflightError("qualified research/colab_cli tree differs from 5833e54e")
+        raise PreflightError("qualified research/colab_cli tree differs from cfd50f45")
     dirty = _run(
         ["git", "status", "--porcelain", "--untracked-files=all", "--", "research/colab_cli"]
     )

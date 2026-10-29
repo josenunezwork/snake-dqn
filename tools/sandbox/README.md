@@ -66,3 +66,13 @@ packet. The live dispatch path always uses a separate new assignment. It waits
 if an active broker record names F5 or another protected study: this route does
 not infer F5 coexistence permission from available assignment slots. A dry-run
 does not inspect live account capacity or prove coexistence.
+
+### 2026-10-29 prospective host adoption
+
+Fresh sandbox packets now pin main's transport tree
+`cfd50f45145489c87ff986b9d1a2eed18b07377d` from budget-removal commit `041a01b6`.
+The ops registry records `OWNER_AUTHORIZED_OFFLINE_NO_BUDGETS` qualification and
+`PENDING_POST_MERGE_OPUS_BEFORE_DISPATCH`. This admission repair does not change
+that transport. Prior `5833e54e` seals and their evidence remain historical and
+immutable; the new tree requires fresh runtime/broker pins and host validation.
+No live acceptance or dispatch is implied.
