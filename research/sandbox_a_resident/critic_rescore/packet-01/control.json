@@ -1,0 +1,25 @@
+{
+  "base_max_waves": 16,
+  "baseline_offset": 9100000000,
+  "effective_max_waves": 32,
+  "holdout_offset": 9000000000,
+  "horizon": 5000,
+  "input_hashes": {
+    "b8-s3.pth": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "champion.pth": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+    "frp3-s12.pth": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+    "registry.json": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+    "seed1.manifest": "44c0b5d30e48ef3d3be370e30cc478b8ad0855ee2da236bdfaab4f9b5838efd5",
+    "seed1.pt.xz": "a25562d7e95e5dd486620dbe3eee3e7445396c8eb5f5f5f6f1f0f4fdda05fb7b",
+    "seed2.manifest": "90e5bab9070473652f6ed203ae9b3d6595e6ba58175fee2433a8e5fde268aec2",
+    "seed2.pt.xz": "c95a54b8aea658227e6b3599051966d6b7dac658062d9759ad3f29243beced0f"
+  },
+  "late_length": 800,
+  "late_lives_per_mix": 8,
+  "max_waves": 32,
+  "policy": "released-B8-s3 masked greedy; no veto, no updates",
+  "schema": "critic-rescore-control/v1",
+  "source_commit": "0fd54445bcac4359cf8ca1e15e2c91760000a446",
+  "test_only": false,
+  "worlds": 96
+}

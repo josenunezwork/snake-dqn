@@ -1,0 +1,5 @@
+PREPARED ONLY; NO DISPATCH. ZERO COLAB ALLOCATIONS.
+This provisional packet pins the currently published cfd50f45145489c87ff986b9d1a2eed18b07377d transport.
+The requested replacement transport is still being qualified by astra-impl-colab-transport; reseal a fresh packet against that published tree before any execution.
+Independent Argon code review remains pending: High and Medium both returned individual quota exhaustion, without a verdict. No self-review substituted.
+The exact entrypoint passed tiny-input Mac and portable-source checks with actual critics; no production holdout or CUDA execution has run.
