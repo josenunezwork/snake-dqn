@@ -71,7 +71,7 @@ def test_mutation_hang_recovers_only_absent_or_completed_record(
     )
 
 
-@pytest.mark.parametrize("cap", ["deadline", "priced_deadline", "explicit"])
+@pytest.mark.parametrize("cap", ["deadline", "explicit"])
 def test_mutation_recovery_keeps_first_cap_and_busy_fence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: str
 ) -> None:

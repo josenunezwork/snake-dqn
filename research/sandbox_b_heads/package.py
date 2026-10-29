@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from research.bl_residual.data import validate_rows as validate_projection
+from research.compute.gpu_preference import prepare_preference
 from research.sandbox_b_heads.job import SALT, parent_split, sha256
 from research.sandbox_b_heads.resume import recipe, verify_ledger
 
@@ -267,6 +268,7 @@ def build(
             "schema": "standing-a100-development-sandbox-admission/v1",
             "manifest_path": str(sandbox_manifest.resolve()),
         }
+    prepare_preference(manifest)
     manifest_output.write_text(json.dumps(manifest, indent=2) + "\n")
     manifest_output.with_suffix(manifest_output.suffix + ".sha256").write_text(
         f"{sha256(manifest_output)}  {manifest_output.name}\n"

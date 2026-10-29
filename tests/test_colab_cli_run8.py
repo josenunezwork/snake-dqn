@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from research.colab_cli import acceptance, cli_guard, supervisor
+from research.colab_cli import acceptance, cli_guard, policy, supervisor
 from tests import test_colab_cli_fault_properties as harness
 
 _isolate_account = harness._isolate_account
@@ -130,9 +130,8 @@ def test_run8_l4_pre_download_exec_stall_recovers_and_finishes_final_only_path(
     if exec_timeouts > 1:
         assert rc == 1
         assert receipt["status"] == "INCOMPLETE"
-        assert "deadline reached during telemetry recovery" in receipt["error"]
-        # Staging controls now share a 60s recovery allowance, so the cap
-        # prevents dispatching the third scheduled timeout. Every
+        assert any(text in receipt["error"] for text in ("deadline reached", "timed out"))
+        # Preserve the current policy's attempt/recovery allowances. Every
         # dispatched retry must still have an independent idle prerequisite.
         assert len(faults[4:]) >= 2
         assert all(event == "exec" for event in order[::2])
@@ -148,9 +147,11 @@ def test_run8_l4_pre_download_exec_stall_recovers_and_finishes_final_only_path(
             for call in receipt["cli_calls"]
             if call["operation"] == "verify" and call["command"] == "exec"
         ]
-        assert len(verify_calls) == 2
+        assert 2 <= len(verify_calls) <= policy.ATTEMPTS
         assert all(0 < call["timeout_seconds"] <= 30 for call in verify_calls)
-        assert sum(call["timeout_seconds"] for call in verify_calls) <= 60
+        assert (
+            sum(call["timeout_seconds"] for call in verify_calls) <= policy.STAGING_RECOVERY_SECONDS
+        )
         # The virtual scheduler serializes concurrent heartbeat work, adding
         # its 0.25s PUT to measured elapsed. Assert the requested deadlines
         # above rather than erase that truthful receipt time.

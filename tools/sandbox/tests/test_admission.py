@@ -242,6 +242,22 @@ def test_valid_sandbox_packet_is_admitted_without_family_canary(
     assert calls == [(TEN_LINE_MANIFEST, True)]
 
 
+@pytest.mark.parametrize("index", [0, 1])
+def test_preferred_sandbox_accepts_only_derived_hardware_variants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, index: int
+) -> None:
+    from research.compute.gpu_preference import prepare_preference, variants
+
+    original = _packet(tmp_path, monkeypatch)
+    prepare_preference(original)
+    packet = variants(original)[index]
+    _bind_preflight(monkeypatch, packet, tmp_path, original=original)
+    dispatch.require_sandbox_admission(packet, ROOT)
+    packet["env"]["SNAKE_DQN_DEVICE"] = "cpu"
+    with pytest.raises(dispatch.Refused, match="differs from committed preflight binding"):
+        dispatch.require_sandbox_admission(packet, ROOT)
+
+
 def test_route_uses_real_supervisor_validate_and_only_mocks_preflight(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

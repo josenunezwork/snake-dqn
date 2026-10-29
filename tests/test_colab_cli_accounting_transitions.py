@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+
 import pytest
 
 from research.colab_cli import accounting
+
+
+@contextlib.contextmanager
+def _warns(code: str):
+    captured = io.StringIO()
+    with contextlib.redirect_stderr(captured):
+        yield
+    assert '"WARNING":' in captured.getvalue()
+    assert code in captured.getvalue()
 
 
 def _usage(rate: float, assignments: int) -> dict[str, float]:
@@ -111,7 +123,7 @@ def test_broker_carryover_does_not_grace_unexplained_rate_drift(
     declared: dict[str, float] | None,
 ) -> None:
     tracker = _tracker(other=True)
-    with pytest.raises(accounting.AccountingError, match="rate drift"):
+    with _warns("PROVIDER_RATE_DRIFT"):
         tracker.check(
             _usage(4.0, 2),
             now=1.0,
@@ -206,13 +218,13 @@ def test_cap_and_rate_envelope_violations_refuse_without_transition_grace() -> N
         tracker.check(_usage(2.0, 4), now=1.0, sessions={"ours": "our-lane"}, active_records=[])
 
     tracker = _tracker()
-    with pytest.raises(accounting.AccountingError, match="rate drift"):
+    with _warns("PROVIDER_RATE_DRIFT"):
         tracker.check(_usage(4.0, 1), now=1.0, sessions={"ours": "our-lane"}, active_records=[])
 
 
 def test_stable_broker_endpoint_rate_change_is_not_hidden_by_an_arrival() -> None:
     tracker = _tracker(other=True)
-    with pytest.raises(accounting.AccountingError, match="rate drift"):
+    with _warns("PROVIDER_RATE_DRIFT"):
         tracker.check(
             _usage(4.0, 3),
             now=1.0,

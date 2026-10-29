@@ -20,6 +20,7 @@ from typing import Any
 
 from research.bl_ppo.exports import export_bytes as create_export
 from research.bl_ppo.exports import verify_export
+from research.colab_cli.accounting import budget_warning
 from tools.ops.f5_unit_guard import GUARD_DESCRIPTION, repair_guard, require_admissible
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -131,7 +132,9 @@ def account_preflight() -> dict:
         match = re.search(rf"{label}:\s*([0-9]+(?:\.[0-9]+)?)", calls[1]["stdout"])
         assert match, calls[1]
         usage[key] = float(match[1])
-    assert usage["rate"] == usage["assignments"] == 0
+    assert usage["assignments"] == 0
+    if usage["rate"] != 0:
+        budget_warning("IDLE_ACCOUNT_RATE", rate=usage["rate"])
     account = Path("/Users/josenunez/.config/colab-cli/snake")
     assert not list(account.glob("active-*.json"))
     assert not list(account.glob("pending-*.json"))
@@ -145,7 +148,8 @@ def account_preflight() -> dict:
         "sessions": {},
         "other_assignments": {},
         "committed_unit_caps": 0,
-        "required_strict_balance_threshold": 100,
+        "required_strict_balance_threshold": 0,
+        "legacy_unit_threshold_warning_only": 100,
         "active_broker_records": [],
         "pending_broker_records": [],
         "account_assignment_cap": 3,

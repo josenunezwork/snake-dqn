@@ -1,0 +1,10 @@
+{
+  "receipt.json": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/astra-impl-gpu-pref2/acceptance-packet/output/receipt.json",
+    "sha256": "420208266d2d2bc7cd683a7d80ad7845ca9879caec49629af45ab3435e1d3c87"
+  },
+  "producer.log": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ops/logs/gpu-pref-acceptance-20261028.log",
+    "sha256": "c5ea4efe8e1cadb98cfb0c852f87a3d16582ecb74341f616160462832173c6c0"
+  }
+}

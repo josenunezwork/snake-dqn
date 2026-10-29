@@ -18,6 +18,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from research.colab_cli.accounting import budget_warning
+
 ROOT = Path(__file__).resolve().parents[2]
 BASE = ROOT.parent
 PIN = "b7dfa1fc35321a388813122b3acfe033d1367782"
@@ -128,8 +130,12 @@ def prior_spend() -> dict[str, Any]:
     rows = verify_receipts(charged)
     wall = sum(row.elapsed_seconds for row in rows) / 60
     units = sum(row.units for row in rows)
-    if wall + 160 > 216 or units + 80 / 3 > 36:
-        raise ValueError("remaining sparse-series envelope cannot fund this main cap")
+    if units + 80 / 3 > 36:
+        budget_warning(
+            "FLOOD_UNIT_THRESHOLD", previous_units=units, forecast_units=80 / 3, legacy_cap=36
+        )
+    if wall + 160 > 216:
+        raise ValueError("remaining sparse-series wall-time envelope cannot fit this main")
     return {
         "receipts": [
             {
@@ -148,7 +154,8 @@ def prior_spend() -> dict[str, Any]:
         "committed_wall_minutes": wall + 160,
         "committed_units": units + 80 / 3,
         "scope": "All retained sparse canaries and L4 native compile attempts, conservatively "
-        "charged to sparse's 216 minute /36 unit sub-envelope. Operator must also "
+        "charged to sparse's 216 minute wall envelope; 36 units is warning-only. "
+        "Operator must also "
         "reconcile any external liabilities and the larger Q2/global/calendar limits.",
     }
 
@@ -324,7 +331,7 @@ def prepare(packet: Path, artifact: Path, broker: Path) -> None:
             "A1-PROF's E64/E256/E1024 nine diagnostics are a separate allocation; "
             "no lower-E sparse cells exist at this immutable pin.",
             "admission": "Operator must reconcile prior FLOOD/Q2 attempts, compile costs, sealed "
-            "round-28 T0/deadlines, remaining lane/global caps and balance/liabilities. "
+            "round-28 T0/deadlines, science and wall-time caps; unit spend is informational. "
             "First cap wins; no new entitlement or automatic completion attempt.",
         },
     )

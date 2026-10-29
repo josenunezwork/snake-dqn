@@ -30,6 +30,8 @@ def test_a3_packet_admission_and_generous_runaway_guard(
         "schema": "standing-a100-development-sandbox-admission/v1",
         "manifest_path": str(packet / "sandbox.json"),
     }
+    assert manifest["requirements"]["prefer"] == ["H100", "A100"]
+    assert manifest["requirements"]["gpu"] == "H100"
     assert "canary" not in manifest
     assert manifest["timeout_minutes"] == 480
     assert sandbox["timeout"] == {
@@ -37,7 +39,7 @@ def test_a3_packet_admission_and_generous_runaway_guard(
         "seconds": 28800,
         "purpose": "runaway-guard",
     }
-    assert manifest["budget"]["unit_cap"] == 480 * 8 / 60
+    assert manifest["budget"]["unit_cap"] == 480 * 12 / 60
     assert sandbox["outputs"]["broker_manifest"]["sha256"] == digest(
         packet / "dispatch-manifest.json"
     )

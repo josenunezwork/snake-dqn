@@ -102,14 +102,14 @@ def test_plan_carries_reviewed_other_assignment_rates(tmp_path: Path) -> None:
         assert payload["budget"]["other_assignments"] == mapping
 
 
-def test_other_assignment_file_rejects_nonpositive_or_nonobject_rates(tmp_path: Path) -> None:
+def test_other_assignment_file_keeps_map_shape_but_only_warns_for_rates(tmp_path, capsys):
     invalid = tmp_path / "invalid.json"
     invalid.write_text('["not-a-map"]')
     with pytest.raises(ValueError, match="JSON object"):
         acceptance.load_other_assignments(invalid)
     invalid.write_text('{"endpoint": 0}')
-    with pytest.raises(ValueError, match="positive"):
-        acceptance.load_other_assignments(invalid)
+    assert acceptance.load_other_assignments(invalid) == {"endpoint": 0}
+    assert "WARNING" in capsys.readouterr().err
 
 
 def test_release_receipt_rejects_cleanup_error_even_with_backend_stop(tmp_path: Path) -> None:
@@ -739,3 +739,47 @@ def test_wait_file_timeout_names_remote_phase_and_elapsed(
             phase="client-loss completion",
         )
     assert now[0] == 20
+
+
+def test_acceptance_rate_measurement_cannot_refuse_known_assignments(capsys):
+    from types import SimpleNamespace
+
+    from research.colab_cli.acceptance_faults import AcceptanceObserver
+
+    tracker = SimpleNamespace(
+        accounted_assignments=lambda: {
+            "assignments": [{"endpoint": "known", "rate_units_per_hour": 0}],
+            "unaccounted_endpoints": [],
+        }
+    )
+    observer = AcceptanceObserver("unused")
+    observer._accounted_assignments(SimpleNamespace(accounting=tracker), "cpu")
+    assert observer.records["account-assignment-spend"]["arms"][0]["assignments"]
+    assert '"WARNING": "ACCEPTANCE_RATE_UNAVAILABLE"' in capsys.readouterr().err
+
+
+def test_acceptance_plan_unit_forecast_never_blocks(tmp_path, capsys):
+    repo = _repo_with_probe(tmp_path)
+    plan = acceptance.build_plan(repo, tmp_path / "state", 100, l4_rate=100)["plan"]
+    assert plan["limits"]["unit_limits_warning_only"]
+    assert len(plan["jobs"]) == 2
+    assert '"WARNING": "ACCEPTANCE_UNIT_THRESHOLD"' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("priced,observed", [(2, 20), (0, 0), (None, 1.54)])
+def test_acceptance_price_crosscheck_is_nonfatal(priced, observed, capsys):
+    evidence = acceptance._calibration_evidence(
+        {
+            "accounting": {
+                "calibration": {
+                    "status": "PASS",
+                    "priced_rate_units_per_hour": priced,
+                    "observed_rate_units_per_hour": observed,
+                    "samples": [observed],
+                }
+            }
+        }
+    )
+    assert evidence["status"] == "PASS"
+    assert evidence["measurement_status"] == "WARNING_RATE_PRICE"
+    assert "WARNING" in capsys.readouterr().err

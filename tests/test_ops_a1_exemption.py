@@ -44,7 +44,6 @@ def test_specific_a1_acceptance_envelope() -> None:
         ("env", "GPU_SIM_SPIKE_ENTRYPOINT", "benchmark"),
         ("requirements", "gpu", "H100"),
         ("requirements", "allowed_gpus", ["A100", "H100"]),
-        ("budget", "unit_cap", 21),
         ("a1", "shapes", [6]),
         ("a1", "ticks_per_repeat", 9),
     ],
@@ -64,3 +63,10 @@ def test_generic_acceptance_remains_sixty_minutes() -> None:
                 "resume_exemption": {"kind": "acceptance", "reason": "generic"},
             }
         )
+
+
+@pytest.mark.parametrize("budget", [{}, {"unit_cap": 21}])
+def test_a1_unit_threshold_is_optional_and_does_not_gate(budget):
+    manifest = a1()
+    manifest["budget"] = budget
+    require_resume_policy(manifest)

@@ -1,0 +1,101 @@
+{
+  "accounting": {
+    "allocated_endpoint": null,
+    "assignments": [
+      {
+        "endpoint": "gpu-a100-s-ass1c0-2y6u91cdmjrix",
+        "rate_units_per_hour": 5.3,
+        "session": "?",
+        "source": "broker.active"
+      },
+      {
+        "endpoint": "gpu-l4-s-ass1a1-32qh9oc3q618f",
+        "rate_units_per_hour": 1.54,
+        "session": "?",
+        "source": "broker.active"
+      }
+    ],
+    "baseline_balance_units": 902.53,
+    "baseline_rate_units_per_hour": 6.84,
+    "calibration": null,
+    "declared_other_rate_units_per_hour": 6.84,
+    "integrated_accounted_other_units": 0.0,
+    "last_crosscheck": null,
+    "observed_rate_units_per_hour": null,
+    "own_rate_units_per_hour": 12.0,
+    "priced_rate_units_per_hour": 12.0,
+    "unaccounted_endpoints": [],
+    "unit_cap": 1.5
+  },
+  "cleanup_error": "ALLOCATION_UNRESOLVED: retained pending record",
+  "cli_calls": [
+    {
+      "attempt": 1,
+      "command": "version",
+      "elapsed_seconds": 0.2367882919497788,
+      "ended_monotonic": 945198.616401083,
+      "operation": "control",
+      "started_monotonic": 945198.379623166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999741697684
+    },
+    {
+      "attempt": 1,
+      "command": "sessions",
+      "elapsed_seconds": 1.041763334069401,
+      "ended_monotonic": 945199.9178355,
+      "operation": "control",
+      "started_monotonic": 945198.876086541,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999549996573
+    },
+    {
+      "attempt": 1,
+      "command": "usage",
+      "elapsed_seconds": 0.6808334999950603,
+      "ended_monotonic": 945200.598860541,
+      "operation": "control",
+      "started_monotonic": 945199.918038166,
+      "status": "completed",
+      "thread": "MainThread",
+      "timeout_seconds": 119.99999691708945
+    },
+    {
+      "attempt": 1,
+      "command": "new",
+      "elapsed_seconds": 61.007114207954146,
+      "ended_monotonic": 945261.608228166,
+      "operation": "control",
+      "started_monotonic": 945200.601122125,
+      "status": "failed",
+      "thread": "MainThread",
+      "timeout_seconds": 179.99999945797026
+    }
+  ],
+  "commit": "d877abbc558d7da3e04e80002fe4ff4a3621c12b",
+  "contents_transfers": [],
+  "control_operations": [],
+  "elapsed_seconds": 63.80926700006239,
+  "endpoint": null,
+  "error": "Refused('colab new failed (1):                                                                                                                      \u2502\\n\u2502   227 \u2502   \u2502   self.logger.debug(f\"Response Body: {response.text}\")                                                                                                                                                                           \u2502\\n\u2502   228 \u2502   \u2502   if not response.ok:                                                                                                                                                                                                            \u2502\\n\u2502 \u2771 229 \u2502   \u2502   \u2502   raise ColabRequestError(                                                                                                                                                                                                   \u2502\\n\u2502   230 \u2502   \u2502   \u2502   \u2502   f\"Failed to issue request {method} {endpoint}: {response.reason}\",                                                                                                                                                     \u2502\\n\u2502   231 \u2502   \u2502   \u2502   \u2502   request=response.request,                                                                                                                                                                                              \u2502\\n\u2502   232 \u2502   \u2502   \u2502   \u2502   response=response,                                                                                                                                                                                                     \u2502\\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\\nColabRequestError: Failed to issue request POST https://colab.research.google.com/tun/m/assign?nbh=4db4240f_c63c_4ea0_9e8c_e72bdd05bf09........&variant=GPU&accelerator=H100: Service Unavailable\\n')",
+  "exports": [],
+  "failure_class": "SUPERVISOR",
+  "generation": "487b5adef3454996a864324396fd8565",
+  "job_id": "gpu-pref-acceptance-20261028",
+  "manifest_sha256": "016b9a74f014d28f91ceef040ab83ddce0e50457df65106c95fee4db1b9d309b",
+  "session": "snake-gpu-pref-acceptance-20261028-487b5adef345",
+  "status": "INCOMPLETE",
+  "stop_verified": false,
+  "supervisor_sha256": "773d700a5abde40069d3ded6e4b378bbaa35dc44218740d1f621da23160369a0",
+  "terminal": null,
+  "transfers": [],
+  "usage_after": null,
+  "usage_before": {
+    "assignments": 2.0,
+    "balance": 902.53,
+    "rate": 6.84
+  },
+  "warmup_seconds": 0.0
+}

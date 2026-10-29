@@ -15,7 +15,7 @@ PACKAGE = "research/gpu_sim_spike"
 
 
 def manifest(commit: str, artifact: Path) -> dict:
-    """Price a bounded operational compile check with explicit A100/L4 targets."""
+    """Price a bounded operational compile check with explicit A100/L4/H100 targets."""
     requirements = ROOT / PACKAGE / "native_compile_requirements.txt"
     return {
         "job_id": f"native-compile-l4-{commit[:8]}",

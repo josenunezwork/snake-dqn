@@ -511,9 +511,10 @@ def main() -> int:
     if args.device == "cpu" and not control["tiny"]:
         raise ValueError("Mac permits tiny preparation only")
     if args.device == "cuda" and (
-        not torch.cuda.is_available() or "A100" not in torch.cuda.get_device_name()
+        not torch.cuda.is_available()
+        or not any(gpu in torch.cuda.get_device_name() for gpu in ("H100", "A100"))
     ):
-        raise ValueError("A100 required")
+        raise ValueError("H100 or A100 required")
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
     torch.manual_seed(3403)
