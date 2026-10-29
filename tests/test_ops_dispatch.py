@@ -70,6 +70,9 @@ subprocess.Popen(['bash', '-c', sys.argv[-1]], stdin=subprocess.DEVNULL,
     transport = broker / "research/colab_cli"
     transport.mkdir(parents=True)
     launch = transport / "launch.sh"
+    (transport / "cli_guard.py").write_text(
+        "import json, os\nprint(json.dumps({'endpoint': os.environ.get('RECOVER_ENDPOINT')}))\n"
+    )
     launch.write_text(f"#!{sys.executable}\n" + """import json, os, sys, time
 from pathlib import Path
 args=sys.argv[1:]
@@ -91,9 +94,54 @@ if os.environ.get('NEXT_INVENTORY') and not job.endswith('-retry-1'):
     Path(os.environ['INVENTORY']).write_text(os.environ['NEXT_INVENTORY'])
 output.mkdir()
 (state/job).mkdir(parents=True)
-(state/job/'assignment.json').write_text('{}')
-time.sleep(float(os.environ.get('ALLOC_DELAY', '.05')))
 mode=manifest.get('test_mode', 'success')
+gpu=manifest.get('requirements', {}).get('gpu')
+if not mode.startswith('gpu_'):
+    (state/job/'assignment.json').write_text('{}')
+time.sleep(float(os.environ.get('ALLOC_DELAY', '.05')))
+if mode.startswith('gpu_'):
+    session='snake-'+job+'-'+'a'*12
+    (output/'manifest.json').write_text(json.dumps(manifest))
+    import hashlib
+    receipt={'job_id':job, 'commit':manifest['commit'], 'session':session,
+             'manifest_sha256':hashlib.sha256((output/'manifest.json').read_bytes()).hexdigest(),
+             'status':'INCOMPLETE', 'endpoint':None, 'terminal':None, 'exports':[],
+             'transfers':[], 'contents_transfers':[], 'stop_verified':False,
+             'failure_class':'SUPERVISOR',
+             'accounting':{'allocated_endpoint':None},
+             'cleanup_error':'ALLOCATION_UNRESOLVED: retained pending record',
+             'cli_calls':[{'command':'new', 'status':'failed'}]}
+    message=("[colab] Allocation refused (precondition failed). This can mean "
+             "too many active sessions, or a temporary usage or capacity "
+             "limit for the requested runtime. Run `colab stop` to free up a "
+             "session, wait and retry, or try a different accelerator.")
+    receipt['error']=repr(RuntimeError())  # overwritten with supervisor's Refused repr
+    detail="colab new failed (1): [colab] Creating session '"+session+"'...\\n"+message+"\\n"
+    receipt['error']='Refused('+repr(detail)+')'
+    if mode == 'gpu_service_unavailable':
+        receipt['error']=json.loads(Path(os.environ['GPU_FAILURE_FIXTURE']).read_text())['error']
+    account=Path.home()/'.config/colab-cli/snake'
+    account.mkdir(parents=True, exist_ok=True)
+    intent={'session':session,'config':str(state/job/'sessions.json'), 'output':str(output),
+            'before':[], 'notebook_hash':'b'*32,
+            'assignment_record':str(state/job/'sessions.assignment.json')}
+    if (gpu == 'A100' and mode != 'gpu_both_unavailable') or mode == 'gpu_success':
+        (output/'hardware.json').write_text(json.dumps({'hardware':{'kind':gpu, 'name':gpu}}))
+        (output/'rate-calibration.json').write_text(json.dumps({'status':'PASS'}))
+        receipt.update(status='PASS', endpoint='endpoint-'+gpu, error=None, cleanup_error=None,
+                       stop_verified=True)
+    else:
+        (account/('pending-'+session+'.json')).write_text(json.dumps(intent))
+        if mode == 'gpu_endpoint_failure':
+            receipt['endpoint']='assigned-h100'
+            (state/job/'sessions.assignment.json').write_text('{"endpoint":"assigned-h100"}')
+        if mode == 'gpu_timeout':
+            receipt['error']="Refused('new allocation identity uncertain; no retry')"
+        if mode == 'gpu_entitlement':
+            receipt['error']="Refused('Backend rejected accelerator H100')"
+    (output/'receipt.json').write_text(json.dumps(receipt))
+    time.sleep(float(os.environ.get('EXIT_DELAY', '.03')))
+    raise SystemExit(0 if receipt['status']=='PASS' else 1)
 retry=job.endswith('-retry-1')
 if mode == 'success' or (retry and mode == 'retry_success'):
     (output/'rate-calibration.json').write_text(json.dumps({'status':'PASS'}))
@@ -171,8 +219,10 @@ raise SystemExit(1)
             path = account / f"active-{record['session']}.json"
             path.write_text(json.dumps(record))
 
-    def invoke(name="lane", *, capture=True, dry_run=False):
+    def invoke(name="lane", *, capture=True, dry_run=False, state_dir=None):
         argv = [str(SCRIPT), name, str(manifest), "--broker", str(broker), "--cwd", str(broker)]
+        if state_dir is not None:
+            argv.extend(["--state-dir", str(state_dir)])
         if dry_run:
             argv.append("--dry-run")
         if capture:
@@ -335,7 +385,7 @@ def test_refuses_mixed_valid_and_unparsed_inventory(fixture, tail):
         ("CPU", active("owned", 0)),
         ("A100", active("owned", True)),
         ("A100", active("owned", float("nan"))),
-        ("H100", active("owned", 8)),
+        ("G4", active("owned", 8)),
     ],
 )
 def test_refuses_unpriced_or_unregistered_owned_endpoint(fixture, hardware, record):
@@ -747,7 +797,8 @@ def test_canary_name_and_env_do_not_implicitly_exempt_manifest(fixture):
 
 
 @pytest.mark.parametrize(
-    "requirements", [{"gpu": "A100"}, {"gpu": "L4", "allowed_gpus": ["L4", "A100"]}]
+    "requirements",
+    [{"gpu": "A100"}, {"gpu": "H100"}, {"gpu": "L4", "allowed_gpus": ["L4", "A100"]}],
 )
 def test_a100_gpu_canary_missing_compile_pass_refuses_before_side_effects(fixture, requirements):
     fixture["change"](

@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from research.compute.gpu_preference import prepare_preference
 from research.sandbox_a_resident.core import seed64
 from research.sandbox_a_resident.units import (
     allocation,
@@ -331,6 +332,7 @@ def prepare(
             "endpoint": "3 cycles per phase, shape and episode limit; one excluded warmup",
         },
     }
+    prepare_preference(manifest)
     write_json(packet / "dispatch-manifest.json", manifest)
     world_roots = [
         i

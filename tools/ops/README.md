@@ -62,6 +62,94 @@ The `resume` declaration does not expand this automatic retry or launch completi
 jobs. The package/operator owns the separately registered outcome-blind completion
 attempts and accounts for every attempt against the registered series envelope.
 
+## H100-first GPU preference (owner rule, 2026-10-28)
+
+New hardware-generic GPU packets may declare:
+
+```json
+"requirements": {
+  "gpu": "H100", "allowed_gpus": ["H100"],
+  "prefer": ["H100", "A100"], "min_vcpu": 2, "est_minutes": 10
+}
+```
+
+Price the primary at the provisional **12 u/h H100 ceiling**, with a cap that
+covers the **whole timeout** and a timeout at least twice the estimate. The
+wrapper derives an **8 u/h A100** sibling (covers 40/80 GB), reducing its cap to
+`timeout_minutes * 8 / 60`, with distinct job,
+dispatch, state, output, log and receipt identities. It does not enlarge submitted
+caps. Both manifests are sealed, reserved and validated before the first launch;
+`--dry-run` validates both with zero allocations or name reservations. The future
+sandbox A assay, TRAIN-01 and sandbox B/B2 (also used by B3) builders emit this
+preference and freeze their new pre-data operational envelopes. Existing sealed
+packets and host-bound L4 builders retain their declared hardware.
+
+New builder caps come from each variant's complete timeout and rate, even when
+the builder receives a larger old cap. Each recorded base cap is the price of
+the base timeout; the effective timeout and cap are twice those base values.
+Sandbox A and TRAIN-01 compile native kernels for both `8.0` and `9.0`.
+GPU-sprint H100 canaries require a native-compile receipt that includes `9.0`;
+historical `8.0;8.9` receipts remain valid only for their supported hardware.
+
+Fallback occurs once, only after the installed 0.7.4 CLI's exact exit-1/412
+allocation rejection or the measured H100 assign-POST `ColabRequestError` ending
+in `Service Unavailable`/503, supervisor termination, and independent proof that no
+endpoint was assigned and no VM compute or transfers occurred. Under the broker's
+account lock, dispatch verifies the exact pending/config identity, absence of all
+durable endpoint records, a GET-only notebook recovery returning no endpoint, and
+unchanged account membership below three assignments. It archives that pending
+record in `unavailable.json` before retiring just that proven empty intent. The
+supervisor's original incomplete receipt remains unchanged; it does not acquire
+an invented `stop_verified` flag. Unknown errors, timeout, 400 entitlement errors,
+uncertain recovery, changed inventory, or any endpoint forbid fallback. Preference
+packets never use the legacy accounting retry after an endpoint failure.
+
+For a retained H100 pending record from either recognized error, use
+`python tools/ops/reconcile_gpu_pending.py --manifest <executed-live-manifest>
+--state-dir <state-root> --log <terminated-dispatch-log> --pending <exact-account-pending>
+--proof <fresh-archive.json> --broker <qualified-broker> --dry-run`. The preview runs
+GET-only recovery and sessions under the same ops/account locks and prints proof;
+it leaves the pending record and archive path untouched. Replace `--dry-run` with
+`--live` for the operator to repeat every check, create the immutable archive
+(including the full pending payload and SHA), then unlink only that pending path.
+No allocation, stop, active-record mutation, fallback dispatch, or receipt rewrite
+is performed by this command. Any recovered endpoint, inventory drift, other
+pending intent, archive collision or evidence mismatch keeps the pending fence.
+Both automatic fallback reconciliation and this operator tool poll a contended
+account broker lock once per second within their remaining deadline (at most
+600 seconds including preceding work). They retain the ops-then-account lock
+order. Deadline expiry refuses without publishing proof, retiring the pending
+record or starting fallback; contention never relaxes any evidence check.
+The operator tool's `--timeout-seconds` may shorten its 600-second total bound;
+zero, nonfinite values and values above 600 are refused.
+The qualified supervisor refuses **all new allocations** while any pending record
+exists, even when fewer than three sessions are active. Historical sealed brokers
+remain fenced until this shared account record is reconciled; no packet change
+is necessary to remove that account-wide blocker.
+
+`gpu-preference.json` binds both admissions. Each submitted variant publishes a
+separate `gpu-receipt.json` after supervisor exit, binding its original receipt,
+requested GPU, observed `hardware.json` (when available), calibrated accounting,
+and `colab usage` before/after. Allocation success alone is not execution success.
+The original supervisor still owns rate calibration, export verification and stop.
+
+Ordinary science mains still need a target-platform family canary for **each**
+variant. `requirements.hardware_canaries` may map `H100` and `A100` to their
+respective `{path, sha256}` receipt bindings; both undergo unchanged supervisor
+admission. No unqualified hardware substitution is inferred from an A100 receipt.
+The A1 120-minute/20-unit exception and retained A100 route remain bound to their
+hardware-specific authorities; timing/F5, P1 window, small-benchmark, and nice-0
+admissions require separate ratification before preference use. This feature does
+not revise science, resume namespaces or registered hardware evidence.
+
+Prepare the synthetic acceptance with `python -m research.compute.gpu_acceptance
+--commit FULL_SHA --packet ABSOLUTE_FRESH_PACKET`, then use `dispatch.sh --dry-run`
+before operator submission. Its two 7.5-minute, 1.5-unit envelopes bound the combined
+packet at 15 runtime-minutes and 3 units, including a possible allocation rejection.
+It exports NVIDIA name/compute capability, cu126 torch CUDA decision/matmul smoke,
+and host accounting rates. These are acceptance forecasts, not measured H100
+throughput. The implementation handoff contains the exact prepared command.
+
 ## Prepare a fresh allocation after a kernel-creation failure
 
 ```bash
