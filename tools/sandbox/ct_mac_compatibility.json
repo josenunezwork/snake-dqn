@@ -5,7 +5,7 @@
       "runtime_sha256": "a1be39deb2d0325f3dfba99d42c18e10cb012fae0b0a875d41007ed9772e4a38"
     },
     "research/sandbox_a_resident/ct_resume.py": {
-      "broker_sha256": "3b7413f9705da7f4bcf0a64658629dd5d8c96ae792a3aa3f7c38c279a01b05e3",
+      "broker_sha256": "6b96e73db70e3c4a37d52b12cc443d399f6610622c39a66faa514b670989391a",
       "runtime_sha256": "697c3c00f3ce8db192a7d246be9e7828eb7dab68d32b160bc3801425d182e1e0"
     }
   },

@@ -2481,7 +2481,8 @@ def completion_packet(
         successor["requirements"].pop("prefer", None)
     # A successor's account membership is refreshed under the allocation lock.
     # Do not seal the preceding attempt's transient account inventory into it.
-    successor["budget"]["other_assignments"] = {}
+    if "budget" in successor:
+        successor["budget"]["other_assignments"] = {}
     successor["job_id"] = job_id
     successor["output_dir"] = resolved_new_output
     successor["completion_attempt"] = completion_meta
