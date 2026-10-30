@@ -5,6 +5,7 @@
   "round_index": 1,
   "config_sha256": "REPLACE_WITH_COMPLETE_ROUND_CONFIG_HASH",
   "input_sha256": {},
+  "seed_inventory_sha256": "REPLACE_WITH_MAC_INVENTORY_HASH",
   "round_schedule": [],
   "question": "REPLACE",
   "comparator": "bare B8 s3 3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",

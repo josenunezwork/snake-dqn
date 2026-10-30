@@ -16,7 +16,7 @@ from research.sandbox_a_resident.training_rosters import CHAMPION_SHA256, FRP3_S
 from research.spatial_student_pilot.model import SpatialStudent
 from research.spatial_student_pilot.resume import UnitStore, build_ledger, empty_ledger
 
-from .config import RoundConfig
+from .config import RoundConfig, identity
 from .data import collect, dataset, query_gate, validate_rows
 from .fit import fit, initial_state, row_loss
 from .prepare import freeze, seed_audit, verify_packet, write_json
@@ -127,8 +127,8 @@ def test_ipw_recovers_population_gradient_exactly() -> None:
 
 
 def test_restore_once_fanout_matches_reference_with_carry_and_permutations(fixture: tuple) -> None:
-    cfg, b8, nets, data, _ = fixture
-    roots = data["train"]
+    cfg, b8, nets, data, batches = fixture
+    roots = batches[0]["roots"]  # cover scripted, frozen and mixed/random_safe carry
     student = FixedPolicy(2)
     jobs = [
         Job(i, int(a), k)
@@ -294,6 +294,13 @@ def test_round_units_reject_foreign_allocation_and_corruption(tmp_path: Path) ->
     ledger = build_ledger(cfg, [store.output])
     with pytest.raises(ValueError, match="foreign ledger"):
         UnitStore(tmp_path / "b", replace(cfg, round_index=2), ledger, store.output)
+    with pytest.raises(ValueError, match="foreign ledger"):
+        UnitStore(
+            tmp_path / "different-code",
+            replace(cfg, implementation_sha256="a" * 64),
+            ledger,
+            store.output,
+        )
     with pytest.raises(ValueError, match="recomputed"):
         store.publish("collect-0000", {})
     with pytest.raises(ValueError, match="ineligible"):
@@ -310,7 +317,17 @@ def test_integer_cache_byte_identity_and_gradients(fixture: tuple) -> None:
     from .cache import IntegerRasterCache
 
     _, _, _, data, _ = fixture
-    rows = data["demos"][:2]
+    rows = copy.deepcopy(data["demos"][:2])
+    # Repeated cells, long ordered bodies, growth debt, overlap and dead slots.
+    long_body = copy.deepcopy(rows[0])
+    compact = long_body["compact"]
+    compact["body_cells"] = torch.zeros((1, 6, 997, 2), dtype=torch.int16)
+    compact["body_count"].fill_(997)
+    compact["length"].fill_(1024)
+    compact["alive"][0, -1] = False
+    compact["heads"].zero_()
+    long_body["uid"] += "/adversarial-long-body"
+    rows.append(long_body)
     cache = IntegerRasterCache(rows, "cpu", 1000000)
     expected = build_observation(compact_cat([r["compact"] for r in rows]))
     actual = cache.batch(rows)
@@ -390,3 +407,133 @@ def test_complete_round_entrypoint_core_and_verified_retry(tmp_path: Path, fixtu
     assert resumed["candidate_sha256"] == result["candidate_sha256"]
     assert resumed["learner_sha256"] == result["learner_sha256"]
     assert not list((retry.output / "units").glob("*.pt.gz"))
+
+
+def test_next_round_anchor_program_keeps_original_reservoir_immutable(
+    tmp_path: Path, fixture: tuple
+) -> None:
+    from research.spatial_student_pilot.run import Control
+
+    from .run import round_pipeline
+
+    cfg, b8, nets, data, _ = fixture
+    reservoir = copy.deepcopy(data["reservoir"])
+    before = tensor_identity(reservoir)
+    cfg = replace(cfg, round_index=2, anchor_worlds=2, reservoir_roots=1)
+    initial = initial_state(SpatialStudent(), cfg.seed)
+    initial.update(round_index=1, global_update=cfg.updates)
+    store = UnitStore(tmp_path / "round2", cfg, empty_ledger(cfg), tmp_path)
+    control = Control(store.output, 60)
+    try:
+        result = round_pipeline(
+            cfg,
+            store,
+            initial=initial,
+            reservoir=reservoir,
+            frozen=dict(
+                continuation_sha256=tensor_identity(initial["model"]), opponents_sha256="fixture"
+            ),
+            b8=b8,
+            networks=nets,
+            device="cpu",
+            control=control,
+        )
+    finally:
+        control.close()
+    assert result["status"] == "SMOKE_COMPLETE_NO_SCIENTIFIC_RESULT"
+    assert tensor_identity(reservoir) == before
+    emitted = torch.load(store.output / "reservoir.pt", weights_only=False)["roots"]
+    by_uid = {r["uid"]: r for r in emitted}
+    assert all(tensor_identity(r) == tensor_identity(by_uid[r["uid"]]) for r in reservoir)
+    held_parents = {r["parent_id"] for r in store.get("collect-0000")[1]["roots"]}
+    assert not held_parents & {r["parent_id"] for r in emitted}
+    final = store.get(f"fit-{cfg.updates:07d}")
+    assert final["global_update"] == 2 * cfg.updates
+
+
+def test_registered_freeze_go_source_and_input_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A hermetic admission fixture only. No fabricated decision ever reaches the
+    # simulator: exercise the registered packet path without creating science.
+    from . import prepare
+
+    cfg = replace(RoundConfig.smoke(), tiny=False, implementation_sha256=identity({}))
+    inputs_dir = tmp_path / "inputs"
+    inputs_dir.mkdir()
+    state = initial_state(SpatialStudent(), cfg.seed)
+    save_tree(inputs_dir / "learner.pt", state)
+    save_tree(inputs_dir / "reservoir.pt", dict(schema="spatial-exit-reservoir/v1", roots=[]))
+    save_tree(inputs_dir / "initial-actor.pth", dict(model_state_dict=state["model"]))
+    write_json(
+        inputs_dir / "pilot-go.json",
+        dict(
+            schema="spatial-student-readout/v1",
+            verdict="GO",
+            clauses={"fixture": True},
+            candidate_sha256=prepare.digest(inputs_dir / "initial-actor.pth"),
+        ),
+    )
+    for name in ("b8-s3.pth", "champion.pth", "frp3-s12.pth"):
+        (inputs_dir / name).write_bytes(b"admission-only canonical-checkpoint fixture")
+    checkpoint_sha = prepare.digest(inputs_dir / "b8-s3.pth")
+    monkeypatch.setattr(prepare, "B8_S3_SHA256", checkpoint_sha)
+    monkeypatch.setattr(
+        prepare, "OPPONENT_SHAS", {"champion.pth": checkpoint_sha, "frp3-s12.pth": checkpoint_sha}
+    )
+    write_json(
+        inputs_dir / "inventory.json",
+        dict(
+            excluded_seeds=[],
+            scope="mac-historical-and-prior-rounds",
+            prior_round_freezes=["fixture"],
+        ),
+    )
+    paths = {
+        name: p
+        for name, p in ((p.name, p) for p in inputs_dir.iterdir())
+        if name != "inventory.json"
+    }
+    registration = tmp_path / "registration.json"
+    reg = dict(
+        status="RATIFIED",
+        independent_judge="admission-fixture",
+        config_sha256=cfg.sha256,
+        decision_rule="fixture-only",
+        heldout_policy="sealed",
+        round_schedule=[1],
+        release_authority="owner-only",
+        input_sha256={name: prepare.digest(p) for name, p in paths.items()},
+        seed_inventory_sha256=prepare.digest(inputs_dir / "inventory.json"),
+    )
+    write_json(registration, reg)
+    monkeypatch.setattr(prepare, "ROOT", tmp_path)
+    monkeypatch.setattr(prepare, "sources", lambda *a, **k: {})
+    monkeypatch.setattr(
+        prepare.subprocess,
+        "check_output",
+        lambda args, **kwargs: "a" * 40 if kwargs.get("text") else registration.read_bytes(),
+    )
+    packet = tmp_path / "packet"
+    frozen = freeze(
+        packet,
+        cfg,
+        inputs=paths,
+        registration=registration,
+        inventory=inputs_dir / "inventory.json",
+    )
+    assert frozen["tiny"] is False
+    assert frozen["dispatchable"] is False
+    assert frozen["budgets"]["reservoir_max_roots"] == cfg.reservoir_max_roots
+    assert verify_packet(packet)[0] == cfg
+    (inputs_dir / "pilot-go.json").write_text('{"verdict":"KILL"}')
+    with pytest.raises(ValueError, match="pin every round input"):
+        freeze(
+            tmp_path / "reject",
+            cfg,
+            inputs=paths,
+            registration=registration,
+            inventory=inputs_dir / "inventory.json",
+        )
+    with pytest.raises(ValueError, match="integer effective seed"):
+        seed_audit(cfg, dict(excluded_seeds=[str(cfg.world_seed(0))]))

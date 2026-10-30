@@ -28,6 +28,7 @@ class RoundConfig:
     """
 
     program: str = "candidate-01"
+    implementation_sha256: str = ""
     round_index: int = 1
     allocation_index: int = 0
     tiny: bool = False
@@ -44,6 +45,8 @@ class RoundConfig:
     search_chunk: int = 128
     candidate_roots: int = 2048
     reservoir_roots: int = 0
+    reservoir_max_roots: int = 8192
+    reservoir_max_bytes: int = 512 * 1024**2
     min_mature_roots: int = 512
     min_mature_parents: int = 256
     min_assessment_mature_parents: int = 64
@@ -75,6 +78,11 @@ class RoundConfig:
     def __post_init__(self) -> None:
         import re
 
+        if not isinstance(self.implementation_sha256, str) or (
+            self.implementation_sha256
+            and not re.fullmatch(r"[0-9a-f]{64}", self.implementation_sha256)
+        ):
+            raise ValueError("invalid source closure identity")
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,47}", self.program):
             raise ValueError("invalid program identity")
         for key in (
@@ -89,6 +97,8 @@ class RoundConfig:
             "branch_batch_size",
             "search_chunk",
             "candidate_roots",
+            "reservoir_max_roots",
+            "reservoir_max_bytes",
             "demos",
             "roots_per_parent",
             "root_every",

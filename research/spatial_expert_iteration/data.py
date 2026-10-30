@@ -224,7 +224,7 @@ def dataset(
         : cfg.reservoir_roots
     ]
     train = sorted(train, key=lambda r: (r["priority"], r["uid"]))
-    train = train[: cfg.candidate_roots - len(reused)] + reused
+    train = [dict(r) for r in train[: cfg.candidate_roots - len(reused)] + reused]
     held = sorted(held, key=lambda r: (r["priority"], r["uid"]))[: cfg.assessment_roots]
     demos = sorted(demos, key=lambda r: (r["priority"], r["uid"]))[: cfg.demos]
     if (
@@ -238,7 +238,7 @@ def dataset(
     validate_rows(demos, "train")
     if {r["parent_id"] for r in train + demos} & {r["parent_id"] for r in held}:
         raise ValueError("held-out parent collision")
-    mature = [r for r in train if r["hero_length"] >= cfg.mature_length]
+    mature = [dict(r) for r in train if r["hero_length"] >= cfg.mature_length]
     if (
         len(mature) < cfg.min_mature_roots
         or len({r["parent_id"] for r in mature}) < cfg.min_mature_parents

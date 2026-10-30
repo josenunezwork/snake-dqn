@@ -23,7 +23,11 @@ from the spatial pilot is a dependency, not a strict pass or release authorizati
 
 ## Frozen collection and reservoir
 
-Freeze the complete `RoundConfig` and its SHA. Enumerate all parent/world/seed
+Freeze the complete `RoundConfig` and its SHA. Its `implementation_sha256` must be
+`identity(sources(committed_pin, tiny=False))` from `prepare.py`, computed after the
+implementation is committed. This binds every resume unit to the entire runtime
+source closure; changes require a fresh scientific identity, not reuse of old units. Pin the Mac inventory SHA in
+`seed_inventory_sha256` and every runtime input in `input_sha256`. Enumerate all parent/world/seed
 allocations and inventories, including every previous round, pilot assessment,
 strict/product banks and the canonical historical exclusion registry. Bind a Mac
 inventory with `scope=mac-historical-and-prior-rounds`, `excluded_seeds` and
@@ -39,7 +43,7 @@ supported scientific inputs. Anchor descendants retain the original parent ID
 and partition. Anchor cycling creates correlated descendants, never new parents.
 
 Freeze number of reused reservoir roots, how their priorities are selected, the
-maximum reservoir growth/export envelope, and ordinary BC rehearsal. Collection is
+maximum reservoir root/byte caps (overflow refuses the endpoint), and ordinary BC rehearsal. Collection is
 entirely student-driven; querying never changes its actions. Failed maturation and
 deaths remain in the allocation; there is no replacement/retry for scientific failure.
 

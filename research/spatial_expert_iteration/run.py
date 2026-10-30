@@ -29,9 +29,11 @@ from .prepare import freeze, verify_packet, write_json
 from .search import assess, label_roots, tensor_identity
 
 
-def save_tree(path: Path, value: Any) -> None:
+def save_tree(path: Path, value: Any, max_bytes: int | None = None) -> None:
     stream = io.BytesIO()
     torch.save(value, stream)
+    if max_bytes is not None and stream.tell() > max_bytes:
+        raise ValueError("frozen natural reservoir byte cap exceeded")
     _publish_bytes(path, stream.getvalue())
     seal_file(path)
 
@@ -232,7 +234,10 @@ def round_pipeline(
         raise InterruptedError("round endpoint exceeded frozen deadline")
     # Growing create-only reservoir; original parent ID/partition never changes.
     union = {r["uid"]: r for r in reservoir}
-    union.update({r["uid"]: r for r in data["reservoir"]})
+    for row in data["reservoir"]:
+        union.setdefault(row["uid"], row)
+    if len(union) > cfg.reservoir_max_roots:
+        raise ValueError("frozen natural reservoir root cap exceeded")
     save_tree(
         store.output / "reservoir.pt",
         dict(
@@ -241,6 +246,7 @@ def round_pipeline(
             round_index=cfg.round_index,
             roots=list(union.values()),
         ),
+        max_bytes=cfg.reservoir_max_bytes,
     )
     save_tree(store.output / "learner.pt", final)
     actor = store.output / "final-actor.pth"

@@ -67,7 +67,13 @@ then writes immutable units and a `SMOKE_COMPLETE_NO_SCIENTIFIC_RESULT` summary.
    names (`b8-s3.pth`, `frp3-s12.pth`, `champion.pth`). Include `pilot-go.json` and
    `initial-actor.pth` for round 1; subsequent rounds include `parent-endpoint.json`.
    The original pilot GO remains a required dependency on every round.
-3. Complete `REGISTRATION_TEMPLATE.md` and `REGISTRATION.template.json`; ratify and
+3. Copy `ROUND_CONFIG.template.json` and freeze all settings. After implementation
+   is committed, compute the source identity with the primary venv:
+   `python -c 'import subprocess; from research.spatial_expert_iteration.prepare import sources;
+   from research.spatial_expert_iteration.config import identity;
+   print(identity(sources(subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(), tiny=False)))'`.
+   Put it in `implementation_sha256` before hashing the complete config.
+   Complete `REGISTRATION_TEMPLATE.md` and `REGISTRATION.template.json`; ratify and
    commit a new registration. Bind the complete config, every input hash, decision
    rules, look policy, seed inventories and base/effective envelopes. Have the
    independent judge review the science and Argon review Astra's implementation.

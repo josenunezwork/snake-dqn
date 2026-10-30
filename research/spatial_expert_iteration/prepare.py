@@ -81,7 +81,12 @@ def seed_keys(cfg: RoundConfig) -> list[int]:
 def seed_audit(cfg: RoundConfig, inventory: dict[str, Any]) -> dict[str, Any]:
     """Reject the entire allocation on any collision, including prior rounds."""
     keys = seed_keys(cfg)
-    if len(keys) != len(set(keys)) or set(keys) & set(inventory["excluded_seeds"]):
+    excluded = inventory.get("excluded_seeds")
+    if not isinstance(excluded, list) or any(
+        type(key) is not int or not 0 <= key <= 0x7FFF_FFFF_FFFF_FFFF for key in excluded
+    ):
+        raise ValueError("integer effective seed inventory required")
+    if len(keys) != len(set(keys)) or set(keys) & set(excluded):
         raise ValueError("effective seed collision; reject whole allocation")
     if not cfg.tiny and (
         inventory.get("scope") != "mac-historical-and-prior-rounds"
@@ -134,6 +139,8 @@ def freeze(
             != registration.read_bytes()
         ):
             raise ValueError("registration must be committed before data")
+        if reg.get("seed_inventory_sha256") != digest(inventory):
+            raise ValueError("registration must bind the Mac seed inventory")
         if reg.get("input_sha256") != {name: digest(path) for name, path in inputs.items()}:
             raise ValueError("registration must pin every round input before data")
         for dest, expected in {"b8-s3.pth": B8_S3_SHA256, **OPPONENT_SHAS}.items():
@@ -206,6 +213,8 @@ def freeze(
     validate_ledger(ledger, cfg)
     resumed = upload_inputs(ledger, resume_roots or [], cfg)
     hashes = sources(commit, tiny=cfg.tiny)
+    if not cfg.tiny and cfg.implementation_sha256 != identity(hashes):
+        raise ValueError("round config must bind committed source closure before data")
     packet.mkdir(parents=True)
     write_json(packet / "config.json", cfg.to_dict())
     write_json(packet / "verified-ledger.json", ledger)
@@ -242,6 +251,8 @@ def freeze(
             base_timeout_seconds=cfg.base_timeout_seconds,
             effective_timeout_seconds=cfg.timeout_seconds,
             candidate_roots=cfg.candidate_roots,
+            reservoir_max_roots=cfg.reservoir_max_roots,
+            reservoir_max_bytes=cfg.reservoir_max_bytes,
             updates=cfg.updates,
             maximum_query_branch_steps=cfg.candidate_roots * 6 * 2 * cfg.branch_horizon,
             max_outcome_blind_retries=2,
@@ -278,6 +289,8 @@ def verify_packet(packet: Path) -> tuple[RoundConfig, dict[str, Any]]:
     if digest(packet / "FREEZE.json") != packet_info["freeze_sha256"]:
         raise ValueError("round freeze hash mismatch")
     cfg = RoundConfig.from_dict(json.loads((packet / "config.json").read_text()))
+    if not cfg.tiny and cfg.implementation_sha256 != identity(frozen["source_sha256"]):
+        raise ValueError("round ledger source closure identity differs")
     if cfg.sha256 != frozen["config_sha256"] or cfg.namespace != frozen["namespace"]:
         raise ValueError("round config drift")
     for name, expected in frozen["inputs"].items():
