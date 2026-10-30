@@ -283,6 +283,15 @@ def test_hardware_envelopes_and_no_assessment_upload(tmp_path: Path) -> None:
     assert sum(p.numel() for p in make_model("spatial").parameters()) < 700000
 
 
+def test_canary_forecast_charges_cold_initialization_once() -> None:
+    from research.doom_auc_smoke.prepare import fit_forecast
+
+    assert fit_forecast([10.0, 0.1, 0.11]) == 10 + 2999 * 0.11
+    for times in ([1.0, float("nan"), 1.0], [1.0, 1.0], [1.0, 0.0, 1.0]):
+        with pytest.raises(ValueError, match="finite positive"):
+            fit_forecast(times)
+
+
 def test_aggregate_one_look_even_with_new_result_path(tmp_path: Path) -> None:
     packet, output = tmp_path / "packet", tmp_path / "out"
     packet.mkdir()

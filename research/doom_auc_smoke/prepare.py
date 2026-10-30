@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import io
 import json
+import math
 import shlex
 import subprocess
 import tarfile
@@ -255,6 +256,13 @@ def prepare(packet: Path, commit: str, bank: Path, labels: Path, checkpoint: Pat
     return projection
 
 
+def fit_forecast(timings: list[float]) -> float:
+    """Charge cold initialization once, then extrapolate the slower measured warm step."""
+    if len(timings) != 3 or any(not math.isfinite(t) or t <= 0 for t in timings):
+        raise ValueError("canary requires three finite positive step timings")
+    return timings[0] + 2999 * max(timings[1:])
+
+
 def admit(packet: Path, h100: Path, a100: Path) -> None:
     """No allocation: unchanged supervisor validates genuine same-pin family proofs."""
     from research.colab_cli.supervisor import validate
@@ -275,9 +283,9 @@ def admit(packet: Path, h100: Path, a100: Path) -> None:
             row = next(r for r in ledger["units"] if r["unit"] == arm + "-prediction")
             prediction = load_unit(receipt_path.parent / "exports/doom", row, identity)
             timings = prediction["measured_step_seconds"]
-            if prediction["steps"] != 3 or len(timings) != 3 or min(timings) <= 0:
+            if prediction["steps"] != 3:
                 raise ValueError("canary lacks three real optimizer step timings")
-            arms[arm] = max(timings) * 3000
+            arms[arm] = fit_forecast(timings)
         rates[gpu] = dict(
             projected_fit_seconds=arms, projected_useful_seconds=sum(arms.values()) + 120
         )
