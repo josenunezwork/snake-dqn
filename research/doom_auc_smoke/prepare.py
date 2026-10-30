@@ -366,9 +366,16 @@ def admit(
             h100_stop_verified=json.loads(h100.read_text()).get("stop_verified"),
             prelook=binding(prelook),
             documents=support["documents"],
+            mac_implementation={
+                name: digest(Path(__file__).parent / name)
+                for name in ("prepare.py", "prelook.py", "aggregate.py")
+            },
             unresolved_allocation_waived=False,
         ),
     )
+    if admission_dir is not None:
+        with (destination / "DISPATCH.txt").open("x") as stream:
+            stream.write("\n".join(commands(destination, item["job_id"], "fit.json")) + "\n")
     json_once(destination / "fit.json", item)
 
 
