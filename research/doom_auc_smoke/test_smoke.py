@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import json
 import shutil
+import subprocess
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -336,7 +338,13 @@ def test_completion_uses_latest_and_requires_full_history(tmp_path: Path) -> Non
     prior, output = tmp_path / "prior", tmp_path / "out"
     prior.mkdir()
     config = dict(identity="id", commit="a" * 40, registration_sha256="b" * 64)
-    for name in ("config.json", "REGISTRATION.md", "dataset.pt.gz", "assessment-MAC-ONLY.pt.gz"):
+    for name in (
+        "config.json",
+        "REGISTRATION.md",
+        "dataset.pt.gz",
+        "assessment-MAC-ONLY.pt.gz",
+        "REGISTRATION_OPERATIONAL_CLARIFICATION_01.md",
+    ):
         (prior / name).write_text(json.dumps(config) if name == "config.json" else "fixture")
     for mode in ("canary", "fit"):
         item = manifest(config, [], [], prior / (mode + "-output"), "test-" + mode, mode)
@@ -353,3 +361,42 @@ def test_completion_uses_latest_and_requires_full_history(tmp_path: Path) -> Non
     assert len(json.loads((dest / "prior-union-MAC-ONLY.json").read_text())["units"]) == 2
     with pytest.raises(ValueError, match="history"):
         completion(dest, [output], tmp_path / "bad-next")
+
+
+def test_real_sigusr1_publishes_complete_snapshot_within_grace(tmp_path: Path) -> None:
+    script = """
+import json, os, signal
+from pathlib import Path
+from research.doom_auc_smoke import run as runner
+from research.doom_auc_smoke.fixtures import synthetic_dataset
+from research.doom_auc_smoke.evidence import empty_ledger
+original = runner.forward
+calls = 0
+def signal_after_completed_forward(*args, **kwargs):
+    global calls
+    value = original(*args, **kwargs)
+    calls += 1
+    if calls == 2:
+        os.kill(os.getpid(), signal.SIGUSR1)
+    return value
+runner.forward = signal_after_completed_forward
+report = runner.run(synthetic_dataset(8,8), Path(OUTPUT), identity='signal-test',
+                    ledger=empty_ledger('signal-test'), input_dir=Path(INPUT),
+                    device='cpu', updates=20, batch=2, seconds=30)
+print(json.dumps(report))
+""".replace("OUTPUT", repr(str(tmp_path / "out"))).replace("INPUT", repr(str(tmp_path)))
+    start = time.monotonic()
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=15, check=True
+    )
+    assert time.monotonic() - start < 15
+    report = json.loads(result.stdout.splitlines()[-1])
+    assert report["status"] == "INCOMPLETE" and not report["assessment_scored"]
+    marker = next((tmp_path / "out").glob("units/*.complete"))
+    row = json.loads(marker.read_text())
+    assert (
+        load_unit(
+            tmp_path / "out", {k: row[k] for k in ("unit", "path", "size", "sha256")}, "signal-test"
+        )["step"]
+        == 2
+    )

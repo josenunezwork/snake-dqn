@@ -11,7 +11,7 @@ def synthetic_dataset(height: int = 83, width: int = 145) -> dict:
     generator = torch.Generator().manual_seed(1234)
     compacts = []
     for i in range(12):
-        span = min(600, height * width)
+        span = min(10400, height * width)
         order = torch.arange(span)
         cells = torch.stack((order % width, order // width), -1).short()
         body = cells[None, None].repeat(1, 6, 1, 1)

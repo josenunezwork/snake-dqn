@@ -64,7 +64,16 @@ def sources(commit: str) -> list[str]:
         and not Path(n).name.startswith("test_")
     )
     return sorted(
-        set(paths + [SCRIPT, REQUIREMENTS, "pyproject.toml", PACKAGE + "/REGISTRATION.md"])
+        set(
+            paths
+            + [
+                SCRIPT,
+                REQUIREMENTS,
+                "pyproject.toml",
+                PACKAGE + "/REGISTRATION.md",
+                PACKAGE + "/REGISTRATION_OPERATIONAL_CLARIFICATION_01.md",
+            ]
+        )
     )
 
 
@@ -111,8 +120,8 @@ def manifest(
                 effective_timeout_minutes=timeout,
                 base_unit_cap=timeout / 2 * rate / 60,
                 effective_unit_cap=timeout * rate / 60,
-                base_reserve_units=timeout / 2 * rate / 60 / 6,
-                effective_reserve_units=timeout * rate / 60 / 6,
+                base_reserve_units=timeout / 2 * 12 / 60 / 6,
+                effective_reserve_units=timeout * 12 / 60 / 6,
             )
             for gpu, rate in (("H100", 12), ("A100", 8))
         },
@@ -181,6 +190,10 @@ def prepare(packet: Path, commit: str, bank: Path, labels: Path, checkpoint: Pat
         ["git", "show", f"{commit}:{PACKAGE}/REGISTRATION.md"], cwd=ROOT
     )
     (packet / "REGISTRATION.md").write_bytes(registration)
+    clarification = "REGISTRATION_OPERATIONAL_CLARIFICATION_01.md"
+    (packet / clarification).write_bytes(
+        subprocess.check_output(["git", "show", f"{commit}:{PACKAGE}/{clarification}"], cwd=ROOT)
+    )
     config = dict(
         schema="doom-fixed-config/v1",
         commit=commit,
@@ -188,6 +201,7 @@ def prepare(packet: Path, commit: str, bank: Path, labels: Path, checkpoint: Pat
         dataset_sha256=digest(packet / "dataset.pt.gz"),
         assessment_sha256=digest(packet / "assessment-MAC-ONLY.pt.gz"),
         registration_sha256=digest(packet / "REGISTRATION.md"),
+        operational_clarification_sha256=digest(packet / clarification),
     )
     config["identity"] = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
     json_once(packet / "config.json", config)
@@ -196,7 +210,13 @@ def prepare(packet: Path, commit: str, bank: Path, labels: Path, checkpoint: Pat
     json_once(packet / "import-preflight.json", imports)
     inputs = [
         binding(packet / name, name)
-        for name in ("config.json", "dataset.pt.gz", "REGISTRATION.md", "verified-ledger.json")
+        for name in (
+            "config.json",
+            "dataset.pt.gz",
+            "REGISTRATION.md",
+            clarification,
+            "verified-ledger.json",
+        )
     ]
     for mode in ("canary", "fit"):
         job = "t34-doom-" + mode + "-01"

@@ -54,7 +54,13 @@ def completion(prior: Path, outputs: list[Path], packet: Path) -> dict:
         if row:
             selected.append(row)
     packet.mkdir(parents=True)
-    for name in ("config.json", "REGISTRATION.md", "dataset.pt.gz", "assessment-MAC-ONLY.pt.gz"):
+    for name in (
+        "config.json",
+        "REGISTRATION.md",
+        "dataset.pt.gz",
+        "assessment-MAC-ONLY.pt.gz",
+        "REGISTRATION_OPERATIONAL_CLARIFICATION_01.md",
+    ):
         shutil.copyfile(prior / name, packet / name)
     ledger = dict(empty_ledger(config["identity"]), units=selected)
     json_once(packet / "verified-ledger.json", ledger)
@@ -78,7 +84,13 @@ def completion(prior: Path, outputs: list[Path], packet: Path) -> dict:
     item["completion_attempt"] = attempt
     item["inputs"] = [
         binding(packet / name, name)
-        for name in ("config.json", "REGISTRATION.md", "dataset.pt.gz", "verified-ledger.json")
+        for name in (
+            "config.json",
+            "REGISTRATION.md",
+            "REGISTRATION_OPERATIONAL_CLARIFICATION_01.md",
+            "dataset.pt.gz",
+            "verified-ledger.json",
+        )
     ] + resumed_inputs
     item["job_id"] = f"t34-doom-fit-0{len(outputs)+1}"
     item["output_dir"] = str(packet / "fit-output")

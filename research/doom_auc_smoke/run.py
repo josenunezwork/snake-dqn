@@ -278,6 +278,7 @@ def synthetic() -> dict:
 
 
 def main() -> None:
+    entered = time.monotonic()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("canary", "fit", "preflight"), required=True)
     parser.add_argument("--device", choices=("cpu", "cuda"), required=True)
@@ -309,7 +310,7 @@ def main() -> None:
         device=args.device,
         updates=updates,
         batch=batch,
-        seconds=seconds,
+        seconds=max(0, seconds - (time.monotonic() - entered)),
     )
     print(json.dumps(report, sort_keys=True), flush=True)
     if report["status"] != "PREDICTIONS_COMPLETE":
