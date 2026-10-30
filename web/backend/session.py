@@ -558,6 +558,19 @@ class GameSession:
             served_resolution(self.served_checkpoint)
             ckpt = choice.path
         self._build(ckpt, mode=MODE_WATCH)
+        # Always construct the released live fallback first. Replay is opt-in,
+        # Watch-only, and never installs a search controller in the live game.
+        self._watch_replay = None
+        self._replay_bank = None
+        if os.environ.get("SNAKE_WATCH_SOURCE", "live") == "replay" and checkpoint is None:
+            from pathlib import Path
+
+            from web.backend.watch_replay import ReplayBank
+
+            self._replay_bank = ReplayBank(
+                Path(os.environ.get("SNAKE_WATCH_REPLAY_DIR", "replays"))
+            )
+            self._select_watch_replay()
         if ckpt is None:
             self.last_error = (
                 "No served champion checkpoint is available; Watch uses untrained weights."
@@ -707,7 +720,12 @@ class GameSession:
             self._build_impl(checkpoint, mode, override_reward_contract)
             from web.backend.pathb import configure
 
-            configure(self)
+            if mode == MODE_WATCH and os.environ.get("SNAKE_WATCH_SOURCE") == "replay":
+                if getattr(self, "pathb", None) is not None:
+                    self.pathb.close()
+                self.pathb = None
+            else:
+                configure(self)
         except Exception as exc:
             # An ego2s checkpoint can fail before _build_impl installs its
             # obs-spec/policy fields. The B8 resolution is already known, so
@@ -924,6 +942,22 @@ class GameSession:
         with self._lock:
             if not self.playing:
                 return
+            if self.mode == MODE_WATCH and getattr(self, "_replay_pending", False):
+                self._select_watch_replay()
+                # Cold verification must leave live B8 ticking. Hold a frame
+                # only when a previous recording is awaiting its successor.
+                if self._watch_replay is not None:
+                    return
+            if self.mode == MODE_WATCH and getattr(self, "_watch_replay", None) is not None:
+                try:
+                    if self._watch_replay.step():
+                        return
+                    self._select_watch_replay()
+                    if self._watch_replay is not None or self._replay_pending:
+                        return
+                except Exception as exc:
+                    self._watch_replay = None
+                    self.last_error = f"Replay playback failed; using live B8: {exc}"
             if self.mode == MODE_TRAIN:
                 # Reset on wipeout, or (mechanics v2) when the training population
                 # floor is hit — otherwise lone-survivor frames skew replay
@@ -1062,6 +1096,12 @@ class GameSession:
         from web.backend.serialize import build_frame
 
         with self._lock:
+            if self.mode == MODE_WATCH and getattr(self, "_watch_replay", None) is not None:
+                try:
+                    return self._watch_replay.snapshot(self)
+                except Exception as exc:
+                    self._watch_replay = None
+                    self.last_error = f"Replay snapshot failed; using live B8: {exc}"
             try:
                 return build_frame(self)
             except Exception as exc:
@@ -1070,6 +1110,27 @@ class GameSession:
                 raise
 
     # -- controls -----------------------------------------------------------
+    def _select_watch_replay(self) -> None:
+        """Rotate on reset/end; an empty or corrupt bank leaves live Watch ready."""
+        self._replay_pending = False
+        try:
+            previous = getattr(self, "_watch_replay", None)
+            self._watch_replay = self._replay_bank.pick() if self._replay_bank else None
+            if self._replay_bank and self._watch_replay is None and self._replay_bank.pending:
+                self._replay_pending = True
+                self._watch_replay = previous
+            if self._replay_bank:
+                self.last_error = self._replay_bank.error
+        except Exception as exc:
+            self._watch_replay = None
+            self.last_error = f"Replay bank unavailable; using live B8: {exc}"
+
+    def _leave_watch_replay(self) -> None:
+        """Explicit world/model controls return to the already-built live game."""
+        self._replay_pending = False
+        if getattr(self, "_watch_replay", None) is not None:
+            self._watch_replay = None
+
     def set_playing(self, value: bool) -> None:
         with self._lock:
             if getattr(self, "pathb", None) is not None:
@@ -1092,12 +1153,17 @@ class GameSession:
 
     def set_epsilon(self, eps: float) -> None:
         with self._lock:
+            self._leave_watch_replay()
             if getattr(self, "pathb", None) is not None:
                 self.pathb.invalidate()
             self.policy.epsilon = max(0.0, min(1.0, float(eps)))
 
     def set_hero(self, snake_id: int) -> None:
         with self._lock:
+            if getattr(self, "_watch_replay", None) is not None:
+                if int(snake_id) != 0:
+                    self.last_error = "Recorded inspector follows hero #0; roster remains visible."
+                return
             if self.obs_spec == RASTER31V3 and int(snake_id) != self.hero_id:
                 raise ValueError("promotion-v2-watch-rect hero is pinned to the deployment profile")
             ids = [s.id for s in self.game.snakes]
@@ -1111,6 +1177,7 @@ class GameSession:
         trims the excess here. Persisted on the GameState so resets keep it.
         """
         with self._lock:
+            self._leave_watch_replay()
             if getattr(self, "pathb", None) is not None:
                 self.pathb.invalidate()
             target = max(0, min(1000, int(target)))
@@ -1133,6 +1200,10 @@ class GameSession:
 
     def reset_game(self) -> None:
         with self._lock:
+            if self.mode == MODE_WATCH and getattr(self, "_replay_bank", None) is not None:
+                self._select_watch_replay()
+                if self._watch_replay is not None:
+                    return
             if getattr(self, "pathb", None) is not None:
                 self.pathb.invalidate()
             self.game.reset()
@@ -1371,6 +1442,7 @@ class GameSession:
         with self._lock:
             if mode == self.mode:
                 return
+            self._leave_watch_replay()
             if mode == MODE_TRAIN and self.obs_spec in EGO2S_OBS_SPECS:
                 # Ego students have no training path. Match the construction-time
                 # refusal from every mode, while preserving an existing Watch arena.
@@ -1411,6 +1483,8 @@ class GameSession:
                     mode=mode,
                     override_reward_contract=override_reward_contract,
                 )
+                if mode == MODE_WATCH and getattr(self, "_replay_bank", None) is not None:
+                    self._select_watch_replay()
             except Exception as exc:  # contract mismatch etc. -> fall back to watch
                 self.last_error = f"Cannot enter {mode} mode: {exc}"
                 self.last_error_overridable = False
@@ -1464,6 +1538,10 @@ class GameSession:
                 old_served_checkpoint = self.served_checkpoint
                 self.served_checkpoint = None
                 self._build(path, mode=self.mode, override_reward_contract=override_reward_contract)
+                self._leave_watch_replay()
+                if self._replay_bank is not None:
+                    self._replay_bank.close()
+                self._replay_bank = None
                 # A client-selected artifact is not a registry-selected served
                 # checkpoint. Do not attribute later scored runs to the default
                 # choice that constructed this session.
@@ -1478,6 +1556,8 @@ class GameSession:
     # -- state report -------------------------------------------------------
     def close(self, wait: bool = False) -> None:
         """Release only this session's optional worker, outside the serving tick."""
+        if getattr(self, "_replay_bank", None) is not None:
+            self._replay_bank.close()
         if getattr(self, "pathb", None) is not None:
             self.pathb.close(wait=wait)
 
@@ -1488,6 +1568,18 @@ class GameSession:
 
     def control_state(self) -> Dict[str, object]:
         with self._lock:
+            replay = getattr(self, "_watch_replay", None)
+            if self.mode == MODE_WATCH and replay is not None:
+                state = dict(replay.frame["session"])
+                state.update(
+                    playing=self.playing,
+                    speed=self.speed,
+                    speed_ceiling=self.speed_ceiling,
+                    error=self.last_error,
+                    watch_source="replay",
+                    replay=replay.info(),
+                )
+                return state
             state = {
                 "playing": self.playing,
                 "speed": self.speed,
@@ -1530,6 +1622,8 @@ class GameSession:
                 )
             if getattr(self, "pathb", None) is not None and self.pathb.active:
                 state["pathb"] = self.pathb.state()
+            if getattr(self, "_replay_bank", None) is not None:
+                state["watch_source"] = "live"
             return state
 
     def play_state(self) -> Optional[Dict[str, object]]:

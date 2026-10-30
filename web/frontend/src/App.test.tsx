@@ -68,6 +68,19 @@ function frame(scope: string | null = "watch_opponents"): Frame {
 
 afterEach(() => vi.clearAllMocks());
 
+describe("Watch replay identity", () => {
+  it("labels a recorded assisted session and shows its provenance", () => {
+    const recorded = frame();
+    recorded.session.watch_source = "replay";
+    recorded.session.replay = { label: "Recorded assisted hero", controller: "exact-stop-l2-prime", unit_id: "bank/sessions/0", seed: 123, sha256: "a".repeat(64), frame: 5, horizon: 6000 };
+    socket.mockReturnValue({ frame: recorded, connected: true, link: "live", history: [], send: vi.fn() });
+    render(<App />);
+    expect(screen.getByLabelText("Watch replay")).toHaveTextContent("Recorded assisted hero");
+    expect(screen.getByLabelText("Watch replay")).toHaveAttribute("title", expect.stringContaining("seed 123"));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("replay");
+  });
+});
+
 describe("mixed Watch veto counters", () => {
   it("shows opponent-only total and per-opponent veto counters", () => {
     socket.mockReturnValue({ frame: frame(), connected: true, link: "live", history: [], send: vi.fn() });

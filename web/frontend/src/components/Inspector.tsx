@@ -165,7 +165,14 @@ function Inspector({
             ))}
           </div>
         </div>
-        {greedyDiffers && (
+        {inspector.replay_search_override && (
+          <div role="status" className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+            Move from search: <span className="mono">{actionName(acted, action_labels)}</span>
+            {" · "}bare action: <span className="mono">{actionName(inspector.replay_bare_action, action_labels)}</span>.
+            {" "}Q-values show the bare network.
+          </div>
+        )}
+        {greedyDiffers && !inspector.replay_search_override && (
           <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
             Action taken: <span className="mono">{action_labels[acted]}</span> · greedy pick:{" "}
             <span className="mono">{action_labels[chosen]}</span>{" "}

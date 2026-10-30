@@ -858,13 +858,18 @@ export default function App() {
 
       <div className="topbar">
         <h1>
-          snake-dqn <span className="dim">· live</span>
+          snake-dqn <span className="dim">· {session?.watch_source === "replay" ? "replay" : "live"}</span>
         </h1>
         <span className={"pill " + linkClass} title={`Stream: ${link}`}>
           {linkLabel}
         </span>
         {session && (
           <span className="pill">{session.checkpoint ?? "no model"}</span>
+        )}
+        {session?.watch_source === "replay" && session.replay && (
+          <span className="pill on" aria-label="Watch replay" title={`Precomputed session · seed ${session.replay.seed} · ${session.replay.frame}/${session.replay.horizon} frames. Inspector follows hero #0. Play stays live.`}>
+            {session.replay.label}
+          </span>
         )}
         {session?.mode === "watch" && session.pathb?.active === true && (
           <span
