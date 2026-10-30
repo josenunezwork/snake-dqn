@@ -5,6 +5,18 @@ This is a dated documentary snapshot, not a live job or deployment check. The ow
 documents named below take precedence over older launch notes and over memory; this file is updated
 when they change.
 
+## Fast-process rule (owner, 2026-10-30, standing) — overrides older ceremony rules
+
+Stronger models now; cut ceremony that does not pay for itself.
+
+1. **Two lanes.** *Exploration* (default: screens, smokes, pilots, speed work): no pre-registration documents or amendments; at most one quick review, and only if the run costs > ~10 units or touches shared code; results are not release evidence but may be acted on immediately. *Confirmation* (only runs that decide a release or the strict gate): full rigor — pass bars fixed before data, held-out/fresh test worlds, paired statistics, verified stop.
+2. **One reviewer per change.** No repeated delta reviews of small mechanical fixes — if tests pass, ship. If a reviewer is unavailable (e.g. Argon quota), use an Opus/Fable stand-in or, in exploration, skip review. Never wait.
+3. **Fewer canaries.** Unchanged transport tree + unchanged job package (only parameters/seeds differ) → dispatch the main run directly. One canary on H100 *or* A100 suffices; never block on an H100 proof when H100 returns 503.
+4. **Automatic mechanical retries.** Verified stop + no outputs + known mechanical class (transport timeout, upload cap, allocation refused) → retry automatically with a fresh identity up to the package's limit, no new review/packet cycle; report afterwards.
+5. **Transport registry holds several qualified trees.** Activating a fixed transport must never block or race jobs queued/running on the previous qualified tree.
+6. **Dispatch.** Keep all 3 Colab runtimes busy from a ready queue; don't ask the owner about operational steps; do multiple requested things in parallel.
+7. **Always kept, any lane:** held-out/test data never used for training or tuning; honest reporting of what was actually measured; verified stops and runtime cleanup; safety-prohibited actions excluded; releases need the confirmation lane plus normal sign-off.
+
 ## Campaign authority (owner-ratified 2026-10-19) — overrides older text
 
 Active campaign: **T34 ExIt-B8**. Binding documents on main, in order:
