@@ -426,8 +426,6 @@ def prepare(
             for row in cached:
                 row["dest"] = row["dest"].replace("native-cache/", f"native-cache/{arch}/", 1)
             inputs.extend(cached)
-        if set(cache_hashes) != {"8.0", "9.0"}:
-            raise ValueError("bind both H100 and A100 native caches for the same input family")
     if wheelhouse is not None:
         wheels = sorted(wheelhouse.glob("*.whl"))
         if (

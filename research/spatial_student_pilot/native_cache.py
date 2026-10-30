@@ -97,7 +97,12 @@ def preload(input_dir: Path) -> bool:
     if not relative:
         return False
     architecture = "%d.%d" % torch.cuda.get_device_capability()
-    relative = json.loads(relative)[architecture]
+    cache_hashes = json.loads(relative)
+    if architecture not in cache_hashes:
+        # A packet can bind the available A100 cache while H100 stays cold.
+        # Never load a different architecture's binary as a fallback.
+        return False
+    relative = cache_hashes[architecture]
     root = input_dir / "native-cache" / architecture
     report_path = root / NAME
     if digest(report_path) != relative:

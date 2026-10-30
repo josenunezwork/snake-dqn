@@ -349,16 +349,22 @@ def test_real_network_argmax_e128_e1024() -> None:
         for i in range(128)
     ]
     actions = []
-    for count in (128, 1024):
+    for count, runtime in (
+        (128, CTOpponentRuntime),
+        (128, BatchedOpponents),
+        (1024, BatchedOpponents),
+    ):
         target = CTDeviceSim(
             cfg.sim_config(count), device="cpu", train_mode=False, allow_respawn=True
         )
         r2_cache.enable(target)
         table = training_rosters(cfg.worlds)
-        opponents = BatchedOpponents(
+        opponents = runtime(
             target, [table[i % 128] for i in range(count)], b8_network=b8, checkpoint_networks=nets
         )
+        opponents.verify_q_bytes = True
         restore_world_snapshots_into([snap[i % 128] for i in range(count)], target, opponents)
         hero = observe_hero_bv8(target, b8)[-1]
         actions.append(opponents.actions(target, hero))
-    assert torch.equal(actions[1], actions[0].repeat(8, 1))
+    assert torch.equal(actions[1], actions[0])
+    assert torch.equal(actions[2], actions[0].repeat(8, 1))

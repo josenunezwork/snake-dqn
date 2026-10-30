@@ -92,6 +92,22 @@ def grouped_q(
     return torch.cat(parts)
 
 
+def legacy_checkpoint_q(
+    network: nn.Module, state: torch.Tensor, groups: Sequence[torch.Tensor]
+) -> torch.Tensor:
+    """Forward each E128 roster/slot group exactly as DevicePolicy does.
+
+    A checkpoint may control several slots in one roster. Combining those rows
+    changes GEMM shapes and can change float32 bytes on CUDA. Keep observation
+    and physics batched, but gather each legacy group in ascending world order.
+    Unlike hero inference, the legacy opponent path has no near-tie re-forward.
+    """
+    q = torch.empty((len(state), 6), dtype=torch.float32, device=state.device)
+    for ids in groups:
+        q.index_copy_(0, ids, network(state.index_select(0, ids)).float())
+    return q
+
+
 class ControlledVectorRuntime(DeviceVectorRuntime):
     """Static controlled identities only; keep lifecycle/carry updates full shape."""
 
@@ -112,7 +128,7 @@ class ControlledVectorRuntime(DeviceVectorRuntime):
 
 
 class BatchedOpponents(CTOpponentRuntime):
-    """One vector61 prepare/observe pass; forwards grouped by checkpoint identity.
+    """One vector61 prepare/observe pass; legacy E128 roster/slot forwards.
 
     World/slot indices address the original sim directly. No _sim_view or full
     body index-select copies, and R2's live-span/memo generation is shared by
@@ -194,20 +210,15 @@ class BatchedOpponents(CTOpponentRuntime):
             self._needs_prepare = False
         out = torch.ones((sim.E, sim.S), dtype=torch.long, device=self.device)
         out[:, 0] = hero_actions
-        # Each network runs once across its immutable (world,slot) identities.
+        # Preserve legacy GEMM composition while sharing observation and v8 work.
         all_rows, all_q, all_masks = [], [], []
         for ref, rows in self.groups.items():
             state, mask = self.runtime.selection(rows)
-            q = grouped_q(self.networks[ref], (state,), mask)
+            q = legacy_checkpoint_q(self.networks[ref], state, self.reference_q_groups[ref])
             if getattr(self, "verify_q_bytes", False):
                 for ids in self.reference_q_groups[ref]:
                     inputs = state.index_select(0, ids)
-                    legacy = stable_q(
-                        self.networks[ref],
-                        (inputs,),
-                        self.networks[ref](inputs).float(),
-                        mask.index_select(0, ids),
-                    )
+                    legacy = self.networks[ref](inputs).float()
                     if not torch.equal(q.index_select(0, ids), legacy):
                         raise ValueError(
                             "checkpoint Q bytes differ from E128 legacy inference groups"

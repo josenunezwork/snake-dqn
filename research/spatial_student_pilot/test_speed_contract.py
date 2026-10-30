@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 import pytest
 import torch
@@ -78,6 +79,12 @@ def test_missing_native_cache_preserves_lazy_compile(monkeypatch, tmp_path: Path
     assert preload(tmp_path) is False
     with pytest.raises(ValueError, match="inventory differs"):
         _validate({"schema": "foreign"})
+
+
+def test_cache_for_other_architecture_preserves_lazy_compile(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("SPATIAL_NATIVE_CACHE_SHA256", '{"8.0": "bound-a100-report"}')
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: (9, 0))
+    assert preload(tmp_path) is False
 
 
 def test_ruler_probe_records_complete_checkpoint_cost() -> None:
@@ -181,7 +188,9 @@ def test_cached_requirements_resolve_uploaded_wheels_without_network(tmp_path: P
     assert Path("research/colab_cli/bootstrap.sh").read_bytes() == baseline
 
 
-def test_native_cache_binds_sources_toolchain_and_stopped_export_hashes(tmp_path: Path) -> None:
+def test_native_cache_binds_sources_toolchain_and_stopped_export_hashes(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
     """Synthetic binary bytes prove transport refusals, never native/CUDA execution."""
     import hashlib
     import json
@@ -245,6 +254,43 @@ def test_native_cache_binds_sources_toolchain_and_stopped_export_hashes(tmp_path
     )
     receipt_path.write_text(json.dumps(receipt))
     assert len(upload_inputs(receipt_path, commit)) == 5
+    # Exercise actual preloading of one bound architecture, without claiming
+    # synthetic test payloads are executable CUDA binaries.
+    import shutil
+    from types import SimpleNamespace
+
+    from research.spatial_student_pilot import native_cache
+
+    inputs = tmp_path / "inputs"
+    shutil.copytree(export, inputs / "native-cache/8.0")
+    loaded = []
+    modules = {}
+
+    def load(name: str, path: Path) -> str:
+        assert path.read_bytes().startswith(b"synthetic-nonexecutable-fixture-")
+        loaded.append(name)
+        return name
+
+    with monkeypatch.context() as patch:
+        patch.setenv(
+            "SPATIAL_NATIVE_CACHE_SHA256", json.dumps({"8.0": sha((export / NAME).read_bytes())})
+        )
+        patch.setattr(torch.cuda, "get_device_capability", lambda: (8, 0))
+        patch.setattr(torch, "__version__", report["torch"])
+        patch.setattr(torch.version, "cuda", report["cuda"])
+        patch.setattr(native_cache, "_load_extension", load)
+        patch.setattr(
+            native_cache.importlib,
+            "import_module",
+            lambda name: modules.setdefault(name, SimpleNamespace()),
+        )
+        assert preload(inputs) is True
+    assert set(loaded) == {row["name"] for row in rows}
+    assert all(
+        getattr(modules[module], attr) == name
+        for name, (module, attr) in native_cache._LOADERS.items()
+        if name in loaded
+    )
     stale = deepcopy(report)
     stale["source_sha256"][next(iter(hashes))] = "0" * 64
     with pytest.raises(ValueError, match="inventory differs"):

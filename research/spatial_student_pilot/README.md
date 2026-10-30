@@ -121,8 +121,12 @@ keyed by world/tick/kind. Resume uses the latest verified complete seal and its
 immutable record dependencies. Old config hashes are refused.
 
 Search/assessment use1024-job slabs and256-root label units. Opponents share one
-vector61 runtime and group frozen forwards by checkpoint identity; no roster-sized
-simulator copies are needed. Near Q ties use a canonical single-row fp32 forward.
+vector61 runtime; no roster-sized simulator copies are needed. Checkpoint forwards
+preserve the legacy E128 slab, roster identity, slot and ascending world order,
+including separate forwards when one checkpoint controls several slots. The
+legacy opponent path uses raw fp32 Q without a near-tie re-forward. Hero inference
+retains E128 groups and its canonical single-row fp32 near-tie forward. The ruler
+continues to refuse checkpoint Q-byte differences; no action-only waiver is used.
 Only immutable search-root rasters are cached; microbatch8 and optimizer arithmetic
 remain unchanged. Assessment selection and independent B8/teacher scoring overlap
 fit in one bounded inference thread. Scoring memoization never crosses suffix or
@@ -135,10 +139,14 @@ the allocated GPU. Forecasts price full horizons, checkpoint serialization, pair
 gameplay mature floors, and at least one hour setup/export, without overlap credit.
 
 Preparation accepts optional `--wheelhouse /absolute/linux-wheels` (128MiB max) and
-`--native-cache-receipts H100_RECEIPT A100_RECEIPT`. Cache receipts must bind stopped,
+`--native-cache-receipts A100_RECEIPT [H100_RECEIPT]`. Cache receipts must bind stopped,
 hash-verified exports with identical native sources/flags, GPU architecture and
 Torch/CUDA toolchain. The ruler exports its loaded binaries for later packets.
-Without both compatible native caches, cold compilation stays charged. Large
+Each available architecture is bound independently into the common input family.
+An unbound architecture uses the cold loader; a bound but invalid cache refuses.
+The A100 cache from the stopped Q-byte-refused ruler is reusable because cache
+admission checks native source/flags and binary hashes, independent of gameplay.
+Cold compilation stays charged for architectures without a compatible cache. Large
 Torch wheels should remain remote downloads when uploading them would cost more.
 Neither author tests nor a dispatch dry-run establishes CUDA speed or six-hour fit.
 
