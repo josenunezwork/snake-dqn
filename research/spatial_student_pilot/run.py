@@ -303,6 +303,10 @@ def ruler(
     phases["gameplay"] = {
         "seconds": time.monotonic() - mark,
         "logical_world_steps": 2 * len(worlds) * cfg.horizon,
+        "executed_world_steps": {
+            arm: rows[0][arm + "_executed_world_steps"] for arm in ("b8", "student")
+        },
+        "arm_seconds": {arm: rows[0][arm + "_wall_seconds"] for arm in ("b8", "student")},
     }
     mark = time.monotonic()
     actor = store.output / "ruler-actor.pth"
@@ -322,7 +326,15 @@ def ruler(
         * phases["search"]["seconds"]
         / phases["search"]["logical_steps"]
     )
-    gameplay_seconds = 192 / 3 * phases["gameplay"]["seconds"]
+    # Do not price a final trained policy from the random ruler actor's early
+    # deaths. Charge every final world as alive for its entire H5000 horizon.
+    gameplay_seconds = sum(
+        192
+        * 5000
+        * phases["gameplay"]["arm_seconds"][arm]
+        / max(1, phases["gameplay"]["executed_world_steps"][arm])
+        for arm in ("b8", "student")
+    )
     forecast = sum(
         (collection_seconds, search_seconds, fit_seconds, assessment_seconds, gameplay_seconds)
     )

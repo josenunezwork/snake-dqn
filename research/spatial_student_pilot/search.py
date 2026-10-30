@@ -382,6 +382,8 @@ def paired_gameplay(
     for start in range(0, len(worlds), int(cfg.world_batch_size)):
         chunk = worlds[start : start + int(cfg.world_batch_size)]
         for arm in ("b8", "student"):
+            arm_started = time.monotonic()
+            executed_world_steps = 0
             sim = _new_sim(cfg, len(chunk), device)
             sim.rng_key.copy_(
                 torch.tensor(
@@ -473,6 +475,7 @@ def paired_gameplay(
                 counts += torch.bincount(active_actions, minlength=6)
                 sim.step(opponents.actions(sim, actions))
                 opponents.after_step(sim)
+                executed_world_steps += sim.E
                 if bool(sim.capacity_overflow.any()):
                     raise ValueError("body capacity overflow invalidates gameplay")
                 alive = sim.alive[:, 0]
@@ -483,6 +486,8 @@ def paired_gameplay(
                 output[start + i][arm + "_alive"] = float(a / cfg.horizon)
             # Batch counts are emitted once and summed exactly by readout.
             output[start][arm + "_action_counts"] = counts.cpu().tolist()
+            output[start][arm + "_executed_world_steps"] = executed_world_steps
+            output[start][arm + "_wall_seconds"] = time.monotonic() - arm_started
             if progress is not None:
                 progress(
                     {

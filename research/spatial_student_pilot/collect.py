@@ -79,6 +79,7 @@ def collect_batch(
     demos: list[tuple[int, int, dict[str, Any]]] = []
     roots: dict[tuple[int, str], list[tuple[int, int, dict[str, Any]]]] = {}
     decisions = 0
+    completed_ticks = 0
     last_progress = started
     for tick in range(cfg.horizon):
         if ruler_seconds is not None and time.monotonic() - started >= ruler_seconds:
@@ -155,6 +156,7 @@ def collect_batch(
                     heapq.heappush(pool, item)
         sim.step(opponents.actions(sim, actions))
         opponents.after_step(sim)
+        completed_ticks += 1
         if bool(sim.capacity_overflow.any()):
             raise ValueError("body overflow invalidates collection")
         if tick % 10 == 0 or time.monotonic() - last_progress >= 45:
@@ -167,7 +169,7 @@ def collect_batch(
         "roots": [entry[2] for key in sorted(roots) for entry in sorted(roots[key])],
         "demos": [entry[2] for entry in sorted(demos)],
         "elapsed_seconds": time.monotonic() - started,
-        "world_ticks": len(ids) * (tick + 1),
+        "world_ticks": len(ids) * completed_ticks,
         "ruler_partial": ruler_seconds is not None,
     }
 
