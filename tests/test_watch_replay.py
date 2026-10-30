@@ -12,6 +12,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from research.watch_replay.install import install
+from research.watch_replay.prepare import release_bundle
 from research.watch_replay.resume import build
 from research.watch_replay.run import allocation, completed, identity, run
 from tools.ops.package_spec import empty_ledger, publish_immutable, publish_json
@@ -256,3 +258,53 @@ def test_play_mode_always_clears_recorded_source(tmp_path):
     session._build = build
     session.set_mode("play")
     assert session.mode == "play" and session._watch_replay is None
+
+
+def test_release_bundle_recreated_for_main_keeps_canary_input_bytes(tmp_path):
+    from tools.ops.package_spec import digest
+
+    source = tmp_path / "receipt.json"
+    source.write_text('{"verdict":"PASS"}\n')
+    pins = {
+        "checkpoints": {
+            "b8-s3": {
+                "strict_receipt": {
+                    "root": str(tmp_path),
+                    "decision": {"path": source.name, "sha256": digest(source)},
+                }
+            }
+        }
+    }
+    first = tmp_path / "canary-evidence.tar.gz"
+    second = tmp_path / "main-evidence.tar.gz"
+    release_bundle(first, pins)
+    release_bundle(second, pins)
+    assert first.read_bytes() == second.read_bytes()
+
+
+def test_install_requires_complete_frozen_union_then_publishes_bank(tmp_path):
+    contract = {**allocation("bank-fixture", 1, "exact-stop-l2-prime"), "commit": "1" * 40}
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    publish_json(exports / "contract.json", contract)
+    recording(
+        exports,
+        "000000",
+        unit_id="bank-fixture/sessions/000000",
+        allocation=identity(contract),
+        source_commit=contract["commit"],
+        seed=contract["rows"][0]["seed"],
+    )
+    bank = tmp_path / "bank"
+    assert install(contract, [exports], bank) == 1
+    assert ReplayBank(bank).pick().header["unit_id"] == "bank-fixture/sessions/000000"
+    with pytest.raises(ValueError, match="foreign"):
+        install({**contract, "controller": "bare-b8"}, [exports], tmp_path / "foreign")
+
+
+def test_install_refuses_missing_units_before_creating_bank(tmp_path):
+    contract = {**allocation("bank-missing", 1, "bare-b8"), "commit": "1" * 40}
+    bank = tmp_path / "bank"
+    with pytest.raises(ValueError, match="complete"):
+        install(contract, [tmp_path], bank)
+    assert not bank.exists()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import io
 import json
 import math
@@ -14,6 +15,24 @@ from research.colab_cli import canary
 from research.watch_replay.run import ROOT, allocation, completed, identity
 from research.watch_replay.source import source_paths
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
+
+
+def release_bundle(bundle: Path, pins: dict) -> None:
+    """Keep upload bytes identical when binding a canary in a fresh main packet."""
+    with (
+        bundle.open("xb") as stream,
+        gzip.GzipFile(fileobj=stream, filename="", mode="wb", mtime=0) as compressed,
+    ):
+        with tarfile.open(fileobj=compressed, mode="w") as archive:
+            for name, pin in sorted(pins["checkpoints"].items()):
+                for ref in pin["strict_receipt"].values():
+                    if isinstance(ref, dict):
+                        path = Path(pin["strict_receipt"]["root"]) / ref["path"]
+                        if digest(path) != ref["sha256"]:
+                            raise ValueError("release anchor hash mismatch")
+                        member = tarfile.TarInfo(name + "/" + ref["path"])
+                        member.size = path.stat().st_size
+                        archive.addfile(member, io.BytesIO(path.read_bytes()))
 
 
 def prepare(
@@ -116,16 +135,7 @@ def prepare(
         inputs.append(Input(saved / name, "checkpoints/" + name))
     pins = json.loads((ROOT / "web/backend/served_checkpoint_pins.json").read_text())
     bundle = out / "release-evidence.tar.gz"
-    with tarfile.open(bundle, "x:gz") as archive:
-        for name, pin in pins["checkpoints"].items():
-            for ref in pin["strict_receipt"].values():
-                if isinstance(ref, dict):
-                    path = Path(pin["strict_receipt"]["root"]) / ref["path"]
-                    if digest(path) != ref["sha256"]:
-                        raise ValueError("release anchor hash mismatch")
-                    member = tarfile.TarInfo(name + "/" + ref["path"])
-                    member.size = path.stat().st_size
-                    archive.addfile(member, io.BytesIO(path.read_bytes()))
+    release_bundle(bundle, pins)
     inputs.append(Input(bundle, "release-evidence.tar.gz"))
     staged = stage_inputs(out / "staged", inputs)
     singleton = max(t["seconds"] / t["branches"] for t in measured["branch_timings"])
