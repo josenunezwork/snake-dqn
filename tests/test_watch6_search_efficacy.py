@@ -374,6 +374,104 @@ def test_main_preparation_refuses_without_measured_canary(tmp_path: Path) -> Non
     assert not (tmp_path / "never-created").exists()
 
 
+def empirical_report() -> dict:
+    """Synthetic duration panel only; never a receipt or live preparation input."""
+    from research.watch6_search_efficacy.costs import BASE_PIN, BASE_SCIENCE
+
+    measured = performance_report()
+    measured["science"] = BASE_SCIENCE
+    return {
+        "schema": "watch6-empirical-costs/v1",
+        "science": p.identity(),
+        "measurement_pin": BASE_PIN,
+        "measurement_science": BASE_SCIENCE,
+        "canary": measured,
+        "banks": [
+            {
+                "namespace": f"historical-{bank}",
+                "workers": 4,
+                "horizon": 6000,
+                "units": [
+                    {"index": i, "seconds": 3000 + i, "frames": 6000, "search_roots": i * 60}
+                    for i in range(12)
+                ],
+            }
+            for bank in range(2)
+        ],
+    }
+
+
+def test_empirical_forecast_uses_full_session_p95_and_separate_wall() -> None:
+    import math
+
+    from research.watch6_search_efficacy.performance import forecast
+
+    report = empirical_report()
+    selected = forecast(report)
+    # 24 values with repeated 3010 and 3011: linear p95 lies at 3010.85.
+    seconds = 14400 * 0.02 + 3010.85 * 14400 / 6000
+    assert selected["observed_session_p95_seconds"] == pytest.approx(3010.85)
+    assert selected["pair_seconds_upper_forecast"] == pytest.approx(seconds)
+    assert selected["workers"] == 4
+    assert selected["shards"] == 12
+    assert selected["base_minutes_per_shard"] == math.ceil(20 + 1.5 * 2 * seconds / 60)
+    assert selected["effective_minutes"] == 2 * selected["base_minutes_per_shard"]
+    assert selected["calendar_hours_three_runtimes"] == pytest.approx(
+        4 * selected["base_minutes_per_shard"] / 60
+    )
+    frozen = {k: selected[k] for k in ("workers", "shards", "base_minutes_per_shard")}
+    for bank in report["banks"]:
+        for unit in bank["units"]:
+            unit["seconds"] *= 0.9
+    assert forecast(report, frozen)["base_minutes_per_shard"] == frozen["base_minutes_per_shard"]
+    for bank in report["banks"]:
+        for unit in bank["units"]:
+            unit["seconds"] *= 2
+    with pytest.raises(ValueError, match="frozen shard wall"):
+        forecast(report, frozen)
+
+
+@pytest.mark.parametrize("mutation", ["duplicate", "namespace", "frames", "nan", "pin", "workers"])
+def test_empirical_forecast_refuses_invalid_cost_panels(mutation: str) -> None:
+    from research.watch6_search_efficacy.performance import forecast
+
+    report = empirical_report()
+    if mutation == "duplicate":
+        report["banks"][0]["units"][0]["index"] = 1
+    elif mutation == "namespace":
+        report["banks"][0]["namespace"] = report["banks"][1]["namespace"]
+    elif mutation == "frames":
+        report["banks"][0]["units"][0]["frames"] = 5999
+    elif mutation == "nan":
+        report["banks"][0]["units"][0]["seconds"] = float("nan")
+    elif mutation == "pin":
+        report["measurement_pin"] = "f" * 40
+    else:
+        report["banks"][0]["workers"] = 8
+    with pytest.raises(ValueError):
+        forecast(report)
+
+
+def test_pending_packets_refuse_dispatch_and_finalize_without_receipt(tmp_path: Path) -> None:
+    from research.watch6_search_efficacy.admission import admit
+    from research.watch6_search_efficacy.finalize import finalize
+
+    manifest = {
+        "watch6_efficacy": {},
+        "pending_qualification": True,
+        "env": {"WATCH6_SHARDS": "1", "WATCH6_SHARD": "0"},
+        "job_id": "synthetic-test",
+        "output_dir": str(tmp_path / "never-created"),
+        "canary": {"receipt": {"path": str(tmp_path / "missing.json"), "sha256": "0" * 64}},
+    }
+    (tmp_path / "shard-0.pending.json").write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="awaits genuine passing"):
+        admit(manifest)
+    with pytest.raises(FileNotFoundError):
+        finalize(tmp_path)
+    assert not (tmp_path / "shard-0.json").exists()
+
+
 def test_execute_time_rederives_forecast_and_cli(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -17,9 +17,13 @@ from research.watch6_search_efficacy.uploads import METADATA, check_uploads, sta
 from tools.ops.package_spec import digest, verify_immutable
 
 
-def admit(manifest: dict) -> dict:
+def admit(manifest: dict, *, pending_qualification: bool = False) -> dict:
     """Check controller, allocation, measured forecast and pre-data 2x envelopes."""
     binding = manifest["watch6_efficacy"]
+    if manifest.get("pending_qualification") and not pending_qualification:
+        raise ValueError("main packet awaits genuine passing same-pin canary; finalize first")
+    if pending_qualification and manifest.get("pending_qualification") is not True:
+        raise ValueError("pending validation only accepts explicitly pending packets")
     if binding["science"] != p.identity() or binding["allocation"] != p.allocation():
         raise ValueError("foreign source/allocation")
     if manifest["script"] != p.SCRIPT or manifest["device"] != "cpu":
@@ -66,14 +70,28 @@ def admit(manifest: dict) -> dict:
     with tempfile.TemporaryDirectory(prefix="watch6-admission-") as temporary:
         root = Path(temporary)
         shutil.copyfile(item["path"], root / METADATA)
+        for cost in manifest["inputs"]:
+            if cost["dest"] in {
+                "cost-evidence.json",
+                "cost-evidence.json.sha256",
+                "cost-evidence.json.complete",
+            }:
+                shutil.copyfile(cost["path"], root / cost["dest"])
         stage_metadata(root, env["WATCH6_METADATA_SHA256"])
         verify_runtime(root, env)
-    if not probe:
+    if not probe and not pending_qualification:
         canary.check(manifest, p.ROOT)
-        receipt_path = Path(manifest["canary"]["receipt"]["path"])
-        recovered = json.loads((receipt_path.parent / "exports/performance.json").read_text())
-        if recovered != json.loads(env["WATCH6_MEASUREMENTS"]):
-            raise ValueError("runtime measurements differ from verified canary export")
+    if not probe:
+        report = json.loads(env["WATCH6_MEASUREMENTS"])
+        if report.get("schema") == "watch6-empirical-costs/v1":
+            from research.watch6_search_efficacy.costs import verify_report_evidence
+
+            verify_report_evidence(report)
+        else:
+            receipt_path = Path(manifest["canary"]["receipt"]["path"])
+            recovered = json.loads((receipt_path.parent / "exports/performance.json").read_text())
+            if recovered != report:
+                raise ValueError("runtime measurements differ from verified canary export")
     return upload_report
 
 
@@ -108,8 +126,13 @@ def verify_runtime(root: Path, env: dict) -> None:
     if env["WATCH6_FIXTURE"] == "0":
         if "WATCH6_MEASUREMENTS" not in env:
             raise ValueError("main requires measured canary forecast")
+        report = json.loads(env["WATCH6_MEASUREMENTS"])
+        if report.get("schema") == "watch6-empirical-costs/v1":
+            verify_immutable(root / "cost-evidence.json")
+            if json.loads((root / "cost-evidence.json").read_text()) != report:
+                raise ValueError("empirical costs differ from uploaded evidence")
         selected = forecast(
-            json.loads(env["WATCH6_MEASUREMENTS"]),
+            report,
             json.loads(env["WATCH6_FROZEN_LAYOUT"]) if "WATCH6_FROZEN_LAYOUT" in env else None,
         )
         if (

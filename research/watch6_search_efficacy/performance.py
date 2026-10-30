@@ -128,11 +128,11 @@ def measure() -> dict:
     }
 
 
-def forecast(report: dict, frozen_layout: dict | None = None) -> dict:
-    """Use measured contended costs, six branches/root, both loops, 25% margin."""
+def validate_measurements(report: dict, science: str) -> None:
+    """Validate the complete measured panel without interpreting its forecast."""
     if (
         report.get("schema") != "watch6-target-performance/v1"
-        or report.get("science") != p.identity()
+        or report.get("science") != science
         or report.get("fixture") is not True
         or report.get("horizon") != PROFILE_HORIZON
         or type(report.get("cpu_count")) is not int
@@ -141,8 +141,6 @@ def forecast(report: dict, frozen_layout: dict | None = None) -> dict:
         or {r.get("workers") for r in report["profiles"]} != set(p.WORKERS)
     ):
         raise ValueError("requires current measured W4/W6/W8 >=12vCPU canary")
-    choices = []
-    pair_costs = {}
     for profile in report["profiles"]:
         workers = profile["workers"]
         branch = profile["branch_seconds_upper"]
@@ -179,6 +177,21 @@ def forecast(report: dict, frozen_layout: dict | None = None) -> dict:
             for arm in ("bare", "exact_stop")
         ):
             raise ValueError("timing summary differs from measured rows")
+
+
+def forecast(report: dict, frozen_layout: dict | None = None) -> dict:
+    """Size operational shards from validated target-host measurements."""
+    if report.get("schema") == "watch6-empirical-costs/v1":
+        from research.watch6_search_efficacy.costs import empirical_forecast
+
+        return empirical_forecast(report, frozen_layout)
+    validate_measurements(report, p.identity())
+    choices = []
+    pair_costs = {}
+    for profile in report["profiles"]:
+        workers = profile["workers"]
+        branch = profile["branch_seconds_upper"]
+        loops = profile["main_seconds_per_frame"]
         # DenseTrigger first eligibility plus every5 decisions: ceil(H/5) roots.
         # All six legal actions is the physical maximum, not a prior mean rate.
         pair_seconds = p.HORIZON * sum(loops.values()) + math.ceil(p.HORIZON / 5) * 6 * branch
@@ -251,7 +264,10 @@ def main() -> None:
     report = measure()
     # Even an over-slow host retains its measured evidence before refusing main.
     publish_json(args.out, report)
-    print(json.dumps(forecast(report)), flush=True)
+    print(
+        json.dumps({"status": "MEASUREMENTS_EXPORTED", "profiles": len(report["profiles"])}),
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

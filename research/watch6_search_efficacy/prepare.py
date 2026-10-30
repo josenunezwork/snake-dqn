@@ -30,10 +30,16 @@ def prepare(
     mirror_receipt: Path | None = None,
     canary_receipt: Path | None = None,
     main_shards: bool = False,
+    empirical_costs: Path | None = None,
+    pending_canary: bool = False,
 ) -> dict:
     """Prepare canary only, or main shards after measured same-pin admission."""
-    if main_shards and canary_receipt is None:
+    if main_shards and canary_receipt is None and not pending_canary:
         raise ValueError("main preparation requires measured passing same-pin canary receipt")
+    if pending_canary and (not main_shards or empirical_costs is None or canary_receipt):
+        raise ValueError(
+            "pending preparation requires empirical main and no claimed canary receipt"
+        )
     if mirror_receipt is None:
         raise ValueError("full Mac mirror receipt required before preparation")
     validate_mirror(json.loads(mirror_receipt.read_text()))
@@ -129,6 +135,13 @@ def prepare(
         Input(mirror_receipt, "mac-mirror.json"),
         *checkpoint_inputs(saved, out / "checkpoint-parts"),
     ]
+    report = None
+    if empirical_costs:
+        from research.watch6_search_efficacy.costs import verify_report_evidence
+
+        report = json.loads(empirical_costs.read_text())
+        verify_report_evidence(report)
+        inputs.append(Input(empirical_costs, "cost-evidence.json"))
     pins = json.loads((p.ROOT / "web/backend/served_checkpoint_pins.json").read_text())
     release_bundle = out / "release-evidence.tar.gz"
     with (
@@ -149,16 +162,17 @@ def prepare(
                     archive.addfile(member, io.BytesIO(data))
     inputs.append(Input(release_bundle, "release-evidence.tar.gz"))
     staged = pack_inputs(stage_inputs(out / "staged", inputs), out / METADATA)
-    report = None
-    if main_shards:
+    if main_shards and report is None:
         receipt = json.loads(canary_receipt.read_text())
         report_path = canary_receipt.parent / "exports/performance.json"
         report = json.loads(report_path.read_text())
         if receipt.get("status") != "PASS" or receipt.get("stop_verified") is not True:
             raise ValueError("measured canary must PASS and stop_verified")
         forecast = measured_forecast(report, frozen_layout)
-    else:
+    elif not main_shards:
         forecast = {"status": "CANARY_ONLY_MAIN_NOT_PREPARED", "base_minutes_per_shard": 15}
+    else:
+        forecast = measured_forecast(report, frozen_layout)
     base_minutes = forecast["base_minutes_per_shard"]
     rate = 2.5  # planning rate; qualified dispatcher refreshes live accounting
     publish_json(out / "forecast.json", forecast)
@@ -214,7 +228,8 @@ def prepare(
         },
     }
     jobs = (
-        [(f"shard-{i}", i, False) for i in range(forecast["shards"])]
+        ([("canary", 0, True)] if pending_canary else [])
+        + [(f"shard-{i}", i, False) for i in range(forecast["shards"])]
         if main_shards
         else [("canary", 0, True)]
     )
@@ -254,11 +269,12 @@ def prepare(
                 "family": canary.family(value),
             }
         else:
+            qualification = out / "output-canary/receipt.json" if pending_canary else canary_receipt
             value["canary"] = {
                 "schema": canary.SCHEMA,
                 "receipt": {
-                    "path": str(canary_receipt.resolve()),
-                    "sha256": digest(canary_receipt),
+                    "path": str(qualification.resolve()),
+                    "sha256": "0" * 64 if pending_canary else digest(qualification),
                 },
             }
             value["env"]["WATCH6_MEASUREMENTS"] = json.dumps(report, sort_keys=True)
@@ -268,14 +284,18 @@ def prepare(
             )
             # Re-derive transport/upload/export/hardware evidence; a fabricated
             # report or a PASS string alone can never prepare main manifests.
-            canary.check(value, p.ROOT)
+            if pending_canary:
+                value["pending_qualification"] = True
+            else:
+                canary.check(value, p.ROOT)
         from research.watch6_search_efficacy.admission import admit
 
-        upload_report = admit(value)
+        upload_report = admit(value, pending_qualification=pending_canary and not probe)
         publish_json(out / f"{label}-upload-preflight.json", upload_report)
         # The uploaded contract and complete input inventory are identical for
         # canary and all shards; per-shard controls are pinned manifest env.
-        (out / f"{label}.json").write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+        suffix = ".pending.json" if pending_canary and not probe else ".json"
+        (out / f"{label}{suffix}").write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
     return forecast
 
 
@@ -288,6 +308,8 @@ def main() -> None:
     parser.add_argument("--mirror-receipt", type=Path, required=True)
     parser.add_argument("--canary-receipt", type=Path)
     parser.add_argument("--main", action="store_true")
+    parser.add_argument("--empirical-costs", type=Path)
+    parser.add_argument("--pending-canary", action="store_true")
     parser.add_argument("--ledger", type=Path)
     parser.add_argument("--attempt", type=int, default=1)
     parser.add_argument("--previous-receipts", type=Path, nargs="*", default=[])
@@ -305,6 +327,8 @@ def main() -> None:
                 args.mirror_receipt,
                 args.canary_receipt,
                 args.main,
+                args.empirical_costs,
+                args.pending_canary,
             ),
             indent=2,
         )

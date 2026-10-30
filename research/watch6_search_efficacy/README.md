@@ -1,5 +1,33 @@
 # Watch6 exact-stop replay efficacy go/no-go
 
+Owner-authorized operational forecast correction (2026-10-30): `costs` verifies
+the genuine transport01 performance export and both completed W4 replay banks,
+then sizes W4 shards using linear p95 of all 24 full H6000 session durations,
+scaled by 14400/6000, plus H14400 bare-loop cost from the W4 canary. The 1.5x
+margin applies to that whole pair cost. Replay totals conservatively retain
+search, late-game main loops, mirror and serialization; they are not claimed to
+be isolated search seconds. Add 20 setup/export minutes per shard, then apply
+the owner's separate 2x wall/pricing guard. Select the fewest feasible shards
+among 3/6/12/24/48/96 at W4, retaining the 660-minute base ceiling. Forecasts
+are empirical estimates; each supervisor still mechanically stops at its wall.
+N=96, allocation, H14400, controller, co-primary bars and one look stay fixed.
+This operational rule supersedes the physical-maximum sizing description below
+and REGISTRATION_V2's cost formula only, under the owner's explicit instruction.
+No original registration/ruling/receipt bytes are edited.
+
+`prepare --main --empirical-costs COSTS --pending-canary` prepares a fresh-pin
+canary plus explicitly **non-dispatchable** `shard-*.pending.json` templates.
+All share identical uploaded cost evidence, contracts and empty ledgers. The
+retained INCOMPLETE canary is timing evidence only, never relabelled PASS. A new
+same-pin canary is required by the current supervisor because runtime admission
+and package bytes changed. Transport bytes stay unchanged; transport acceptance
+does not need repetition. After the operator's genuine new canary PASS/verified
+stop, `finalize PACKAGE` validates the complete set and publishes `shard-N.json`
+with the real receipt hash. Both ordinary dry-run and live admission reject
+pending templates. A missing/failed/stale canary cannot be finalized. The timing
+profiler now ends after exporting measurements, so a sizing refusal cannot
+mislabel otherwise completed canary execution as a child failure.
+
 Prepare only; no dispatch or merge in this assignment. REGISTRATION_V2.md
 prospectively supersedes the retained original REGISTRATION.md. RULING.md records
 Astra's owner-authorized pre-data ruling. The fixed panel is 96 paired H14400
