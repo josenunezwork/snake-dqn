@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import copy
 import os
 import random
+import tarfile
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -27,8 +29,15 @@ def open_watch(row: dict, fps: int, arm: str):
     from web.backend import served_checkpoint
 
     saved = Path(os.environ["SNAKE_CKPT_DIR"])
+    pins = served_checkpoint.load_pins()
+    evidence_root = os.environ.get("WATCH6_RELEASE_EVIDENCE")
+    if evidence_root:
+        pins = copy.deepcopy(pins)
+        for name, pin in pins["checkpoints"].items():
+            pin["strict_receipt"]["root"] = str(Path(evidence_root) / name)
     with (
         patch.object(served_checkpoint, "SAVED_DIR", str(saved)),
+        patch.object(served_checkpoint, "load_pins", return_value=pins),
         patch.dict(os.environ, {"SNAKE_SERVE_PATHB": "off", "SNAKE_MECHANICS_V2": "1"}),
     ):
         live = new_session(int(row["seed"]), 6)
@@ -64,3 +73,31 @@ def open_watch(row: dict, fps: int, arm: str):
     )
     random.setstate(rng)
     return RunSession(world, arm, live=live, specs=[("checkpoint", str(frp3))] * 5)
+
+
+def stage_release_evidence(input_root: Path) -> None:
+    """Unpack only the six exact immutable release anchors, never bypass pins."""
+    import hashlib
+
+    from web.backend import served_checkpoint
+
+    pins = served_checkpoint.load_pins()
+    expected = {}
+    for name, pin in pins["checkpoints"].items():
+        for ref in pin["strict_receipt"].values():
+            if isinstance(ref, dict):
+                expected[name + "/" + ref["path"]] = ref["sha256"]
+    output = input_root / "release-evidence"
+    output.mkdir(exist_ok=False)
+    with tarfile.open(input_root / "release-evidence.tar.gz", "r:gz") as archive:
+        if {m.name for m in archive.getmembers()} != set(expected):
+            raise ValueError("release evidence inventory mismatch")
+        for member in archive.getmembers():
+            if not member.isfile() or member.size > 2**21:
+                raise ValueError("unsafe release evidence")
+            data = archive.extractfile(member).read()
+            if hashlib.sha256(data).hexdigest() != expected[member.name]:
+                raise ValueError("release evidence digest mismatch")
+            target = output / member.name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)

@@ -52,3 +52,9 @@ non-mechanical/scientific failures and an already-complete bank. Each changed
 ledger requires a fresh short canary covering those exact input bytes; fixture
 pairs remain excluded and ignore the scientific skip set. No completion starts
 automatically. Preserve the single final look over the verified union.
+
+Portable product construction ships the six original release-evidence JSON files
+in a small hash-checked archive. It relocates only their lookup roots in a private
+copy of the pins document for this session constructor. Original release anchor
+hashes, verdict checks and checkpoint checks still run; no served pin is edited
+or bypassed. This prevents a Colab runtime from needing the Mac artifact history.

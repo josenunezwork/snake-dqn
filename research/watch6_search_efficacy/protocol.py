@@ -34,6 +34,8 @@ def source_paths() -> list[str]:
 
     pending = list((ROOT / "research/watch6_search_efficacy").glob("*.py"))
     pending.append(ROOT / "research/apex_veto_serving_20261001/schema.py")
+    pending += list((ROOT / "src").rglob("*.py"))
+    pending += list((ROOT / "web/backend").rglob("*.py"))
     found = set()
     while pending:
         path = pending.pop()
@@ -45,7 +47,12 @@ def source_paths() -> list[str]:
             if isinstance(node, ast.Import):
                 modules = [a.name for a in node.names]
             elif isinstance(node, ast.ImportFrom) and node.module:
-                modules = [node.module, *[node.module + "." + a.name for a in node.names]]
+                base = node.module
+                if node.level:
+                    package = ".".join(path.relative_to(ROOT).parent.parts)
+                    parts = package.split(".")
+                    base = ".".join(parts[: len(parts) - node.level + 1]) + "." + node.module
+                modules = [base, *[base + "." + a.name for a in node.names]]
             for module in modules:
                 if module.startswith("research."):
                     target = ROOT / module.replace(".", "/")

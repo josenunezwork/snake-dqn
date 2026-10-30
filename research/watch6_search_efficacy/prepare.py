@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import math
 import subprocess
+import tarfile
 from pathlib import Path
 
 from research.colab_cli import canary
@@ -111,6 +113,21 @@ def prepare(
             "checkpoints/frp3_m3_s12_u60000_20261005.pth",
         ),
     ]
+    pins = json.loads((p.ROOT / "web/backend/served_checkpoint_pins.json").read_text())
+    release_bundle = out / "release-evidence.tar.gz"
+    with tarfile.open(release_bundle, "x:gz") as archive:
+        for name, pin in pins["checkpoints"].items():
+            receipt = pin["strict_receipt"]
+            for ref in receipt.values():
+                if isinstance(ref, dict):
+                    path = Path(receipt["root"]) / ref["path"]
+                    if digest(path) != ref["sha256"]:
+                        raise ValueError("legacy release evidence mismatch")
+                    data = path.read_bytes()
+                    member = tarfile.TarInfo(name + "/" + ref["path"])
+                    member.size = len(data)
+                    archive.addfile(member, io.BytesIO(data))
+    inputs.append(Input(release_bundle, "release-evidence.tar.gz"))
     staged = stage_inputs(out / "staged", inputs)
     max_singleton_seconds = max(r["seconds"] / r["branches"] for r in measured["branch_timings"])
     # Fixed estimate: 2880 eligible roots/session, 1.2 complete branches/root forecast, not a bound.
