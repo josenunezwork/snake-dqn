@@ -103,6 +103,34 @@ def binding(path: Path, dest: str | None = None) -> dict[str, str]:
     return result
 
 
+def verify_ruler_receipt(path: Path, commit: str) -> None:
+    """Require real, hash-bound integrated rate evidence before main packing."""
+    receipt = json.loads(path.read_text())
+    if receipt.get("status") != "PASS" or receipt.get("stop_verified") is not True:
+        raise ValueError("ruler requires a passing stopped supervisor receipt")
+    if receipt.get("commit") != commit:
+        raise ValueError("ruler receipt source pin differs")
+    summary = path.parent / "exports/spatial/summary.json"
+    matches = [r for r in receipt.get("exports", []) if r["path"] == "spatial/summary.json"]
+    if (
+        len(matches) != 1
+        or not summary.is_file()
+        or digest(summary) != matches[0]["sha256"]
+        or summary.stat().st_size != matches[0]["size"]
+    ):
+        raise ValueError("ruler summary is not bound to supervisor exports")
+    report = json.loads(summary.read_text())
+    if (
+        report.get("status") != "RULER_COMPLETE"
+        or report.get("forecast_qualified") is not True
+        or report.get("within_six_hours") is not True
+    ):
+        raise ValueError("integrated ruler did not qualify mature support and six-hour forecast")
+    peak = report.get("peak_vram_bytes")
+    if not isinstance(peak, int) or peak <= 0 or peak > 34 * 1024**3:
+        raise ValueError("ruler lacks bounded measured CUDA peak memory")
+
+
 def build_manifest(
     *,
     commit: str,
@@ -174,6 +202,11 @@ def build_manifest(
     }
     prepare_preference(manifest)
     if mode == "ruler":
+        manifest.pop("resume")
+        manifest["resume_exemption"] = {
+            "kind": "short-canary",
+            "reason": "15-minute integrated development ruler; no scientific units imported",
+        }
         manifest["env"].update(SNAKE_COLAB_CANARY="1", SNAKE_COLAB_CANARY_PACKAGE=PACKAGE)
         manifest["canary"] = {"schema": SCHEMA, "mode": "probe", "family": family(manifest)}
     elif hardware_canaries is not None:
@@ -190,13 +223,15 @@ def prepare(
     artifacts_root: Path,
     *,
     config_path: Path | None = None,
+    ledger_path: Path | None = None,
+    resume_roots: list[Path] | None = None,
     seed_audit: Path | None = None,
     hardware_canaries: dict[str, Path] | None = None,
     job_id: str = "t34-spatial-pilot-01",
 ) -> dict[str, Any]:
     """Run clean import admission, then create a source/input-bound packet."""
     from research.spatial_student_pilot.config import PilotConfig, audit_seeds
-    from research.spatial_student_pilot.resume import empty_ledger
+    from research.spatial_student_pilot.resume import empty_ledger, upload_inputs, validate_ledger
     from tools.ops.import_preflight import check
 
     if not packet.is_absolute() or not artifacts_root.is_absolute():
@@ -211,6 +246,12 @@ def prepare(
         if config_path is not None
         else PilotConfig()
     )
+    ledger = json.loads(ledger_path.read_text()) if ledger_path else empty_ledger(config)
+    validate_ledger(ledger, config)
+    resumed_inputs = upload_inputs(ledger, resume_roots or [], config)
+    if hardware_canaries:
+        for receipt in hardware_canaries.values():
+            verify_ruler_receipt(receipt, commit)
     source_paths = runtime_source_paths(commit)
     for required in (SCRIPT, REQUIREMENTS, f"{PACKAGE}/run.py"):
         if required not in source_paths:
@@ -239,16 +280,30 @@ def prepare(
     )
     packet.mkdir(parents=True, exist_ok=False)
     write_once(packet / "config.json", config.to_dict())
-    write_once(packet / "verified-ledger.json", empty_ledger(config))
+    write_once(packet / "verified-ledger.json", ledger)
     (packet / "REGISTRATION.md").write_bytes(registration_bytes)
     write_once(packet / "import-preflight.json", import_receipt)
     write_once(packet / "seed-audit.json", seed_receipt)
-    inputs = checkpoint_inputs + [
-        binding(packet / name, name)
-        for name in ("config.json", "verified-ledger.json", "REGISTRATION.md", "seed-audit.json")
-    ]
+    inputs = (
+        checkpoint_inputs
+        + resumed_inputs
+        + [
+            binding(packet / name, name)
+            for name in (
+                "config.json",
+                "verified-ledger.json",
+                "REGISTRATION.md",
+                "seed-audit.json",
+            )
+        ]
+    )
     clarification = ROOT / PACKAGE / "REGISTRATION_CLARIFICATION_01.md"
     inputs.append(binding(clarification, "REGISTRATION_CLARIFICATION_01.md"))
+    inputs.append(
+        binding(
+            ROOT / PACKAGE / "REGISTRATION_CLARIFICATION_02.md", "REGISTRATION_CLARIFICATION_02.md"
+        )
+    )
     proofs = (
         {gpu: binding(path) for gpu, path in hardware_canaries.items()}
         if hardware_canaries is not None
@@ -343,6 +398,8 @@ def main() -> None:
     parser.add_argument("--checkpoint-dir", type=Path, required=True)
     parser.add_argument("--artifacts-root", type=Path, required=True)
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--verified-ledger", type=Path)
+    parser.add_argument("--resume-roots", type=Path, nargs="*", default=[])
     parser.add_argument("--seed-audit", type=Path)
     parser.add_argument("--h100-canary", type=Path)
     parser.add_argument("--a100-canary", type=Path)
@@ -356,6 +413,8 @@ def main() -> None:
         args.checkpoint_dir,
         args.artifacts_root,
         config_path=args.config,
+        ledger_path=args.verified_ledger,
+        resume_roots=args.resume_roots,
         seed_audit=args.seed_audit,
         hardware_canaries=(
             {"H100": args.h100_canary, "A100": args.a100_canary} if args.h100_canary else None

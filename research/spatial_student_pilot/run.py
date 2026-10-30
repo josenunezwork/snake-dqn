@@ -254,7 +254,12 @@ def ruler(
     phases["collection"] = {"seconds": batch["elapsed_seconds"], "rows": batch["world_ticks"]}
     train = [r for r in batch["roots"] if r["partition"] == "train"]
     late = [r for r in train if r["hero_length"] >= 600]
-    roots = (late or train)[:2]
+    mature_mixes = {r["mix"] for r in late}
+    roots = [
+        r
+        for mix in ("scripted", "frozen", "mixed")
+        for r in [row for row in (late or train) if row["mix"] == mix][:2]
+    ]
     if not roots or not batch["demos"]:
         raise RuntimeError("INCOMPLETE_RULER no natural roots/demonstrations")
     mark = time.monotonic()
@@ -326,10 +331,11 @@ def ruler(
         "scientific_result": False,
         "phases": phases,
         "natural_mature_support": bool(late),
-        "forecast_qualified": bool(late),
+        "mature_mixes": sorted(mature_mixes),
+        "forecast_qualified": len(mature_mixes) == 3,
         "forecast_compute_seconds": forecast,
         "forecast_with_setup_export_seconds": forecast + 3600,
-        "within_six_hours": bool(late) and forecast + 3600 <= 21600,
+        "within_six_hours": len(mature_mixes) == 3 and forecast + 3600 <= 21600,
         "peak_vram_bytes": torch.cuda.max_memory_allocated() if device.startswith("cuda") else None,
         "elapsed_seconds": time.monotonic() - started,
     }
@@ -346,13 +352,17 @@ def main() -> int:
     args = parser.parse_args()
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
     original = PilotConfig.from_dict(json.loads(args.config.read_text()))
     ledger = json.loads(args.ledger.read_text())
     validate_ledger(ledger, original)
     cfg = original if args.mode == "pilot" else original.development(args.mode)
     if args.mode != "pilot":
-        if ledger["units"]:
-            raise ValueError("development cannot import scientific units")
+        # A ruler can transport a completion ledger to qualify its exact input
+        # inventory; the short-canary exemption never decodes/imports its units.
         if args.mode == "ruler":
             cfg = replace(cfg, bc_updates=25, improvement_updates=25, checkpoint_every=25)
         ledger = empty_ledger(cfg)

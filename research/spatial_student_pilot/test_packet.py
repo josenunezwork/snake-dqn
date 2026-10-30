@@ -40,11 +40,13 @@ def test_ruler_and_main_keep_source_family_and_all_upload_bytes(tmp_path: Path) 
     assert not canary.is_canary(main)
     for manifest in (ruler, main):
         validate_manifest(manifest)
-        assert manifest["resume"]["ledger_path"] == "inputs/verified-ledger.json"
         assert manifest["env"]["SPATIAL_LEDGER"] == "inputs/verified-ledger.json"
-        assert manifest["resume"]["skip_verified"] is True
-        assert manifest["resume"]["max_outcome_blind_retries"] == 2
-        assert "resume_exemption" not in manifest
+    assert main["resume"]["ledger_path"] == "inputs/verified-ledger.json"
+    assert main["resume"]["skip_verified"] is True
+    assert main["resume"]["max_outcome_blind_retries"] == 2
+    assert "resume_exemption" not in main
+    assert ruler["resume_exemption"]["kind"] == "short-canary"
+    assert "resume" not in ruler
 
 
 def test_new_real_entrypoint_passes_unmodified_canary_schema_gate(
