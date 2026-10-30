@@ -472,6 +472,36 @@ def test_pending_packets_refuse_dispatch_and_finalize_without_receipt(tmp_path: 
     assert not (tmp_path / "shard-0.json").exists()
 
 
+def test_operator_route_keeps_original_broker_and_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    from research.watch6_search_efficacy import dispatch
+
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"job_id": "synthetic-route-test"}))
+    operator = tmp_path / "operator"
+    seen = []
+    monkeypatch.setattr(dispatch, "admit", lambda value: seen.append(value["job_id"]))
+    monkeypatch.setattr(dispatch.subprocess, "run", lambda command, **kw: seen.append(command))
+    monkeypatch.setattr(
+        sys, "argv", ["dispatch", str(manifest), "--operator-root", str(operator), "--dry-run"]
+    )
+    dispatch.main()
+    assert seen[0] == "synthetic-route-test"
+    assert seen[1] == [
+        str(operator / "tools/ops/dispatch.sh"),
+        "synthetic-route-test",
+        str(manifest),
+        "--broker",
+        str(p.ROOT),
+        "--cwd",
+        str(p.ROOT),
+        "--dry-run",
+    ]
+
+
 def test_execute_time_rederives_forecast_and_cli(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
