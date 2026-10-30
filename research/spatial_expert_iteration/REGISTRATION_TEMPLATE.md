@@ -58,13 +58,13 @@ deaths remain in the allocation; there is no replacement/retry for scientific fa
 
 ## Search, queries and fitting
 
-- Freeze current student continuation identity, H300 (or the expressly registered
+- Freeze B8 continuation identity (or the audited student opt-in), H300 (or the expressly registered
   horizon), all legal first actions, exact ties to current student then lowest ID,
   selection suffixes 0/1, independent scoring suffixes 4/5, namespace and opponents.
   Labels bind full root state + continuation + opponents + horizon + config.
   Freeze `search_chunk >= 512` for search and assessment (default 512) separately
   from `branch_batch_size` (default 1024); the final slab may be partial.
-- Gate: preceding frozen current student/B8 disagreement priority, top fraction,
+- Gate: uniform by default, optional frozen student/B8 disagreement priority, top fraction,
   deterministic independent hash-Bernoulli random floor and gate seed. Record each
   inclusion probability. Every queried root gets full-action search; unqueried
   roots get **no expert target**. Cap maximal work at all candidate roots, not the
@@ -84,7 +84,7 @@ deaths remain in the allocation; there is no replacement/retry for scientific fa
 Every round collects fresh assessment from L1 under the frozen pre-round student,
 using a separate phase/seed namespace; assessment is never gated or fitted. Search
 selection chooses a teacher first action on suffixes 0/1, then scores B8/current/
-teacher/candidate first actions on 4/5 under the same pre-round student continuation.
+teacher/candidate first actions on 4/5 under the same frozen continuation (B8 by default).
 Identical arm jobs share exact results. This mechanism assessment is distinct from
 fresh paired **closed-loop candidate vs B8 gameplay**, also newly allocated each
 round. Parent descendants stay clustered. Never reuse a sealed baseline as a fresh
@@ -114,3 +114,89 @@ supervisor manifest/script with the full source/inputs and resume declaration un
 `research/colab_cli` and `tools/ops/dispatch.sh`. No Colab dispatch is implemented or
 performed in this build task. Strict/product work remains Mac-only; release remains
 owner-only.
+
+## r50 follow-on defaults and mandatory admission (fix2)
+
+Stopping is **the five-round cap**, with schedule `[1,2,3,4,5]` and
+`stopping={"kind":"round-cap","max_rounds":5}`. There is no efficacy-based
+"two small lower bounds" early stop. Integrity/support failures still terminate
+as INCOMPLETE, without replacing natural worlds or extending the cap.
+
+Collection now reserves disjoint late and ordinary strata: late every `root_every`
+(default 32) at length >= `mature_length` (600), ordinary every
+`ordinary_root_every` (128), ordinary taking precedence at shared ticks. Each
+parent retains separate bounded pools; final selection enforces the
+`roots_per_parent` cap per stratum, matching the pilot (at most four total with
+the default two per stratum). `late_fraction` defaults to 0.25: 512 late and
+1,536 ordinary candidates for the default training population; assessment
+reserves at least 64 late roots to meet its 64-parent support gate. Fresh mature support and
+independent parents are reserved first; anchors/reused roots cannot satisfy this
+support. Insufficient natural support still refuses; stratification cannot make
+an immature student reach L600. Freeze quotas with sufficient ordinary capacity.
+
+The default query gate is **uniform**: `query_ranking="uniform"`,
+`query_top_fraction=0`, `query_floor=0.34375` (the former expected query rate).
+Disagreement ranking requires explicit `query_ranking="disagreement"` and a
+prospectively chosen positive top fraction. Search units export every candidate's
+UID/parent, disagreement rank/top-quartile flag, inclusion probability, queried
+flag, frozen student logits and top-two logit margin. Queried labels also export
+CE and CE squared against the hard expert action. Join by UID; compare inverse
+probability weighted CE-squared sums for top quartile and whole population. That
+ratio is an estimate when queries are sampled, exact only with full labels.
+Unqueried roots have no invented targets. Show the retrospective CE-squared share
+(and uncertainty, with parent clustering) before adopting a ranked gate.
+
+Search continuation defaults to **B8**, including assessment suffixes. Collection
+remains student-driven; first-action ties remain current-student then lowest ID.
+Opt-in `continuation_mode="student"` requires `teacher_audit_sha256` and a pinned
+`teacher-audit.json` input. Its schema is `spatial-exit-teacher-audit/v1`; bind
+namespace, student tensor identity, opponents identity, branch horizon, selection
+and scoring suffixes, and independent judge. `pairs` contain unique UID, parent
+ID, `student_teacher_gain` and `b8_teacher_gain`, each computed from paired search
+and independent scoring on identical roots. Parent-mean gain differences must
+have a one-sided t LB90 >= `-teacher_max_degradation` (default zero), with at least
+`teacher_audit_min_parents` (64) independent parents. Register and independently
+review how that report is produced before using the hook; this build performs no
+teacher audit or scientific validation.
+
+Per-label exports include all legal action advantages relative to B8's first
+action, selected-action advantage and selection top-two mass gap. Learning options
+are off by default: `margin_threshold=0` leaves hard CE unchanged; a positive
+threshold scales searched hard CE by `min(1, gap/threshold)`.
+`soft_advantage_weight=0` disables optional masked softmax-advantage CE using
+`search_temperature`. Existing Q-soft and centered-regression losses remain
+separate options. Validate prospectively; these options do not establish benefit.
+
+All search labels and derived actors remain quarantined and labelled
+`product_training_eligible=false`. `quarantine_search_targets=true` is the
+fail-closed default. Product training refuses searched rows. Disabling the flag
+alone is insufficient: an independently verified exact-product-dynamics replay
+and its admission implementation are required, and are deliberately not supplied
+by this development-only package. These targets do not establish v2 Watch transfer.
+
+Every completed unit uses a `spatial-exit-unit/v2` envelope with actual CUDA
+`gpu_sku`, capability, memory, torch/CUDA version; CPU units explicitly record
+`gpu_sku=null` and CPU architecture. This metadata is inside the hash-bound unit.
+Fit completion resume across differing hardware/software identities refuses;
+no cross-SKU bitwise-identity claim is made.
+
+### Concrete ancestry DAG bindings
+
+`prior_round_freezes` is a nonempty list of file descriptors, never strings.
+Every descriptor has absolute `path` and exact `sha256`. A round descriptor has
+`kind="round"`, points to the actual `FREEZE.json`, and resolves every sibling
+config, input, seed-audit and ledger. Historical source files are hash-audited
+against the recorded git commit. The bound seed-inventory recursively supplies
+its parent descriptors. Exactly one scientific pilot and all same-program rounds
+1 through current-minus-one must resolve, without cycles, conflicting allocations
+or foreign programs. All derived ancestor effective seeds must be excluded.
+
+The pilot uses `kind="pilot"` pointing to its actual supervisor manifest, plus
+`inputs` mapping each manifest destination to a relocated Mac `{path,sha256}`
+descriptor. Every manifest input must resolve and match, including `config.json`.
+This permits relocation without trusting a truthy name. The Mac seed-audit embeds
+the complete resolved file/hash DAG; the runtime verifies that bound report and
+all packet inputs without needing access to Mac-only ancestor paths. For later
+rounds include the immediate predecessor descriptor directly as well as any
+recursive references: the imported parent endpoint's `freeze_sha256` must match
+it, and its learner/reservoir hashes must match the imported bytes.

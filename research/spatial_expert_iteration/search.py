@@ -180,7 +180,11 @@ def rollouts(
                 raise InterruptedError("partial student-continuation search")
             if tick:
                 sim.prepare()
-                actions = student_actions(sim, student)
+                actions = (
+                    student_actions(sim, student)
+                    if cfg.continuation_mode == "student"
+                    else observe_hero_bv8(sim, b8)[-1]
+                )
             else:
                 actions = torch.tensor([j.action for j in slab], device=device)
             sim.step(opponents.actions(sim, actions))
@@ -243,11 +247,21 @@ def label_roots(
         masses[j.root, j.action, cfg.selection_suffixes.index(j.suffix)] = m
         alive[j.root, j.action, cfg.selection_suffixes.index(j.suffix)] = s
     actions = select_mass_actions(masses, np.asarray([r["mask"] for r in roots]), first)
-    return [
+    labels = [
         dict(
             r,
             target_action=int(a),
             teacher_q=m.mean(1),
+            action_advantages=m.mean(1) - m[int(r["b8_action"])].mean(),
+            top2_margin=(
+                float(np.diff(np.sort(m.mean(1)[np.asarray(r["mask"], bool)])[-2:])[0])
+                if int(torch.as_tensor(r["mask"]).sum()) > 1
+                else 0.0
+            ),
+            target_advantage=float(m[int(a)].mean() - m[int(r["b8_action"])].mean()),
+            quarantined=True,
+            target_dynamics="development-v1-not-product-replayed",
+            continuation_mode=cfg.continuation_mode,
             selection_mass=m,
             selection_survival=s,
             continuation_sha256=continuation_sha,
@@ -255,6 +269,14 @@ def label_roots(
         )
         for r, a, m, s in zip(roots, actions, masses, alive)
     ]
+    for label in labels:
+        if "gate_student_logits" in label:
+            logits = torch.tensor(label["gate_student_logits"], dtype=torch.float64)
+            masked = logits.masked_fill(~torch.as_tensor(label["mask"]).bool(), -torch.inf)
+            ce = float(-masked.log_softmax(0)[label["target_action"]])
+            label["gate_ce"] = ce
+            label["gate_ce_squared"] = ce * ce
+    return labels
 
 
 def assess(

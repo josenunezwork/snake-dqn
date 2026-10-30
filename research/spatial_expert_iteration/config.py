@@ -53,6 +53,8 @@ class RoundConfig:
     demos: int = 32768
     roots_per_parent: int = 2
     root_every: int = 32
+    ordinary_root_every: int = 128
+    late_fraction: float = 0.25
     demo_every: int = 16
     mature_length: int = 600
     assessment_worlds: int = 192
@@ -62,8 +64,16 @@ class RoundConfig:
     batch_size: int = 64
     microbatch: int = 8
     checkpoint_every: int = 250
-    query_top_fraction: float = 0.25
-    query_floor: float = 0.125
+    query_ranking: str = "uniform"
+    query_top_fraction: float = 0.0
+    query_floor: float = 0.34375
+    continuation_mode: str = "b8"
+    teacher_audit_sha256: str = ""
+    teacher_audit_min_parents: int = 64
+    teacher_max_degradation: float = 0.0
+    quarantine_search_targets: bool = True
+    margin_threshold: float = 0.0
+    soft_advantage_weight: float = 0.0
     soft_weight: float = 0.0
     advantage_weight: float = 0.0
     b8_temperature: float = 1.0
@@ -103,6 +113,8 @@ class RoundConfig:
             "demos",
             "roots_per_parent",
             "root_every",
+            "ordinary_root_every",
+            "teacher_audit_min_parents",
             "demo_every",
             "mature_length",
             "assessment_worlds",
@@ -121,6 +133,20 @@ class RoundConfig:
         for key in ("allocation_index", "anchor_worlds", "reservoir_roots", "seed"):
             if type(getattr(self, key)) is not int or getattr(self, key) < 0:
                 raise ValueError(f"nonnegative integer required: {key}")
+        if self.round_index > 5:
+            raise ValueError("program stops at the 5-round cap")
+        if self.query_ranking not in {"uniform", "disagreement"}:
+            raise ValueError("unknown query ranking")
+        if self.query_ranking == "uniform" and self.query_top_fraction != 0:
+            raise ValueError("uniform queries require zero top fraction")
+        if self.continuation_mode not in {"b8", "student"}:
+            raise ValueError("unknown continuation mode")
+        if self.continuation_mode == "student" and not re.fullmatch(
+            r"[0-9a-f]{64}", self.teacher_audit_sha256
+        ):
+            raise ValueError("student continuation requires a paired teacher audit hash")
+        if type(self.quarantine_search_targets) is not bool:
+            raise ValueError("quarantine flag must be boolean")
         if (
             type(self.tiny) is not bool
             or self.anchor_worlds > self.worlds
@@ -147,6 +173,10 @@ class RoundConfig:
         if self.batch_size % 2 or self.microbatch > self.batch_size:
             raise ValueError("even batch and bounded microbatch required")
         for key in (
+            "late_fraction",
+            "margin_threshold",
+            "soft_advantage_weight",
+            "teacher_max_degradation",
             "query_top_fraction",
             "query_floor",
             "soft_weight",
@@ -164,6 +194,10 @@ class RoundConfig:
                 or not math.isfinite(value)
             ):
                 raise ValueError(f"finite scalar required: {key}")
+        if not 0 < self.late_fraction < 1:
+            raise ValueError("late/ordinary fractions must both be positive")
+        if min(self.margin_threshold, self.soft_advantage_weight, self.teacher_max_degradation) < 0:
+            raise ValueError("negative margin/advantage/degradation setting")
         if not 0 <= self.query_top_fraction <= 1 or not 0 < self.query_floor <= 1:
             raise ValueError("query gate requires a positive random floor")
         if (
@@ -273,7 +307,8 @@ class RoundConfig:
             batch_size=2,
             microbatch=1,
             checkpoint_every=1,
-            query_top_fraction=1.0,
+            query_floor=1.0,
+            ordinary_root_every=1,
             base_timeout_seconds=60,
             timeout_seconds=120,
         )

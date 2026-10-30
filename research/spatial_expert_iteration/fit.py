@@ -14,6 +14,7 @@ from research.spatial_student_pilot.resume import UnitStore
 
 from .config import RoundConfig, identity
 from .data import validate_rows
+from .guards import require_training_scope
 
 
 def row_loss(
@@ -28,6 +29,23 @@ def row_loss(
         raise ValueError("nonfinite logits or illegal target")
     masked = logits.masked_fill(~masks, -torch.inf)
     loss = F.cross_entropy(masked, actions, reduction="none")
+    if searched and cfg.margin_threshold:
+        margins = torch.tensor([r["top2_margin"] for r in rows], device=logits.device)
+        if not bool(torch.isfinite(margins).all()) or bool((margins < 0).any()):
+            raise ValueError("invalid label margins")
+        # Near-ties smoothly reduce hard-target pressure; default is unchanged.
+        loss = loss * (margins / cfg.margin_threshold).clamp(max=1)
+    if searched and cfg.soft_advantage_weight:
+        advantages = torch.stack([torch.as_tensor(r["action_advantages"]) for r in rows]).to(
+            device=logits.device, dtype=logits.dtype
+        )
+        if not bool(torch.isfinite(advantages[masks]).all()):
+            raise ValueError("invalid per-action advantages")
+        target = (advantages / cfg.search_temperature).masked_fill(~masks, -torch.inf).softmax(1)
+        log_probs = (masked / cfg.search_temperature).log_softmax(1).masked_fill(~masks, 0)
+        loss = loss - cfg.soft_advantage_weight * cfg.search_temperature**2 * (
+            target * log_probs
+        ).sum(1)
     if cfg.soft_weight or (searched and cfg.advantage_weight):
         q = torch.stack(
             [torch.as_tensor(r["teacher_q"] if searched else r["b8_q"]) for r in rows]
@@ -61,6 +79,7 @@ def fit(
     population: int,
     device: str,
     store: UnitStore,
+    training_scope: str = "research",
     stop: Callable[[], bool] = lambda: False,
     progress: Callable[[dict[str, Any]], None] = lambda _: None,
 ) -> tuple[SpatialStudent, dict[str, Any]]:
@@ -70,6 +89,7 @@ def fit(
     required to recover the full ungated candidate mean in expectation. Do not
     normalize by observed weight sums or clip large weights silently.
     """
+    require_training_scope(cfg, searched, training_scope)
     validate_rows(ordinary, "train")
     validate_rows(searched, "train")
     if not ordinary or population < len(searched) or population < 1:
@@ -160,6 +180,8 @@ def fit(
                 round_index=cfg.round_index,
                 fit_identity=fit_identity,
                 final=update + 1 == cfg.updates,
+                quarantined=bool(searched) or bool(initial.get("quarantined", True)),
+                training_scope=training_scope,
             )
             store.publish(f"fit-{update + 1:07d}", state)
     return student.eval(), state

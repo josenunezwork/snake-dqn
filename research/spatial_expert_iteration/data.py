@@ -65,11 +65,27 @@ def query_gate(rows: Sequence[dict[str, Any]], cfg: RoundConfig) -> list[dict[st
         ),
     )
     top = {r["uid"] for r in ordered[: math.ceil(len(rows) * cfg.query_top_fraction)]}
+    ranks = {r["uid"]: i for i, r in enumerate(ordered)}
     audit = []
     for row in rows:
         p = 1.0 if row["uid"] in top else cfg.query_floor
         draw = rank(cfg.namespace, cfg.seed, "query-floor", row["uid"]) / 2**64
-        audit.append(dict(uid=row["uid"], inclusion_probability=p, queried=draw < p))
+        audit.append(
+            dict(
+                uid=row["uid"],
+                parent_id=row["parent_id"],
+                inclusion_probability=p,
+                queried=draw < p,
+                ranking=cfg.query_ranking,
+                disagreement_rank=ranks[row["uid"]],
+                population=len(rows),
+                disagreement_top_quartile=ranks[row["uid"]] < math.ceil(len(rows) / 4),
+                gate_student_action=row.get("gate_student_action", row["student_action"]),
+                b8_action=row["b8_action"],
+                student_logits=row.get("gate_student_logits"),
+                student_top2_margin=row.get("gate_top2_margin"),
+            )
+        )
     return audit
 
 
@@ -123,7 +139,7 @@ def collect(
             [CompactWorldSnapshot.from_state_dict(a["snapshot"]) for a in anchors], sim, opponents
         )
         sim.terminal_slots[:, 0] = True
-    roots: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    roots: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
     demos: dict[int, list[dict[str, Any]]] = defaultdict(list)
     horizon = cfg.anchor_horizon if anchors else cfg.horizon
     decisions = 0
@@ -141,8 +157,17 @@ def collect(
             if not alive[row]:
                 continue
             priority = rank(cfg.namespace, phase, world, tick)
-            root_ok = tick % cfg.root_every == 0
-            pool = roots[world]
+            ordinary = tick % cfg.ordinary_root_every == 0
+            late = tick % cfg.root_every == 0 and lengths[row] >= cfg.mature_length
+            # Disjoint stratum schedules, as in the pilot. Tiny alternates to
+            # exercise both strata without manufacturing maturity.
+            kind = (
+                ("late" if tick % 2 else "ordinary")
+                if cfg.tiny
+                else ("ordinary" if ordinary else "late")
+            )
+            root_ok = (ordinary or late) and (kind != "late" or late)
+            pool = roots[(world, kind)]
             if root_ok and len(pool) >= cfg.roots_per_parent:
                 root_ok = priority < max(r["priority"] for r in pool)
             group = world // cfg.logical_reservoir_size
@@ -151,12 +176,12 @@ def collect(
             if demo_ok and len(demos[group]) >= demo_cap:
                 demo_ok = priority < max(r["priority"] for r in demos[group])
             if root_ok or demo_ok:
-                admissions.append((row, world, priority, root_ok, demo_ok, group))
+                admissions.append((row, world, priority, root_ok, demo_ok, group, kind))
         # A single sparse gather for accepted rows; dense planes remain ephemeral.
         compacts = (
             _cpu_compact(compact_from_sim(sim, [a[0] for a in admissions])) if admissions else None
         )
-        for local, (row, world, priority, root_ok, demo_ok, group) in enumerate(admissions):
+        for local, (row, world, priority, root_ok, demo_ok, group, kind) in enumerate(admissions):
             parent = anchors[row]["parent_id"] if anchors else f"{cfg.namespace}/{phase}/w{world}"
             record = dict(
                 uid=f"{cfg.namespace}/{phase}/w{world}/t{tick}",
@@ -171,7 +196,7 @@ def collect(
                 ),
                 partition=partition,
                 tick=tick,
-                kind="late" if lengths[row] >= cfg.mature_length else "ordinary",
+                kind=kind,
                 hero_length=int(lengths[row]),
                 mix=table[roster_ids[row]].mix,
                 roster_index=roster_ids[row],
@@ -198,8 +223,8 @@ def collect(
                     tick=tick,
                     max_body_capacity=cfg.body_capacity,
                 )
-                roots[world].append(dict(record, snapshot=snapshot.to_state_dict()))
-                roots[world] = sorted(roots[world], key=lambda r: r["priority"])[
+                roots[(world, kind)].append(dict(record, snapshot=snapshot.to_state_dict()))
+                roots[(world, kind)] = sorted(roots[(world, kind)], key=lambda r: r["priority"])[
                     : cfg.roots_per_parent
                 ]
         sim.step(opponents.actions(sim, actions))
@@ -247,7 +272,7 @@ def check_support_possible(cfg: RoundConfig, batches: Sequence[dict[str, Any]]) 
         )
         required_mature = cfg.min_mature_roots if partition == "train" else parents
         if (
-            len(roots) + remaining * cfg.roots_per_parent < quota
+            len(roots) + remaining * 2 * cfg.roots_per_parent < quota
             or len(mature) + fresh_left * cfg.roots_per_parent < required_mature
             or len({r["parent_id"] for r in mature}) + fresh_left < parents
         ):
@@ -258,6 +283,62 @@ def check_support_possible(cfg: RoundConfig, batches: Sequence[dict[str, Any]]) 
             per_world = math.ceil(max(cfg.horizon, cfg.anchor_horizon) / cfg.demo_every)
             if demos + remaining * per_world < cfg.demos:
                 raise RuntimeError("INCOMPLETE_SUPPORT: demos impossible after collection batch")
+
+
+def stratified_roots(
+    rows: Sequence[dict[str, Any]],
+    count: int,
+    cfg: RoundConfig,
+    min_parents: int,
+    min_fresh: int,
+) -> list[dict[str, Any]]:
+    """Reserve late slots and fresh parent support before ordinary hash fill.
+
+    Selection uses lengths/ancestry only, never deaths or search outcomes.
+    Per-parent caps apply separately in each stratum, as in the pilot.
+    Insufficient natural support refuses.
+    """
+    late_count = max(math.ceil(count * cfg.late_fraction), min_fresh)
+    if late_count > count:
+        raise RuntimeError("INCOMPLETE_SUPPORT: late quota exceeds fresh population")
+    ordered = sorted(rows, key=lambda r: (r["priority"], r["uid"]))
+    selected, used, parents = [], set(), defaultdict(int)
+    stratum_counts = defaultdict(int)
+
+    def take(row: dict[str, Any]) -> None:
+        selected.append(row)
+        used.add(row["uid"])
+        parents[row["parent_id"]] += 1
+        stratum_counts[(row["parent_id"], row["kind"])] += 1
+
+    late = [r for r in ordered if r["kind"] == "late"]
+    fresh = [
+        r
+        for r in late
+        if r["start_distribution"] == "fresh" and r["hero_length"] >= cfg.mature_length
+    ]
+    for row in fresh:
+        if sum(n > 0 for n in parents.values()) >= min_parents:
+            break
+        if not parents[row["parent_id"]]:
+            take(row)
+    if len([n for n in parents.values() if n]) < min_parents:
+        raise RuntimeError("INCOMPLETE_SUPPORT: natural mature parents")
+    for pool, quota in ((fresh, min_fresh), (late, late_count), (ordered, count)):
+        for row in pool:
+            if len(selected) >= quota:
+                break
+            if (
+                row["uid"] in used
+                or stratum_counts[(row["parent_id"], row["kind"])] >= cfg.roots_per_parent
+            ):
+                continue
+            if pool is ordered and row["kind"] != "ordinary":
+                continue
+            take(row)
+        if len(selected) < quota:
+            raise RuntimeError("INCOMPLETE_SUPPORT: late/ordinary stratum quota")
+    return selected
 
 
 def dataset(
@@ -277,9 +358,17 @@ def dataset(
     reused = sorted(reservoir, key=lambda r: rank(cfg.namespace, "reuse", r["uid"]))[
         : cfg.reservoir_roots
     ]
-    train = sorted(train, key=lambda r: (r["priority"], r["uid"]))
-    train = [dict(r) for r in train[: cfg.candidate_roots - len(reused)] + reused]
-    held = sorted(held, key=lambda r: (r["priority"], r["uid"]))[: cfg.assessment_roots]
+    train = stratified_roots(
+        train, cfg.candidate_roots - len(reused), cfg, cfg.min_mature_parents, cfg.min_mature_roots
+    )
+    train = [dict(r) for r in train + reused]
+    held = stratified_roots(
+        held,
+        cfg.assessment_roots,
+        cfg,
+        cfg.min_assessment_mature_parents,
+        cfg.min_assessment_mature_parents,
+    )
     demos = sorted(demos, key=lambda r: (r["priority"], r["uid"]))[: cfg.demos]
     if (
         len(train) != cfg.candidate_roots

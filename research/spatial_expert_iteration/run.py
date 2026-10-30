@@ -12,7 +12,7 @@ from typing import Any
 
 import torch
 
-from research.sandbox_a_resident.ct_run import _load_vector61
+from research.sandbox_a_resident.ct_run import B8_S3_SHA256, _load_vector61
 from research.sandbox_a_resident.training_rosters import training_rosters
 from research.spatial_student_pilot.model import SpatialStudent, export_checkpoint
 from research.spatial_student_pilot.observation import build_observation, compact_cat
@@ -28,6 +28,7 @@ from .fit import fit, initial_state
 from .prepare import freeze, verify_packet, write_json
 from .reservoir import capacity_forecast, reservoir_value
 from .search import assess, label_roots, tensor_identity
+from .units import HardwareUnitStore
 
 
 def save_tree(path: Path, value: Any, max_bytes: int | None = None) -> None:
@@ -65,9 +66,18 @@ def round_pipeline(
     """
     current = SpatialStudent().to(device).eval()
     current.load_state_dict(initial["model"])
-    continuation = tensor_identity(current.state_dict())
+    if not isinstance(store, HardwareUnitStore):
+        store = HardwareUnitStore(store, device)
+    collector = tensor_identity(current.state_dict())
+    if collector != frozen.get("collector_sha256", collector):
+        raise ValueError("warm-start differs from frozen round")
+    continuation = collector if cfg.continuation_mode == "student" else B8_S3_SHA256
     if continuation != frozen["continuation_sha256"]:
-        raise ValueError("warm-start/continuation differs from frozen round")
+        raise ValueError("continuation differs from frozen round")
+    if cfg.continuation_mode == "student" and not frozen.get("continuation_audit", {}).get(
+        "passed"
+    ):
+        raise ValueError("student continuation lacks paired teacher-degradation audit")
     capacity_forecast(cfg, reservoir)
     anchors = select_anchors(cfg, reservoir)
     batches = []
@@ -89,7 +99,7 @@ def round_pipeline(
                         cfg,
                         ids,
                         student=current,
-                        student_sha=continuation,
+                        student_sha=collector,
                         b8=b8,
                         networks=networks,
                         device=device,
@@ -116,7 +126,7 @@ def round_pipeline(
                         cfg,
                         assessment_ids,
                         student=current,
-                        student_sha=continuation,
+                        student_sha=collector,
                         b8=b8,
                         networks=networks,
                         device=device,
@@ -140,9 +150,14 @@ def round_pipeline(
             rows = data["train"][start : start + cfg.microbatch]
             inputs = build_observation(compact_cat([r["compact"] for r in rows]), device=device)
             masks = torch.stack([r["mask"] for r in rows]).to(device)
-            actions = current(*inputs).masked_fill(~masks, -torch.inf).argmax(1).cpu().tolist()
-            for row, action in zip(rows, actions):
+            logits = current(*inputs)
+            masked = logits.masked_fill(~masks, -torch.inf)
+            actions = masked.argmax(1).cpu().tolist()
+            margins = masked.topk(2, dim=1).values.diff(dim=1).neg()[:, 0].cpu().tolist()
+            for row, action, values, margin in zip(rows, actions, logits.cpu().tolist(), margins):
                 row["gate_student_action"] = action
+                row["gate_student_logits"] = values
+                row["gate_top2_margin"] = margin if margin != float("inf") else None
     gate = query_gate(data["train"], cfg)
     by_uid = {r["uid"]: r for r in gate}
     labels = []
@@ -252,6 +267,9 @@ def round_pipeline(
             round_index=cfg.round_index,
             config_sha256=cfg.sha256,
             continuation_sha256=continuation,
+            quarantined=True,
+            product_training_eligible=False,
+            target_dynamics="development-v1-not-product-replayed",
         ),
     )
     seal_file(actor)
@@ -272,6 +290,9 @@ def round_pipeline(
         heldout_parent_count=len({r["parent_id"] for r in data["assessment"]}),
         scientific_result=False,
         allocations=0,
+        quarantine_search_targets=True,
+        product_training_eligible=False,
+        hardware=store.runtime,
     )
 
 

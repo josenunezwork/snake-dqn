@@ -28,6 +28,8 @@ from research.spatial_student_pilot.resume import (
 
 from .config import RoundConfig, identity
 from .data import validate_rows
+from .guards import teacher_audit
+from .provenance import audit_ancestors
 from .reservoir import capacity_forecast
 from .search import tensor_identity
 
@@ -89,17 +91,18 @@ def seed_audit(cfg: RoundConfig, inventory: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("integer effective seed inventory required")
     if len(keys) != len(set(keys)) or set(keys) & set(excluded):
         raise ValueError("effective seed collision; reject whole allocation")
-    if not cfg.tiny and (
-        inventory.get("scope") != "mac-historical-and-prior-rounds"
-        or not inventory.get("prior_round_freezes")
-    ):
-        raise ValueError("bind Mac historical inventory and prior round/pilot freezes")
+    provenance = None
+    if not cfg.tiny:
+        if inventory.get("scope") != "mac-historical-and-prior-rounds":
+            raise ValueError("bind Mac historical inventory and prior round/pilot freezes")
+        provenance = audit_ancestors(cfg, inventory)
     return dict(
         schema="spatial-exit-seed-audit/v1",
         config_sha256=cfg.sha256,
         effective_keys=keys,
         inventory_sha256=identity(inventory),
         collision_count=0,
+        provenance=provenance,
     )
 
 
@@ -130,7 +133,8 @@ def freeze(
             or reg.get("config_sha256") != cfg.sha256
             or not reg.get("decision_rule")
             or not reg.get("heldout_policy")
-            or not reg.get("round_schedule")
+            or reg.get("round_schedule") != [1, 2, 3, 4, 5]
+            or reg.get("stopping") != {"kind": "round-cap", "max_rounds": 5}
             or reg.get("release_authority") != "owner-only"
         ):
             raise ValueError("prospective independent ratification and full registration required")
@@ -174,7 +178,17 @@ def freeze(
         previous = (
             json.loads(inputs["parent-endpoint.json"].read_text()) if cfg.round_index > 1 else None
         )
-        if previous:
+        if cfg.round_index > 1:
+            refs = json.loads(inventory.read_text()).get("prior_round_freezes", [])
+            predecessor = [
+                ref
+                for ref in refs
+                if ref.get("kind") == "round"
+                and json.loads(Path(ref["path"]).read_text()).get("round_index")
+                == cfg.round_index - 1
+            ]
+            if len(predecessor) != 1 or previous.get("freeze_sha256") != predecessor[0]["sha256"]:
+                raise ValueError("previous endpoint is not bound to predecessor freeze")
             if (
                 previous.get("status") != "ENDPOINT_EXPORTED_NO_DECISION"
                 or previous.get("round_index") != cfg.round_index - 1
@@ -203,12 +217,43 @@ def freeze(
                 raise ValueError(
                     "round-one reservoir requires verified natural pilot training roots"
                 )
+    opponent_identity = identity(
+        {
+            name: digest(path)
+            for name, path in inputs.items()
+            if name in {"b8-s3.pth", *OPPONENT_SHAS}
+        }
+    )
+    student_identity = tensor_identity(warm["model"])
+    continuation_audit = None
+    if cfg.continuation_mode == "student":
+        path = inputs.get("teacher-audit.json")
+        if path is None or digest(path) != cfg.teacher_audit_sha256:
+            raise ValueError("student continuation requires the pinned paired teacher audit")
+        continuation_audit = teacher_audit(
+            cfg, json.loads(path.read_text()), student_identity, opponent_identity
+        )
     capacity = capacity_forecast(cfg, reservoir["roots"])
     if set(seed_keys(cfg)) & {
         int(r[k]) for r in reservoir["roots"] for k in ("parent_seed", "parent_opp_seed")
     }:
         raise ValueError("fresh round allocation collides with reservoir ancestry")
     audited = seed_audit(cfg, json.loads(inventory.read_text()))
+    if not cfg.tiny:
+        parents = {
+            parent: keys
+            for node in audited["provenance"]["nodes"]
+            for parent, keys in node["training_parents"].items()
+        }
+        by_uid = {r["uid"]: r for r in reservoir["roots"]}
+        for row in reservoir["roots"]:
+            if parents.get(row["parent_id"]) != [row["parent_seed"], row["parent_opp_seed"]]:
+                raise ValueError("reservoir parent absent from verified training provenance")
+            ancestor = row.get("ancestor_uid")
+            if ancestor is not None and (
+                ancestor not in by_uid or by_uid[ancestor]["parent_id"] != row["parent_id"]
+            ):
+                raise ValueError("reservoir descendant has missing/foreign ancestor")
     ledger = ledger if ledger is not None else empty_ledger(cfg)
     validate_ledger(ledger, cfg)
     resumed = upload_inputs(ledger, resume_roots or [], cfg)
@@ -237,7 +282,15 @@ def freeze(
         source_commit=commit,
         source_sha256=hashes,
         inputs={r["dest"]: r["sha256"] for r in bindings},
-        continuation_sha256=tensor_identity(warm["model"]),
+        collector_sha256=student_identity,
+        continuation_mode=cfg.continuation_mode,
+        continuation_sha256=(
+            student_identity
+            if cfg.continuation_mode == "student"
+            else digest(inputs["b8-s3.pth"]) if "b8-s3.pth" in inputs else B8_S3_SHA256
+        ),
+        continuation_audit=continuation_audit,
+        quarantine_search_targets=cfg.quarantine_search_targets,
         opponents_sha256=identity(
             {
                 name: digest(path)
@@ -322,6 +375,8 @@ def main() -> None:
         parser.error("use run --smoke for development fixtures")
     names = ["learner.pt", "reservoir.pt", "pilot-go.json", *CHECKPOINT_NAMES]
     names += ["initial-actor.pth"] if cfg.round_index == 1 else ["parent-endpoint.json"]
+    if cfg.continuation_mode == "student":
+        names.append("teacher-audit.json")
     freeze(
         args.packet,
         cfg,

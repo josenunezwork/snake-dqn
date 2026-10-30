@@ -11,7 +11,7 @@ Defaults are proposals. No round is ratified, dispatched, merged or released her
 |---|---|
 | `config.py` | Immutable per-round science/work/learning settings and separate smoke namespace; structural pilot UnitStore adapter |
 | `data.py` | Frozen student drives fresh and training-anchor worlds; original-parent ancestry; batched sparse admission; natural mature reservoir; IPW query gate |
-| `search.py` | Full legal-action search under frozen current student, versioned label keys, restore-once device fan-out, independent suffix assessment and exact duplicate job sharing |
+| `search.py` | Full legal-action search under frozen B8 (audited student opt-in), versioned label keys, restore-once device fan-out, independent suffix assessment and exact duplicate job sharing |
 | `fit.py` | Ordinary hard BC anchor + IPW queried CE; optional legal-action soft targets and centered advantage Huber; model/Adam/sampler/RNG continuation |
 | `cache.py` | Optional train-only packed binary/uint16 raster cache; byte identity admission and bounded memory |
 | `import_pilot.py` | Verified pilot final learner/Adam/RNG and natural training reservoir import after GO |
@@ -48,15 +48,23 @@ fresh-L1 roots collected this round, excluding reused roots and anchor descendan
 Per-batch support checks refuse only when even perfect remaining worlds cannot
 supply the registered counts; they do not refill or replace worlds.
 
-The gate uses frozen current-student vs B8 disagreement, then hash-random ranking;
-query the top fraction with probability 1 and all remaining candidates with the
-registered positive random floor. The training target is the full candidate mean:
+The gate defaults to uniform hash-Bernoulli sampling at 0.34375, with no priority
+top fraction. Frozen student/B8 disagreement ranking is an explicit opt-in.
+Every candidate exports its disagreement rank and frozen logits; queried labels
+export CE squared and inclusion probabilities for a later IPW top-quartile audit. The training target is the full candidate mean:
 uniform queried sampling needs `n_query/(N*p)`, not just `1/p` with an empirical
 queried-mean denominator. No unqueried action becomes an expert target. Ordinary
 BC uses recorded B8 Q, and search rows retain all selection per-action/suffix mass
 returns plus their mean teacher Q. Soft weight, separate `b8_temperature` and
 `search_temperature`, and normalized centered
-advantage weights are explicit settings. No critic leaf is used in search.
+advantage weights are explicit settings. No critic leaf is used in search. Late/ordinary strata protect natural mature
+support from ordinary-root eviction. Search targets and derived actors are
+quarantined from product training pending exact-product replay. `guards.py`
+admits an independently produced paired teacher-degradation audit for student
+continuation; B8 is the default. `provenance.py` resolves/hash-audits the ancestor
+DAG. `units.py` records actual GPU SKU within every immutable unit. The program
+stops at five rounds. See the r50 section of `REGISTRATION_TEMPLATE.md` for exact
+schemas, target options, support rules and replay boundaries.
 
 ## Tiny real-entrypoint Mac smoke
 

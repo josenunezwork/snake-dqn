@@ -6,15 +6,21 @@ import copy
 import itertools
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 import torch
 from torch import nn
 
+from research.sandbox_a_resident.ct_run import B8_S3_SHA256
 from research.sandbox_a_resident.training_rosters import CHAMPION_SHA256, FRP3_S12_SHA256
 from research.spatial_student_pilot.model import SpatialStudent
-from research.spatial_student_pilot.resume import UnitStore, build_ledger, empty_ledger
+from research.spatial_student_pilot.resume import UnitStore as PilotUnitStore
+from research.spatial_student_pilot.resume import (
+    build_ledger,
+    empty_ledger,
+)
 
 from .config import RoundConfig, identity
 from .data import (
@@ -29,6 +35,11 @@ from .fit import fit, initial_state, row_loss
 from .prepare import freeze, seed_audit, verify_packet, write_json
 from .run import save_tree
 from .search import Job, label_key, label_roots, rollouts, tensor_identity
+from .units import HardwareUnitStore
+
+
+def UnitStore(*args: Any, **kwargs: Any) -> HardwareUnitStore:
+    return HardwareUnitStore(PilotUnitStore(*args, **kwargs), "cpu")
 
 
 class FixedPolicy(nn.Module):
@@ -104,7 +115,7 @@ def test_student_drives_and_natural_ancestry_stays_frozen(fixture: tuple) -> Non
 
 def test_query_gate_records_probability_without_self_labels(fixture: tuple) -> None:
     cfg, _, _, data, _ = fixture
-    cfg = replace(cfg, query_top_fraction=0.25, query_floor=0.125)
+    cfg = replace(cfg, query_ranking="disagreement", query_top_fraction=0.25, query_floor=0.125)
     rows = [dict(data["train"][0], uid=f"root-{i}") for i in range(1000)]
     audit = query_gate(rows, cfg)
     assert audit == query_gate(list(reversed(rows)), cfg)[::-1]
@@ -375,7 +386,7 @@ def test_complete_round_entrypoint_core_and_verified_retry(tmp_path: Path, fixtu
     cfg, b8, nets, _, _ = fixture
     torch.manual_seed(cfg.seed)
     initial = initial_state(SpatialStudent(), cfg.seed)
-    frozen = dict(continuation_sha256=tensor_identity(initial["model"]), opponents_sha256="fixture")
+    frozen = dict(continuation_sha256=B8_S3_SHA256, opponents_sha256="fixture")
     first = UnitStore(tmp_path / "first", cfg, empty_ledger(cfg), tmp_path)
     control = Control(first.output, 60)
     try:
@@ -437,9 +448,7 @@ def test_next_round_anchor_program_keeps_original_reservoir_immutable(
             store,
             initial=initial,
             reservoir=reservoir,
-            frozen=dict(
-                continuation_sha256=tensor_identity(initial["model"]), opponents_sha256="fixture"
-            ),
+            frozen=dict(continuation_sha256=B8_S3_SHA256, opponents_sha256="fixture"),
             b8=b8,
             networks=nets,
             device="cpu",
@@ -510,7 +519,8 @@ def test_registered_freeze_go_source_and_input_admission(
         config_sha256=cfg.sha256,
         decision_rule="fixture-only",
         heldout_policy="sealed",
-        round_schedule=[1],
+        round_schedule=[1, 2, 3, 4, 5],
+        stopping={"kind": "round-cap", "max_rounds": 5},
         release_authority="owner-only",
         input_sha256={name: prepare.digest(p) for name, p in paths.items()},
         seed_inventory_sha256=prepare.digest(inputs_dir / "inventory.json"),
@@ -518,6 +528,7 @@ def test_registered_freeze_go_source_and_input_admission(
     write_json(registration, reg)
     monkeypatch.setattr(prepare, "ROOT", tmp_path)
     monkeypatch.setattr(prepare, "sources", lambda *a, **k: {})
+    monkeypatch.setattr(prepare, "audit_ancestors", lambda *a: {"nodes": []})
     monkeypatch.setattr(
         prepare.subprocess,
         "check_output",
