@@ -316,7 +316,7 @@ class CLI:
         remaining = min(
             allowance,
             (
-                policy.STAGING_CONTROL_SECONDS
+                self.staging_control_seconds()
                 if staging_control and staging_deadline != math.inf
                 else math.inf
             ),
@@ -327,17 +327,28 @@ class CLI:
             raise Refused("whole-session deadline reached before helper")
         return remaining
 
+    def staging_control_seconds(self) -> float:
+        """Return the source-only exception to the short staging RPC budget."""
+        return (
+            policy.SOURCE_CONTROL_SECONDS
+            if getattr(self._control_context, "source_delivery", False)
+            else policy.STAGING_CONTROL_SECONDS
+        )
+
     @contextlib.contextmanager
-    def staging_controls(self, deadline: float) -> Iterator[None]:
+    def staging_controls(self, deadline: float, *, source_delivery: bool = False) -> Iterator[None]:
         """Bound foreground staging without starving the independent lease thread."""
         previous = getattr(self._control_context, "deadline", math.inf)
+        previous_source = getattr(self._control_context, "source_delivery", False)
         self._control_context.deadline = min(previous, deadline)
+        self._control_context.source_delivery = source_delivery
         try:
             if time.monotonic() >= self._control_context.deadline:
                 raise Refused("total upload time cap reached before staging control")
             yield
         finally:
             self._control_context.deadline = previous
+            self._control_context.source_delivery = previous_source
 
     @contextlib.contextmanager
     def operation(self, tag: str) -> Iterator[None]:
@@ -600,7 +611,7 @@ class CLI:
         staging_deadline = getattr(self._control_context, "deadline", math.inf)
         if staging_deadline != math.inf:
             timeout = min(
-                timeout, policy.STAGING_CONTROL_SECONDS, staging_deadline - time.monotonic()
+                timeout, self.staging_control_seconds(), staging_deadline - time.monotonic()
             )
             completion_grace = 0
             if timeout <= 0:
@@ -802,7 +813,8 @@ class CLI:
             self.deadline if self.deadline is not None else math.inf,
             staging_deadline,
             (
-                time.monotonic() + policy.STAGING_RECOVERY_SECONDS
+                time.monotonic()
+                + max(policy.STAGING_RECOVERY_SECONDS, self.staging_control_seconds())
                 if staging_deadline != math.inf
                 else math.inf
             ),
@@ -820,7 +832,12 @@ class CLI:
         while True:
             remaining()
             try:
-                return self.rpc(code, min(policy.RPC_SECONDS, remaining()), completion_grace=0)
+                rpc_seconds = (
+                    self.staging_control_seconds()
+                    if staging_deadline != math.inf
+                    else policy.RPC_SECONDS
+                )
+                return self.rpc(code, min(rpc_seconds, remaining()), completion_grace=0)
             except (Refused, OSError, subprocess.SubprocessError) as exc:
                 if not self.exec_uncertain or not policy.transient_error(exc):
                     raise
@@ -1772,17 +1789,22 @@ class Broker:
                         nonlocal source_delivery_seconds
                         started = time.monotonic()
                         renew()
-                        result = cli.recoverable_rpc(
-                            "# SNAKE_SOURCE_DELIVERY\n"
-                            "import importlib.util\nfrom pathlib import Path\n"
-                            f"root=Path({root!r})\nplan={plan!r}\n"
-                            "s=importlib.util.spec_from_file_location("
-                            "'snake_source',root/'source.py')\n"
-                            "mod=importlib.util.module_from_spec(s)\ns.loader.exec_module(mod)\n"
-                            f"result=mod.{operation}(root,plan)",
-                        )
-                        renew()
-                        source_delivery_seconds += time.monotonic() - started
+                        try:
+                            with cli.staging_controls(upload_deadline, source_delivery=True):
+                                with cli.operation("source-" + operation):
+                                    result = cli.recoverable_rpc(
+                                        "# SNAKE_SOURCE_DELIVERY\n"
+                                        "import importlib.util\nfrom pathlib import Path\n"
+                                        f"root=Path({root!r})\nplan={plan!r}\n"
+                                        "s=importlib.util.spec_from_file_location("
+                                        "'snake_source',root/'source.py')\n"
+                                        "mod=importlib.util.module_from_spec(s)\n"
+                                        "s.loader.exec_module(mod)\n"
+                                        f"result=mod.{operation}(root,plan)",
+                                    )
+                            renew()
+                        finally:
+                            source_delivery_seconds += time.monotonic() - started
                         return result
 
                     delivery = deliver_source("fetch")
