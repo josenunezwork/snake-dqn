@@ -64,16 +64,26 @@ def pair(row: dict, fixture: bool = False) -> dict:
     import faulthandler
 
     faulthandler.dump_traceback_later(900, exit=True)
+    last_watchdog = time.monotonic()
 
     def progress_check() -> None:
-        faulthandler.dump_traceback_later(900, exit=True)
+        nonlocal last_watchdog
+        now = time.monotonic()
+        if now - last_watchdog >= 60:
+            faulthandler.dump_traceback_later(900, exit=True)
+            last_watchdog = now
 
     arms = {}
     # Fixed alternating order avoids consistently charging one arm cold starts.
-    for dense in ([False, True] if row["index"] % 2 == 0 else [True, False]):
-        arms["exact_stop" if dense else "bare"] = metrics(
-            run_arm(row["seed"], dense, progress_check, row["horizon"])
-        )
+    try:
+        for dense in ([False, True] if row["index"] % 2 == 0 else [True, False]):
+            arms["exact_stop" if dense else "bare"] = metrics(
+                run_arm(row["seed"], dense, progress_check, row["horizon"])
+            )
+    finally:
+        # An idle pool worker must not exit900s after finishing its pair while
+        # a different worker is still searching. The next pair arms its own timer.
+        faulthandler.cancel_dump_traceback_later()
     return {
         "schema": "watch6-search-pair/v1",
         "namespace": p.NAMESPACE,

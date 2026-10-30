@@ -422,3 +422,30 @@ def test_completion_preserves_frozen_layout_and_refuses_larger_wall() -> None:
     assert faster["shards"] == original["shards"]
     with pytest.raises(ValueError, match="frozen shard wall"):
         forecast(performance_report(0.7), frozen)
+
+
+@pytest.mark.parametrize("fault", [False, True])
+def test_pair_cancels_idle_worker_watchdog(monkeypatch: pytest.MonkeyPatch, fault: bool) -> None:
+    import faulthandler
+
+    from research.t1_commitment_20261015 import replay
+    from research.watch6_search_efficacy import engine
+
+    calls = []
+    monkeypatch.setattr(replay, "configure_cpu", lambda: None)
+    monkeypatch.setattr(faulthandler, "dump_traceback_later", lambda *a, **kw: calls.append("arm"))
+    monkeypatch.setattr(faulthandler, "cancel_dump_traceback_later", lambda: calls.append("cancel"))
+    monkeypatch.setattr(run, "metrics", lambda raw: {})
+
+    def arm(*args):
+        if fault:
+            raise ValueError("mechanical fixture error")
+        return {}
+
+    monkeypatch.setattr(engine, "run_arm", arm)
+    if fault:
+        with pytest.raises(ValueError, match="mechanical"):
+            run.pair(p.allocation()[0], fixture=True)
+    else:
+        run.pair(p.allocation()[0], fixture=True)
+    assert calls == ["arm", "cancel"]
