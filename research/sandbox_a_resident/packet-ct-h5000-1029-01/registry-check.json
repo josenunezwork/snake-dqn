@@ -1,0 +1,33 @@
+{
+  "aliases": 0,
+  "allocations": [
+    {
+      "count": 4100820,
+      "offset": 0,
+      "phase": "training"
+    },
+    {
+      "count": 1024,
+      "offset": 10000000,
+      "phase": "validation"
+    },
+    {
+      "count": 1020204,
+      "offset": 20000000,
+      "phase": "assessment"
+    }
+  ],
+  "canonical_uint64_sha256": "9ebf871c7483137819d15568a0b8273516b200c2d5795b6f1663f15fb8c6dff9",
+  "count": 5122048,
+  "effective_seed_bits": 63,
+  "excluded_intersection": 0,
+  "namespace": "a100-dev/t34-ct-h5000-1029/",
+  "predecessor_count": 2623488,
+  "predecessor_intersection": 0,
+  "registry_sha256": "39b80bcd4cca6a3e137206958fced3292f5aa5cb77e4f5f22cb9e810757ffc2c",
+  "schema": "t34-cf-seed-audit/v1",
+  "status": "PASS",
+  "study": "t34-ct-h5000-1029",
+  "train01_excluded_intersection": 0,
+  "train01_protected_count": 1056
+}

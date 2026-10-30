@@ -784,7 +784,7 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
                 CT_ADMISSION_VALIDATE_TIMEOUT_SECONDS if study == "t34-cf-1028" else 600.0
             ),
         )
-        if study in {"t34-cf-1028", "t34-ct-h5000-1029"}:
+        if study == "t34-cf-1028":
             print(
                 f"CT_HOST_PREFLIGHT_SECONDS={time.monotonic() - preflight_started:.6f} "
                 f"bound={CT_ADMISSION_VALIDATE_TIMEOUT_SECONDS} "

@@ -135,7 +135,9 @@ def validate_packet(packet: Path, *, require_committed: bool = True) -> dict[str
     return audit
 
 
-def tiny_entrypoint(output: Path, *, capped: bool = False) -> dict[str, Any]:
+def tiny_entrypoint(
+    output: Path, *, capped: bool = False, checkpoint_dir: Path | None = None
+) -> dict[str, Any]:
     """Run production early-telemetry entrypoint on a seeded synthetic tiny bank."""
     import torch
 
@@ -150,6 +152,27 @@ def tiny_entrypoint(output: Path, *, capped: bool = False) -> dict[str, Any]:
         torch.save(
             {"tiny_linear_vector61": True, "state_dict": net.state_dict()}, output / f"{name}.pth"
         )
+    checkpoints = {
+        "b8": output / "b8.pth",
+        "frp3": output / "frp3.pth",
+        "champion": output / "champion.pth",
+    }
+    if checkpoint_dir is not None:
+        from research.sandbox_a_resident.ct_run import B8_S3_SHA256
+        from research.sandbox_a_resident.training_rosters import CHAMPION_SHA256, FRP3_S12_SHA256
+
+        checkpoints = {
+            "b8": checkpoint_dir / "b8_s3_t7_20261016.pth",
+            "frp3": checkpoint_dir / "frp3_m3_s12_u60000_20261005.pth",
+            "champion": checkpoint_dir / "champion_a5_freespace_20260621.pth",
+        }
+        for name, expected in (
+            ("b8", B8_S3_SHA256),
+            ("frp3", FRP3_S12_SHA256),
+            ("champion", CHAMPION_SHA256),
+        ):
+            if digest(checkpoints[name]) != expected:
+                raise ValueError("tiny production checkpoint pin differs: " + name)
     control = replace(
         CTControl(),
         worlds=6,
@@ -170,11 +193,11 @@ def tiny_entrypoint(output: Path, *, capped: bool = False) -> dict[str, Any]:
         "research.sandbox_a_resident.ct_h5000.entrypoint",
         "runner",
         "--checkpoint",
-        str(output / "b8.pth"),
+        str(checkpoints["b8"]),
         "--frp3",
-        str(output / "frp3.pth"),
+        str(checkpoints["frp3"]),
         "--champion",
-        str(output / "champion.pth"),
+        str(checkpoints["champion"]),
         "--control",
         str(output / "control.json"),
         "--ledger",
@@ -205,6 +228,8 @@ def tiny_entrypoint(output: Path, *, capped: bool = False) -> dict[str, Any]:
         raise ValueError("tiny collection did not complete all ticks")
     report = {
         "status": "PASS",
+        "checkpoint_sha256": {name: digest(path) for name, path in checkpoints.items()},
+        "production_checkpoints": checkpoint_dir is not None,
         "command": command,
         "wall_sec": time.perf_counter() - start,
         "verdict": summary["verdict"],
@@ -221,14 +246,31 @@ def main() -> int:
     parser.add_argument("--checks-only", action="store_true")
     parser.add_argument("--tiny-output", type=Path)
     parser.add_argument("--capped", action="store_true")
+    parser.add_argument("--checkpoint-dir", type=Path)
     args = parser.parse_args()
     if args.tiny_output:
-        print(json.dumps(tiny_entrypoint(args.tiny_output.resolve(), capped=args.capped)))
+        print(
+            json.dumps(
+                tiny_entrypoint(
+                    args.tiny_output.resolve(),
+                    capped=args.capped,
+                    checkpoint_dir=args.checkpoint_dir,
+                )
+            )
+        )
         return 0
     if args.packet is None:
         parser.error("packet or --tiny-output required")
     audit = validate_packet(args.packet.resolve())
     if not args.checks_only:
+        test_env = dict(os.environ)
+        for key in (
+            "SNAKE_SANDBOX_TEST_RECEIPT",
+            "SNAKE_SANDBOX_ALLOCATION_LEASE",
+            "SNAKE_SANDBOX_REQUIRE_TEST_RECEIPT",
+        ):
+            test_env.pop(key, None)
+        test_env["CT_PREFLIGHT_SUBPROCESS"] = "1"
         subprocess.run(
             [
                 sys.executable,
@@ -244,6 +286,7 @@ def main() -> int:
                 *TESTS,
             ],
             cwd=ROOT,
+            env=test_env,
             check=True,
             timeout=600,
         )
