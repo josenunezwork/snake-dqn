@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import math
+import re
 import shlex
 import subprocess
 import tarfile
@@ -263,17 +264,78 @@ def fit_forecast(timings: list[float]) -> float:
     return timings[0] + 2999 * max(timings[1:])
 
 
-def admit(packet: Path, h100: Path, a100: Path) -> None:
+def unavailable_h100(path: Path, item: dict) -> None:
+    """Authenticate an allocation failure, without claiming it is stopped/proven."""
+    receipt = json.loads(path.read_text())
+    saved = path.parent / "manifest.json"
+    probe = json.loads(saved.read_text())
+    if (
+        digest(saved) != receipt.get("manifest_sha256")
+        or receipt.get("commit") != item["commit"]
+        or probe.get("commit") != item["commit"]
+        or receipt.get("job_id") != probe.get("job_id")
+        or probe.get("canary", {}).get("mode") != "probe"
+        or probe.get("requirements", {}).get("gpu") != "H100"
+        or probe.get("requirements", {}).get("allowed_gpus") != ["H100"]
+        or probe.get("script") != item["script"]
+        or probe.get("source_paths") != item["source_paths"]
+        or probe.get("inputs") != item["inputs"]
+        or receipt.get("status") != "INCOMPLETE"
+        or receipt.get("endpoint") is not None
+        or receipt.get("terminal") is not None
+        or receipt.get("exports") != []
+        or not any(
+            call.get("command") == "new" and call.get("status") == "failed"
+            for call in receipt.get("cli_calls", [])
+        )
+        or not re.search(r"(?:\b503\b|Service Unavailable)", str(receipt.get("error", "")), re.I)
+        or "accelerator=H100" not in str(receipt.get("error", ""))
+    ):
+        raise ValueError("manifest-bound H100 503/unavailable allocation receipt required")
+
+
+def admit(
+    packet: Path,
+    h100: Path,
+    a100: Path,
+    *,
+    a100_only: bool = False,
+    admission_dir: Path | None = None,
+    prelook: Path | None = None,
+) -> None:
     """No allocation: unchanged supervisor validates genuine same-pin family proofs."""
     from research.colab_cli.supervisor import validate
+    from research.doom_auc_smoke.prelook import read_prelook
 
     item = json.loads((packet / "fit.pending.json").read_text())
-    item["requirements"]["hardware_canaries"] = dict(H100=binding(h100), A100=binding(a100))
+    config = json.loads((packet / "config.json").read_text())
+    if Path(config["mac_look_file"]).exists():
+        raise ValueError("scoring look already reserved")
+    if prelook is None:
+        raise ValueError("label-free pre-look metadata required")
+    support = read_prelook(prelook, config)
+    if not support["necessary_world_count_met"]:
+        raise ValueError("INCOMPLETE_SUPPORT: fewer than ten eligible assessment parent worlds")
+    destination = admission_dir or packet
+    if admission_dir is not None and (not destination.is_absolute() or destination.exists()):
+        raise ValueError("fresh absolute admission directory required")
+    receipts = [("H100", h100), ("A100", a100)]
+    if a100_only:
+        if admission_dir is None:
+            raise ValueError("A100-only admission requires a fresh admission directory")
+        unavailable_h100(h100, item)
+        item = variants(item)[1]
+        item["requirements"].pop("prefer", None)
+        item["requirements"].pop("hardware_canaries", None)
+        item["canary"] = dict(receipt=binding(a100))
+        item["technical_envelope"]["gpu_preference"] = ["A100"]
+        receipts = [("A100", a100)]
+    else:
+        item["requirements"]["hardware_canaries"] = dict(H100=binding(h100), A100=binding(a100))
     for variant in variants(item):
         validate(variant, ROOT)
     rates = {}
-    for gpu, receipt_path in (("H100", h100), ("A100", a100)):
-        config = json.loads((packet / "config.json").read_text())
+    for gpu, receipt_path in receipts:
         from research.doom_auc_smoke.evidence import build_ledger, load_unit
 
         identity = "canary-" + config["identity"]
@@ -291,8 +353,23 @@ def admit(packet: Path, h100: Path, a100: Path) -> None:
         )
         if rates[gpu]["projected_useful_seconds"] > 2700:
             raise ValueError("same-pin measured GPU fit forecast exceeds 45-minute worker envelope")
-    json_once(packet / "CANARY_RATES.json", rates)
-    json_once(packet / "fit.json", item)
+    destination.mkdir(parents=True, exist_ok=True)
+    json_once(destination / "CANARY_RATES.json", rates)
+    json_once(
+        destination / "ADMISSION.json",
+        dict(
+            mode="A100_ONLY_UNAVAILABLE_H100" if a100_only else "BOTH_HARDWARE_PROVEN",
+            runtime_commit=item["commit"],
+            pending_manifest=binding(packet / "fit.pending.json"),
+            h100_receipt=binding(h100),
+            a100_receipt=binding(a100),
+            h100_stop_verified=json.loads(h100.read_text()).get("stop_verified"),
+            prelook=binding(prelook),
+            documents=support["documents"],
+            unresolved_allocation_waived=False,
+        ),
+    )
+    json_once(destination / "fit.json", item)
 
 
 def main() -> None:
@@ -308,6 +385,9 @@ def main() -> None:
     accepted.add_argument("--packet", type=Path, required=True)
     accepted.add_argument("--h100-canary", type=Path, required=True)
     accepted.add_argument("--a100-canary", type=Path, required=True)
+    accepted.add_argument("--a100-only", action="store_true")
+    accepted.add_argument("--admission-dir", type=Path)
+    accepted.add_argument("--prelook", type=Path, required=True)
     args = parser.parse_args()
     if args.operation == "build":
         print(
@@ -316,7 +396,14 @@ def main() -> None:
             )
         )
     else:
-        admit(args.packet.resolve(), args.h100_canary.resolve(), args.a100_canary.resolve())
+        admit(
+            args.packet.resolve(),
+            args.h100_canary.resolve(),
+            args.a100_canary.resolve(),
+            a100_only=args.a100_only,
+            admission_dir=args.admission_dir.resolve() if args.admission_dir else None,
+            prelook=args.prelook.resolve(),
+        )
 
 
 if __name__ == "__main__":

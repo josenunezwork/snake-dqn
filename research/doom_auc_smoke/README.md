@@ -23,7 +23,12 @@ input inventory. It does not fit the real bank. All timings are recorded.
 
 `prepare admit` accepts genuine same-pin H100 and A100 family receipts, verifies
 them through the unchanged supervisor, and rejects a measured fit projection
-above the frozen 45-minute worker envelope. Only then does it publish `fit.json`.
+above the frozen 45-minute worker envelope. Under
+`REGISTRATION_OPERATIONAL_CLARIFICATION_02.md`, `--a100-only` instead requires a
+manifest-bound H100 allocation-unavailable receipt and a genuine stopped A100
+proof. It emits an A100-only `fit.json` in a fresh `--admission-dir`, keeping
+the old runtime pin and upload inventory. H100 unresolved allocation records
+remain unresolved; the broker's execute-time checks still apply.
 Whole-session base/effective timeouts are 60/120 minutes, separate from useful
 compute. `fit.pending.json` intentionally fails supervisor admission until those
 receipts exist. A dry-run never produces a canary receipt.
@@ -41,7 +46,18 @@ predictions from both arms exist. It reserves the study's fixed scoring-look fil
 before reading labels; changing the output directory cannot take a second look.
 It refuses duplicate units and foreign identities and reports paired bootstrap
 differences against the B8-feature baseline. GO is a learnability screen, without
-gameplay or serving implications.
+gameplay or serving implications. Both admission and aggregate now require
+`--prelook`, produced by `python -m research.doom_auc_smoke.prelook --packet ...
+--bank ... --output ...`. This reads bank metadata only, counts L>=600 support
+per assessment world, and binds the pre-look amendment and root-kind joins.
+The census cannot verify positive/negative class support without labels.
+
+`REGISTRATION_PRELOOK_AMENDMENT_01.md` adds descriptive ordinary/death-lookback
+AUC splits at the same Mac look. The root sample is death-lookback-enriched:
+GO is an UPPER BOUND learnability screen, not natural-state danger AUC (nor a
+mathematical upper confidence bound). Interpretation also carries the 630,182
+parameter / 2,048-root overfitting limitation: 46.875 training-set equivalents
+and final update only. These disclosures do not alter any primary bar.
 
 Use `tools/ops/dispatch.sh --dry-run` on the canary packet before operator launch.
 No dispatch or merge belongs to implementation. Exact prepared paths, commands,

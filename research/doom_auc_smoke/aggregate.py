@@ -12,6 +12,7 @@ import torch
 
 from research.doom_auc_smoke.data import load_gzip
 from research.doom_auc_smoke.evidence import ARMS, build_ledger, digest, json_once, load_unit
+from research.doom_auc_smoke.prelook import KINDS, attach_kinds, read_prelook
 
 
 class AUC:
@@ -78,8 +79,16 @@ def analyze(held: dict, scores: dict[str, torch.Tensor], *, resamples: int = 200
         endpoints={},
     )
     endpoints: dict[str, dict[str, AUC]] = {}
-    for stratum in ("late", "all"):
-        included = held["length"].numpy() >= 600 if stratum == "late" else np.ones(len(y), bool)
+    kind = np.asarray(held["kind"])
+    if kind.shape != (len(y),) or not np.isin(kind, KINDS).all():
+        raise ValueError("unaligned/foreign root kind")
+    strata = {}
+    for length in ("late", "all"):
+        included = held["length"].numpy() >= 600 if length == "late" else np.ones(len(y), bool)
+        strata[length] = included
+        for root_kind in KINDS:
+            strata[length + "/" + root_kind] = included & (kind == root_kind)
+    for stratum, included in strata.items():
         for endpoint in ("per_action", "b8_action", *(f"action_{a}" for a in range(6))):
             mask = legal & included[:, None]
             if endpoint == "b8_action":
@@ -146,10 +155,20 @@ def analyze(held: dict, scores: dict[str, torch.Tensor], *, resamples: int = 200
     report["decision_rule"] = (
         "min(late per-action AUC, late B8-action AUC): GO>=.85; GRAY>=.75; KILL<.75"
     )
+    report["interpretation"] = dict(
+        sample="death-lookback-enriched searched roots",
+        go="UPPER BOUND learnability screen; not natural-state danger AUC",
+        upper_bound_is_mathematical=False,
+        root_kind_splits="descriptive only; no change to primary support or bars",
+        spatial_parameters=630182,
+        train_roots=2048,
+        sampled_training_set_equivalents=3000 * 32 / 2048,
+        limitation="Finite-bank overfitting/selection bias; final update only, no early stopping",
+    )
     return report
 
 
-def aggregate(packet: Path, outputs: list[Path], result: Path) -> dict:
+def aggregate(packet: Path, outputs: list[Path], result: Path, prelook: Path | None = None) -> dict:
     """Reserve look path BEFORE reading predictions/outcomes; never overwrite or peek twice."""
     if result.exists():
         raise FileExistsError("scoring look already reserved")
@@ -158,6 +177,9 @@ def aggregate(packet: Path, outputs: list[Path], result: Path) -> dict:
     units = {r["unit"]: r for r in ledger["units"]}
     if not all(arm + "-prediction" in units for arm in ARMS):
         raise ValueError("INCOMPLETE: both final predictions required before look")
+    if prelook is None:
+        raise ValueError("pre-look amendment and root-kind metadata required")
+    metadata = read_prelook(prelook, config)
     held_path = packet / "assessment-MAC-ONLY.pt.gz"
     if digest(held_path) != config["assessment_sha256"]:
         raise ValueError("assessment input hash differs")
@@ -168,11 +190,17 @@ def aggregate(packet: Path, outputs: list[Path], result: Path) -> dict:
         raise ValueError("absolute Mac scoring-look reservation required")
     json_once(
         look,
-        dict(identity=config["identity"], result=str(result), outputs=[str(p) for p in outputs]),
+        dict(
+            identity=config["identity"],
+            result=str(result),
+            outputs=[str(p) for p in outputs],
+            prelook_sha256=digest(prelook),
+            documents=metadata["documents"],
+        ),
     )
     result.mkdir(parents=True, exist_ok=False)
     scores = {}
-    held = load_gzip(held_path)
+    held = attach_kinds(load_gzip(held_path), metadata)
     for arm in ARMS:
         row = units[arm + "-prediction"]
         owners = [
@@ -190,6 +218,8 @@ def aggregate(packet: Path, outputs: list[Path], result: Path) -> dict:
         registration_sha256=config["registration_sha256"],
         union_ledger=ledger,
         serving_authorized=False,
+        prelook_sha256=digest(prelook),
+        amendment_documents=metadata["documents"],
     )
     json_once(result / "result.json", report)
     return report
@@ -200,9 +230,13 @@ def main() -> None:
     parser.add_argument("--packet", type=Path, required=True)
     parser.add_argument("--outputs", type=Path, nargs="+", required=True)
     parser.add_argument("--result", type=Path, required=True)
+    parser.add_argument("--prelook", type=Path, required=True)
     args = parser.parse_args()
     report = aggregate(
-        args.packet.resolve(), [p.resolve() for p in args.outputs], args.result.resolve()
+        args.packet.resolve(),
+        [p.resolve() for p in args.outputs],
+        args.result.resolve(),
+        args.prelook.resolve(),
     )
     print(json.dumps(dict(verdict=report["verdict"], result=str(args.result))))
 

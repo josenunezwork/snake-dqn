@@ -17,7 +17,7 @@ import torch
 
 from research.doom_auc_smoke.aggregate import AUC, aggregate, analyze, bars
 from research.doom_auc_smoke.data import load_gzip, save_gzip
-from research.doom_auc_smoke.data_mac import audit_split, compact_snapshot
+from research.doom_auc_smoke.data_mac import BANK_SHA, audit_split, compact_snapshot
 from research.doom_auc_smoke.evidence import (
     build_ledger,
     digest,
@@ -30,6 +30,7 @@ from research.doom_auc_smoke.evidence import (
 )
 from research.doom_auc_smoke.fixtures import synthetic_dataset
 from research.doom_auc_smoke.model import make_model, masked_bce
+from research.doom_auc_smoke.prelook import documents
 from research.doom_auc_smoke.prepare import manifest
 from research.doom_auc_smoke.run import train_arm
 from research.spatial_student_pilot.observation import (
@@ -150,6 +151,26 @@ def receipt_for(root: Path) -> None:
     (root / "receipt.json").write_text(json.dumps(dict(stop_verified=True, exports=exports)))
 
 
+def make_prelook(path: Path, config: dict, ids: list[str]) -> Path:
+    path.write_text(
+        json.dumps(
+            dict(
+                schema="doom-prelook/v1",
+                identity=config["identity"],
+                assessment_sha256=config["assessment_sha256"],
+                bank_sha256=BANK_SHA,
+                documents=documents(),
+                labels_read=False,
+                necessary_world_count_met=len(ids) >= 10,
+                roots=[
+                    dict(uid=uid, world=i, length=600, kind="ordinary") for i, uid in enumerate(ids)
+                ],
+            )
+        )
+    )
+    return path
+
+
 def test_outcome_blind_ledger_receipt_binding(tmp_path: Path, monkeypatch) -> None:
     output = tmp_path / "attempt"
     publish(output / "exports/doom", "b8-fit-0250", "id", dict(secret_outcome="unread"))
@@ -240,6 +261,7 @@ def test_bootstrap_support_paired_ci_and_held_labels() -> None:
     doom = (torch.arange(n) % 2).bool()[:, None, None].expand(n, 6, 4)
     held = dict(
         world=torch.arange(n),
+        kind=["ordinary"] * n,
         length=torch.full((n,), 600),
         doom=doom,
         legal=torch.ones((n, 6), dtype=torch.bool),
@@ -322,9 +344,10 @@ def test_aggregate_one_look_even_with_new_result_path(tmp_path: Path) -> None:
             dict(steps=3000, root_uids=ids, logits=doom[:, :, 0].float()),
         )
     receipt_for(output)
-    assert aggregate(packet, [output], tmp_path / "first")["verdict"] == "GO"
+    prelook = make_prelook(tmp_path / "prelook.json", config, ids)
+    assert aggregate(packet, [output], tmp_path / "first", prelook)["verdict"] == "GO"
     with pytest.raises(FileExistsError):
-        aggregate(packet, [output], tmp_path / "second")
+        aggregate(packet, [output], tmp_path / "second", prelook)
 
 
 def test_completion_eligibility_mechanical_only() -> None:
