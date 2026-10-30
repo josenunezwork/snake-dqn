@@ -99,14 +99,22 @@ def test_diagnostic_preserves_frozen_training_and_prediction(tmp_path: Path, arm
 @pytest.mark.requires_gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="real CUDA observer proof needs CUDA")
 def test_real_cuda_diagnostic_qualifies_observer(tmp_path: Path) -> None:
-    (tmp_path / "repo").symlink_to(ROOT, target_is_directory=True)
+    # Match the observer's real, nonsymlinked runtime repository layout.
+    package = tmp_path / "repo/research/doom_auc_smoke"
+    package.mkdir(parents=True)
+    (package / "run.py").write_bytes((ROOT / "research/doom_auc_smoke/run.py").read_bytes())
     code = """
+import importlib.util
+import os
 import torch
 from research.colab_cli import canary_observer as observer
-from research.doom_auc_smoke.run import diagnostic_decision
+path = os.path.join(os.environ['COLAB_CLI_ROOT'], 'repo/research/doom_auc_smoke/run.py')
+spec = importlib.util.spec_from_file_location('_doom_cuda_diagnostic', path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
 observer.install()
-result = diagnostic_decision(torch.tensor([[0., -9., 2., 3., 4., 5.]], device='cuda'),
-                             torch.tensor([[True, False, True, True, True, True]]))
+result = module.diagnostic_decision(torch.tensor([[0., -9., 2., 3., 4., 5.]], device='cuda'),
+                                    torch.tensor([[True, False, True, True, True, True]]))
 assert result['action'] == 0
 rows = observer.collect(__import__('os').environ['COLAB_CLI_ROOT'], 'research/doom_auc_smoke')
 assert rows[0]['operation'] == 'Tensor.argmax' and rows[0]['shape'] == [1, 6]
