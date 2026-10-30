@@ -289,6 +289,8 @@ def pipeline(
         future.result()
     fit_timing["elapsed_seconds"] += bc_timing["elapsed_seconds"]
     fit_timing["updates_this_attempt"] += bc_timing["updates_this_attempt"]
+    fit_timing["heldout_bc_seconds"] += bc_timing["heldout_bc_seconds"]
+    fit_timing["heldout_bc_roots"] = bc_timing["heldout_bc_roots"]
     if control.stop():
         raise InterruptedError("fit finished after evidence deadline")
     actor = store.output / "final-actor.pth"
