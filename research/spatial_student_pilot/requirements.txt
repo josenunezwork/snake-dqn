@@ -1,0 +1,9 @@
+# Bootstrap pins are explicit so the clean import gate cannot borrow Mac packages.
+torch==2.9.1
+numpy==1.26.4
+PyYAML>=6.0,<7
+pydantic>=2.0,<3
+numba==0.68.0
+llvmlite==0.50.0
+ninja>=1.11,<2
+psutil>=5.9,<6
