@@ -27,6 +27,7 @@ def require_source_delivery(manifest: dict[str, Any]) -> None:
         "research/sandbox_a_resident/train_job.sh",
         "research/sandbox_a_resident/ct_job.sh",
         "research/sandbox_a_resident/ct_h5000/job.sh",
+        "research/sandbox_a_resident/ct_stage2/job.sh",
     }:
         raise ValueError(
             "background sparse source delivery is exclusive to TRAIN-01 and t34-cf-1028"

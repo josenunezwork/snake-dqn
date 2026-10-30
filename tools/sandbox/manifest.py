@@ -158,19 +158,18 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
             "sandbox-a-train01",
             "t34-cf-1028",
             "t34-ct-h5000-1029",
+            "t34-ct-h5000-stage2-1030",
         }:
             raise ManifestError(
                 "frozen-opponent inputs are exclusive to sandbox-a-train01 and t34-cf-1028"
             )
-        if (
-            kind
-            in {
-                "ct-export",
-                "ct-export-sidecar",
-                "ct-export-derivative",
-            }
-            and payload["study"] != "t34-cf-1028"
-        ):
+        if kind in {
+            "ct-export",
+            "ct-export-sidecar",
+            "ct-export-derivative",
+        } and payload[
+            "study"
+        ] not in {"t34-cf-1028", "t34-ct-h5000-stage2-1030"}:
             raise ManifestError("C/T snapshot inputs are exclusive to t34-cf-1028")
 
     endpoint = payload["endpoint"]
