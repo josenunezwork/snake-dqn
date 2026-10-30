@@ -11,6 +11,7 @@ from typing import Any, Mapping
 import numpy as np
 
 from research.sandbox_a_resident import ct_json as json
+from research.sandbox_a_resident.ct_h5000.export_projection import project_stage_bytes
 from research.sandbox_a_resident.ct_h5000.task import (
     CT_DOMAIN_PREFIX,
     CT_STUDY_SLUG,
@@ -90,7 +91,10 @@ def source_paths(commit: str) -> list[str]:
         set(runtime_source_paths(commit))
         | set(additions)
         | set(successor)
-        | {"research/sandbox_a_resident/ct_h5000/PREREGISTRATION.md"}
+        | {
+            "research/sandbox_a_resident/ct_h5000/PREREGISTRATION.md",
+            "research/sandbox_a_resident/ct_h5000/PREREGISTRATION_FIXES_20261029.md",
+        }
     )
 
 
@@ -185,9 +189,9 @@ def prepare(
     seed_offset: int = 0,
     job_id: str = "sandbox-ct-h5000-20261029-01",
     output_dir: Path | None = None,
-    est_minutes: int = 150,
-    timeout_minutes: int = 300,
-    unit_cap: float = 60.0,
+    est_minutes: int = 180,
+    timeout_minutes: int = 360,
+    unit_cap: float = 72.0,
     sandbox_source_delivery: str | None = "background-sparse-v1",
     stall_timeout_seconds: int | None = 900,
     prefer_h100: bool = True,
@@ -251,6 +255,7 @@ def prepare(
 
     packet.mkdir(parents=True, exist_ok=False)
     write_once(packet / "control.json", control)
+    write_once(packet / "export-projection.json", project_stage_bytes())
     write_once(packet / "registry-check.json", check)
     write_once(packet / "topology-manifest.json", dict(TOPOLOGY_SPEC))
     write_once(packet / "verified-ledger.json", empty_ledger(control))
@@ -292,10 +297,15 @@ def prepare(
         },
         "timeout_minutes": timeout_minutes,
         "output_dir": str(resolved_output),
-        "max_export_bytes": 1024**3,
+        "max_export_bytes": 1536 * 1024**2,
         "inputs": uploads,
         "env": env,
-        "required_exports": ["ct/summary.json"],
+        "required_exports": [
+            "ct/summary.json",
+            "ct/deaths.jsonl.gz",
+            "ct/length-histograms.jsonl.gz",
+            "ct/replay-ties.jsonl.gz",
+        ],
         "budget": {
             "rate_units_per_hour": 8.0,
             "unit_cap": float(unit_cap),
@@ -324,9 +334,7 @@ def prepare(
         "technical_envelope": {
             "base_seconds": base_seconds,
             "effective_seconds": effective_seconds,
-            "endpoint": (
-                f"{endpoint_steps} natural collection rows only; fixed H5000 or 7200s cap"
-            ),
+            "endpoint": (f"{endpoint_steps} collection rows; fixed H5000 or 13200s admission cap"),
         },
     }
     if sandbox_source_delivery is not None:
@@ -406,6 +414,7 @@ def prepare(
 
     write_once(packet / "a100-fallback-preview.json", variants(manifest)[1])
     components = (
+        "export-projection.json",
         "control.json",
         "registry-check.json",
         "topology-manifest.json",
@@ -441,9 +450,9 @@ def main() -> int:
     parser.add_argument("--seed-offset", type=int, default=0)
     parser.add_argument("--job-id", default="sandbox-ct-h5000-20261029-01")
     parser.add_argument("--output-dir", type=Path)
-    parser.add_argument("--est-minutes", type=int, default=150)
-    parser.add_argument("--timeout-minutes", type=int, default=300)
-    parser.add_argument("--unit-cap", type=float, default=60.0)
+    parser.add_argument("--est-minutes", type=int, default=180)
+    parser.add_argument("--timeout-minutes", type=int, default=360)
+    parser.add_argument("--unit-cap", type=float, default=72.0)
     parser.add_argument("--sandbox-source-delivery", default="background-sparse-v1")
     parser.add_argument("--stall-timeout-seconds", type=int, default=900)
     parser.add_argument("--prefer-h100", action="store_true", default=True)

@@ -41,6 +41,7 @@ def validate_packet(packet: Path, *, require_committed: bool = True) -> dict[str
     manifest = json.loads((packet / "dispatch-manifest.json").read_text())
     seal = json.loads((packet / "SEAL.json").read_text())
     names = {
+        "export-projection.json",
         "control.json",
         "registry-check.json",
         "topology-manifest.json",
@@ -73,6 +74,12 @@ def validate_packet(packet: Path, *, require_committed: bool = True) -> dict[str
         raise ValueError("wrong successor study or entrypoint")
     if manifest["env"]["SANDBOX_A_SOURCE_COMMIT"] != pin or seal["source_commit"] != pin:
         raise ValueError("successor source pin differs")
+    from research.sandbox_a_resident.ct_h5000.export_projection import project_stage_bytes
+
+    if json.loads((packet / "export-projection.json").read_text()) != project_stage_bytes():
+        raise ValueError("mature-body export projection differs")
+    if manifest["max_export_bytes"] != project_stage_bytes()["transfer_cap_bytes"]:
+        raise ValueError("transfer export bound differs")
     paths = source_paths(pin)
     if manifest["source_paths"] != paths or set(seal["source_sha256"]) != set(paths):
         raise ValueError("runtime closure differs from sealed closure")
@@ -81,7 +88,7 @@ def validate_packet(packet: Path, *, require_committed: bool = True) -> dict[str
             raise ValueError("source hash mismatch: " + name)
     if payload["endpoint"] != {"kind": "steps", "value": ct_endpoint_steps(expected)}:
         raise ValueError("collection-only endpoint differs")
-    if manifest["requirements"]["est_minutes"] != 150 or manifest["timeout_minutes"] != 300:
+    if manifest["requirements"]["est_minutes"] != 180 or manifest["timeout_minutes"] != 360:
         raise ValueError("frozen session envelope differs")
     if json.loads((packet / "topology-manifest.json").read_text()) != dict(TOPOLOGY_SPEC):
         raise ValueError("topology contract differs")

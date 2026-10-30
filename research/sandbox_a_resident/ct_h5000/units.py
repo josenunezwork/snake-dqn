@@ -38,7 +38,7 @@ PUBLISH_SIDECAR_BYTES = 65 + 9
 # Two 1 MiB watchdog files, full history and immutable segments at 4 MiB each.
 # 256 KiB covers up to 1024 segment sidecar sets and progress.json replacement.
 STALL_DIAGNOSTIC_SEAL_RESERVE_BYTES = 10 * (1024 * 1024) + 256 * 1024
-# Reserved tail inside max_total_export_bytes (384 MiB) for summary/sigusr1/fault + stall sealing.
+# Reserved tail inside max_total_export_bytes (1 GiB) for summary/sigusr1/fault + stall sealing.
 TAIL_SUMMARY_AND_DIAGNOSTIC_RESERVE_BYTES = 2_228_224 + 8 * (1024 * 1024) + 256 * 1024
 
 

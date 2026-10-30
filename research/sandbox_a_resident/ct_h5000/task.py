@@ -28,6 +28,7 @@ import torch
 from torch import nn
 
 from research.gpu_sim_spike import r2_cache
+from research.sandbox_a_resident.ct_h5000.replay import LookbackRing
 from research.sandbox_a_resident.ct_h5000.sampling import quota_sample, reservoir_admissions
 from research.sandbox_a_resident.ct_h5000.units import StageExportOverflowError
 from research.sandbox_a_resident.ct_mechanics import (
@@ -39,7 +40,6 @@ from research.sandbox_a_resident.ct_mechanics import (
 from research.sandbox_a_resident.ct_snapshots import (
     MAX_LEGAL_BODY_CAPACITY,
     CompactWorldSnapshot,
-    LookbackRing,
     LosslessBoundedSnapshotStore,
     OmitIndexRootMeta,
     capture_world_snapshot,
@@ -100,8 +100,8 @@ class CTControl:
     seed_offset: int = 0
     worlds: int = 1024
     collection_ticks: int = 5000
-    collection_base_seconds: float = 3600.0
-    collection_cap_seconds: float = 7200.0
+    collection_base_seconds: float = 6600.0
+    collection_cap_seconds: float = 13200.0
     ordinary_overlap_allowance: int = 64
     max_body_capacity: int = MAX_LEGAL_BODY_CAPACITY
     max_deaths: int = 160
@@ -132,8 +132,8 @@ class CTControl:
     branch_batch_size: int = 512
     snapshot_store_max_bytes: int = 512 * 1024 * 1024
     anchor_archive_max_bytes: int = 1536 * 1024 * 1024
-    max_stage_export_bytes: int = 256 * 1024 * 1024
-    max_total_export_bytes: int = 384 * 1024 * 1024
+    max_stage_export_bytes: int = 896 * 1024 * 1024
+    max_total_export_bytes: int = 1024 * 1024 * 1024
     tiny: bool = False
 
     def __post_init__(self) -> None:
@@ -767,6 +767,7 @@ def collect_ct_dataset(
     heartbeat: Callable[[str], None] | None = None,
     log_progress: Callable[[dict[str, Any]], None] | None = None,
     progress_interval_seconds: float = 45.0,
+    diagnostic: Callable[[str, Mapping[str, Any]], None] | None = None,
 ) -> CollectedCTDataset | None:
     """Run ``worlds x collection_ticks`` bare-B8 collection and freeze Stage-1 roots.
 
@@ -777,7 +778,10 @@ def collect_ct_dataset(
     completed_ticks = 0
 
     def check_collection_cap() -> None:
-        if time.perf_counter() - t0 >= control.collection_cap_seconds:
+        if (
+            completed_ticks < control.collection_ticks
+            and time.perf_counter() - t0 >= control.collection_cap_seconds
+        ):
             raise CollectionCapReached(completed_ticks, control.worlds, time.perf_counter() - t0)
 
     dev = torch.device("cuda:0" if str(device) == "cuda" else device)
@@ -889,6 +893,7 @@ def collect_ct_dataset(
         stride=5,
         max_lookback=max_lb,
         max_body_capacity=control.max_body_capacity,
+        diagnostic=diagnostic,
     )
     replay_cache: dict[tuple[Any, ...], tuple[CTDeviceSim, CTOpponentRuntime]] = {}
 
@@ -949,7 +954,10 @@ def collect_ct_dataset(
 
     completed_ticks = 0
     for tick in range(control.collection_ticks):
-        if time.perf_counter() - t0 >= control.collection_cap_seconds:
+        if (
+            completed_ticks < control.collection_ticks
+            and time.perf_counter() - t0 >= control.collection_cap_seconds
+        ):
             raise CollectionCapReached(completed_ticks, control.worlds, time.perf_counter() - t0)
         if stop_requested is not None and stop_requested():
             return None
@@ -963,7 +971,25 @@ def collect_ct_dataset(
         pre_lengths_np = sim.length[:, 0].detach().cpu().numpy().astype(np.int64)
         alive_np = sim.alive[:, 0].detach().cpu().numpy()
 
-        ring.record_tick_actions(tick=tick, hero_actions=a_b8_np, life_ids=life_ids)
+        ring.record_tick_actions(tick=tick, hero_actions=a_b8_np, life_ids=life_ids, q_b8=q_b8)
+        if diagnostic is not None:
+            for mix in MIXES:
+                ids = [w for w, roster in enumerate(rosters) if roster.mix == mix and alive_np[w]]
+                counts = np.bincount(
+                    np.searchsorted(ORDINARY_LENGTH_BIN_EDGES, pre_lengths_np[ids], side="right")
+                    - 1,
+                    minlength=len(ORDINARY_LENGTH_BIN_EDGES),
+                )
+                diagnostic(
+                    "length-histograms",
+                    {
+                        "tick": tick,
+                        "mix": mix,
+                        "alive_worlds": len(ids),
+                        "bin_edges": list(ORDINARY_LENGTH_BIN_EDGES),
+                        "counts": counts.tolist(),
+                    },
+                )
 
         # 1. Determine which rows on this tick need topology extraction right now
         #    (scheduled anchor rows + reservoir-accepted L >= min_death_length ordinary rows).
@@ -1081,12 +1107,22 @@ def collect_ct_dataset(
             total_hero_deaths += len(dead_worlds)
             for w in dead_worlds:
                 d_len = int(pre_lengths_np[w])
-                if d_len >= control.min_death_length and ring.has_same_life_lookbacks(
-                    w,
-                    death_tick=tick,
-                    life_id=life_ids[w],
-                    lookbacks=control.lookbacks,
-                ):
+                same_life = ring.has_same_life_lookbacks(
+                    w, death_tick=tick, life_id=life_ids[w], lookbacks=control.lookbacks
+                )
+                death_record = {
+                    "world": w,
+                    "partition": world_labels[w],
+                    "mix": rosters[w].mix,
+                    "life": life_ids[w],
+                    "length": d_len,
+                    "tick": tick,
+                    "below_min_length": d_len < control.min_death_length,
+                    "missing_same_life_lookbacks": not same_life,
+                    "candidate_pool_rejected": False,
+                    "candidate_admitted": False,
+                }
+                if d_len >= control.min_death_length and same_life:
                     total_eligible_deaths_observed += 1
                     # Always admit a newly discovered distinct world (replacing a
                     # duplicate-world death if the candidate buffer is full).
@@ -1101,6 +1137,10 @@ def collect_ct_dataset(
                                 admit = True
                                 break
                             seen_tmp.add(cw)
+                    death_record["candidate_pool_rejected"] = not admit
+                    death_record["candidate_admitted"] = admit
+                    if diagnostic is not None:
+                        diagnostic("deaths", death_record)
                     if admit:
                         lb_list = []
                         for lb in control.lookbacks:
@@ -1133,6 +1173,8 @@ def collect_ct_dataset(
                         else:
                             death_candidates[replace_idx] = ev
 
+                if diagnostic is not None and (d_len < control.min_death_length or not same_life):
+                    diagnostic("deaths", death_record)
                 episode_counts[w] += 1
                 life_ids[w] += 1
 
@@ -1140,7 +1182,10 @@ def collect_ct_dataset(
 
         completed_ticks = tick + 1
         now = time.perf_counter()
-        if now - t0 >= control.collection_cap_seconds:
+        if (
+            completed_ticks < control.collection_ticks
+            and now - t0 >= control.collection_cap_seconds
+        ):
             raise CollectionCapReached(completed_ticks, control.worlds, now - t0)
         if log_progress is not None and (
             now - last_log >= progress_interval_seconds or tick + 1 == control.collection_ticks
@@ -1162,6 +1207,7 @@ def collect_ct_dataset(
     if stop_requested is not None and stop_requested():
         return None
 
+    natural_collection_wall_sec = time.perf_counter() - t0
     # Finalize deterministic death selection, ordinary root matching, and anchor archive.
     selected_deaths = _select_deaths_deterministic(death_candidates, max_deaths=control.max_deaths)
     max_roots_cap = control.max_deaths * len(control.lookbacks) + control.max_ordinary_roots
@@ -1317,12 +1363,11 @@ def collect_ct_dataset(
         )
 
     elapsed = time.perf_counter() - t0
-    if elapsed >= control.collection_cap_seconds:
-        raise CollectionCapReached(completed_ticks, control.worlds, elapsed)
     telemetry = {
         "completed_ticks": completed_ticks,
         "collection_complete": True,
         "collection_cap_seconds": control.collection_cap_seconds,
+        "bank_assembly_crossed_collection_cap": elapsed >= control.collection_cap_seconds,
         "ordinary_cell_capacities": {"train": ord_cap_train, "assessment": ord_cap_assess},
         "ordinary_reservoir_sizes": {str(k): len(v) for k, v in ord_reservoirs.items()},
         "task_identity": task_separation_report(),
@@ -1350,6 +1395,8 @@ def collect_ct_dataset(
         "anchor_archive_bytes": int(anc_archive.nbytes),
         "snapshot_store_bytes": int(store.bytes_used),
         "collection_wall_sec": round(elapsed, 3),
+        "natural_collection_wall_sec": round(natural_collection_wall_sec, 3),
+        "bank_assembly_wall_sec": round(elapsed - natural_collection_wall_sec, 3),
     }
     return CollectedCTDataset(
         control=control,

@@ -17,6 +17,7 @@ from typing import Any, Mapping
 import torch
 
 from research.sandbox_a_resident import ct_json as json
+from research.sandbox_a_resident.ct_h5000.diagnostics import DiagnosticJournal
 from research.sandbox_a_resident.ct_h5000.task import (
     CollectedCTDataset,
     CollectionCapReached,
@@ -155,6 +156,7 @@ def run_ct_experiment(
     fence = _Sigusr1Fence()
     fence.install()
     latest_durable_stage = 0
+    diagnostics = DiagnosticJournal()
 
     def emit(stage_label: str, extra: Mapping[str, Any] | None = None) -> None:
         rec = {
@@ -177,6 +179,7 @@ def run_ct_experiment(
             watchdog.progress(tag, {"latest_durable_stage": latest_durable_stage})
 
     def graceful_sigusr1_exit(interrupted_phase: str) -> tuple[int, dict[str, Any]]:
+        diagnostics.publish(output, control.max_total_export_bytes)
         elapsed_sig = round(fence.elapsed_since_signal(), 4)
         marker = {
             "schema": "t34-cf-sigusr1-marker/v1",
@@ -310,6 +313,7 @@ def run_ct_experiment(
                 heartbeat=heartbeat,
                 log_progress=lambda info: emit("collection-progress", info),
                 progress_interval_seconds=progress_interval_seconds,
+                diagnostic=diagnostics.record,
             )
             if collected_opt is None or fence.stop_requested():
                 return graceful_sigusr1_exit("stage-0001-collection")
@@ -320,7 +324,9 @@ def run_ct_experiment(
                 anchors=collected.anchors,
                 world_partitions=collected.world_partitions,
             )
+            diagnostic_report = diagnostics.publish(output, control.max_total_export_bytes)
             s1_payload = {
+                "diagnostics": diagnostic_report,
                 "schema": "ct-stage-0001/v1",
                 "dataset": collected.to_state_dict(),
                 "support_report": support_report,
@@ -368,7 +374,14 @@ def run_ct_experiment(
         if fence.stop_requested():
             return graceful_sigusr1_exit("stage-0001-collection")
 
+        diagnostic_report = diagnostics.publish(output, control.max_total_export_bytes)
+        if 1 in verified_stages:
+            diagnostic_report = {
+                "status": "NOT_RECOLLECTED_VERIFIED_STAGE",
+                "original_exports": s1_blob.get("diagnostics", {}),
+            }
         summary = {
+            "diagnostics": diagnostic_report,
             "schema": "t34-ct-h5000-summary/v1",
             **base_meta,
             "verdict": (
@@ -398,7 +411,9 @@ def run_ct_experiment(
         return 0, summary
 
     except CollectionCapReached as exc:
+        diagnostic_report = diagnostics.publish(output, control.max_total_export_bytes)
         summary = {
+            "diagnostics": diagnostic_report,
             "schema": "t34-ct-h5000-summary/v1",
             "study": control.study,
             "allocation": alloc_sha,
@@ -426,6 +441,7 @@ def run_ct_experiment(
         return 0, summary
 
     except BaseException as exc:
+        diagnostics.publish(output, control.max_total_export_bytes)
         raw_message, raw_traceback = str(exc), traceback.format_exc()
         fault_record = {
             "schema": "t34-cf-fault/v1",
@@ -453,6 +469,7 @@ def run_ct_experiment(
                 pass
         raise
     finally:
+        diagnostics.close()
         if control.tiny:
             facts = {"device": str(dev) if "dev" in locals() else device, "fixture_only": True}
             if device.startswith("cuda") and torch.cuda.is_available():
