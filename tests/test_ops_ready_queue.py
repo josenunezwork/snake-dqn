@@ -617,3 +617,65 @@ def test_completed_predispatch_refusal_does_not_reserve_runtime_slot(tmp_path):
     assert queue["jobs"][0]["status"] == "HELD"
     assert not queue["jobs"][0]["dispatch_attempted"]
     assert rq.occupancy(queue, {}, set()) == (0, 0)
+
+
+@pytest.mark.parametrize("residue", [False, True])
+def test_lock_refusal_backs_off_only_without_identity_residue(tmp_path, residue):
+    ops = add_jobs(tmp_path, 1)
+    script = tmp_path / "dispatch.sh"
+    script.write_text(
+        '#!/bin/sh\nprintf "REFUSE: account allocation lock is held: %s/alloc.lock\\n" '
+        '"$OPS_DIR"\nexit 1\n'
+    )
+    script.chmod(0o755)
+    if residue:
+        (ops / "dispatch" / "job0").mkdir(parents=True)
+    with rq.locked(ops) as queue:
+        queue["jobs"][0].update(status="DISPATCHING", token="claim")
+    rq.worker(ops, "q0", "claim")
+    queue = ar.read(ops / "ready-queue.json")
+    row = queue["jobs"][0]
+    assert row["status"] == ("HELD" if residue else "READY")
+    assert not row["dispatch_attempted"]
+    if not residue:
+        assert row["lock_refusals"] == 1
+        assert not rq.ready(queue, row)
+        assert rq.occupancy(queue, {}, set()) == (0, 0)
+
+
+def test_real_worker_retries_lock_refusal_with_fresh_log(tmp_path):
+    ops = add_jobs(tmp_path, 1)
+    prepare = tmp_path / "prepare.py"
+    prepare.write_text(
+        "from pathlib import Path\n" f'Path({str(tmp_path / "prepared")!r}).open("x").close()\n'
+    )
+    with rq.locked(ops) as queue:
+        queue["jobs"][0]["prepare_command"] = [sys.executable, str(prepare)]
+    script = tmp_path / "dispatch.sh"
+    script.write_text(
+        '#!/bin/sh\nif [ ! -f "$OPS_DIR/refused" ]; then\n'
+        'touch "$OPS_DIR/refused"\n'
+        'printf "REFUSE: account allocation lock is held: %s/alloc.lock\\n" "$OPS_DIR"\n'
+        'exit 1\nfi\nprintf called >> "$OPS_DIR/calls"\n'
+    )
+    script.chmod(0o755)
+    assert rq.tick(ops)["dispatched"] == ["q0"]
+
+    def wait_status(expected):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            row = ar.read(ops / "ready-queue.json")["jobs"][0]
+            if row["status"] == expected:
+                return row
+            time.sleep(0.02)
+        pytest.fail(f"worker never reached {expected}")
+
+    row = wait_status("READY")
+    assert row["prepared"]
+    assert row["not_before"] > time.time()
+    with rq.locked(ops) as queue:
+        queue["jobs"][0]["not_before"] = 0
+    assert rq.tick(ops)["dispatched"] == ["q0"]
+    wait_status("LAUNCHED")
+    assert (ops / "calls").read_text() == "called"
+    assert len(list(ops.glob("queue-worker-q0*.log"))) == 2

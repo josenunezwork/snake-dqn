@@ -26,6 +26,9 @@ else:
 
 HERE = Path(__file__).resolve().parent
 SCHEMA = "snake-dqn-ready-queue/v1"
+# Cover the 600s lock wait, two 1200s host admissions, two 600s allocation
+# windows for H100/A100 preference, and bounded qualification overhead.
+DISPATCH_TIMEOUT_SECONDS = 4500
 
 
 @contextlib.contextmanager
@@ -535,10 +538,11 @@ def tick(
                 break
             if row["status"] != "READY" or not ready(queue, row):
                 continue
-            row.update(status="DISPATCHING", token=uuid.uuid4().hex)
+            row.update(status="DISPATCHING", token=uuid.uuid4().hex, claimed=False)
             save(ops / "ready-queue.json", queue)
             event(ops, "READY_DISPATCHING", id=row["id"], command=shlex.join(row["argv"]))
-            worker_log = ops / ("queue-worker-" + row["id"] + ".log")
+            suffix = "-" + row["token"] if row.get("lock_refusals") else ""
+            worker_log = ops / ("queue-worker-" + row["id"] + suffix + ".log")
             try:
                 with worker_log.open("xb") as stream:
                     subprocess.Popen(
@@ -576,22 +580,42 @@ def worker(ops: Path, identity: str, token: str) -> None:
             raise ValueError("dispatch claim already consumed or invalid")
         row["claimed"] = True
         argv = list(row["argv"])
-        prepare_command = row["prepare_command"]
+        prepare_command = [] if row.get("prepared") else row["prepare_command"]
         expected = row.get("manifest_sha256")
     _, manifest, _, cwd = dispatch_parts(argv)
     no_submission = False
+    lock_refused = False
     try:
         if prepare_command:
             subprocess.run(prepare_command, cwd=cwd, check=True, timeout=600)
+            # Sealing is create-only too. A lock retry must reuse the successful
+            # preparation and its exact bytes, rather than try to seal it again.
+            expected = expected or auto_retry.digest(manifest)
+            with locked(ops) as queue:
+                next(row for row in queue["jobs"] if row["id"] == identity).update(
+                    prepared=True, manifest_sha256=expected
+                )
         if expected is not None and auto_retry.digest(manifest) != expected:
             raise ValueError("queued manifest bytes changed")
         with locked(ops) as queue:
             next(row for row in queue["jobs"] if row["id"] == identity)["dispatch_attempted"] = True
         # The dispatcher performs its real, refreshed admission and holds the
         # account allocation lock. No direct Colab mutation exists in this daemon.
-        result = subprocess.run(
-            argv, cwd=cwd, env={**os.environ, "OPS_DIR": str(ops)}, check=False, timeout=1800
-        )
+        # Retain diagnostics on disk, including the exact pre-reservation lock
+        # refusal. Avoid treating unrelated/ambiguous failures as retryable.
+        diagnostic = ops / f"queue-dispatch-{identity}-{token}.log"
+        with diagnostic.open("xb") as stream:
+            result = subprocess.run(
+                argv,
+                cwd=cwd,
+                env={**os.environ, "OPS_DIR": str(ops)},
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+                check=False,
+                timeout=DISPATCH_TIMEOUT_SECONDS,
+            )
+        output = diagnostic.read_text(errors="replace")
+        print(output, end="", flush=True)
         status = (
             "LAUNCHED"
             if result.returncode == 0 or (ops / "logs" / (argv[1] + ".log")).exists()
@@ -600,6 +624,14 @@ def worker(ops: Path, identity: str, token: str) -> None:
         # start() creates its log before submitting any detached supervisor.
         # A completed refusal without that log never submitted a runtime.
         no_submission = status == "HELD"
+        lock_refused = (
+            no_submission
+            and output.strip() == f"REFUSE: account allocation lock is held: {ops / 'alloc.lock'}"
+            and not (ops / "dispatch" / argv[1]).exists()
+            and not (ops / "manifests" / (argv[1] + ".json")).exists()
+        )
+        if lock_refused:
+            status = "READY"
         error = None if result.returncode == 0 else f"dispatch exit={result.returncode}"
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         status, error = "HELD", str(exc)
@@ -608,9 +640,17 @@ def worker(ops: Path, identity: str, token: str) -> None:
         row.update(status=status, error=error)
         if no_submission:
             row["dispatch_attempted"] = False
+        if lock_refused:
+            row["lock_refusals"] = row.get("lock_refusals", 0) + 1
+            row["not_before"] = time.time() + retry_backoff(row["lock_refusals"])
+            row["claimed"] = False
         event(
             ops,
-            "READY_SUBMITTED" if status == "LAUNCHED" else "READY_HELD",
+            (
+                "READY_LOCK_BACKOFF"
+                if lock_refused
+                else ("READY_SUBMITTED" if status == "LAUNCHED" else "READY_HELD")
+            ),
             id=identity,
             error=error,
         )

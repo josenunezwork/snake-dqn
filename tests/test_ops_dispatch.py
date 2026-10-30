@@ -553,14 +553,39 @@ def test_second_exact_failure_never_gets_third_attempt(fixture):
 
 def test_refuses_held_lock_and_validation_failure(fixture):
     f = fixture
+    f["env"]["OPS_ALLOC_LOCK_TIMEOUT_SECONDS"] = ".1"
     with (f["ops"] / "alloc.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         result = f["invoke"]()
     assert result.returncode != 0 and "lock is held" in result.stderr
     assert not runs(f)
+    assert not (f["ops"] / "dispatch/lane").exists()
+    assert not (f["ops"] / "manifests/lane.json").exists()
+    f["env"]["OPS_ALLOC_LOCK_TIMEOUT_SECONDS"] = "3"
+    assert f["invoke"]().returncode == 0
+    assert len(runs(f)) == 1
     f["env"]["VALIDATE_FAIL"] = "1"
     assert f["invoke"]("invalid").returncode != 0
-    assert not runs(f)
+    assert len(runs(f)) == 1
+
+
+@pytest.mark.parametrize("preferred", [False, True])
+def test_waits_before_consuming_identity_then_dispatches(fixture, preferred):
+    f = fixture
+    if preferred:
+        from tests.test_ops_gpu_preference import preferred as configure_preference
+
+        configure_preference(f)
+    with (f["ops"] / "alloc.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        process = f["invoke"](capture=False)
+        time.sleep(0.3)
+        assert process.poll() is None
+        assert not (f["ops"] / "dispatch/lane").exists()
+        assert not (f["ops"] / "manifests/lane.json").exists()
+    stdout, stderr = process.communicate(timeout=10)
+    assert process.returncode == 0, (stdout, stderr)
+    assert len(runs(f)) == 1
 
 
 def test_refuses_dirty_or_unqualified_transport(fixture):

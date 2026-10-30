@@ -1148,27 +1148,28 @@ def dispatch_chain(args: argparse.Namespace) -> str:
     qualified(broker, ops)
     for value in values:
         qualified(broker, ops, ref=value["commit"])
-    reservation = ops / "dispatch" / args.name
-    reservation.mkdir()
-    copied: list[Path] = []
-    for index, (path, value) in enumerate(zip(paths, values)):
-        copied_path = ops / "manifests" / f"{args.name}-{index}.json"
-        with copied_path.open("x") as stream:
-            json.dump(value, stream, indent=2, sort_keys=True)
-            stream.write("\n")
-        copied.append(copied_path)
-    for index, path in enumerate(copied):
-        validate(
-            broker,
-            cwd,
-            state / f"packet-{index}",
-            path,
-            ops / "logs" / f"{args.name}-{index}.validate",
-        )
     seconds = float(os.environ.get("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "600"))
     if not math.isfinite(seconds) or not 0 < seconds <= 600:
         raise Refused("allocation timeout must be positive and at most 600 seconds")
-    with allocation_lock(ops / "alloc.lock", seconds) as deadline:
+    with allocation_lock(ops / "alloc.lock", seconds, wait=True):
+        reservation = ops / "dispatch" / args.name
+        reservation.mkdir()
+        copied: list[Path] = []
+        for index, (path, value) in enumerate(zip(paths, values)):
+            copied_path = ops / "manifests" / f"{args.name}-{index}.json"
+            with copied_path.open("x") as stream:
+                json.dump(value, stream, indent=2, sort_keys=True)
+                stream.write("\n")
+            copied.append(copied_path)
+        for index, path in enumerate(copied):
+            validate(
+                broker,
+                cwd,
+                state / f"packet-{index}",
+                path,
+                ops / "logs" / f"{args.name}-{index}.validate",
+            )
+        deadline = time.monotonic() + seconds
         qualified(broker, ops, deadline)
         for value in values:
             qualified(broker, ops, deadline, ref=value["commit"])
@@ -2437,45 +2438,6 @@ def dispatch_preferred(
         )
     for subdir in ("logs", "state", "manifests", "dispatch"):
         (ops / subdir).mkdir(parents=True, exist_ok=True)
-    # Reserve both identities before validation, and validate both before first submit.
-    for name in names:
-        (ops / "dispatch" / name).mkdir()
-    for packet, path in zip(packets, paths):
-        write_create_only_json(path, packet)
-    seals = [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
-    test_receipts = [
-        ops / "dispatch" / name / "admission-tests.json" if "sandbox_admission" in packet else None
-        for name, packet in zip(names, packets)
-    ]
-    for path, lane, name, receipt in zip(paths, states, names, test_receipts):
-        validate(
-            broker,
-            cwd,
-            lane,
-            path,
-            ops / "logs" / f"{name}.validate",
-            **({"test_receipt": receipt} if receipt is not None else {}),
-        )
-        if any(hashlib.sha256(p.read_bytes()).hexdigest() != seal for p, seal in zip(paths, seals)):
-            raise Refused("GPU preference manifest changed during validation")
-    write_create_only_json(
-        ops / "dispatch" / args.name / "gpu-preference.json",
-        {
-            "schema": "colab-gpu-preference/v1",
-            "preference": ["H100", "A100"],
-            "variants": [
-                {
-                    "manifest": str(path),
-                    "sha256": seal,
-                    "name": name,
-                    "gpu": packet["requirements"]["gpu"],
-                    "budget": packet.get("budget", {}),
-                    "receipt": str(ops / "dispatch" / name / "gpu-receipt.json"),
-                }
-                for name, path, seal, packet in zip(names, paths, seals, packets)
-            ],
-        },
-    )
     seconds = float(os.environ.get("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "600"))
     poll = float(os.environ.get("OPS_ALLOC_POLL_INTERVAL_SECONDS", "1"))
     if not math.isfinite(seconds) or not 0 < seconds <= 600 or not math.isfinite(poll) or poll <= 0:
@@ -2483,12 +2445,59 @@ def dispatch_preferred(
     # Keep exclusion across both variants, but do not charge the sibling's
     # admission/allocation window for time already spent on the primary.
     # Each variant retains the ordinary bound; the whole pair is bounded too.
-    handoff = {} if any(receipt is not None for receipt in test_receipts) else None
+    handoff = {} if any("sandbox_admission" in packet for packet in packets) else None
     with allocation_lock(
         ops / "alloc.lock",
-        seconds * len(packets),
+        seconds,
+        wait=True,
         **({"handoff": handoff} if handoff is not None else {}),
-    ) as preference_deadline:
+    ):
+        # Reserve both identities before validation, and validate both before first submit.
+        for name in names:
+            (ops / "dispatch" / name).mkdir()
+        for packet, path in zip(packets, paths):
+            write_create_only_json(path, packet)
+        seals = [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
+        test_receipts = [
+            (
+                ops / "dispatch" / name / "admission-tests.json"
+                if "sandbox_admission" in packet
+                else None
+            )
+            for name, packet in zip(names, packets)
+        ]
+        for path, lane, name, receipt in zip(paths, states, names, test_receipts):
+            validate(
+                broker,
+                cwd,
+                lane,
+                path,
+                ops / "logs" / f"{name}.validate",
+                **({"test_receipt": receipt} if receipt is not None else {}),
+            )
+            if any(
+                hashlib.sha256(p.read_bytes()).hexdigest() != seal for p, seal in zip(paths, seals)
+            ):
+                raise Refused("GPU preference manifest changed during validation")
+        write_create_only_json(
+            ops / "dispatch" / args.name / "gpu-preference.json",
+            {
+                "schema": "colab-gpu-preference/v1",
+                "preference": ["H100", "A100"],
+                "variants": [
+                    {
+                        "manifest": str(path),
+                        "sha256": seal,
+                        "name": name,
+                        "gpu": packet["requirements"]["gpu"],
+                        "budget": packet.get("budget", {}),
+                        "receipt": str(ops / "dispatch" / name / "gpu-receipt.json"),
+                    }
+                    for name, path, seal, packet in zip(names, paths, seals, packets)
+                ],
+            },
+        )
+        preference_deadline = time.monotonic() + seconds * len(packets)
         for index, (packet, path, lane, log, name) in enumerate(
             zip(packets, paths, states, logs, names)
         ):
@@ -2716,27 +2725,6 @@ def dispatch(args: argparse.Namespace) -> str:
         return f"PASS_DRY_RUN {args.name} allocations=0 live_accounting=NOT_CHECKED"
     for subdir in ("logs", "state", "manifests", "dispatch"):
         (ops / subdir).mkdir(parents=True, exist_ok=True)
-    # Create-only name reservation also fences two clients dispatched concurrently.
-    (ops / "dispatch" / args.name).mkdir()
-    log = ops / "logs" / f"{args.name}.log"
-    if log.exists():
-        raise Refused(f"log already exists (name reused): {log}")
-    manifest = ops / "manifests" / f"{args.name}.json"
-    with manifest.open("xb") as stream:
-        stream.write(original_bytes)
-    test_receipt = (
-        ops / "dispatch" / args.name / "admission-tests.json"
-        if "sandbox_admission" in value
-        else None
-    )
-    validate(
-        broker,
-        cwd,
-        state,
-        manifest,
-        ops / "logs" / f"{args.name}.validate",
-        **({"test_receipt": test_receipt} if test_receipt is not None else {}),
-    )
     seconds = float(os.environ.get("OPS_ALLOC_LOCK_TIMEOUT_SECONDS", "600"))
     poll = float(os.environ.get("OPS_ALLOC_POLL_INTERVAL_SECONDS", "1"))
     if not math.isfinite(seconds) or not 0 < seconds <= 600:
@@ -2744,10 +2732,36 @@ def dispatch(args: argparse.Namespace) -> str:
     if not math.isfinite(poll) or poll <= 0:
         raise Refused("allocation poll interval must be positive and finite")
     expected = value
-    handoff = {} if test_receipt is not None else None
+    handoff = {} if "sandbox_admission" in value else None
     with allocation_lock(
-        ops / "alloc.lock", seconds, **({"handoff": handoff} if handoff is not None else {})
-    ) as deadline:
+        ops / "alloc.lock",
+        seconds,
+        wait=True,
+        **({"handoff": handoff} if handoff is not None else {}),
+    ):
+        # Create-only name reservation also fences two clients dispatched concurrently.
+        (ops / "dispatch" / args.name).mkdir()
+        log = ops / "logs" / f"{args.name}.log"
+        if log.exists():
+            raise Refused(f"log already exists (name reused): {log}")
+        manifest = ops / "manifests" / f"{args.name}.json"
+        with manifest.open("xb") as stream:
+            stream.write(original_bytes)
+        test_receipt = (
+            ops / "dispatch" / args.name / "admission-tests.json"
+            if "sandbox_admission" in value
+            else None
+        )
+        validate(
+            broker,
+            cwd,
+            state,
+            manifest,
+            ops / "logs" / f"{args.name}.validate",
+            **({"test_receipt": test_receipt} if test_receipt is not None else {}),
+        )
+        # Waiting and offline admission do not consume the allocation window.
+        deadline = time.monotonic() + seconds
         for attempt in range(2):
             name = args.name if attempt == 0 else f"{args.name}-retry-1"
             if read_json(manifest) != expected:
