@@ -1,0 +1,38 @@
+{
+  "admission_unchanged": true,
+  "completion_attempt": 1,
+  "executed_manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/doom-auc-fix2/packet-01/fit-output-a100-fallback/manifest.json",
+    "sha256": "248a329ea3acce6b7dcd95f6b9ad1ee60c7391b339e57c46370941ed4790159a"
+  },
+  "inputs_unchanged": true,
+  "mechanical_receipt": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/doom-auc-fix2/packet-01/fit-output-a100-fallback/receipt.json",
+    "sha256": "ab90f86c2fbb516db2bcb1d03bd85195bccb1c4e7c02bf5b25b703a3d73245ea"
+  },
+  "missing_arms": [
+    "spatial",
+    "b8"
+  ],
+  "original_admission": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/doom-admit-fix/admission-01/ADMISSION.json",
+    "sha256": "01576775f8ba1af44a294a2b2ce0447cf6df1b5567ec0dc8893d82c3b0bd09ef"
+  },
+  "original_manifest": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/doom-admit-fix/admission-01/fit.json",
+    "sha256": "49876ac192b61009dcf5061400554b7ea36c14bf1492b673f768834a147a96e3"
+  },
+  "original_output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/doom-auc-fix2/packet-01/fit-output-a100-fallback",
+  "preparation_script": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/doom-fit-retry/PREPARE_COMPLETION.py",
+    "sha256": "7607f5c85e083ed30d06aac25aec4effe0d729ee1e006f73b6eaedbfac25d6dd"
+  },
+  "previous_recovery_seconds": 1200.0,
+  "recovery_base_seconds": 600,
+  "recovery_effective_seconds": 1200,
+  "recovery_scope": "owned non-staging exec/poll; staging limits unchanged",
+  "schema": "t34-doom-zero-export-completion/v1",
+  "scoring_look_taken": false,
+  "series_max_original_plus_completions": 3,
+  "verified_units": 0
+}
