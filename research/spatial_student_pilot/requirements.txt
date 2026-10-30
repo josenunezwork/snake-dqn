@@ -7,3 +7,4 @@ numba==0.68.0
 llvmlite==0.50.0
 ninja>=1.11,<2
 psutil>=5.9,<6
+cloudpickle>=3.0,<4
