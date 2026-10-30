@@ -22,14 +22,19 @@ class IntegerRasterCache:
     def __init__(self, rows: Sequence[dict[str, Any]], device: str, max_bytes: int) -> None:
         self.device = device
         self.entries: dict[str, tuple[Any, ...]] = {}
+        identities: dict[str, str] = {}
         self.geometry: dict[tuple[int, int], torch.Tensor] = {}
         self.bytes = 0
         for row in rows:
             if row["partition"] != "train" or row["parent_partition"] != "train":
                 raise ValueError("training cache refuses held-out ancestry")
-            key = tensor_identity(row["compact"])
+            key = row["uid"]
+            content = tensor_identity(row["compact"])
             if key in self.entries:
+                if identities[key] != content:
+                    raise ValueError("cache UID has conflicting compact bytes")
                 continue
+            identities[key] = content
             planes, scalars, heads = build_observation(row["compact"], device=device)
             binary = planes[:, [0, 1, 2, 3, 4, 5, 12, 13]].to(torch.uint8)
             shifts = torch.arange(8, device=device).view(1, 8, 1, 1)
@@ -61,5 +66,5 @@ class IntegerRasterCache:
         return planes, scalars, heads
 
     def batch(self, rows: Sequence[dict[str, Any]]) -> tuple[torch.Tensor, ...]:
-        decoded = [self._decode(self.entries[tensor_identity(row["compact"])]) for row in rows]
+        decoded = [self._decode(self.entries[row["uid"]]) for row in rows]
         return tuple(torch.cat([r[i] for r in decoded]) for i in range(3))

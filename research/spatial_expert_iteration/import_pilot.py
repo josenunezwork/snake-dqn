@@ -12,6 +12,7 @@ from research.spatial_student_pilot.model import load_checkpoint
 from research.spatial_student_pilot.prepare import B8_SHA, digest
 from research.spatial_student_pilot.resume import UnitStore
 
+from .config import RoundConfig
 from .run import save_tree
 from .search import tensor_identity
 
@@ -42,6 +43,31 @@ def convert(
     )
 
 
+def training_roots(store: UnitStore, cfg: PilotConfig, mature_length: int) -> list[dict[str, Any]]:
+    """Import only natural training roots meeting the follow-on maturity threshold."""
+    if type(mature_length) is not int or mature_length < 1:
+        raise ValueError("positive mature_length required")
+    roots = []
+    for name in store.list_ids("collect-"):
+        for root in store.get(name)["roots"]:
+            if root["partition"] != "train" or root["hero_length"] < mature_length:
+                continue
+            roots.append(
+                dict(
+                    root,
+                    parent_id=f"{cfg.namespace}/collection/w{root['world_id']}",
+                    parent_partition="train",
+                    parent_seed=cfg.world_seed(root["world_id"]),
+                    parent_opp_seed=cfg.opp_seed(root["world_id"]),
+                    collector_sha256=B8_SHA,
+                    student_action=root["b8_action"],
+                    start_distribution="fresh",
+                    ancestor_uid=None,
+                )
+            )
+    return roots
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pilot-go", type=Path, required=True)
@@ -50,7 +76,10 @@ def main() -> None:
     parser.add_argument("--input-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--reservoir-output", type=Path, required=True)
+    parser.add_argument("--mature-length", type=int, default=RoundConfig().mature_length)
     args = parser.parse_args()
+    if args.mature_length < 1:
+        parser.error("positive mature-length required; match the registered round config")
     go = json.loads(args.pilot_go.read_text())
     if (
         go.get("schema") != "spatial-student-readout/v1"
@@ -69,24 +98,7 @@ def main() -> None:
         raise ValueError("verified final pilot learner snapshot is absent")
     actor, _ = load_checkpoint(args.actor)
     save_tree(args.output, convert(snapshot, actor.state_dict(), final))
-    roots = []
-    for name in store.list_ids("collect-"):
-        for root in store.get(name)["roots"]:
-            if root["partition"] != "train" or root["hero_length"] < 600:
-                continue
-            roots.append(
-                dict(
-                    root,
-                    parent_id=f"{cfg.namespace}/collection/w{root['world_id']}",
-                    parent_partition="train",
-                    parent_seed=cfg.world_seed(root["world_id"]),
-                    parent_opp_seed=cfg.opp_seed(root["world_id"]),
-                    collector_sha256=B8_SHA,
-                    student_action=root["b8_action"],
-                    start_distribution="fresh",
-                    ancestor_uid=None,
-                )
-            )
+    roots = training_roots(store, cfg, args.mature_length)
     save_tree(
         args.reservoir_output,
         dict(
@@ -97,6 +109,7 @@ def main() -> None:
                 pilot_go_sha256=digest(args.pilot_go),
                 pilot_config_sha256=cfg.sha256,
                 ledger_sha256=digest(args.verified_ledger),
+                mature_length=args.mature_length,
             ),
         ),
     )

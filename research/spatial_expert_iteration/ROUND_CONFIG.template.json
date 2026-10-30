@@ -5,6 +5,7 @@
   "anchor_worlds": 0,
   "assessment_roots": 128,
   "assessment_worlds": 192,
+  "b8_temperature": 1.0,
   "base_timeout_seconds": 10800.0,
   "batch_size": 64,
   "bc_weight": 1.0,
@@ -39,14 +40,14 @@
     4,
     5
   ],
-  "search_chunk": 128,
+  "search_chunk": 512,
+  "search_temperature": 1.0,
   "seed": 1901,
   "selection_suffixes": [
     0,
     1
   ],
   "soft_weight": 0.0,
-  "temperature": 1.0,
   "timeout_seconds": 21600.0,
   "tiny": false,
   "updates": 2000,

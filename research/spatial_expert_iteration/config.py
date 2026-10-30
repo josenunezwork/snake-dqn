@@ -42,7 +42,7 @@ class RoundConfig:
     logical_reservoir_size: int = 128
     branch_horizon: int = 300
     branch_batch_size: int = 1024
-    search_chunk: int = 128
+    search_chunk: int = 512
     candidate_roots: int = 2048
     reservoir_roots: int = 0
     reservoir_max_roots: int = 8192
@@ -66,7 +66,8 @@ class RoundConfig:
     query_floor: float = 0.125
     soft_weight: float = 0.0
     advantage_weight: float = 0.0
-    temperature: float = 1.0
+    b8_temperature: float = 1.0
+    search_temperature: float = 1.0
     observation_cache: str = "sparse"
     cache_max_bytes: int = 8 * 1024**3
     bc_weight: float = 1.0
@@ -141,6 +142,8 @@ class RoundConfig:
             raise ValueError("physics/anchor batches must preserve whole logical reservoirs")
         if self.reservoir_roots > self.candidate_roots:
             raise ValueError("reservoir quota exceeds candidate population")
+        if not self.tiny and self.search_chunk < 512:
+            raise ValueError("registered search/assessment chunks require at least 512 roots")
         if self.batch_size % 2 or self.microbatch > self.batch_size:
             raise ValueError("even batch and bounded microbatch required")
         for key in (
@@ -148,7 +151,8 @@ class RoundConfig:
             "query_floor",
             "soft_weight",
             "advantage_weight",
-            "temperature",
+            "b8_temperature",
+            "search_temperature",
             "bc_weight",
             "base_timeout_seconds",
             "timeout_seconds",
@@ -164,7 +168,7 @@ class RoundConfig:
             raise ValueError("query gate requires a positive random floor")
         if (
             min(self.soft_weight, self.advantage_weight) < 0
-            or min(self.bc_weight, self.temperature) <= 0
+            or min(self.bc_weight, self.b8_temperature, self.search_temperature) <= 0
         ):
             raise ValueError("invalid learning weights/temperature")
         if self.base_timeout_seconds <= 0 or self.timeout_seconds != 2 * self.base_timeout_seconds:

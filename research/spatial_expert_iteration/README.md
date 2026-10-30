@@ -27,13 +27,35 @@ completion-last markers, accounting and original+two-completion cap as the pilot
 The `collect-NNNN` unit contains a training batch and corresponding fresh assessment
 batch. Logical reservoir grouping remains independent of physics batch size.
 
+Registered search and assessment units require `search_chunk >= 512` (default 512).
+At roughly 34% queried, four legal actions and two suffixes, a 512-root training
+unit produces roughly 1,400 jobs, filling a 1,024-job slab before the unit tail.
+All 128 default assessment roots stay in one unit. Final partial slabs remain
+possible; no support is added or duplicated to fill them. Tiny fixtures are exempt.
+
+Freeze refuses `len(reservoir) + candidate_roots > reservoir_max_roots`, an anchor
+or reuse quota larger than the reservoir, or a byte forecast above the cap, before
+creating the packet. The append-only policy never evicts parents. The byte forecast
+reserves the larger of the largest serialized existing row and a maturity-sized
+six-snake snapshot/compact row plus grid food and 64 KiB metadata per new candidate.
+This is a forecast, not a maximum-body guarantee; exact serialized union sizing
+also runs immediately after collection, before search/fitting, and at export.
+The forecast and method are recorded in `FREEZE.json`.
+
+Anchors are hash-ranked by round namespace, seed and UID, without replacement;
+input order/age has no selection priority. Mature-support gates count only selected
+fresh-L1 roots collected this round, excluding reused roots and anchor descendants.
+Per-batch support checks refuse only when even perfect remaining worlds cannot
+supply the registered counts; they do not refill or replace worlds.
+
 The gate uses frozen current-student vs B8 disagreement, then hash-random ranking;
 query the top fraction with probability 1 and all remaining candidates with the
 registered positive random floor. The training target is the full candidate mean:
 uniform queried sampling needs `n_query/(N*p)`, not just `1/p` with an empirical
 queried-mean denominator. No unqueried action becomes an expert target. Ordinary
 BC uses recorded B8 Q, and search rows retain all selection per-action/suffix mass
-returns plus their mean teacher Q. Soft weights/temperature and normalized centered
+returns plus their mean teacher Q. Soft weight, separate `b8_temperature` and
+`search_temperature`, and normalized centered
 advantage weights are explicit settings. No critic leaf is used in search.
 
 ## Tiny real-entrypoint Mac smoke
@@ -60,7 +82,8 @@ then writes immutable units and a `SMOKE_COMPLETE_NO_SCIENTIFIC_RESULT` summary.
 1. Import the GO-nominated pilot actor's full final verified trajectory and natural
    training roots with `python -m research.spatial_expert_iteration.import_pilot
    --pilot-go ... --actor ... --verified-ledger ... --input-dir ... --output .../learner.pt
-   --reservoir-output .../reservoir.pt`. The ledger must be built by the existing
+   --reservoir-output .../reservoir.pt --mature-length <round-config.mature_length>`.
+   The ledger must be built by the existing
    pilot Mac verifier. This preserves Adam and RNG. Later rounds use `learner.pt`
    and `reservoir.pt` from the preceding sealed round endpoint directly.
 2. Copy canonical teachers into an input directory under the pilot's destination

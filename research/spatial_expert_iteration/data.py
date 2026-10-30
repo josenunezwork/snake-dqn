@@ -27,6 +27,16 @@ def rank(*parts: Any) -> int:
     return int(identity(parts)[:16], 16)
 
 
+def select_anchors(cfg: RoundConfig, reservoir: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Hash-sample distinct root UIDs without replacement, independent of outcomes."""
+    validate_rows(reservoir, "train")
+    if max(cfg.anchor_worlds, cfg.reservoir_roots) > len(reservoir):
+        raise ValueError("anchor/reuse allocation exceeds distinct reservoir roots")
+    return sorted(
+        reservoir, key=lambda r: (rank(cfg.namespace, cfg.seed, "anchor", r["uid"]), r["uid"])
+    )[: cfg.anchor_worlds]
+
+
 def validate_rows(rows: Sequence[dict[str, Any]], partition: str) -> None:
     """Descendants inherit original parent partition, including all later rounds."""
     seen = set()
@@ -206,6 +216,50 @@ def collect(
     )
 
 
+def check_support_possible(cfg: RoundConfig, batches: Sequence[dict[str, Any]]) -> None:
+    """Stop only when even perfect remaining worlds cannot supply frozen counts.
+
+    Generous upper bounds ignore later priority truncation; they can delay a
+    refusal but cannot replace, refill, or stop a still-feasible allocation.
+    """
+    for partition, worlds, quota, parents in (
+        ("train", cfg.worlds, cfg.candidate_roots - cfg.reservoir_roots, cfg.min_mature_parents),
+        (
+            "assessment",
+            cfg.assessment_worlds,
+            cfg.assessment_roots,
+            cfg.min_assessment_mature_parents,
+        ),
+    ):
+        selected = [b for b in batches if b["partition"] == partition]
+        ids = [i for b in selected for i in b["world_ids"]]
+        seen = set(ids)
+        remaining = worlds - len(ids)
+        roots = [r for b in selected for r in b["roots"]]
+        mature = [
+            r
+            for r in roots
+            if r["start_distribution"] == "fresh" and r["hero_length"] >= cfg.mature_length
+        ]
+        fresh_left = sum(
+            i not in seen and (partition != "train" or i >= cfg.anchor_worlds)
+            for i in range(worlds)
+        )
+        required_mature = cfg.min_mature_roots if partition == "train" else parents
+        if (
+            len(roots) + remaining * cfg.roots_per_parent < quota
+            or len(mature) + fresh_left * cfg.roots_per_parent < required_mature
+            or len({r["parent_id"] for r in mature}) + fresh_left < parents
+        ):
+            raise RuntimeError(f"INCOMPLETE_SUPPORT: {partition} impossible after collection batch")
+        if partition == "train":
+            demos = sum(len(b["demos"]) for b in selected)
+            # At most one demo per world/tick, with a generous longest horizon.
+            per_world = math.ceil(max(cfg.horizon, cfg.anchor_horizon) / cfg.demo_every)
+            if demos + remaining * per_world < cfg.demos:
+                raise RuntimeError("INCOMPLETE_SUPPORT: demos impossible after collection batch")
+
+
 def dataset(
     cfg: RoundConfig, batches: Sequence[dict[str, Any]], reservoir: Sequence[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -239,9 +293,13 @@ def dataset(
     if {r["parent_id"] for r in train + demos} & {r["parent_id"] for r in held}:
         raise ValueError("held-out parent collision")
     mature = [dict(r) for r in train if r["hero_length"] >= cfg.mature_length]
+    reused_ids = {r["uid"] for r in reused}
+    fresh_mature = [
+        r for r in mature if r["uid"] not in reused_ids and r["start_distribution"] == "fresh"
+    ]
     if (
-        len(mature) < cfg.min_mature_roots
-        or len({r["parent_id"] for r in mature}) < cfg.min_mature_parents
+        len(fresh_mature) < cfg.min_mature_roots
+        or len({r["parent_id"] for r in fresh_mature}) < cfg.min_mature_parents
         or len({r["parent_id"] for r in held if r["hero_length"] >= cfg.mature_length})
         < cfg.min_assessment_mature_parents
     ):

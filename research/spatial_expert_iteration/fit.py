@@ -36,9 +36,10 @@ def row_loss(
             raise ValueError("nonfinite legal teacher Q")
         q = q.masked_fill(~masks, 0)
         if cfg.soft_weight:
-            target = (q / cfg.temperature).masked_fill(~masks, -torch.inf).softmax(1)
-            log_probs = (masked / cfg.temperature).log_softmax(1).masked_fill(~masks, 0)
-            loss = loss - cfg.soft_weight * cfg.temperature**2 * (target * log_probs).sum(1)
+            temperature = cfg.search_temperature if searched else cfg.b8_temperature
+            target = (q / temperature).masked_fill(~masks, -torch.inf).softmax(1)
+            log_probs = (masked / temperature).log_softmax(1).masked_fill(~masks, 0)
+            loss = loss - cfg.soft_weight * temperature**2 * (target * log_probs).sum(1)
         if searched and cfg.advantage_weight:
             denom = masks.sum(1, keepdim=True)
             center_q = q - q.sum(1, keepdim=True) / denom
@@ -165,7 +166,7 @@ def fit(
 
 
 def initial_state(student: SpatialStudent, seed: int) -> dict[str, Any]:
-    """Round-one import explicitly starts new Adam; later rounds use full finals."""
+    """Initialize a smoke-only learner; scientific imports preserve pilot Adam/RNG."""
     optimizer = torch.optim.Adam(student.parameters(), lr=3e-4)
     return dict(
         schema="spatial-exit-learner/v1",

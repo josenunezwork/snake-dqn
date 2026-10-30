@@ -17,7 +17,14 @@ from research.spatial_student_pilot.model import SpatialStudent
 from research.spatial_student_pilot.resume import UnitStore, build_ledger, empty_ledger
 
 from .config import RoundConfig, identity
-from .data import collect, dataset, query_gate, validate_rows
+from .data import (
+    check_support_possible,
+    collect,
+    dataset,
+    query_gate,
+    select_anchors,
+    validate_rows,
+)
 from .fit import fit, initial_state, row_loss
 from .prepare import freeze, seed_audit, verify_packet, write_json
 from .run import save_tree
@@ -419,7 +426,7 @@ def test_next_round_anchor_program_keeps_original_reservoir_immutable(
     cfg, b8, nets, data, _ = fixture
     reservoir = copy.deepcopy(data["reservoir"])
     before = tensor_identity(reservoir)
-    cfg = replace(cfg, round_index=2, anchor_worlds=2, reservoir_roots=1)
+    cfg = replace(cfg, round_index=2, anchor_worlds=2, reservoir_roots=1, candidate_roots=4)
     initial = initial_state(SpatialStudent(), cfg.seed)
     initial.update(round_index=1, global_update=cfg.updates)
     store = UnitStore(tmp_path / "round2", cfg, empty_ledger(cfg), tmp_path)
@@ -458,7 +465,9 @@ def test_registered_freeze_go_source_and_input_admission(
     # simulator: exercise the registered packet path without creating science.
     from . import prepare
 
-    cfg = replace(RoundConfig.smoke(), tiny=False, implementation_sha256=identity({}))
+    cfg = replace(
+        RoundConfig.smoke(), tiny=False, search_chunk=512, implementation_sha256=identity({})
+    )
     inputs_dir = tmp_path / "inputs"
     inputs_dir.mkdir()
     state = initial_state(SpatialStudent(), cfg.seed)
@@ -537,3 +546,164 @@ def test_registered_freeze_go_source_and_input_admission(
         )
     with pytest.raises(ValueError, match="integer effective seed"):
         seed_audit(cfg, dict(excluded_seeds=[str(cfg.world_seed(0))]))
+
+
+def test_registered_chunks_pool_512_roots_and_keep_assessment_together() -> None:
+    cfg = RoundConfig()
+    assert cfg.search_chunk == 512
+    assert cfg.assessment_roots <= cfg.search_chunk
+    with pytest.raises(ValueError, match="at least 512"):
+        replace(cfg, search_chunk=128)
+    # Four legal actions x two suffixes at a deterministic ~34% query rate.
+    # Both old and new populations have the same row/action/suffix order.
+    selected = [i for i in range(512) if i % 3 == 0]
+    jobs = [Job(i, a, s) for i in selected for a in range(4) for s in (0, 1)]
+    slabs = [
+        len(jobs[i : i + cfg.branch_batch_size]) for i in range(0, len(jobs), cfg.branch_batch_size)
+    ]
+    assert slabs == [1024, 344]
+    assert max(slabs) == cfg.branch_batch_size  # old 128-root chunks never filled one
+
+
+def test_anchor_hash_sample_without_replacement_and_order_independent(fixture: tuple) -> None:
+    cfg, _, _, data, _ = fixture
+    roots = [dict(data["train"][0], uid=f"root-{i}") for i in range(50)]
+    cfg = replace(cfg, anchor_worlds=4)
+    anchors = select_anchors(cfg, roots)
+    assert len({r["uid"] for r in anchors}) == 4
+    assert [r["uid"] for r in anchors] == [r["uid"] for r in select_anchors(cfg, roots[::-1])]
+    assert [r["uid"] for r in anchors] != [r["uid"] for r in roots[:4]]
+    assert [r["uid"] for r in anchors] != [
+        r["uid"] for r in select_anchors(replace(cfg, round_index=2), roots)
+    ]
+    with pytest.raises(ValueError, match="distinct reservoir"):
+        select_anchors(cfg, roots[:2])
+
+
+def test_reused_and_anchor_maturity_cannot_satisfy_fresh_support(fixture: tuple) -> None:
+    cfg, _, _, data, batches = fixture
+    cfg = replace(cfg, reservoir_roots=1, mature_length=10)
+    old = [dict(data["train"][0], uid="old-mature", hero_length=20)]
+    fresh = copy.deepcopy(batches)
+    for batch in fresh:
+        for root in batch["roots"]:
+            root["hero_length"] = 1 if batch["partition"] == "train" else 20
+    with pytest.raises(RuntimeError, match="mature"):
+        dataset(cfg, fresh, old)
+    for root in fresh[0]["roots"]:
+        root.update(hero_length=20, start_distribution="anchor")
+    with pytest.raises(RuntimeError, match="mature"):
+        dataset(cfg, fresh, old)
+    for root in fresh[0]["roots"]:
+        root["start_distribution"] = "fresh"
+    assert len(dataset(cfg, fresh, old)["train"]) == cfg.candidate_roots
+
+
+def test_reservoir_forecast_and_exact_guard_precede_round_work(fixture: tuple) -> None:
+    from .reservoir import capacity_forecast, reservoir_value, serialized_size
+
+    cfg, _, _, data, _ = fixture
+    roots = data["reservoir"]
+    before = tensor_identity(roots)
+    forecast = capacity_forecast(cfg, roots)
+    assert forecast["maximum_roots"] == len(roots) + cfg.candidate_roots
+    assert forecast["forecast_bytes"] > serialized_size(roots)
+    with pytest.raises(ValueError, match="pre-data.*root cap"):
+        capacity_forecast(replace(cfg, reservoir_max_roots=len(roots)), roots)
+    with pytest.raises(ValueError, match="pre-data.*byte forecast"):
+        capacity_forecast(replace(cfg, reservoir_max_bytes=1), [])
+    new = [dict(roots[0], uid="new")]
+    value = reservoir_value(cfg, roots, new)
+    with pytest.raises(ValueError, match="byte cap.*before search"):
+        reservoir_value(replace(cfg, reservoir_max_bytes=serialized_size(value) - 1), roots, new)
+    assert tensor_identity(roots) == before
+    assert len(value["roots"]) == len(roots) + 1
+    assert tensor_identity(reservoir_value(cfg, roots, roots)["roots"]) == before
+
+
+def test_freeze_refuses_capacity_before_creating_packet(tmp_path: Path) -> None:
+    cfg = replace(RoundConfig.smoke(), reservoir_max_roots=1)
+    save_tree(tmp_path / "learner.pt", initial_state(SpatialStudent(), cfg.seed))
+    save_tree(tmp_path / "reservoir.pt", dict(schema="spatial-exit-reservoir/v1", roots=[]))
+    write_json(tmp_path / "reg.json", dict(status="SMOKE_ONLY"))
+    write_json(tmp_path / "inventory.json", dict(excluded_seeds=[]))
+    packet = tmp_path / "packet"
+    with pytest.raises(ValueError, match="pre-data.*root cap"):
+        freeze(
+            packet,
+            cfg,
+            inputs={n: tmp_path / n for n in ("learner.pt", "reservoir.pt")},
+            registration=tmp_path / "reg.json",
+            inventory=tmp_path / "inventory.json",
+        )
+    assert not packet.exists()
+
+
+def test_early_support_refuses_only_impossible_remaining_counts(fixture: tuple) -> None:
+    cfg, _, _, _, batches = fixture
+    check_support_possible(cfg, [])  # every world is still available
+    check_support_possible(cfg, batches)
+    partial = copy.deepcopy(batches)
+    partial[0]["world_ids"] = [0, 1]
+    partial[0]["roots"] = []
+    partial[0]["demos"] = []
+    check_support_possible(cfg, partial)  # two remaining worlds can still supply all counts
+    partial[0]["world_ids"] = list(range(cfg.worlds))
+    with pytest.raises(RuntimeError, match="INCOMPLETE_SUPPORT.*after collection batch"):
+        check_support_possible(cfg, partial)
+
+
+def test_cache_uid_lookup_has_no_repeated_sha_and_refuses_conflicts(
+    fixture: tuple, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from . import cache as cache_module
+
+    _, _, _, data, _ = fixture
+    rows = copy.deepcopy(data["demos"][:2])
+    cache = cache_module.IntegerRasterCache(rows, "cpu", 1000000)
+    monkeypatch.setattr(cache_module, "tensor_identity", lambda _: pytest.fail("hot-path SHA"))
+    assert cache.batch(rows)[0].shape[0] == 2
+    monkeypatch.undo()
+    conflicting = copy.deepcopy(rows[0])
+    conflicting["compact"]["length"] += 1
+    with pytest.raises(ValueError, match="conflicting compact"):
+        cache_module.IntegerRasterCache([rows[0], conflicting], "cpu", 1000000)
+
+
+def test_soft_temperatures_are_separate_by_teacher(fixture: tuple) -> None:
+    cfg, _, _, data, _ = fixture
+    cfg = replace(cfg, soft_weight=0.5)
+    row = dict(
+        data["train"][0], target_action=1, teacher_q=torch.tensor([0.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    )
+    logits = torch.tensor([[0.0, 2.0, 1.0, 3.0, 4.0, 5.0]])
+    searched = row_loss(logits, [row], cfg, searched=True)
+    ordinary = row_loss(logits, [row], cfg, searched=False)
+    changed_b8 = replace(cfg, b8_temperature=10.0)
+    changed_search = replace(cfg, search_temperature=10.0)
+    assert torch.equal(searched, row_loss(logits, [row], changed_b8, searched=True))
+    assert torch.equal(ordinary, row_loss(logits, [row], changed_search, searched=False))
+    assert not torch.equal(searched, row_loss(logits, [row], changed_search, searched=True))
+    assert not torch.equal(ordinary, row_loss(logits, [row], changed_b8, searched=False))
+
+
+def test_pilot_reservoir_import_uses_registered_mature_length(fixture: tuple) -> None:
+    from research.spatial_student_pilot.config import PilotConfig
+
+    from .import_pilot import training_roots
+
+    _, _, _, data, _ = fixture
+    roots = [
+        dict(data["train"][0], uid=f"r-{i}", hero_length=n)
+        for i, n in enumerate((599, 600, 900, 901))
+    ]
+
+    class Store:
+        def list_ids(self, prefix: str) -> list[str]:
+            return ["collect-0000"]
+
+        def get(self, key: str) -> dict:
+            return dict(roots=roots + [dict(roots[-1], partition="assessment")])
+
+    imported = training_roots(Store(), PilotConfig(), 900)
+    assert [r["hero_length"] for r in imported] == [900, 901]

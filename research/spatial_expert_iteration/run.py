@@ -23,9 +23,10 @@ from research.spatial_student_pilot.search import paired_gameplay
 from src.model.ego2s_network import load_ego2s_checkpoint
 
 from .config import RoundConfig
-from .data import collect, dataset, query_gate
+from .data import check_support_possible, collect, dataset, query_gate, select_anchors
 from .fit import fit, initial_state
 from .prepare import freeze, verify_packet, write_json
+from .reservoir import capacity_forecast, reservoir_value
 from .search import assess, label_roots, tensor_identity
 
 
@@ -67,6 +68,8 @@ def round_pipeline(
     continuation = tensor_identity(current.state_dict())
     if continuation != frozen["continuation_sha256"]:
         raise ValueError("warm-start/continuation differs from frozen round")
+    capacity_forecast(cfg, reservoir)
+    anchors = select_anchors(cfg, reservoir)
     batches = []
     for index, start in enumerate(range(0, cfg.worlds, cfg.world_batch_size)):
         unit_id = f"collect-{index:04d}"
@@ -80,7 +83,7 @@ def round_pipeline(
                 ids = [i for i in range(start, end) if (i < cfg.anchor_worlds) == anchored]
                 if not ids:
                     continue
-                anchors = [reservoir[i % len(reservoir)] for i in ids] if anchored else []
+                selected_anchors = [anchors[i] for i in ids] if anchored else []
                 groups.append(
                     collect(
                         cfg,
@@ -90,7 +93,7 @@ def round_pipeline(
                         b8=b8,
                         networks=networks,
                         device=device,
-                        anchors=anchors,
+                        anchors=selected_anchors,
                         stop=control.stop,
                         progress=control.progress,
                     )
@@ -127,7 +130,9 @@ def round_pipeline(
             store.publish(unit_id, groups)
             unit = groups
         batches.extend(unit)
+        check_support_possible(cfg, batches)
     data = dataset(cfg, batches, reservoir)
+    endpoint_reservoir = reservoir_value(cfg, reservoir, data["reservoir"])
     # Reused snapshots retain collector provenance, but gate disagreement is
     # recomputed with this round's frozen student, not the historical collector.
     with torch.inference_mode():
@@ -141,7 +146,7 @@ def round_pipeline(
     gate = query_gate(data["train"], cfg)
     by_uid = {r["uid"]: r for r in gate}
     labels = []
-    # Pool across the whole search_chunk (default >=128), then fill large
+    # Pool across the whole search_chunk (registered >=512), then fill large
     # physics slabs. Unit and physical batch size are separate frozen settings.
     for index, start in enumerate(range(0, len(data["train"]), cfg.search_chunk)):
         unit_id = f"search-{index:04d}"
@@ -232,20 +237,9 @@ def round_pipeline(
             store.publish(unit_id, scores)
     if control.stop():
         raise InterruptedError("round endpoint exceeded frozen deadline")
-    # Growing create-only reservoir; original parent ID/partition never changes.
-    union = {r["uid"]: r for r in reservoir}
-    for row in data["reservoir"]:
-        union.setdefault(row["uid"], row)
-    if len(union) > cfg.reservoir_max_roots:
-        raise ValueError("frozen natural reservoir root cap exceeded")
     save_tree(
         store.output / "reservoir.pt",
-        dict(
-            schema="spatial-exit-reservoir/v1",
-            namespace=cfg.namespace,
-            round_index=cfg.round_index,
-            roots=list(union.values()),
-        ),
+        endpoint_reservoir,
         max_bytes=cfg.reservoir_max_bytes,
     )
     save_tree(store.output / "learner.pt", final)

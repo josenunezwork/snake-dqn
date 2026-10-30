@@ -28,6 +28,7 @@ from research.spatial_student_pilot.resume import (
 
 from .config import RoundConfig, identity
 from .data import validate_rows
+from .reservoir import capacity_forecast
 from .search import tensor_identity
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -202,8 +203,7 @@ def freeze(
                 raise ValueError(
                     "round-one reservoir requires verified natural pilot training roots"
                 )
-    if cfg.anchor_worlds and not reservoir["roots"]:
-        raise ValueError("anchor allocation requires verified natural training reservoir")
+    capacity = capacity_forecast(cfg, reservoir["roots"])
     if set(seed_keys(cfg)) & {
         int(r[k]) for r in reservoir["roots"] for k in ("parent_seed", "parent_opp_seed")
     }:
@@ -247,6 +247,7 @@ def freeze(
         ),
         ledger_sha256=digest(packet / "verified-ledger.json"),
         seed_audit_sha256=digest(packet / "seed-audit.json"),
+        reservoir_capacity=capacity,
         budgets=dict(
             base_timeout_seconds=cfg.base_timeout_seconds,
             effective_timeout_seconds=cfg.timeout_seconds,

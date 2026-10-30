@@ -40,10 +40,19 @@ mature independent-parent support. The default first round starts fresh; a verif
 pilot **training** reservoir may be imported, with explicit input hashes in the
 ratified registration. C/T death-lookback or synthetic lengthened states are not
 supported scientific inputs. Anchor descendants retain the original parent ID
-and partition. Anchor cycling creates correlated descendants, never new parents.
+and partition. Anchors are hash-ranked by namespace, seed and UID without
+replacement; `anchor_worlds <= len(reservoir)` is required. Anchor descendants
+remain correlated and do not count toward fresh-L1 mature support. Only this
+round's selected fresh-L1 mature roots and their parents satisfy that gate.
 
 Freeze number of reused reservoir roots, how their priorities are selected, the
-maximum reservoir root/byte caps (overflow refuses the endpoint), and ordinary BC rehearsal. Collection is
+maximum reservoir root/byte caps, and ordinary BC rehearsal. Freeze rejects when
+`len(reservoir) + candidate_roots` exceeds the root cap or its recorded byte
+forecast exceeds the byte cap. The policy is append-only, without eviction.
+The forecast uses max(existing serialized root size, maturity-sized body/food row
+plus 64 KiB allowance); exact union sizing runs after collection before search/fit
+and at export. Forecasts do not guarantee maximum legal body sizes will fit.
+Collection is
 entirely student-driven; querying never changes its actions. Failed maturation and
 deaths remain in the allocation; there is no replacement/retry for scientific failure.
 
@@ -53,6 +62,8 @@ deaths remain in the allocation; there is no replacement/retry for scientific fa
   horizon), all legal first actions, exact ties to current student then lowest ID,
   selection suffixes 0/1, independent scoring suffixes 4/5, namespace and opponents.
   Labels bind full root state + continuation + opponents + horizon + config.
+  Freeze `search_chunk >= 512` for search and assessment (default 512) separately
+  from `branch_batch_size` (default 1024); the final slab may be partial.
 - Gate: preceding frozen current student/B8 disagreement priority, top fraction,
   deterministic independent hash-Bernoulli random floor and gate seed. Record each
   inclusion probability. Every queried root gets full-action search; unqueried
@@ -60,7 +71,8 @@ deaths remain in the allocation; there is no replacement/retry for scientific fa
   random query count's expectation.
 - Freeze ordinary/search batch proportions, IPW estimand, half-batch counts,
   microbatch, learning rate (current implementation Adam 3e-4), updates, checkpoints,
-  BC weight, optional soft weight/temperature and centered-advantage weight.
+  BC weight, optional soft weight, separate B8-Q `b8_temperature` and search-mass
+  `search_temperature`, and centered-advantage weight.
   Uniform sampling over queried roots uses `n_query/(N*p)` with no clipping or
   self-normalization. Ordinary hard CE remains present; Q soft targets are optional.
 - Full model/Adam/RNG state continues across rounds and mechanical retries.
