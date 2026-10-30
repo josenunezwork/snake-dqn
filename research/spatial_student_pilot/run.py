@@ -38,6 +38,7 @@ from research.spatial_student_pilot.resume import (
     validate_ledger,
 )
 from research.spatial_student_pilot.ruler_fixtures import (
+    BANK_SHA256,
     FIXTURE_NAME,
     load_fixtures,
     thread_evidence,
@@ -434,6 +435,10 @@ def ruler(
         "setup_inclusive_arm_seconds": {
             arm: rows[0][arm + "_wall_seconds"] for arm in ("b8", "student")
         },
+        "mature_tick_floors": {
+            "b8": collection_rate["seconds_per_tick"],
+            "student": collection_rate["seconds_per_tick"] + max(forward_times),
+        },
     }
     mark = time.monotonic()
     actor = store.output / "ruler-actor.pth"
@@ -481,6 +486,7 @@ def ruler(
         "status": "RULER_COMPLETE",
         "scientific_result": False,
         "development_fixtures_only": True,
+        "fixture_bank_sha256": BANK_SHA256,
         "phases": phases,
         "natural_mature_support": False,
         "historical_natural_mature_fixtures": bool(late),

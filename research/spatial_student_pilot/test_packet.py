@@ -179,3 +179,54 @@ def test_governance_refuses_changed_ruling_before_packet_creation(tmp_path: Path
     wrong.write_text("changed")
     with pytest.raises(ValueError, match="ruling digest"):
         governance_bytes("HEAD", wrong)
+
+
+def test_manifest_and_verified_ruler_require_thread_evidence(tmp_path: Path) -> None:
+    from research.spatial_student_pilot.prepare import digest, verify_ruler_receipt
+    from research.spatial_student_pilot.ruler_fixtures import THREAD_ENV
+
+    assert all(packet(tmp_path)["env"][key] == "1" for key in THREAD_ENV)
+    summary = tmp_path / "exports/spatial/summary.json"
+    summary.parent.mkdir(parents=True)
+    report = dict(
+        status="RULER_COMPLETE",
+        forecast_qualified=True,
+        within_six_hours=True,
+        support_projection={"qualified": True},
+        export_projection={"qualified": True},
+        rate_qualified=True,
+        peak_vram_bytes=1024,
+    )
+    receipt = tmp_path / "receipt.json"
+
+    def bind_report() -> None:
+        summary.write_text(json.dumps(report))
+        receipt.write_text(
+            json.dumps(
+                dict(
+                    status="PASS",
+                    stop_verified=True,
+                    commit="a" * 40,
+                    exports=[
+                        dict(
+                            path="spatial/summary.json",
+                            sha256=digest(summary),
+                            size=summary.stat().st_size,
+                        )
+                    ],
+                )
+            )
+        )
+
+    bind_report()
+    with pytest.raises(ValueError, match="one-thread environment"):
+        verify_ruler_receipt(receipt, "a" * 40)
+    report["threads"] = dict(
+        environment={k: "1" for k in THREAD_ENV}, torch_threads=1, torch_interop_threads=1
+    )
+    bind_report()
+    verify_ruler_receipt(receipt, "a" * 40)
+    report["threads"]["environment"]["OPENBLAS_NUM_THREADS"] = "8"
+    bind_report()
+    with pytest.raises(ValueError, match="one-thread environment"):
+        verify_ruler_receipt(receipt, "a" * 40)

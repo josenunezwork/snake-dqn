@@ -40,3 +40,21 @@ def test_thread_environment_and_effective_pools_are_both_required(monkeypatch) -
     monkeypatch.setattr(torch, "get_num_interop_threads", lambda: 8)
     with pytest.raises(ValueError, match="one-thread"):
         thread_evidence(enforce=True)
+
+
+def test_science_rejects_partial_collection_or_fixture_injection() -> None:
+    from research.spatial_student_pilot.collect import collect_batch
+    from research.spatial_student_pilot.config import PilotConfig
+
+    for probe in (dict(ruler_ticks=2), dict(ruler_seconds=1), dict(ruler_fixtures=[])):
+        with pytest.raises(ValueError, match="ruler-only"):
+            collect_batch(
+                PilotConfig(),
+                range(3),
+                b8=None,
+                networks={},
+                device="cpu",
+                stop=lambda: False,
+                progress=lambda _: None,
+                **probe,
+            )

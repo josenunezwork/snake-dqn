@@ -53,7 +53,10 @@ def collect_batch(
     started = time.monotonic()
     dev = torch.device(device)
     ids = list(world_ids)
-    if (ruler_ticks is not None or ruler_fixtures is not None) and cfg.mode != "ruler":
+    if (
+        any(v is not None for v in (ruler_seconds, ruler_ticks, ruler_fixtures))
+        and cfg.mode != "ruler"
+    ):
         raise ValueError("historical fixtures/tick probes are ruler-only")
     if ruler_fixtures is not None and len(ruler_fixtures) != len(ids):
         raise ValueError("fixture count must equal ruler slab size")
@@ -209,7 +212,8 @@ def collect_batch(
         "demos": [entry[2] for entry in sorted(demos)],
         "elapsed_seconds": time.monotonic() - started,
         "world_ticks": len(ids) * completed_ticks,
-        "ruler_partial": ruler_seconds is not None,
+        "ruler_partial": ruler_seconds is not None or ruler_ticks is not None,
+        "historical_fixture_probe": ruler_fixtures is not None,
         "tick_samples": tick_samples,
         "reached_l600_world_ids": sorted(reached_l600),
     }
