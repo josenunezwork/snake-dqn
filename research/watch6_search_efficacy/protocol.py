@@ -33,6 +33,7 @@ def source_paths() -> list[str]:
     import ast
 
     pending = list((ROOT / "research/watch6_search_efficacy").glob("*.py"))
+    pending.append(ROOT / "research/apex_veto_serving_20261001/schema.py")
     found = set()
     while pending:
         path = pending.pop()

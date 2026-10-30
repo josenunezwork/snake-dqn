@@ -97,8 +97,8 @@ def main() -> None:
     if args.workers not in (1, 2, 4) or args.shard not in range(6):
         parser.error("requires W1/W2/W4 and shard 0..5")
     verified = completed(args.ledger)
-    if args.fixture and (verified or not 1 <= args.fixture_horizon <= 14400):
-        parser.error("fixture requires empty ledger and bounded horizon")
+    if args.fixture and not 1 <= args.fixture_horizon <= 14400:
+        parser.error("fixture requires bounded horizon")
     if not args.fixture:
         from research.watch6_search_efficacy.admission import runtime_admit
 

@@ -10,11 +10,19 @@ from pathlib import Path
 
 from research.colab_cli import canary
 from research.watch6_search_efficacy import protocol as p
-from research.watch6_search_efficacy.run import ledger_identity
+from research.watch6_search_efficacy.run import completed, ledger_identity
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
 
 
-def prepare(out: Path, benchmark: Path, commit: str, approval: Path | None = None) -> dict:
+def prepare(
+    out: Path,
+    benchmark: Path,
+    commit: str,
+    approval: Path | None = None,
+    ledger: Path | None = None,
+    attempt: int = 1,
+    previous_receipts: list[Path] | None = None,
+) -> dict:
     """Bind published branch pin; conservative all-trigger compute envelope."""
     subprocess.run(["git", "cat-file", "-e", commit], cwd=p.ROOT, check=True)
     refs = subprocess.check_output(
@@ -27,9 +35,59 @@ def prepare(out: Path, benchmark: Path, commit: str, approval: Path | None = Non
     measured = json.loads(benchmark.read_text())
     if measured["science"] != p.identity():
         raise ValueError("stale Mac preflight")
+    if type(attempt) is not int or attempt not in (1, 2, 3):
+        raise ValueError("one original plus at most two completion attempts")
+    previous_receipts = previous_receipts or []
+    if attempt == 1 and (ledger is not None or previous_receipts):
+        raise ValueError("first attempt must have empty ledger and no prior receipts")
+    if attempt > 1:
+        if ledger is None or len(previous_receipts) != attempt - 1:
+            raise ValueError("completion needs verified ledger and all prior stopped attempts")
+        verified = completed(ledger)
+        if len(verified) == p.COUNT:
+            raise ValueError("all units verified; never recompute")
+        if len({digest(path) for path in previous_receipts}) != len(previous_receipts):
+            raise ValueError("duplicate previous-attempt receipt")
+        for previous_attempt, receipt_path in enumerate(previous_receipts, 1):
+            receipt = json.loads(receipt_path.read_text())
+            former_path = receipt_path.parent / "manifest.json"
+            former = json.loads(former_path.read_text())
+            if (
+                digest(former_path) != receipt.get("manifest_sha256")
+                or former.get("commit") != commit
+                or former.get("watch6_efficacy", {}).get("science") != p.identity()
+                or former.get("watch6_efficacy", {}).get("attempt") != previous_attempt
+            ):
+                raise ValueError("foreign source or completion-attempt lineage")
+            error = str(receipt.get("error", "")).upper()
+            mechanical = any(
+                word in error
+                for word in (
+                    "TIMEOUT",
+                    "LEASE",
+                    "TRANSFER",
+                    "UPLOAD",
+                    "STAGING",
+                    "INTERRUPT",
+                    "RUNTIME_LOST",
+                )
+            )
+            if (
+                receipt.get("stop_verified") is not True
+                or receipt.get("status") == "PASS"
+                or not mechanical
+            ):
+                raise ValueError("completion requires stopped, verified mechanical failure")
     out.mkdir(parents=True, exist_ok=False)
     ledger_path = out / "verified-ledger.json"
-    publish_json(ledger_path, empty_ledger(p.NAMESPACE, "watch6", ledger_identity()))
+    publish_json(
+        ledger_path,
+        (
+            json.loads(ledger.read_text())
+            if ledger
+            else empty_ledger(p.NAMESPACE, "watch6", ledger_identity())
+        ),
+    )
     pending = out / "fable-approval.json"
     publish_json(
         pending,
@@ -116,6 +174,7 @@ def prepare(out: Path, benchmark: Path, commit: str, approval: Path | None = Non
         "watch6_efficacy": {
             "science": p.identity(),
             "allocation": p.allocation(),
+            "attempt": attempt,
             "forecast_sha256": digest(out / "forecast.json"),
         },
     }
@@ -160,10 +219,22 @@ def main() -> None:
     parser.add_argument("--benchmark", type=Path, required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--approval", type=Path)
+    parser.add_argument("--ledger", type=Path)
+    parser.add_argument("--attempt", type=int, default=1)
+    parser.add_argument("--previous-receipts", type=Path, nargs="*", default=[])
     args = parser.parse_args()
     print(
         json.dumps(
-            prepare(args.out.resolve(), args.benchmark, args.commit, args.approval), indent=2
+            prepare(
+                args.out.resolve(),
+                args.benchmark,
+                args.commit,
+                args.approval,
+                args.ledger,
+                args.attempt,
+                args.previous_receipts,
+            ),
+            indent=2,
         )
     )
 

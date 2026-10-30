@@ -44,3 +44,11 @@ and stop. Empty first ledger, source identity, namespace and original N persist.
 `analyze` is Mac-only and accepts the complete union of 24 immutable pair payloads
 once. Integrity failures refuse a scientific result. An unbounded Fieller mass
 interval cannot pass. Outcomes remain sealed during operation and recovery.
+
+Recovery preparation uses `prepare --attempt 2 --ledger VERIFIED_LEDGER
+--previous-receipts FIRST_FAILED_RECEIPT` (or attempt3 with both earlier receipts),
+plus the original same-pin benchmark/approval and a fresh output root. It refuses
+non-mechanical/scientific failures and an already-complete bank. Each changed
+ledger requires a fresh short canary covering those exact input bytes; fixture
+pairs remain excluded and ignore the scientific skip set. No completion starts
+automatically. Preserve the single final look over the verified union.

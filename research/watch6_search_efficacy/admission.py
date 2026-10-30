@@ -59,11 +59,8 @@ def verify_runtime(root: Path, env: dict) -> None:
         raise ValueError("runtime science env mismatch")
     if env.get("WATCH6_FIXTURE") not in ("0", "1") or int(env["WATCH6_SHARD"]) not in range(6):
         raise ValueError("runtime shard/fixture mismatch")
-    rows = completed(root / "verified-ledger.json")
-    if env["WATCH6_FIXTURE"] == "1":
-        if rows:
-            raise ValueError("canary must use empty ledger")
-    else:
+    completed(root / "verified-ledger.json")
+    if env["WATCH6_FIXTURE"] == "0":
         approval = json.loads((root / "fable-approval.json").read_text())
         if approval != {
             "status": "RATIFIED",
