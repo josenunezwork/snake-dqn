@@ -131,3 +131,7 @@ Neither author tests nor a dispatch dry-run establishes CUDA speed or six-hour f
 Cached-wheel packets select `requirements-cached.txt`, whose pip --find-links
 option expands the supervisor-provided COLAB_INPUT_DIR. The qualified Colab
 transport, including bootstrap.sh, remains byte-identical to the released tree.
+
+The prospective REGISTRATION_CLARIFICATION_06_EXPORT_ERRATUM.md prices actual
+batched checkpoint components. Missing size samples refuse admission; export
+caps remain128MiB compressed,512MiB decoded per unit and2GiB total.

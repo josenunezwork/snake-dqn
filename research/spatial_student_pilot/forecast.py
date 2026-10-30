@@ -151,6 +151,7 @@ def export_projection(
     *,
     assessment_rows: list[Any] | None = None,
     gameplay_rows: list[Any] | None = None,
+    checkpoint_samples: list[dict[str, Any]] | None = None,
     cfg: Any = None,
 ) -> dict[str, Any]:
     """Conservative record-wise serialization, extrapolated to >=1000-body span.
@@ -220,11 +221,16 @@ def export_projection(
         # shard is bounded separately, and the seal is published last.
         "cstate": dict(
             count=9 * 8,
-            decoded=3072 * demo[0] + 512 * root[0] + 131072,
-            gzip=3072 * demo[1] + 512 * root[1] + 131072,
+            decoded=3136 * demo[0] + 512 * root[0] + 131072,
+            gzip=3136 * demo[1] + 512 * root[1] + 131072,
         ),
         "cseal": dict(count=9, decoded=16384, gzip=16384),
     }
+    if checkpoint_samples is not None:
+        try:
+            units["cstate"] = dict(count=9 * 8, **checkpoint_bound(checkpoint_samples, factor))
+        except ValueError:
+            return {"qualified": False, "reason": "missing real checkpoint component samples"}
     for row in units.values():
         row["within_caps"] = row["decoded"] <= MAX_DECODED_BYTES and row["gzip"] <= MAX_UNIT_BYTES
     total = sum(r["count"] * r["gzip"] for r in units.values()) + actor_bytes + 96 * 1024**2
@@ -233,6 +239,11 @@ def export_projection(
         observed_mature_body_span=span,
         extrapolated_body_span=target,
         record_size_factor=factor,
+        checkpoint_size_method=(
+            "measured batched components"
+            if checkpoint_samples is not None
+            else "per-record fallback bound"
+        ),
         units=units,
         projected_export_bytes=total,
         limits=dict(
@@ -240,3 +251,44 @@ def export_projection(
         ),
         miscellaneous_export_reserve_bytes=96 * 1024**2,
     )
+
+
+def checkpoint_components(payload: dict[str, Any]) -> dict[str, Any]:
+    """Measure real batched trajectory fields, retaining counts and serializer bytes."""
+    groups = {
+        "demo_records": [r for key, r in payload["records"].items() if key.endswith("/demo")],
+        "root_records": [r for key, r in payload["records"].items() if not key.endswith("/demo")],
+        "snapshots": payload["snapshots"],
+        "metadata": {
+            key: value for key, value in payload.items() if key not in {"records", "snapshots"}
+        },
+    }
+    result = {}
+    for key, value in groups.items():
+        decoded, compressed = _sizes(value)
+        result[key] = dict(
+            count=len(value) if key != "metadata" else len(payload["tick_samples"]),
+            decoded=decoded,
+            gzip=compressed,
+        )
+    return result
+
+
+def checkpoint_bound(samples: list[dict[str, Any]], factor: float) -> dict[str, int]:
+    """Scale measured component batches, without per-record pickle overhead.
+
+    Count ceilings per128-world shard:3136 new demos in500 ticks, at most512
+    newly referenced retained roots,128 live states,5000 metadata tick records.
+    Component-wise compression loses cross-component sharing conservatively.
+    """
+    targets = dict(demo_records=3136, root_records=512, snapshots=128, metadata=5000)
+    if not samples or any(s[k]["count"] <= 0 for s in samples for k in targets):
+        raise ValueError("missing checkpoint component samples")
+    return {
+        mode: sum(
+            math.ceil(max(s[k][mode] / s[k]["count"] for s in samples) * target * factor)
+            for k, target in targets.items()
+        )
+        + 16384
+        for mode in ("decoded", "gzip")
+    }

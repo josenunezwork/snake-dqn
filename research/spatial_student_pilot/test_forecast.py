@@ -125,3 +125,30 @@ def test_assessment_and_gameplay_sizes_are_measured_not_fixed_allowances() -> No
     for kind in ("assess", "gameplay"):
         assert large["units"][kind]["decoded"] > small["units"][kind]["decoded"]
     assert not export_projection(dict(roots=[root]), [root], [1], 1000)["qualified"]
+
+
+def test_checkpoint_pricing_uses_real_batches_and_refuses_missing_components() -> None:
+    import pytest
+
+    from research.spatial_student_pilot.forecast import checkpoint_bound, checkpoint_components
+
+    payload = dict(
+        records={
+            "w0/t0/demo": dict(compact=b"a" * 1000),
+            "w0/t0/ordinary": dict(snapshot=b"b" * 1000),
+        },
+        snapshots=[dict(body=b"c" * 1000)],
+        tick_samples=[dict(tick=0)],
+        demos={0: [(0, 0, "w0/t0/demo")]},
+        roots={(0, "ordinary"): [(0, 0, "w0/t0/ordinary")]},
+    )
+    measured = checkpoint_components(payload)
+    assert measured["demo_records"]["count"] == 1
+    assert measured["snapshots"]["decoded"] > measured["snapshots"]["gzip"] > 0
+    assert checkpoint_bound([measured], 1.25)["gzip"] > 0
+    payload["records"].pop("w0/t0/demo")
+    empty = checkpoint_components(payload)
+    with pytest.raises(ValueError, match="component samples"):
+        checkpoint_bound([empty], 1.25)
+    with pytest.raises(ValueError, match="component samples"):
+        checkpoint_bound([], 1.25)

@@ -355,7 +355,7 @@ def ruler(
     checkpoint_probe = {}
 
     def measure_checkpoint(state: dict[str, Any]) -> None:
-        from research.spatial_student_pilot.forecast import _sizes
+        from research.spatial_student_pilot.forecast import _sizes, checkpoint_components
 
         class ProbeStore:
             def has(self, name: str) -> bool:
@@ -363,6 +363,10 @@ def ruler(
 
             def publish(self, name: str, payload: Any) -> None:
                 checkpoint_probe.setdefault("sizes", {})[name] = _sizes(payload)
+                if name.startswith("cstate-"):
+                    checkpoint_probe.setdefault("components", []).append(
+                        checkpoint_components(payload)
+                    )
 
         mark = time.monotonic()
         publish_collection(ProbeStore(), cfg, state)
@@ -597,6 +601,7 @@ def ruler(
         actor.stat().st_size,
         assessment_rows=assessment_rows,
         gameplay_rows=rows,
+        checkpoint_samples=checkpoint_probe.get("components", []),
     )
     qualified = (
         len(mature_mixes) == 3 and rates_qualified and support["qualified"] and sizes["qualified"]
