@@ -133,6 +133,8 @@ def warm_native(progress: Any) -> dict[str, Any]:
     from research.gpu_sim_spike import event_cuda, flood_cuda, move_cuda, vector_geometry
 
     def events() -> Any:
+        if event_cuda._EXTENSION is not None:
+            return event_cuda._EXTENSION
         # append_fifo owns an inline lazy loader rather than a callable loader.
         # Read its production arguments from the source inventory, unchanged.
         from torch.utils.cpp_extension import load

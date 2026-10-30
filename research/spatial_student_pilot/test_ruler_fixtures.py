@@ -58,3 +58,26 @@ def test_science_rejects_partial_collection_or_fixture_injection() -> None:
                 progress=lambda _: None,
                 **probe,
             )
+
+
+def test_native_warmup_reuses_verified_preloaded_event_binary(monkeypatch) -> None:
+    """A loaded cache must avoid the inline event loader's cold compilation too."""
+    from types import SimpleNamespace
+
+    from research.gpu_sim_spike import event_cuda, flood_cuda, move_cuda, vector_geometry
+    from research.spatial_student_pilot.ruler_fixtures import warm_native
+
+    binary = SimpleNamespace(__file__="/fixture/verified-cache.so")
+    monkeypatch.setattr(event_cuda, "_EXTENSION", binary)
+    monkeypatch.setattr(flood_cuda, "_load", lambda: binary)
+    monkeypatch.setattr(move_cuda, "_extension", lambda: binary)
+    monkeypatch.setattr(vector_geometry, "_load_exact_extension", lambda: binary)
+    import torch.utils.cpp_extension
+
+    def refuse_compile(**kwargs):
+        raise AssertionError("preloaded binary must not compile")
+
+    monkeypatch.setattr(torch.utils.cpp_extension, "load", refuse_compile)
+    report = warm_native(lambda _: None)
+    assert len(report["loaders"]) == 4
+    assert all(row["binary"] == "verified-cache.so" for row in report["loaders"])
