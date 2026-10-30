@@ -1,0 +1,16 @@
+{
+  "diagnostic_bound_bytes": 100663296,
+  "formula": "98.5e6 + 2560 * (28*1024 + 6*length*4)",
+  "full_bank_roots": 2560,
+  "notes": "Deliberately double-counts predecessor roots/body bytes as headroom; anchor/topology growth and serialization remain unmeasured. Existing memory/store caps still apply; no worst-case capacity guarantee.",
+  "predecessor_root_bytes_approx": 28672,
+  "predecessor_stage_bytes_approx": 98500000,
+  "projected_stage_bytes_by_all_six_snake_length": {
+    "10400": 810876320,
+    "1700": 276348320,
+    "600": 208764320
+  },
+  "recursive_cap_bytes": 1073741824,
+  "stage_cap_bytes": 939524096,
+  "transfer_cap_bytes": 1610612736
+}
