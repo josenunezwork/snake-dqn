@@ -1,6 +1,8 @@
 # Spatial student pilot
 
-Frozen v1 mechanism pilot. Start with REGISTRATION.md and clarifications01–03 plus REGISTRATION_AMENDMENT_04.md. This package has no serving integration and grants no release.
+Frozen v1 mechanism pilot. Start with REGISTRATION.md, clarifications01–03,
+REGISTRATION_AMENDMENT_04.md and REGISTRATION_CLARIFICATION_05.md. This package
+has no serving integration and grants no release.
 
 `observation.py` reconstructs 16 full-arena planes and 36 scalars from compact
 ordered body/food shards. `model.py` implements the random 2,299,430-parameter
@@ -19,7 +21,21 @@ The H100-first/A100-fallback ruler is a real family canary with a short-canary
 resume exemption; it transports the exact science input bytes without importing
 scientific units. Main admission needs both actual same-pin hardware receipts,
 and passing mature-support, <=34GiB memory and six-hour integrated forecast
-checks. No receipt is synthesized and no tool here dispatches automatically.
+checks. Without both receipts preparation emits only ruler manifests and a
+PILOT_NOT_PREPARED.json hold; it never writes pilot.json. No receipt is synthesized
+and no tool here dispatches automatically.
+
+Clarification05 separates timed mature-body engineering fixtures from fresh
+scientific support. Preparation derives128 natural ordinary L600+ snapshots
+from the SHA-pinned historical C/T bank. Only the ruler decodes them; science
+still starts fresh at L1. The ruler reports native-loader startup separately,
+measures80 fresh early ticks and80 mature ticks, and uses80-tick E128 branch
+probes to price unchanged H300/H5000 production work. Support is explicitly a
+conditional frozen historical estimate with separately measured early growth.
+Gameplay prices are floored at mature collection plus student forward cost;
+assessment/gameplay sizes come from actual serialized output. Nine thread
+environment variables and both effective Torch pools are recorded and checked.
+Completion of diagnostics does not imply a passing six-hour forecast.
 
 Preparation example (all outputs must be fresh):
 

@@ -10,7 +10,8 @@ case "$SPATIAL_MODE" in ruler|pilot) ;; *) echo 'invalid SPATIAL_MODE' >&2; exit
 case "$SPATIAL_CONFIG:$SPATIAL_LEDGER" in inputs/config.json:inputs/verified-ledger.json) ;; *) echo 'unexpected input paths' >&2; exit 2;; esac
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMBA_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1 OMP_THREAD_LIMIT=1 NUMEXPR_NUM_THREADS=1 MAX_JOBS=1
-export TORCH_CUDA_ARCH_LIST='8.0;9.0' TORCHINDUCTOR_COMPILE_THREADS=1
+TORCH_CUDA_ARCH_LIST="$(python -c 'import torch; print("%d.%d" % torch.cuda.get_device_capability())')"
+export TORCH_CUDA_ARCH_LIST TORCHINDUCTOR_COMPILE_THREADS=1
 export CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONUNBUFFERED=1
 export GPU_SIM_VECTOR_GEOMETRY=native GPU_SIM_VECTOR_FLOOD=static GPU_SIM_V8_INDEXED=0
 exec nice -n 15 python -m research.spatial_student_pilot.run \

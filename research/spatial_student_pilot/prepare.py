@@ -22,6 +22,7 @@ from typing import Any
 
 from research.colab_cli.canary import SCHEMA, family
 from research.compute.gpu_preference import prepare_preference, variants
+from research.spatial_student_pilot.ruler_fixtures import THREAD_ENV
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "research/spatial_student_pilot"
@@ -37,6 +38,7 @@ GOVERNANCE_FILES = (
     "REGISTRATION_CLARIFICATION_02.md",
     "REGISTRATION_CLARIFICATION_03.md",
     "REGISTRATION_AMENDMENT_04.md",
+    "REGISTRATION_CLARIFICATION_05.md",
 )
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 OPPONENT_SHAS = {
@@ -158,6 +160,13 @@ def verify_ruler_receipt(path: Path, commit: str) -> None:
     peak = report.get("peak_vram_bytes")
     if not isinstance(peak, int) or peak <= 0 or peak > 34 * 1024**3:
         raise ValueError("ruler lacks bounded measured CUDA peak memory")
+    threads = report.get("threads", {})
+    if (
+        threads.get("environment") != {key: "1" for key in THREAD_ENV}
+        or threads.get("torch_threads") != 1
+        or threads.get("torch_interop_threads") != 1
+    ):
+        raise ValueError("ruler lacks verified one-thread environment")
 
 
 def build_manifest(
@@ -171,11 +180,14 @@ def build_manifest(
     registration_sha256: str,
     ruling_sha256: str,
     amendment_sha256: str,
+    clarification_sha256: str,
     hardware_canaries: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Freeze separate 2x session envelopes without changing scientific N."""
     if mode not in {"ruler", "pilot"}:
         raise ValueError("mode must be ruler or pilot")
+    if mode == "pilot" and not hardware_canaries:
+        raise ValueError("main manifest requires bound H100 and A100 ruler receipts")
     if not output.is_absolute() or output.exists():
         raise ValueError("fresh absolute output directory required")
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,43}", job_id):
@@ -200,6 +212,7 @@ def build_manifest(
             "SPATIAL_LEDGER": "inputs/verified-ledger.json",
             "COLAB_CLI_REQUIREMENTS": REQUIREMENTS,
             "SNAKE_DQN_DEVICE": "cuda",
+            **{key: "1" for key in THREAD_ENV},
         },
         "budget": {
             "reserve_units": timeout * 12 / 60 / 6,
@@ -214,6 +227,7 @@ def build_manifest(
         "registration_sha256": registration_sha256,
         "latency_ruling_sha256": ruling_sha256,
         "registration_amendment_04_sha256": amendment_sha256,
+        "registration_clarification_05_sha256": clarification_sha256,
         "technical_envelope": {
             "purpose": "whole-session runaway guard; units are informational",
             "useful_compute_estimate_minutes": estimate,
@@ -266,6 +280,7 @@ def prepare(
     """Run clean import admission, then create a source/input-bound packet."""
     from research.spatial_student_pilot.config import PilotConfig, audit_seeds
     from research.spatial_student_pilot.resume import empty_ledger, upload_inputs, validate_ledger
+    from research.spatial_student_pilot.ruler_fixtures import FIXTURE_NAME, make_fixtures
     from tools.ops.import_preflight import check
 
     if not packet.is_absolute() or not artifacts_root.is_absolute():
@@ -293,6 +308,7 @@ def prepare(
     governance = governance_bytes(commit, ruling)
     registration_bytes = governance["REGISTRATION.md"]
     amendment_hash = hashlib.sha256(governance["REGISTRATION_AMENDMENT_04.md"]).hexdigest()
+    clarification_hash = hashlib.sha256(governance["REGISTRATION_CLARIFICATION_05.md"]).hexdigest()
     checkpoints = {dest: checkpoint_dir / name for dest, name in CHECKPOINT_NAMES.items()}
     if digest(checkpoints["b8-s3.pth"]) != B8_SHA:
         raise ValueError("B8 s3 checkpoint hash differs")
@@ -312,6 +328,12 @@ def prepare(
     packet.mkdir(parents=True, exist_ok=False)
     write_once(packet / "config.json", config.to_dict())
     write_once(packet / "verified-ledger.json", ledger)
+    # Only ruler() decodes this input; identical main uploads preserve the
+    # supervisor's unchanged family/input identity contract.
+    import torch
+
+    with (packet / FIXTURE_NAME).open("xb") as stream:
+        torch.save(make_fixtures(), stream)
     for name, content in governance.items():
         (packet / name).write_bytes(content)
     write_once(packet / "import-preflight.json", import_receipt)
@@ -325,6 +347,7 @@ def prepare(
                 "config.json",
                 "verified-ledger.json",
                 "seed-audit.json",
+                FIXTURE_NAME,
             )
         ]
     )
@@ -336,6 +359,15 @@ def prepare(
     )
     manifests = {}
     for mode in ("ruler", "pilot"):
+        if mode == "pilot" and proofs is None:
+            write_once(
+                packet / "PILOT_NOT_PREPARED.json",
+                {
+                    "reason": "main requires genuine same-pin H100 and A100 ruler receipts",
+                    "dispatchable": False,
+                },
+            )
+            continue
         manifest = build_manifest(
             commit=commit,
             source_paths=source_paths,
@@ -346,6 +378,7 @@ def prepare(
             registration_sha256=hashlib.sha256(registration_bytes).hexdigest(),
             ruling_sha256=RULING_SHA256,
             amendment_sha256=amendment_hash,
+            clarification_sha256=clarification_hash,
             hardware_canaries=proofs if mode == "pilot" else None,
         )
         write_once(packet / f"{mode}.json", manifest)
@@ -359,7 +392,7 @@ def prepare(
             variant["requirements"].pop("prefer", None)
             write_once(packet / f"{mode}-{variant['requirements']['gpu'].lower()}.json", variant)
     commands = []
-    for mode in ("ruler", "pilot"):
+    for mode in manifests:
         argv = [
             str(ROOT / "tools/ops/dispatch.sh"),
             job_id + "-" + mode,
@@ -404,6 +437,7 @@ def prepare(
         "registration_sha256": digest(packet / "REGISTRATION.md"),
         "latency_ruling_sha256": RULING_SHA256,
         "registration_amendment_04_sha256": amendment_hash,
+        "registration_clarification_05_sha256": clarification_hash,
         "import_preflight": binding(packet / "import-preflight.json"),
         "manifests": {mode: binding(packet / f"{mode}.json") for mode in manifests},
         "hardware_canaries_bound": proofs is not None,

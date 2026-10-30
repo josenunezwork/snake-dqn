@@ -26,8 +26,8 @@ from research.spatial_student_pilot.config import PilotConfig
 from research.spatial_student_pilot.fit import fit_student
 from research.spatial_student_pilot.forecast import (
     export_projection,
+    historical_support_projection,
     late_collection_rate,
-    support_projection,
     tick_forecast,
 )
 from research.spatial_student_pilot.model import export_checkpoint
@@ -37,12 +37,19 @@ from research.spatial_student_pilot.resume import (
     empty_ledger,
     validate_ledger,
 )
+from research.spatial_student_pilot.ruler_fixtures import (
+    FIXTURE_NAME,
+    load_fixtures,
+    thread_evidence,
+    warm_native,
+)
 from research.spatial_student_pilot.search import (
     _Job,
     _rollouts,
     assess_roots,
     label_roots,
     paired_gameplay,
+    student_actions,
 )
 from src.model.ego2s_network import load_ego2s_checkpoint
 
@@ -244,14 +251,27 @@ def ruler(
     networks: dict[str, Any],
     device: str,
     control: Control,
+    fixtures: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Real integrated stages in a disjoint 900-second development domain.
 
-    Stop collection after at most 420 seconds; natural mature support is a
-    qualification condition, never manufactured to improve the forecast.
+    Historical natural mature fixtures measure cost only. Fresh early growth
+    and frozen historical fractions supply a conditional support estimate.
     """
     started = time.monotonic()
-    phases = {}
+    phases = {"native_startup": warm_native(control.progress) if device.startswith("cuda") else {}}
+    early = collect_batch(
+        cfg,
+        range(cfg.world_batch_size),
+        b8=b8,
+        networks=networks,
+        device=device,
+        stop=control.stop,
+        progress=control.progress,
+        ruler_seconds=90,
+        ruler_ticks=80,
+    )
+    store.publish("early-0000", early)
     batch = collect_batch(
         cfg,
         range(cfg.world_batch_size),
@@ -260,11 +280,17 @@ def ruler(
         device=device,
         stop=control.stop,
         progress=control.progress,
-        ruler_seconds=420,
+        ruler_ticks=80,
+        ruler_fixtures=fixtures,
     )
-    store.publish("collect-0000", batch)
+    store.publish("mature-0000", batch)
     collection_rate = late_collection_rate(batch)
-    support = support_projection(cfg, batch)
+    support = historical_support_projection(early)
+    phases["early_growth"] = {
+        "seconds": early["elapsed_seconds"],
+        "ticks": len(early["tick_samples"]),
+        "samples": early["tick_samples"],
+    }
     phases["collection"] = {
         "seconds": batch["elapsed_seconds"],
         "rows": batch["world_ticks"],
@@ -284,7 +310,7 @@ def ruler(
         if len(roots) >= 22 and sum(int(r["mask"].sum()) * 2 for r in roots) >= 128:
             break
     if not roots or not batch["demos"]:
-        raise RuntimeError("INCOMPLETE_RULER no natural roots/demonstrations")
+        raise RuntimeError("INCOMPLETE_RULER missing mature fixture roots or demonstrations")
     branch_timings = []
 
     def ruler_progress(event: dict[str, Any]) -> None:
@@ -336,6 +362,49 @@ def ruler(
         progress=ruler_progress,
     )
     phases["closed_loop"] = {"slabs": [r for r in branch_timings if r["closed_loop"]]}
+    # Serialize real assessment records, including the action-count-bearing row.
+    assessment_rows = assess_roots(
+        [dict(r, partition="assessment") for r in roots[:2]],
+        student,
+        cfg=cfg,
+        b8=b8,
+        networks=networks,
+        device=device,
+        stop=control.stop,
+        progress=control.progress,
+    )
+    store.publish("assess-0000", assessment_rows)
+    # Measure E128 student extraction/forward separately on mature states. This
+    # is added to the collection floor even though that floor already pays B8.
+    from research.sandbox_a_resident.ct_mechanics import CTOpponentRuntime
+    from research.sandbox_a_resident.ct_snapshots import (
+        CompactWorldSnapshot,
+        restore_world_snapshots_into,
+    )
+    from research.spatial_student_pilot.search import _new_sim, _sync
+
+    sim = _new_sim(cfg, 128, device)
+    opp = CTOpponentRuntime(
+        sim,
+        [training_rosters(cfg.worlds)[r["roster_index"]] for r in fixtures],
+        b8_network=b8,
+        checkpoint_networks=networks,
+    )
+    restore_world_snapshots_into(
+        [CompactWorldSnapshot.from_state_dict(r["snapshot"]) for r in fixtures],
+        sim,
+        opp,
+    )
+    forward_times = []
+    for index in range(23):
+        _sync(device)
+        before = time.monotonic()
+        student_actions(sim, student)
+        _sync(device)
+        if index >= 3:
+            forward_times.append(time.monotonic() - before)
+    phases["student_forward"] = {"slab_size": 128, "seconds": forward_times}
+    del sim, opp
     mark = time.monotonic()
     worlds = _worlds(cfg)[: cfg.world_batch_size]
     # Keep E128 even after early deaths; exclude setup and cap each arm to45s/300ticks.
@@ -371,7 +440,7 @@ def ruler(
     export_checkpoint(student, actor, metadata={"namespace": cfg.namespace, "ruler_only": True})
     seal_file(actor)
     phases["export"] = {"seconds": time.monotonic() - mark, "bytes": actor.stat().st_size}
-    full_slabs = [r for r in branch_timings if r["slab_size"] == 128 and r["ticks"] == 300]
+    full_slabs = [r for r in branch_timings if r["slab_size"] == 128 and r["ticks"] == 80]
     b8_rates = [r["loop_seconds"] / r["ticks"] for r in full_slabs if not r["closed_loop"]]
     student_rates = [r["loop_seconds"] / r["ticks"] for r in full_slabs if r["closed_loop"]]
     gameplay_qualified = len(worlds) == 128 and all(
@@ -393,19 +462,28 @@ def ruler(
             for a in ("b8", "student")
         },
         fit_update=fit_timing["elapsed_seconds"] / (cfg.bc_updates + cfg.improvement_updates),
+        student_forward_tick=max(forward_times),
     )
     sizes = export_projection(
-        batch, labels, [store.get(n) for n in store.list_ids("fit-")], actor.stat().st_size
+        batch,
+        labels,
+        [store.get(n) for n in store.list_ids("fit-")],
+        actor.stat().st_size,
+        assessment_rows=assessment_rows,
+        gameplay_rows=rows,
     )
     qualified = (
         len(mature_mixes) == 3 and rates_qualified and support["qualified"] and sizes["qualified"]
     )
     forecast = sum(components.values())
+    setup_allowance = max(3600, phases["native_startup"].get("seconds", 0))
     return {
         "status": "RULER_COMPLETE",
         "scientific_result": False,
+        "development_fixtures_only": True,
         "phases": phases,
-        "natural_mature_support": bool(late),
+        "natural_mature_support": False,
+        "historical_natural_mature_fixtures": bool(late),
         "mature_mixes": sorted(mature_mixes),
         "forecast_qualified": qualified,
         "rate_qualified": rates_qualified,
@@ -413,8 +491,9 @@ def ruler(
         "export_projection": sizes,
         "forecast_components_seconds": components,
         "forecast_compute_seconds": forecast,
-        "forecast_with_setup_export_seconds": forecast + 3600,
-        "within_six_hours": qualified and forecast + 3600 <= 21600,
+        "forecast_setup_export_seconds": setup_allowance,
+        "forecast_with_setup_export_seconds": forecast + setup_allowance,
+        "within_six_hours": qualified and forecast + setup_allowance <= 21600,
         "peak_vram_bytes": torch.cuda.max_memory_allocated() if device.startswith("cuda") else None,
         "elapsed_seconds": time.monotonic() - started,
     }
@@ -431,6 +510,7 @@ def main() -> int:
     args = parser.parse_args()
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
+    threads = thread_evidence(enforce=args.device == "cuda")
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -443,7 +523,9 @@ def main() -> int:
         # A ruler can transport a completion ledger to qualify its exact input
         # inventory; the short-canary exemption never decodes/imports its units.
         if args.mode == "ruler":
-            cfg = replace(cfg, bc_updates=25, improvement_updates=25, checkpoint_every=25)
+            cfg = replace(
+                cfg, bc_updates=25, improvement_updates=25, checkpoint_every=25, branch_horizon=80
+            )
         ledger = empty_ledger(cfg)
     if args.device == "cuda" and not torch.cuda.is_available():
         raise ValueError("CUDA requested but unavailable")
@@ -482,15 +564,23 @@ def main() -> int:
     control = Control(args.output, max(0, allowance))
     control.store = store
     try:
-        result = (ruler if args.mode == "ruler" else pipeline)(
-            cfg, store, b8=b8, networks=networks, device=args.device, control=control
-        )
+        kwargs = dict(b8=b8, networks=networks, device=args.device, control=control)
+        if args.mode == "ruler":
+            result = ruler(
+                cfg,
+                store,
+                **kwargs,
+                fixtures=load_fixtures(args.input_dir / FIXTURE_NAME, cfg.mode),
+            )
+        else:
+            result = pipeline(cfg, store, **kwargs)
         if control.stop():
             raise InterruptedError("deadline/signal reached before complete export")
         publish_json(
             args.output / "summary.json",
             {
                 "schema": "spatial-run/v1",
+                "threads": threads,
                 **result,
                 "namespace": cfg.namespace,
                 "config_sha256": cfg.sha256,
@@ -505,6 +595,7 @@ def main() -> int:
             {
                 "schema": "spatial-run/v1",
                 "status": "INCOMPLETE",
+                "threads": threads,
                 "reason": str(error),
                 "units": store.list_ids(),
                 "scientific_result": False,

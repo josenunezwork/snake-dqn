@@ -12,7 +12,12 @@ from torch import nn
 
 from research.gpu_sim_spike import r2_cache
 from research.sandbox_a_resident.ct_mechanics import CTDeviceSim, CTOpponentRuntime
-from research.sandbox_a_resident.ct_snapshots import capture_world_snapshot, observe_hero_bv8
+from research.sandbox_a_resident.ct_snapshots import (
+    CompactWorldSnapshot,
+    capture_world_snapshot,
+    observe_hero_bv8,
+    restore_world_snapshots_into,
+)
 from research.sandbox_a_resident.training_rosters import training_rosters
 from research.spatial_student_pilot.config import PilotConfig
 from research.spatial_student_pilot.observation import compact_from_sim
@@ -41,11 +46,17 @@ def collect_batch(
     stop: Callable[[], bool],
     progress: Callable[[dict[str, Any]], None],
     ruler_seconds: float | None = None,
+    ruler_ticks: int | None = None,
+    ruler_fixtures: Sequence[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """A unit is one complete fixed parent-world batch; no replacement episodes."""
     started = time.monotonic()
     dev = torch.device(device)
     ids = list(world_ids)
+    if (ruler_ticks is not None or ruler_fixtures is not None) and cfg.mode != "ruler":
+        raise ValueError("historical fixtures/tick probes are ruler-only")
+    if ruler_fixtures is not None and len(ruler_fixtures) != len(ids):
+        raise ValueError("fixture count must equal ruler slab size")
     sim = CTDeviceSim(
         cfg.sim_config(len(ids)),
         device=dev,
@@ -63,7 +74,8 @@ def collect_batch(
     sim.reset_fresh_worlds()
     sim.terminal_slots[:, 0] = True
     roster_table = training_rosters(cfg.worlds)
-    rosters = [roster_table[i] for i in ids]
+    roster_indices = [r["roster_index"] for r in ruler_fixtures] if ruler_fixtures else ids
+    rosters = [roster_table[i] for i in roster_indices]
     opponents = CTOpponentRuntime(
         sim,
         rosters,
@@ -71,6 +83,13 @@ def collect_batch(
         checkpoint_networks=networks,
         opp_rng_keys=[cfg.opp_seed(i) for i in ids],
     )
+    if ruler_fixtures is not None:
+        restore_world_snapshots_into(
+            [CompactWorldSnapshot.from_state_dict(r["snapshot"]) for r in ruler_fixtures],
+            sim,
+            opponents,
+        )
+        sim.terminal_slots[:, 0] = True
     partitions = cfg.partitions()
     # Equal quota per fixed collection batch; final global priority selection
     # cannot overrepresent a batch due to differing natural survival duration.
@@ -83,7 +102,7 @@ def collect_batch(
     last_progress = started
     tick_samples = []
     reached_l600: set[int] = set()
-    for tick in range(cfg.horizon):
+    for tick in range(cfg.horizon if ruler_ticks is None else ruler_ticks):
         if ruler_seconds is not None and time.monotonic() - started >= ruler_seconds:
             break
         if stop():
@@ -149,7 +168,7 @@ def collect_batch(
                     "tick": tick,
                     "kind": kind,
                     "mix": rosters[row].mix,
-                    "roster_index": world,
+                    "roster_index": roster_indices[row],
                     "hero_length": int(lengths[row]),
                     "priority": priority,
                     "snapshot": snapshot.to_state_dict(),
@@ -172,6 +191,9 @@ def collect_batch(
                 "tick": tick,
                 "seconds": time.monotonic() - tick_started,
                 "mature_worlds": sum(a and n >= 600 for a, n in zip(alive, lengths)),
+                "living_worlds": sum(alive),
+                "mean_hero_length": sum(lengths) / len(ids),
+                "max_hero_length": max(lengths),
             }
         )
         if bool(sim.capacity_overflow.any()):

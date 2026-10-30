@@ -13,7 +13,16 @@ from research.compute.gpu_preference import variants
 from research.spatial_student_pilot.prepare import PACKAGE, SCRIPT, build_manifest, write_once
 
 
+def proofs(tmp_path: Path) -> dict:
+    return {
+        gpu: {"path": str(tmp_path / (gpu + ".json")), "sha256": c * 64}
+        for gpu, c in (("H100", "d"), ("A100", "e"))
+    }
+
+
 def packet(tmp_path: Path, mode: str = "ruler", **kwargs: object) -> dict:
+    if mode == "pilot" and "hardware_canaries" not in kwargs:
+        kwargs["hardware_canaries"] = proofs(tmp_path)
     return build_manifest(
         commit="a" * 40,
         source_paths=[SCRIPT, PACKAGE + "/run.py", PACKAGE + "/requirements.txt"],
@@ -24,6 +33,7 @@ def packet(tmp_path: Path, mode: str = "ruler", **kwargs: object) -> dict:
         registration_sha256="c" * 64,
         ruling_sha256="d" * 64,
         amendment_sha256="e" * 64,
+        clarification_sha256="f" * 64,
         **kwargs,
     )
 
@@ -71,8 +81,8 @@ def test_main_without_real_receipts_fails_closed(
     monkeypatch.setattr(
         canary, "_entrypoint", lambda *args: Path(__file__).with_name("job.sh").read_text()
     )
-    with pytest.raises(canary.CanaryError, match="SHA-bound family canary receipt"):
-        canary.check(packet(tmp_path, "pilot"), tmp_path)
+    with pytest.raises(ValueError, match="main manifest requires bound"):
+        packet(tmp_path, "pilot", hardware_canaries=None)
 
 
 def test_prepriced_hardware_siblings_and_two_times_envelopes(tmp_path: Path) -> None:
@@ -127,7 +137,7 @@ def test_runtime_adapter_uses_uploaded_paths_and_real_module() -> None:
     assert '--input-dir "$COLAB_INPUT_DIR"' in script
     assert '--ledger "$COLAB_CLI_ROOT/$SPATIAL_LEDGER"' in script
     assert '--config "$COLAB_CLI_ROOT/$SPATIAL_CONFIG"' in script
-    assert "TORCH_CUDA_ARCH_LIST='8.0;9.0'" in script
+    assert "torch.cuda.get_device_capability()" in script
     assert "colab new" not in script
     assert "colab stop" not in script
     assert "/Users/" not in script
@@ -145,7 +155,7 @@ def test_governance_preserves_originals_and_exact_ruling_clause() -> None:
         governance_bytes,
     )
 
-    for name in GOVERNANCE_FILES[:-1]:
+    for name in GOVERNANCE_FILES[:4]:
         baseline = subprocess.check_output(["git", "show", f"f9087530:{PACKAGE}/{name}"], cwd=ROOT)
         assert (ROOT / PACKAGE / name).read_bytes() == baseline
     assert hashlib.sha256(RULING.read_bytes()).hexdigest() == RULING_SHA256
@@ -154,7 +164,7 @@ def test_governance_preserves_originals_and_exact_ruling_clause() -> None:
         .split("## Exact replacement for GO clause 6\n\n> ")[1]
         .split("\n\n## Proofs before dispatch")[0]
     )
-    amendment = (ROOT / PACKAGE / GOVERNANCE_FILES[-1]).read_text()
+    amendment = (ROOT / PACKAGE / "REGISTRATION_AMENDMENT_04.md").read_text()
     assert "\n> " + exact + "\n" in amendment
     assert 'the owner directed on 2026-10-30 "skip mac"' in amendment
     # The baseline pin has no Amendment04, so it can never prepare this package.
