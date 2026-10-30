@@ -21,6 +21,18 @@ assessment inference without scoring. The GPU family canary uses synthetic data
 at full board size, three batch-32 optimizer steps per arm, and exactly the main
 input inventory. It does not fit the real bank. All timings are recorded.
 
+Both canary and main fitting record a diagnostic lowest-doom legal action from
+the first training logits of each arm. Negated detached logits are legal-masked
+and reduced with `Tensor.argmax(dim=-1)` on the model device; ties choose the
+first legal index. The decision is printed and retained in the prediction export.
+It never feeds fitting, sampling, assessment scores or endpoint selection. This
+is a real six-action CUDA decision attributable to `run.py`, as required by the
+unchanged `research/colab_cli/canary_observer.py`; availability checks and CUDA
+training alone do not satisfy that observer. Fresh runtime pins require fresh
+same-pin/input canaries and admission. Consumed job/output identities and old
+failure receipts cannot qualify the changed pin. The A100-only clarification
+continues to apply when the fresh matching H100 probe records allocation 503.
+
 `prepare admit` accepts genuine same-pin H100 and A100 family receipts, verifies
 them through the unchanged supervisor, and rejects a measured fit projection
 above the frozen 45-minute worker envelope. Under

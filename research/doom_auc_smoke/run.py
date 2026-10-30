@@ -47,6 +47,35 @@ def forward(
     return model(*build_observation(compact, device))
 
 
+def diagnostic_decision(logits: torch.Tensor, legal: torch.Tensor) -> dict[str, Any]:
+    """Record a lowest-doom legal action, without influencing fitting or scoring.
+
+    Negated doom logits preserve the lowest-probability ordering. Masking and
+    Tensor.argmax stay on the logits' device so the qualified canary observer
+    can attribute a real six-action CUDA decision to this entrypoint.
+    """
+    if logits.ndim != 2 or logits.shape[-1] != 6 or legal.shape != logits.shape:
+        raise ValueError("diagnostic requires matching [batch, 6] logits and legal mask")
+    legal = legal.to(device=logits.device, dtype=torch.bool)
+    rows = legal.any(dim=-1).nonzero().flatten()
+    if not len(rows):
+        raise ValueError("diagnostic has no legal action")
+    row = int(rows[0])
+    values = logits.detach()[row : row + 1]
+    mask = legal[row : row + 1]
+    if not torch.isfinite(values).all():
+        raise ValueError("nonfinite diagnostic logits")
+    action = int((-values).masked_fill(~mask, -torch.inf).argmax(dim=-1).item())
+    return dict(
+        rule="lowest-doom-legal-first-index-tie",
+        device=str(logits.device),
+        row=row,
+        action=action,
+        legal=mask[0].tolist(),
+        doom_logit=float(values[0, action]),
+    )
+
+
 def train_arm(
     arm: str,
     data: dict,
@@ -117,6 +146,7 @@ def train_arm(
     targets, legal = data["train_y"], data["legal"][train_ids]
     last_print = time.monotonic()
     durations = []
+    decision = None
     while step < updates:
         if stopped[0] or time.monotonic() >= deadline:
             checkpoint()
@@ -136,6 +166,9 @@ def train_arm(
         if device == "cuda":
             torch.cuda.synchronize()
         durations.append(time.monotonic() - start)
+        if decision is None:
+            decision = diagnostic_decision(logits, legal[ids])
+            print(json.dumps(dict(stage="diagnostic-decision", arm=arm, **decision)), flush=True)
         faulthandler.dump_traceback_later(900, exit=True)
         if step % checkpoint_every == 0 or step == updates:
             checkpoint()
@@ -165,7 +198,13 @@ def train_arm(
         for ids in data["assessment"].split(batch):
             if stopped[0] or time.monotonic() >= deadline:
                 return False
-            predictions.append(forward(model, arm, data, ids, device).cpu())
+            logits = forward(model, arm, data, ids, device)
+            if decision is None:
+                decision = diagnostic_decision(logits, data["legal"][ids])
+                print(
+                    json.dumps(dict(stage="diagnostic-decision", arm=arm, **decision)), flush=True
+                )
+            predictions.append(logits.cpu())
             faulthandler.dump_traceback_later(900, exit=True)
     scores = torch.cat(predictions)
     if not torch.isfinite(scores).all():
@@ -181,6 +220,7 @@ def train_arm(
             root_uids=[data["root_uids"][i] for i in data["assessment"]],
             parameter_count=sum(p.numel() for p in model.parameters()),
             measured_step_seconds=durations[:3],
+            diagnostic_decision=decision,
         ),
     )
     return True
