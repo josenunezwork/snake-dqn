@@ -11,16 +11,14 @@ import torch
 from torch import nn
 
 from research.gpu_sim_spike import r2_cache
-from research.sandbox_a_resident.ct_mechanics import CTDeviceSim, CTOpponentRuntime
+from research.sandbox_a_resident.ct_mechanics import CTDeviceSim
 from research.sandbox_a_resident.ct_snapshots import (
     CompactWorldSnapshot,
-    capture_world_snapshot,
-    observe_hero_bv8,
     restore_world_snapshots_into,
 )
 from research.sandbox_a_resident.training_rosters import training_rosters
+from research.spatial_student_pilot.batching import BatchedOpponents, capture_rows, observe_hero_bv8
 from research.spatial_student_pilot.config import PilotConfig
-from research.spatial_student_pilot.observation import compact_from_sim
 
 
 def _priority(cfg: PilotConfig, world: int, tick: int, kind: str) -> int:
@@ -48,6 +46,8 @@ def collect_batch(
     ruler_seconds: float | None = None,
     ruler_ticks: int | None = None,
     ruler_fixtures: Sequence[dict[str, Any]] | None = None,
+    resume_state: dict[str, Any] | None = None,
+    checkpoint: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """A unit is one complete fixed parent-world batch; no replacement episodes."""
     started = time.monotonic()
@@ -79,7 +79,7 @@ def collect_batch(
     roster_table = training_rosters(cfg.worlds)
     roster_indices = [r["roster_index"] for r in ruler_fixtures] if ruler_fixtures else ids
     rosters = [roster_table[i] for i in roster_indices]
-    opponents = CTOpponentRuntime(
+    opponents = BatchedOpponents(
         sim,
         rosters,
         b8_network=b8,
@@ -96,16 +96,35 @@ def collect_batch(
     partitions = cfg.partitions()
     # Equal quota per fixed collection batch; final global priority selection
     # cannot overrepresent a batch due to differing natural survival duration.
-    batch_count = (cfg.worlds + cfg.world_batch_size - 1) // cfg.world_batch_size
+    batch_count = (cfg.worlds + cfg.collection_unit_worlds - 1) // cfg.collection_unit_worlds
     demo_cap = (cfg.demos + batch_count - 1) // batch_count
-    demos: list[tuple[int, int, dict[str, Any]]] = []
+    demos: dict[int, list[tuple[int, int, dict[str, Any]]]] = {}
     roots: dict[tuple[int, str], list[tuple[int, int, dict[str, Any]]]] = {}
     decisions = 0
+    decisions_by_world = {world: 0 for world in ids}
     completed_ticks = 0
     last_progress = started
     tick_samples = []
     reached_l600: set[int] = set()
-    for tick in range(cfg.horizon if ruler_ticks is None else ruler_ticks):
+    start_tick = 0
+    if resume_state is not None:
+        if resume_state["world_ids"] != ids or resume_state["config_sha256"] != cfg.sha256:
+            raise ValueError("foreign collection resume snapshot")
+        start_tick = resume_state["next_tick"]
+        if not 0 < start_tick < cfg.horizon or start_tick % cfg.collection_checkpoint_every:
+            raise ValueError("ineligible collection resume boundary")
+        restore_world_snapshots_into(
+            [CompactWorldSnapshot.from_state_dict(r) for r in resume_state["snapshots"]],
+            sim,
+            opponents,
+        )
+        demos, roots = resume_state["demos"], resume_state["roots"]
+        decisions = resume_state["decisions"]
+        decisions_by_world = resume_state["decisions_by_world"]
+        tick_samples = resume_state["tick_samples"]
+        reached_l600 = set(resume_state["reached_l600_world_ids"])
+        completed_ticks = start_tick
+    for tick in range(start_tick, cfg.horizon if ruler_ticks is None else ruler_ticks):
         if ruler_seconds is not None and time.monotonic() - started >= ruler_seconds:
             break
         if stop():
@@ -118,72 +137,79 @@ def collect_batch(
         alive = sim.alive[:, 0].cpu().tolist()
         lengths = sim.length[:, 0].cpu().tolist()
         decisions += sum(alive)
+        for world, living in zip(ids, alive):
+            decisions_by_world[world] += int(living)
         reached_l600.update(
             world for world, living, length in zip(ids, alive, lengths) if living and length >= 600
         )
+        # Admission is CPU hash/heap work. Resolve every acceptance before any
+        # state extraction, then gather each accepted row exactly once.
+        admissions = []
         for row, world in enumerate(ids):
             if not alive[row]:
                 continue
             part = partitions[world]
+            pool = demos.setdefault(world // cfg.collection_unit_worlds, [])
             if part == "train" and (tick % 16 == 0 or cfg.tiny):
                 priority = _priority(cfg, world, tick, "demo")
-                if len(demos) < demo_cap or priority < -demos[0][0]:
-                    record = {
-                        "world_id": world,
-                        "partition": part,
-                        "tick": tick,
-                        "priority": priority,
-                        "b8_action": int(actions[row]),
-                        "mask": masks[row].cpu().clone(),
-                        "compact": _cpu_compact(compact_from_sim(sim, [row])),
-                    }
-                    item = (-priority, world * cfg.horizon + tick, record)
-                    if len(demos) == demo_cap:
-                        heapq.heapreplace(demos, item)
-                    else:
-                        heapq.heappush(demos, item)
+                if len(pool) < demo_cap or priority < -pool[0][0]:
+                    admissions.append((row, world, "demo", priority, pool))
             kinds = []
             if tick % 128 == 0 or cfg.tiny:
                 kinds.append("ordinary")
             if (tick % 32 == 0 and lengths[row] >= 600) or cfg.tiny:
                 kinds.append("late")
-            # Ordinary takes precedence on shared schedule; never duplicate roots.
             if len(kinds) == 2:
                 kinds = ["ordinary" if tick % 2 == 0 else "late"] if cfg.tiny else ["ordinary"]
             for kind in kinds:
                 pool = roots.setdefault((world, kind), [])
                 priority = _priority(cfg, world, tick, kind)
-                if len(pool) == 2 and priority >= -pool[0][0]:
-                    continue
-                snapshot = capture_world_snapshot(
-                    sim,
-                    opponents,
-                    row,
-                    world_id=world,
-                    life_id=0,
-                    tick=tick,
-                    max_body_capacity=cfg.body_capacity,
-                )
-                record = {
-                    "uid": f"{cfg.namespace}/a{cfg.allocation_index}/w{world}/t{tick}",
-                    "world_id": world,
-                    "partition": part,
-                    "tick": tick,
-                    "kind": kind,
-                    "mix": rosters[row].mix,
-                    "roster_index": roster_indices[row],
-                    "hero_length": int(lengths[row]),
-                    "priority": priority,
-                    "snapshot": snapshot.to_state_dict(),
-                    "b8_action": int(actions[row]),
-                    "mask": masks[row].cpu().clone(),
-                    "compact": _cpu_compact(compact_from_sim(sim, [row])),
-                }
-                item = (-priority, tick, record)
-                if len(pool) == 2:
-                    heapq.heapreplace(pool, item)
-                else:
-                    heapq.heappush(pool, item)
+                if len(pool) < 2 or priority < -pool[0][0]:
+                    admissions.append((row, world, kind, priority, pool))
+        # Multiple candidates in one logical demo heap must be compared in
+        # their original row order, including intervening heap replacements.
+        accepted = []
+        for row, world, kind, priority, pool in admissions:
+            cap = demo_cap if kind == "demo" else 2
+            if len(pool) == cap and priority >= -pool[0][0]:
+                continue
+            record = dict(world_id=world, partition=partitions[world], tick=tick, priority=priority)
+            token = world * cfg.horizon + tick if kind == "demo" else tick
+            item = (-priority, token, record)
+            if len(pool) == cap:
+                heapq.heapreplace(pool, item)
+            else:
+                heapq.heappush(pool, item)
+            accepted.append((row, world, kind, record))
+        # Discard candidates displaced later in this same tick, without copying.
+        retained = {id(item[2]) for pool in [*demos.values(), *roots.values()] for item in pool}
+        accepted = [a for a in accepted if id(a[3]) in retained]
+        rows = sorted({a[0] for a in accepted})
+        if rows:
+            compacts, snapshots = capture_rows(
+                sim,
+                opponents,
+                rows,
+                world_ids=[ids[r] for r in rows],
+                tick=tick,
+                max_body_capacity=cfg.body_capacity,
+            )
+            by_row = {row: (c, snap) for row, c, snap in zip(rows, compacts, snapshots)}
+            action_cpu, mask_cpu = actions[rows].cpu().tolist(), masks[rows].cpu()
+            decisions_by_row = dict(zip(rows, zip(action_cpu, mask_cpu)))
+            for row, world, kind, record in accepted:
+                compact, snapshot = by_row[row]
+                action, mask = decisions_by_row[row]
+                record.update(b8_action=int(action), mask=mask.clone(), compact=compact)
+                if kind != "demo":
+                    record.update(
+                        uid=f"{cfg.namespace}/a{cfg.allocation_index}/w{world}/t{tick}",
+                        kind=kind,
+                        mix=rosters[row].mix,
+                        roster_index=roster_indices[row],
+                        hero_length=int(lengths[row]),
+                        snapshot=snapshot.to_state_dict(),
+                    )
         sim.step(opponents.actions(sim, actions))
         opponents.after_step(sim)
         completed_ticks += 1
@@ -201,6 +227,38 @@ def collect_batch(
         )
         if bool(sim.capacity_overflow.any()):
             raise ValueError("body overflow invalidates collection")
+        if (
+            checkpoint is not None
+            and completed_ticks < cfg.horizon
+            and (
+                completed_ticks % cfg.collection_checkpoint_every == 0
+                or (ruler_ticks is not None and completed_ticks == ruler_ticks)
+            )
+        ):
+            checkpoint_started = time.monotonic()
+            _, snapshots = capture_rows(
+                sim,
+                opponents,
+                list(range(sim.E)),
+                world_ids=ids,
+                tick=completed_ticks,
+                max_body_capacity=cfg.body_capacity,
+            )
+            checkpoint(
+                dict(
+                    capture_seconds=time.monotonic() - checkpoint_started,
+                    config_sha256=cfg.sha256,
+                    world_ids=ids,
+                    next_tick=completed_ticks,
+                    snapshots=[s.to_state_dict() for s in snapshots],
+                    demos=demos,
+                    roots=roots,
+                    decisions=decisions,
+                    decisions_by_world=decisions_by_world,
+                    tick_samples=tick_samples,
+                    reached_l600_world_ids=sorted(reached_l600),
+                )
+            )
         if tick % 10 == 0 or time.monotonic() - last_progress >= 45:
             progress({"stage": "collection", "ticks": tick + 1, "worlds": len(ids)})
             last_progress = time.monotonic()
@@ -208,8 +266,9 @@ def collect_batch(
         "schema": "spatial-collection/v1",
         "world_ids": ids,
         "decisions": decisions,
+        "decisions_by_world": decisions_by_world,
         "roots": [entry[2] for key in sorted(roots) for entry in sorted(roots[key])],
-        "demos": [entry[2] for entry in sorted(demos)],
+        "demos": [entry[2] for key in sorted(demos) for entry in sorted(demos[key])],
         "elapsed_seconds": time.monotonic() - started,
         "world_ticks": len(ids) * completed_ticks,
         "ruler_partial": ruler_seconds is not None or ruler_ticks is not None,

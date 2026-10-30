@@ -25,6 +25,27 @@ def _cpu_tree(value: Any) -> Any:
     return copy.deepcopy(value)
 
 
+def finite_tensors(tensors: Any) -> bool:
+    """One host decision per unchanged finite-check boundary, including all tensors."""
+    flags = [torch.isfinite(t).all() for t in tensors if t is not None]
+    return not flags or bool(torch.stack(flags).all())
+
+
+def cache_search_observations(
+    rows: Sequence[dict[str, Any]],
+    device: str,
+    microbatch: int,
+) -> dict[int, tuple[torch.Tensor, ...]]:
+    """Cache only immutable training-root rasters; ordinary demos stay sparse."""
+    cache = {}
+    for start in range(0, len(rows), microbatch):
+        chunk = rows[start : start + microbatch]
+        obs = build_observation(compact_cat([r["compact"] for r in chunk]), device=device)
+        for i, row in enumerate(chunk):
+            cache[id(row)] = tuple(t[i : i + 1].detach() for t in obs)
+    return cache
+
+
 def fit_student(
     cfg: PilotConfig,
     ordinary: Sequence[dict[str, Any]],
@@ -59,6 +80,7 @@ def fit_student(
         if str(device).startswith("cuda"):
             torch.cuda.set_rng_state_all(snapshot["cuda_rng"])
     started = time.monotonic()
+    cache = cache_search_observations(searched, device, cfg.microbatch)
     completed = 0
     for update in range(latest, total):
         if stop():
@@ -79,11 +101,15 @@ def fit_student(
             targets += [int(ordinary[i]["b8_action"]) for i in b]
             weights = [1.0 / half] * cfg.batch_size  # equal CE means, summed
         optimizer.zero_grad(set_to_none=True)
-        loss_value = 0.0
         for begin in range(0, len(rows), cfg.microbatch):
             end = min(len(rows), begin + cfg.microbatch)
-            compact = compact_cat([row["compact"] for row in rows[begin:end]])
-            logits = student(*build_observation(compact, device=device))
+            chunk = rows[begin:end]
+            if all(id(row) in cache for row in chunk):
+                obs = tuple(torch.cat([cache[id(row)][i] for row in chunk]) for i in range(3))
+            else:
+                compact = compact_cat([row["compact"] for row in chunk])
+                obs = build_observation(compact, device=device)
+            logits = student(*obs)
             mask = torch.stack([row["mask"] for row in rows[begin:end]]).to(device).bool()
             labels = torch.tensor(targets[begin:end], device=device)
             if not bool(mask.gather(1, labels[:, None]).all()) or not bool(
@@ -97,14 +123,11 @@ def fit_student(
             if not bool(torch.isfinite(loss)):
                 raise ValueError("nonfinite fit loss")
             loss.backward()
-            loss_value += float(loss.detach())
-        if not all(
-            p.grad is None or bool(torch.isfinite(p.grad).all()) for p in student.parameters()
-        ):
+        if not finite_tensors(p.grad for p in student.parameters()):
             raise ValueError("nonfinite gradient")
         optimizer.step()
         completed += 1
-        if not all(bool(torch.isfinite(p).all()) for p in student.parameters()):
+        if not finite_tensors(student.parameters()):
             raise ValueError("nonfinite parameters")
         # No training loss/action quality in operational progress (one-look).
         progress({"stage": "fit", "updates": update + 1, "total": total})

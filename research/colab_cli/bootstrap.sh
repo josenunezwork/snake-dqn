@@ -16,7 +16,24 @@ fi
 case "$SCRIPT" in /*|*'..'*) echo "script must be repo-relative: $SCRIPT" >&2; exit 2;; esac
 [ -f "$REPO/$SCRIPT" ] || { echo "job script missing from pinned bundle: $SCRIPT" >&2; exit 2; }
 
-python3 -m pip install -q uv
+# Optional immutable, manifest-bound wheel inputs. An absent cache preserves the
+# ordinary bootstrap exactly; no network source or dependency pin is changed.
+WHEELHOUSE=""
+if [ -n "${COLAB_CLI_WHEELHOUSE:-}" ]; then
+  [ "$COLAB_CLI_WHEELHOUSE" = inputs/wheelhouse ] || { echo 'unsafe wheelhouse' >&2; exit 2; }
+  [ -d "$ROOT/$COLAB_CLI_WHEELHOUSE" ] || { echo 'missing bound wheelhouse' >&2; exit 2; }
+  WHEELHOUSE="$ROOT/$COLAB_CLI_WHEELHOUSE"
+fi
+pip_with_cache() {
+  if [ -n "$WHEELHOUSE" ]; then
+    "$@" --find-links "$WHEELHOUSE"
+  else
+    "$@"
+  fi
+}
+export PIP_CACHE_DIR="$ROOT/.pip-cache"
+export UV_CACHE_DIR="$ROOT/.uv-cache"
+pip_with_cache python3 -m pip install -q uv
 python3 -m uv python install 3.12
 python3 -m uv venv --python 3.12 --managed-python --seed "$VENV"
 PY="$VENV/bin/python"
@@ -29,13 +46,13 @@ if command -v nvidia-smi >/dev/null 2>&1; then
   "$PY" -c "import sys; sys.exit(0 if float('$CAP') >= 10 else 1)" && INDEX=https://download.pytorch.org/whl/cu128
   "$PY" -c "import sys; sys.exit(0 if float('$CAP') >= 10 else 1)" && CUDA_EXPECTED=12.8
 fi
-"$PY" -m pip install -q --index-url "$INDEX" torch==2.9.1 numpy==1.26.4
+pip_with_cache "$PY" -m pip install -q --index-url "$INDEX" torch==2.9.1 numpy==1.26.4
 CONSTRAINTS="$ROOT/.bootstrap-constraints.txt"
 printf 'torch==2.9.1\nnumpy==1.26.4\n' > "$CONSTRAINTS"
 if [ -n "$REQUIREMENTS" ]; then
   case "$REQUIREMENTS" in /*|*'..'*) echo "requirements must be repo-relative: $REQUIREMENTS" >&2; exit 2;; esac
   [ -f "$REPO/$REQUIREMENTS" ] || { echo "requirements file missing: $REQUIREMENTS" >&2; exit 2; }
-  "$PY" -m pip install -q -c "$CONSTRAINTS" -r "$REPO/$REQUIREMENTS"
+  pip_with_cache "$PY" -m pip install -q -c "$CONSTRAINTS" -r "$REPO/$REQUIREMENTS"
 fi
 if [ "$CUDA_EXPECTED" = cpu ]; then
   "$PY" -c "import torch; assert torch.version.cuda is None; print(torch.__version__, 'cpu')"

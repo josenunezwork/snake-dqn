@@ -16,6 +16,7 @@ import math
 import os
 import re
 import tempfile
+import threading
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
@@ -28,7 +29,9 @@ UNIT_SCHEMA = "spatial-immutable-unit/v1"
 MAX_UNIT_BYTES = 128 * 1024**2
 MAX_EXPORT_BYTES = 2 * 1024**3
 MAX_DECODED_BYTES = 512 * 1024**2
-_UNIT_ID = re.compile(r"(?:collect|search|fit|assess|gameplay)-[0-9]{4,9}\Z")
+_UNIT_ID = re.compile(
+    r"(?:collect|cstate|cseal|aselect|ascore|search|fit|assess|gameplay)-[0-9]{4,9}\Z"
+)
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -55,10 +58,23 @@ def _unit_path(cfg: PilotConfig, unit_id: str) -> str:
         )
         if len(raw_index) != 7 or not eligible:
             raise ValueError("ineligible fit trajectory snapshot")
+    elif stage in {"cstate", "cseal"}:
+        groups = math.ceil(cfg.worlds / cfg.collection_unit_worlds)
+        tick = index if stage == "cseal" else index // groups
+        if (
+            len(raw_index) != 7
+            or not 0 < tick < cfg.horizon
+            or tick % cfg.collection_checkpoint_every
+        ):
+            raise ValueError("ineligible collection trajectory snapshot")
     else:
         counts = {
-            "collect": math.ceil(cfg.worlds / cfg.world_batch_size),
+            "collect": math.ceil(cfg.worlds / cfg.collection_unit_worlds),
             "search": math.ceil((cfg.train_late + cfg.train_ordinary) / cfg.search_chunk),
+            "aselect": math.ceil(
+                (cfg.assessment_late + cfg.assessment_ordinary) / cfg.search_chunk
+            ),
+            "ascore": math.ceil((cfg.assessment_late + cfg.assessment_ordinary) / cfg.search_chunk),
             "assess": math.ceil((cfg.assessment_late + cfg.assessment_ordinary) / cfg.search_chunk),
             "gameplay": math.ceil(cfg.gameplay_worlds / cfg.world_batch_size),
         }
@@ -224,6 +240,7 @@ class UnitStore:
         self, output: Path, cfg: PilotConfig, ledger: dict[str, Any], input_dir: Path
     ) -> None:
         validate_ledger(ledger, cfg)
+        self._lock = threading.RLock()
         self.output, self.cfg, self.input_dir = Path(output), cfg, Path(input_dir)
         self.ledger = ledger
         self._entries = {entry["unit_id"]: entry for entry in ledger["units"]}
@@ -239,7 +256,8 @@ class UnitStore:
         self.output.mkdir(parents=True, exist_ok=True)
 
     def list_ids(self, prefix: str = "") -> list[str]:
-        return sorted(name for name in self._entries if name.startswith(prefix))
+        with self._lock:
+            return sorted(name for name in self._entries if name.startswith(prefix))
 
     def latest_fit(self) -> str | None:
         """Latest eligible full-state trajectory snapshot, by completed updates."""
@@ -259,6 +277,10 @@ class UnitStore:
         return load_verified_unit(self._roots[unit_id], self.cfg, unit_id)
 
     def publish(self, unit_id: str, payload: Any) -> Path:
+        with self._lock:
+            return self._publish(unit_id, payload)
+
+    def _publish(self, unit_id: str, payload: Any) -> Path:
         relative = _unit_path(self.cfg, unit_id)
         if unit_id in self._entries:
             raise ValueError("verified unit cannot be recomputed or replaced")

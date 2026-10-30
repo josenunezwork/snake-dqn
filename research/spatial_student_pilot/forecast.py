@@ -99,23 +99,39 @@ def tick_forecast(
     gameplay_ticks: dict[str, float],
     fit_update: float,
     student_forward_tick: float = 0.0,
+    cfg: Any = None,
 ) -> dict[str, float]:
-    """Charge H5000/H300 in whole production chunks; never divide by alive steps.
+    """Whole production slabs, no alive-frame discounts or concurrency credit.
 
-    Search units have32 roots and at most384 jobs (three128-job slabs). Assessment
-    units add256 scoring jobs; both mixed scoring slabs execute a student forward.
-    Two gameplay chunks (128+64) are conservatively charged at the E128 rate.
+    Assessment charges independent selection/B8+teacher work plus the maximum
+    missing student and closed-loop work, with no assumed action agreement.
+    Paired gameplay has one E384 loop; its mature floor overcharges E1024's
+    opponent/hero work plus an additional E192 student forward.
     """
+    from research.spatial_student_pilot.config import PilotConfig
+
+    cfg = cfg or PilotConfig()
+
+    def slabs(roots: int, jobs: int) -> int:
+        return sum(
+            math.ceil(min(cfg.search_chunk, roots - start) * jobs / cfg.branch_batch_size)
+            for start in range(0, roots, cfg.search_chunk)
+        )
+
+    train = cfg.train_late + cfg.train_ordinary
+    assessment = cfg.assessment_late + cfg.assessment_ordinary
     return dict(
-        collection=8 * 5000 * collection_tick,
-        search=32 * 3 * 300 * b8_branch_tick,
-        fit=8000 * fit_update,
-        assessment=12 * (3 * 300 * b8_branch_tick + 2 * 300 * student_branch_tick),
-        gameplay=math.ceil(192 / 128)
-        * 5000
-        * (
-            max(gameplay_ticks["b8"], collection_tick)
-            + max(gameplay_ticks["student"], collection_tick + student_forward_tick)
+        collection=math.ceil(cfg.worlds / cfg.world_batch_size) * cfg.horizon * collection_tick,
+        search=slabs(train, 12) * cfg.branch_horizon * b8_branch_tick,
+        fit=(cfg.bc_updates + cfg.improvement_updates) * fit_update,
+        assessment=(
+            (slabs(assessment, 12) + slabs(assessment, 4)) * cfg.branch_horizon * b8_branch_tick
+            + slabs(assessment, 4) * cfg.branch_horizon * student_branch_tick
+        ),
+        gameplay=math.ceil(cfg.gameplay_worlds / cfg.world_batch_size)
+        * cfg.horizon
+        * max(
+            gameplay_ticks["b8"], gameplay_ticks["student"], collection_tick + student_forward_tick
         ),
     )
 
@@ -135,6 +151,7 @@ def export_projection(
     *,
     assessment_rows: list[Any] | None = None,
     gameplay_rows: list[Any] | None = None,
+    cfg: Any = None,
 ) -> dict[str, Any]:
     """Conservative record-wise serialization, extrapolated to >=1000-body span.
 
@@ -142,6 +159,9 @@ def export_projection(
     Apply the mature span growth factor to all bytes (including constant tensors),
     then25% headroom. These estimates gate admission; runtime caps remain binding.
     """
+    from research.spatial_student_pilot.config import PilotConfig
+
+    cfg = cfg or PilotConfig()
     mature = [r for r in batch["roots"] if r["hero_length"] >= 600]
     if not mature or not labels or not fit_payloads or not assessment_rows or not gameplay_rows:
         return {"qualified": False, "reason": "missing mature or fit size samples"}
@@ -171,14 +191,39 @@ def export_projection(
             decoded=4096 * demo[0] + 512 * root[0] + 16384,
             gzip=4096 * demo[1] + 512 * root[1] + 16384,
         ),
-        "search": dict(count=32, decoded=32 * root[0] + 16384, gzip=32 * root[1] + 16384),
+        "search": dict(
+            count=math.ceil(1024 / cfg.search_chunk),
+            decoded=cfg.search_chunk * root[0] + 16384,
+            gzip=cfg.search_chunk * root[1] + 16384,
+        ),
         "fit": dict(
             count=32,
             decoded=math.ceil(fit[0] * 1.05) + 16384,
             gzip=math.ceil(fit[1] * 1.05) + 16384,
         ),
-        "assess": dict(count=12, **measured_rows(assessment_rows, 32)),
-        "gameplay": dict(count=2, **measured_rows(gameplay_rows, 128)),
+        "aselect": dict(
+            count=math.ceil(384 / cfg.search_chunk),
+            decoded=cfg.search_chunk * root[0] + 16384,
+            gzip=cfg.search_chunk * root[1] + 16384,
+        ),
+        "ascore": dict(
+            count=math.ceil(384 / cfg.search_chunk),
+            decoded=cfg.search_chunk * root[0] + 65536,
+            gzip=cfg.search_chunk * root[1] + 65536,
+        ),
+        "assess": dict(
+            count=math.ceil(384 / cfg.search_chunk),
+            **measured_rows(assessment_rows, cfg.search_chunk),
+        ),
+        "gameplay": dict(count=1, **measured_rows(gameplay_rows, 192)),
+        # Full-state reservoir + sim snapshots every500 ticks. Each logical
+        # shard is bounded separately, and the seal is published last.
+        "cstate": dict(
+            count=9 * 8,
+            decoded=3072 * demo[0] + 512 * root[0] + 131072,
+            gzip=3072 * demo[1] + 512 * root[1] + 131072,
+        ),
+        "cseal": dict(count=9, decoded=16384, gzip=16384),
     }
     for row in units.values():
         row["within_caps"] = row["decoded"] <= MAX_DECODED_BYTES and row["gzip"] <= MAX_UNIT_BYTES

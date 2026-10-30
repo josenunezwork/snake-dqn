@@ -20,10 +20,10 @@ def test_whole_slab_tick_prices_charge_full_horizons_and_closed_loop_rate() -> N
         gameplay_ticks={"b8": 0.04, "student": 0.12},
         fit_update=0.2,
     )
-    assert costs["gameplay"] == 1600  # E128+E64, no early-death or setup denominator
-    assert costs["search"] == 864
-    assert costs["assessment"] == 972
-    assert costs["collection"] == 800
+    assert costs["gameplay"] == 600  # one pairedE384 loop; no early-death discount
+    assert costs["search"] == 108
+    assert costs["assessment"] == 117
+    assert costs["collection"] == 100
     assert costs["fit"] == 1600
 
 
@@ -86,7 +86,7 @@ def test_gameplay_floor_charges_mature_tick_and_extra_student_forward() -> None:
         fit_update=0.1,
         student_forward_tick=0.5,
     )
-    assert costs["gameplay"] == 45000
+    assert costs["gameplay"] == 12500
 
 
 def test_historical_support_never_uses_restored_reach_counts() -> None:

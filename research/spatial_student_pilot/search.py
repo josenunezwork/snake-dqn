@@ -21,15 +21,14 @@ from research.sandbox_a_resident.core import allowed_mask
 from research.sandbox_a_resident.ct_branching import _compact_sim_in_place
 from research.sandbox_a_resident.ct_mechanics import (
     CTDeviceSim,
-    CTOpponentRuntime,
     derive_branch_keys,
 )
 from research.sandbox_a_resident.ct_snapshots import (
     CompactWorldSnapshot,
-    observe_hero_bv8,
     restore_world_snapshots_into,
 )
 from research.sandbox_a_resident.training_rosters import training_rosters
+from research.spatial_student_pilot.batching import BatchedOpponents, observe_hero_bv8, stable_q
 
 
 @dataclass(frozen=True)
@@ -101,18 +100,28 @@ def select_mass_actions(
 
 
 @torch.inference_mode()
-def student_actions(sim: Any, student: nn.Module) -> torch.Tensor:
-    """Run the bare final spatial actor with the canonical legal-action fallback."""
+def student_actions(
+    sim: Any,
+    student: nn.Module,
+    env_indices: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Memory-bounded bare actor inference; original fp32 model and legal fallback."""
     from research.spatial_student_pilot.observation import build_observation, compact_from_sim
 
-    obs = build_observation(compact_from_sim(sim), device=sim.device)
-    logits = student(*obs)
-    if isinstance(logits, tuple):
-        logits = logits[0]
-    if logits.shape != (sim.E, 6) or not bool(torch.isfinite(logits).all()):
-        raise ValueError("student produced nonfinite or malformed policy logits")
-    mask = allowed_mask(sim.advisory_mask()[:, 0])
-    return logits.masked_fill(~mask, -torch.inf).argmax(1)
+    ids = torch.arange(sim.E, device=sim.device) if env_indices is None else env_indices
+    results = []
+    for start in range(0, len(ids), 128):
+        selected = ids[start : start + 128]
+        obs = build_observation(compact_from_sim(sim, selected), device=sim.device)
+        logits = student(*obs)
+        if isinstance(logits, tuple):
+            logits = logits[0]
+        mask = allowed_mask(sim.advisory_mask()[selected, 0])
+        logits = stable_q(student, obs, logits, mask)
+        if logits.shape != (len(selected), 6) or not bool(torch.isfinite(logits).all()):
+            raise ValueError("student produced nonfinite or malformed policy logits")
+        results.append(logits.masked_fill(~mask, -torch.inf).argmax(1))
+    return torch.cat(results) if results else torch.empty(0, device=sim.device, dtype=torch.long)
 
 
 def _new_sim(cfg: Any, count: int, device: Any) -> CTDeviceSim:
@@ -168,12 +177,17 @@ def _rollouts(
     if cap < 1 or horizon < 1:
         raise ValueError("positive slab size and horizon required")
     last_progress = time.monotonic()
+    order = sorted(
+        range(len(jobs)),
+        key=lambda i: (rosters[int(roots[jobs[i].root]["roster_index"])].identity, i),
+    )
+    ordered_jobs = [jobs[i] for i in order]
     for start in range(0, len(jobs), cap):
         if stop is not None and stop():
             raise InterruptedError("incomplete search slab; caller must not publish unit")
-        slab = jobs[start : start + cap]
+        slab = ordered_jobs[start : start + cap]
         sim = _new_sim(cfg, len(slab), device)
-        opponents = CTOpponentRuntime(
+        opponents = BatchedOpponents(
             sim,
             [rosters[int(roots[j.root]["roster_index"])] for j in slab],
             b8_network=b8,
@@ -242,7 +256,9 @@ def _rollouts(
                 if bool(closed.any()):
                     if student is None:
                         raise ValueError("closed-loop rollout requires final student")
-                    spatial_actions = student_actions(sim, student)
+                    selected = closed.nonzero(as_tuple=False).flatten()
+                    spatial_actions = actions.clone()
+                    spatial_actions[selected] = student_actions(sim, student, selected)
                     actions = torch.where(closed, spatial_actions, actions)
             action_counts += torch.bincount(actions[closed & sim.alive[:, 0]], minlength=6)
             sim.step(opponents.actions(sim, actions))
@@ -267,8 +283,8 @@ def _rollouts(
                     "closed_loop": any(j.closed_loop for j in slab),
                 }
             )
-        mass_out[start : start + len(slab)] = (mass_sum / horizon).cpu().numpy()
-        alive_out[start : start + len(slab)] = survivors.cpu().numpy()
+        mass_out[np.asarray(order[start : start + len(slab)])] = (mass_sum / horizon).cpu().numpy()
+        alive_out[np.asarray(order[start : start + len(slab)])] = survivors.cpu().numpy()
         if progress is not None:
             progress(
                 {
@@ -340,6 +356,47 @@ def label_roots(
     ]
 
 
+def prepare_assessment(
+    roots: Sequence[Mapping[str, Any]],
+    *,
+    cfg: Any,
+    b8: nn.Module,
+    networks: Mapping[str, nn.Module],
+    device: Any,
+    stop: Any = None,
+    progress: Any = None,
+    labels: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Student-independent selection and independent B8/teacher scoring, sealed."""
+    if any(r["partition"] != "assessment" for r in roots):
+        raise ValueError("assessment preparation refuses training roots")
+    labels = (
+        labels
+        if labels is not None
+        else label_roots(
+            roots, cfg=cfg, b8=b8, networks=networks, device=device, stop=stop, progress=progress
+        )
+    )
+    jobs = list(
+        dict.fromkeys(
+            _Job(i, int(first), suffix)
+            for i, (r, label) in enumerate(zip(roots, labels))
+            for first in (r["b8_action"], label["target_action"])
+            for suffix in (4, 5)
+        )
+    )
+    mass, alive, _, _ = _rollouts(
+        roots, jobs, cfg=cfg, b8=b8, networks=networks, device=device, stop=stop, progress=progress
+    )
+    return dict(
+        labels=labels,
+        scores=[
+            ((j.root, j.action, j.suffix, j.closed_loop), (float(m), float(a)))
+            for j, m, a in zip(jobs, mass, alive)
+        ],
+    )
+
+
 @torch.inference_mode()
 def assess_roots(
     roots: Sequence[Mapping[str, Any]],
@@ -351,21 +408,25 @@ def assess_roots(
     device: Any,
     stop: Any = None,
     progress: Any = None,
+    prepared: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Freeze teacher on 0,1 then score frozen first actions independently on 4,5."""
     if any(r["partition"] != "assessment" for r in roots):
         raise ValueError("assessment scorer refuses training roots")
     if tuple(cfg.scoring_suffixes) != (4, 5):
         raise ValueError("frozen scoring suffix identities are 4,5")
-    labels = label_roots(
+    prepared = prepared or prepare_assessment(
         roots, cfg=cfg, b8=b8, networks=networks, device=device, stop=stop, progress=progress
     )
+    labels = prepared["labels"]
+    if [r["uid"] for r in labels] != [r["uid"] for r in roots]:
+        raise ValueError("foreign prepared assessment roots")
     rosters = training_rosters(cfg.worlds)
     spatial = []
     for start in range(0, len(roots), int(cfg.branch_batch_size)):
         chunk = roots[start : start + int(cfg.branch_batch_size)]
         sim = _new_sim(cfg, len(chunk), device)
-        opponents = CTOpponentRuntime(
+        opponents = BatchedOpponents(
             sim,
             [rosters[int(r["roster_index"])] for r in chunk],
             b8_network=b8,
@@ -388,9 +449,20 @@ def assess_roots(
             for k in (4, 5):
                 jobs.append(_Job(i, int(first), k, closed))
                 descriptors.append((i, arm))
+    unique = list(dict.fromkeys(jobs))
+    known = {tuple(key): value for key, value in prepared["scores"]}
+    expected_keys = {
+        (i, int(a), suffix, False)
+        for i, (root, label) in enumerate(zip(roots, labels))
+        for a in (root["b8_action"], label["target_action"])
+        for suffix in (4, 5)
+    }
+    if set(known) != expected_keys or len(known) != len(prepared["scores"]):
+        raise ValueError("foreign or duplicate independent scoring keys")
+    missing = [j for j in unique if (j.root, j.action, j.suffix, j.closed_loop) not in known]
     mass, alive, _, action_counts = _rollouts(
         roots,
-        jobs,
+        missing,
         cfg=cfg,
         b8=b8,
         networks=networks,
@@ -399,6 +471,8 @@ def assess_roots(
         stop=stop,
         progress=progress,
     )
+    for job, m, a in zip(missing, mass, alive):
+        known[(job.root, job.action, job.suffix, job.closed_loop)] = (float(m), float(a))
     result = [
         dict(
             uid=r["uid"],
@@ -414,7 +488,8 @@ def assess_roots(
         )
         for r, l, a in zip(roots, labels, spatial)
     ]
-    for (i, arm), m, s in zip(descriptors, mass, alive):
+    for job, (i, arm) in zip(jobs, descriptors):
+        m, s = known[(job.root, job.action, job.suffix, job.closed_loop)]
         result[i].setdefault(arm + "_mass", []).append(float(m))
         result[i].setdefault(arm + "_survival", []).append(float(s))
     if result:
@@ -446,131 +521,133 @@ def paired_gameplay(
     last_progress = time.monotonic()
     for start in range(0, len(worlds), int(cfg.world_batch_size)):
         chunk = worlds[start : start + int(cfg.world_batch_size)]
-        for arm in ("b8", "student"):
-            arm_started = time.monotonic()
-            executed_world_steps = 0
-            sim = _new_sim(cfg, len(chunk), device)
-            sim.rng_key.copy_(
-                torch.tensor(
-                    [
-                        int(w.get("seed", cfg.world_seed(int(w["world_id"]), "gameplay")))
-                        for w in chunk
-                    ],
-                    device=sim.device,
-                )
-            )
-            sim.rng_counter.zero_()
-            sim.alive.fill_(False)
-            sim.length.zero_()
-            sim.seg_count.zero_()
-            sim.head_ptr.zero_()
-            sim.boost_frames.zero_()
-            sim.frames_since_food.zero_()
-            sim.terminal_slots.fill_(False)
-            sim.reset_fresh_worlds()
-            sim.terminal_slots[:, 0] = True
-            opponents = CTOpponentRuntime(
-                sim,
-                [roster_table[int(w["roster_index"])] for w in chunk],
-                b8_network=b8,
-                checkpoint_networks=networks,
-                opp_rng_keys=[
-                    int(w.get("opp_seed", cfg.opp_seed(int(w["world_id"]), "gameplay")))
-                    for w in chunk
+        # Both arms share one sim allocation and tick loop, with duplicate keys
+        # preserving exact paired initial state and counter-RNG streams.
+        paired = [*chunk, *chunk]
+        n = len(chunk)
+        sim = _new_sim(cfg, 2 * n, device)
+        sim.rng_key.copy_(
+            torch.tensor(
+                [
+                    int(w.get("seed", cfg.world_seed(int(w["world_id"]), "gameplay")))
+                    for w in paired
                 ],
+                device=sim.device,
             )
-            for i in range(len(chunk)):
-                digest = hashlib.sha256()
-                for field in (
-                    "bodies",
-                    "head_ptr",
-                    "seg_count",
-                    "length",
-                    "alive",
-                    "direction",
-                    "boost_frames",
-                    "frames_since_food",
-                    "respawn_timer",
-                    "frame",
-                    "rng_key",
-                    "rng_counter",
-                    "food_cells",
-                    "food_present",
-                    "corpse_food",
-                    "terminal_slots",
-                ):
-                    digest.update(field.encode())
-                    digest.update(
-                        getattr(sim, field)[i].detach().cpu().contiguous().numpy().tobytes()
-                    )
-                digest.update(str(opponents.rosters[i].identity).encode())
-                digest.update(opponents.rng_key[i].detach().cpu().numpy().tobytes())
-                output[start + i][arm + "_initial_state_sha256"] = digest.hexdigest()
-            total_mass = torch.zeros(len(chunk), dtype=torch.float64, device=sim.device)
-            total_alive = torch.zeros_like(total_mass)
-            counts = torch.zeros(6, dtype=torch.long, device=sim.device)
-            slots = torch.arange(len(chunk), device=sim.device)
-            _sync(sim.device)
-            loop_started = time.monotonic()
-            completed_ticks = 0
-            for tick in range(int(cfg.horizon) if ruler_ticks is None else ruler_ticks):
-                now = time.monotonic()
-                if ruler_ticks is not None and tick > 0 and now - loop_started >= ruler_arm_seconds:
-                    break
-                if progress is not None and now - last_progress >= 45.0:
-                    progress(
-                        {
-                            "phase": "gameplay",
-                            "arm": arm,
-                            "tick": tick,
-                            "completed_worlds": start,
-                            "total_worlds": len(worlds),
-                        }
-                    )
-                    last_progress = now
-                if stop is not None and tick % 10 == 0 and stop():
-                    raise InterruptedError("incomplete gameplay; no unit may be published")
-                if ruler_ticks is None and tick % 10 == 0 and not bool(sim.alive[:, 0].all()):
-                    keep = sim.alive[:, 0].nonzero(as_tuple=False).flatten()
-                    if keep.numel() == 0:
-                        break
-                    _compact_sim_in_place(sim, keep)
-                    opponents.compact_rows(keep)
-                    slots = slots.index_select(0, keep)
-                sim.prepare()
-                actions = (
-                    observe_hero_bv8(sim, b8)[-1] if arm == "b8" else student_actions(sim, student)
-                )
-                active_actions = actions[sim.alive[:, 0]]
-                counts += torch.bincount(active_actions, minlength=6)
-                sim.step(opponents.actions(sim, actions))
-                opponents.after_step(sim)
-                executed_world_steps += sim.E
-                completed_ticks += 1
-                if bool(sim.capacity_overflow.any()):
-                    raise ValueError("body capacity overflow invalidates gameplay")
-                alive = sim.alive[:, 0]
-                total_mass.index_add_(0, slots, torch.where(alive, sim.length[:, 0], 0).double())
-                total_alive.index_add_(0, slots, alive.double())
-            _sync(sim.device)
-            loop_seconds = time.monotonic() - loop_started
-            for i, (m, a) in enumerate(zip(total_mass.cpu(), total_alive.cpu())):
-                output[start + i][arm + "_mass"] = float(m / cfg.horizon)
-                output[start + i][arm + "_alive"] = float(a / cfg.horizon)
-            # Batch counts are emitted once and summed exactly by readout.
-            output[start][arm + "_action_counts"] = counts.cpu().tolist()
-            output[start][arm + "_executed_world_steps"] = executed_world_steps
-            output[start][arm + "_ticks"] = completed_ticks
-            output[start][arm + "_loop_seconds"] = loop_seconds
-            output[start][arm + "_slab_size"] = len(chunk)
-            output[start][arm + "_wall_seconds"] = time.monotonic() - arm_started
-            if progress is not None:
+        )
+        sim.rng_counter.zero_()
+        sim.alive.fill_(False)
+        sim.length.zero_()
+        sim.seg_count.zero_()
+        sim.head_ptr.zero_()
+        sim.boost_frames.zero_()
+        sim.frames_since_food.zero_()
+        sim.terminal_slots.fill_(False)
+        sim.reset_fresh_worlds()
+        sim.terminal_slots[:, 0] = True
+        opponents = BatchedOpponents(
+            sim,
+            [roster_table[int(w["roster_index"])] for w in paired],
+            b8_network=b8,
+            checkpoint_networks=networks,
+            opp_rng_keys=[
+                int(w.get("opp_seed", cfg.opp_seed(int(w["world_id"]), "gameplay"))) for w in paired
+            ],
+        )
+        for i in range(2 * n):
+            digest = hashlib.sha256()
+            for field in (
+                "bodies",
+                "head_ptr",
+                "seg_count",
+                "length",
+                "alive",
+                "direction",
+                "boost_frames",
+                "frames_since_food",
+                "respawn_timer",
+                "frame",
+                "rng_key",
+                "rng_counter",
+                "food_cells",
+                "food_present",
+                "corpse_food",
+                "terminal_slots",
+            ):
+                digest.update(field.encode())
+                digest.update(getattr(sim, field)[i].detach().cpu().contiguous().numpy().tobytes())
+            digest.update(str(opponents.rosters[i].identity).encode())
+            digest.update(opponents.rng_key[i].detach().cpu().numpy().tobytes())
+            arm = "b8" if i < n else "student"
+            output[start + i % n][arm + "_initial_state_sha256"] = digest.hexdigest()
+        total_mass = torch.zeros(2 * n, dtype=torch.float64, device=sim.device)
+        total_alive = torch.zeros_like(total_mass)
+        counts = torch.zeros((2, 6), dtype=torch.long, device=sim.device)
+        executed = torch.zeros(2, dtype=torch.long, device=sim.device)
+        slots = torch.arange(2 * n, device=sim.device)
+        closed = slots >= n
+        _sync(sim.device)
+        loop_started = time.monotonic()
+        completed_ticks = 0
+        for tick in range(int(cfg.horizon) if ruler_ticks is None else ruler_ticks):
+            now = time.monotonic()
+            if ruler_ticks is not None and tick > 0 and now - loop_started >= ruler_arm_seconds:
+                break
+            if progress is not None and now - last_progress >= 45.0:
                 progress(
-                    {
-                        "phase": "gameplay",
-                        "arm": arm,
-                        "completed": start + len(chunk),
-                        "total": len(worlds),
-                    }
+                    dict(
+                        phase="gameplay",
+                        arm="paired",
+                        tick=tick,
+                        completed_worlds=start,
+                        total_worlds=len(worlds),
+                    )
                 )
+                last_progress = now
+            if stop is not None and tick % 10 == 0 and stop():
+                raise InterruptedError("incomplete gameplay; no unit may be published")
+            if ruler_ticks is None and tick % 10 == 0 and not bool(sim.alive[:, 0].all()):
+                keep = sim.alive[:, 0].nonzero(as_tuple=False).flatten()
+                if keep.numel() == 0:
+                    break
+                _compact_sim_in_place(sim, keep)
+                opponents.compact_rows(keep)
+                slots = slots.index_select(0, keep)
+                closed = closed.index_select(0, keep)
+            sim.prepare()
+            actions = observe_hero_bv8(sim, b8)[-1]
+            selected = closed.nonzero(as_tuple=False).flatten()
+            spatial = actions.clone()
+            if selected.numel():
+                spatial[selected] = student_actions(sim, student, selected)
+            actions = torch.where(closed, spatial, actions)
+            for arm_index, selected_arm in enumerate((~closed, closed)):
+                counts[arm_index] += torch.bincount(
+                    actions[selected_arm & sim.alive[:, 0]], minlength=6
+                )
+                executed[arm_index] += selected_arm.sum()
+            sim.step(opponents.actions(sim, actions))
+            opponents.after_step(sim)
+            completed_ticks += 1
+            if bool(sim.capacity_overflow.any()):
+                raise ValueError("body capacity overflow invalidates gameplay")
+            alive = sim.alive[:, 0]
+            total_mass.index_add_(0, slots, torch.where(alive, sim.length[:, 0], 0).double())
+            total_alive.index_add_(0, slots, alive.double())
+        _sync(sim.device)
+        seconds = time.monotonic() - loop_started
+        for arm_index, arm in enumerate(("b8", "student")):
+            begin = arm_index * n
+            for i in range(n):
+                output[start + i][arm + "_mass"] = float(total_mass[begin + i] / cfg.horizon)
+                output[start + i][arm + "_alive"] = float(total_alive[begin + i] / cfg.horizon)
+            output[start][arm + "_action_counts"] = counts[arm_index].cpu().tolist()
+            output[start][arm + "_executed_world_steps"] = int(executed[arm_index])
+            output[start][arm + "_ticks"] = completed_ticks
+            # Same loop price for both; consumers must charge it only once.
+            output[start][arm + "_loop_seconds"] = seconds
+            output[start][arm + "_slab_size"] = n
+            output[start][arm + "_wall_seconds"] = time.monotonic() - loop_started
+        output[start]["paired_loop_seconds"] = seconds
+        output[start]["paired_slab_size"] = 2 * n
     return output

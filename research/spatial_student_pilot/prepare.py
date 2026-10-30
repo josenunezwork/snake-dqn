@@ -39,6 +39,7 @@ GOVERNANCE_FILES = (
     "REGISTRATION_CLARIFICATION_03.md",
     "REGISTRATION_AMENDMENT_04.md",
     "REGISTRATION_CLARIFICATION_05.md",
+    "REGISTRATION_CLARIFICATION_06.md",
 )
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 OPPONENT_SHAS = {
@@ -157,6 +158,15 @@ def verify_ruler_receipt(path: Path, commit: str) -> None:
         or report.get("rate_qualified") is not True
     ):
         raise ValueError("integrated ruler did not qualify mature support and six-hour forecast")
+    proof = report.get("phases", {}).get("mapped_parity", {})
+    if (
+        proof.get("exact") is not True
+        or proof.get("exact_actions") is not True
+        or proof.get("reference_worlds") != 128
+        or proof.get("candidate_worlds") != 1024
+        or proof.get("ticks", 0) < 3
+    ):
+        raise ValueError("ruler lacks exact mapped E128/E1024 action/state parity")
     peak = report.get("peak_vram_bytes")
     if not isinstance(peak, int) or peak <= 0 or peak > 34 * 1024**3:
         raise ValueError("ruler lacks bounded measured CUDA peak memory")
@@ -181,6 +191,7 @@ def build_manifest(
     ruling_sha256: str,
     amendment_sha256: str,
     clarification_sha256: str,
+    clarification_06_sha256: str,
     hardware_canaries: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Freeze separate 2x session envelopes without changing scientific N."""
@@ -228,10 +239,14 @@ def build_manifest(
         "latency_ruling_sha256": ruling_sha256,
         "registration_amendment_04_sha256": amendment_sha256,
         "registration_clarification_05_sha256": clarification_sha256,
+        "registration_clarification_06_sha256": clarification_06_sha256,
         "technical_envelope": {
             "purpose": "whole-session runaway guard; units are informational",
             "useful_compute_estimate_minutes": estimate,
             "ruler_workload_seconds": 900,
+            "production_collection_worlds": 1024,
+            "production_branch_jobs": 1024,
+            "paired_gameplay_worlds": 384,
             "series_max_original_plus_completions": 3,
         },
         "hardware_envelopes": {
@@ -276,6 +291,8 @@ def prepare(
     hardware_canaries: dict[str, Path] | None = None,
     job_id: str = "t34-spatial-pilot-01",
     ruling: Path = RULING,
+    native_cache_receipts: list[Path] | None = None,
+    wheelhouse: Path | None = None,
 ) -> dict[str, Any]:
     """Run clean import admission, then create a source/input-bound packet."""
     from research.spatial_student_pilot.config import PilotConfig, audit_seeds
@@ -309,6 +326,9 @@ def prepare(
     registration_bytes = governance["REGISTRATION.md"]
     amendment_hash = hashlib.sha256(governance["REGISTRATION_AMENDMENT_04.md"]).hexdigest()
     clarification_hash = hashlib.sha256(governance["REGISTRATION_CLARIFICATION_05.md"]).hexdigest()
+    clarification_06_hash = hashlib.sha256(
+        governance["REGISTRATION_CLARIFICATION_06.md"]
+    ).hexdigest()
     checkpoints = {dest: checkpoint_dir / name for dest, name in CHECKPOINT_NAMES.items()}
     if digest(checkpoints["b8-s3.pth"]) != B8_SHA:
         raise ValueError("B8 s3 checkpoint hash differs")
@@ -352,6 +372,36 @@ def prepare(
         ]
     )
     inputs.extend(binding(packet / name, name) for name in governance)
+    cache_hashes = {}
+    if native_cache_receipts:
+        from research.spatial_student_pilot.native_cache import upload_inputs
+
+        for receipt in native_cache_receipts:
+            cached = upload_inputs(receipt, commit)
+            report = json.loads(Path(cached[0]["path"]).read_text())
+            arch = report["architecture"]
+            if arch in cache_hashes:
+                raise ValueError("duplicate native cache architecture")
+            cache_hashes[arch] = cached[0]["sha256"]
+            for row in cached:
+                row["dest"] = row["dest"].replace("native-cache/", f"native-cache/{arch}/", 1)
+            inputs.extend(cached)
+        if set(cache_hashes) != {"8.0", "9.0"}:
+            raise ValueError("bind both H100 and A100 native caches for the same input family")
+    if wheelhouse is not None:
+        wheels = sorted(wheelhouse.glob("*.whl"))
+        if (
+            not wheels
+            or sum(w.stat().st_size for w in wheels) > 128 * 1024**2
+            or any(
+                w.is_symlink()
+                or not w.is_file()
+                or not any(tag in w.name for tag in ("manylinux", "linux_x86_64", "none-any"))
+                for w in wheels
+            )
+        ):
+            raise ValueError("wheelhouse must be bounded Linux/any wheels, at most128MiB")
+        inputs.extend(binding(w, "wheelhouse/" + w.name) for w in wheels)
     proofs = (
         {gpu: binding(path) for gpu, path in hardware_canaries.items()}
         if hardware_canaries is not None
@@ -379,8 +429,15 @@ def prepare(
             ruling_sha256=RULING_SHA256,
             amendment_sha256=amendment_hash,
             clarification_sha256=clarification_hash,
+            clarification_06_sha256=clarification_06_hash,
             hardware_canaries=proofs if mode == "pilot" else None,
         )
+        if cache_hashes:
+            manifest["env"]["SPATIAL_NATIVE_CACHE_SHA256"] = json.dumps(
+                cache_hashes, sort_keys=True
+            )
+        if wheelhouse is not None:
+            manifest["env"]["COLAB_CLI_WHEELHOUSE"] = "inputs/wheelhouse"
         write_once(packet / f"{mode}.json", manifest)
         manifests[mode] = manifest
         # Persist wrapper-derived variants for review; dispatch still derives
@@ -438,6 +495,10 @@ def prepare(
         "latency_ruling_sha256": RULING_SHA256,
         "registration_amendment_04_sha256": amendment_hash,
         "registration_clarification_05_sha256": clarification_hash,
+        "registration_clarification_06_sha256": clarification_06_hash,
+        "native_cache_bound": bool(cache_hashes),
+        "native_cache_provenance": [binding(p) for p in (native_cache_receipts or [])],
+        "wheelhouse_bound": wheelhouse is not None,
         "import_preflight": binding(packet / "import-preflight.json"),
         "manifests": {mode: binding(packet / f"{mode}.json") for mode in manifests},
         "hardware_canaries_bound": proofs is not None,
@@ -467,6 +528,8 @@ def main() -> None:
     parser.add_argument("--h100-canary", type=Path)
     parser.add_argument("--a100-canary", type=Path)
     parser.add_argument("--job-id", default="t34-spatial-pilot-01")
+    parser.add_argument("--native-cache-receipts", nargs="*", type=Path)
+    parser.add_argument("--wheelhouse", type=Path)
     parser.add_argument("--ruling", type=Path, default=RULING)
     args = parser.parse_args()
     if bool(args.h100_canary) != bool(args.a100_canary):
@@ -485,6 +548,8 @@ def main() -> None:
         ),
         job_id=args.job_id,
         ruling=args.ruling,
+        native_cache_receipts=args.native_cache_receipts,
+        wheelhouse=args.wheelhouse,
     )
 
 

@@ -5,9 +5,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import signal
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -22,6 +25,11 @@ from research.sandbox_a_resident.training_rosters import (
     training_rosters,
 )
 from research.spatial_student_pilot.collect import collect_batch, select_dataset
+from research.spatial_student_pilot.collection_resume import (
+    publish_collection,
+    restore_collection,
+    split_collection,
+)
 from research.spatial_student_pilot.config import PilotConfig
 from research.spatial_student_pilot.fit import fit_student
 from research.spatial_student_pilot.forecast import (
@@ -50,6 +58,7 @@ from research.spatial_student_pilot.search import (
     assess_roots,
     label_roots,
     paired_gameplay,
+    prepare_assessment,
     student_actions,
 )
 from src.model.ego2s_network import load_ego2s_checkpoint
@@ -83,6 +92,7 @@ class Control:
         self.deadline = self.started + seconds
         self.signal = False
         self.last_print = 0.0
+        self.progress_lock = threading.Lock()
         self.watchdog = StallWatchdog(output / "diagnostics", 900)
         self.watchdog.start("startup")
         self.previous = signal.signal(signal.SIGUSR1, self.on_signal)
@@ -104,11 +114,14 @@ class Control:
         return self.signal or time.monotonic() >= self.deadline
 
     def progress(self, counters: dict[str, Any]) -> None:
-        self.watchdog.progress(str(counters.get("stage", counters.get("phase", "work"))), counters)
-        now = time.monotonic()
-        if now - self.last_print >= 30:
-            print(json.dumps({"event": "progress", **counters}, sort_keys=True), flush=True)
-            self.last_print = now
+        with self.progress_lock:
+            self.watchdog.progress(
+                str(counters.get("stage", counters.get("phase", "work"))), counters
+            )
+            now = time.monotonic()
+            if now - self.last_print >= 30:
+                print(json.dumps({"event": "progress", **counters}, sort_keys=True), flush=True)
+                self.last_print = now
 
     def close(self) -> None:
         self.watchdog.close()
@@ -137,24 +150,25 @@ def pipeline(
     device: str,
     control: Control,
 ) -> dict[str, Any]:
-    batches = []
-    for index, start in enumerate(range(0, cfg.worlds, cfg.world_batch_size)):
-        name = f"collect-{index:04d}"
-        unit = store.get(name)
-        if unit is None:
-            unit = collect_batch(
-                cfg,
-                range(start, min(cfg.worlds, start + cfg.world_batch_size)),
-                b8=b8,
-                networks=networks,
-                device=device,
-                stop=control.stop,
-                progress=control.progress,
-            )
-            if control.stop():
-                raise InterruptedError("collection finished after evidence deadline")
-            store.publish(name, unit)
-        batches.append(unit)
+    count = math.ceil(cfg.worlds / cfg.collection_unit_worlds)
+    if not all(store.has(f"collect-{i:04d}") for i in range(count)):
+        unit = collect_batch(
+            cfg,
+            range(cfg.worlds),
+            b8=b8,
+            networks=networks,
+            device=device,
+            stop=control.stop,
+            progress=control.progress,
+            resume_state=restore_collection(store, cfg),
+            checkpoint=lambda state: publish_collection(store, cfg, state),
+        )
+        if control.stop():
+            raise InterruptedError("collection finished after evidence deadline")
+        for i, shard in enumerate(split_collection(cfg, unit)):
+            if not store.has(f"collect-{i:04d}"):
+                store.publish(f"collect-{i:04d}", shard)
+    batches = [store.get(f"collect-{i:04d}") for i in range(count)]
     dataset = select_dataset(cfg, batches)
     train_roots = [r for r in dataset["roots"] if r["partition"] == "train"]
     assessment_roots = [r for r in dataset["roots"] if r["partition"] == "assessment"]
@@ -176,15 +190,63 @@ def pipeline(
                 raise InterruptedError("search finished after evidence deadline")
             store.publish(name, unit)
         labels.extend(unit)
-    student, fit_timing = fit_student(
-        cfg,
-        dataset["demos"],
-        labels,
-        device=device,
-        store=store,
-        stop=control.stop,
-        progress=control.progress,
-    )
+
+    cancel_independent = threading.Event()
+
+    def independent_stop() -> bool:
+        return control.stop() or cancel_independent.is_set()
+
+    def independent_assessment() -> None:
+        # Thread-local inference mode; no RNG draws, fit tensors or optimizer.
+        # The single default CUDA stream provides kernel ordering; useful host
+        # work and serialization can overlap fit. Forecast never assumes a gain.
+        for index, start in enumerate(range(0, len(assessment_roots), cfg.search_chunk)):
+            chunk = assessment_roots[start : start + cfg.search_chunk]
+            selected = store.get(f"aselect-{index:04d}")
+            if selected is None:
+                selected = label_roots(
+                    chunk,
+                    cfg=cfg,
+                    b8=b8,
+                    networks=networks,
+                    device=device,
+                    stop=independent_stop,
+                    progress=control.progress,
+                )
+                store.publish(f"aselect-{index:04d}", selected)
+            if not store.has(f"ascore-{index:04d}"):
+                prepared = prepare_assessment(
+                    chunk,
+                    cfg=cfg,
+                    b8=b8,
+                    networks=networks,
+                    device=device,
+                    stop=independent_stop,
+                    progress=control.progress,
+                    labels=selected,
+                )
+                store.publish(f"ascore-{index:04d}", prepared)
+
+    # UnitStore publication is serialized by its own lock. Preflight uses the
+    # same overlap, proving optimizer/RNG state is independent of this lane.
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="spatial-independent") as pool:
+        future = pool.submit(independent_assessment)
+        try:
+            student, fit_timing = fit_student(
+                cfg,
+                dataset["demos"],
+                labels,
+                device=device,
+                store=store,
+                stop=lambda: control.stop() or (future.done() and future.exception() is not None),
+                progress=control.progress,
+            )
+        except BaseException:
+            cancel_independent.set()
+            if future.done():
+                future.result()
+            raise
+        future.result()
     if control.stop():
         raise InterruptedError("fit finished after evidence deadline")
     actor = store.output / "final-actor.pth"
@@ -212,6 +274,7 @@ def pipeline(
                 device=device,
                 stop=control.stop,
                 progress=control.progress,
+                prepared=store.get(f"ascore-{index:04d}"),
             )
             if control.stop():
                 raise InterruptedError("assessment finished after evidence deadline")
@@ -260,7 +323,23 @@ def ruler(
     and frozen historical fractions supply a conditional support estimate.
     """
     started = time.monotonic()
+    fixtures = [
+        dict(fixtures[i % len(fixtures)], fixture_replica=i // len(fixtures))
+        for i in range(cfg.world_batch_size)
+    ]
     phases = {"native_startup": warm_native(control.progress) if device.startswith("cuda") else {}}
+    if device.startswith("cuda"):
+        from research.spatial_student_pilot.native_cache import export_cache
+
+        phases["native_cache_export"] = export_cache(store.output)
+        from research.spatial_student_pilot.parity import mapped_mature_proof
+
+        phases["mapped_parity"] = mapped_mature_proof(
+            cfg, fixtures, b8=b8, networks=networks, device=device
+        )
+        publish_json(store.output / "mapped-parity.json", phases["mapped_parity"])
+        if phases["mapped_parity"]["exact"] is not True:
+            raise ValueError("E128/E1024 mature mapped exact-digest proof failed")
     early = collect_batch(
         cfg,
         range(cfg.world_batch_size),
@@ -273,6 +352,27 @@ def ruler(
         ruler_ticks=80,
     )
     store.publish("early-0000", early)
+    checkpoint_probe = {}
+
+    def measure_checkpoint(state: dict[str, Any]) -> None:
+        from research.spatial_student_pilot.forecast import _sizes
+
+        class ProbeStore:
+            def has(self, name: str) -> bool:
+                return False
+
+            def publish(self, name: str, payload: Any) -> None:
+                checkpoint_probe.setdefault("sizes", {})[name] = _sizes(payload)
+
+        mark = time.monotonic()
+        publish_collection(ProbeStore(), cfg, state)
+        scale = max(1.0, cfg.demos / max(1, sum(len(v) for v in state["demos"].values())))
+        checkpoint_probe.update(
+            capture_seconds=state["capture_seconds"],
+            serialization_seconds=time.monotonic() - mark,
+            record_growth_factor=scale,
+        )
+
     batch = collect_batch(
         cfg,
         range(cfg.world_batch_size),
@@ -283,6 +383,7 @@ def ruler(
         progress=control.progress,
         ruler_ticks=80,
         ruler_fixtures=fixtures,
+        checkpoint=measure_checkpoint,
     )
     store.publish("mature-0000", batch)
     collection_rate = late_collection_rate(batch)
@@ -292,6 +393,7 @@ def ruler(
         "ticks": len(early["tick_samples"]),
         "samples": early["tick_samples"],
     }
+    phases["collection_checkpoint_probe"] = checkpoint_probe
     phases["collection"] = {
         "seconds": batch["elapsed_seconds"],
         "rows": batch["world_ticks"],
@@ -308,7 +410,10 @@ def ruler(
         for pool in pools.values():
             if index < len(pool):
                 roots.append(pool[index])
-        if len(roots) >= 22 and sum(int(r["mask"].sum()) * 2 for r in roots) >= 128:
+        if (
+            len(roots) >= 22
+            and sum(int(r["mask"].sum()) * 2 for r in roots) >= cfg.branch_batch_size
+        ):
             break
     if not roots or not batch["demos"]:
         raise RuntimeError("INCOMPLETE_RULER missing mature fixture roots or demonstrations")
@@ -377,22 +482,23 @@ def ruler(
     store.publish("assess-0000", assessment_rows)
     # Measure E128 student extraction/forward separately on mature states. This
     # is added to the collection floor even though that floor already pays B8.
-    from research.sandbox_a_resident.ct_mechanics import CTOpponentRuntime
     from research.sandbox_a_resident.ct_snapshots import (
         CompactWorldSnapshot,
         restore_world_snapshots_into,
     )
+    from research.spatial_student_pilot.batching import BatchedOpponents
     from research.spatial_student_pilot.search import _new_sim, _sync
 
-    sim = _new_sim(cfg, 128, device)
-    opp = CTOpponentRuntime(
+    forward_fixtures = fixtures[: cfg.gameplay_worlds]
+    sim = _new_sim(cfg, len(forward_fixtures), device)
+    opp = BatchedOpponents(
         sim,
-        [training_rosters(cfg.worlds)[r["roster_index"]] for r in fixtures],
+        [training_rosters(cfg.worlds)[r["roster_index"]] for r in forward_fixtures],
         b8_network=b8,
         checkpoint_networks=networks,
     )
     restore_world_snapshots_into(
-        [CompactWorldSnapshot.from_state_dict(r["snapshot"]) for r in fixtures],
+        [CompactWorldSnapshot.from_state_dict(r["snapshot"]) for r in forward_fixtures],
         sim,
         opp,
     )
@@ -404,7 +510,7 @@ def ruler(
         _sync(device)
         if index >= 3:
             forward_times.append(time.monotonic() - before)
-    phases["student_forward"] = {"slab_size": 128, "seconds": forward_times}
+    phases["student_forward"] = {"slab_size": len(forward_fixtures), "seconds": forward_times}
     del sim, opp
     mark = time.monotonic()
     worlds = _worlds(cfg)[: cfg.world_batch_size]
@@ -445,14 +551,17 @@ def ruler(
     export_checkpoint(student, actor, metadata={"namespace": cfg.namespace, "ruler_only": True})
     seal_file(actor)
     phases["export"] = {"seconds": time.monotonic() - mark, "bytes": actor.stat().st_size}
-    full_slabs = [r for r in branch_timings if r["slab_size"] == 128 and r["ticks"] == 80]
+    full_slabs = [
+        r for r in branch_timings if r["slab_size"] == cfg.branch_batch_size and r["ticks"] == 80
+    ]
     b8_rates = [r["loop_seconds"] / r["ticks"] for r in full_slabs if not r["closed_loop"]]
     student_rates = [r["loop_seconds"] / r["ticks"] for r in full_slabs if r["closed_loop"]]
-    gameplay_qualified = len(worlds) == 128 and all(
+    gameplay_qualified = len(worlds) == cfg.gameplay_worlds and all(
         phases["gameplay"]["ticks"][a] >= 20 for a in ("b8", "student")
     )
     rates_qualified = (
         len(roots) >= 22
+        and phases.get("mapped_parity", {}).get("exact", False)
         and bool(b8_rates)
         and bool(student_rates)
         and gameplay_qualified
@@ -468,6 +577,18 @@ def ruler(
         },
         fit_update=fit_timing["elapsed_seconds"] / (cfg.bc_updates + cfg.improvement_updates),
         student_forward_tick=max(forward_times),
+        cfg=PilotConfig(),
+    )
+    # Nine complete collection trajectory boundaries, conservatively scaling
+    # the actual mature capture+torch.save+gzip measurement to a full reservoir.
+    components["collection_checkpoints"] = (
+        9
+        * (
+            checkpoint_probe.get("capture_seconds", 900)
+            + checkpoint_probe.get("serialization_seconds", 900)
+        )
+        * checkpoint_probe.get("record_growth_factor", 1)
+        * 1.25
     )
     sizes = export_projection(
         batch,
@@ -521,6 +642,10 @@ def main() -> int:
     torch.backends.cudnn.deterministic = True
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
+    if args.device == "cuda":
+        from research.spatial_student_pilot.native_cache import preload
+
+        preload(args.input_dir)
     original = PilotConfig.from_dict(json.loads(args.config.read_text()))
     ledger = json.loads(args.ledger.read_text())
     validate_ledger(ledger, original)

@@ -34,6 +34,7 @@ def packet(tmp_path: Path, mode: str = "ruler", **kwargs: object) -> dict:
         ruling_sha256="d" * 64,
         amendment_sha256="e" * 64,
         clarification_sha256="f" * 64,
+        clarification_06_sha256="a" * 64,
         **kwargs,
     )
 
@@ -196,6 +197,11 @@ def test_manifest_and_verified_ruler_require_thread_evidence(tmp_path: Path) -> 
         export_projection={"qualified": True},
         rate_qualified=True,
         peak_vram_bytes=1024,
+        phases=dict(
+            mapped_parity=dict(
+                exact=True, exact_actions=True, reference_worlds=128, candidate_worlds=1024, ticks=3
+            )
+        ),
     )
     receipt = tmp_path / "receipt.json"
 

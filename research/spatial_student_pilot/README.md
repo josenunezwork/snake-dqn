@@ -1,7 +1,7 @@
 # Spatial student pilot
 
 Frozen v1 mechanism pilot. Start with REGISTRATION.md, clarifications01–03,
-REGISTRATION_AMENDMENT_04.md and REGISTRATION_CLARIFICATION_05.md. This package
+REGISTRATION_AMENDMENT_04.md and REGISTRATION_CLARIFICATION_05/06.md. This package
 has no serving integration and grants no release.
 
 `observation.py` reconstructs 16 full-arena planes and 36 scalars from compact
@@ -29,8 +29,8 @@ Clarification05 separates timed mature-body engineering fixtures from fresh
 scientific support. Preparation derives128 natural ordinary L600+ snapshots
 from the SHA-pinned historical C/T bank. Only the ruler decodes them; science
 still starts fresh at L1. The ruler reports native-loader startup separately,
-measures80 fresh early ticks and80 mature ticks, and uses80-tick E128 branch
-probes to price unchanged H300/H5000 production work. Support is explicitly a
+measures80 fresh early E1024 ticks and80 restored mature E1024 ticks, and uses
+80-tick E1024 branch probes to price unchanged H300/H5000 production work. Support is explicitly a
 conditional frozen historical estimate with separately measured early growth.
 Gameplay prices are floored at mature collection plus student forward cost;
 assessment/gameplay sizes come from actual serialized output. Nine thread
@@ -64,7 +64,7 @@ complete verified ledger, candidate, seed audit and latency report. The frozen
 MPS diagnostic uses12 warmups/100 repeats per fixture, one CPU thread and a
 required `--load-observation` description. Its complete raw evidence is mandatory;
 p95 above4ms is reported and cannot cause scientific KILL. It requires
-all 86 units and exact final-actor tensor identity before performing the sole
+all 51 endpoint/preparation units plus eligible collection trajectory shards and exact final-actor tensor identity before performing the sole
 world-clustered readout. Missing support is INCOMPLETE. Valid misses of clauses1–5 KILL scaling.
 
 Local verification (CUDA parity remains a target-platform canary obligation):
@@ -96,3 +96,33 @@ This task prepares and dry-runs only; dispatch is explicitly withheld.
 To reproduce the historical-fixture, random-weight development probe (it never
 qualifies the endpoint), use `latency --development-bank STAGE_0001_PT --device
 mps --output FRESH_JSON`; do not combine it with scientific checkpoint/unit inputs.
+
+## Mechanical speed package (clarification06)
+
+The collector runs E1024 while preserving eight logical128-world reservoirs and
+final shards. Every500 ticks it exports a complete simulator/carry/RNG checkpoint
+as eight bounded cstate shards plus a completion-last cseal. New record deltas are
+keyed by world/tick/kind. Resume uses the latest verified complete seal and its
+immutable record dependencies. Old config hashes are refused.
+
+Search/assessment use1024-job slabs and256-root label units. Opponents share one
+vector61 runtime and group frozen forwards by checkpoint identity; no roster-sized
+simulator copies are needed. Near Q ties use a canonical single-row fp32 forward.
+Only immutable search-root rasters are cached; microbatch8 and optimizer arithmetic
+remain unchanged. Assessment selection and independent B8/teacher scoring overlap
+fit in one bounded inference thread. Scoring memoization never crosses suffix or
+continuation identity. Gameplay uses one paired E384 simulator.
+
+The ruler replicates128 historical natural fixtures only for engineering load;
+replicas do not count as fresh parents. Before rate admission it requires exact
+three-tick action/state digests for E128 legacy versus E1024 resident execution on
+the allocated GPU. Forecasts price full horizons, checkpoint serialization, paired
+gameplay mature floors, and at least one hour setup/export, without overlap credit.
+
+Preparation accepts optional `--wheelhouse /absolute/linux-wheels` (128MiB max) and
+`--native-cache-receipts H100_RECEIPT A100_RECEIPT`. Cache receipts must bind stopped,
+hash-verified exports with identical native sources/flags, GPU architecture and
+Torch/CUDA toolchain. The ruler exports its loaded binaries for later packets.
+Without both compatible native caches, cold compilation stays charged. Large
+Torch wheels should remain remote downloads when uploading them would cost more.
+Neither author tests nor a dispatch dry-run establishes CUDA speed or six-hour fit.

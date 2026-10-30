@@ -31,7 +31,7 @@ def test_real_pipeline_and_support_fail_closed(tmp_path: Path) -> None:
     try:
         result = pipeline(cfg, store, b8=zero, networks=networks, device="cpu", control=control)
         assert result["status"] == "ENDPOINT_EXPORTED_NO_REMOTE_LOOK"
-        assert len(store.list_ids()) == 9
+        assert len(store.list_ids()) == 19
         assert (store.output / "final-actor.pth.complete").is_file()
         batches = [store.get("collect-0000"), store.get("collect-0001")]
         data = select_dataset(cfg, batches)

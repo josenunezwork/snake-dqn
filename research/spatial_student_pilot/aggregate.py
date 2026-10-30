@@ -31,8 +31,10 @@ from research.spatial_student_pilot.search import _freeze_hash, select_mass_acti
 def expected_units(cfg: PilotConfig) -> set[str]:
     """Frozen complete endpoint inventory, including every fit trajectory boundary."""
     counts = {
-        "collect": math.ceil(cfg.worlds / cfg.world_batch_size),
+        "collect": math.ceil(cfg.worlds / cfg.collection_unit_worlds),
         "search": math.ceil((cfg.train_late + cfg.train_ordinary) / cfg.search_chunk),
+        "aselect": math.ceil((cfg.assessment_late + cfg.assessment_ordinary) / cfg.search_chunk),
+        "ascore": math.ceil((cfg.assessment_late + cfg.assessment_ordinary) / cfg.search_chunk),
         "assess": math.ceil((cfg.assessment_late + cfg.assessment_ordinary) / cfg.search_chunk),
         "gameplay": math.ceil(cfg.gameplay_worlds / cfg.world_batch_size),
     }
@@ -197,7 +199,7 @@ def aggregate(
         validate_ledger(verified, cfg)
         expected = expected_units(cfg)
         actual = {entry["unit_id"] for entry in verified["units"]}
-        if actual - expected:
+        if {n for n in actual - expected if not n.startswith(("cstate-", "cseal-"))}:
             return _decision("INVALID", "foreign endpoint unit identities")
         if expected - actual:
             return _decision(
@@ -223,8 +225,8 @@ def aggregate(
                     or sorted(batch["world_ids"])
                     != list(
                         range(
-                            index * cfg.world_batch_size,
-                            min(cfg.worlds, (index + 1) * cfg.world_batch_size),
+                            index * cfg.collection_unit_worlds,
+                            min(cfg.worlds, (index + 1) * cfg.collection_unit_worlds),
                         )
                     )
                 ):

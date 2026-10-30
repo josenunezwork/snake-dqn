@@ -22,12 +22,12 @@ from research.spatial_student_pilot.run import publish_json
 
 def test_exact_frozen_endpoint_inventory() -> None:
     units = expected_units(PilotConfig())
-    assert len(units) == 86
+    assert len(units) == 51
     assert sum(u.startswith("collect-") for u in units) == 8
-    assert sum(u.startswith("search-") for u in units) == 32
+    assert sum(u.startswith("search-") for u in units) == 4
     assert sum(u.startswith("fit-") for u in units) == 32
-    assert sum(u.startswith("assess-") for u in units) == 12
-    assert sum(u.startswith("gameplay-") for u in units) == 2
+    assert sum(u.startswith("assess-") for u in units) == 2
+    assert sum(u.startswith("gameplay-") for u in units) == 1
     assert "fit-0008000" in units
     assert "fit-0000250" in units
 
@@ -41,7 +41,7 @@ def test_empty_ledger_is_incomplete_without_loading_or_readout(tmp_path: Path) -
     ):
         result = aggregate(cfg, empty_ledger(cfg), tmp_path, tmp_path / "actor", None, {})
     assert result["verdict"] == "INCOMPLETE"
-    assert len(result["missing_units"]) == 86
+    assert len(result["missing_units"]) == 51
     readout.assert_not_called()
     store.assert_not_called()
 

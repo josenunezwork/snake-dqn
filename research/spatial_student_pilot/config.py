@@ -26,8 +26,10 @@ class PilotConfig:
     horizon: int = 5000
     body_capacity: int = 10400
     branch_horizon: int = 300
-    branch_batch_size: int = 128
-    world_batch_size: int = 128
+    branch_batch_size: int = 1024
+    world_batch_size: int = 1024
+    collection_unit_worlds: int = 128
+    collection_checkpoint_every: int = 500
     gameplay_worlds: int = 192
     demos: int = 32768
     train_late: int = 512
@@ -39,7 +41,7 @@ class PilotConfig:
     batch_size: int = 64
     microbatch: int = 8
     checkpoint_every: int = 250
-    search_chunk: int = 32
+    search_chunk: int = 256
     min_decisions: int = 1048576
     selection_suffixes: tuple[int, ...] = (0, 1)
     scoring_suffixes: tuple[int, ...] = (4, 5)
@@ -98,7 +100,9 @@ class PilotConfig:
             body_capacity=64,
             branch_horizon=2,
             branch_batch_size=12,
-            world_batch_size=3,
+            world_batch_size=6,
+            collection_unit_worlds=3,
+            collection_checkpoint_every=2,
             gameplay_worlds=3,
             demos=6,
             train_late=1,
