@@ -13,5 +13,5 @@ PY="$COLAB_CLI_ROOT/.venv/bin/python"
 "$PY" -c 'from pathlib import Path; import os; from research.watch_replay.product import stage_release_evidence; stage_release_evidence(Path(os.environ["COLAB_INPUT_DIR"]))'
 "$PY" -m research.watch_replay.run --contract "$COLAB_INPUT_DIR/$WATCH_REPLAY_CONTRACT" --ledger "$COLAB_INPUT_DIR/$WATCH_REPLAY_LEDGER" --out "$COLAB_OUTPUT_DIR/sessions" --workers "$WATCH_REPLAY_WORKERS"
 if [[ "${SNAKE_COLAB_CANARY:-0}" == 1 ]]; then
-  "$PY" -m research.watch_replay.preflight --branches-only --out "$COLAB_OUTPUT_DIR/branches.json"
+  "$PY" -m research.watch_replay.preflight --branches-only --out "$COLAB_OUTPUT_DIR/branches.json" --segment-operational "$COLAB_OUTPUT_DIR/sessions/operational.json"
 fi

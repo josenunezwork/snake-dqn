@@ -482,3 +482,25 @@ def test_ready_rotation_is_nonblocking_and_all_bank_reads_are_background(tmp_pat
     assert session._watch_replay.header["unit_id"] != first.header["unit_id"]
     assert threads and set(threads) == {"watch-replay-prefetch"}
     bank.close()
+
+
+@pytest.mark.parametrize("damage", ["length", "roots", "frames", "failed"])
+def test_canary_long_body_segment_coverage_guard(tmp_path, damage):
+    from research.watch_replay.preflight import segment_proof
+
+    stats = {"max_hero_length": 900, "search_roots": 4, "mirror_identity_frames": 3000}
+    report = {"completed": 1, "exclusions": [], "units": [{"stats": stats}]}
+    contract = {"horizon": 3000, "controller": "exact-stop-l2-prime"}
+    if damage == "length":
+        stats["max_hero_length"] = 599
+    elif damage == "roots":
+        stats["search_roots"] = 0
+    elif damage == "frames":
+        stats["mirror_identity_frames"] = 2999
+    else:
+        report["completed"] = 0
+    (tmp_path / "contract.json").write_text(json.dumps(contract))
+    path = tmp_path / "operational.json"
+    path.write_text(json.dumps(report))
+    with pytest.raises(ValueError, match="canary"):
+        segment_proof(path)

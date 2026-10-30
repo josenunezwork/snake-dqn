@@ -138,6 +138,7 @@ def generate(task: tuple[dict, dict, str]) -> dict:
             stats = {
                 "hero_mass_integral": sum(f["mass"] for f in raw["frames"]) / contract["horizon"],
                 "hero_deaths": sum(f["death"] for f in raw["frames"]),
+                "max_hero_length": max(f["mass"] for f in raw["frames"]),
                 "decisions": len(raw["decisions"]),
                 "search_roots": len(raw["batches"]),
                 "interventions": sum(b["chosen"] != b["bare"] for b in raw["batches"]),

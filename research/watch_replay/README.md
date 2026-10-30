@@ -73,7 +73,7 @@ All output directories are fresh; no evidence is overwritten.
 
 `prepare --commit FULL_PUBLISHED_BRANCH_SHA --benchmark ABSOLUTE/benchmark.json
 --out ABSOLUTE/FRESH_PACKET` defaults to N=12 (1..12 per packet). It uploads both
-main and full-length single-session canary contracts/empty ledgers, the two exact checkpoints,
+main and excluded long-body single-session canary contracts/empty ledgers, the two exact checkpoints,
 and portable pinned release evidence. Sparse source includes the static research
 closure plus product source/config. No runtime `/Users` dependency or Drive.
 
@@ -100,10 +100,13 @@ line without `--dry-run` for operator dispatch. This assignment does not dispatc
 Main refuses until an actual same-pin, same-inventory L4 canary PASS with verified
 exports and `stop_verified` is bound. Prepare a fresh packet with
 `--canary-receipt /absolute/output-canary/receipt.json` after that proof exists.
-The canary runs one complete 6,000-frame search session with one worker plus
-three long-body H300 branches. Its base/effective wall is 15/30 minutes, the
+The canary runs a frozen 3,000-frame prefix of the measured Mac full-session
+seed (namespace `t34-watch-replay-full-size-fixture-v1`, seed 796055905), one worker,
+plus three long-body H300 branches. It must reach L>=600 and execute search;
+`branches.json` binds completed segment time, decoded/compressed bytes and peak
+line size. These excluded short units are refused by product bank installation. Its base/effective wall is 15/30 minutes, the
 qualified transport's fixed canary ceiling. This is a completion gate, not a
-promise that a randomly selected long session fits; a timeout is a mechanical
+promise of cloud throughput; a timeout is a mechanical
 failure and never authorizes main. Main uses the conservative W4 forecast.
 These commands remain subject to independent Argon review before live execution.
 
@@ -142,7 +145,7 @@ out-of-range files are excluded; valid sessions are published. The immutable
 `operational.json` lists installed units, missing indices and exclusion reasons.
 Generation also writes operational reports when a seed fails, then continues
 other seeds. Main requires operational/contract exports; the canary additionally
-requires its complete full-length recording. Failed seed payloads are never
+requires its complete long-body segment recording and coverage report. Failed seed payloads are never
 marked complete or silently retried.
 No frame/outcome aggregation occurs remotely beyond per-session recording stats;
 no efficacy verdict or release authority is inferred. Enabling the flag is an

@@ -14,7 +14,24 @@ from research.watch_replay.run import allocation, identity
 from tools.ops.package_spec import empty_ledger, publish_json
 
 
-def branches(out: Path) -> list[dict]:
+def segment_proof(path: Path) -> dict:
+    """Require a completed long-body search segment and expose size/cost evidence."""
+    units = json.loads(path.read_text())
+    if units.get("completed") != 1 or units.get("exclusions"):
+        raise ValueError("canary long-body segment must complete")
+    unit = units["units"][0]
+    stats = unit["stats"]
+    contract = json.loads((path.parent / "contract.json").read_text())
+    if contract["horizon"] != 3000 or stats["mirror_identity_frames"] != 3000:
+        raise ValueError("canary requires a full 3,000-frame segment")
+    if contract["controller"] == "exact-stop-l2-prime" and (
+        stats["max_hero_length"] < 600 or stats["search_roots"] < 1
+    ):
+        raise ValueError("canary segment did not exercise long-body search")
+    return unit
+
+
+def branches(out: Path, segment_operational: Path | None = None) -> list[dict]:
     """Exercise actual exact-stop branches even though tiny worlds cannot trigger."""
     import numpy as np
 
@@ -53,7 +70,10 @@ def branches(out: Path) -> list[dict]:
             )
         finally:
             session.close()
-    publish_json(out, {"branch_timings": timings})
+    report = {"branch_timings": timings}
+    if segment_operational is not None:
+        report["long_body_segment"] = segment_proof(segment_operational)
+    publish_json(out, report)
     return timings
 
 
@@ -61,9 +81,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--branches-only", action="store_true")
+    parser.add_argument("--segment-operational", type=Path)
     args = parser.parse_args()
     if args.branches_only:
-        branches(args.out)
+        branches(args.out, args.segment_operational)
         return
     args.out.mkdir(parents=True, exist_ok=False)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()

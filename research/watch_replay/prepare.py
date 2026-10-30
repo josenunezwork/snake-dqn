@@ -46,7 +46,7 @@ def prepare(
     ledger: Path | None = None,
     previous_receipts: list[Path] | None = None,
 ) -> dict:
-    """Ship the identical inventory for a full-length canary and N sessions."""
+    """Ship identical inputs for an excluded long-body canary and N sessions."""
     if not 1 <= count <= 12:
         raise ValueError("one packet contains 1..12 sessions within bounded exports")
     refs = subprocess.check_output(
@@ -62,7 +62,12 @@ def prepare(
     out.mkdir(parents=True, exist_ok=False)
     contracts = {
         "main": {**allocation(namespace, count, controller), "commit": commit},
-        "canary": {**allocation(namespace + "-canary", 1, controller), "commit": commit},
+        # Frozen excluded prefix from the measured full-session fixture. It reaches
+        # L>=600/search within 3,000 frames and fits the 30-minute canary guard.
+        "canary": {
+            **allocation("t34-watch-replay-full-size-fixture-v1", 1, controller, 3000),
+            "commit": commit,
+        },
     }
     previous_receipts = previous_receipts or []
     if len(previous_receipts) > 2 or bool(previous_receipts) != bool(ledger):
