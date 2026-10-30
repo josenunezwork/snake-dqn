@@ -312,6 +312,8 @@ def test_install_requires_complete_frozen_union_then_publishes_bank(tmp_path):
     assert pick_ready(ReplayBank(bank)).header["unit_id"] == "bank-fixture/sessions/000000"
     with pytest.raises(ValueError, match="foreign"):
         install({**contract, "controller": "bare-b8"}, [exports], tmp_path / "foreign")
+    refused = json.loads((tmp_path / "foreign/operational.json").read_text())
+    assert refused["completed"] == 0 and refused["exclusions"]
 
 
 def test_install_records_missing_units_and_always_writes_operational(tmp_path):

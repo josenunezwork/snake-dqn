@@ -14,15 +14,19 @@ from web.backend.watch_replay import Recording
 
 def install(contract: dict, roots: list[Path], bank: Path) -> int:
     """Exclude individual failures; refuse foreign contracts and duplicate unit IDs."""
-    # A foreign attempt is a binding failure, not an individual failed seed.
-    for root in roots:
-        binding = root / "contract.json"
-        verify_immutable(binding)
-        if json.loads(binding.read_text()) != contract:
-            raise ValueError("foreign namespace/source/allocation")
     bank.mkdir(parents=True, exist_ok=False)
     installed, exclusions, seen = [], [], set()
     try:
+        # Refuse foreign attempt bindings before installing any payload.
+        for root in roots:
+            binding = root / "contract.json"
+            try:
+                verify_immutable(binding)
+                if json.loads(binding.read_text()) != contract:
+                    raise ValueError("foreign namespace/source/allocation")
+            except Exception as exc:
+                exclusions.append({"path": str(binding), "error": str(exc)})
+                raise
         for root in roots:
             for path in sorted(root.glob("*.watch.gz")):
                 try:
