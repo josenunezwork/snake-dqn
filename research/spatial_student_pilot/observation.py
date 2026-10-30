@@ -34,7 +34,11 @@ def _tensor(value: Any, device: torch.device | str | None = None) -> torch.Tenso
 
 
 def compact_from_sim(
-    sim: Any, env_indices: Sequence[int] | torch.Tensor | None = None, hero: int = 0
+    sim: Any,
+    env_indices: Sequence[int] | torch.Tensor | None = None,
+    hero: int = 0,
+    *,
+    padded: bool = False,
 ) -> dict[str, Any]:
     """Extract selected GridBatchSim/DeviceSim rows without copying GPU bodies to CPU."""
     if sim.S != N_SNAKES or not 0 <= hero < N_SNAKES:
@@ -52,7 +56,12 @@ def compact_from_sim(
         raise ValueError("an observation batch cannot be empty")
     slots = (torch.arange(N_SNAKES, device=device) + hero) % N_SNAKES
     counts = _tensor(sim.seg_count, device)[ids][:, slots].long()
-    span = max(1, int(counts.max().item()))
+    if padded:
+        from research.gpu_sim_spike import r2_cache
+
+        span = r2_cache.window(sim)
+    else:
+        span = max(1, int(counts.max().item()))
     if span > sim.cap or max(sim.grid_h, sim.grid_w) > 32767:
         raise ValueError("body count/cell coordinates exceed compact storage")
     hp = _tensor(sim.head_ptr, device)[ids][:, slots].long()
@@ -78,7 +87,7 @@ def compact_from_sim(
         present = sim.food_present[ids]
         # Fixed simulator food buffers may contain holes; preserve them sparsely.
         used = torch.where(present, torch.arange(present.shape[1], device=device) + 1, 0)
-        food_span = max(1, int(used.max().item()))
+        food_span = present.shape[1] if padded else max(1, int(used.max().item()))
         out["food_cells"] = sim.food_cells[ids, :food_span].to(torch.int16)
         out["food_kind"] = torch.where(
             present[:, :food_span], 1 + sim.corpse_food[ids, :food_span].to(torch.uint8), 0
@@ -208,7 +217,7 @@ def compact_cat(compacts: Iterable[dict[str, Any]]) -> dict[str, Any]:
 
 
 def build_observation(
-    compact: dict[str, Any], device: str | torch.device = "cpu"
+    compact: dict[str, Any], device: str | torch.device = "cpu", *, async_checks: bool = False
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """GPU-native scatter reconstruction of one sparse microbatch."""
     if compact["version"] != OBSERVATION_VERSION:
@@ -225,7 +234,9 @@ def build_observation(
     valid = (order < count[..., None]) & alive[..., None]
     x, y = body[..., 0], body[..., 1]
     bad = valid & ((x < 0) | (x >= w) | (y < 0) | (y >= h))
-    if bool(bad.any().item()):
+    if async_checks:
+        torch._assert_async(~bad.any(), "living snake body lies outside the arena")
+    elif bool(bad.any()):
         raise ValueError("living snake body lies outside the arena")
     idx = (y * w + x).clamp(0, h * w - 1)
     occ = torch.zeros((n, N_SNAKES, h * w), device=device)
@@ -236,7 +247,10 @@ def build_observation(
     food = compact["food_cells"].to(device=device, dtype=torch.long)
     kind = compact["food_kind"].to(device=device)
     fx, fy = food[..., 0], food[..., 1]
-    if bool(((kind > 0) & ((fx < 0) | (fx >= w) | (fy < 0) | (fy >= h))).any().item()):
+    bad_food = ((kind > 0) & ((fx < 0) | (fx >= w) | (fy < 0) | (fy >= h))).any()
+    if async_checks:
+        torch._assert_async(~bad_food, "food lies outside the arena")
+    elif bool(bad_food):
         raise ValueError("food lies outside the arena")
     food_idx = (fy * w + fx).clamp(0, h * w - 1)
     food_planes = torch.zeros((n, 2, h * w), device=device)
@@ -337,7 +351,7 @@ def _numpy_geometry(h: int, w: int) -> np.ndarray:
 
 
 def build_observation_numpy(
-    compact: dict[str, Any], device: str | torch.device = "cpu"
+    compact: dict[str, Any], device: str | torch.device = "cpu", *, async_checks: bool = False
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Fast CPU live raster + one upload per input, avoiding tiny MPS scatters.
 

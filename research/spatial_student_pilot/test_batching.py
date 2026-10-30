@@ -243,7 +243,10 @@ def test_collector_record_identity_frozen_e3_vs_resident_e6() -> None:
         def sort(rows: list[Any]) -> list[Any]:
             return sorted(rows, key=lambda r: (r["world_id"], r["tick"], r.get("kind", "")))
 
-        exact(sort(actual[key]), sort([r for b in expected for r in b[key]]))
+        assert all(torch.equal(r["q_b8"], torch.arange(6).float()) for r in actual[key])
+        # The only added field is diagnostic Q; registered record bytes are exact.
+        records = [{k: v for k, v in r.items() if k != "q_b8"} for r in actual[key]]
+        exact(sort(records), sort([r for b in expected for r in b[key]]))
     assert actual["decisions"] == sum(b["decisions"] for b in expected)
 
 

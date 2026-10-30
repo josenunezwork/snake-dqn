@@ -56,6 +56,7 @@ from research.spatial_student_pilot.search import (
     _Job,
     _rollouts,
     assess_roots,
+    label_chunks,
     label_roots,
     paired_gameplay,
     prepare_assessment,
@@ -173,23 +174,33 @@ def pipeline(
     train_roots = [r for r in dataset["roots"] if r["partition"] == "train"]
     assessment_roots = [r for r in dataset["roots"] if r["partition"] == "assessment"]
     labels = []
-    for index, start in enumerate(range(0, len(train_roots), cfg.search_chunk)):
-        name = f"search-{index:04d}"
-        unit = store.get(name)
-        if unit is None:
-            unit = label_roots(
-                train_roots[start : start + cfg.search_chunk],
-                cfg=cfg,
-                b8=b8,
-                networks=networks,
-                device=device,
-                stop=control.stop,
-                progress=control.progress,
-            )
-            if control.stop():
+    labels_ready = threading.Event()
+
+    def training_labels() -> None:
+        if store.has(f"fit-{cfg.bc_updates + cfg.improvement_updates:07d}"):
+            labels_ready.set()
+            return
+        chunks = [
+            train_roots[start : start + cfg.search_chunk]
+            for start in range(0, len(train_roots), cfg.search_chunk)
+        ]
+        missing = [i for i in range(len(chunks)) if not store.has(f"search-{i:04d}")]
+        pooled = label_chunks(
+            [chunks[i] for i in missing],
+            cfg=cfg,
+            b8=b8,
+            networks=networks,
+            device=device,
+            stop=independent_stop,
+            progress=control.progress,
+        )
+        for index, unit in zip(missing, pooled):
+            if independent_stop():
                 raise InterruptedError("search finished after evidence deadline")
-            store.publish(name, unit)
-        labels.extend(unit)
+            store.publish(f"search-{index:04d}", unit)
+        for index in range(len(chunks)):
+            labels.extend(store.get(f"search-{index:04d}"))
+        labels_ready.set()
 
     cancel_independent = threading.Event()
 
@@ -197,23 +208,36 @@ def pipeline(
         return control.stop() or cancel_independent.is_set()
 
     def independent_assessment() -> None:
+        training_labels()
         # Thread-local inference mode; no RNG draws, fit tensors or optimizer.
         # The single default CUDA stream provides kernel ordering; useful host
         # work and serialization can overlap fit. Forecast never assumes a gain.
-        for index, start in enumerate(range(0, len(assessment_roots), cfg.search_chunk)):
-            chunk = assessment_roots[start : start + cfg.search_chunk]
+        chunks = [
+            assessment_roots[start : start + cfg.search_chunk]
+            for start in range(0, len(assessment_roots), cfg.search_chunk)
+        ]
+        missing = [
+            i
+            for i in range(len(chunks))
+            if not store.has(f"aselect-{i:04d}") and not store.has(f"ascore-{i:04d}")
+        ]
+        selected_units = label_chunks(
+            [chunks[i] for i in missing],
+            cfg=cfg,
+            b8=b8,
+            networks=networks,
+            device=device,
+            stop=independent_stop,
+            progress=control.progress,
+        )
+        for index, selected in zip(missing, selected_units):
+            if independent_stop():
+                raise InterruptedError("assessment selection after deadline")
+            store.publish(f"aselect-{index:04d}", selected)
+        for index, chunk in enumerate(chunks):
+            if store.has(f"ascore-{index:04d}"):
+                continue
             selected = store.get(f"aselect-{index:04d}")
-            if selected is None:
-                selected = label_roots(
-                    chunk,
-                    cfg=cfg,
-                    b8=b8,
-                    networks=networks,
-                    device=device,
-                    stop=independent_stop,
-                    progress=control.progress,
-                )
-                store.publish(f"aselect-{index:04d}", selected)
             if not store.has(f"ascore-{index:04d}"):
                 prepared = prepare_assessment(
                     chunk,
@@ -232,6 +256,21 @@ def pipeline(
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="spatial-independent") as pool:
         future = pool.submit(independent_assessment)
         try:
+            _, bc_timing = fit_student(
+                cfg,
+                dataset["demos"],
+                [],
+                device=device,
+                store=store,
+                stop=lambda: control.stop() or (future.done() and future.exception() is not None),
+                progress=control.progress,
+                bc_only=True,
+            )
+            while not labels_ready.wait(timeout=0.1):
+                if future.done():
+                    future.result()
+                if control.stop():
+                    raise InterruptedError("waiting for training labels after deadline")
             student, fit_timing = fit_student(
                 cfg,
                 dataset["demos"],
@@ -247,6 +286,8 @@ def pipeline(
                 future.result()
             raise
         future.result()
+    fit_timing["elapsed_seconds"] += bc_timing["elapsed_seconds"]
+    fit_timing["updates_this_attempt"] += bc_timing["updates_this_attempt"]
     if control.stop():
         raise InterruptedError("fit finished after evidence deadline")
     actor = store.output / "final-actor.pth"
@@ -340,6 +381,17 @@ def ruler(
         publish_json(store.output / "mapped-parity.json", phases["mapped_parity"])
         if phases["mapped_parity"]["exact"] is not True:
             raise ValueError("E128/E1024 mature mapped exact-digest proof failed")
+    from research.spatial_student_pilot.ruler_cells import factorial_ruler
+
+    phases["factorial_cells"] = factorial_ruler(
+        cfg,
+        fixtures,
+        b8=b8,
+        networks=networks,
+        device=device,
+        stop=control.stop,
+        progress=control.progress,
+    )
     early = collect_batch(
         cfg,
         range(cfg.world_batch_size),

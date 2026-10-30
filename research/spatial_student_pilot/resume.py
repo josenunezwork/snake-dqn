@@ -15,6 +15,8 @@ import json
 import math
 import os
 import re
+import shutil
+import tarfile
 import tempfile
 import threading
 from pathlib import Path, PurePosixPath
@@ -245,8 +247,11 @@ class UnitStore:
         self.ledger = ledger
         self._entries = {entry["unit_id"]: entry for entry in ledger["units"]}
         self._roots = {name: self.input_dir for name in self._entries}
+        selected = unpack_resume(self.input_dir, ledger, cfg) if cfg.mode != "ruler" else None
+        self._unavailable = set(self._entries) - selected if selected is not None else set()
         for entry in ledger["units"]:
-            _verify(self.input_dir, cfg, entry["unit_id"], entry)
+            if entry["unit_id"] not in self._unavailable:
+                _verify(self.input_dir, cfg, entry["unit_id"], entry)
         if self.output.is_symlink():
             raise ValueError("symlink output root")
         # Existing completed output is forbidden: only the Mac-verified bound
@@ -268,12 +273,15 @@ class UnitStore:
         _unit_path(self.cfg, unit_id)
         if unit_id not in self._entries:
             return False
-        _verify(self._roots[unit_id], self.cfg, unit_id, self._entries[unit_id])
+        if unit_id not in self._unavailable:
+            _verify(self._roots[unit_id], self.cfg, unit_id, self._entries[unit_id])
         return True
 
     def get(self, unit_id: str) -> Any | None:
         if not self.has(unit_id):
             return None
+        if unit_id in self._unavailable:
+            raise ValueError(f"stage plan omitted a required payload: {unit_id}")
         return load_verified_unit(self._roots[unit_id], self.cfg, unit_id)
 
     def publish(self, unit_id: str, payload: Any) -> Path:
@@ -439,14 +447,115 @@ def build_ledger(
     return ledger
 
 
+def ledger_digest(ledger: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(ledger, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def stage_unit_ids(ledger: dict[str, Any], cfg: PilotConfig) -> set[str]:
+    """Outcome-blind dependency plan; the complete verified ledger stays intact."""
+    ids = {entry["unit_id"] for entry in ledger["units"]}
+    collection = {
+        f"collect-{i:04d}" for i in range(math.ceil(cfg.worlds / cfg.collection_unit_worlds))
+    }
+    needed = ids & collection
+    if not collection <= ids:
+        # Record deltas in earlier cstates are immutable dependencies of the
+        # latest full seal. Keep them all until final collection is complete.
+        needed |= {i for i in ids if i.startswith("cstate-")}
+        seals = sorted(i for i in ids if i.startswith("cseal-"))
+        if seals:
+            needed.add(seals[-1])
+    if f"fit-{cfg.bc_updates + cfg.improvement_updates:07d}" not in ids:
+        needed |= {i for i in ids if i.startswith("search-")}
+    fits = sorted(i for i in ids if i.startswith("fit-"))
+    if fits:
+        needed.add(fits[-1])
+    for name in ids:
+        if name.startswith("aselect-") and name.replace("aselect-", "ascore-") not in ids:
+            needed.add(name)
+        if name.startswith("ascore-") and name.replace("ascore-", "assess-") not in ids:
+            needed.add(name)
+    return needed
+
+
+def unpack_resume(input_dir: Path, ledger: dict[str, Any], cfg: PilotConfig) -> set[str] | None:
+    """Admit only the exact next-stage inventory; reject traversal/links/duplicates."""
+    path = input_dir / "resume-units.tar"
+    if not path.exists():
+        return None
+    if path.is_symlink() or path.stat().st_size > MAX_EXPORT_BYTES + 16 * 1024**2:
+        raise ValueError("invalid resume archive size/path")
+    selected = stage_unit_ids(ledger, cfg)
+    expected = {
+        entry["path"] + suffix
+        for entry in ledger["units"]
+        if entry["unit_id"] in selected
+        for suffix in ("", ".sha256", ".complete")
+    }
+    with tarfile.open(path, "r:") as archive:
+        members = archive.getmembers()
+        names = [m.name for m in members]
+        if (
+            len(names) != len(set(names))
+            or set(names) != expected | {"resume-plan.json"}
+            or any(not m.isfile() or m.size < 0 for m in members)
+            or sum(m.size for m in members) > MAX_EXPORT_BYTES + 8 * 1024**2
+        ):
+            raise ValueError("foreign/duplicate/oversized resume archive members")
+        for name in names:
+            _safe(input_dir, name)
+        plan_member = archive.getmember("resume-plan.json")
+        if plan_member.size > 1024**2:
+            raise ValueError("oversized resume plan")
+        plan = json.load(archive.extractfile(plan_member))
+        if plan != {
+            "schema": "spatial-resume-pack/v1",
+            "ledger_sha256": ledger_digest(ledger),
+            "selected_units": sorted(selected),
+        }:
+            raise ValueError("resume plan differs from verified ledger/dependencies")
+        with tempfile.TemporaryDirectory(dir=input_dir, prefix=".resume-") as temporary:
+            root = Path(temporary)
+            for member in members:
+                if member.name == "resume-plan.json":
+                    continue
+                target = _safe(root, member.name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with archive.extractfile(member) as source, target.open("xb") as out:
+                    shutil.copyfileobj(source, out)
+            for entry in ledger["units"]:
+                if entry["unit_id"] in selected:
+                    _verify(root, cfg, entry["unit_id"], entry)
+            for name in sorted(expected, key=lambda n: (n.endswith(".complete"), n)):
+                target = _safe(input_dir, name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists():
+                    raise ValueError("resume unpack target exists")
+                os.rename(_safe(root, name), target)
+    return selected
+
+
 def upload_inputs(
-    ledger: dict[str, Any], roots: Iterable[Path], cfg: PilotConfig
+    ledger: dict[str, Any],
+    roots: Iterable[Path],
+    cfg: PilotConfig,
+    *,
+    pack_path: Path | None = None,
 ) -> list[dict[str, str]]:
     """Bind verified payload/metadata inputs using supervisor relative dest paths."""
     validate_ledger(ledger, cfg)
     roots = list(map(Path, roots))
     result = []
+    selected = (
+        stage_unit_ids(ledger, cfg)
+        if pack_path is not None
+        else {e["unit_id"] for e in ledger["units"]}
+    )
     for entry in ledger["units"]:
+        if entry["unit_id"] not in selected:
+            continue
         found = [root for root in roots if _safe(root, entry["path"] + ".complete").is_file()]
         if len(found) != 1:
             raise ValueError("unit requires exactly one source export root")
@@ -456,6 +565,26 @@ def upload_inputs(
             result.append(
                 dict(path=str(path.resolve()), dest=entry["path"] + suffix, sha256=_sha(path))
             )
+    if pack_path is not None and ledger["units"]:
+        plan = {
+            "schema": "spatial-resume-pack/v1",
+            "ledger_sha256": ledger_digest(ledger),
+            "selected_units": sorted(selected),
+        }
+        pack_path.parent.mkdir(parents=True, exist_ok=True)
+        with pack_path.open("xb") as raw, tarfile.open(fileobj=raw, mode="w") as archive:
+            data = json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
+            info = tarfile.TarInfo("resume-plan.json")
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+            for binding in sorted(result, key=lambda row: row["dest"]):
+                info = tarfile.TarInfo(binding["dest"])
+                info.size = Path(binding["path"]).stat().st_size
+                with Path(binding["path"]).open("rb") as source:
+                    archive.addfile(info, source)
+        return [
+            dict(path=str(pack_path.resolve()), dest="resume-units.tar", sha256=_sha(pack_path))
+        ]
     return result
 
 

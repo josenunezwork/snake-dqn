@@ -11,7 +11,6 @@ import torch
 from torch import nn
 
 from research.gpu_sim_spike import r2_cache
-from research.sandbox_a_resident.ct_mechanics import CTDeviceSim
 from research.sandbox_a_resident.ct_snapshots import (
     CompactWorldSnapshot,
     restore_world_snapshots_into,
@@ -19,6 +18,7 @@ from research.sandbox_a_resident.ct_snapshots import (
 from research.sandbox_a_resident.training_rosters import training_rosters
 from research.spatial_student_pilot.batching import BatchedOpponents, capture_rows, observe_hero_bv8
 from research.spatial_student_pilot.config import PilotConfig
+from research.spatial_student_pilot.mechanics import PilotCTDeviceSim as CTDeviceSim
 
 
 def _priority(cfg: PilotConfig, world: int, tick: int, kind: str) -> int:
@@ -46,6 +46,8 @@ def collect_batch(
     ruler_seconds: float | None = None,
     ruler_ticks: int | None = None,
     ruler_fixtures: Sequence[dict[str, Any]] | None = None,
+    ruler_roster_indices: Sequence[int] | None = None,
+    ruler_census: Any = None,
     resume_state: dict[str, Any] | None = None,
     checkpoint: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
@@ -54,7 +56,16 @@ def collect_batch(
     dev = torch.device(device)
     ids = list(world_ids)
     if (
-        any(v is not None for v in (ruler_seconds, ruler_ticks, ruler_fixtures))
+        any(
+            v is not None
+            for v in (
+                ruler_seconds,
+                ruler_ticks,
+                ruler_fixtures,
+                ruler_roster_indices,
+                ruler_census,
+            )
+        )
         and cfg.mode != "ruler"
     ):
         raise ValueError("historical fixtures/tick probes are ruler-only")
@@ -68,6 +79,10 @@ def collect_batch(
         move_backend="indexed" if dev.type == "cuda" else "reference",
     )
     r2_cache.enable(sim)
+    if ruler_census is not None:
+        from research.spatial_student_pilot.ruler_cells import DiagnosticTiming
+
+        sim._timing = DiagnosticTiming(dev, ruler_census)
     sim.rng_key.copy_(torch.tensor([cfg.world_seed(i) for i in ids], device=dev))
     sim.rng_counter.zero_()
     sim.alive.fill_(False)
@@ -78,6 +93,10 @@ def collect_batch(
     sim.terminal_slots[:, 0] = True
     roster_table = training_rosters(cfg.worlds)
     roster_indices = [r["roster_index"] for r in ruler_fixtures] if ruler_fixtures else ids
+    if ruler_roster_indices is not None:
+        if len(ruler_roster_indices) != len(ids):
+            raise ValueError("ruler roster count mismatch")
+        roster_indices = list(ruler_roster_indices)
     rosters = [roster_table[i] for i in roster_indices]
     opponents = BatchedOpponents(
         sim,
@@ -124,28 +143,58 @@ def collect_batch(
         tick_samples = resume_state["tick_samples"]
         reached_l600 = set(resume_state["reached_l600_world_ids"])
         completed_ticks = start_tick
+    decision_counts = torch.tensor([decisions_by_world[w] for w in ids], device=dev)
+    reached = torch.tensor([w in reached_l600 for w in ids], device=dev)
+    pending_samples = []
+
+    def flush_metrics() -> None:
+        nonlocal decisions
+        counts = decision_counts.cpu().tolist()
+        decisions = sum(counts)
+        decisions_by_world.update(zip(ids, counts))
+        reached_l600.update(w for w, yes in zip(ids, reached.cpu().tolist()) if yes)
+        if pending_samples:
+            metrics = torch.stack([item[2] for item in pending_samples]).cpu().tolist()
+            for (tick_id, seconds, _), values in zip(pending_samples, metrics):
+                tick_samples.append(
+                    dict(
+                        tick=tick_id,
+                        seconds=seconds,
+                        mature_worlds=int(values[0]),
+                        living_worlds=int(values[1]),
+                        mean_hero_length=values[2] / len(ids),
+                        max_hero_length=int(values[3]),
+                    )
+                )
+            pending_samples.clear()
+
     for tick in range(start_tick, cfg.horizon if ruler_ticks is None else ruler_ticks):
         if ruler_seconds is not None and time.monotonic() - started >= ruler_seconds:
             break
         if stop():
             raise InterruptedError("partial collection batch; no result unit published")
-        if dev.type == "cuda":
+        if dev.type == "cuda" and cfg.mode == "ruler":
             torch.cuda.synchronize(dev)
         tick_started = time.monotonic()
-        sim.prepare()
-        _, _, _, masks, _, actions = observe_hero_bv8(sim, b8)
-        alive = sim.alive[:, 0].cpu().tolist()
-        lengths = sim.length[:, 0].cpu().tolist()
-        decisions += sum(alive)
-        for world, living in zip(ids, alive):
-            decisions_by_world[world] += int(living)
-        reached_l600.update(
-            world for world, living, length in zip(ids, alive, lengths) if living and length >= 600
+        with sim.stage("prepare"):
+            sim.prepare()
+        with sim.stage("hero"):
+            _, _, _, masks, q_b8, actions = observe_hero_bv8(sim, b8)
+        living, size = sim.alive[:, 0], sim.length[:, 0]
+        decision_counts += living.long()
+        reached |= living & (size >= 600)
+        metrics = torch.stack(
+            ((living & (size >= 600)).sum(), living.sum(), size.sum(), size.max())
         )
+        admission_tick = tick % 16 == 0 or cfg.tiny
+        if admission_tick:
+            alive, lengths = torch.stack((living.long(), size), dim=1).cpu().t().tolist()
+        else:
+            alive, lengths = [], []
         # Admission is CPU hash/heap work. Resolve every acceptance before any
         # state extraction, then gather each accepted row exactly once.
         admissions = []
-        for row, world in enumerate(ids):
+        for row, world in (enumerate(ids) if admission_tick else []):
             if not alive[row]:
                 continue
             part = partitions[world]
@@ -196,11 +245,14 @@ def collect_batch(
             )
             by_row = {row: (c, snap) for row, c, snap in zip(rows, compacts, snapshots)}
             action_cpu, mask_cpu = actions[rows].cpu().tolist(), masks[rows].cpu()
-            decisions_by_row = dict(zip(rows, zip(action_cpu, mask_cpu)))
+            q_cpu = q_b8[rows].cpu()
+            decisions_by_row = dict(zip(rows, zip(action_cpu, mask_cpu, q_cpu)))
             for row, world, kind, record in accepted:
                 compact, snapshot = by_row[row]
-                action, mask = decisions_by_row[row]
-                record.update(b8_action=int(action), mask=mask.clone(), compact=compact)
+                action, mask, q = decisions_by_row[row]
+                record.update(
+                    b8_action=int(action), mask=mask.clone(), compact=compact, q_b8=q.clone()
+                )
                 if kind != "demo":
                     record.update(
                         uid=f"{cfg.namespace}/a{cfg.allocation_index}/w{world}/t{tick}",
@@ -210,23 +262,16 @@ def collect_batch(
                         hero_length=int(lengths[row]),
                         snapshot=snapshot.to_state_dict(),
                     )
-        sim.step(opponents.actions(sim, actions))
-        opponents.after_step(sim)
+        with sim.stage("opponents"):
+            all_actions = opponents.actions(sim, actions)
+        sim.step(all_actions)
+        with sim.stage("vector_observe"):
+            opponents.after_step(sim)
         completed_ticks += 1
-        if dev.type == "cuda":
+        if dev.type == "cuda" and cfg.mode == "ruler":
             torch.cuda.synchronize(dev)
-        tick_samples.append(
-            {
-                "tick": tick,
-                "seconds": time.monotonic() - tick_started,
-                "mature_worlds": sum(a and n >= 600 for a, n in zip(alive, lengths)),
-                "living_worlds": sum(alive),
-                "mean_hero_length": sum(lengths) / len(ids),
-                "max_hero_length": max(lengths),
-            }
-        )
-        if bool(sim.capacity_overflow.any()):
-            raise ValueError("body overflow invalidates collection")
+        pending_samples.append((tick, time.monotonic() - tick_started, metrics))
+        torch._assert_async(~sim.capacity_overflow.any(), "body overflow invalidates collection")
         if (
             checkpoint is not None
             and completed_ticks < cfg.horizon
@@ -235,6 +280,7 @@ def collect_batch(
                 or (ruler_ticks is not None and completed_ticks == ruler_ticks)
             )
         ):
+            flush_metrics()
             checkpoint_started = time.monotonic()
             _, snapshots = capture_rows(
                 sim,
@@ -262,7 +308,9 @@ def collect_batch(
         if tick % 10 == 0 or time.monotonic() - last_progress >= 45:
             progress({"stage": "collection", "ticks": tick + 1, "worlds": len(ids)})
             last_progress = time.monotonic()
+    flush_metrics()
     return {
+        **({"stage_diagnostics": sim._timing.consume()} if ruler_census is not None else {}),
         "schema": "spatial-collection/v1",
         "world_ids": ids,
         "decisions": decisions,

@@ -199,7 +199,13 @@ def test_manifest_and_verified_ruler_require_thread_evidence(tmp_path: Path) -> 
         peak_vram_bytes=1024,
         phases=dict(
             mapped_parity=dict(
-                exact=True, exact_actions=True, reference_worlds=128, candidate_worlds=1024, ticks=3
+                exact=True,
+                exact_actions=True,
+                exact_hero_q=True,
+                exact_checkpoint_q=True,
+                reference_worlds=128,
+                candidate_worlds=1024,
+                ticks=3,
             )
         ),
     )
@@ -227,6 +233,18 @@ def test_manifest_and_verified_ruler_require_thread_evidence(tmp_path: Path) -> 
     bind_report()
     with pytest.raises(ValueError, match="one-thread environment"):
         verify_ruler_receipt(receipt, "a" * 40)
+    from research.spatial_student_pilot.ruler_cells import cell_specs
+
+    report["phases"]["factorial_cells"] = [
+        dict(
+            spec,
+            ticks=8,
+            warmup_ticks=2,
+            measured_tick_seconds=[1.0] * 6,
+            stage_diagnostics={"sync_capable_ops_by_stage": {"hero": {"test": 1}}},
+        )
+        for spec in cell_specs()
+    ]
     report["threads"] = dict(
         environment={k: "1" for k in THREAD_ENV}, torch_threads=1, torch_interop_threads=1
     )

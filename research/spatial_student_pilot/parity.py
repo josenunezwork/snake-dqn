@@ -16,6 +16,7 @@ from research.sandbox_a_resident.ct_snapshots import (
 )
 from research.sandbox_a_resident.training_rosters import training_rosters
 from research.spatial_student_pilot.batching import BatchedOpponents, observe_hero_bv8
+from research.spatial_student_pilot.mechanics import PilotCTDeviceSim
 
 
 def mapped_mature_proof(
@@ -28,8 +29,10 @@ def mapped_mature_proof(
     sims = []
     actions = []
     tapes = []
+    q_tapes = []
     for count, runtime in ((128, CTOpponentRuntime), (1024, BatchedOpponents)):
-        sim = CTDeviceSim(
+        simulator = CTDeviceSim if count == 128 else PilotCTDeviceSim
+        sim = simulator(
             cfg.sim_config(count),
             device=device,
             train_mode=False,
@@ -44,14 +47,19 @@ def mapped_mature_proof(
             b8_network=b8,
             checkpoint_networks=networks,
         )
+        if count == 1024:
+            opponents.verify_q_bytes = True
         restore_world_snapshots_into(
             [CompactWorldSnapshot.from_state_dict(r["snapshot"]) for r in rows], sim, opponents
         )
         stream = hashlib.sha256()
         tape = []
+        q_tape = []
         for _ in range(3):
             sim.prepare()
-            action = opponents.actions(sim, observe_hero_bv8(sim, b8)[-1])
+            observation = observe_hero_bv8(sim, b8)
+            q_tape.append(observation[-2].cpu())
+            action = opponents.actions(sim, observation[-1])
             # Compare canonical mapped action bytes without treating duplicate
             # fixture rows as independent scientific observations.
             tape.append(action.cpu())
@@ -61,6 +69,7 @@ def mapped_mature_proof(
         sims.append((sim, opponents))
         actions.append(stream.hexdigest())
         tapes.append(tape)
+        q_tapes.append(q_tape)
     digests = []
     for sim, opponents in sims:
         tensors = {
@@ -91,10 +100,13 @@ def mapped_mature_proof(
             rows.append(sha.hexdigest())
         digests.append(rows)
     exact_actions = all(torch.equal(b, a.repeat(8, 1)) for a, b in zip(*tapes))
-    exact = digests[1] == digests[0] * 8 and exact_actions
+    exact_q = all(torch.equal(b, a.repeat(8, 1)) for a, b in zip(*q_tapes))
+    exact = digests[1] == digests[0] * 8 and exact_actions and exact_q
     result = dict(
         exact=exact,
         exact_actions=exact_actions,
+        exact_hero_q=exact_q,
+        exact_checkpoint_q=True,
         ticks=3,
         reference_worlds=128,
         candidate_worlds=1024,

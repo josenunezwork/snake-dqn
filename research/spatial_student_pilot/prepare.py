@@ -41,6 +41,7 @@ GOVERNANCE_FILES = (
     "REGISTRATION_CLARIFICATION_05.md",
     "REGISTRATION_CLARIFICATION_06.md",
     "REGISTRATION_CLARIFICATION_06_EXPORT_ERRATUM.md",
+    "REGISTRATION_CLARIFICATION_06_ADOPTIONS_02.md",
 )
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 OPPONENT_SHAS = {
@@ -163,6 +164,8 @@ def verify_ruler_receipt(path: Path, commit: str) -> None:
     if (
         proof.get("exact") is not True
         or proof.get("exact_actions") is not True
+        or proof.get("exact_hero_q") is not True
+        or proof.get("exact_checkpoint_q") is not True
         or proof.get("reference_worlds") != 128
         or proof.get("candidate_worlds") != 1024
         or proof.get("ticks", 0) < 3
@@ -178,6 +181,23 @@ def verify_ruler_receipt(path: Path, commit: str) -> None:
         or threads.get("torch_interop_threads") != 1
     ):
         raise ValueError("ruler lacks verified one-thread environment")
+
+    from research.spatial_student_pilot.ruler_cells import cell_specs
+
+    cells = report.get("phases", {}).get("factorial_cells", [])
+    if (
+        len(cells) != 8
+        or [{key: cell.get(key) for key in ("regime", "worlds", "roster")} for cell in cells]
+        != cell_specs()
+        or any(
+            cell.get("ticks") != 8
+            or cell.get("warmup_ticks") != 2
+            or len(cell.get("measured_tick_seconds", [])) != 6
+            or not cell.get("stage_diagnostics", {}).get("sync_capable_ops_by_stage")
+            for cell in cells
+        )
+    ):
+        raise ValueError("ruler lacks complete factorial cells and synchronization census")
 
 
 def build_manifest(
@@ -315,7 +335,9 @@ def prepare(
     )
     ledger = json.loads(ledger_path.read_text()) if ledger_path else empty_ledger(config)
     validate_ledger(ledger, config)
-    resumed_inputs = upload_inputs(ledger, resume_roots or [], config)
+    resumed_inputs = upload_inputs(
+        ledger, resume_roots or [], config, pack_path=packet / "resume-units.tar"
+    )
     if hardware_canaries:
         for receipt in hardware_canaries.values():
             verify_ruler_receipt(receipt, commit)
@@ -346,7 +368,7 @@ def prepare(
     import_receipt = check(
         ROOT, commit, source_paths, REQUIREMENTS, [PACKAGE.replace("/", ".") + ".run"]
     )
-    packet.mkdir(parents=True, exist_ok=False)
+    packet.mkdir(parents=True, exist_ok=True)
     write_once(packet / "config.json", config.to_dict())
     write_once(packet / "verified-ledger.json", ledger)
     # Only ruler() decodes this input; identical main uploads preserve the

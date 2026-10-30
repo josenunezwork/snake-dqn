@@ -20,7 +20,6 @@ from research.gpu_sim_spike import r2_cache
 from research.sandbox_a_resident.core import allowed_mask
 from research.sandbox_a_resident.ct_branching import _compact_sim_in_place
 from research.sandbox_a_resident.ct_mechanics import (
-    CTDeviceSim,
     derive_branch_keys,
 )
 from research.sandbox_a_resident.ct_snapshots import (
@@ -28,7 +27,13 @@ from research.sandbox_a_resident.ct_snapshots import (
     restore_world_snapshots_into,
 )
 from research.sandbox_a_resident.training_rosters import training_rosters
-from research.spatial_student_pilot.batching import BatchedOpponents, observe_hero_bv8, stable_q
+from research.spatial_student_pilot.batching import (
+    BatchedOpponents,
+    observe_hero_bv8,
+    restore_fanout,
+    stable_q,
+)
+from research.spatial_student_pilot.mechanics import PilotCTDeviceSim as CTDeviceSim
 
 
 @dataclass(frozen=True)
@@ -112,7 +117,9 @@ def student_actions(
     results = []
     for start in range(0, len(ids), 128):
         selected = ids[start : start + 128]
-        obs = build_observation(compact_from_sim(sim, selected), device=sim.device)
+        obs = build_observation(
+            compact_from_sim(sim, selected, padded=True), device=sim.device, async_checks=True
+        )
         logits = student(*obs)
         if isinstance(logits, tuple):
             logits = logits[0]
@@ -182,6 +189,10 @@ def _rollouts(
         key=lambda i: (rosters[int(roots[jobs[i].root]["roster_index"])].identity, i),
     )
     ordered_jobs = [jobs[i] for i in order]
+    root_snapshots = {
+        i: CompactWorldSnapshot.from_state_dict(roots[i]["snapshot"])
+        for i in {job.root for job in jobs}
+    }
     for start in range(0, len(jobs), cap):
         if stop is not None and stop():
             raise InterruptedError("incomplete search slab; caller must not publish unit")
@@ -193,8 +204,8 @@ def _rollouts(
             b8_network=b8,
             checkpoint_networks=networks,
         )
-        restore_world_snapshots_into(
-            [CompactWorldSnapshot.from_state_dict(roots[j.root]["snapshot"]) for j in slab],
+        restore_fanout(
+            [root_snapshots[j.root] for j in slab],
             sim,
             opponents,
         )
@@ -222,6 +233,10 @@ def _rollouts(
         mass_sum = torch.zeros(len(slab), dtype=torch.float64, device=sim.device)
         survivors = torch.zeros_like(mass_sum)
         closed = torch.tensor([j.closed_loop for j in slab], device=sim.device)
+        has_closed = any(j.closed_loop for j in slab)
+        selected = torch.tensor(
+            [i for i, j in enumerate(slab) if j.closed_loop], device=sim.device, dtype=torch.long
+        )
         _sync(sim.device)
         loop_started = time.monotonic()
         completed_ticks = 0
@@ -251,20 +266,21 @@ def _rollouts(
                     opponents.compact_rows(keep)
                     slots = slots.index_select(0, keep)
                     closed = closed.index_select(0, keep)
+                    selected = closed.nonzero(as_tuple=False).flatten()
                 sim.prepare()
                 actions = observe_hero_bv8(sim, b8)[-1]
-                if bool(closed.any()):
+                if has_closed and selected.numel():
                     if student is None:
                         raise ValueError("closed-loop rollout requires final student")
-                    selected = closed.nonzero(as_tuple=False).flatten()
                     spatial_actions = actions.clone()
                     spatial_actions[selected] = student_actions(sim, student, selected)
                     actions = torch.where(closed, spatial_actions, actions)
-            action_counts += torch.bincount(actions[closed & sim.alive[:, 0]], minlength=6)
+            action_counts.scatter_add_(0, actions, (closed & sim.alive[:, 0]).long())
             sim.step(opponents.actions(sim, actions))
             opponents.after_step(sim)
-            if bool(sim.capacity_overflow.any()):
-                raise ValueError("body capacity overflow invalidates rollout")
+            torch._assert_async(
+                ~sim.capacity_overflow.any(), "body capacity overflow invalidates rollout"
+            )
             executed += sim.E
             completed_ticks += 1
             alive = sim.alive[:, 0]
@@ -354,6 +370,23 @@ def label_roots(
         )
         for r, a, m, s in zip(roots, chosen, masses, survival)
     ]
+
+
+def label_chunks(
+    chunks: Sequence[Sequence[Mapping[str, Any]]], **kwargs: Any
+) -> list[list[dict[str, Any]]]:
+    """Pool jobs across immutable export chunks; keep each chunk's freeze identity."""
+    rows = [root for chunk in chunks for root in chunk]
+    if not rows:
+        return []
+    labels = label_roots(rows, **kwargs)
+    result, start = [], 0
+    for chunk in chunks:
+        selected = labels[start : start + len(chunk)]
+        freeze = _freeze_hash(chunk, [r["target_action"] for r in selected])
+        result.append([dict(row, selection_freeze_sha256=freeze) for row in selected])
+        start += len(chunk)
+    return result
 
 
 def prepare_assessment(
@@ -586,6 +619,7 @@ def paired_gameplay(
         executed = torch.zeros(2, dtype=torch.long, device=sim.device)
         slots = torch.arange(2 * n, device=sim.device)
         closed = slots >= n
+        selected = torch.arange(n, 2 * n, device=sim.device)
         _sync(sim.device)
         loop_started = time.monotonic()
         completed_ticks = 0
@@ -614,23 +648,22 @@ def paired_gameplay(
                 opponents.compact_rows(keep)
                 slots = slots.index_select(0, keep)
                 closed = closed.index_select(0, keep)
+                selected = closed.nonzero(as_tuple=False).flatten()
             sim.prepare()
             actions = observe_hero_bv8(sim, b8)[-1]
-            selected = closed.nonzero(as_tuple=False).flatten()
             spatial = actions.clone()
             if selected.numel():
                 spatial[selected] = student_actions(sim, student, selected)
             actions = torch.where(closed, spatial, actions)
             for arm_index, selected_arm in enumerate((~closed, closed)):
-                counts[arm_index] += torch.bincount(
-                    actions[selected_arm & sim.alive[:, 0]], minlength=6
-                )
+                counts[arm_index].scatter_add_(0, actions, (selected_arm & sim.alive[:, 0]).long())
                 executed[arm_index] += selected_arm.sum()
             sim.step(opponents.actions(sim, actions))
             opponents.after_step(sim)
             completed_ticks += 1
-            if bool(sim.capacity_overflow.any()):
-                raise ValueError("body capacity overflow invalidates gameplay")
+            torch._assert_async(
+                ~sim.capacity_overflow.any(), "body capacity overflow invalidates gameplay"
+            )
             alive = sim.alive[:, 0]
             total_mass.index_add_(0, slots, torch.where(alive, sim.length[:, 0], 0).double())
             total_alive.index_add_(0, slots, alive.double())

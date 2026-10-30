@@ -10,6 +10,7 @@ from torch import nn
 
 from research.gpu_sim_spike.anchors_device import choose_anchor
 from research.gpu_sim_spike.device_policy import _masked_argmax
+from research.gpu_sim_spike.ego_device import build_observation as ego_observation
 from research.gpu_sim_spike.v8_device import v8_decide
 from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
 from research.sandbox_a_resident.ct_mechanics import (
@@ -23,7 +24,7 @@ from research.sandbox_a_resident.ct_snapshots import (
     CompactWorldSnapshot,
     SnapshotOverflowError,
 )
-from research.sandbox_a_resident.ct_snapshots import observe_hero_bv8 as _observe_hero
+from research.sandbox_a_resident.training_model import canonical_legal_mask
 from research.sandbox_a_resident.training_rosters import vector61_params
 from research.spatial_student_pilot.observation import compact_from_sim
 
@@ -61,9 +62,53 @@ def stable_q(
 @torch.inference_mode()
 def observe_hero_bv8(sim: Any, b8: nn.Module) -> tuple[torch.Tensor, ...]:
     """Canonical hero decision, preserving all raster/mask/feature math."""
-    local, glob, scalar, legal, q, _ = _observe_hero(sim, b8)
-    q = stable_q(b8, (local, glob, scalar), q, legal)
+    if not sim._prepared:
+        sim.prepare()
+    world = torch.arange(sim.E, device=sim.device)
+    rows = torch.stack((world, torch.zeros_like(world)), dim=1)
+    raw = sim.advisory_mask()[:, 0]
+    features = (
+        v8_decide(sim, rows, torch.zeros((sim.E, 6), device=sim.device), raw, 8.0, features=True)
+        .feature_planes()
+        .reshape(sim.E, 30)
+    )
+    local, glob, scalar = ego_observation(sim, rows, features)
+    legal = canonical_legal_mask(raw)
+    q = grouped_q(b8, (local, glob, scalar), legal)
     return local, glob, scalar, legal, q, _masked_argmax(q, legal)
+
+
+def grouped_q(
+    network: nn.Module, inputs: Sequence[torch.Tensor], legal: torch.Tensor
+) -> torch.Tensor:
+    """Keep E128 inference groups independent of the resident physics width."""
+    parts = []
+    for start in range(0, len(legal), 128):
+        args = tuple(x[start : start + 128] for x in inputs)
+        value = network(*args)
+        if isinstance(value, tuple):
+            value = value[0]
+        parts.append(stable_q(network, args, value.float(), legal[start : start + 128]))
+    return torch.cat(parts)
+
+
+class ControlledVectorRuntime(DeviceVectorRuntime):
+    """Static controlled identities only; keep lifecycle/carry updates full shape."""
+
+    def features(
+        self, sim: Any, rows: Any = None, *, update_memory: bool = True, memory_mask: Any = None
+    ) -> torch.Tensor:
+        if rows is not None:
+            return super().features(sim, rows, update_memory=update_memory, memory_mask=memory_mask)
+        selected = self.controlled_rows
+        er, sr = selected.unbind(1)
+        subset_mask = None if memory_mask is None else memory_mask.reshape(sim.E, sim.S)[er, sr]
+        values = super().features(
+            sim, selected, update_memory=update_memory, memory_mask=subset_mask
+        )
+        out = torch.zeros((sim.E, sim.S, self.params.input_size), device=sim.device)
+        out[er, sr] = values
+        return out.reshape(sim.E * sim.S, -1)
 
 
 class BatchedOpponents(CTOpponentRuntime):
@@ -95,7 +140,7 @@ class BatchedOpponents(CTOpponentRuntime):
             raise ValueError("opp_rng_keys length must match sim.E")
         self.rng_key = torch.tensor(keys, device=sim.device, dtype=torch.long)
         self.rng_step = torch.zeros(sim.E, device=sim.device, dtype=torch.long)
-        self.runtime = DeviceVectorRuntime(vector61_params(sim.cfg))
+        self.runtime = ControlledVectorRuntime(vector61_params(sim.cfg))
         controlled = torch.tensor(
             [[False] + [kind == "checkpoint" for kind, _ in r.slots] for r in rosters],
             dtype=torch.bool,
@@ -104,6 +149,7 @@ class BatchedOpponents(CTOpponentRuntime):
         self.runtime.bind(sim, controlled)
         self.pending = torch.ones(sim.E, dtype=torch.bool, device=sim.device)
         self.prepared = False
+        self._needs_prepare = True
         self.networks = checkpoint_networks
         self._dispatch()
 
@@ -115,12 +161,23 @@ class BatchedOpponents(CTOpponentRuntime):
                 (groups if kind == "checkpoint" else anchors).setdefault(ref, []).append(
                     (row, slot)
                 )
+        self.reference_q_groups = {}
+        for key, entries in groups.items():
+            reference = {}
+            for i, (row, slot) in enumerate(entries):
+                reference.setdefault((row // 128, self.rosters[row].identity, slot), []).append(i)
+            self.reference_q_groups[key] = [
+                torch.tensor(ids, device=self.device) for ids in reference.values()
+            ]
         self.groups = {
             key: torch.tensor(rows, device=self.device, dtype=torch.long)
             for key, rows in groups.items()
         }
         if any(ref not in self.networks for ref in self.groups):
             raise KeyError("missing verified frozen checkpoint")
+        self.runtime.controlled_rows = torch.tensor(
+            [row for rows in groups.values() for row in rows], device=self.device, dtype=torch.long
+        ).reshape(-1, 2)
         self.anchors = {
             key: torch.tensor(rows, device=self.device, dtype=torch.long)
             for key, rows in anchors.items()
@@ -130,17 +187,31 @@ class BatchedOpponents(CTOpponentRuntime):
     def actions(self, sim: Any, hero_actions: torch.Tensor) -> torch.Tensor:
         if hero_actions.shape != (sim.E,):
             raise ValueError("hero actions must have shape (E,)")
-        if not self.prepared or bool(self.pending.any()):
+        if not self.prepared or self._needs_prepare:
             self.runtime.prepare(sim, self.pending if self.prepared else None)
             self.pending.zero_()
             self.prepared = True
+            self._needs_prepare = False
         out = torch.ones((sim.E, sim.S), dtype=torch.long, device=self.device)
         out[:, 0] = hero_actions
         # Each network runs once across its immutable (world,slot) identities.
         all_rows, all_q, all_masks = [], [], []
         for ref, rows in self.groups.items():
             state, mask = self.runtime.selection(rows)
-            q = stable_q(self.networks[ref], (state,), self.networks[ref](state).float(), mask)
+            q = grouped_q(self.networks[ref], (state,), mask)
+            if getattr(self, "verify_q_bytes", False):
+                for ids in self.reference_q_groups[ref]:
+                    inputs = state.index_select(0, ids)
+                    legacy = stable_q(
+                        self.networks[ref],
+                        (inputs,),
+                        self.networks[ref](inputs).float(),
+                        mask.index_select(0, ids),
+                    )
+                    if not torch.equal(q.index_select(0, ids), legacy):
+                        raise ValueError(
+                            "checkpoint Q bytes differ from E128 legacy inference groups"
+                        )
             all_rows.append(rows)
             all_q.append(q)
             all_masks.append(mask)
@@ -212,6 +283,9 @@ class BatchedOpponents(CTOpponentRuntime):
         self.rng_step.copy_(torch.tensor([s["rng_step"] for s in snapshots], device=self.device))
         flags = {bool(s["vector_prepared"]) for s in snapshots}
         self.prepared = flags.pop() if len(flags) == 1 else True
+        self._needs_prepare = any(
+            s["pending_prepare"] or (self.prepared and not s["vector_prepared"]) for s in snapshots
+        )
         self.pending.copy_(
             torch.tensor(
                 [
@@ -325,3 +399,42 @@ def capture_rows(
             )
         )
     return compacts, snapshots
+
+
+def restore_fanout(snapshots: Sequence[CompactWorldSnapshot], sim: Any, opponents: Any) -> None:
+    """Restore each distinct root once per slab, then fan out device tensors."""
+    from types import SimpleNamespace
+
+    from research.sandbox_a_resident.ct_snapshots import restore_world_snapshots_into
+
+    unique, inverse, index = [], [], {}
+    for snapshot in snapshots:
+        # Caller interns snapshots by root identity; distinct roots never alias.
+        key = id(snapshot)
+        if key not in index:
+            index[key] = len(unique)
+            unique.append(snapshot)
+        inverse.append(index[key])
+    if len(unique) == len(snapshots):
+        restore_world_snapshots_into(snapshots, sim, opponents)
+        return
+    fields = (*_SMALL_ENV_TENSOR_FIELDS, "bodies", "food_cells", "food_present", "corpse_food")
+    proxy = SimpleNamespace(**sim.__dict__)
+    proxy.E = len(unique)
+    for name in fields:
+        value = getattr(sim, name)
+        setattr(
+            proxy,
+            name,
+            torch.empty((len(unique), *value.shape[1:]), device=value.device, dtype=value.dtype),
+        )
+    sink = SimpleNamespace(E=len(unique), load_row_snapshots=lambda states: None)
+    restore_world_snapshots_into(unique, proxy, sink)
+    gather = torch.tensor(inverse, device=sim.device, dtype=torch.long)
+    for name in fields:
+        getattr(sim, name).copy_(getattr(proxy, name).index_select(0, gather))
+    sim._prepared = proxy._prepared
+    from research.gpu_sim_spike import r2_cache
+
+    r2_cache.bump(sim)
+    opponents.load_row_snapshots([s.opponent_state for s in snapshots])

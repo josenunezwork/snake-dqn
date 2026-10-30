@@ -55,9 +55,15 @@ def fit_student(
     store: UnitStore,
     stop: Callable[[], bool],
     progress: Callable[[dict[str, Any]], None],
+    bc_only: bool = False,
 ) -> tuple[SpatialStudent, dict[str, Any]]:
     """Resume only the latest verified complete optimizer/RNG/update boundary."""
-    if not ordinary or not searched:
+    latest = max(
+        (int(i.split("-")[1]) for i in store.list_ids() if i.startswith("fit-")), default=0
+    )
+    if not ordinary or (
+        not searched and not bc_only and latest < cfg.bc_updates + cfg.improvement_updates
+    ):
         raise ValueError("both ordinary and search training rows required")
     if any(row["partition"] != "train" for row in [*ordinary, *searched]):
         raise ValueError("fit refuses assessment-world data")
@@ -65,10 +71,9 @@ def fit_student(
     student = SpatialStudent().to(device).train()
     optimizer = torch.optim.Adam(student.parameters(), lr=3e-4)
     generator = torch.Generator().manual_seed(cfg.seed)
-    total = cfg.bc_updates + cfg.improvement_updates
-    latest = max(
-        (int(i.split("-")[1]) for i in store.list_ids() if i.startswith("fit-")), default=0
-    )
+    endpoint = cfg.bc_updates + cfg.improvement_updates
+    total = cfg.bc_updates if bc_only else endpoint
+
     if latest:
         snapshot = store.get(f"fit-{latest:07d}")
         if snapshot["update"] != latest or snapshot["seed"] != cfg.seed:
@@ -80,7 +85,7 @@ def fit_student(
         if str(device).startswith("cuda"):
             torch.cuda.set_rng_state_all(snapshot["cuda_rng"])
     started = time.monotonic()
-    cache = cache_search_observations(searched, device, cfg.microbatch)
+    cache = cache_search_observations(searched, device, cfg.microbatch) if latest < total else {}
     completed = 0
     for update in range(latest, total):
         if stop():
@@ -145,7 +150,7 @@ def fit_student(
                     "cuda_rng": (
                         torch.cuda.get_rng_state_all() if str(device).startswith("cuda") else []
                     ),
-                    "final": update + 1 == total,
+                    "final": update + 1 == endpoint,
                 },
             )
     student.eval()

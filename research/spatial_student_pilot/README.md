@@ -1,7 +1,8 @@
 # Spatial student pilot
 
 Frozen v1 mechanism pilot. Start with REGISTRATION.md, clarifications01–03,
-REGISTRATION_AMENDMENT_04.md and REGISTRATION_CLARIFICATION_05.md and REGISTRATION_CLARIFICATION_06.md. This package
+REGISTRATION_AMENDMENT_04.md and REGISTRATION_CLARIFICATION_05.md and REGISTRATION_CLARIFICATION_06.md and its adoption extension
+REGISTRATION_CLARIFICATION_06_ADOPTIONS_02.md. This package
 has no serving integration and grants no release.
 
 `observation.py` reconstructs 16 full-arena planes and 36 scalars from compact
@@ -135,3 +136,12 @@ transport, including bootstrap.sh, remains byte-identical to the released tree.
 The prospective REGISTRATION_CLARIFICATION_06_EXPORT_ERRATUM.md prices actual
 batched checkpoint components. Missing size samples refuse admission; export
 caps remain128MiB compressed,512MiB decoded per unit and2GiB total.
+
+Late adoption extension02 pools label jobs across publication chunks, overlaps BC
+with label search through a complete BC-boundary snapshot, limits inference groups
+to128 rows, featurizes only controlled vector61 slots, and packs only next-stage
+resume dependencies while retaining the full verified ledger. Pilot-only CT sync
+hoisting is checked against the unchanged shared simulator. The ruler includes
+all eight early/mature × E128/E1024 × mixed/homogeneous diagnostic cells plus
+synchronization census; these eight-tick cells never earn forecast/support credit.
+Same-pin target-platform mapped Q/action/state checks still gate rate admission.
