@@ -49,7 +49,16 @@ def test_memoization_exact_frozen_endpoint_and_closed_loop_separation() -> None:
     kwargs = dict(cfg=cfg, b8=b8, networks={}, device="cpu")
     expected = old.assess_roots(roots, ZeroPolicy(), **kwargs)
     actual = assess_roots(roots, ZeroPolicy(), prepared=prepared, **kwargs)
-    exact(actual, expected)
+    # Amendment07 adds readout-only fields; every pre-existing endpoint stays exact.
+    exact([{k: row[k] for k in old_row} for row, old_row in zip(actual, expected)], expected)
+    assert actual[0]["student_logits"] == [0.0] * 6
+    assert actual[0]["student_top2_margin"] == 0
+    assert actual[0]["legal_mask"] == root["mask"]
+    import numpy as np
+
+    assert np.array_equal(
+        actual[0]["selection_mass"], prepared["labels"][0]["selection_mass"], equal_nan=True
+    )
     from research.spatial_student_pilot.search import paired_gameplay
 
     worlds = [dict(world_id=0, roster_index=0, mix="scripted")]

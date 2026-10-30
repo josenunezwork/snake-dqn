@@ -14,6 +14,7 @@ import io
 import json
 import math
 import os
+import platform
 import re
 import shutil
 import tarfile
@@ -32,9 +33,23 @@ MAX_UNIT_BYTES = 128 * 1024**2
 MAX_EXPORT_BYTES = 2 * 1024**3
 MAX_DECODED_BYTES = 512 * 1024**2
 _UNIT_ID = re.compile(
-    r"(?:collect|cstate|cseal|aselect|ascore|search|fit|assess|gameplay)-[0-9]{4,9}\Z"
+    r"(?:collect|cstate|cseal|aselect|ascore|search|fit|assess|gameplay|early|mature)-[0-9]{4,9}\Z"
 )
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
+
+
+def hardware_provenance(device: str) -> dict[str, Any]:
+    """Bind each unit's platform; cross-SKU full-state resume is not bitwise exact."""
+    dev = torch.device(device)
+    return dict(
+        device_type=dev.type,
+        gpu_sku=torch.cuda.get_device_name(dev) if dev.type == "cuda" else "none",
+        capability=list(torch.cuda.get_device_capability(dev)) if dev.type == "cuda" else [],
+        torch_version=str(torch.__version__),
+        cuda_version=torch.version.cuda,
+        platform=platform.platform(),
+        source_commit=os.environ.get("SPATIAL_SOURCE_COMMIT", "local"),
+    )
 
 
 def _sha(path: Path) -> str:
@@ -53,7 +68,10 @@ def _unit_path(cfg: PilotConfig, unit_id: str) -> str:
         raise ValueError("invalid logical unit identity")
     stage, raw_index = unit_id.split("-")
     index = int(raw_index)
-    if stage == "fit":
+    if stage in {"early", "mature"}:
+        if cfg.mode != "ruler" or raw_index != "0000":
+            raise ValueError("ineligible ruler-only diagnostic unit")
+    elif stage == "fit":
         final = cfg.bc_updates + cfg.improvement_updates
         eligible = 0 < index <= final and (
             index % cfg.checkpoint_every == 0 or index in {cfg.bc_updates, final}
@@ -121,6 +139,15 @@ def _validate_entry(entry: dict[str, Any], cfg: PilotConfig) -> None:
         raise ValueError("unit size exceeds bound")
     if not isinstance(entry.get("sha256"), str) or not _SHA.fullmatch(entry["sha256"]):
         raise ValueError("invalid unit digest")
+    hardware = entry.get("hardware", {})
+    if (
+        not isinstance(hardware, dict)
+        or hardware.get("device_type") not in {"cpu", "cuda", "mps"}
+        or not isinstance(hardware.get("gpu_sku"), str)
+        or not hardware["gpu_sku"]
+        or (hardware["device_type"] == "cuda" and hardware["gpu_sku"] == "none")
+    ):
+        raise ValueError("missing unit hardware provenance")
 
 
 def validate_ledger(ledger: dict[str, Any], cfg: PilotConfig) -> None:
@@ -218,6 +245,8 @@ def load_verified_unit(root: Path, cfg: PilotConfig, unit_id: str) -> Any:
         "schema": UNIT_SCHEMA,
     }:
         raise ValueError("payload identity differs from completion marker")
+    if envelope.get("hardware") != entry["hardware"]:
+        raise ValueError("payload hardware differs from completion marker")
     return envelope["payload"]
 
 
@@ -239,12 +268,19 @@ class UnitStore:
     """Skip exactly verified units; new output must be fresh for every attempt."""
 
     def __init__(
-        self, output: Path, cfg: PilotConfig, ledger: dict[str, Any], input_dir: Path
+        self,
+        output: Path,
+        cfg: PilotConfig,
+        ledger: dict[str, Any],
+        input_dir: Path,
+        *,
+        device: str = "cpu",
     ) -> None:
         validate_ledger(ledger, cfg)
         self._lock = threading.RLock()
         self.output, self.cfg, self.input_dir = Path(output), cfg, Path(input_dir)
         self.ledger = ledger
+        self.hardware = hardware_provenance(device)
         self._entries = {entry["unit_id"]: entry for entry in ledger["units"]}
         self._roots = {name: self.input_dir for name in self._entries}
         selected = unpack_resume(self.input_dir, ledger, cfg) if cfg.mode != "ruler" else None
@@ -297,6 +333,7 @@ class UnitStore:
             dict(
                 identity={**_identity(self.cfg), "unit_id": unit_id, "schema": UNIT_SCHEMA},
                 payload=payload,
+                hardware=self.hardware,
             ),
             raw,
         )
@@ -312,6 +349,7 @@ class UnitStore:
             path=relative,
             size=len(content),
             sha256=hashlib.sha256(content).hexdigest(),
+            hardware=self.hardware,
         )
         # Budget payloads plus bounded digest/marker metadata, including verified
         # prior units. This is conservative for each fresh attempt export tree.

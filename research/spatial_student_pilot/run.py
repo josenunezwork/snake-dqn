@@ -265,6 +265,7 @@ def pipeline(
                 stop=lambda: control.stop() or (future.done() and future.exception() is not None),
                 progress=control.progress,
                 bc_only=True,
+                heldout=assessment_roots,
             )
             while not labels_ready.wait(timeout=0.1):
                 if future.done():
@@ -497,6 +498,9 @@ def ruler(
         "slabs": list(branch_timings),
         "logical_steps": sum(int(r["mask"].sum()) * 2 * cfg.branch_horizon for r in roots),
     }
+    diagnostic_roots = [r for r in batch["roots"] if r["partition"] == "assessment"][: len(roots)]
+    if not diagnostic_roots:
+        raise RuntimeError("INCOMPLETE_RULER missing held-out BC timing roots")
     student, fit_timing = fit_student(
         cfg,
         batch["demos"],
@@ -505,6 +509,7 @@ def ruler(
         store=store,
         stop=control.stop,
         progress=control.progress,
+        heldout=diagnostic_roots,
     )
     phases["fit"] = fit_timing
     # Assessment mixed scoring slabs execute both B8 and the student forward.
@@ -631,9 +636,13 @@ def ruler(
             a: phases["gameplay"]["arm_seconds"][a] / max(1, phases["gameplay"]["ticks"][a])
             for a in ("b8", "student")
         },
-        fit_update=fit_timing["elapsed_seconds"] / (cfg.bc_updates + cfg.improvement_updates),
+        fit_update=(fit_timing["elapsed_seconds"] - fit_timing["heldout_bc_seconds"])
+        / (cfg.bc_updates + cfg.improvement_updates),
         student_forward_tick=max(forward_times),
         cfg=PilotConfig(),
+    )
+    components["heldout_bc"] = fit_timing["heldout_bc_seconds"] * math.ceil(
+        384 / fit_timing["heldout_bc_roots"]
     )
     # Nine complete collection trajectory boundaries, conservatively scaling
     # the actual mature capture+torch.save+gzip measurement to a full reservoir.
@@ -722,7 +731,7 @@ def main() -> int:
     if args.output.exists():
         raise FileExistsError("every attempt/preflight requires a fresh output")
     args.output.mkdir(parents=True)
-    store = UnitStore(args.output, cfg, ledger, args.input_dir)
+    store = UnitStore(args.output, cfg, ledger, args.input_dir, device=args.device)
     # Runtime admission hashes every immutable comparator, even on tiny preflight.
     checks = {
         "b8-s3.pth": B8_S3_SHA256,

@@ -20,6 +20,7 @@ import torch
 from research.sandbox_a_resident.training_rosters import training_rosters
 from research.spatial_student_pilot.collect import select_dataset
 from research.spatial_student_pilot.config import PilotConfig, audit_seeds
+from research.spatial_student_pilot.diagnostics import bc_summary
 from research.spatial_student_pilot.latency import selected_assessment_roots, verify_diagnostic
 from research.spatial_student_pilot.model import load_checkpoint
 from research.spatial_student_pilot.readout import evaluate_readout
@@ -281,6 +282,46 @@ def aggregate(
                 r for name in sorted(actual) if name.startswith("assess-") for r in store.get(name)
             ]
             _exact_rows(rows, assessment, assessment=True)
+            # Bind the diagnostic to the same selected parents, not a remote summary.
+            bc = store.get(f"fit-{cfg.bc_updates:07d}").get("heldout_bc")
+            if not isinstance(bc, dict) or bc_summary(assessment, bc["predictions"]) != bc:
+                raise ValueError("missing or malformed held-out BC agreement")
+            training_parents = {r["world_id"] for r in [*dataset["demos"], *train]}
+            if training_parents & {r["world_id"] for r in assessment}:
+                raise ValueError("held-out BC parents overlap training")
+            # Check assessment confidence inputs against independently sealed selection.
+            for name in sorted(actual):
+                if not name.startswith("aselect-"):
+                    continue
+                chunk = store.get(name)
+                offset = int(name.split("-")[1]) * cfg.search_chunk
+                originals = assessment[offset : offset + cfg.search_chunk]
+                _exact_rows(chunk, originals, assessment=False)
+                masks = np.asarray([r["mask"] for r in chunk], bool)
+                chosen = select_mass_actions(
+                    np.asarray([r["selection_mass"] for r in chunk]),
+                    masks,
+                    [r["b8_action"] for r in chunk],
+                )
+                freeze = _freeze_hash(chunk, chosen)
+                for exported, label, selected_action in zip(
+                    rows[offset : offset + len(chunk)], chunk, chosen
+                ):
+                    if (
+                        label["target_action"] != selected_action
+                        or label["selection_freeze_sha256"] != freeze
+                        or exported["selection_freeze_sha256"] != freeze
+                        or exported["teacher_action"] != selected_action
+                        or exported["legal_mask"] != list(label["mask"])
+                        or not np.array_equal(
+                            np.asarray(exported["selection_mass"]),
+                            np.asarray(label["selection_mass"]),
+                            equal_nan=True,
+                        )
+                    ):
+                        raise ValueError(
+                            "assessment confidence/teacher differs from frozen selection"
+                        )
             worlds = [
                 r
                 for name in sorted(actual)
@@ -343,6 +384,9 @@ def aggregate(
                 complete=True,
                 latency_diagnostic_complete=True,
             )
+            decision.setdefault("secondary", {})["heldout_bc"] = bc
+            decision["unit_hardware"] = {e["unit_id"]: e["hardware"] for e in verified["units"]}
+            decision["cross_gpu_bitwise_identity_claimed"] = False
             decision["provenance"] = {
                 "config_sha256": cfg.sha256,
                 "candidate_sha256": actor_hash,

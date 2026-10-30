@@ -33,6 +33,7 @@ from research.spatial_student_pilot.batching import (
     restore_fanout,
     stable_q,
 )
+from research.spatial_student_pilot.diagnostics import policy_record
 from research.spatial_student_pilot.mechanics import PilotCTDeviceSim as CTDeviceSim
 
 
@@ -111,10 +112,18 @@ def student_actions(
     env_indices: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Memory-bounded bare actor inference; original fp32 model and legal fallback."""
+    return student_outputs(sim, student, env_indices)[0]
+
+
+@torch.inference_mode()
+def student_outputs(
+    sim: Any, student: nn.Module, env_indices: torch.Tensor | None = None
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Expose the exact logits/mask used for action selection without another forward."""
     from research.spatial_student_pilot.observation import build_observation, compact_from_sim
 
     ids = torch.arange(sim.E, device=sim.device) if env_indices is None else env_indices
-    results = []
+    results, raw, masks = [], [], []
     for start in range(0, len(ids), 128):
         selected = ids[start : start + 128]
         obs = build_observation(
@@ -128,7 +137,15 @@ def student_actions(
         if logits.shape != (len(selected), 6) or not bool(torch.isfinite(logits).all()):
             raise ValueError("student produced nonfinite or malformed policy logits")
         results.append(logits.masked_fill(~mask, -torch.inf).argmax(1))
-    return torch.cat(results) if results else torch.empty(0, device=sim.device, dtype=torch.long)
+        raw.append(logits)
+        masks.append(mask)
+    if not results:
+        return (
+            torch.empty(0, device=sim.device, dtype=torch.long),
+            torch.empty((0, 6), device=sim.device),
+            torch.empty((0, 6), device=sim.device, dtype=torch.bool),
+        )
+    return torch.cat(results), torch.cat(raw), torch.cat(masks)
 
 
 def _new_sim(cfg: Any, count: int, device: Any) -> CTDeviceSim:
@@ -455,7 +472,7 @@ def assess_roots(
     if [r["uid"] for r in labels] != [r["uid"] for r in roots]:
         raise ValueError("foreign prepared assessment roots")
     rosters = training_rosters(cfg.worlds)
-    spatial = []
+    spatial, policies = [], []
     for start in range(0, len(roots), int(cfg.branch_batch_size)):
         chunk = roots[start : start + int(cfg.branch_batch_size)]
         sim = _new_sim(cfg, len(chunk), device)
@@ -470,7 +487,12 @@ def assess_roots(
             sim,
             opponents,
         )
-        spatial.extend(student_actions(sim, student).cpu().tolist())
+        actions, logits, masks = student_outputs(sim, student)
+        spatial.extend(actions.cpu().tolist())
+        policies.extend(
+            policy_record(logit, mask)
+            for logit, mask in zip(logits.cpu().tolist(), masks.cpu().tolist())
+        )
     jobs, descriptors = [], []
     for i, (root, label, action) in enumerate(zip(roots, labels, spatial)):
         for arm, first, closed in (
@@ -515,11 +537,12 @@ def assess_roots(
             mix=r["mix"],
             b8_action=int(r["b8_action"]),
             teacher_action=int(l["target_action"]),
-            student_action=int(a),
+            selection_mass=l["selection_mass"],
+            **policy,
             selection_freeze_sha256=l["selection_freeze_sha256"],
             scoring_suffixes=[4, 5],
         )
-        for r, l, a in zip(roots, labels, spatial)
+        for r, l, a, policy in zip(roots, labels, spatial, policies)
     ]
     for job, (i, arm) in zip(jobs, descriptors):
         m, s = known[(job.root, job.action, job.suffix, job.closed_loop)]

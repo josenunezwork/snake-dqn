@@ -12,6 +12,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from research.spatial_student_pilot.diagnostics import label_confidence, policy_record
+
 MIXES = ("scripted", "frozen", "mixed")
 BOOTSTRAP_DRAWS = 10_000
 BOOTSTRAP_SEED = 3432
@@ -57,6 +59,37 @@ def _equal_mix_mean(rows: Sequence[Mapping[str, Any]], values: Sequence[float]) 
 
 def _dead(row: Mapping[str, Any], arm: str) -> bool:
     return all(float(x) == 0.0 for x in row[arm + "_survival"])
+
+
+def confidence_readout(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Fixed selection-only strata; independent scoring outcomes remain descriptive."""
+    result = []
+    for kind in ("late", "ordinary"):
+        for confidence in ("high", "low"):
+            selected = [r for r in rows if r["kind"] == kind and label_confidence(r) == confidence]
+            row = dict(
+                kind=kind,
+                confidence=confidence,
+                roots=len(selected),
+                parents=len({r["world_id"] for r in selected}),
+            )
+            for arm in ("teacher", "student"):
+                deltas = [
+                    float(np.mean(r[arm + "_mass"]) - np.mean(r["b8_mass"])) for r in selected
+                ]
+                row[arm + "_mass_gain"] = float(np.mean(deltas)) if selected else None
+                row[arm + "_mass_lb90"] = clustered_lb90(selected, deltas) if selected else None
+                row[arm + "_deaths"] = sum(_dead(r, arm) for r in selected)
+            row["b8_deaths"] = sum(_dead(r, "b8") for r in selected)
+            row["student_teacher_agreed"] = sum(
+                r["student_action"] == r["teacher_action"] for r in selected
+            )
+            row["student_b8_agreed"] = sum(r["student_action"] == r["b8_action"] for r in selected)
+            row["lethal_flips"] = sum(
+                _dead(r, "student") and all(x == 1 for x in r["b8_survival"]) for r in selected
+            )
+            result.append(row)
+    return result
 
 
 def evaluate_readout(
@@ -115,6 +148,13 @@ def evaluate_readout(
     nonfinite = False
     try:
         for row in root_rows:
+            policy = policy_record(row["student_logits"], row["legal_mask"])
+            if (
+                policy["student_action"] != row["student_action"]
+                or policy["student_top2_margin"] != row["student_top2_margin"]
+            ):
+                invalid.append("student action/margin differs from exported logits")
+            label_confidence(row)
             if row.get("partition") != "assessment":
                 invalid.append("foreign assessment partition")
             if list(row["scoring_suffixes"]) != [4, 5] or not row["selection_freeze_sha256"]:
@@ -210,8 +250,14 @@ def evaluate_readout(
         "legal_outputs": not illegal,
     }
     result.update(
-        verdict="GO" if all(clauses.values()) else "KILL",
+        verdict=(
+            "INCOMPLETE" if baseline_deaths < 16 else "GO" if all(clauses.values()) else "KILL"
+        ),
         clauses=clauses,
+        secondary={
+            "confidence_strata": confidence_readout(root_rows),
+            "gameplay_point_guard_is_noninferiority_evidence": False,
+        },
         metrics={
             "teacher_gain": teacher_gain,
             "teacher_lb90": teacher_lb,
@@ -233,6 +279,10 @@ def evaluate_readout(
             "latency_p95_ms": latency_p95_ms,
             "latency_historical_4ms_comparison": latency_p95_ms <= 4.0,
         },
-        authorization="subsequent v2 registration preparation only",
+        authorization=(
+            "subsequent v2 registration preparation only" if all(clauses.values()) else "none"
+        ),
     )
+    if baseline_deaths < 16:
+        result["reasons"] = ["insufficient late B8 death support (<16); no scientific decision"]
     return result

@@ -69,6 +69,7 @@ def test_fit_restart_preserves_final_parameters_and_optimizer(tmp_path: Path) ->
     data = select_dataset(cfg, batches)
     train = [r for r in data["roots"] if r["partition"] == "train"]
     labels = label_roots(train, cfg=cfg, b8=zero, networks=networks, device="cpu")
+    heldout = [r for r in data["roots"] if r["partition"] == "assessment"]
     full = UnitStore(tmp_path / "full", cfg, empty_ledger(cfg), tmp_path)
     expected, _ = fit_student(
         cfg,
@@ -78,6 +79,7 @@ def test_fit_restart_preserves_final_parameters_and_optimizer(tmp_path: Path) ->
         store=full,
         stop=lambda: False,
         progress=lambda _: None,
+        heldout=heldout,
     )
     first = UnitStore(tmp_path / "first", cfg, empty_ledger(cfg), tmp_path)
     progress = {"updates": 0}
@@ -90,6 +92,7 @@ def test_fit_restart_preserves_final_parameters_and_optimizer(tmp_path: Path) ->
             store=first,
             stop=lambda: progress["updates"] >= 2,
             progress=lambda r: progress.update(r),
+            heldout=heldout,
         )
     ledger = build_ledger(cfg, [first.output], elapsed_seconds=0)
     resumed = UnitStore(tmp_path / "resumed", cfg, ledger, first.output)
@@ -101,9 +104,29 @@ def test_fit_restart_preserves_final_parameters_and_optimizer(tmp_path: Path) ->
         store=resumed,
         stop=lambda: False,
         progress=lambda _: None,
+        heldout=heldout,
     )
     assert all(
         torch.equal(value, actual.state_dict()[key]) for key, value in expected.state_dict().items()
+    )
+    assert full.get("fit-0000002")["heldout_bc"] == first.get("fit-0000002")["heldout_bc"]
+    assert full.get("fit-0000002")["heldout_bc"]["total"] == len(heldout)
+    baseline = UnitStore(tmp_path / "without-diagnostic", cfg, empty_ledger(cfg), tmp_path)
+    unchanged, _ = fit_student(
+        cfg,
+        data["demos"],
+        labels,
+        device="cpu",
+        store=baseline,
+        stop=lambda: False,
+        progress=lambda _: None,
+    )
+    assert all(
+        torch.equal(value, unchanged.state_dict()[key])
+        for key, value in expected.state_dict().items()
+    )
+    assert torch.equal(
+        full.get("fit-0000004")["torch_rng"], baseline.get("fit-0000004")["torch_rng"]
     )
     a = full.get("fit-0000004")["optimizer"]
     b = resumed.get("fit-0000004")["optimizer"]

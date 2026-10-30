@@ -32,6 +32,10 @@ RULING = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/spatial-latency-ruling/RULING.md"
 )
 RULING_SHA256 = "887fba0553098638081382fea1e0fd5c6d1fc30b9f8fc8443f73479d82636e97"
+AMENDMENT_07_RULING = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/spatial-amend-07/RULING.md"
+)
+AMENDMENT_07_RULING_SHA256 = "0d756a7304437dacccefff9115b197c038e9f90f72f8b28cd61259c368e9e6be"
 GOVERNANCE_FILES = (
     "REGISTRATION.md",
     "REGISTRATION_CLARIFICATION_01.md",
@@ -42,6 +46,7 @@ GOVERNANCE_FILES = (
     "REGISTRATION_CLARIFICATION_06.md",
     "REGISTRATION_CLARIFICATION_06_EXPORT_ERRATUM.md",
     "REGISTRATION_CLARIFICATION_06_ADOPTIONS_02.md",
+    "REGISTRATION_AMENDMENT_07.md",
 )
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 OPPONENT_SHAS = {
@@ -124,6 +129,12 @@ def governance_bytes(commit: str, ruling: Path) -> dict[str, bytes]:
     if ruling.is_symlink() or digest(ruling) != RULING_SHA256:
         raise ValueError("binding latency ruling digest differs")
     result = {"LATENCY_RULING.md": ruling.read_bytes()}
+    if (
+        AMENDMENT_07_RULING.is_symlink()
+        or digest(AMENDMENT_07_RULING) != AMENDMENT_07_RULING_SHA256
+    ):
+        raise ValueError("binding Amendment07 ruling digest differs")
+    result["AMENDMENT_07_RULING.md"] = AMENDMENT_07_RULING.read_bytes()
     for name in GOVERNANCE_FILES:
         pinned = subprocess.check_output(["git", "show", f"{commit}:{PACKAGE}/{name}"], cwd=ROOT)
         if (ROOT / PACKAGE / name).read_bytes() != pinned:
@@ -131,6 +142,8 @@ def governance_bytes(commit: str, ruling: Path) -> dict[str, bytes]:
         result[name] = pinned
     if RULING_SHA256.encode() not in result["REGISTRATION_AMENDMENT_04.md"]:
         raise ValueError("amendment does not bind latency ruling")
+    if AMENDMENT_07_RULING_SHA256.encode() not in result["REGISTRATION_AMENDMENT_07.md"]:
+        raise ValueError("Amendment07 does not bind its ruling")
     return result
 
 
@@ -214,6 +227,7 @@ def build_manifest(
     clarification_sha256: str,
     clarification_06_sha256: str,
     hardware_canaries: dict[str, dict[str, str]] | None = None,
+    amendment_07_sha256: str = "",
 ) -> dict[str, Any]:
     """Freeze separate 2x session envelopes without changing scientific N."""
     if mode not in {"ruler", "pilot"}:
@@ -261,6 +275,8 @@ def build_manifest(
         "registration_amendment_04_sha256": amendment_sha256,
         "registration_clarification_05_sha256": clarification_sha256,
         "registration_clarification_06_sha256": clarification_06_sha256,
+        "registration_amendment_07_sha256": amendment_07_sha256,
+        "amendment_07_ruling_sha256": AMENDMENT_07_RULING_SHA256,
         "technical_envelope": {
             "purpose": "whole-session runaway guard; units are informational",
             "useful_compute_estimate_minutes": estimate,
@@ -348,6 +364,7 @@ def prepare(
     governance = governance_bytes(commit, ruling)
     registration_bytes = governance["REGISTRATION.md"]
     amendment_hash = hashlib.sha256(governance["REGISTRATION_AMENDMENT_04.md"]).hexdigest()
+    amendment_07_hash = hashlib.sha256(governance["REGISTRATION_AMENDMENT_07.md"]).hexdigest()
     clarification_hash = hashlib.sha256(governance["REGISTRATION_CLARIFICATION_05.md"]).hexdigest()
     clarification_06_hash = hashlib.sha256(
         governance["REGISTRATION_CLARIFICATION_06.md"]
@@ -454,6 +471,7 @@ def prepare(
             clarification_sha256=clarification_hash,
             clarification_06_sha256=clarification_06_hash,
             hardware_canaries=proofs if mode == "pilot" else None,
+            amendment_07_sha256=amendment_07_hash,
         )
         if cache_hashes:
             manifest["env"]["SPATIAL_NATIVE_CACHE_SHA256"] = json.dumps(
@@ -517,6 +535,8 @@ def prepare(
         "registration_sha256": digest(packet / "REGISTRATION.md"),
         "latency_ruling_sha256": RULING_SHA256,
         "registration_amendment_04_sha256": amendment_hash,
+        "registration_amendment_07_sha256": amendment_07_hash,
+        "amendment_07_ruling_sha256": AMENDMENT_07_RULING_SHA256,
         "registration_clarification_05_sha256": clarification_hash,
         "registration_clarification_06_sha256": clarification_06_hash,
         "native_cache_bound": bool(cache_hashes),

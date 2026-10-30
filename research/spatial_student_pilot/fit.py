@@ -10,6 +10,7 @@ import torch
 from torch.nn import functional as F
 
 from research.spatial_student_pilot.config import PilotConfig
+from research.spatial_student_pilot.diagnostics import heldout_bc_agreement
 from research.spatial_student_pilot.model import SpatialStudent
 from research.spatial_student_pilot.observation import build_observation, compact_cat
 from research.spatial_student_pilot.resume import UnitStore
@@ -56,6 +57,7 @@ def fit_student(
     stop: Callable[[], bool],
     progress: Callable[[dict[str, Any]], None],
     bc_only: bool = False,
+    heldout: Sequence[dict[str, Any]] = (),
 ) -> tuple[SpatialStudent, dict[str, Any]]:
     """Resume only the latest verified complete optimizer/RNG/update boundary."""
     latest = max(
@@ -67,6 +69,9 @@ def fit_student(
         raise ValueError("both ordinary and search training rows required")
     if any(row["partition"] != "train" for row in [*ordinary, *searched]):
         raise ValueError("fit refuses assessment-world data")
+    training_parents = {int(r["world_id"]) for r in [*ordinary, *searched]}
+    if any(r["partition"] != "assessment" or r["world_id"] in training_parents for r in heldout):
+        raise ValueError("held-out BC parents overlap training")
     torch.manual_seed(cfg.seed)
     student = SpatialStudent().to(device).train()
     optimizer = torch.optim.Adam(student.parameters(), lr=3e-4)
@@ -87,6 +92,7 @@ def fit_student(
     started = time.monotonic()
     cache = cache_search_observations(searched, device, cfg.microbatch) if latest < total else {}
     completed = 0
+    diagnostic_seconds = 0.0
     for update in range(latest, total):
         if stop():
             raise InterruptedError("fit interrupted; only latest verified snapshot is eligible")
@@ -137,6 +143,15 @@ def fit_student(
         # No training loss/action quality in operational progress (one-look).
         progress({"stage": "fit", "updates": update + 1, "total": total})
         if (update + 1) % cfg.checkpoint_every == 0 or update + 1 == total:
+            diagnostic_started = time.monotonic()
+            diagnostic = (
+                heldout_bc_agreement(
+                    student, heldout, training_parents, device=device, microbatch=cfg.microbatch
+                )
+                if update + 1 == cfg.bc_updates
+                else None
+            )
+            diagnostic_seconds += time.monotonic() - diagnostic_started
             store.publish(
                 f"fit-{update + 1:07d}",
                 {
@@ -151,6 +166,7 @@ def fit_student(
                         torch.cuda.get_rng_state_all() if str(device).startswith("cuda") else []
                     ),
                     "final": update + 1 == endpoint,
+                    **({"heldout_bc": diagnostic} if heldout and diagnostic is not None else {}),
                 },
             )
     student.eval()
@@ -158,4 +174,6 @@ def fit_student(
         "updates_this_attempt": completed,
         "final_update": total,
         "elapsed_seconds": time.monotonic() - started,
+        "heldout_bc_seconds": diagnostic_seconds,
+        "heldout_bc_roots": len(heldout),
     }

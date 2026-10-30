@@ -21,6 +21,7 @@ class PilotConfig:
 
     namespace: str = NAMESPACE
     allocation_index: int = 0
+    registration_amendment: int = 7
     seed: int = 1901
     worlds: int = 1024
     horizon: int = 5000

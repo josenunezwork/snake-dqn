@@ -2,8 +2,21 @@
 
 Frozen v1 mechanism pilot. Start with REGISTRATION.md, clarifications01–03,
 REGISTRATION_AMENDMENT_04.md and REGISTRATION_CLARIFICATION_05.md and REGISTRATION_CLARIFICATION_06.md and its adoption extension
-REGISTRATION_CLARIFICATION_06_ADOPTIONS_02.md. This package
+REGISTRATION_CLARIFICATION_06_ADOPTIONS_02.md and REGISTRATION_AMENDMENT_07.md. This package
 has no serving integration and grants no release.
+
+Amendment07 makes fewer than16 baseline late deaths INCOMPLETE, retaining every
+clause and diagnostic. Labels remain unchanged. Assessment exports include raw
+student logits, legal top-two margins and frozen selection returns. The BC
+boundary seals agreement by disjoint assessment parent. Confidence strata are
+selection-only descriptive readouts. Every immutable unit binds actual GPU SKU
+and software provenance; full-state restart across GPUs is not claimed bitwise
+identical. Old-config ledgers are refused.
+
+Before dispatch retain the <=60s offline publication/export/resume fault receipt:
+`python -m research.spatial_student_pilot.fault_test --output FRESH_JSON`.
+The integrated ruler prices the added inference and export bytes; preparation
+alone never proves a six-hour fit. Only the operator dispatches.
 
 `observation.py` reconstructs 16 full-arena planes and 36 scalars from compact
 ordered body/food shards. `model.py` implements the random 2,299,430-parameter

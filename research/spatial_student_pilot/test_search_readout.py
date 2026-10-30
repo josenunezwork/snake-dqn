@@ -125,6 +125,17 @@ def endpoint() -> tuple[list[dict], list[dict]]:
                 b8_action=0,
                 teacher_action=1,
                 student_action=1,
+                student_logits=[0, 2, 0, 0, 0, 0],
+                legal_mask=[True, True, True, False, False, False],
+                student_top2_margin=2.0,
+                selection_mass=[
+                    [100, 100],
+                    [120, 120],
+                    [99, 99],
+                    [np.nan, np.nan],
+                    [np.nan, np.nan],
+                    [np.nan, np.nan],
+                ],
                 selection_freeze_sha256="f" * 64,
                 scoring_suffixes=[4, 5],
                 b8_mass=[100, 100],
@@ -221,7 +232,7 @@ def test_invalid_precedes_kill_and_requires_baseline_deaths() -> None:
     for row in roots:
         row["b8_survival"] = [1, 1]
     result = read(roots, gameplay)
-    assert result["verdict"] == "KILL"
+    assert result["verdict"] == "INCOMPLETE"
     assert result["clauses"]["baseline_late_deaths_at_least16"] is False
     assert read(roots[:-1], gameplay)["verdict"] == "INVALID"
     missing_counts = deepcopy(gameplay)
