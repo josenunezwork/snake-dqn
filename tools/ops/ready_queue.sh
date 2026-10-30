@@ -10,8 +10,8 @@ export PATH="$HOME/.local/bin:$PATH"
 if [ "${1:-}" = --check ]; then
   exec "$PY" "$HERE/ready_queue.py" run --dry-run
 fi
-pmset -g batt | grep -q 'AC Power' || { echo 'refusing: on battery' >&2; exit 2; }
-ioreg -r -k AppleClamshellState | grep -q '"AppleClamshellState" = No' || {
+pmset -g batt | grep 'AC Power' >/dev/null || { echo 'refusing: on battery' >&2; exit 2; }
+ioreg -r -k AppleClamshellState | grep '"AppleClamshellState" = No' >/dev/null || {
   echo 'refusing: lid closed' >&2; exit 2;
 }
 exec /usr/bin/caffeinate -is "$PY" "$HERE/ready_queue.py" run "$@"
