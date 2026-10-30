@@ -656,7 +656,11 @@ def require_sandbox_admission(manifest: dict[str, Any], broker: Path) -> None:
     study = packages.get(manifest.get("script"))
     if study is None:
         raise Refused("sandbox script is outside adopted development packages")
-    if "completion_attempt" in manifest and study not in {"sandbox-a-train01", "t34-cf-1028"}:
+    if "completion_attempt" in manifest and study not in {
+        "sandbox-a-train01",
+        "t34-cf-1028",
+        "t34-ct-h5000-1029",
+    }:
         raise Refused("training completion metadata is exclusive to TRAIN-01 and t34-cf-1028")
     output = preflight._assert_safe_path(manifest.get("output_dir", ""), "sandbox output")
     if not output.is_absolute() or not output.resolve().is_relative_to(SANDBOX_OUTPUT_ROOTS[study]):

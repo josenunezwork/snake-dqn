@@ -12,6 +12,27 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
+def require_source_delivery(manifest: dict[str, Any]) -> None:
+    """Check the execution policy during offline validation as well as live use."""
+    from tools.sandbox.source_delivery import OPT_IN
+
+    if manifest.get("sandbox_source_delivery") != OPT_IN:
+        return
+    if manifest.get("script") == "research/sandbox_a_resident/ct_cuda_canary_job.sh":
+        from research.sandbox_a_resident.ct_canary_admission import require_smoke
+
+        require_smoke(manifest)
+        return
+    if manifest.get("script") not in {
+        "research/sandbox_a_resident/train_job.sh",
+        "research/sandbox_a_resident/ct_job.sh",
+        "research/sandbox_a_resident/ct_h5000/job.sh",
+    }:
+        raise ValueError(
+            "background sparse source delivery is exclusive to TRAIN-01 and t34-cf-1028"
+        )
+
+
 @contextmanager
 def sandbox_admission_route() -> Iterator[None]:
     """Install a process-local policy adapter, restoring it even after refusal."""
@@ -72,25 +93,14 @@ def sandbox_admission_route() -> Iterator[None]:
         # resolves or hashes their bytes. Its later canary hook rechecks policy.
         if "sandbox_admission" in manifest:
             require_sandbox_admission(manifest, supervisor.REPO if repo is None else repo)
+        require_source_delivery(manifest)
         return original_validate(manifest, repo)
 
     def execute(self: Any, cli: Any, manifest: dict[str, Any], *args: Any, **kwargs: Any) -> Any:
         """Wrap only the qualified execution phase that owns source delivery."""
         if manifest.get("sandbox_source_delivery") != OPT_IN:
             return original_execute(self, cli, manifest, *args, **kwargs)
-        if manifest.get("script") == "research/sandbox_a_resident/ct_cuda_canary_job.sh":
-            from research.sandbox_a_resident.ct_canary_admission import require_smoke
-
-            require_smoke(manifest)
-            with background_sparse_route(cli):
-                return original_execute(self, cli, manifest, *args, **kwargs)
-        if manifest.get("script") not in {
-            "research/sandbox_a_resident/train_job.sh",
-            "research/sandbox_a_resident/ct_job.sh",
-        }:
-            raise ValueError(
-                "background sparse source delivery is exclusive to TRAIN-01 and t34-cf-1028"
-            )
+        require_source_delivery(manifest)
         with background_sparse_route(cli):
             return original_execute(self, cli, manifest, *args, **kwargs)
 
