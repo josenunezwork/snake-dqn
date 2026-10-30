@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 from types import ModuleType
 
-from qualification import OPS, git, save, tree
+from qualification import OPS, git, publish, save, tree
 
 
 def load_transport(repo: Path) -> tuple[ModuleType, ModuleType]:
@@ -159,7 +159,7 @@ def execute(saved: Path, registry: Path, token: str, oauth_python: str) -> Path:
         raise ValueError("broker changed during acceptance")
     if git(repo, "rev-parse", "HEAD") != review["commit"] or tree(repo) != review["tree_hash"]:
         raise ValueError("broker commit changed during acceptance")
-    save(
+    (publish if registry.exists() else save)(
         registry,
         {
             "schema": "snake-dqn-colab-cli-qualified/v1",

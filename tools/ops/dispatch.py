@@ -23,9 +23,9 @@ from pathlib import Path
 from typing import Any, Iterator
 
 if __package__:
-    from .qualification import OPS, tree
+    from .qualification import OPS, select, tree
 else:
-    from qualification import OPS, tree
+    from qualification import OPS, select, tree
 
 HERE = Path(__file__).resolve().parent
 _guard_spec = importlib.util.spec_from_file_location(
@@ -407,9 +407,7 @@ def create_control_admission(
     if not interpreter.is_file() or not CONTROL_OAUTH_INTERPRETER.is_file():
         raise Refused("qualified Colab control interpreter is missing")
     qualification_snapshot = path.with_name(f"{name}.qualification.json")
-    qualification_value = read_json(ops / "colab-cli-qualified.json")
-    if qualification_value.get("tree_hash") != tree(broker):
-        raise Refused("qualification registry changed before control admission")
+    qualification_value = select(read_json(ops / "colab-cli-qualified.json"), tree(broker))
     write_create_only_json(qualification_snapshot, qualification_value)
     git_executable = Path(
         subprocess.check_output(["/usr/bin/xcrun", "--find", "git"], text=True, timeout=5).strip()
@@ -2603,6 +2601,21 @@ def dispatch(args: argparse.Namespace) -> str:
     commit = value.get("commit")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise Refused("manifest commit must be a full published SHA")
+    if value.get("script", "").startswith("research/watch6_search_efficacy/"):
+        # The queue uses this current host dispatcher with immutable package
+        # worktrees. Preserve the same admission as the package's own wrapper.
+        command(
+            [
+                os.environ.get("SNAKE_DQN_PYTHON", sys.executable),
+                "-c",
+                "import json,sys; sys.path.insert(0,sys.argv[1]); "
+                "from research.watch6_search_efficacy.admission import admit; "
+                "admit(json.load(open(sys.argv[2])))",
+                str(broker),
+                str(manifest),
+            ],
+            cwd=cwd,
+        )
     offline = bool(getattr(args, "dry_run", False))
     qualified(broker, ops, **({"offline": True} if offline else {}))
     qualified(broker, ops, ref=commit, **({"offline": True} if offline else {}))

@@ -51,7 +51,7 @@ supervisor continues to own cleanup. A submitted job records its `EXIT=` marker
 when the supervisor exits; an uncertain tmux submission is labelled in the log.
 Logs are registered with `watchd.sh`, which is started if needed.
 
-The sole automatic retry is the exact supervisor accounting failure
+The dispatch wrapper's built-in automatic retry is the exact supervisor accounting failure
 `AccountingError('assignment endpoints changed during allocation')`, after the
 failed attempt has terminated and its receipt proves cleanup/release. All other
 errors, uncertain release, and a second failure stop. The retry uses a saved copy
@@ -59,7 +59,7 @@ of the original manifest with a new job ID (bounded to 64 characters) and fresh
 output directory; the original
 manifest, output, and log remain evidence. Review both attempts when computing spend.
 This narrowly authorized retry is in the ops wrapper; transport code is unchanged.
-The `resume` declaration does not expand this automatic retry or launch completion
+The `resume` declaration alone does not expand this automatic retry or launch completion
 jobs. The package/operator owns the separately registered outcome-blind completion
 attempts and accounts for every attempt against the registered series envelope.
 
@@ -307,8 +307,16 @@ REPO=/Users/josenunez/Projects/ml/snake-dqn-ops2
 
 ## Qualification registry and watcher
 
-`ops/colab-cli-qualified.json` is a mutable pointer to the most recently qualified
-transport **tree**, separate from immutable acceptance evidence. It was initialized
+`ops/colab-cli-qualified.json` is a mutable registry of qualified transport
+**trees**, separate from immutable acceptance evidence. New readers accept both
+legacy singleton v1 files and multi-tree records. Publication retains a legacy v1
+top-level view of the oldest active tree, with `registry_schema` v2 and a `trees`
+array containing each tree's separate review, approval and evidence. This keeps
+old dispatchers queued on the original tree working. New dispatchers select the
+matching entry for both broker and manifest pin; control admissions snapshot only
+that selected v1 entry. Adding a tree preserves every existing qualification;
+retirement requires an explicit command and reason. Publication holds a registry
+lock, backs up the old bytes, and atomically replaces/fsyncs the file. It was initialized
 from the owner's reported final-only PASS `acceptance-1792685115` on
 `f1904777aded79366703c94afbf5dc13155bb0ee`, merged at
 `04ae4cbfa6194e7afbdff53fe22be9de1a6cd152`. The transport tree is
@@ -362,6 +370,78 @@ succeed before atomically updating the registry. The registry binds the result's
 SHA-256, commit, tree, and acceptance ID. Keep the independent acceptance review
 required by the research process; registry publication grants no serving authority.
 `SNAKE_DQN_PYTHON` can select the project interpreter.
+
+## Ready queue and mechanical completion retries
+
+The owner's 2026-10-30 fast-process rule authorizes automatic mechanical retries
+and a FIFO ready queue. The live files are under `OPS_DIR` (default
+`snake-dqn-artifacts/ops`): `ready-queue.json`, `events.log`, dispatch snapshots,
+and create-only retry packets. All runtime mutations still go through
+`dispatch.sh` and the qualified supervisor. Transport bytes and prepared pins
+do not change for this host orchestration feature.
+
+```bash
+python3 tools/ops/qualification.py add --record /absolute/ops/colab-cli-qualified.json \
+  --entry /absolute/reviewed-tree-entry.json
+python3 tools/ops/qualification.py retire --record /absolute/ops/colab-cli-qualified.json \
+  --tree FULL_TREE_SHA --reason 'explicit operator retirement'
+
+PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+"$PY" tools/ops/ready_queue.py enqueue canary --retry-limit 2 \
+  --command '/absolute/current/tools/ops/dispatch.sh canary /absolute/canary.json --broker /absolute/pinned-package --cwd /absolute/pinned-package'
+"$PY" tools/ops/ready_queue.py enqueue main --after canary:pass \
+  --command '/absolute/current/tools/ops/dispatch.sh main /absolute/main.json --broker /absolute/pinned-package --cwd /absolute/pinned-package'
+bash tools/ops/ready_queue.sh --check
+# Foreground entrypoint for a unique operator-owned detached tmux session:
+bash tools/ops/ready_queue.sh
+```
+
+`--command` is parsed into argv; it is never executed by a shell. Always use the
+current dispatcher path, including for packages pinned to older transport trees.
+Its Watch6 route repeats the package's own admission check. `--prepare-command`
+is optional argv run once after dependencies pass, before dispatch; it lets an
+unchanged package helper seal a pending manifest. `seal_doom_ready.py` resolves
+the actual final canary retry receipts and calls DOOM's canonical `prepare.admit`.
+It never manufactures a receipt or relaxes package admission. `--after ID:pass`
+requires a stopped PASS; `ID:finished` also admits a verified mechanical failure
+or the dispatcher's exact archived no-assignment proof. Dependencies follow retry
+chains. The FIFO skips an unready entry so other ready lanes can use capacity.
+
+The daemon polls every 15 seconds. It counts dispatch snapshots/logs/receipts and
+durable queued submissions, and reads account-wide `colab sessions` to count
+unmanaged/legacy assignments and avoid mistaking historical unverified receipts
+for current capacity. Unknown inventory stops submissions. It reserves at most
+three occupied/pending runtime slots across competing daemons; the supervisor
+independently enforces account allocation and pending-identity fences. A durable
+claim precedes starting each worker. Restarting cannot repeat an ambiguous claim.
+`HELD` or an interrupted `DISPATCHING` entry requires inspection; do not reset it
+to READY without reconciling the original submission. The daemon keeps polling
+the other lanes. `status` prints all entries; `run --dry-run` reports eligible IDs
+and capacity without queue writes, preparation, retry or allocation.
+
+The retry scanner runs in the daemon. `enqueue --track` can adopt an already
+dispatched command (with an existing log) without submitting it again. For a
+completion it requires a manifest-bound terminal receipt, `INCOMPLETE`, shell
+exit, `stop_verified: true`, no cleanup error, no terminal child result, and no
+exports, including partial files. Known classes are `RPC_EXEC_POLL_TIMEOUT`,
+`TRANSPORT_TIMEOUT`, `UPLOAD_CAP`, `ALLOCATION_REFUSED` and
+`ALLOCATION_UNAVAILABLE`; positive transport/error evidence is required and
+science, numerical, integrity and ambiguous timeout failures refuse. Historical
+pre-allocation `stop_verified: false` receipts are never retried. Standalone
+accelerator refusal uses the existing exact GET-only no-assignment reconciliation
+before retiring its pending intent; it does not rewrite that receipt or authorize
+an automatic retry.
+
+`auto_retry.py` invokes package ledger/admission helpers where present, retains
+the original uploaded ledger (there are zero newly exported units), and creates
+fresh manifest, job, output and state identities. Source pin, inputs, namespace,
+science parameters and caps stay fixed. Completion counters and the narrowest
+package/queue/series limit bound retries to at most two; an already prepared
+`completion_attempt: 1` gets at most one more. Exempt canaries require an explicit
+`--retry-limit` of 0, 1 or 2. Package `no_automatic_retry` remains binding. Each
+queued retry, refusal, preparation and submission is recorded in `events.log`;
+prior manifests, logs and receipts remain immutable. This queue grants no release
+or serving authority.
 
 ## Sum prior spend
 

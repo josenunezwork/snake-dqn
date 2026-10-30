@@ -320,3 +320,57 @@ def test_pending_review_blocks_even_matching_tree(broker, tmp_path, status, ref)
     value["independent_review_status"] = "ACCEPT"
     qualification.save(record, value)
     assert qualification.check(broker, record, ref)
+
+
+def test_additive_registry_preserves_old_tree_backup_and_explicit_retirement(broker, tmp_path):
+    record = registry(broker, tmp_path)
+    before = record.read_bytes()
+    old = git(broker, "rev-parse", "HEAD")
+    old_tree = qualification.tree(broker)
+    (broker / "research/colab_cli/launch.sh").write_text("new transport")
+    git(broker, "add", ".")
+    git(broker, "commit", "-qm", "new transport")
+    new_tree = qualification.tree(broker)
+    new = {
+        "schema": qualification.V1,
+        "tree_hash": new_tree,
+        "independent_review_status": "ACCEPT",
+        "evidence": "new evidence",
+    }
+    qualification.publish(record, new)
+    legacy = json.loads(record.read_text())
+    assert legacy["schema"] == qualification.V1
+    assert legacy["tree_hash"] == old_tree
+    assert legacy["independent_review_status"] == "ACCEPT"
+    assert qualification.check(broker, record, old) == old_tree
+    assert qualification.check(broker, record) == new_tree
+    assert next(tmp_path.glob("qualified.json.backup-*")).read_bytes() == before
+    selected = qualification.select(json.loads(record.read_text()), new_tree)
+    assert selected == new
+    assert selected["schema"] == qualification.V1  # immutable legacy control snapshot
+    with pytest.raises(ValueError, match="already exists"):
+        qualification.publish(record, new)
+    qualification.publish(record, {"reason": "explicit operator retirement"}, retire=old_tree)
+    with pytest.raises(ValueError, match="UNQUALIFIED"):
+        qualification.check(broker, record, old)
+    assert qualification.check(broker, record) == new_tree
+
+
+def test_pending_addition_does_not_borrow_old_approval(broker, tmp_path):
+    record = registry(broker, tmp_path)
+    old = git(broker, "rev-parse", "HEAD")
+    (broker / "research/colab_cli/launch.sh").write_text("pending transport")
+    git(broker, "add", ".")
+    git(broker, "commit", "-qm", "pending transport")
+    qualification.publish(
+        record,
+        {
+            "schema": qualification.V1,
+            "tree_hash": qualification.tree(broker),
+            "independent_review_status": "PENDING",
+        },
+    )
+    assert qualification.check(broker, record, old)
+    assert qualification.check(broker, record, offline=True)
+    with pytest.raises(ValueError, match="REVIEW_REQUIRED"):
+        qualification.check(broker, record)
