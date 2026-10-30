@@ -81,16 +81,24 @@ def collect_batch(
     decisions = 0
     completed_ticks = 0
     last_progress = started
+    tick_samples = []
+    reached_l600: set[int] = set()
     for tick in range(cfg.horizon):
         if ruler_seconds is not None and time.monotonic() - started >= ruler_seconds:
             break
         if stop():
             raise InterruptedError("partial collection batch; no result unit published")
+        if dev.type == "cuda":
+            torch.cuda.synchronize(dev)
+        tick_started = time.monotonic()
         sim.prepare()
         _, _, _, masks, _, actions = observe_hero_bv8(sim, b8)
         alive = sim.alive[:, 0].cpu().tolist()
         lengths = sim.length[:, 0].cpu().tolist()
         decisions += sum(alive)
+        reached_l600.update(
+            world for world, living, length in zip(ids, alive, lengths) if living and length >= 600
+        )
         for row, world in enumerate(ids):
             if not alive[row]:
                 continue
@@ -157,6 +165,15 @@ def collect_batch(
         sim.step(opponents.actions(sim, actions))
         opponents.after_step(sim)
         completed_ticks += 1
+        if dev.type == "cuda":
+            torch.cuda.synchronize(dev)
+        tick_samples.append(
+            {
+                "tick": tick,
+                "seconds": time.monotonic() - tick_started,
+                "mature_worlds": sum(a and n >= 600 for a, n in zip(alive, lengths)),
+            }
+        )
         if bool(sim.capacity_overflow.any()):
             raise ValueError("body overflow invalidates collection")
         if tick % 10 == 0 or time.monotonic() - last_progress >= 45:
@@ -171,6 +188,8 @@ def collect_batch(
         "elapsed_seconds": time.monotonic() - started,
         "world_ticks": len(ids) * completed_ticks,
         "ruler_partial": ruler_seconds is not None,
+        "tick_samples": tick_samples,
+        "reached_l600_world_ids": sorted(reached_l600),
     }
 
 

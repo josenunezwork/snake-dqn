@@ -60,3 +60,14 @@ The retained implementation handoff is
 Independent Argon review was attempted but its CLI quota was exhausted; this
 must be resolved before operator dispatch. No substitute independent approval
 is inferred from author tests or packet dry-run admission.
+
+Pre-data review fixes and latency disclosure are in
+`REGISTRATION_CLARIFICATION_03.md`. The ruler now gates production-slab rates,
+mature-tail collection, distinct-parent support and mature export-size forecasts.
+The original actor missed the4ms development latency check; a smaller late-fusion
+proposal is retained externally and has not changed the registered model.
+**Do not dispatch this packet pending resolution of the latency finding.**
+
+To reproduce the historical-fixture, random-weight development probe (it never
+qualifies the endpoint), use `latency --development-bank STAGE_0001_PT --device
+mps --output FRESH_JSON`; do not combine it with scientific checkpoint/unit inputs.

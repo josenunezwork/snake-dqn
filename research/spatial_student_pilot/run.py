@@ -24,6 +24,12 @@ from research.sandbox_a_resident.training_rosters import (
 from research.spatial_student_pilot.collect import collect_batch, select_dataset
 from research.spatial_student_pilot.config import PilotConfig
 from research.spatial_student_pilot.fit import fit_student
+from research.spatial_student_pilot.forecast import (
+    export_projection,
+    late_collection_rate,
+    support_projection,
+    tick_forecast,
+)
 from research.spatial_student_pilot.model import export_checkpoint
 from research.spatial_student_pilot.resume import (
     UnitStore,
@@ -31,7 +37,13 @@ from research.spatial_student_pilot.resume import (
     empty_ledger,
     validate_ledger,
 )
-from research.spatial_student_pilot.search import assess_roots, label_roots, paired_gameplay
+from research.spatial_student_pilot.search import (
+    _Job,
+    _rollouts,
+    assess_roots,
+    label_roots,
+    paired_gameplay,
+)
 from src.model.ego2s_network import load_ego2s_checkpoint
 
 
@@ -251,17 +263,35 @@ def ruler(
         ruler_seconds=420,
     )
     store.publish("collect-0000", batch)
-    phases["collection"] = {"seconds": batch["elapsed_seconds"], "rows": batch["world_ticks"]}
+    collection_rate = late_collection_rate(batch)
+    support = support_projection(cfg, batch)
+    phases["collection"] = {
+        "seconds": batch["elapsed_seconds"],
+        "rows": batch["world_ticks"],
+        "late_window": collection_rate,
+        "support_projection": support,
+    }
     train = [r for r in batch["roots"] if r["partition"] == "train"]
     late = [r for r in train if r["hero_length"] >= 600]
     mature_mixes = {r["mix"] for r in late}
-    roots = [
-        r
-        for mix in ("scripted", "frozen", "mixed")
-        for r in [row for row in (late or train) if row["mix"] == mix][:2]
-    ]
+    # Round-robin mixes, at least22 roots AND enough legal jobs for a full128 slab.
+    pools = {mix: [r for r in late if r["mix"] == mix] for mix in ("scripted", "frozen", "mixed")}
+    roots = []
+    for index in range(max(map(len, pools.values()), default=0)):
+        for pool in pools.values():
+            if index < len(pool):
+                roots.append(pool[index])
+        if len(roots) >= 22 and sum(int(r["mask"].sum()) * 2 for r in roots) >= 128:
+            break
     if not roots or not batch["demos"]:
         raise RuntimeError("INCOMPLETE_RULER no natural roots/demonstrations")
+    branch_timings = []
+
+    def ruler_progress(event: dict[str, Any]) -> None:
+        if event.get("phase") == "branch_timing":
+            branch_timings.append(event)
+        control.progress(event)
+
     mark = time.monotonic()
     labels = label_roots(
         roots,
@@ -270,11 +300,13 @@ def ruler(
         networks=networks,
         device=device,
         stop=control.stop,
-        progress=control.progress,
+        progress=ruler_progress,
     )
     store.publish("search-0000", labels)
     phases["search"] = {
         "seconds": time.monotonic() - mark,
+        "roots": len(roots),
+        "slabs": list(branch_timings),
         "logical_steps": sum(int(r["mask"].sum()) * 2 * cfg.branch_horizon for r in roots),
     }
     student, fit_timing = fit_student(
@@ -287,8 +319,27 @@ def ruler(
         progress=control.progress,
     )
     phases["fit"] = fit_timing
+    # Assessment mixed scoring slabs execute both B8 and the student forward.
+    closed_jobs = [
+        _Job(i % len(roots), int(roots[i % len(roots)]["b8_action"]), 4 + i % 2, True)
+        for i in range(cfg.branch_batch_size)
+    ]
+    _rollouts(
+        roots,
+        closed_jobs,
+        cfg=cfg,
+        b8=b8,
+        networks=networks,
+        device=device,
+        student=student,
+        stop=control.stop,
+        progress=ruler_progress,
+    )
+    phases["closed_loop"] = {"slabs": [r for r in branch_timings if r["closed_loop"]]}
     mark = time.monotonic()
-    worlds = _worlds(cfg)[:3]
+    worlds = _worlds(cfg)[: cfg.world_batch_size]
+    # Keep E128 even after early deaths; exclude setup and cap each arm to45s/300ticks.
+    arm_seconds = max(0.001, min(45.0, (control.deadline - time.monotonic() - 30) / 2))
     rows = paired_gameplay(
         worlds,
         student,
@@ -298,6 +349,8 @@ def ruler(
         device=device,
         stop=control.stop,
         progress=control.progress,
+        ruler_ticks=300,
+        ruler_arm_seconds=arm_seconds,
     )
     store.publish("gameplay-0000", rows)
     phases["gameplay"] = {
@@ -306,48 +359,62 @@ def ruler(
         "executed_world_steps": {
             arm: rows[0][arm + "_executed_world_steps"] for arm in ("b8", "student")
         },
-        "arm_seconds": {arm: rows[0][arm + "_wall_seconds"] for arm in ("b8", "student")},
+        "ticks": {arm: rows[0][arm + "_ticks"] for arm in ("b8", "student")},
+        "slab_size": len(worlds),
+        "arm_seconds": {arm: rows[0][arm + "_loop_seconds"] for arm in ("b8", "student")},
+        "setup_inclusive_arm_seconds": {
+            arm: rows[0][arm + "_wall_seconds"] for arm in ("b8", "student")
+        },
     }
     mark = time.monotonic()
     actor = store.output / "ruler-actor.pth"
     export_checkpoint(student, actor, metadata={"namespace": cfg.namespace, "ruler_only": True})
     seal_file(actor)
     phases["export"] = {"seconds": time.monotonic() - mark, "bytes": actor.stat().st_size}
-    # Match actual represented steps, not 10x extrapolation from another actor.
-    collection_seconds = (
-        1024 * 5000 * phases["collection"]["seconds"] / phases["collection"]["rows"]
+    full_slabs = [r for r in branch_timings if r["slab_size"] == 128 and r["ticks"] == 300]
+    b8_rates = [r["loop_seconds"] / r["ticks"] for r in full_slabs if not r["closed_loop"]]
+    student_rates = [r["loop_seconds"] / r["ticks"] for r in full_slabs if r["closed_loop"]]
+    gameplay_qualified = len(worlds) == 128 and all(
+        phases["gameplay"]["ticks"][a] >= 20 for a in ("b8", "student")
     )
-    search_seconds = (
-        (1024 * 6 * 2 * 300) * phases["search"]["seconds"] / phases["search"]["logical_steps"]
+    rates_qualified = (
+        len(roots) >= 22
+        and bool(b8_rates)
+        and bool(student_rates)
+        and gameplay_qualified
+        and collection_rate["qualified"]
     )
-    fit_seconds = 8000 * fit_timing["elapsed_seconds"] / (cfg.bc_updates + cfg.improvement_updates)
-    assessment_seconds = (
-        (384 * (6 * 2 + 4 * 2) * 300)
-        * phases["search"]["seconds"]
-        / phases["search"]["logical_steps"]
+    components = tick_forecast(
+        collection_tick=collection_rate["seconds_per_tick"],
+        b8_branch_tick=max(b8_rates, default=900.0),
+        student_branch_tick=max(student_rates, default=900.0),
+        gameplay_ticks={
+            a: phases["gameplay"]["arm_seconds"][a] / max(1, phases["gameplay"]["ticks"][a])
+            for a in ("b8", "student")
+        },
+        fit_update=fit_timing["elapsed_seconds"] / (cfg.bc_updates + cfg.improvement_updates),
     )
-    # Do not price a final trained policy from the random ruler actor's early
-    # deaths. Charge every final world as alive for its entire H5000 horizon.
-    gameplay_seconds = sum(
-        192
-        * 5000
-        * phases["gameplay"]["arm_seconds"][arm]
-        / max(1, phases["gameplay"]["executed_world_steps"][arm])
-        for arm in ("b8", "student")
+    sizes = export_projection(
+        batch, labels, [store.get(n) for n in store.list_ids("fit-")], actor.stat().st_size
     )
-    forecast = sum(
-        (collection_seconds, search_seconds, fit_seconds, assessment_seconds, gameplay_seconds)
+    qualified = (
+        len(mature_mixes) == 3 and rates_qualified and support["qualified"] and sizes["qualified"]
     )
+    forecast = sum(components.values())
     return {
         "status": "RULER_COMPLETE",
         "scientific_result": False,
         "phases": phases,
         "natural_mature_support": bool(late),
         "mature_mixes": sorted(mature_mixes),
-        "forecast_qualified": len(mature_mixes) == 3,
+        "forecast_qualified": qualified,
+        "rate_qualified": rates_qualified,
+        "support_projection": support,
+        "export_projection": sizes,
+        "forecast_components_seconds": components,
         "forecast_compute_seconds": forecast,
         "forecast_with_setup_export_seconds": forecast + 3600,
-        "within_six_hours": len(mature_mixes) == 3 and forecast + 3600 <= 21600,
+        "within_six_hours": qualified and forecast + 3600 <= 21600,
         "peak_vram_bytes": torch.cuda.max_memory_allocated() if device.startswith("cuda") else None,
         "elapsed_seconds": time.monotonic() - started,
     }

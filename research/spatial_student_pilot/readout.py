@@ -161,7 +161,9 @@ def evaluate_readout(
         return result
     baseline_deaths = sum(_dead(r, "b8") for r in late)
     if baseline_deaths < 16:
-        result["verdict"] = "INCOMPLETE"
+        result["verdict"] = "KILL"
+        result["clauses"] = {"baseline_late_deaths_at_least16": False}
+        result["metrics"] = {"baseline_late_deaths": baseline_deaths}
         result["reasons"] = ["fewer than16 baseline late roots die on both independent suffixes"]
         return result
     try:

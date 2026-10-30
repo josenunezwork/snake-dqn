@@ -124,6 +124,9 @@ def verify_ruler_receipt(path: Path, commit: str) -> None:
         report.get("status") != "RULER_COMPLETE"
         or report.get("forecast_qualified") is not True
         or report.get("within_six_hours") is not True
+        or report.get("support_projection", {}).get("qualified") is not True
+        or report.get("export_projection", {}).get("qualified") is not True
+        or report.get("rate_qualified") is not True
     ):
         raise ValueError("integrated ruler did not qualify mature support and six-hour forecast")
     peak = report.get("peak_vram_bytes")
@@ -302,6 +305,11 @@ def prepare(
     inputs.append(
         binding(
             ROOT / PACKAGE / "REGISTRATION_CLARIFICATION_02.md", "REGISTRATION_CLARIFICATION_02.md"
+        )
+    )
+    inputs.append(
+        binding(
+            ROOT / PACKAGE / "REGISTRATION_CLARIFICATION_03.md", "REGISTRATION_CLARIFICATION_03.md"
         )
     )
     proofs = (

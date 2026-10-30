@@ -275,17 +275,88 @@ def load_final_candidate(
     return student, metadata, digest
 
 
+def development_bank_probe(
+    path: Path, *, device: str, warmups: int, repeats: int
+) -> dict[str, Any]:
+    """Historical fixtures plus random weights; never final-candidate qualification."""
+    from research.sandbox_a_resident.ct_snapshots import LosslessBoundedSnapshotStore
+
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if Path(str(path) + ".sha256").read_text().split()[0] != digest:
+        raise ValueError("historical fixture bank SHA mismatch")
+    blob = torch.load(path, map_location="cpu", weights_only=False)
+    if blob.get("schema") != "ct-stage-0001/v1":
+        raise ValueError("expected historical C/T collection stage")
+    store = LosslessBoundedSnapshotStore.from_state_dict(blob["dataset"]["store"])
+    eligible = sorted(
+        (
+            i
+            for i, snap in enumerate(store.snapshots)
+            if bool(snap.small_tensors["alive"][0]) and int(snap.small_tensors["length"][0]) >= 600
+        ),
+        key=lambda i: (-int(store.snapshots[i].small_tensors["length"][0]), i),
+    )
+    indices, seen = [], set()
+    for i in eligible:
+        parent = store.metadata[i].world_id
+        if parent not in seen:
+            indices.append(i)
+            seen.add(parent)
+        if len(indices) == 16:
+            break
+    if len(indices) < 16:
+        raise ValueError("need16 distinct natural long-body historical parents")
+    cfg = PilotConfig()
+    games = [snapshot_to_live(store.snapshots[i].to_state_dict(), cfg) for i in indices]
+    torch.manual_seed(cfg.seed)
+    report = probe_live(games, SpatialStudent(), device=device, warmups=warmups, repeats=repeats)
+    report.update(
+        development_only=True,
+        random_initialization=True,
+        fixture_bank_sha256=digest,
+        fixture_bank=str(path),
+        root_indices=indices,
+        hero_lengths=[int(store.snapshots[i].small_tensors["length"][0]) for i in indices],
+        within_p95_limit=report["statistics"]["p95_ms"] <= 4.0,
+        source_sha256={
+            name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+            for name in ("latency.py", "model.py", "observation.py")
+        },
+    )
+    return report
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--units-root", type=Path, required=True)
-    parser.add_argument("--unit-id", action="append", required=True)
-    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument("--units-root", type=Path)
+    parser.add_argument("--unit-id", action="append")
+    parser.add_argument("--development-bank", type=Path)
+    parser.add_argument("--config", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", choices=("cpu", "mps"), default="mps")
     parser.add_argument("--warmups", type=int, default=12)
     parser.add_argument("--repeats", type=int, default=100)
     args = parser.parse_args(argv)
+    if platform.system() != "Darwin":
+        raise ValueError("latency must be measured on the owner's Mac")
+    if args.output.exists():
+        raise FileExistsError(args.output)
+    torch.set_num_threads(1)
+    if args.development_bank is not None:
+        if any((args.checkpoint, args.units_root, args.unit_id, args.config)):
+            raise ValueError("development bank cannot be combined with scientific inputs")
+        report = development_bank_probe(
+            args.development_bank, device=args.device, warmups=args.warmups, repeats=args.repeats
+        )
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        with args.output.open("x") as stream:
+            json.dump(report, stream, indent=2)
+            stream.write("\n")
+        print(json.dumps(report["statistics"], sort_keys=True), flush=True)
+        return 0
+    if not all((args.checkpoint, args.units_root, args.unit_id, args.config)):
+        parser.error("scientific probe requires checkpoint, units-root, unit-id and config")
     from research.spatial_student_pilot.resume import load_verified_unit
 
     cfg = PilotConfig.from_dict(json.loads(args.config.read_text()))

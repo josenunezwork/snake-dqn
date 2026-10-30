@@ -101,7 +101,9 @@ def test_actual_snapshot_search_assessment_and_gameplay() -> None:
     rows = paired_gameplay(worlds, ZeroPolicy(), cfg=cfg, b8=b8, networks={}, device="cpu")
     assert rows[0]["b8_mass"] == rows[0]["student_mass"]
     assert rows[0]["b8_alive"] == rows[0]["student_alive"]
-    bad = dict(root, b8_action=(root["b8_action"] + 1) % 3)
+    mask = list(root["mask"])
+    mask[(root["b8_action"] + 1) % 3] = not mask[(root["b8_action"] + 1) % 3]
+    bad = dict(root, mask=mask)
     with pytest.raises(ValueError, match="identity"):
         label_roots([bad], cfg=cfg, b8=b8, networks={}, device="cpu")
 
@@ -196,7 +198,7 @@ def test_invalid_precedes_kill_and_requires_baseline_deaths() -> None:
     roots, gameplay = endpoint()
     for row in roots:
         row["b8_survival"] = [1, 1]
-    assert read(roots, gameplay)["verdict"] == "INCOMPLETE"
+    assert read(roots, gameplay)["verdict"] == "KILL"
     assert read(roots[:-1], gameplay)["verdict"] == "INVALID"
 
 
@@ -237,3 +239,66 @@ def test_foreign_root_prefix_and_illegal_forced_action_are_refused() -> None:
     roots, gameplay = endpoint()
     roots[0]["uid"] = "foreign/a0/root0"
     assert read(roots, gameplay)["verdict"] == "INVALID"
+
+
+def test_restore_near_ties_are_logged_but_large_or_illegal_gaps_refuse() -> None:
+    from research.spatial_student_pilot.search import RESTORE_Q_EPSILON, verify_restored_action
+
+    mask = torch.tensor([[True, True, True, False, False, False]])
+    q = torch.tensor([[0.0, RESTORE_Q_EPSILON / 2, -1.0, 0, 0, 0]])
+    events = verify_restored_action(mask, mask, q, torch.tensor([1]), torch.tensor([0]))
+    assert len(events) == 1 and events[0]["expected"] == 0
+    q[0, 1] = 2 * RESTORE_Q_EPSILON
+    with pytest.raises(ValueError, match="identity"):
+        verify_restored_action(mask, mask, q, torch.tensor([1]), torch.tensor([0]))
+    q[0, 1] = RESTORE_Q_EPSILON / 2
+    with pytest.raises(ValueError, match="identity"):
+        verify_restored_action(mask, mask, q, torch.tensor([1]), torch.tensor([2]))
+    with pytest.raises(ValueError, match="identity"):
+        verify_restored_action(mask, ~mask, q, torch.tensor([1]), torch.tensor([0]))
+
+
+def test_ruler_gameplay_has_fixed_slab_bounded_ticks_and_setup_free_time() -> None:
+    from dataclasses import replace
+
+    cfg = replace(
+        PilotConfig().development("preflight"),
+        tiny=False,
+        mode="ruler",
+        namespace=PilotConfig().development("ruler").namespace,
+    )
+    # Keep tiny simulator geometry for a fast test while exercising ruler semantics.
+    from unittest.mock import Mock
+
+    proxy = Mock(wraps=cfg)
+    proxy.mode = "ruler"
+    proxy.horizon = 50
+    proxy.world_batch_size = 3
+    proxy.gameplay_worlds = 3
+    proxy.sim_config = PilotConfig().development("preflight").sim_config
+    worlds = [dict(world_id=i, roster_index=i, mix="scripted") for i in range(3)]
+    from research.sandbox_a_resident.training_rosters import CHAMPION_SHA256, FRP3_S12_SHA256
+
+    rows = paired_gameplay(
+        worlds,
+        ZeroPolicy(),
+        cfg=proxy,
+        b8=ZeroPolicy(),
+        networks={CHAMPION_SHA256: ZeroPolicy(), FRP3_S12_SHA256: ZeroPolicy()},
+        device="cpu",
+        ruler_ticks=4,
+    )
+    for arm in ("b8", "student"):
+        assert rows[0][arm + "_ticks"] == 4
+        assert rows[0][arm + "_executed_world_steps"] == 12
+        assert rows[0][arm + "_loop_seconds"] < rows[0][arm + "_wall_seconds"]
+    with pytest.raises(ValueError, match="ruler-only"):
+        paired_gameplay(
+            worlds,
+            ZeroPolicy(),
+            cfg=PilotConfig().development("preflight"),
+            b8=ZeroPolicy(),
+            networks={},
+            device="cpu",
+            ruler_ticks=4,
+        )

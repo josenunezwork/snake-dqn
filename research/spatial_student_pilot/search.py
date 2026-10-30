@@ -40,6 +40,46 @@ class _Job:
     closed_loop: bool = False
 
 
+# Prospective restore-verification tolerance; never changes the forced tick-0 action.
+RESTORE_Q_EPSILON = 1e-5
+
+
+def _sync(device: Any) -> None:
+    if torch.device(device).type == "cuda":
+        torch.cuda.synchronize(device)
+
+
+def verify_restored_action(
+    mask: torch.Tensor,
+    expected_mask: torch.Tensor,
+    q: torch.Tensor,
+    actual: torch.Tensor,
+    expected: torch.Tensor,
+) -> list[dict[str, Any]]:
+    """Permit only a top-two near tie involving the captured legal action."""
+    if not torch.equal(mask, expected_mask) or not bool(torch.isfinite(q).all()):
+        raise ValueError("restored root observation/mask/B8 action identity failure")
+    events = []
+    for row in (actual != expected).nonzero(as_tuple=False).flatten().tolist():
+        values = q[row].masked_fill(~mask[row], -torch.inf)
+        top = values.topk(2).values
+        gap = float(top[0] - values[int(expected[row])])
+        margin = float(top[0] - top[1])
+        if not bool(mask[row, expected[row]]) or max(gap, margin) > RESTORE_Q_EPSILON:
+            raise ValueError("restored root observation/mask/B8 action identity failure")
+        events.append(
+            dict(
+                row=row,
+                expected=int(expected[row]),
+                actual=int(actual[row]),
+                top2_margin=margin,
+                expected_gap=gap,
+                epsilon=RESTORE_Q_EPSILON,
+            )
+        )
+    return events
+
+
 def select_mass_actions(
     mass: np.ndarray, legal: np.ndarray, b8_actions: Sequence[int]
 ) -> np.ndarray:
@@ -145,15 +185,20 @@ def _rollouts(
             opponents,
         )
         # Restoring a root must preserve the captured decision and legal mask.
-        _, _, _, mask, _, actual = observe_hero_bv8(sim, b8)
+        _, _, _, mask, q, actual = observe_hero_bv8(sim, b8)
         expected_mask = torch.as_tensor(
             np.asarray([roots[j.root]["mask"] for j in slab]), device=sim.device
         ).bool()
         expected_b8 = torch.tensor(
             [int(roots[j.root]["b8_action"]) for j in slab], device=sim.device
         )
-        if not torch.equal(mask, expected_mask) or not torch.equal(actual, expected_b8):
-            raise ValueError("restored root observation/mask/B8 action identity failure")
+        ties = verify_restored_action(mask, expected_mask, q, actual, expected_b8)
+        if ties:
+            event = {"phase": "restore_near_tie", "slab_start": start, "mismatches": ties}
+            if progress is not None:
+                progress(event)
+            # Always retain diagnostics in stdout, even when progress is throttled.
+            print(json.dumps(event, sort_keys=True), flush=True)
         keys = [derive_branch_keys(str(roots[j.root]["uid"]), j.suffix) for j in slab]
         sim.rng_key.copy_(torch.tensor([k.sim_rng_key for k in keys], device=sim.device))
         sim.rng_counter.zero_()
@@ -163,6 +208,9 @@ def _rollouts(
         mass_sum = torch.zeros(len(slab), dtype=torch.float64, device=sim.device)
         survivors = torch.zeros_like(mass_sum)
         closed = torch.tensor([j.closed_loop for j in slab], device=sim.device)
+        _sync(sim.device)
+        loop_started = time.monotonic()
+        completed_ticks = 0
         for tick in range(horizon):
             now = time.monotonic()
             if progress is not None and now - last_progress >= 45.0:
@@ -181,7 +229,7 @@ def _rollouts(
             if tick == 0:
                 actions = torch.tensor([j.action for j in slab], device=sim.device)
             else:
-                if tick % 10 == 0 and not bool(sim.alive[:, 0].all()):
+                if cfg.mode != "ruler" and tick % 10 == 0 and not bool(sim.alive[:, 0].all()):
                     keep = sim.alive[:, 0].nonzero(as_tuple=False).flatten()
                     if keep.numel() == 0:
                         break
@@ -202,10 +250,23 @@ def _rollouts(
             if bool(sim.capacity_overflow.any()):
                 raise ValueError("body capacity overflow invalidates rollout")
             executed += sim.E
+            completed_ticks += 1
             alive = sim.alive[:, 0]
             mass_sum.index_add_(0, slots, torch.where(alive, sim.length[:, 0], 0).double())
             if tick == horizon - 1:
                 survivors.index_copy_(0, slots, alive.double())
+        _sync(sim.device)
+        loop_seconds = time.monotonic() - loop_started
+        if progress is not None:
+            progress(
+                {
+                    "phase": "branch_timing",
+                    "slab_size": len(slab),
+                    "ticks": completed_ticks,
+                    "loop_seconds": loop_seconds,
+                    "closed_loop": any(j.closed_loop for j in slab),
+                }
+            )
         mass_out[start : start + len(slab)] = (mass_sum / horizon).cpu().numpy()
         alive_out[start : start + len(slab)] = survivors.cpu().numpy()
         if progress is not None:
@@ -372,8 +433,12 @@ def paired_gameplay(
     device: Any,
     stop: Any = None,
     progress: Any = None,
+    ruler_ticks: int | None = None,
+    ruler_arm_seconds: float = 45.0,
 ) -> list[dict[str, Any]]:
     """Fresh paired H5000 worlds: terminal hero; mass and alive use the full horizon."""
+    if ruler_ticks is not None and (cfg.mode != "ruler" or not 1 <= ruler_ticks <= 600):
+        raise ValueError("bounded gameplay tick probe is ruler-only")
     if len({int(w["world_id"]) for w in worlds}) != len(worlds):
         raise ValueError("duplicate paired gameplay world")
     roster_table = training_rosters(cfg.gameplay_worlds)
@@ -445,8 +510,13 @@ def paired_gameplay(
             total_alive = torch.zeros_like(total_mass)
             counts = torch.zeros(6, dtype=torch.long, device=sim.device)
             slots = torch.arange(len(chunk), device=sim.device)
-            for tick in range(int(cfg.horizon)):
+            _sync(sim.device)
+            loop_started = time.monotonic()
+            completed_ticks = 0
+            for tick in range(int(cfg.horizon) if ruler_ticks is None else ruler_ticks):
                 now = time.monotonic()
+                if ruler_ticks is not None and tick > 0 and now - loop_started >= ruler_arm_seconds:
+                    break
                 if progress is not None and now - last_progress >= 45.0:
                     progress(
                         {
@@ -460,7 +530,7 @@ def paired_gameplay(
                     last_progress = now
                 if stop is not None and tick % 10 == 0 and stop():
                     raise InterruptedError("incomplete gameplay; no unit may be published")
-                if tick % 10 == 0 and not bool(sim.alive[:, 0].all()):
+                if ruler_ticks is None and tick % 10 == 0 and not bool(sim.alive[:, 0].all()):
                     keep = sim.alive[:, 0].nonzero(as_tuple=False).flatten()
                     if keep.numel() == 0:
                         break
@@ -476,17 +546,23 @@ def paired_gameplay(
                 sim.step(opponents.actions(sim, actions))
                 opponents.after_step(sim)
                 executed_world_steps += sim.E
+                completed_ticks += 1
                 if bool(sim.capacity_overflow.any()):
                     raise ValueError("body capacity overflow invalidates gameplay")
                 alive = sim.alive[:, 0]
                 total_mass.index_add_(0, slots, torch.where(alive, sim.length[:, 0], 0).double())
                 total_alive.index_add_(0, slots, alive.double())
+            _sync(sim.device)
+            loop_seconds = time.monotonic() - loop_started
             for i, (m, a) in enumerate(zip(total_mass.cpu(), total_alive.cpu())):
                 output[start + i][arm + "_mass"] = float(m / cfg.horizon)
                 output[start + i][arm + "_alive"] = float(a / cfg.horizon)
             # Batch counts are emitted once and summed exactly by readout.
             output[start][arm + "_action_counts"] = counts.cpu().tolist()
             output[start][arm + "_executed_world_steps"] = executed_world_steps
+            output[start][arm + "_ticks"] = completed_ticks
+            output[start][arm + "_loop_seconds"] = loop_seconds
+            output[start][arm + "_slab_size"] = len(chunk)
             output[start][arm + "_wall_seconds"] = time.monotonic() - arm_started
             if progress is not None:
                 progress(
