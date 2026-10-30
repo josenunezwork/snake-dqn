@@ -1,0 +1,4 @@
+# Workload-only cache lookup; qualified transport remains byte-identical.
+# The supervisor supplies this absolute input directory before bootstrap.
+--find-links ${COLAB_INPUT_DIR}/wheelhouse
+-r requirements.txt

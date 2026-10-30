@@ -437,7 +437,7 @@ def prepare(
                 cache_hashes, sort_keys=True
             )
         if wheelhouse is not None:
-            manifest["env"]["COLAB_CLI_WHEELHOUSE"] = "inputs/wheelhouse"
+            manifest["env"]["COLAB_CLI_REQUIREMENTS"] = f"{PACKAGE}/requirements-cached.txt"
         write_once(packet / f"{mode}.json", manifest)
         manifests[mode] = manifest
         # Persist wrapper-derived variants for review; dispatch still derives

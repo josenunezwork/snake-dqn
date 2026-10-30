@@ -120,40 +120,56 @@ def test_ruler_probe_records_complete_checkpoint_cost() -> None:
     assert seen[0]["capture_seconds"] > 0
 
 
-@pytest.mark.parametrize("mode", ["absent", "present", "missing", "unsafe"])
-def test_optional_wheelhouse_hook_on_macos_bash(mode: str, tmp_path: Path) -> None:
-    """Bash3 nounset must preserve absent-cache bootstrap and exact quoted argv."""
+def test_cached_requirements_resolve_uploaded_wheels_without_network(tmp_path: Path) -> None:
+    """Exercise pip's actual env expansion/find-links through the qualified bootstrap."""
     import os
     import subprocess
+    import sys
+    import zipfile
 
-    script = Path("research/colab_cli/bootstrap.sh").read_text()
-    hook = script[script.index('WHEELHOUSE=""') : script.index("python3 -m uv python install")]
-    (tmp_path / "inputs/wheelhouse").mkdir(parents=True)
-    env = dict(os.environ)
-    env.pop("COLAB_CLI_WHEELHOUSE", None)
-    if mode == "present":
-        env["COLAB_CLI_WHEELHOUSE"] = "inputs/wheelhouse"
-    elif mode == "missing":
-        env["COLAB_CLI_WHEELHOUSE"] = "inputs/wheelhouse"
-        (tmp_path / "inputs/wheelhouse").rmdir()
-    elif mode == "unsafe":
-        env["COLAB_CLI_WHEELHOUSE"] = "../../foreign"
-    probe = 'set -eu\nROOT="$1"\npython3() { printf "<%s>\\n" "$@"; }\n' + hook
+    inputs = tmp_path / "inputs"
+    wheelhouse = inputs / "wheelhouse"
+    wheelhouse.mkdir(parents=True)
+    wheel = wheelhouse / "spatialcachefixture-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as stream:
+        stream.writestr(
+            "spatialcachefixture-1.0.dist-info/METADATA",
+            "Metadata-Version: 2.1\nName: spatialcachefixture\nVersion: 1.0\n",
+        )
+        stream.writestr(
+            "spatialcachefixture-1.0.dist-info/WHEEL",
+            "Wheel-Version: 1.0\nGenerator: fixture\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        )
+        stream.writestr("spatialcachefixture-1.0.dist-info/RECORD", "")
+    cached = Path("research/spatial_student_pilot/requirements-cached.txt").read_text()
+    assert "-r requirements.txt" in cached
+    requirements = tmp_path / "requirements-cached.txt"
+    requirements.write_text(cached.replace("-r requirements.txt", "spatialcachefixture==1.0"))
+    env = dict(os.environ, COLAB_INPUT_DIR=str(inputs))
     result = subprocess.run(
-        ["/bin/bash", "-c", probe, "probe", str(tmp_path)],
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "download",
+            "--isolated",
+            "--no-index",
+            "--no-deps",
+            "--dest",
+            str(tmp_path / "download"),
+            "-r",
+            str(requirements),
+        ],
         env=env,
         capture_output=True,
         text=True,
-        timeout=5,
+        timeout=20,
     )
-    if mode in {"missing", "unsafe"}:
-        assert result.returncode == 2 and result.stdout == ""
-    else:
-        assert result.returncode == 0, result.stderr
-        assert "<uv>" in result.stdout
-        assert ("<--find-links>" in result.stdout) == (mode == "present")
-        if mode == "present":
-            assert "<" + str(tmp_path / "inputs/wheelhouse") + ">" in result.stdout
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "download" / wheel.name).read_bytes() == wheel.read_bytes()
+    # The active qualified transport has not gained a cache hook or changed pins.
+    baseline = subprocess.check_output(["git", "show", "e86fe37b:research/colab_cli/bootstrap.sh"])
+    assert Path("research/colab_cli/bootstrap.sh").read_bytes() == baseline
 
 
 def test_native_cache_binds_sources_toolchain_and_stopped_export_hashes(tmp_path: Path) -> None:

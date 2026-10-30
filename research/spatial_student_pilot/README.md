@@ -1,7 +1,7 @@
 # Spatial student pilot
 
 Frozen v1 mechanism pilot. Start with REGISTRATION.md, clarifications01–03,
-REGISTRATION_AMENDMENT_04.md and REGISTRATION_CLARIFICATION_05/06.md. This package
+REGISTRATION_AMENDMENT_04.md and REGISTRATION_CLARIFICATION_05.md and REGISTRATION_CLARIFICATION_06.md. This package
 has no serving integration and grants no release.
 
 `observation.py` reconstructs 16 full-arena planes and 36 scalars from compact
@@ -64,7 +64,8 @@ complete verified ledger, candidate, seed audit and latency report. The frozen
 MPS diagnostic uses12 warmups/100 repeats per fixture, one CPU thread and a
 required `--load-observation` description. Its complete raw evidence is mandatory;
 p95 above4ms is reported and cannot cause scientific KILL. It requires
-all 51 endpoint/preparation units plus eligible collection trajectory shards and exact final-actor tensor identity before performing the sole
+all 51 endpoint/preparation units, eligible collection trajectory shards and exact
+final-actor tensor identity before performing the sole
 world-clustered readout. Missing support is INCOMPLETE. Valid misses of clauses1–5 KILL scaling.
 
 Local verification (CUDA parity remains a target-platform canary obligation):
@@ -126,3 +127,7 @@ Torch/CUDA toolchain. The ruler exports its loaded binaries for later packets.
 Without both compatible native caches, cold compilation stays charged. Large
 Torch wheels should remain remote downloads when uploading them would cost more.
 Neither author tests nor a dispatch dry-run establishes CUDA speed or six-hour fit.
+
+Cached-wheel packets select `requirements-cached.txt`, whose pip --find-links
+option expands the supervisor-provided COLAB_INPUT_DIR. The qualified Colab
+transport, including bootstrap.sh, remains byte-identical to the released tree.
