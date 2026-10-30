@@ -27,6 +27,11 @@ with the real receipt hash. Both ordinary dry-run and live admission reject
 pending templates. A missing/failed/stale canary cannot be finalized. The timing
 profiler now ends after exporting measurements, so a sizing refusal cannot
 mislabel otherwise completed canary execution as a child failure.
+Use `dispatch --operator-root /Users/josenunez/Projects/ml/snake-dqn` so the
+current operator selects this transport's reviewed entry in the additive
+qualification registry. The pinned broker, source checkout and shared account
+locks are unchanged; the older worktree operator reads only the legacy primary
+entry and incorrectly refuses the already qualified d2992d6a transport.
 
 Prepare only; no dispatch or merge in this assignment. REGISTRATION_V2.md
 prospectively supersedes the retained original REGISTRATION.md. RULING.md records

@@ -22,6 +22,7 @@ OPERATIONAL_PATHS = {
     "research/watch6_search_efficacy/prepare.py",
     "research/watch6_search_efficacy/admission.py",
     "research/watch6_search_efficacy/finalize.py",
+    "research/watch6_search_efficacy/dispatch.py",
     "research/watch6_search_efficacy/README.md",
 }
 MARGIN = 1.5
