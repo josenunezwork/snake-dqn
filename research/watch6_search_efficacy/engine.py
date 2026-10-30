@@ -86,16 +86,22 @@ def run_arm(seed: int, dense: bool, check: Callable[[], None], horizon: int = 14
     _assert_mixed(session.live, 6)
     roster = roster_identity(session.live)
     life, was_alive = 1, True
+    previous_alive = [True] * 6
+    respawns = [0] * 6
+    main_seconds = 0.0
+    search_seconds = 0.0
     trigger = DenseTrigger(min_length=600, interval=5)
     last_progress = time.monotonic()
     try:
         with step_guard(check):
             for frame in range(1, horizon + 1):
+                frame_started = time.monotonic()
+                frame_search_seconds = 0.0
                 check()
                 selected: dict = {}
 
                 def choose(sim: Any) -> np.ndarray:
-                    nonlocal life, trigger
+                    nonlocal life, trigger, frame_search_seconds
                     world.runtime.prepare(sim)
                     active = bool(sim.alive[0, 0])
                     if active and not was_alive:
@@ -115,7 +121,9 @@ def run_arm(seed: int, dense: bool, check: Callable[[], None], horizon: int = 14
                         chosen = bare
                         fired = dense and trigger.fires(len(decisions), int(sim.length[0, 0]), True)
                         if fired and advisory.any():
+                            search_started = time.monotonic()
                             batch = dense_batch(world, frame - 1, q, legal)
+                            frame_search_seconds += time.monotonic() - search_started
                             chosen = int(batch["chosen"])
                             batches.append({"frame": frame, "life": life, "bare": bare, **batch})
                         if not np.isfinite(q).all() or not 0 <= chosen < 6:
@@ -192,6 +200,10 @@ def run_arm(seed: int, dense: bool, check: Callable[[], None], horizon: int = 14
                         raise ValueError("live delivered action mismatch")
                     decisions.append(selected)
                 was_alive = bool(hero.is_alive)
+                alive = [bool(s.is_alive) for s in session.live.game.snakes]
+                for slot in range(6):
+                    respawns[slot] += int(alive[slot] and not previous_alive[slot])
+                previous_alive = alive
                 frames.append(
                     {
                         "frame": frame,
@@ -202,6 +214,8 @@ def run_arm(seed: int, dense: bool, check: Callable[[], None], horizon: int = 14
                         "death_length": selected.get("length", 0) if death else 0,
                     }
                 )
+                main_seconds += time.monotonic() - frame_started - frame_search_seconds
+                search_seconds += frame_search_seconds
                 if time.monotonic() - last_progress >= 60:
                     print(
                         f"Watch6 efficacy seed={seed} arm={'dense' if dense else 'bare'} "
@@ -217,4 +231,6 @@ def run_arm(seed: int, dense: bool, check: Callable[[], None], horizon: int = 14
         "batches": batches,
         "roster": roster,
         "mirror_identity_frames": horizon,
+        "respawns_per_slot": respawns,
+        "timing": {"main_seconds": main_seconds, "search_seconds": search_seconds},
     }

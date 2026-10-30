@@ -91,18 +91,21 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--shard", type=int, default=0)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--shards", type=int, default=6)
     parser.add_argument("--fixture", action="store_true")
     parser.add_argument("--fixture-horizon", type=int, default=12)
     args = parser.parse_args()
-    if args.workers not in (1, 2, 4) or args.shard not in range(6):
-        parser.error("requires W1/W2/W4 and shard 0..5")
+    if args.workers not in (1, 2, *p.WORKERS) or args.shards not in (3, 6, 12, 24, 48, 96):
+        parser.error("requires W1/W2/W4/W6/W8 and registered shard count")
+    if args.shard not in range(args.shards):
+        parser.error("foreign shard index")
     verified = completed(args.ledger)
     if args.fixture and not 1 <= args.fixture_horizon <= 14400:
         parser.error("fixture requires bounded horizon")
     if not args.fixture:
         from research.watch6_search_efficacy.admission import runtime_admit
 
-        runtime_admit()
+        runtime_admit(workers=args.workers, shards=args.shards, shard=args.shard)
     args.out.mkdir(parents=True, exist_ok=False)
     skip = {row["index"] for row in verified}
     rows = (
@@ -111,7 +114,11 @@ def main() -> None:
             for i, seed in enumerate(p.FIXTURE_SEEDS)
         ]
         if args.fixture
-        else [r for r in p.allocation() if r["index"] % 6 == args.shard and r["index"] not in skip]
+        else [
+            r
+            for r in p.allocation()
+            if r["index"] % args.shards == args.shard and r["index"] not in skip
+        ]
     )
     started = time.monotonic()
     # SIGUSR1 arrives at the supervisor's 15-second checkpoint grace. Completed

@@ -39,46 +39,11 @@ def main() -> None:
         check=True,
     )
     tiny_seconds = time.monotonic() - started
-    import numpy as np
-
-    from research.bl_ppo.collector import _prepare_sim
-    from research.bl_served_search.ceiling import _legal
     from research.t1_commitment_20261015.replay import configure_cpu
-    from research.t3_rollout_labels_20261015.bank_engine import prepared_q
-    from research.watch6_search_efficacy.engine import dense_batch
-    from research.watch6_search_efficacy.product import open_watch
-    from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
-    from src.simd_env.grid_scenarios import inject_serpentines
+    from research.watch6_search_efficacy.performance import branch_fixture
 
     configure_cpu()
-    timings = []
-    for seed in p.FIXTURE_SEEDS:
-        session = open_watch({"seed": seed}, 24, "bare")
-        try:
-            world = session.world
-            # Excluded profiling fixture only. Product configuration/opponents
-            # retained; synthetic geometry is never a scientific initial state.
-            inject_serpentines([world.sim], (900, 600, 400, 300, 150, 150), box_height=8)
-            _prepare_sim(world.sim)
-            world.runtime.prepare(world.sim)
-            obs = build_ego_raster(
-                world.sim, EgoRasterConfig(version="bv8"), backend="numba", rows=np.array([[0, 0]])
-            )
-            q = prepared_q(world, obs)
-            legal, _ = _legal(q, world.sim.get_advisory_action_mask()[0, 0])
-            start = time.monotonic()
-            result = dense_batch(world, 0, q, legal)
-            elapsed = time.monotonic() - start
-            timings.append(
-                {
-                    "seed": seed,
-                    "seconds": elapsed,
-                    "branches": result["branches_evaluated"],
-                    "native_v8": result["native_v8"],
-                }
-            )
-        finally:
-            session.close()
+    timings = [branch_fixture(seed) for seed in p.FIXTURE_SEEDS]
     publish_json(
         args.out / "benchmark.json",
         {

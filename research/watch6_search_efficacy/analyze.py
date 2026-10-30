@@ -1,4 +1,4 @@
-"""Mac-only one-look reduction of the complete verified union of 24 sessions."""
+"""Mac-only one-look reduction of the complete verified union of 96 sessions."""
 
 from __future__ import annotations
 
@@ -54,13 +54,19 @@ def decide(rows: list[dict]) -> dict:
     b = float(-2 * d.mean() * bare.mean() + 2 * c * np.cov(d, bare, ddof=1)[0, 1])
     q = float(d.mean() ** 2 - c * d.var(ddof=1))
     disc = b * b - 4 * a * q
+    # Exactly proportional mass pairs have a point Fieller set. Cancellation
+    # can make its zero discriminant a few ulps negative; do not call it unbounded.
+    tolerance = 64 * np.finfo(float).eps * max(abs(b * b), abs(4 * a * q), 1.0)
+    if -tolerance <= disc < 0:
+        disc = 0.0
     bounds = (
         sorted([(-b - np.sqrt(disc)) / (2 * a), (-b + np.sqrt(disc)) / (2 * a)])
         if a > 0 and disc >= 0
         else None
     )
     deaths_ci = interval(delta)
-    death_pass = deaths_ci[1] < 0
+    nondegenerate = float(np.ptp(delta)) > 0
+    death_pass = nondegenerate and deaths_ci[1] < 0
     mass_pass = bounds is not None and bounds[0] >= -0.05
     # Evidence against benefit or preservation closes this design on this bank;
     # all other failures to demonstrate both bars are honestly inconclusive.
@@ -69,7 +75,8 @@ def decide(rows: list[dict]) -> dict:
         if death_pass and mass_pass
         else (
             "FAIL_EFFICACY"
-            if (deaths_ci[0] >= 0 and deaths_ci[1] > 0) or (bounds and bounds[1] < -0.05)
+            if (nondegenerate and deaths_ci[0] >= 0 and deaths_ci[1] > 0)
+            or (bounds and bounds[1] < -0.05)
             else "INCONCLUSIVE"
         )
     )
@@ -77,6 +84,11 @@ def decide(rows: list[dict]) -> dict:
     candidate_deaths = sum(r["arms"]["exact_stop"]["deaths"] for r in rows)
     return {
         "verdict": verdict,
+        "replay_serving_decision": (
+            "ELIGIBLE_FOR_REPLAY_QUALIFICATION"
+            if verdict == "GO_EFFICACY_ONLY"
+            else "NO_GO_FOR_REPLAY_SERVING_UNDER_THIS_REGISTRATION"
+        ),
         "n": p.COUNT,
         "death_delta_per_1k": float(delta.mean()),
         "death_delta_ci95": deaths_ci,

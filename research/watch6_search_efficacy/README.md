@@ -1,60 +1,75 @@
-# Watch6 exact-stop efficacy screen
+# Watch6 exact-stop replay efficacy go/no-go
 
-Prepare only; the owner prohibited live dispatch and merge for this assignment.
-See REGISTRATION.md for the fixed controller, product configuration, allocation,
-one-look co-primary decision, CPU placement and completion rules.
+Prepare only; no dispatch or merge in this assignment. REGISTRATION_V2.md
+prospectively supersedes the retained original REGISTRATION.md. RULING.md records
+Astra's owner-authorized pre-data ruling. The fixed panel is 96 paired H14400
+sessions; both co-primary bars must pass. INCONCLUSIVE and FAIL_EFFICACY are no-go
+for replay serving under this registration, without an extension or bank rerun.
+A GO still needs replay and serving qualification and owner release approval.
 
-The package creates a real default mixed Watch6 GameSession with released B8 s3
-and FRP3+v8 opponents, then checks every transition against a Grid mirror. It
-reuses exact_stop.run and ceiling._choose without modifying either. It makes no
-paced, latency, delivery, strict-gate, promotion or serving claim.
+The actual default mixed Watch6 GameSession runs B8 s3 against five FRP3+v8
+opponents with mechanics v2 and continuous respawn. Every transition is audited
+against an independent Grid mirror. The unchanged L2-prime exact_stop.run and
+ceiling._choose control synchronous H300 search; C/T reranking is absent.
 
-`preflight` runs the actual Python entrypoint on three excluded tiny pairs and
-three excluded synthetic long-body H300 branch fixtures. `freshness` reuses the
-existing C1 visible-history auditor and positive controls with the new allocation.
-`prepare` accepts a published branch SHA and the matching preflight, creates a
-fresh package with six W4 L4 manifests and a 30min target canary, and never
-contacts Colab. `dispatch --dry-run` executes the study admission checks before
-calling the unchanged qualified tools/ops dispatcher. Production entrypoints
-repeat the source/allocation/ledger/ratification checks before gameplay.
+Preparation sequence (all commands use the project venv, CPU and one math thread):
 
-The first package deliberately includes a PENDING Fable-approval input. Main
-admission refuses it; this is a real prerequisite, not a completed review. After
-independent Fable ratification of the exact science/registration hashes, operator
-uses `prepare --approval /absolute/path/fable-approval.json` into a fresh package
-at the same pin. The approval JSON must contain exactly status RATIFIED, judge
-Fable, science (protocol.identity()), and registration_sha256. Retain the actual
-judge's ruling separately. Do not author a judge approval on its behalf.
+1. `mirror --out ABSOLUTE_RECEIPT` runs one excluded bare H14400 Mac session;
+   require zero mismatches, >=2 hero respawns and >=3 total respawns. AC/open lid,
+   caffeinate and shared slot locks apply. The retained receipt binds gameplay /
+   mirror source independently of later operational preparation files.
+2. `freshness --out ABSOLUTE_AUDIT` collision-audits the new 96-index namespace
+   against visible history with positive controls; retain the CLEAR receipt.
+3. `preflight --out ABSOLUTE_NEW_DIR` runs three tiny real pairs and three excluded
+   long-body H300 branch fixtures. This is additional runtime/transport proof.
+4. Commit and push the branch. `prepare --out CANARY_PACKAGE --benchmark
+   PREFLIGHT/benchmark.json --mirror-receipt MAC_RECEIPT --commit PUBLISHED_SHA`
+   creates **only** a <=30min L4 target canary. Main manifests are not fabricated
+   before measurement. The default judge approval records Astra's actual ruling
+   and binds science, REGISTRATION_V2.md and RULING.md hashes. `--approval` accepts
+   a corresponding recorded Astra/Fable ruling; no Fable-only persona is required.
+5. Operator runs `dispatch CANARY_PACKAGE/canary.json --dry-run`, then the same
+   wrapper without --dry-run. This implementation assignment does not do so.
+6. After verified canary PASS/release, `prepare --main --canary-receipt
+   CANARY_PACKAGE/output-canary/receipt.json --out MAIN_PACKAGE` with the same
+   pin/benchmark/mirror/approval/ledger creates measured main shards. Then use the
+   study `dispatch --dry-run` and `dispatch` wrapper for each generated shard.
 
-Run the target canary through `dispatch` first. Once its receipt is PASS with
-stop_verified, create fresh main manifest copies adding
-`canary: {schema: snake-dqn-colab-cli-canary/v1, receipt: {path: ABSOLUTE_RECEIPT,
-sha256: RECEIPT_SHA256}}`. Use the exact `SCHEMA` constant in
-research.colab_cli.canary (do not copy the illustrative string without checking).
-No other manifest/input/env change is allowed. Validate each through the study
-wrapper dry-run and then the live wrapper. Live accounting is refreshed by the
-qualified dispatcher; no direct colab allocation/exec/upload/stop calls.
+The L4 canary measures W4/W6/W8 on >=12 vCPUs, both real Watch+5v8+mirror main
+loops H300/arm/worker, and three long-body full-H300 branch batches/worker.
+Synchronized profiling measures contention; only operational costs are exported
+in performance.json. No scientific bank world is used. The forecast includes
+both loops, the largest observed whole branch batch as a singleton upper cost,
+2880 possible roots and six branches/root, 25% margin, 20min setup/export and
+whole-pair worker waves. Select the fewest feasible shards among 3/6/12/24/48/96,
+then smallest measured aggregate runtime, then smaller W. Refuse when none fits
+base<=660min; effective guard is twice that base, <=22h. Estimates, N and measured
+rates are never doubled. Fixture costs are forecasts, not all-state cost bounds.
 
-`resume` builds a Mac ledger from stopped supervisor outputs using only
-path/index/size/hash plus non-scientific completion metadata, and rejects foreign
-or duplicate units. A fresh attempt uploads that verified ledger and its
-sidecars. No partial pair is admitted or resumed; no verified pair is recomputed.
-At most two outcome-blind completion attempts, after verified mechanical failure
-and stop. Empty first ledger, source identity, namespace and original N persist.
-`analyze` is Mac-only and accepts the complete union of 24 immutable pair payloads
-once. Integrity failures refuse a scientific result. An unbounded Fieller mass
-interval cannot pass. Outcomes remain sealed during operation and recovery.
+Main preparation/host admission checks the original immutable broker receipt,
+verified stop, same pin/transport/hardware, actual recovered report hashes and
+identical uploaded bytes. Execute-time admission recomputes forecast and checks
+manifest/CLI W, shards and wall against it. No manual capacity override is a
+substitute. The release-evidence archive is deterministic, so separately prepared
+canary/main packages preserve identical uploaded bytes, including empty ledgers.
+Live accounting remains the qualified dispatcher's responsibility.
 
-Recovery preparation uses `prepare --attempt 2 --ledger VERIFIED_LEDGER
---previous-receipts FIRST_FAILED_RECEIPT` (or attempt3 with both earlier receipts),
-plus the original same-pin benchmark/approval and a fresh output root. It refuses
-non-mechanical/scientific failures and an already-complete bank. Each changed
-ledger requires a fresh short canary covering those exact input bytes; fixture
-pairs remain excluded and ignore the scientific skip set. No completion starts
-automatically. Preserve the single final look over the verified union.
+`resume` constructs Mac-verified ledgers using only path/index/size/hash and
+completion metadata; outcomes remain sealed. Recovery uses `prepare --attempt 2
+--ledger VERIFIED_LEDGER --previous-receipts FAILED_RECEIPT` (attempt3 needs both
+prior receipts), original same-pin evidence and fresh paths. It requires verified
+mechanical failure and stop. Every changed ledger needs its own matching canary.
+No partial pair or verified recomputation; no automatic retry; at most two
+completion attempts. The complete union of 96 immutable pairs alone gets the one
+Mac-only `analyze` look. Missing/foreign/duplicate/corrupt rows refuse a result;
+unbounded Fieller mass intervals and degenerate death equality cannot pass.
 
-Portable product construction ships the six original release-evidence JSON files
-in a small hash-checked archive. It relocates only their lookup roots in a private
-copy of the pins document for this session constructor. Original release anchor
-hashes, verdict checks and checkpoint checks still run; no served pin is edited
-or bypassed. This prevents a Colab runtime from needing the Mac artifact history.
+Portable product construction uploads the original six release-evidence JSON
+anchors. Only private lookup roots relocate; original pin/checkpoint hashes and
+verdicts are still verified. No served pin or Mac artifact history is edited or
+required remotely. The package proves no replay player, control invalidation,
+Play behavior, strict pass, timed delivery or release.
+
+Completion canaries must fit the original frozen W/shard/wall layout. Faster
+measurements retain the original guards; slower measurements that exceed them
+refuse completion. No mid-series increase or repartition is permitted.

@@ -7,12 +7,18 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
-NAMESPACE = "t34-watch6-exact-stop-efficacy-20261030-v1"
-COUNT = 24
+NAMESPACE = "t34-watch6-exact-stop-efficacy-20261030-v2"
+COUNT = 96
 HORIZON = 14400
+WORKERS = (4, 6, 8)
 FIXTURE_SEEDS = [34890123, 34890124, 34890125]
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = "research/watch6_search_efficacy/job.sh"
+
+
+def registration() -> Path:
+    """The prospective v2 amendment leaves the original bound bytes intact."""
+    return ROOT / "research/watch6_search_efficacy/REGISTRATION_V2.md"
 
 
 def allocation() -> list[dict]:

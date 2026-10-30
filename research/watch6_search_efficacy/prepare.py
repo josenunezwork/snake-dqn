@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import io
 import json
-import math
 import subprocess
 import tarfile
 from pathlib import Path
 
 from research.colab_cli import canary
 from research.watch6_search_efficacy import protocol as p
+from research.watch6_search_efficacy.mirror import validate as validate_mirror
+from research.watch6_search_efficacy.performance import forecast as measured_forecast
 from research.watch6_search_efficacy.run import completed, ledger_identity
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
 
@@ -24,8 +26,16 @@ def prepare(
     ledger: Path | None = None,
     attempt: int = 1,
     previous_receipts: list[Path] | None = None,
+    mirror_receipt: Path | None = None,
+    canary_receipt: Path | None = None,
+    main_shards: bool = False,
 ) -> dict:
-    """Bind published branch pin; conservative all-trigger compute envelope."""
+    """Prepare canary only, or main shards after measured same-pin admission."""
+    if main_shards and canary_receipt is None:
+        raise ValueError("main preparation requires measured passing same-pin canary receipt")
+    if mirror_receipt is None:
+        raise ValueError("full Mac mirror receipt required before preparation")
+    validate_mirror(json.loads(mirror_receipt.read_text()))
     subprocess.run(["git", "cat-file", "-e", commit], cwd=p.ROOT, check=True)
     refs = subprocess.check_output(
         ["git", "branch", "-r", "--contains", commit], cwd=p.ROOT, text=True
@@ -40,6 +50,7 @@ def prepare(
     if type(attempt) is not int or attempt not in (1, 2, 3):
         raise ValueError("one original plus at most two completion attempts")
     previous_receipts = previous_receipts or []
+    frozen_layout = None
     if attempt == 1 and (ledger is not None or previous_receipts):
         raise ValueError("first attempt must have empty ledger and no prior receipts")
     if attempt > 1:
@@ -80,6 +91,10 @@ def prepare(
                 or not mechanical
             ):
                 raise ValueError("completion requires stopped, verified mechanical failure")
+            prior_layout = json.loads(former["env"]["WATCH6_FROZEN_LAYOUT"])
+            if frozen_layout is not None and frozen_layout != prior_layout:
+                raise ValueError("completion lineage changed frozen operational layout")
+            frozen_layout = prior_layout
     out.mkdir(parents=True, exist_ok=False)
     ledger_path = out / "verified-ledger.json"
     publish_json(
@@ -90,14 +105,15 @@ def prepare(
             else empty_ledger(p.NAMESPACE, "watch6", ledger_identity())
         ),
     )
-    pending = out / "fable-approval.json"
+    pending = out / "judge-approval.json"
     publish_json(
         pending,
         {
-            "status": "PENDING",
-            "judge": "Fable",
+            "status": "RATIFIED",
+            "judge": "Astra",
             "science": p.identity(),
-            "registration_sha256": digest(Path(__file__).with_name("REGISTRATION.md")),
+            "registration_sha256": digest(p.registration()),
+            "ruling_sha256": digest(Path(__file__).with_name("RULING.md")),
         },
     )
     saved = p.ROOT.parent / "snake-dqn/saved_snakes"
@@ -106,7 +122,8 @@ def prepare(
     inputs = [
         Input(contract, "runtime-contract.json"),
         Input(ledger_path, "verified-ledger.json"),
-        Input(approval or pending, "fable-approval.json"),
+        Input(approval or pending, "judge-approval.json"),
+        Input(mirror_receipt, "mac-mirror.json"),
         Input(saved / "b8_s3_t7_20261016.pth", "checkpoints/b8_s3_t7_20261016.pth"),
         Input(
             saved / "frp3_m3_s12_u60000_20261005.pth",
@@ -115,7 +132,11 @@ def prepare(
     ]
     pins = json.loads((p.ROOT / "web/backend/served_checkpoint_pins.json").read_text())
     release_bundle = out / "release-evidence.tar.gz"
-    with tarfile.open(release_bundle, "x:gz") as archive:
+    with (
+        release_bundle.open("xb") as raw_bundle,
+        gzip.GzipFile(filename="", mode="wb", fileobj=raw_bundle, mtime=0) as compressed,
+        tarfile.open(fileobj=compressed, mode="w") as archive,
+    ):
         for name, pin in pins["checkpoints"].items():
             receipt = pin["strict_receipt"]
             for ref in receipt.values():
@@ -129,30 +150,18 @@ def prepare(
                     archive.addfile(member, io.BytesIO(data))
     inputs.append(Input(release_bundle, "release-evidence.tar.gz"))
     staged = stage_inputs(out / "staged", inputs)
-    max_singleton_seconds = max(r["seconds"] / r["branches"] for r in measured["branch_timings"])
-    # Fixed estimate: 2880 eligible roots/session, 1.2 complete branches/root forecast, not a bound.
-    # Mac-to-Colab per-core slowdown3 and W4 host-contention multiplier1.5.
-    # Setup/export allowance20min; no doubling measured rates or estimates.
-    seconds = 2880 * 1.2 * max_singleton_seconds * 3 * 1.5
-    base_minutes = math.ceil(seconds / 60 + 20)
-    if base_minutes > 720:
-        raise ValueError(f"NOT_READY forecast base={base_minutes} min >12h; no science shrunk")
-    rate = 2.5  # conservative L4 planning rate; operator calibrates before admission
-    forecast = {
-        "base_minutes_per_shard": base_minutes,
-        "effective_minutes": 2 * base_minutes,
-        "max_mac_singleton_seconds": max_singleton_seconds,
-        "cloud_slowdown_projection": 3,
-        "four_worker_contention_projection": 1.5,
-        "roots_per_session_upper_bound": 2880,
-        "branches_per_root_forecast": 1.2,
-        "branches_per_root_physical_maximum": 6,
-        "workers": 4,
-        "shards": 6,
-        "pairs_per_shard": 4,
-        "aggregate_expected_runtime_hours": base_minutes * 6 / 60,
-        "status": "CONSERVATIVE_PROJECTION_NOT_MEASURED_COLAB_SPEED",
-    }
+    report = None
+    if main_shards:
+        receipt = json.loads(canary_receipt.read_text())
+        report_path = canary_receipt.parent / "exports/performance.json"
+        report = json.loads(report_path.read_text())
+        if receipt.get("status") != "PASS" or receipt.get("stop_verified") is not True:
+            raise ValueError("measured canary must PASS and stop_verified")
+        forecast = measured_forecast(report, frozen_layout)
+    else:
+        forecast = {"status": "CANARY_ONLY_MAIN_NOT_PREPARED", "base_minutes_per_shard": 15}
+    base_minutes = forecast["base_minutes_per_shard"]
+    rate = 2.5  # planning rate; qualified dispatcher refreshes live accounting
     publish_json(out / "forecast.json", forecast)
     paths = p.source_paths()
     common = {
@@ -162,7 +171,7 @@ def prepare(
         "device": "cpu",
         "lease_seconds": 300,
         "max_export_bytes": 4 * 1024**2,
-        "required_exports": ["efficacy/operational.json"],
+        "required_exports": ["efficacy/operational.json", "performance.json"],
         "resume": {
             "unit_kind": "paired-session",
             "ledger_path": "inputs/verified-ledger.json",
@@ -195,7 +204,12 @@ def prepare(
             "forecast_sha256": digest(out / "forecast.json"),
         },
     }
-    for label, shard, probe in [("canary", 0, True), *[(f"shard-{i}", i, False) for i in range(6)]]:
+    jobs = (
+        [(f"shard-{i}", i, False) for i in range(forecast["shards"])]
+        if main_shards
+        else [("canary", 0, True)]
+    )
+    for label, shard, probe in jobs:
         value = json.loads(json.dumps(common))
         base = 15 if probe else base_minutes
         unit = base / 60 * rate
@@ -214,7 +228,13 @@ def prepare(
         value["watch6_efficacy"].update(
             base_minutes=base, base_unit_cap=unit, base_reserve_units=unit * 0.2
         )
-        value["env"].update(WATCH6_SHARD=str(shard), WATCH6_FIXTURE="1" if probe else "0")
+        value["env"].update(
+            WATCH6_SHARD=str(shard),
+            WATCH6_FIXTURE="1" if probe else "0",
+            WATCH6_WORKERS=str(4 if probe else forecast["workers"]),
+            WATCH6_SHARDS=str(6 if probe else forecast["shards"]),
+            WATCH6_BASE_MINUTES=str(base),
+        )
         if probe:
             value["env"].update(
                 SNAKE_COLAB_CANARY="1", SNAKE_COLAB_CANARY_PACKAGE="research/watch6_search_efficacy"
@@ -224,6 +244,25 @@ def prepare(
                 "mode": "probe",
                 "family": canary.family(value),
             }
+        else:
+            value["canary"] = {
+                "schema": canary.SCHEMA,
+                "receipt": {
+                    "path": str(canary_receipt.resolve()),
+                    "sha256": digest(canary_receipt),
+                },
+            }
+            value["env"]["WATCH6_MEASUREMENTS"] = json.dumps(report, sort_keys=True)
+            value["env"]["WATCH6_FROZEN_LAYOUT"] = json.dumps(
+                {key: forecast[key] for key in ("workers", "shards", "base_minutes_per_shard")},
+                sort_keys=True,
+            )
+            # Re-derive transport/upload/export/hardware evidence; a fabricated
+            # report or a PASS string alone can never prepare main manifests.
+            canary.check(value, p.ROOT)
+        from research.watch6_search_efficacy.admission import admit
+
+        admit(value)
         # The uploaded contract and complete input inventory are identical for
         # canary and all shards; per-shard controls are pinned manifest env.
         (out / f"{label}.json").write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
@@ -236,6 +275,9 @@ def main() -> None:
     parser.add_argument("--benchmark", type=Path, required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--approval", type=Path)
+    parser.add_argument("--mirror-receipt", type=Path, required=True)
+    parser.add_argument("--canary-receipt", type=Path)
+    parser.add_argument("--main", action="store_true")
     parser.add_argument("--ledger", type=Path)
     parser.add_argument("--attempt", type=int, default=1)
     parser.add_argument("--previous-receipts", type=Path, nargs="*", default=[])
@@ -250,6 +292,9 @@ def main() -> None:
                 args.ledger,
                 args.attempt,
                 args.previous_receipts,
+                args.mirror_receipt,
+                args.canary_receipt,
+                args.main,
             ),
             indent=2,
         )

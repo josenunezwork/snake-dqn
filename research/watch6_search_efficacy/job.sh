@@ -13,9 +13,11 @@ PY="$COLAB_CLI_ROOT/.venv/bin/python"
 "$PY" -c 'from pathlib import Path; import os; from research.watch6_search_efficacy.product import stage_release_evidence; stage_release_evidence(Path(os.environ["COLAB_INPUT_DIR"]))'
 "$PY" -c 'from research.watch6_search_efficacy.admission import runtime_admit; runtime_admit()'
 args=(--ledger "$COLAB_INPUT_DIR/verified-ledger.json" --out "$COLAB_OUTPUT_DIR/efficacy"
-      --shard "$WATCH6_SHARD" --workers 4)
+      --shard "$WATCH6_SHARD" --workers "$WATCH6_WORKERS" --shards "$WATCH6_SHARDS")
 if [[ "$WATCH6_FIXTURE" == 1 ]]; then args+=(--fixture --fixture-horizon 12); fi
 "$PY" -m research.watch6_search_efficacy.run "${args[@]}"
 if [[ "$WATCH6_FIXTURE" == 1 ]]; then
-  "$PY" -m research.watch6_search_efficacy.preflight --out "$COLAB_OUTPUT_DIR/branch-preflight"
+  "$PY" -m research.watch6_search_efficacy.performance --out "$COLAB_OUTPUT_DIR/performance.json"
+else
+  "$PY" -c 'import json, os; from pathlib import Path; from tools.ops.package_spec import publish_json; publish_json(Path(os.environ["COLAB_OUTPUT_DIR"]) / "performance.json", json.loads(os.environ["WATCH6_MEASUREMENTS"]))'
 fi
