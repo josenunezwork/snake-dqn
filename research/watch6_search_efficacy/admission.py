@@ -11,7 +11,7 @@ from research.watch6_search_efficacy.run import completed
 from tools.ops.package_spec import digest
 
 
-def admit(manifest: dict, *, runtime: bool = False) -> None:
+def admit(manifest: dict) -> None:
     """Check exact controller, allocation, identities and pre-data envelopes."""
     binding = manifest["watch6_efficacy"]
     if binding["science"] != p.identity() or binding["allocation"] != p.allocation():
@@ -45,55 +45,22 @@ def admit(manifest: dict, *, runtime: bool = False) -> None:
         "max_outcome_blind_retries": 2,
     }:
         raise ValueError("resume policy mismatch")
-    if runtime:
-        for key in ("WATCH6_SHARD", "WATCH6_FIXTURE", "WATCH6_SCIENCE"):
-            if os.environ.get(key) != env[key]:
-                raise ValueError("execute-time environment differs from frozen manifest")
-        ledger = Path(os.environ["COLAB_INPUT_DIR"]) / "verified-ledger.json"
-    else:
-        item = next(i for i in manifest["inputs"] if i["dest"] == "inputs/verified-ledger.json")
-        ledger = Path(item["path"])
-    rows = completed(ledger)
-    if probe and rows:
-        raise ValueError("canary must use empty ledger")
-    if not probe:
-        # Deliberate non-bypassable missing prerequisite. Operator supplies the
-        # independent judge's source-bound approval, not an invented env token.
-        approval_path = (
-            Path(os.environ["COLAB_INPUT_DIR"]) / "fable-approval.json"
-            if runtime
-            else Path(
-                next(
-                    i["path"]
-                    for i in manifest["inputs"]
-                    if i["dest"] == "inputs/fable-approval.json"
-                )
-            )
-        )
-        approval = json.loads(approval_path.read_text())
-        if approval != {
-            "status": "RATIFIED",
-            "judge": "Fable",
-            "science": p.identity(),
-            "registration_sha256": digest(Path(__file__).with_name("REGISTRATION.md")),
-        }:
-            raise ValueError("independent Fable ratification absent or different")
+    item = next(i for i in manifest["inputs"] if i["dest"] == "verified-ledger.json")
+    root = Path(item["path"]).parent
+    verify_runtime(root, env)
 
 
-def runtime_admit() -> None:
-    """Enforce source/allocation/ledger and approval at actual process execution."""
-    root = Path(os.environ["COLAB_INPUT_DIR"])
+def verify_runtime(root: Path, env: dict) -> None:
+    """Same execute-time guard, exercised by the ordinary host dry-run."""
     contract = json.loads((root / "runtime-contract.json").read_text())
     if contract != {"science": p.identity(), "allocation": p.allocation()}:
         raise ValueError("runtime source/allocation mismatch")
-    if os.environ.get("WATCH6_SCIENCE") != p.identity():
+    if env.get("WATCH6_SCIENCE") != p.identity():
         raise ValueError("runtime science env mismatch")
-    if os.environ.get("WATCH6_FIXTURE") not in ("0", "1") or int(
-        os.environ["WATCH6_SHARD"]
-    ) not in range(6):
+    if env.get("WATCH6_FIXTURE") not in ("0", "1") or int(env["WATCH6_SHARD"]) not in range(6):
         raise ValueError("runtime shard/fixture mismatch")
     rows = completed(root / "verified-ledger.json")
-    if os.environ["WATCH6_FIXTURE"] == "1":
+    if env["WATCH6_FIXTURE"] == "1":
         if rows:
             raise ValueError("canary must use empty ledger")
     else:
@@ -105,3 +72,8 @@ def runtime_admit() -> None:
             "registration_sha256": digest(Path(__file__).with_name("REGISTRATION.md")),
         }:
             raise ValueError("independent Fable ratification absent or different")
+
+
+def runtime_admit() -> None:
+    """Enforce source/allocation/ledger and approval at actual process execution."""
+    verify_runtime(Path(os.environ["COLAB_INPUT_DIR"]), dict(os.environ))

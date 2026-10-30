@@ -44,13 +44,13 @@ def prepare(out: Path, benchmark: Path, commit: str, approval: Path | None = Non
     contract = out / "runtime-contract.json"
     publish_json(contract, {"science": p.identity(), "allocation": p.allocation()})
     inputs = [
-        Input(contract, "inputs/runtime-contract.json"),
-        Input(ledger_path, "inputs/verified-ledger.json"),
-        Input(approval or pending, "inputs/fable-approval.json"),
-        Input(saved / "b8_s3_t7_20261016.pth", "inputs/checkpoints/b8_s3_t7_20261016.pth"),
+        Input(contract, "runtime-contract.json"),
+        Input(ledger_path, "verified-ledger.json"),
+        Input(approval or pending, "fable-approval.json"),
+        Input(saved / "b8_s3_t7_20261016.pth", "checkpoints/b8_s3_t7_20261016.pth"),
         Input(
             saved / "frp3_m3_s12_u60000_20261005.pth",
-            "inputs/checkpoints/frp3_m3_s12_u60000_20261005.pth",
+            "checkpoints/frp3_m3_s12_u60000_20261005.pth",
         ),
     ]
     staged = stage_inputs(out / "staged", inputs)

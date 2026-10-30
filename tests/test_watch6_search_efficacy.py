@@ -104,7 +104,7 @@ def test_ledger_exact_skip_and_foreign_refusal(tmp_path: Path) -> None:
 
 
 def test_outcome_blind_metadata_builder_refuses_foreign(tmp_path: Path) -> None:
-    payload = tmp_path / "pair-00.json"
+    payload = tmp_path / "exports" / "efficacy" / "pair-00.json"
     descriptor = publish_json(payload, {"sealed_science": "must not be parsed"})
     publish_json(
         payload.with_suffix(".meta.json"),
@@ -138,3 +138,85 @@ def test_allocation_and_fixture_isolation() -> None:
             "research.bl_served_search.c1_bank", fromlist=["allocation"]
         ).allocation()
     }
+
+
+def test_execute_time_admission_pending_and_foreign(tmp_path: Path) -> None:
+    from research.watch6_search_efficacy.admission import verify_runtime
+
+    publish_json(
+        tmp_path / "verified-ledger.json",
+        empty_ledger(p.NAMESPACE, "watch6", run.ledger_identity()),
+    )
+    contract = {"science": p.identity(), "allocation": p.allocation()}
+    (tmp_path / "runtime-contract.json").write_text(json.dumps(contract))
+    (tmp_path / "fable-approval.json").write_text(json.dumps({"status": "PENDING"}))
+    env = {"WATCH6_SCIENCE": p.identity(), "WATCH6_SHARD": "0", "WATCH6_FIXTURE": "1"}
+    verify_runtime(tmp_path, env)
+    with pytest.raises(ValueError, match="ratification"):
+        verify_runtime(tmp_path, {**env, "WATCH6_FIXTURE": "0"})
+    with pytest.raises(ValueError, match="shard"):
+        verify_runtime(tmp_path, {**env, "WATCH6_SHARD": "6"})
+    (tmp_path / "runtime-contract.json").write_text(json.dumps({**contract, "science": "foreign"}))
+    with pytest.raises(ValueError, match="source"):
+        verify_runtime(tmp_path, env)
+
+
+def test_partial_payload_is_never_a_verified_unit(tmp_path: Path) -> None:
+    from tools.ops.package_spec import verify_immutable
+
+    payload = tmp_path / "pair-00.json"
+    payload.write_text('{"partial":true}')
+    with pytest.raises(ValueError):
+        verify_immutable(payload)
+
+
+def test_real_fixture_serial_equals_parallel(tmp_path: Path) -> None:
+    import os
+    import subprocess
+    import sys
+
+    saved = p.ROOT.parent / "snake-dqn/saved_snakes"
+    if not (saved / "b8_s3_t7_20261016.pth").is_file():
+        pytest.skip("local pinned checkpoints required for real integration fixture")
+    ledger = tmp_path / "ledger.json"
+    publish_json(ledger, empty_ledger(p.NAMESPACE, "watch6", run.ledger_identity()))
+    env = {
+        **os.environ,
+        "SNAKE_CKPT_DIR": str(saved),
+        "SNAKE_DQN_DEVICE": "cpu",
+        **{
+            key: "1"
+            for key in (
+                "OMP_NUM_THREADS",
+                "OPENBLAS_NUM_THREADS",
+                "MKL_NUM_THREADS",
+                "NUMBA_NUM_THREADS",
+                "VECLIB_MAXIMUM_THREADS",
+            )
+        },
+    }
+    for workers in (1, 2):
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "research.watch6_search_efficacy.run",
+                "--ledger",
+                str(ledger),
+                "--out",
+                str(tmp_path / f"w{workers}"),
+                "--fixture",
+                "--fixture-horizon",
+                "3",
+                "--workers",
+                str(workers),
+            ],
+            env=env,
+            check=True,
+            capture_output=True,
+            timeout=120,
+        )
+    for index in range(3):
+        assert (tmp_path / f"w1/pair-{index:02d}.json").read_bytes() == (
+            tmp_path / f"w2/pair-{index:02d}.json"
+        ).read_bytes()

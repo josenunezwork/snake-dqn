@@ -43,8 +43,7 @@ def build(paths: list[Path], receipts: list[Path]) -> dict:
         if meta != expected:
             raise ValueError("foreign unit completion metadata")
         allowed = any(
-            path.resolve().is_relative_to(Path(json.loads(r.read_text())["output_dir"]).resolve())
-            for r in receipts
+            path.resolve().is_relative_to((r.parent / "exports").resolve()) for r in receipts
         )
         if not allowed:
             raise ValueError("unit outside verified supervisor output roots")
