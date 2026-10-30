@@ -188,6 +188,12 @@ def run_arm(
                     raise ValueError("live/mirror actual hero decision mismatch")
                 snapshot = session.live.snapshot()
                 if record is not None:
+                    if selected and snapshot.get("inspector") is not None:
+                        snapshot["inspector"].update(
+                            executed_action=selected["chosen"],
+                            replay_search_override=selected["chosen"] != selected["bare"],
+                            replay_bare_action=selected["bare"],
+                        )
                     snapshot["events"] = {
                         "death_causes": session.live.game.frame_death_causes,
                         "hero_decision": selected,

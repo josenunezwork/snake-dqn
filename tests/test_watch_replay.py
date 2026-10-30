@@ -6,6 +6,7 @@ import copy
 import gzip
 import json
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -84,6 +85,16 @@ def recording(root: Path, name: str = "a", horizon: int = 6000, **overrides: obj
     return path
 
 
+def pick_ready(bank: ReplayBank) -> Recording | None:
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        record = bank.pick()
+        if record is not None or not bank.pending:
+            return record
+        time.sleep(0.005)
+    raise AssertionError("replay prefetch timed out")
+
+
 def shell_session() -> GameSession:
     """Isolate replay controls without constructing a network or a global world."""
     session = GameSession.__new__(GameSession)
@@ -143,7 +154,7 @@ def test_bank_refuses_corrupt_incomplete_or_foreign_recording(tmp_path, damage):
         Path(str(path) + ".complete").unlink()
         publish_immutable(path, gzip.compress(b"".join(lines), mtime=0))
     bank = ReplayBank(tmp_path)
-    assert bank.pick() is None
+    assert pick_ready(bank) is None
     assert bank.error
 
 
@@ -151,7 +162,7 @@ def test_bank_has_no_immediate_repeats_even_for_duplicate_files(tmp_path):
     recording(tmp_path, "a")
     recording(tmp_path, "b")
     bank = ReplayBank(tmp_path)
-    ids = [bank.pick().header["unit_id"] for _ in range(5)]
+    ids = [pick_ready(bank).header["unit_id"] for _ in range(5)]
     assert all(a != b for a, b in zip(ids, ids[1:]))
     assert len(set(ids[:2])) == 2
 
@@ -159,8 +170,8 @@ def test_bank_has_no_immediate_repeats_even_for_duplicate_files(tmp_path):
 def test_single_session_returns_to_live_after_end_instead_of_repeating(tmp_path):
     recording(tmp_path)
     bank = ReplayBank(tmp_path)
-    assert bank.pick() is not None
-    assert bank.pick() is None
+    assert pick_ready(bank) is not None
+    assert pick_ready(bank) is None
 
 
 def test_session_steps_replay_without_live_and_pause_does_not_advance(tmp_path):
@@ -184,6 +195,7 @@ def test_session_steps_replay_without_live_and_pause_does_not_advance(tmp_path):
 def test_empty_bank_falls_back_and_explicit_model_controls_leave_replay(tmp_path):
     session = shell_session()
     session._replay_bank = ReplayBank(tmp_path)
+    pick_ready(session._replay_bank)
     session._select_watch_replay()
     assert session._watch_replay is None
     assert "live B8" in session.last_error
@@ -297,14 +309,174 @@ def test_install_requires_complete_frozen_union_then_publishes_bank(tmp_path):
     )
     bank = tmp_path / "bank"
     assert install(contract, [exports], bank) == 1
-    assert ReplayBank(bank).pick().header["unit_id"] == "bank-fixture/sessions/000000"
+    assert pick_ready(ReplayBank(bank)).header["unit_id"] == "bank-fixture/sessions/000000"
     with pytest.raises(ValueError, match="foreign"):
         install({**contract, "controller": "bare-b8"}, [exports], tmp_path / "foreign")
 
 
-def test_install_refuses_missing_units_before_creating_bank(tmp_path):
+def test_install_records_missing_units_and_always_writes_operational(tmp_path):
     contract = {**allocation("bank-missing", 1, "bare-b8"), "commit": "1" * 40}
+    publish_json(tmp_path / "contract.json", contract)
     bank = tmp_path / "bank"
-    with pytest.raises(ValueError, match="complete"):
-        install(contract, [tmp_path], bank)
-    assert not bank.exists()
+    assert install(contract, [tmp_path], bank) == 0
+    report = json.loads((bank / "operational.json").read_text())
+    assert report["missing_indices"] == [0] and report["completed"] == 0
+
+
+def test_corrupt_file_is_skipped_and_verification_is_cached(tmp_path, monkeypatch, caplog):
+    import web.backend.watch_replay as replay
+
+    recording(tmp_path, "bad", horizon=2)
+    recording(tmp_path, "good")
+    verify = Mock(wraps=replay.verify_payload)
+    monkeypatch.setattr(replay, "verify_payload", verify)
+    bank = ReplayBank(tmp_path)
+    assert pick_ready(bank).header["unit_id"] == "good"
+    assert pick_ready(bank) is None
+    assert verify.call_count == 2  # bad fixture and good; good rotation uses SHA cache
+    assert "Skipping replay" in caplog.text
+    bank.close()
+
+
+def test_rotation_tick_never_waits_for_bank_io(tmp_path, monkeypatch):
+    import web.backend.watch_replay as replay
+
+    first = Recording(recording(tmp_path, horizon=1), product=False)
+    entered, release = threading.Event(), threading.Event()
+    original = replay.Recording
+
+    def slow_recording(*args, **kwargs):
+        entered.set()
+        assert release.wait(10)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(replay, "Recording", slow_recording)
+    bank = ReplayBank(tmp_path)
+    assert entered.wait(5)
+    session = shell_session()
+    session._replay_bank, session._watch_replay = bank, first
+    session.game = SimpleNamespace(update=Mock(side_effect=AssertionError("live during prefetch")))
+    start = time.monotonic()
+    session.step()  # end of recording: worker is still blocked in bank I/O
+    session.step()  # waiting at the last recorded frame also stays nonblocking
+    assert time.monotonic() - start < 0.1
+    assert session._replay_pending and session._watch_replay is first
+    release.set()
+    bank.close()
+
+
+def test_rotation_does_not_revalidate_known_sha_and_rejects_replacement(tmp_path, monkeypatch):
+    import web.backend.watch_replay as replay
+
+    path = recording(tmp_path, horizon=2)
+    cache = {}
+    Recording(path, product=False, cache=cache)
+    monkeypatch.setattr(replay, "verify_payload", Mock(side_effect=AssertionError("revalidated")))
+    assert Recording(path, product=False, cache=cache).frame["frame"] == 1
+    path.write_bytes(path.read_bytes() + b"corrupt")
+    with pytest.raises(ValueError, match="SHA mismatch"):
+        Recording(path, product=False, cache=cache)
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [("length", "long"), ("alive", 1), ("segments", [[True, 0]]), ("color", [300, 0, 0])],
+)
+def test_frame_field_types_are_checked(key, value):
+    from web.backend.watch_replay import validate_frame
+
+    value_frame = frame(1)
+    value_frame["snakes"][0][key] = value
+    with pytest.raises(ValueError, match="field types"):
+        validate_frame(value_frame, 1)
+
+
+def test_install_keeps_verified_subset_and_records_bad_names(tmp_path):
+    contract = {**allocation("subset", 2, "exact-stop-l2-prime"), "commit": "1" * 40}
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    publish_json(exports / "contract.json", contract)
+    recording(
+        exports,
+        "000000",
+        unit_id="subset/sessions/000000",
+        allocation=identity(contract),
+        source_commit=contract["commit"],
+        seed=contract["rows"][0]["seed"],
+    )
+    (exports / "000001.watch.gz").write_bytes(b"bad")
+    (exports / "999999.watch.gz").write_bytes(b"out of range")
+    (exports / "invalid.watch.gz").write_bytes(b"bad name")
+    bank = tmp_path / "bank"
+    assert install(contract, [exports], bank) == 1
+    report = json.loads((bank / "operational.json").read_text())
+    assert report["missing_indices"] == [1]
+    assert len(report["exclusions"]) == 3
+
+
+def test_generator_excludes_failed_seed_but_writes_operational(tmp_path, monkeypatch):
+    contract = {**allocation("failed-seed", 2, "bare-b8"), "commit": "1" * 40}
+    ledger = tmp_path / "ledger.json"
+    publish_json(ledger, empty_ledger(contract["namespace"], "sessions", identity(contract)))
+
+    def generate(task):
+        if task[1]["index"] == 0:
+            raise ValueError("mirror mismatch")
+        return {"index": 1, "sha256": "a" * 64, "size": 1}
+
+    monkeypatch.setattr("research.watch_replay.run.generate", generate)
+    rows = run(contract, ledger, tmp_path / "out", 1)
+    assert [r["index"] for r in rows] == [1]
+    report = json.loads((tmp_path / "out/operational.json").read_text())
+    assert report["completed"] == 1 and report["exclusions"][0]["index"] == 0
+
+
+def test_generator_fails_size_limit_before_computing_next_frame(tmp_path, monkeypatch):
+    import research.watch_replay.engine as engine
+    import research.watch_replay.run as generator
+
+    contract = {**allocation("early-size", 1, "bare-b8", 2), "commit": "1" * 40}
+    calls = []
+
+    def run_arm(seed, dense, check, horizon, record):
+        calls.append(1)
+        record(frame(1))
+        calls.append(2)
+        raise AssertionError("computed another frame")
+
+    monkeypatch.setattr(engine, "run_arm", run_arm)
+    monkeypatch.setattr(generator, "MAX_DECODED", generator.MAX_LINE + 1)
+    with pytest.raises(ValueError, match="incremental"):
+        generator.generate((contract, contract["rows"][0], str(tmp_path)))
+    assert calls == [1]
+    assert not list(tmp_path.glob("*.complete"))
+
+
+def test_ready_rotation_is_nonblocking_and_all_bank_reads_are_background(tmp_path, monkeypatch):
+    import web.backend.watch_replay as replay
+
+    recording(tmp_path, "first")
+    recording(tmp_path, "second")
+    original = replay.Recording
+    threads = []
+
+    def track(*args, **kwargs):
+        threads.append(threading.current_thread().name)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(replay, "Recording", track)
+    bank = ReplayBank(tmp_path)
+    first = pick_ready(bank)
+    deadline = time.monotonic() + 5
+    while bank._ready.empty() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert not bank._ready.empty()
+    session = shell_session()
+    session._watch_replay, session._replay_bank = first, bank
+    first.step = Mock(return_value=False)
+    start = time.monotonic()
+    session.step()
+    assert time.monotonic() - start < 0.1
+    assert session._watch_replay.header["unit_id"] != first.header["unit_id"]
+    assert threads and set(threads) == {"watch-replay-prefetch"}
+    bank.close()

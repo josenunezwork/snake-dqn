@@ -38,17 +38,25 @@ all frames and the final count before exposing frame one, pins compressed bytes
 to prevent a file replacement during playback, and refuses unknown version,
 world/controller/checkpoint, corrupt/truncated/oversized/fixture recordings.
 Bounds: 128 MiB compressed, 512 MiB decoded, 2 MiB per line, 1,024 bank paths.
-One recording is held at a time, including during selection.
+A background worker verifies each bank file once per SHA, then rereads/rechecks
+compressed SHA on each rotation. A two-entry prefetch queue holds compressed
+recordings; playback decodes one frame at a time from pinned memory. Discovery,
+file reads, SHA checks and full verification never run on the tick thread.
+If prefetch is late, playback holds the last frame while ticks remain responsive.
+Corrupt files are logged and skipped; other verified sessions remain eligible.
+Generation checks decoded and line limits after every frame, reserving header
+space before computing the next frame. Operational unit rows include decoded
+bytes, compressed size, peak line bytes, elapsed time and search counters.
 
 Set `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR=/absolute/bank` only
 when ready to opt in. The server first builds the normal released live fallback.
 Path B live search is disabled in replay-source Watch. The bank shuffles without
-reusing a unit in a cycle or immediately repeating it. Empty/bad/exhausted
-single-session banks use live B8. Selection retries only at reset or re-entry to
-Watch; it does not repeatedly hash bad files on every live tick.
+reusing a unit in a cycle or immediately repeating it. Empty/exhausted single-session banks use live B8. No bad file is repeatedly
+hashed on live ticks.
 
 The header visibly says replay and “Recorded assisted hero” for exact-stop.
-Pause/speed operate on playback. Inspector follows recorded hero #0; roster
+Search overrides are marked “Move from search” in the inspector alongside the
+bare action; displayed Q-values remain the bare network. Pause/speed operate on playback. Inspector follows recorded hero #0; roster
 remains visible. Hero selection reports that limit. Food/epsilon or a valid
 checkpoint load return to live operation. Play always clears replay and uses
 the live game/input/scoring path. Explicit checkpoint constructors bypass replay.
@@ -64,8 +72,8 @@ uses FastAPI's real WebSocket handler for recorded DTO, live fallback and Play.
 All output directories are fresh; no evidence is overwritten.
 
 `prepare --commit FULL_PUBLISHED_BRANCH_SHA --benchmark ABSOLUTE/benchmark.json
---out ABSOLUTE/FRESH_PACKET` defaults to N=4 (1..12 per packet). It uploads both
-main and excluded canary contracts/empty ledgers, the two exact checkpoints,
+--out ABSOLUTE/FRESH_PACKET` defaults to N=12 (1..12 per packet). It uploads both
+main and full-length single-session canary contracts/empty ledgers, the two exact checkpoints,
 and portable pinned release evidence. Sparse source includes the static research
 closure plus product source/config. No runtime `/Users` dependency or Drive.
 
@@ -79,8 +87,8 @@ to be a guaranteed current provider rate.
 Forecast (explicit assumptions): 1,200 possible roots/session ×1.2 branches/root
 ×slowest measured H300 singleton seconds ×3 cloud slowdown ×1.5 W4 contention.
 The physical maximum is six branches/root. `forecast.json` reports expected
-sessions/runtime-hour and setup/export allowance. Actual full-session branch
-frequency, CPU contention and transport remain unmeasured. Counts, estimates and
+sessions/runtime-hour and setup/export allowance. The retained Mac full-session measurement is documented in the repair handoff;
+Colab CPU contention and transport remain unmeasured. Counts, estimates and
 rates are not doubled. Base wall/cap/reserve and effective 2× guards are frozen
 in manifests before data. Jobs have <=60-second progress and a 900-second
 completed-work watchdog. SIGUSR1 aborts partial work; prior completed session
@@ -92,7 +100,21 @@ line without `--dry-run` for operator dispatch. This assignment does not dispatc
 Main refuses until an actual same-pin, same-inventory L4 canary PASS with verified
 exports and `stop_verified` is bound. Prepare a fresh packet with
 `--canary-receipt /absolute/output-canary/receipt.json` after that proof exists.
+The canary runs one complete 6,000-frame search session with one worker plus
+three long-body H300 branches. Its base/effective wall is 15/30 minutes, the
+qualified transport's fixed canary ceiling. This is a completion gate, not a
+promise that a randomly selected long session fits; a timeout is a mechanical
+failure and never authorizes main. Main uses the conservative W4 forecast.
 These commands remain subject to independent Argon review before live execution.
+
+Plan variety as four separately frozen packets of 12 sessions (48 total), with
+namespaces ending `bank01` through `bank04`. Each packet needs its own identical-
+inventory canary; seeds derive from distinct namespaces. Preserve all four
+banks and combine verified session triplets into a fresh local directory only
+after reviewing each installation report. This is 48 distinct world seeds,
+not a claim of 48 distinct trajectories or a success rate. `forecast.json` gives
+base and effective unit guards; sum all four main packets and four canaries
+for the portfolio. The repair handoff records exact unit totals and storage.
 
 ## Resume and bank installation
 
@@ -114,8 +136,14 @@ ledger bytes require another same-pin canary with that exact inventory. Preserve
 all prior manifests and results. Incomplete units are discarded, never spliced.
 
 `install --contract MAIN_CONTRACT --roots OUTPUT/exports/sessions ... --bank
-ABSOLUTE_FRESH_BANK` is a Mac-only complete-union check. It refuses missing,
-duplicate, corrupt, short-fixture or foreign sessions before publishing the bank.
+ABSOLUTE_FRESH_BANK` installs a Mac-verified subset. Foreign attempt contracts still refuse before
+installation. Individual corrupt, duplicate, short-fixture, malformed-name or
+out-of-range files are excluded; valid sessions are published. The immutable
+`operational.json` lists installed units, missing indices and exclusion reasons.
+Generation also writes operational reports when a seed fails, then continues
+other seeds. Main requires operational/contract exports; the canary additionally
+requires its complete full-length recording. Failed seed payloads are never
+marked complete or silently retried.
 No frame/outcome aggregation occurs remotely beyond per-session recording stats;
 no efficacy verdict or release authority is inferred. Enabling the flag is an
 operator action and was not performed by this implementation task.

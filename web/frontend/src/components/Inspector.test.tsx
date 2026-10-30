@@ -113,3 +113,14 @@ describe("Path B inspector identity", () => {
     expect(screen.queryByText(/exploration or masking overrode the argmax/i)).not.toBeInTheDocument();
   });
 });
+
+
+describe("Recorded search inspector", () => {
+  it("labels search overrides while retaining bare Q-values", () => {
+    render(<Inspector inspector={{ ...inspector, chosen: 1, executed_action: 2,
+      replay_search_override: true, replay_bare_action: 1 }} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Move from search: right");
+    expect(screen.getByRole("status")).toHaveTextContent("bare action: straight");
+    expect(screen.queryByText(/exploration or masking overrode/)).not.toBeInTheDocument();
+  });
+});

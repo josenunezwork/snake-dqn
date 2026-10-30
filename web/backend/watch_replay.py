@@ -7,7 +7,11 @@ import gzip
 import hashlib
 import io
 import json
+import logging
+import math
+import queue
 import random
+import threading
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -58,6 +62,14 @@ def validate_header(header: dict, *, product: bool = True) -> None:
         raise ValueError("foreign replay metadata")
 
 
+def _number(value: Any) -> bool:
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def _point(value: Any) -> bool:
+    return isinstance(value, list) and len(value) == 2 and all(_number(v) for v in value)
+
+
 def validate_frame(frame: dict, index: int) -> None:
     """Require the existing protocol plus the six recorded roster members."""
     required = {
@@ -77,12 +89,23 @@ def validate_frame(frame: dict, index: int) -> None:
     if (
         frame.get("type") != "frame"
         or frame.get("protocol_version") != 2
+        or type(frame.get("frame")) is not int
         or frame.get("frame") != index
         or frame.get("mechanics_version") != 2
         or not required <= frame.keys()
         or not isinstance(frame.get("snakes"), list)
         or len(frame["snakes"]) != 6
+        or any(not isinstance(s, dict) or type(s.get("id")) is not int for s in frame["snakes"])
         or {s.get("id") for s in frame["snakes"]} != set(range(6))
+        or any(not isinstance(frame[k], dict) for k in ("session", "arena", "stats"))
+        or not isinstance(frame["food"], list)
+        or not all(_point(p) for p in frame["food"])
+        or any(
+            frame[k] is not None and not isinstance(frame[k], dict)
+            for k in ("inspector", "netviz", "hero_raster", "serving_contract")
+        )
+        or any(not isinstance(frame[k], str) for k in ("obs_spec", "architecture"))
+        or not isinstance(frame["checkpoint_name"], (str, type(None)))
         or frame["session"].get("mode") != "watch"
         or frame["session"].get("watch_roster") != "mixed"
         or frame.get("play") is not None
@@ -92,6 +115,46 @@ def validate_frame(frame: dict, index: int) -> None:
         for key in ("segments", "head", "length", "alive", "boosting", "color", "is_hero", "name"):
             if key not in snake:
                 raise ValueError("incomplete recorded snake")
+        if (
+            not isinstance(snake["segments"], list)
+            or not all(_point(p) for p in snake["segments"])
+            or (snake["head"] is not None and not _point(snake["head"]))
+            or type(snake["length"]) is not int
+            or snake["length"] < 0
+            or any(type(snake[k]) is not bool for k in ("alive", "boosting", "is_hero"))
+            or not isinstance(snake["name"], str)
+            or not isinstance(snake["color"], list)
+            or len(snake["color"]) != 3
+            or any(type(c) is not int or not 0 <= c <= 255 for c in snake["color"])
+        ):
+            raise ValueError("invalid recorded snake field types")
+    if any(not _number(frame["arena"].get(k)) for k in ("width", "height", "segment", "wall")):
+        raise ValueError("invalid recorded arena")
+
+    if any(v is not None and not _number(v) for v in frame["stats"].values()):
+        raise ValueError("invalid recorded stats")
+    inspector = frame["inspector"]
+    if inspector is not None:
+        for key in ("q_values", "state", "free_space"):
+            value = inspector.get(key)
+            if value is not None and (
+                not isinstance(value, list) or not all(_number(v) for v in value)
+            ):
+                raise ValueError("invalid inspector numeric fields")
+        for key in ("chosen", "executed_action", "replay_bare_action"):
+            value = inspector.get(key)
+            if value is not None and (type(value) is not int or not -1 <= value < 6):
+                raise ValueError("invalid inspector action")
+        if (
+            "replay_search_override" in inspector
+            and type(inspector["replay_search_override"]) is not bool
+        ):
+            raise ValueError("invalid inspector search flag")
+        labels = inspector.get("action_labels")
+        if labels is not None and (
+            not isinstance(labels, list) or not all(isinstance(v, str) for v in labels)
+        ):
+            raise ValueError("invalid inspector labels")
 
 
 def verify_payload(payload: bytes, *, product: bool = True) -> dict:
@@ -112,7 +175,7 @@ def verify_payload(payload: bytes, *, product: bool = True) -> dict:
 class Recording:
     """Pin compressed bytes once; verify every record before exposing frame one."""
 
-    def __init__(self, path: Path, *, product: bool = True) -> None:
+    def __init__(self, path: Path, *, product: bool = True, cache: dict | None = None) -> None:
         paths = [path, Path(str(path) + ".sha256"), Path(str(path) + ".complete")]
         if any(p.is_symlink() or not p.is_file() for p in paths):
             raise ValueError("incomplete replay")
@@ -125,7 +188,13 @@ class Recording:
         self.sha256 = hashlib.sha256(payload).hexdigest()
         if paths[1].read_text().split() != [self.sha256, path.name]:
             raise ValueError("replay SHA mismatch")
-        self.header = verify_payload(payload, product=product)
+        key = (self.sha256, product)
+        if cache is not None and key in cache:
+            self.header = cache[key]
+        else:
+            self.header = verify_payload(payload, product=product)
+            if cache is not None:
+                cache[key] = self.header
         self._records = _records(payload)
         next(self._records)
         self.frame = next(self._records)
@@ -170,39 +239,95 @@ class Recording:
 
 
 class ReplayBank:
-    """Shuffle each local bank cycle, excluding the last session on rotation."""
+    """Verify once per SHA and prefetch rotations off the session/tick thread.
+
+    The bounded queue holds compressed recordings, never decoded whole sessions.
+    Every rotation rereads and hashes the file in the worker; the cursor then
+    lazily decodes frames from its pinned in-memory bytes without disk I/O.
+    """
 
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.last: str | None = None
-        self.seen: set[str] = set()
         self.error: str | None = None
+        self._ready: queue.Queue = queue.Queue(maxsize=2)
+        self._wake = threading.Event()
+        self._closed = threading.Event()
+        self._done = threading.Event()
+        self._worker = threading.Thread(
+            target=self._prefetch, name="watch-replay-prefetch", daemon=True
+        )
+        self._worker.start()
+
+    @property
+    def pending(self) -> bool:
+        return not self._done.is_set() or not self._ready.empty()
+
+    def close(self) -> None:
+        self._closed.set()
+        self._wake.set()
 
     def pick(self) -> Recording | None:
-        paths = sorted(self.root.glob("*.watch.gz"))[:1024]
-        random.SystemRandom().shuffle(paths)
-        repeat_cycle: list[Path] = []
-        for path in paths:
-            try:
-                record = Recording(path)
-                if record.header["unit_id"] != self.last:
-                    if record.header["unit_id"] in self.seen:
-                        repeat_cycle.append(path)
-                    else:
-                        self.last = record.header["unit_id"]
-                        self.seen.add(self.last)
-                        self.error = None
-                        return record
-            except Exception as exc:
-                self.error = f"Replay verification failed: {path.name}: {exc}"
-                # Verification failure immediately returns control to live B8.
-                return None
-        if not repeat_cycle:
-            self.error = "No verified replay without an immediate repeat; using live B8."
+        """Nonblocking rotation: no glob, stat, read, hash, or full validation."""
+        try:
+            record = self._ready.get_nowait()
+        except queue.Empty:
+            if self._done.is_set() and self.error is None:
+                self.error = "No verified replay without an immediate repeat; using live B8."
             return None
-        self.seen.clear()
-        chosen = Recording(repeat_cycle[0])
-        self.last = chosen.header["unit_id"]
-        self.seen.add(self.last)
         self.error = None
-        return chosen
+        self._wake.set()
+        return record
+
+    def _prefetch(self) -> None:
+        cache: dict = {}
+        logger = logging.getLogger(__name__)
+        try:
+            paths = sorted(self.root.glob("*.watch.gz"))[:1024]
+            verified = []
+            for path in paths:
+                if self._closed.is_set():
+                    return
+                try:
+                    record = Recording(path, cache=cache)
+                    verified.append((path, record.header["unit_id"]))
+                except Exception as exc:
+                    logger.warning("Skipping replay %s: %s", path, exc)
+            last = None
+            seen: set[str] = set()
+            while not self._closed.is_set():
+                candidates = [(p, uid) for p, uid in verified if uid != last and uid not in seen]
+                if not candidates:
+                    seen.clear()
+                    candidates = [(p, uid) for p, uid in verified if uid != last]
+                if not candidates:
+                    self.error = "No verified replay without an immediate repeat; using live B8."
+                    return
+                random.SystemRandom().shuffle(candidates)
+                chosen = None
+                for path, uid in candidates:
+                    try:
+                        chosen = Recording(path, cache=cache)
+                        # A replaced file must retain its bank identity.
+                        if chosen.header["unit_id"] != uid:
+                            raise ValueError("replaced replay identity")
+                        break
+                    except Exception as exc:
+                        logger.warning("Skipping replay %s: %s", path, exc)
+                        verified.remove((path, uid))
+                        chosen = None
+                if chosen is None:
+                    continue
+                while not self._closed.is_set():
+                    try:
+                        self._ready.put_nowait(chosen)
+                        last = chosen.header["unit_id"]
+                        seen.add(last)
+                        break
+                    except queue.Full:
+                        self._wake.wait(1)
+                        self._wake.clear()
+        except Exception as exc:
+            self.error = f"Replay bank unavailable; using live B8: {exc}"
+            logger.exception("Replay prefetch failed")
+        finally:
+            self._done.set()

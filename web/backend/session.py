@@ -942,12 +942,16 @@ class GameSession:
         with self._lock:
             if not self.playing:
                 return
+            if self.mode == MODE_WATCH and getattr(self, "_replay_pending", False):
+                self._select_watch_replay()
+                if self._replay_pending or self._watch_replay is not None:
+                    return
             if self.mode == MODE_WATCH and getattr(self, "_watch_replay", None) is not None:
                 try:
                     if self._watch_replay.step():
                         return
                     self._select_watch_replay()
-                    if self._watch_replay is not None:
+                    if self._watch_replay is not None or self._replay_pending:
                         return
                 except Exception as exc:
                     self._watch_replay = None
@@ -1106,8 +1110,13 @@ class GameSession:
     # -- controls -----------------------------------------------------------
     def _select_watch_replay(self) -> None:
         """Rotate on reset/end; an empty or corrupt bank leaves live Watch ready."""
+        self._replay_pending = False
         try:
+            previous = getattr(self, "_watch_replay", None)
             self._watch_replay = self._replay_bank.pick() if self._replay_bank else None
+            if self._replay_bank and self._watch_replay is None and self._replay_bank.pending:
+                self._replay_pending = True
+                self._watch_replay = previous
             if self._replay_bank:
                 self.last_error = self._replay_bank.error
         except Exception as exc:
@@ -1116,6 +1125,7 @@ class GameSession:
 
     def _leave_watch_replay(self) -> None:
         """Explicit world/model controls return to the already-built live game."""
+        self._replay_pending = False
         if getattr(self, "_watch_replay", None) is not None:
             self._watch_replay = None
 
@@ -1527,6 +1537,8 @@ class GameSession:
                 self.served_checkpoint = None
                 self._build(path, mode=self.mode, override_reward_contract=override_reward_contract)
                 self._leave_watch_replay()
+                if self._replay_bank is not None:
+                    self._replay_bank.close()
                 self._replay_bank = None
                 # A client-selected artifact is not a registry-selected served
                 # checkpoint. Do not attribute later scored runs to the default
@@ -1542,6 +1554,8 @@ class GameSession:
     # -- state report -------------------------------------------------------
     def close(self, wait: bool = False) -> None:
         """Release only this session's optional worker, outside the serving tick."""
+        if getattr(self, "_replay_bank", None) is not None:
+            self._replay_bank.close()
         if getattr(self, "pathb", None) is not None:
             self.pathb.close(wait=wait)
 

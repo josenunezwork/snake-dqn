@@ -46,7 +46,7 @@ def prepare(
     ledger: Path | None = None,
     previous_receipts: list[Path] | None = None,
 ) -> dict:
-    """Ship the identical inventory for tiny canary and N complete sessions."""
+    """Ship the identical inventory for a full-length canary and N sessions."""
     if not 1 <= count <= 12:
         raise ValueError("one packet contains 1..12 sessions within bounded exports")
     refs = subprocess.check_output(
@@ -62,7 +62,7 @@ def prepare(
     out.mkdir(parents=True, exist_ok=False)
     contracts = {
         "main": {**allocation(namespace, count, controller), "commit": commit},
-        "canary": {**allocation(namespace + "-canary", count, controller, 12), "commit": commit},
+        "canary": {**allocation(namespace + "-canary", 1, controller), "commit": commit},
     }
     previous_receipts = previous_receipts or []
     if len(previous_receipts) > 2 or bool(previous_receipts) != bool(ledger):
@@ -171,7 +171,9 @@ def prepare(
             "lease_seconds": 300,
             "timeout_minutes": 2 * base,
             "output_dir": str(out / f"output-{label}"),
-            "max_export_bytes": min(2 * 1024**3, max(4 * 1024**2, count * 128 * 1024**2 + 1024**2)),
+            "max_export_bytes": min(
+                2 * 1024**3, max(4 * 1024**2, contracts[label]["count"] * 128 * 1024**2 + 1024**2)
+            ),
             "requirements": {
                 "gpu": "L4",
                 "allowed_gpus": ["L4"],
@@ -206,15 +208,16 @@ def prepare(
                 "SNAKE_DQN_DEVICE": "cpu",
                 "WATCH_REPLAY_CONTRACT": f"{label}-contract.json",
                 "WATCH_REPLAY_LEDGER": f"{label}-ledger.json",
-                "WATCH_REPLAY_WORKERS": "4",
+                "WATCH_REPLAY_WORKERS": "1" if label == "canary" else "4",
             },
         }
         skipped = {row["index"] for row in verified} if label == "main" else set()
-        manifest["required_exports"].extend(
-            f"sessions/{row['index']:06d}.watch.gz"
-            for row in contracts[label]["rows"]
-            if row["index"] not in skipped
-        )
+        if label == "canary":
+            manifest["required_exports"].extend(
+                f"sessions/{row['index']:06d}.watch.gz"
+                for row in contracts[label]["rows"]
+                if row["index"] not in skipped
+            )
         if label == "canary":
             manifest["env"].update(
                 SNAKE_COLAB_CANARY="1", SNAKE_COLAB_CANARY_PACKAGE="research/watch_replay"
@@ -242,8 +245,8 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--benchmark", type=Path, required=True)
-    parser.add_argument("--namespace", default="t34-watch-replay-20261030-v1")
-    parser.add_argument("--count", type=int, default=4)
+    parser.add_argument("--namespace", default="t34-watch-replay-fix-20261030-bank01")
+    parser.add_argument("--count", type=int, default=12)
     parser.add_argument(
         "--controller", choices=["exact-stop-l2-prime", "bare-b8"], default="exact-stop-l2-prime"
     )

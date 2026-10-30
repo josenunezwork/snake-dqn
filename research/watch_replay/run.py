@@ -13,11 +13,19 @@ import os
 import signal
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from tools.ops.package_spec import publish_immutable, publish_json, read_ledger, unit_id
-from web.backend.watch_replay import B8_SHA, FRP3_SHA, SCHEMA, canonical, verify_payload
+from web.backend.watch_replay import (
+    B8_SHA,
+    FRP3_SHA,
+    MAX_DECODED,
+    MAX_LINE,
+    SCHEMA,
+    canonical,
+    verify_payload,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 _STOP = None
@@ -97,16 +105,25 @@ def generate(task: tuple[dict, dict, str]) -> dict:
             )
             last = time.monotonic()
 
+    decoded_bytes = 0
+    peak_line_bytes = 0
     with tempfile.TemporaryFile() as frames:
 
         def record(frame: dict) -> None:
+            nonlocal decoded_bytes, peak_line_bytes
             # Keep gameplay/inspector/veto counters byte-stable across workers.
             # Diagnostic v8 wall times describe generation hardware, not gameplay,
             # and are not fields consumed by the browser's protocol contract.
             veto = frame["session"].get("safety_veto")
             if isinstance(veto, dict):
                 veto.pop("diagnostics", None)
-            frames.write(canonical(frame))
+            line = canonical(frame)
+            decoded_bytes += len(line)
+            peak_line_bytes = max(peak_line_bytes, len(line))
+            # Reserve one maximum-size header before spending more search compute.
+            if len(line) > MAX_LINE or decoded_bytes + MAX_LINE > MAX_DECODED:
+                raise ValueError("incremental replay size limit; partial session discarded")
+            frames.write(line)
             # Completed real-frame progress, never mere heartbeat, renews the watchdog.
             faulthandler.dump_traceback_later(900, exit=True)
 
@@ -156,7 +173,14 @@ def generate(task: tuple[dict, dict, str]) -> dict:
             faulthandler.cancel_dump_traceback_later()
     seconds = time.monotonic() - started
     print(f"watch-replay index={row['index']} complete seconds={seconds:.3f}", flush=True)
-    return {**result, "index": row["index"], "seconds": seconds}
+    return {
+        **result,
+        "index": row["index"],
+        "seconds": seconds,
+        "decoded_bytes": decoded_bytes + len(canonical(header)),
+        "peak_line_bytes": max(peak_line_bytes, len(canonical(header))),
+        "stats": stats,
+    }
 
 
 def run(contract: dict, ledger: Path, out: Path, workers: int) -> list[dict]:
@@ -168,34 +192,61 @@ def run(contract: dict, ledger: Path, out: Path, workers: int) -> list[dict]:
     out.mkdir(parents=True, exist_ok=False)
     publish_json(out / "contract.json", contract)
     tasks = [(contract, row, str(out)) for row in contract["rows"] if row["index"] not in skip]
-    if workers == 1:
-        rows = [generate(t) for t in tasks]
-    else:
-        context = multiprocessing.get_context("spawn")
-        stop_event = context.Event()
-        with ProcessPoolExecutor(
-            max_workers=workers,
-            mp_context=context,
-            initializer=initialize_worker,
-            initargs=(stop_event,),
-        ) as pool:
+    rows, exclusions = [], []
 
-            def stop_pool(signum: int, frame: object) -> None:
-                stop_event.set()
+    def collect(task: tuple, result: dict | None = None, error: Exception | None = None) -> None:
+        if error is not None:
+            exclusions.append(
+                {"index": task[1]["index"], "error": str(error), "kind": type(error).__name__}
+            )
+            print(f"watch-replay excluded index={task[1]['index']}: {error}", flush=True)
+        else:
+            rows.append(result)
 
-            signal.signal(signal.SIGUSR1, stop_pool)
-            signal.signal(signal.SIGTERM, stop_pool)
-            rows = list(pool.map(generate, tasks))
-    publish_json(
-        out / "operational.json",
-        {
-            "allocation": identity(contract),
-            "completed": len(rows),
-            "skipped": sorted(skip),
-            "total": contract["count"],
-            "units": [{k: r[k] for k in ("index", "sha256", "size")} for r in rows],
-        },
-    )
+    try:
+        if workers == 1:
+            for task in tasks:
+                try:
+                    collect(task, generate(task))
+                except Exception as exc:
+                    collect(task, error=exc)
+                    if isinstance(exc, InterruptedError):
+                        break
+        else:
+            context = multiprocessing.get_context("spawn")
+            stop_event = context.Event()
+            with ProcessPoolExecutor(
+                max_workers=workers,
+                mp_context=context,
+                initializer=initialize_worker,
+                initargs=(stop_event,),
+            ) as pool:
+
+                def stop_pool(signum: int, frame: object) -> None:
+                    stop_event.set()
+
+                signal.signal(signal.SIGUSR1, stop_pool)
+                signal.signal(signal.SIGTERM, stop_pool)
+                futures = {pool.submit(generate, task): task for task in tasks}
+                for future in as_completed(futures):
+                    task = futures[future]
+                    try:
+                        collect(task, future.result())
+                    except Exception as exc:
+                        collect(task, error=exc)
+    finally:
+        rows.sort(key=lambda row: row["index"])
+        publish_json(
+            out / "operational.json",
+            {
+                "allocation": identity(contract),
+                "completed": len(rows),
+                "skipped": sorted(skip),
+                "total": contract["count"],
+                "exclusions": sorted(exclusions, key=lambda row: row["index"]),
+                "units": rows,
+            },
+        )
     return rows
 
 

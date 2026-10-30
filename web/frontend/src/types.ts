@@ -52,6 +52,8 @@ export interface InspectorDTO {
   // The action the hero ACTUALLY took last step (post-masking, post-exploration).
   // Null/absent on older backends.
   executed_action?: number | null;
+  replay_search_override?: boolean;
+  replay_bare_action?: number;
   legal_mask?: boolean[];
   advisory_mask?: boolean[];
   resolved_mask?: boolean[];
