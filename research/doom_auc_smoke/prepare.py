@@ -368,7 +368,7 @@ def admit(
             documents=support["documents"],
             mac_implementation={
                 name: digest(Path(__file__).parent / name)
-                for name in ("prepare.py", "prelook.py", "aggregate.py")
+                for name in ("prepare.py", "prelook.py", "aggregate.py", "evidence.py")
             },
             unresolved_allocation_waived=False,
         ),

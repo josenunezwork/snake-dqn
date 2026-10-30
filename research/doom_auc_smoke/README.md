@@ -53,6 +53,14 @@ current attempt history, a verified mechanical failure and missing work, and
 allows at most two completions. New same-input canaries are required for completion
 admission; the runtime refuses cross-hardware/library/source training resume.
 
+The supervisor receipt inventories each payload's path, size and SHA-256 once;
+its SHA and completion sidecars are transferred alongside it, without separate
+receipt rows. The Mac ledger binds the payload descriptor to that receipt and
+independently requires the digest sidecar and exact identity/namespace/allocation
+completion marker to match. Admission records the Mac `evidence.py` digest as
+well as the preparation/scoring implementation hashes. This Mac ledger repair
+does not change an existing packet's runtime commit or upload inventory.
+
 `aggregate.py` alone scores held-out labels on the Mac after receipt-verified final
 predictions from both arms exist. It reserves the study's fixed scoring-look file
 before reading labels; changing the output directory cannot take a second look.

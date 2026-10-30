@@ -1,0 +1,9 @@
+{
+  "allocation_index": 0,
+  "identity": "canary-bbbd381ced1906d830136277124faf49d044c137bbf3890b4c975b869c9b5ffe",
+  "namespace": "t34-doom-auc-20261030/v1",
+  "path": "units/a0000-spatial-prediction.pt",
+  "sha256": "cf1dded0df2708ff3a797450f8d43aaa2e6ba977c511e40dbf86443ae8e59a48",
+  "size": 2409,
+  "unit": "spatial-prediction"
+}

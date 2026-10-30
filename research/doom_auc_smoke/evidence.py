@@ -141,6 +141,7 @@ def build_ledger(outputs: list[Path], identity: str) -> dict[str, Any]:
         if len(exports) != len(receipt["exports"]):
             raise ValueError("duplicate receipt export paths")
         root = output / "exports/doom"
+        bound_units = set()
         for marker in sorted(root.glob("units/*.complete")):
             meta = json.loads(marker.read_text())
             row = {k: meta[k] for k in ("unit", "path", "size", "sha256")}
@@ -148,12 +149,22 @@ def build_ledger(outputs: list[Path], identity: str) -> dict[str, Any]:
                 raise ValueError("duplicate unit across attempts")
             seen.add(row["unit"])
             path = verified(root, row, identity)
-            for file in (path, Path(str(path) + ".sha256"), marker):
-                rel = "doom/" + str(file.relative_to(root))
-                bound = exports.get(rel, {})
-                if bound.get("sha256") != digest(file) or bound.get("size") != file.stat().st_size:
-                    raise ValueError("unit/sidecars not supervisor-receipt-bound")
+            # The supervisor inventories payloads only; it transfers the digest
+            # and completion marker alongside each payload. verified() above
+            # checks both sidecars against the exact identity-bound descriptor.
+            # Bind that descriptor to the receipt, rather than expecting
+            # nonexistent independent sidecar inventory entries.
+            rel = "doom/" + str(path.relative_to(root))
+            bound = exports.get(rel, {})
+            if bound.get("sha256") != row["sha256"] or bound.get("size") != row["size"]:
+                raise ValueError("unit not supervisor-receipt-bound")
+            bound_units.add(rel)
             result["units"].append(row)
+        expected_units = {
+            rel for rel in exports if rel.startswith("doom/units/") and rel.endswith(".pt")
+        }
+        if bound_units != expected_units:
+            raise ValueError("receipt unit lacks verified completion marker")
     validate_ledger(result, identity)
     return result
 

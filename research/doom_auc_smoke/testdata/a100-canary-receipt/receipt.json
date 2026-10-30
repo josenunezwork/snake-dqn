@@ -1,0 +1,19 @@
+{
+  "commit": "b27c90bd397695700895e8c539c54765054733d2",
+  "exports": [
+    {
+      "path": "doom/units/a0000-b8-prediction.pt",
+      "sha256": "7345fbfa105223bfdcd803c0bb202a6f7674cb7065507b1b8cf96c287a4a39c9",
+      "size": 2409
+    },
+    {
+      "path": "doom/units/a0000-spatial-prediction.pt",
+      "sha256": "cf1dded0df2708ff3a797450f8d43aaa2e6ba977c511e40dbf86443ae8e59a48",
+      "size": 2409
+    }
+  ],
+  "job_id": "t34-doom-canary-02-a100-fallback",
+  "manifest_sha256": "39d71d96d9a9710b0168dffe79fb6b981878ee1068102c2b30737acc8cd43088",
+  "status": "PASS",
+  "stop_verified": true
+}

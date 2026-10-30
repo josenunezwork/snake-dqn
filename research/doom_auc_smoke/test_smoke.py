@@ -143,10 +143,11 @@ def test_units_foreign_duplicates_partial_and_corruption(tmp_path: Path) -> None
 
 
 def receipt_for(root: Path) -> None:
+    # The transport's inventory contains payloads, with sidecars transferred implicitly.
     exports = [
         dict(path=str(p.relative_to(root / "exports")), size=p.stat().st_size, sha256=digest(p))
         for p in sorted((root / "exports").rglob("*"))
-        if p.is_file()
+        if p.is_file() and not p.name.endswith((".sha256", ".complete"))
     ]
     (root / "receipt.json").write_text(json.dumps(dict(stop_verified=True, exports=exports)))
 

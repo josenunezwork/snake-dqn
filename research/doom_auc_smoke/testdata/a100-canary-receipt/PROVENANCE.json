@@ -1,0 +1,6 @@
+{
+  "identity": "canary-bbbd381ced1906d830136277124faf49d044c137bbf3890b4c975b869c9b5ffe",
+  "projection": "Selected receipt fields and the two synthetic canary prediction exports; no qualification receipt.",
+  "source_receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/doom-auc-fix2/packet-01/canary-output-a100-fallback/receipt.json",
+  "source_receipt_sha256": "377fbd4028c641b728f78e42f46d12546972dc57b5fdd358576ea836036c51ed"
+}
