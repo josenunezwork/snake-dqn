@@ -766,3 +766,121 @@ def test_a100_live_repeats_recovery_after_successful_dry_run(fixture):
     assert pending.read_bytes() == raw
     assert not (f["tmp"] / "archive.json").exists()
     assert len(trace(f, "run")) == 1
+
+
+def owned_dispatch(f, endpoint, *, stopped=False, name="concurrent"):
+    """Publish the same cross-bound ops/receipt/active identities as the broker."""
+    output = f["tmp"] / name
+    output.mkdir()
+    packet = {"job_id": name, "commit": "c" * 40, "output_dir": str(output)}
+    manifest = f["ops"] / "manifests" / f"{name}.json"
+    manifest.parent.mkdir(exist_ok=True)
+    manifest.write_text(json.dumps(packet))
+    executed = output / "manifest.json"
+    executed.write_text(json.dumps(packet))
+    session = f"snake-{name}-" + "c" * 12
+    account = Path(f["env"]["HOME"]) / ".config/colab-cli/snake"
+    account.mkdir(parents=True, exist_ok=True)
+    if stopped:
+        (output / "receipt.json").write_text(
+            json.dumps(
+                {
+                    **packet,
+                    "session": session,
+                    "endpoint": endpoint,
+                    "stop_verified": True,
+                    "manifest_sha256": hashlib.sha256(executed.read_bytes()).hexdigest(),
+                }
+            )
+        )
+    else:
+        (account / f"active-{session}.json").write_text(
+            json.dumps(
+                {
+                    "session": session,
+                    "endpoint": endpoint,
+                    "output": str(output),
+                    "rate_units_per_hour": 1.54,
+                }
+            )
+        )
+    return output
+
+
+@pytest.mark.parametrize("live", [False, True])
+@pytest.mark.parametrize("transition", ["added", "removed", "both", "retained"])
+def test_reconcile_accounts_for_own_concurrent_membership(fixture, live, transition):
+    f = fixture
+    pending = retained_pending(f)
+    intent = json.loads(pending.read_text())
+    if transition in {"removed", "both"}:
+        owned_dispatch(f, "finished", stopped=True, name="finished")
+        intent["before"] = ["finished"]
+    if transition == "retained":
+        intent["before"] = ["running"]
+    if transition in {"added", "both", "retained"}:
+        owned_dispatch(f, "running")
+        Path(f["env"]["INVENTORY"]).write_text(json.dumps({"running": "L4"}))
+    pending.write_text(json.dumps(intent))
+    result = subprocess.run(
+        reconcile_command(f, pending, live=live),
+        env=f["env"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    proof = json.loads(result.stdout)
+    assert set(proof["membership"]["removed"]) == (
+        {"finished"} if transition in {"removed", "both"} else set()
+    )
+    assert pending.exists() is not live
+    assert len(trace(f, "run")) == 1
+
+
+@pytest.mark.parametrize("fault", ["foreign", "unbound", "not_stopped", "reused_endpoint"])
+def test_reconcile_refuses_unexplained_membership(fixture, fault):
+    f = fixture
+    pending = retained_pending(f)
+    intent = json.loads(pending.read_text())
+    if fault == "not_stopped":
+        output = owned_dispatch(f, "finished", stopped=True)
+        receipt = json.loads((output / "receipt.json").read_text())
+        receipt["stop_verified"] = False
+        (output / "receipt.json").write_text(json.dumps(receipt))
+        intent["before"] = ["finished"]
+    else:
+        output = owned_dispatch(f, "running")
+        if fault == "unbound":
+            (output / "manifest.json").write_text("{}")
+        elif fault == "foreign":
+            (f["ops"] / "manifests/concurrent.json").unlink()
+        else:
+            intent["before"] = ["running"]
+            f["env"]["INVENTORY_RAW"] = "[foreign] running | Hardware: L4"
+        Path(f["env"]["INVENTORY"]).write_text(json.dumps({"running": "L4"}))
+    pending.write_text(json.dumps(intent))
+    raw = pending.read_bytes()
+    result = subprocess.run(
+        reconcile_command(f, pending, live=True),
+        env=f["env"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode != 0 and "membership changed" in result.stderr
+    assert pending.read_bytes() == raw
+    assert not (f["tmp"] / "archive.json").exists()
+
+
+def test_fallback_accounts_for_added_own_assignment(fixture):
+    f = fixture
+    preferred(f, "gpu_unavailable")
+    owned_dispatch(f, "running")
+    f["env"]["NEXT_INVENTORY"] = json.dumps({"running": "L4"})
+    result = f["invoke"]()
+    assert result.returncode == 0, result.stderr
+    assert "requested_gpu=A100" in result.stdout
+    assert [row["job"] for row in trace(f, "run")] == ["job", "job-a100-fallback"]
+    proof = json.loads((f["ops"] / "dispatch/lane/unavailable.json").read_text())
+    assert set(proof["membership"]["added"]) == {"running"}

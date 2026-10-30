@@ -145,8 +145,15 @@ def latest(queue: dict[str, Any], identity: str) -> dict[str, Any]:
     raise ValueError("cyclic retry chain")
 
 
+def retry_backoff(attempt: int) -> float:
+    """Back off a refused reconciliation without idling independent queue rows."""
+    return min(600.0, 30.0 * 2 ** min(max(0, attempt - 1), 5))
+
+
 def ready(queue: dict[str, Any], row: dict[str, Any]) -> bool:
     """Evaluate dependencies from bound terminal evidence, never a log PASS string."""
+    if time.time() < row.get("not_before", 0):
+        return False
     for condition in row["after"]:
         identity, mode = condition.split(":")
         prior = latest(queue, identity)
@@ -215,8 +222,12 @@ def observations(ops: Path) -> dict[str, dict[str, Any]]:
         unavailable = no_assignment_proof(ops, name)
         # A run cannot allocate before it creates its output/manifest.json.
         never_started = exited and not output.exists()
+        preallocation_blocked = exited and auto_retry.blocked_before_allocation(value, output, log)
         result[name] = {
-            "active": not (exited and (stopped or unavailable or never_started)),
+            "active": not (
+                exited and (stopped or unavailable or never_started or preallocation_blocked)
+            ),
+            "preallocation_blocked": preallocation_blocked,
             "manifest": str(manifest),
             "log": str(log),
             "receipt": receipt,
@@ -230,9 +241,14 @@ def observations(ops: Path) -> dict[str, dict[str, Any]]:
 
 def current_observation(observed: dict[str, Any], name: str) -> tuple[str, Any]:
     """Follow dispatch's own exact accounting retry and pre-admitted GPU fallback."""
+    if __package__:
+        from .dispatch import sibling_id
+    else:
+        from dispatch import sibling_id
+    fallback = sibling_id(name)
     for candidate in (
-        name + "-a100-fallback-retry-1",
-        name + "-a100-fallback",
+        fallback + "-retry-1",
+        fallback,
         name + "-retry-1",
         name,
     ):
@@ -246,96 +262,127 @@ def reconcile(ops: Path, queue: dict[str, Any], observed: dict[str, Any]) -> Non
     for row in list(queue["jobs"]):
         if row["status"] != "LAUNCHED":
             continue
-        name = row["argv"][1]
-        # dispatch's built-in accounting retry uses a distinct actual output.
-        current_name, state = current_observation(observed, name)
-        if state and state["active"] and state["exited"]:
-            receipt = state["receipt"]
-            if (
-                receipt
-                and receipt.get("failure_class") == "SUPERVISOR"
-                and receipt.get("endpoint") is None
-            ):
-                retire_unavailable(ops, row, state)
-                state["unavailable"] = no_assignment_proof(ops, current_name)
-                if state["unavailable"]:
-                    state["active"] = False
-        if state is None or state["active"]:
-            continue
-        receipt = state["receipt"]
-        row["status"] = (
-            "UNAVAILABLE"
-            if state["unavailable"]
-            else "PASS" if receipt and receipt.get("status") == "PASS" else "FAILED"
-        )
-        event(ops, "READY_FINISHED", id=row["id"], status=row["status"])
-        if row["status"] != "FAILED" or row.get("retry_limit") == 0:
+        if time.time() < row.get("reconcile_retry_at", 0):
             continue
         try:
-            original = auto_retry.read(Path(state["manifest"]))
-            auto_retry.eligible(original, Path(original["output_dir"]), Path(state["log"]))
-            attempt, maximum = auto_retry.completion_limit(original, row.get("retry_limit"))
-            if attempt >= maximum:
-                raise ValueError("package completion limit exhausted")
-            identity = row["id"][:60] + "-retry-" + uuid.uuid4().hex[:10]
-            # Commit preparation intent before invoking a package helper. A crash
-            # leaves a HELD row, never another automatic submission of the same work.
-            row["retry_id"] = identity
-            retry = {
-                **row,
-                "id": identity,
-                "status": "HELD",
-                "after": [],
-                "prepare_command": [],
-                "parent": row["id"],
-            }
-            retry.pop("retry_id", None)
-            for field in ("claimed", "token", "dispatch_attempted"):
-                retry.pop(field, None)
-            queue["jobs"].append(retry)
-            save(ops / "ready-queue.json", queue)
-            destination = ops / "auto-retry" / identity
-            manifest = auto_retry.prepare(
-                Path(state["manifest"]),
-                Path(state["log"]),
-                destination,
-                dispatch_parts(row["argv"])[2],
-                limit=row.get("retry_limit"),
-                python=os.environ.get("SNAKE_DQN_PYTHON", sys.executable),
+            name = row["argv"][1]
+            # dispatch's built-in accounting retry uses a distinct actual output.
+            current_name, state = current_observation(observed, name)
+            if state and state["active"] and state["exited"]:
+                receipt = state["receipt"]
+                if (
+                    receipt
+                    and receipt.get("failure_class") == "SUPERVISOR"
+                    and receipt.get("endpoint") is None
+                ):
+                    retire_unavailable(ops, row, state)
+                    state["unavailable"] = no_assignment_proof(ops, current_name)
+                    if state["unavailable"]:
+                        state["active"] = False
+            if state is None or state["active"]:
+                continue
+            receipt = state["receipt"]
+            row["status"] = (
+                "UNAVAILABLE"
+                if state["unavailable"]
+                else "PASS" if receipt and receipt.get("status") == "PASS" else "FAILED"
             )
-            argv = list(row["argv"])
-            argv[1:3] = [identity, str(manifest)]
-            for flag in ("--state-dir", "--dispatch-txt"):
-                if flag in argv:
-                    index = argv.index(flag)
-                    del argv[index : index + 2]
-            argv += ["--state-dir", str(destination / "state")]
-            retry.update(
-                argv=argv,
-                manifest=str(manifest),
-                manifest_sha256=auto_retry.digest(manifest),
-                status="READY",
-                enqueued_at=time.time(),
-                output_dir=auto_retry.read(manifest)["output_dir"],
-                job_id=auto_retry.read(manifest)["job_id"],
+            event(ops, "READY_FINISHED", id=row["id"], status=row["status"])
+            if row["status"] not in {"FAILED", "UNAVAILABLE"} or row.get("retry_limit") == 0:
+                continue
+            try:
+                original = auto_retry.read(Path(state["manifest"]))
+                proof = (
+                    ops / "dispatch" / current_name / "unavailable.json"
+                    if state["unavailable"]
+                    else None
+                )
+                auto_retry.eligible(
+                    original, Path(original["output_dir"]), Path(state["log"]), proof
+                )
+                attempt, maximum = auto_retry.completion_limit(original, row.get("retry_limit"))
+                if attempt >= maximum:
+                    raise ValueError("package completion limit exhausted")
+                identity = row["id"][:60] + "-retry-" + uuid.uuid4().hex[:10]
+                # Commit preparation intent before invoking a package helper. A crash
+                # leaves a HELD row, never another automatic submission of the same work.
+                row["retry_id"] = identity
+                retry = {
+                    **row,
+                    "id": identity,
+                    "status": "HELD",
+                    "after": [],
+                    "prepare_command": [],
+                    "parent": row["id"],
+                }
+                retry.pop("retry_id", None)
+                for field in ("claimed", "token", "dispatch_attempted"):
+                    retry.pop(field, None)
+                queue["jobs"].append(retry)
+                save(ops / "ready-queue.json", queue)
+                destination = ops / "auto-retry" / identity
+                manifest = auto_retry.prepare(
+                    Path(state["manifest"]),
+                    Path(state["log"]),
+                    destination,
+                    dispatch_parts(row["argv"])[2],
+                    limit=row.get("retry_limit"),
+                    python=os.environ.get("SNAKE_DQN_PYTHON", sys.executable),
+                    unallocated_proof=proof,
+                )
+                argv = list(row["argv"])
+                argv[1:3] = [identity, str(manifest)]
+                for flag in ("--state-dir", "--dispatch-txt"):
+                    if flag in argv:
+                        index = argv.index(flag)
+                        del argv[index : index + 2]
+                argv += ["--state-dir", str(destination / "state")]
+                retry.update(
+                    argv=argv,
+                    manifest=str(manifest),
+                    manifest_sha256=auto_retry.digest(manifest),
+                    status="READY",
+                    enqueued_at=time.time(),
+                    not_before=time.time()
+                    + (
+                        retry_backoff(attempt + 1)
+                        if proof or state.get("preallocation_blocked")
+                        else 0
+                    ),
+                    output_dir=auto_retry.read(manifest)["output_dir"],
+                    job_id=auto_retry.read(manifest)["job_id"],
+                )
+                event(
+                    ops,
+                    "AUTO_RETRY_QUEUED",
+                    id=identity,
+                    parent=row["id"],
+                    completion_attempt=attempt + 1,
+                    limit=maximum,
+                    command=shlex.join(argv),
+                )
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                row["retry_refusal"] = str(exc)
+                # No eligible retry: dependencies must see the original failure.
+                if row.get("retry_id"):
+                    failed_retry = next(j for j in queue["jobs"] if j["id"] == row["retry_id"])
+                    failed_retry["error"] = str(exc)
+                    row.pop("retry_id")
+                event(ops, "AUTO_RETRY_REFUSED", id=row["id"], reason=str(exc))
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+            attempts = row.get("reconcile_failures", 0) + 1
+            row.update(
+                reconcile_failures=attempts,
+                reconcile_error=str(exc),
+                reconcile_retry_at=time.time() + retry_backoff(attempts),
             )
             event(
                 ops,
-                "AUTO_RETRY_QUEUED",
-                id=identity,
-                parent=row["id"],
-                completion_attempt=attempt + 1,
-                limit=maximum,
-                command=shlex.join(argv),
+                "READY_RECONCILE_PARKED",
+                id=row["id"],
+                reason=str(exc),
+                retry_at=row["reconcile_retry_at"],
             )
-        except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            row["retry_refusal"] = str(exc)
-            # No eligible retry: dependencies must see the original failure.
-            if row.get("retry_id"):
-                failed_retry = next(j for j in queue["jobs"] if j["id"] == row["retry_id"])
-                failed_retry["error"] = str(exc)
-                row.pop("retry_id")
-            event(ops, "AUTO_RETRY_REFUSED", id=row["id"], reason=str(exc))
 
 
 def retire_unavailable(ops: Path, row: dict[str, Any], state: dict[str, Any]) -> None:
@@ -351,14 +398,10 @@ def retire_unavailable(ops: Path, row: dict[str, Any], state: dict[str, Any]) ->
     if not dispatch.allocation_unavailable(output, log, packet["requirements"]["gpu"]):
         return
     _, _, broker, _ = dispatch_parts(row["argv"])
-    argv = row["argv"]
-    supervisor_state = (
-        Path(argv[argv.index("--state-dir") + 1])
-        if "--state-dir" in argv
-        else ops / "state" / argv[1]
-    )
-    proof = ops / "dispatch" / argv[1] / "unavailable.json"
     receipt = state["receipt"]
+    pending = Path.home() / ".config/colab-cli/snake" / ("pending-" + receipt["session"] + ".json")
+    supervisor_state = Path(auto_retry.read(pending)["config"]).parent.parent
+    proof = ops / "dispatch" / manifest.stem / "unavailable.json"
     subprocess.run(
         [
             sys.executable,
@@ -375,11 +418,7 @@ def retire_unavailable(ops: Path, row: dict[str, Any], state: dict[str, Any]) ->
             "--proof",
             str(proof),
             "--pending",
-            str(
-                Path.home()
-                / ".config/colab-cli/snake"
-                / ("pending-" + receipt["session"] + ".json")
-            ),
+            str(pending),
         ],
         cwd=HERE.parents[1],
         check=True,
@@ -470,7 +509,23 @@ def tick(
         }
     with locked(ops) as queue:
         observed = observations(ops)
+        # A previous manual dispatch can consume a name before the daemon sees
+        # it. Adopt only its exact snapshot; never submit a used identity again.
+        for row in queue["jobs"]:
+            state = observed.get(row["argv"][1])
+            if row["status"] == "READY" and state is not None:
+                if auto_retry.digest(Path(state["manifest"])) != row.get("manifest_sha256"):
+                    row.update(status="HELD", error="existing dispatch manifest differs")
+                    event(ops, "READY_HELD", id=row["id"], error=row["error"])
+                else:
+                    row["status"] = "LAUNCHED"
+                    event(ops, "READY_ADOPTED", id=row["id"])
         reconcile(ops, queue, observed)
+        # A pending intent fences the entire account. Do not burn ready identities
+        # while the exact proof is parked/backing off or foreign intent needs help.
+        pending_records = sorted((Path.home() / ".config/colab-cli/snake").glob("pending-*.json"))
+        if pending_records:
+            return {"dispatched": [], "blocked_pending": [str(p) for p in pending_records]}
         active, reserved = occupancy(queue, observed, inventory)
         slots = max(0, 3 - active - reserved)
         selected = []
@@ -484,23 +539,30 @@ def tick(
             save(ops / "ready-queue.json", queue)
             event(ops, "READY_DISPATCHING", id=row["id"], command=shlex.join(row["argv"]))
             worker_log = ops / ("queue-worker-" + row["id"] + ".log")
-            with worker_log.open("xb") as stream:
-                subprocess.Popen(
-                    [
-                        sys.executable,
-                        str(Path(__file__).resolve()),
-                        "--ops",
-                        str(ops),
-                        "worker",
-                        row["id"],
-                        row["token"],
-                    ],
-                    stdin=subprocess.DEVNULL,
-                    stdout=stream,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=True,
-                    env={**os.environ, "OPS_DIR": str(ops)},
-                )
+            try:
+                with worker_log.open("xb") as stream:
+                    subprocess.Popen(
+                        [
+                            sys.executable,
+                            str(Path(__file__).resolve()),
+                            "--ops",
+                            str(ops),
+                            "worker",
+                            row["id"],
+                            row["token"],
+                        ],
+                        stdin=subprocess.DEVNULL,
+                        stdout=stream,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                        env={**os.environ, "OPS_DIR": str(ops)},
+                    )
+            except OSError as exc:
+                # No worker accepted this claim. Park the row and keep scanning
+                # independent work; never abort the whole tick at a failing head.
+                row.update(status="HELD", error=str(exc))
+                event(ops, "READY_HELD", id=row["id"], error=str(exc))
+                continue
             selected.append(row["id"])
             slots -= 1
         return {"active": active, "reserved": reserved, "dispatched": selected}
@@ -517,6 +579,7 @@ def worker(ops: Path, identity: str, token: str) -> None:
         prepare_command = row["prepare_command"]
         expected = row.get("manifest_sha256")
     _, manifest, _, cwd = dispatch_parts(argv)
+    no_submission = False
     try:
         if prepare_command:
             subprocess.run(prepare_command, cwd=cwd, check=True, timeout=600)
@@ -534,12 +597,17 @@ def worker(ops: Path, identity: str, token: str) -> None:
             if result.returncode == 0 or (ops / "logs" / (argv[1] + ".log")).exists()
             else "HELD"
         )
+        # start() creates its log before submitting any detached supervisor.
+        # A completed refusal without that log never submitted a runtime.
+        no_submission = status == "HELD"
         error = None if result.returncode == 0 else f"dispatch exit={result.returncode}"
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         status, error = "HELD", str(exc)
     with locked(ops) as queue:
         row = next(row for row in queue["jobs"] if row["id"] == identity)
         row.update(status=status, error=error)
+        if no_submission:
+            row["dispatch_attempted"] = False
         event(
             ops,
             "READY_SUBMITTED" if status == "LAUNCHED" else "READY_HELD",

@@ -2174,6 +2174,80 @@ def allocation_unavailable(output: Path, log: Path, accelerator: str) -> bool:
     )
 
 
+def membership_evidence(
+    ops: Path, account: Path, before: list[str], rows: list[tuple[str, str, str]]
+) -> dict[str, Any]:
+    """Explain membership changes using bound local dispatches, never names alone.
+
+    Added endpoints need a current broker identity bound to an ops manifest.
+    Removed endpoints need a hash-bound terminal receipt with verified stop.
+    Retained endpoints also need current bound ownership; endpoint names can be reused.
+    """
+    current = {endpoint for _, endpoint, _ in rows}
+    added, removed = current - set(before), set(before) - current
+    evidence: dict[str, Any] = {"added": {}, "removed": {}, "retained": {}}
+    for manifest in sorted((ops / "manifests").glob("*.json")):
+        if manifest.name.endswith(".live.json"):
+            continue
+        packet = read_json(manifest)
+        output = Path(packet["output_dir"])
+        executed = output / "manifest.json"
+        if not executed.is_file():
+            continue
+        actual = read_json(executed)
+        if any(actual.get(k) != packet.get(k) for k in ("job_id", "commit", "output_dir")):
+            continue
+        binding = {
+            "manifest": str(manifest),
+            "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+            "executed_manifest": str(executed),
+            "executed_manifest_sha256": hashlib.sha256(executed.read_bytes()).hexdigest(),
+        }
+        receipt_path = output / "receipt.json"
+        if receipt_path.is_file():
+            receipt = read_json(receipt_path)
+            endpoint = receipt.get("endpoint")
+            if (
+                endpoint in removed
+                and receipt.get("stop_verified") is True
+                and receipt.get("manifest_sha256") == binding["executed_manifest_sha256"]
+                and receipt.get("job_id") == packet["job_id"]
+                and receipt.get("commit") == packet["commit"]
+            ):
+                evidence["removed"][endpoint] = {
+                    **binding,
+                    "receipt": str(receipt_path),
+                    "receipt_sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+                }
+        for path in sorted(account.glob("active-*.json")) if current else ():
+            record = read_json(path)
+            endpoint, session = record.get("endpoint"), record.get("session")
+            if (
+                endpoint in current
+                and isinstance(session, str)
+                and path.name == f"active-{session}.json"
+                and not path.is_symlink()
+                and record.get("output") == str(output)
+                and session.startswith("snake-" + packet["job_id"] + "-")
+                and all(name in {"?", session} for name, ep, _ in rows if ep == endpoint)
+            ):
+                category = "added" if endpoint in added else "retained"
+                if endpoint in evidence[category]:
+                    raise Refused("ambiguous ledger ownership for added assignment")
+                evidence[category][endpoint] = {
+                    **binding,
+                    "active": str(path),
+                    "active_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+    if (
+        set(evidence["added"]) != added
+        or set(evidence["removed"]) != removed
+        or set(evidence["retained"]) != current.intersection(before)
+    ):
+        raise Refused("account membership changed; fallback forbidden: unknown/foreign assignments")
+    return evidence
+
+
 def reconcile_unavailable(
     broker: Path,
     manifest: Path,
@@ -2188,8 +2262,9 @@ def reconcile_unavailable(
     """Archive and retire only the rejected request's proven empty pending intent.
 
     Hold the same account mutation lock as the supervisor while issuing GET-only
-    recovery/inventory. Any endpoint, missing evidence, changed baseline, helper
-    failure or unrelated pending record leaves the account fenced for an operator.
+    recovery/inventory. Any recovered endpoint, missing evidence, unexplained
+    membership, helper failure or unrelated pending record leaves the account
+    fenced for an operator.
     """
     packet = read_json(manifest)
     accelerator = packet.get("requirements", {}).get("gpu")
@@ -2267,11 +2342,15 @@ def reconcile_unavailable(
         if (
             not isinstance(before, list)
             or len(before) >= 3
-            or set(before) != {endpoint for _, endpoint, _ in rows}
-            or len(rows) != len(before)
+            or any(not isinstance(endpoint, str) or not endpoint for endpoint in before)
+            or len(set(before)) != len(before)
+            or len(rows) > 3
             or any(name == session for name, _, _ in rows)
         ):
             raise Refused("account membership changed; fallback forbidden")
+        membership = membership_evidence(
+            Path(os.environ.get("OPS_DIR", OPS)).resolve(), account, before, rows
+        )
         if raw != pending.read_bytes():
             raise Refused("pending allocation changed during reconciliation")
         evidence = {
@@ -2289,6 +2368,7 @@ def reconcile_unavailable(
             },
             "recovery": {"endpoint": None},
             "sessions_stdout": inventory,
+            "membership": membership,
             "endpoint_ever_assigned": False,
             "vm_compute_started": False,
             "mode": "DRY_RUN" if dry_run else "LIVE",

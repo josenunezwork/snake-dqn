@@ -591,3 +591,24 @@ Read-only `dispatch.sh --dry-run` may validate a PENDING transport review via
 REJECT or missing review status still refuses. Every live dispatch and its
 locked refresh use the default qualification check and require ACCEPT before
 side effects. Preparation never edits the real qualification record.
+
+### Concurrent membership and queue recovery
+
+Accelerator-unavailable reconciliation compares the pending baseline with live
+inventory under the account lock. A departed endpoint requires an ops manifest,
+its executed manifest and a hash-bound receipt proving verified stop. Every live
+endpoint requires a current broker active record tied to an ops manifest/output
+(and the exact session name when the provider exposes it). The retirement proof
+archives the membership evidence and hashes. Unknown assignments still refuse;
+the recovery GET must return no endpoint before an intent can be retired.
+
+The ready queue parks reconciliation errors per item with exponential backoff
+(30, 60, 120, 240, 480, then 600 seconds). It continues reconciling other entries.
+While any account pending intent remains, it submits no new work, so the fence
+cannot consume another ready dispatch identity. Proven unallocated attempts can
+receive fresh completion identities with the same bounded retry policy and
+backoff; the original incomplete receipt remains unchanged. A pending-fence
+refusal is also retryable only with the exact bound pre-allocation receipt, zero
+CLI calls/transfers/exports and no pending/active identity for that session.
+Already consumed ready names are adopted only when their ops snapshot matches
+the enqueued manifest; mismatches are held. Dependencies follow the final retry.

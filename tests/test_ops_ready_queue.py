@@ -16,6 +16,12 @@ from tools.ops import ready_queue as rq
 from tools.ops import seal_doom_ready
 
 
+@pytest.fixture(autouse=True)
+def isolated_account(tmp_path, monkeypatch):
+    """Offline queue tests never read the operator's live pending intents."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+
 def write(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value))
@@ -381,3 +387,233 @@ def test_dispatch_fallback_and_accounting_retry_share_one_queue_slot():
         observed = {"job": {"active": False}, "job" + suffix: {"active": True, "endpoint": "live"}}
         assert rq.occupancy({"jobs": [row]}, observed, {"live"}) == (1, 0)
         assert rq.occupancy({"jobs": [row]}, observed, None) == (1, 0)
+
+
+def test_reconciliation_failure_parks_head_with_backoff_and_advances_tail(tmp_path, monkeypatch):
+    ops = add_jobs(tmp_path, 2)
+    with rq.locked(ops) as queue:
+        queue["jobs"][0]["status"] = "LAUNCHED"
+    state = {
+        "active": True,
+        "exited": True,
+        "receipt": {"failure_class": "SUPERVISOR", "endpoint": None},
+        "unavailable": False,
+    }
+    calls = []
+    monkeypatch.setattr(rq, "observations", lambda _: {"job0": state})
+
+    def refused(*args):
+        calls.append(args)
+        raise ValueError("account membership changed; fallback forbidden")
+
+    monkeypatch.setattr(rq, "retire_unavailable", refused)
+    monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **kw: None)
+    result = rq.tick(ops, inventory=set())
+    assert result["dispatched"] == ["q1"]
+    head = ar.read(ops / "ready-queue.json")["jobs"][0]
+    assert head["reconcile_failures"] == 1 and head["reconcile_retry_at"] > time.time()
+    rq.tick(ops, inventory=set())
+    assert len(calls) == 1  # no retry on each 15-second tick
+    with rq.locked(ops) as queue:
+        queue["jobs"][0]["reconcile_retry_at"] = 0
+    rq.tick(ops, inventory=set())
+    assert len(calls) == 2
+
+
+def test_pending_fence_does_not_burn_other_ready_identities(tmp_path, monkeypatch):
+    ops = add_jobs(tmp_path, 2)
+    write(Path.home() / ".config/colab-cli/snake/pending-foreign.json", {})
+    monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: pytest.fail("must not dispatch"))
+    result = rq.tick(ops, inventory=set())
+    assert result["dispatched"] == [] and len(result["blocked_pending"]) == 1
+    assert all(row["status"] == "READY" for row in ar.read(ops / "ready-queue.json")["jobs"])
+
+
+def test_unallocated_retry_requires_live_bound_proof_and_backs_off(packet, tmp_path, monkeypatch):
+    from tools.ops import dispatch
+
+    ops = tmp_path / "ops"
+    value = ar.read(packet)
+    value["requirements"] = {"gpu": "H100", "prefer": ["H100", "A100"]}
+    write(packet, value)
+    snapshot = write(ops / "manifests/job0.json", value)
+    log = ops / "logs/job0.log"
+    receipt = finish(
+        snapshot,
+        log,
+        stop_verified=False,
+        failure_class="SUPERVISOR",
+        cleanup_error="ALLOCATION_UNRESOLVED: retained pending record",
+        endpoint=None,
+        error="Refused('allocation unavailable')",
+    )
+    proof = write(
+        ops / "dispatch/job0/unavailable.json",
+        {
+            "schema": "colab-allocation-unavailable/v1",
+            "mode": "LIVE",
+            "endpoint_ever_assigned": False,
+            "vm_compute_started": False,
+            "recovery": {"endpoint": None},
+            "receipt": {
+                "path": str(Path(value["output_dir"]) / "receipt.json"),
+                "sha256": ar.digest(Path(value["output_dir"]) / "receipt.json"),
+            },
+        },
+    )
+    monkeypatch.setattr(dispatch, "allocation_unavailable", lambda *a: True)
+    rq.enqueue(ops, "original", command(tmp_path, packet, "job0"), track=True, retry_limit=2)
+    result = rq.tick(ops, inventory=set())
+    assert result["dispatched"] == []
+    parent, retry = ar.read(ops / "ready-queue.json")["jobs"]
+    assert parent["status"] == "UNAVAILABLE" and parent["retry_id"] == retry["id"]
+    assert retry["status"] == "READY" and retry["not_before"] > time.time()
+    successor = ar.read(Path(retry["manifest"]))
+    assert successor["completion_attempt"] == 1
+    assert successor["job_id"] != value["job_id"] and successor["output_dir"] != value["output_dir"]
+    assert successor["requirements"] == value["requirements"]
+    write(proof, {**ar.read(proof), "mode": "DRY_RUN"})
+    with pytest.raises(ValueError, match="live unallocated proof"):
+        ar.eligible(value, Path(value["output_dir"]), log, proof)
+    assert ar.read(Path(value["output_dir"]) / "receipt.json") == receipt
+
+
+def test_queue_auto_reconciles_without_dispatch_when_intent_retires(tmp_path, monkeypatch):
+    ops = add_jobs(tmp_path, 1)
+    with rq.locked(ops) as queue:
+        queue["jobs"][0].update(status="LAUNCHED", retry_limit=0)
+    pending = write(Path.home() / ".config/colab-cli/snake/pending-own.json", {})
+    state = {
+        "active": True,
+        "exited": True,
+        "receipt": {"failure_class": "SUPERVISOR", "endpoint": None},
+        "unavailable": False,
+    }
+    monkeypatch.setattr(rq, "observations", lambda _: {"job0": state})
+
+    def retire(*args):
+        pending.unlink()
+
+    monkeypatch.setattr(rq, "retire_unavailable", retire)
+    monkeypatch.setattr(rq, "no_assignment_proof", lambda *a: True)
+    result = rq.tick(ops, inventory=set())
+    assert result["dispatched"] == [] and not pending.exists()
+    assert ar.read(ops / "ready-queue.json")["jobs"][0]["status"] == "UNAVAILABLE"
+
+
+def pending_fence_receipt(manifest, log):
+    value = ar.read(manifest)
+    return finish(
+        manifest,
+        log,
+        stop_verified=False,
+        endpoint=None,
+        session="snake-" + value["job_id"] + "-" + "a" * 12,
+        failure_class="SUPERVISOR",
+        accounting=None,
+        usage_before=None,
+        usage_after=None,
+        cli_calls=[],
+        control_operations=[],
+        transfers=[],
+        contents_transfers=[],
+        error="Refused('unresolved allocation/stop: reconcile pending records first')",
+    )
+
+
+def test_queue_adopts_burned_pending_refusal_and_prepares_fresh_retry(tmp_path):
+    ops = add_jobs(tmp_path, 1)
+    manifest = write(ops / "manifests/job0.json", ar.read(tmp_path / "job0.json"))
+    log = ops / "logs/job0.log"
+    pending_fence_receipt(manifest, log)
+    with rq.locked(ops) as queue:
+        queue["jobs"][0]["retry_limit"] = 2
+    result = rq.tick(ops, inventory=set())
+    assert result["dispatched"] == []
+    parent, retry = ar.read(ops / "ready-queue.json")["jobs"]
+    assert parent["status"] == "FAILED" and parent["retry_id"] == retry["id"]
+    assert retry["status"] == "READY" and retry["not_before"] > time.time()
+    assert ar.read(Path(retry["manifest"]))["completion_attempt"] == 1
+    assert "READY_ADOPTED" in (ops / "events.log").read_text()
+
+
+@pytest.mark.parametrize("fault", ["new_call", "active", "pending", "error", "exports", "hash"])
+def test_pending_fence_retry_refuses_ambiguous_or_allocated_receipts(packet, tmp_path, fault):
+    log = tmp_path / "job.log"
+    receipt = pending_fence_receipt(packet, log)
+    value = ar.read(packet)
+    output = Path(value["output_dir"])
+    if fault in {"active", "pending"}:
+        write(Path.home() / ".config/colab-cli/snake" / f"{fault}-{receipt['session']}.json", {})
+    elif fault == "new_call":
+        receipt["cli_calls"] = [{"command": "new", "status": "failed"}]
+    elif fault == "error":
+        receipt["error"] = "Refused('allocation identity uncertain')"
+    elif fault == "exports":
+        receipt["exports"] = [{"path": "completed"}]
+    else:
+        receipt["manifest_sha256"] = "0" * 64
+    write(output / "receipt.json", receipt)
+    with pytest.raises(ValueError):
+        ar.eligible(value, output, log)
+
+
+def test_single_a100_completion_does_not_reenter_h100_preference(packet, tmp_path):
+    value = ar.read(packet)
+    value["requirements"] = {"gpu": "A100", "allowed_gpus": ["A100"], "prefer": ["H100", "A100"]}
+    write(packet, value)
+    log = tmp_path / "job.log"
+    finish(packet, log)
+    successor = ar.read(ar.prepare(packet, log, tmp_path / "retry", tmp_path))
+    assert successor["requirements"] == {"gpu": "A100", "allowed_gpus": ["A100"]}
+
+
+def test_existing_dispatch_with_different_snapshot_is_parked(tmp_path):
+    ops = add_jobs(tmp_path, 1)
+    value = ar.read(tmp_path / "job0.json")
+    value["changed"] = True
+    manifest = write(ops / "manifests/job0.json", value)
+    pending_fence_receipt(manifest, ops / "logs/job0.log")
+    assert rq.tick(ops, inventory=set())["dispatched"] == []
+    row = ar.read(ops / "ready-queue.json")["jobs"][0]
+    assert row["status"] == "HELD" and "differs" in row["error"]
+
+
+def test_worker_start_failure_parks_only_that_item(tmp_path, monkeypatch):
+    ops = add_jobs(tmp_path, 2)
+    calls = []
+
+    def start(argv, **kwargs):
+        calls.append(argv)
+        if len(calls) == 1:
+            raise OSError("worker spawn refused")
+
+    monkeypatch.setattr(rq.subprocess, "Popen", start)
+    assert rq.tick(ops, inventory=set())["dispatched"] == ["q1"]
+    head, tail = ar.read(ops / "ready-queue.json")["jobs"]
+    assert head["status"] == "HELD" and tail["status"] == "DISPATCHING"
+
+
+def test_long_retry_identity_follows_dispatch_hashed_fallback():
+    from research.compute.gpu_preference import sibling_id
+
+    name = "q" * 70
+    fallback = sibling_id(name)
+    state = {"active": True, "endpoint": "live"}
+    assert rq.current_observation({fallback: state}, name) == (fallback, state)
+    row = {"argv": ["/dispatch.sh", name], "status": "LAUNCHED"}
+    assert rq.occupancy({"jobs": [row]}, {fallback: state}, {"live"}) == (1, 0)
+
+
+def test_completed_predispatch_refusal_does_not_reserve_runtime_slot(tmp_path):
+    ops = add_jobs(tmp_path, 1)
+    script = tmp_path / "dispatch.sh"
+    script.write_text("#!/bin/sh\nexit 1\n")
+    script.chmod(0o755)
+    with rq.locked(ops) as queue:
+        queue["jobs"][0].update(status="DISPATCHING", token="claim")
+    rq.worker(ops, "q0", "claim")
+    queue = ar.read(ops / "ready-queue.json")
+    assert queue["jobs"][0]["status"] == "HELD"
+    assert not queue["jobs"][0]["dispatch_attempted"]
+    assert rq.occupancy(queue, {}, set()) == (0, 0)

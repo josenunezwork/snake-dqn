@@ -30,15 +30,79 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def eligible(manifest: dict[str, Any], output: Path, log: Path) -> dict[str, Any]:
+def blocked_before_allocation(manifest: dict[str, Any], output: Path, log: Path) -> bool:
+    """Recognize the exact broker pending-fence refusal before any CLI operation.
+
+    This producer checks the fence before version/sessions/new and writes an
+    immutable receipt. It never acquired an assignment, so there is none to stop.
+    """
+    path = output / "receipt.json"
+    if not path.is_file() or not (output / "manifest.json").is_file():
+        return False
+    receipt = read(path)
+    session = receipt.get("session", "")
+    account = Path.home() / ".config/colab-cli/snake"
+    return (
+        re.search(r"^EXIT=[1-9]\d*$", log.read_text(), re.MULTILINE) is not None
+        and receipt.get("error")
+        == "Refused('unresolved allocation/stop: reconcile pending records first')"
+        and receipt.get("status") == "INCOMPLETE"
+        and receipt.get("failure_class") == "SUPERVISOR"
+        and receipt.get("endpoint") is None
+        and receipt.get("accounting") is None
+        and receipt.get("usage_before") is None
+        and receipt.get("usage_after") is None
+        and receipt.get("cleanup_error") is None
+        and receipt.get("terminal") is None
+        and all(
+            receipt.get(k) == []
+            for k in (
+                "cli_calls",
+                "control_operations",
+                "exports",
+                "transfers",
+                "contents_transfers",
+            )
+        )
+        and receipt.get("manifest_sha256") == digest(output / "manifest.json")
+        and all(receipt.get(k) == manifest.get(k) for k in ("job_id", "commit"))
+        and re.fullmatch(r"snake-[a-z0-9_-]+-[a-f0-9]{12}", session) is not None
+        and not (account / f"pending-{session}.json").exists()
+        and not (account / f"active-{session}.json").exists()
+        and not any((output / name).exists() for name in ("hardware.json", "terminal.json"))
+    )
+
+
+def eligible(
+    manifest: dict[str, Any], output: Path, log: Path, unallocated_proof: Path | None = None
+) -> dict[str, Any]:
     """Require a bound, exited, stopped mechanical attempt with no outputs."""
     receipt = read(output / "receipt.json")
     executed = output / "manifest.json"
+    unallocated = blocked_before_allocation(manifest, output, log)
+    if unallocated_proof is not None:
+        if __package__:
+            from . import dispatch
+        else:
+            import dispatch
+        proof = read(unallocated_proof)
+        unallocated = (
+            proof.get("schema") == "colab-allocation-unavailable/v1"
+            and proof.get("mode") == "LIVE"
+            and proof.get("recovery") == {"endpoint": None}
+            and proof.get("endpoint_ever_assigned") is False
+            and proof.get("vm_compute_started") is False
+            and proof.get("receipt", {}).get("path") == str(output / "receipt.json")
+            and proof.get("receipt", {}).get("sha256") == digest(output / "receipt.json")
+            and dispatch.allocation_unavailable(output, log, manifest["requirements"]["gpu"])
+        )
+        if not unallocated:
+            raise ValueError("retry requires exact live unallocated proof")
     if (
         not re.search(r"^EXIT=\d+$", log.read_text(), re.MULTILINE)
         or receipt.get("status") != "INCOMPLETE"
-        or receipt.get("stop_verified") is not True
-        or receipt.get("cleanup_error") is not None
+        or (not unallocated and receipt.get("stop_verified") is not True)
+        or (not unallocated and receipt.get("cleanup_error") is not None)
         or receipt.get("exports") != []
         or receipt.get("terminal") is not None
         or (output / "terminal.json").exists()
@@ -52,6 +116,8 @@ def eligible(manifest: dict[str, Any], output: Path, log: Path) -> dict[str, Any
     actual = read(executed)
     if any(actual.get(key) != manifest.get(key) for key in ("job_id", "commit", "output_dir")):
         raise ValueError("executed identity differs from dispatched manifest")
+    if unallocated:
+        return receipt
     # Some historical receipts mislabel any TimeoutExpired as RPC_EXEC_POLL_TIMEOUT.
     # Require positive transport evidence, and veto child/science/integrity errors.
     error = str(receipt.get("error", ""))
@@ -150,11 +216,12 @@ def prepare(
     *,
     limit: int | None = None,
     python: str = sys.executable,
+    unallocated_proof: Path | None = None,
 ) -> Path:
     """Create a fresh immutable attempt, preserving source, inputs and all caps."""
     value = read(manifest)
     output = Path(value["output_dir"])
-    eligible(value, output, log)
+    eligible(value, output, log, unallocated_proof)
     attempt, maximum = completion_limit(value, limit)
     if attempt >= maximum:
         raise ValueError("package completion limit exhausted")
@@ -167,6 +234,12 @@ def prepare(
     # Keep the scientific canary manifest unchanged apart from operational identity.
     # Main packages that already track completion_attempt advance it explicitly.
     successor["completion_attempt"] = attempt + 1
+    if successor.get("requirements", {}).get("gpu") == "A100" and successor["requirements"].get(
+        "prefer"
+    ) == ["H100", "A100"]:
+        # The sibling already consumed H100 preference. Retry its admitted A100
+        # envelope directly; variants() correctly rejects an A100 primary.
+        successor["requirements"].pop("prefer")
     if not destination.is_absolute():
         raise ValueError("fresh absolute retry destination required")
     destination.mkdir(parents=True, exist_ok=False)
@@ -182,6 +255,11 @@ def prepare(
             "sha256": digest(output / "receipt.json"),
         },
         "manifest_sha256": digest(result),
+        "unallocated_proof": (
+            {"path": str(unallocated_proof), "sha256": digest(unallocated_proof)}
+            if unallocated_proof is not None
+            else None
+        ),
         "ledger_action": "preserve original uploaded ledger; zero new exports",
     }
     (destination / "RETRY.json").write_text(json.dumps(proof, indent=2) + "\n")
