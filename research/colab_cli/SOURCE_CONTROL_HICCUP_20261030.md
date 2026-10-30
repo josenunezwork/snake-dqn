@@ -41,8 +41,9 @@ a GPU/compiler/scientific-job stall is excluded by the execution order.
 ## Minimal correction
 
 Only `deliver_source` enters a thread-local source-delivery scope with a
-150-second RPC/operation allowance, matching the existing source-RPC allowance
-documented in ROBUSTNESS.md. This covers both GitHub fetch and verified sparse
+165-second RPC/operation allowance. The helper worst case is about 155 seconds
+(init 10 + config 5 + fetch 120 + rev-parse 10 + checkout 10). Staging adds
+zero client completion grace, as corrected in ROBUSTNESS.md. This covers both GitHub fetch and verified sparse
 fallback installation. It does not extend the 300-second staging deadline,
 whole-session/price deadline, explicit caller timeout, or any manifest cap.
 Other staging controls retain 30 seconds and the existing recovery policy.
@@ -66,8 +67,8 @@ must continue to reject the new tree until the operator records the new
 qualification and independent Argon review. Do not bypass that check or reuse
 sealed manifests against an unqualified tree. Qualification requires the
 offline supervisor/runtime/fault suite and the source-control regressions:
-45/90/140-second source calls succeed once; a 160-second call is fenced at
-150 seconds, does not release ready, and verifies stop; staging/session/explicit
+45/90/140/160-second source calls succeed once; a 170-second call is fenced at
+165 seconds, does not release ready, and verifies stop; staging/session/explicit
 deadlines remain binding; ordinary controls and independent heartbeat allowances
 remain unchanged. Retain exact commands, counts and tree/commit hashes.
 
@@ -108,3 +109,16 @@ Independent Argon review was attempted with `gemini-4-argon-high`, but Antigravi
 returned HTTP 429 / `RESOURCE_EXHAUSTED` (individual quota). No review verdict
 was produced. Keep review and successor qualification pending; passing tests
 do not replace the other implementer's review. The registry remains unchanged.
+
+## Successor review and qualification, 2026-10-30
+
+The owner relayed independent Argon stand-in review: ACCEPT-WITH-FIXES,
+non-blocking. Apply the 165-second source window and zero-staging-grace wording;
+exercise fallback and early-failure recovery. The owner explicitly authorizes
+the 10-29 offline-qualification precedent for this successor, with
+`live_acceptance_run=false` and first live use a canary. Evidence and the
+inactive successor registry are retained in
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/transport-qualify/`.
+The historical diagnosis and baseline failure records above remain historical.
+Activation is a separate operator action; do not change the live registry while
+old pinned replay jobs remain queued or running.

@@ -15,8 +15,9 @@ RPC_SECONDS = 120.0
 # These are attempt/recovery limits, not replacements for the 150/300s bars.
 STAGING_CONTROL_SECONDS = 30.0
 # Source fetch has its own 120s subprocess budget plus identity/checkout work.
-# Keep ordinary staging controls short; source alone gets the documented 150s.
-SOURCE_CONTROL_SECONDS = 150.0
+# init 10 + config 5 + fetch 120 + rev-parse 10 + checkout 10 = 155s.
+# Keep ordinary staging controls short; source alone gets 165s, with no grace.
+SOURCE_CONTROL_SECONDS = 165.0
 # A 30s exec stall followed by a 30s idle-helper stall must leave room for
 # fresh idle proof and a retry. All work still shares the 300s staging cap.
 STAGING_RECOVERY_SECONDS = 120.0
