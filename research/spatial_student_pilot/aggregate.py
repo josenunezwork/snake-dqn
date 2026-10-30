@@ -20,6 +20,7 @@ import torch
 from research.sandbox_a_resident.training_rosters import training_rosters
 from research.spatial_student_pilot.collect import select_dataset
 from research.spatial_student_pilot.config import PilotConfig, audit_seeds
+from research.spatial_student_pilot.latency import selected_assessment_roots, verify_diagnostic
 from research.spatial_student_pilot.model import load_checkpoint
 from research.spatial_student_pilot.readout import evaluate_readout
 from research.spatial_student_pilot.resume import UnitStore, validate_ledger
@@ -325,24 +326,9 @@ def aggregate(
             ):
                 return _decision("INCOMPLETE", "missing checkpoint-bound Mac latency measurement")
             probe = _object(latency)
-            late_uids = {r["uid"] for r in assessment if r["kind"] == "late"}
-            probe_uids = probe.get("root_uids", [])
-            if (
-                probe.get("threshold_qualified") is not True
-                or probe.get("checkpoint_sha256") != actor_hash
-                or probe.get("config_sha256") != cfg.sha256
-                or probe.get("namespace") != cfg.namespace
-                or probe.get("allocation_index") != cfg.allocation_index
-                or probe.get("checkpoint_metadata") != metadata
-                or len(probe_uids) != len(late_uids)
-                or set(probe_uids) != late_uids
-            ):
-                raise ValueError(
-                    "latency receipt does not bind candidate/config/exact late assessment roots"
-                )
-            p95 = probe.get("statistics", {}).get("p95_ms")
-            if isinstance(p95, bool) or not isinstance(p95, (int, float)) or not math.isfinite(p95):
-                raise ValueError("nonfinite or malformed latency measurement")
+            p95 = verify_diagnostic(
+                probe, cfg, selected_assessment_roots(cfg, batches), actor_hash, metadata
+            )
             decision = evaluate_readout(
                 rows,
                 worlds,
@@ -353,6 +339,7 @@ def aggregate(
                 },
                 latency_p95_ms=float(p95),
                 complete=True,
+                latency_diagnostic_complete=True,
             )
             decision["provenance"] = {
                 "config_sha256": cfg.sha256,

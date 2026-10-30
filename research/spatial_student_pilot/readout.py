@@ -67,6 +67,7 @@ def evaluate_readout(
     latency_p95_ms: float | None,
     complete: bool,
     integrity: bool = True,
+    latency_diagnostic_complete: bool = False,
 ) -> dict[str, Any]:
     """Apply frozen INVALID/INCOMPLETE precedence, then every mandatory GO clause.
 
@@ -147,14 +148,19 @@ def evaluate_readout(
                 nonfinite = True
     except (KeyError, ValueError, TypeError):
         invalid.append("malformed or missing endpoint records")
-    if latency_p95_ms is not None and not np.isfinite(latency_p95_ms):
-        invalid.append("nonfinite latency result")
+    if latency_p95_ms is not None and (
+        isinstance(latency_p95_ms, bool)
+        or not isinstance(latency_p95_ms, (int, float))
+        or not np.isfinite(latency_p95_ms)
+        or latency_p95_ms < 0
+    ):
+        invalid.append("nonfinite or malformed latency result")
     if nonfinite:
         invalid.append("nonfinite/malformed endpoint outputs")
     if invalid:
         result["reasons"] = sorted(set(invalid))
         return result
-    if not complete or latency_p95_ms is None:
+    if not complete or latency_p95_ms is None or latency_diagnostic_complete is not True:
         result.update(
             verdict="INCOMPLETE", reasons=["unfinished endpoint or Mac latency measurement"]
         )
@@ -199,9 +205,7 @@ def evaluate_readout(
         "ordinary_lethal_flips_at_most1": flips <= 1,
         "equal_mix_gameplay_mass_at_least_b8": mass_student >= mass_b8,
         "each_mix_alive_loss_at_most03": all(v >= -0.03 for v in alive_deltas.values()),
-        "mac_observation_actor_p95_at_most4ms": latency_p95_ms is not None
-        and np.isfinite(latency_p95_ms)
-        and latency_p95_ms <= 4.0,
+        "mac_latency_diagnostic_complete": True,
         "no_action_collapse": collapse <= 0.90,
         "legal_outputs": not illegal,
     }
@@ -227,6 +231,8 @@ def evaluate_readout(
             "action_counts": counts.tolist(),
             "action_collapse_fraction": collapse,
             "latency_p95_ms": latency_p95_ms,
+            "latency_historical_4ms_comparison": latency_p95_ms <= 4.0,
         },
+        authorization="subsequent v2 registration preparation only",
     )
     return result

@@ -155,6 +155,8 @@ def endpoint() -> tuple[list[dict], list[dict]]:
 
 
 def read(roots, gameplay, **kwargs):
+    options = dict(latency_p95_ms=3.9, latency_diagnostic_complete=True, complete=True)
+    options.update(kwargs)
     with patch("research.spatial_student_pilot.readout.platform.system", return_value="Darwin"):
         return evaluate_readout(
             roots,
@@ -164,9 +166,7 @@ def read(roots, gameplay, **kwargs):
                 resume_verified=True,
                 namespace="t34-spatial-student-20261030/v1",
             ),
-            latency_p95_ms=3.9,
-            complete=True,
-            **kwargs,
+            **options,
         )
 
 
@@ -189,6 +189,28 @@ def test_readout_all_clauses_and_harm_falsifications() -> None:
     illegal = deepcopy(roots)
     illegal[0]["illegal_output"] = True
     assert read(illegal, gameplay)["verdict"] == "KILL"
+
+
+@pytest.mark.parametrize("p95", [4.0, 4.01, 6.533, 1000.0])
+def test_latency_is_mandatory_diagnostic_never_scientific_kill(p95) -> None:
+    roots, gameplay = endpoint()
+    result = read(roots, gameplay, latency_p95_ms=p95)
+    assert result["verdict"] == "GO"
+    assert result["clauses"]["mac_latency_diagnostic_complete"] is True
+    assert result["metrics"]["latency_historical_4ms_comparison"] == (p95 <= 4)
+    assert result["authorization"] == "subsequent v2 registration preparation only"
+    assert read(roots, gameplay, latency_diagnostic_complete=False)["verdict"] == "INCOMPLETE"
+    assert read(roots, gameplay, latency_p95_ms=None)["verdict"] == "INCOMPLETE"
+    gameplay[0]["student_mass"] = -100000
+    assert read(roots, gameplay, latency_p95_ms=p95)["verdict"] == "KILL"
+
+
+@pytest.mark.parametrize("p95", [float("nan"), float("inf"), -1, True, "3.9", {}])
+def test_malformed_latency_precedes_scientific_kill(p95) -> None:
+    roots, gameplay = endpoint()
+    for row in gameplay:
+        row["student_action_counts"] = [100, 0, 0, 0, 0, 0]
+    assert read(roots, gameplay, latency_p95_ms=p95)["verdict"] == "INVALID"
 
 
 def test_invalid_precedes_kill_and_requires_baseline_deaths() -> None:

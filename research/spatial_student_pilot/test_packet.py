@@ -22,6 +22,8 @@ def packet(tmp_path: Path, mode: str = "ruler", **kwargs: object) -> dict:
         job_id="spatial-packet-01",
         mode=mode,
         registration_sha256="c" * 64,
+        ruling_sha256="d" * 64,
+        amendment_sha256="e" * 64,
         **kwargs,
     )
 
@@ -40,6 +42,8 @@ def test_ruler_and_main_keep_source_family_and_all_upload_bytes(tmp_path: Path) 
     assert not canary.is_canary(main)
     for manifest in (ruler, main):
         validate_manifest(manifest)
+        assert manifest["latency_ruling_sha256"] == "d" * 64
+        assert manifest["registration_amendment_04_sha256"] == "e" * 64
         assert manifest["env"]["SPATIAL_LEDGER"] == "inputs/verified-ledger.json"
     assert main["resume"]["ledger_path"] == "inputs/verified-ledger.json"
     assert main["resume"]["skip_verified"] is True
@@ -127,3 +131,41 @@ def test_runtime_adapter_uses_uploaded_paths_and_real_module() -> None:
     assert "colab new" not in script
     assert "colab stop" not in script
     assert "/Users/" not in script
+
+
+def test_governance_preserves_originals_and_exact_ruling_clause() -> None:
+    import hashlib
+    import subprocess
+
+    from research.spatial_student_pilot.prepare import (
+        GOVERNANCE_FILES,
+        ROOT,
+        RULING,
+        RULING_SHA256,
+        governance_bytes,
+    )
+
+    for name in GOVERNANCE_FILES[:-1]:
+        baseline = subprocess.check_output(["git", "show", f"f9087530:{PACKAGE}/{name}"], cwd=ROOT)
+        assert (ROOT / PACKAGE / name).read_bytes() == baseline
+    assert hashlib.sha256(RULING.read_bytes()).hexdigest() == RULING_SHA256
+    exact = (
+        RULING.read_text()
+        .split("## Exact replacement for GO clause 6\n\n> ")[1]
+        .split("\n\n## Proofs before dispatch")[0]
+    )
+    amendment = (ROOT / PACKAGE / GOVERNANCE_FILES[-1]).read_text()
+    assert "\n> " + exact + "\n" in amendment
+    assert 'the owner directed on 2026-10-30 "skip mac"' in amendment
+    # The baseline pin has no Amendment04, so it can never prepare this package.
+    with pytest.raises((ValueError, subprocess.CalledProcessError)):
+        governance_bytes("f9087530", RULING)
+
+
+def test_governance_refuses_changed_ruling_before_packet_creation(tmp_path: Path) -> None:
+    from research.spatial_student_pilot.prepare import governance_bytes
+
+    wrong = tmp_path / "RULING.md"
+    wrong.write_text("changed")
+    with pytest.raises(ValueError, match="ruling digest"):
+        governance_bytes("HEAD", wrong)

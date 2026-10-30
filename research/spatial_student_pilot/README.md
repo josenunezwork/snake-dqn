@@ -1,7 +1,6 @@
 # Spatial student pilot
 
-Frozen v1 mechanism pilot. Start with REGISTRATION.md and its two pre-data
-clarifications. This package has no serving integration and grants no release.
+Frozen v1 mechanism pilot. Start with REGISTRATION.md and clarifications01–03 plus REGISTRATION_AMENDMENT_04.md. This package has no serving integration and grants no release.
 
 `observation.py` reconstructs 16 full-arena planes and 36 scalars from compact
 ordered body/food shards. `model.py` implements the random 2,299,430-parameter
@@ -45,9 +44,12 @@ the exact final actor and all eight verified collection unit IDs. Its complete
 live extraction/observation/actor/upload/readback measurement must use all 128
 selected natural late roots; a synthetic/model-only probe cannot qualify it.
 Run `python -m research.spatial_student_pilot.aggregate --help` once with the
-complete verified ledger, candidate, seed audit and latency report. It requires
+complete verified ledger, candidate, seed audit and latency report. The frozen
+MPS diagnostic uses12 warmups/100 repeats per fixture, one CPU thread and a
+required `--load-observation` description. Its complete raw evidence is mandatory;
+p95 above4ms is reported and cannot cause scientific KILL. It requires
 all 86 units and exact final-actor tensor identity before performing the sole
-world-clustered readout. Missing support is INCOMPLETE. Valid misses KILL scaling.
+world-clustered readout. Missing support is INCOMPLETE. Valid misses of clauses1–5 KILL scaling.
 
 Local verification (CUDA parity remains a target-platform canary obligation):
 
@@ -66,7 +68,14 @@ Pre-data review fixes and latency disclosure are in
 mature-tail collection, distinct-parent support and mature export-size forecasts.
 The original actor missed the4ms development latency check; a smaller late-fusion
 proposal is retained externally and has not changed the registered model.
-**Do not dispatch this packet pending resolution of the latency finding.**
+Amendment04 adopts the binding latency ruling and the owner's2026-10-30
+"skip mac" deviation: complete Watch6 quiet+contention update timing is deferred
+to a mandatory precondition of any post-GO v2 registration/serving step. Its
+failure is an engineering HOLD for serving, never a pilot scientific KILL. It
+does not gate ruler/main dispatch. The final-candidate MPS static diagnostic
+remains mandatory for GO; GO requires clauses1–5 plus that complete diagnostic.
+Argon cross-review and real same-pin hardware-family rulers remain required.
+This task prepares and dry-runs only; dispatch is explicitly withheld.
 
 To reproduce the historical-fixture, random-weight development probe (it never
 qualifies the endpoint), use `latency --development-bank STAGE_0001_PT --device

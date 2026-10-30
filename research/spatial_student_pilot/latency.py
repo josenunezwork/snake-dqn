@@ -16,7 +16,7 @@ import os
 import platform
 import time
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import torch
@@ -30,6 +30,89 @@ from research.spatial_student_pilot.observation import (
     compact_from_live,
     compact_from_sim,
 )
+
+DIAGNOSTIC_PROTOCOL = {
+    "id": "spatial-latency-amendment-04/v1",
+    "device": "mps",
+    "precision": "fp32",
+    "threads": 1,
+    "warmups_per_fixture": 12,
+    "repeats_per_fixture": 100,
+    "load": "single session; ordinary desktop load retained; no competing research job started",
+    "scope": "live extraction+CPU observation+uploads+actor+readback+masked action",
+}
+DIAGNOSTIC_SOFTWARE = {
+    "system": "Darwin",
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.12.3",
+    "torch": "2.9.1",
+    "numpy": "1.26.4",
+}
+
+
+def source_identity() -> dict[str, str]:
+    """Bind the frozen observation and actor implementation used by the probe."""
+    return {
+        name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+        for name in ("latency.py", "model.py", "observation.py")
+    }
+
+
+def verify_diagnostic(
+    report: Mapping[str, Any],
+    cfg: PilotConfig,
+    roots: Sequence[Mapping[str, Any]],
+    checkpoint_sha256: str,
+    metadata: Mapping[str, Any],
+) -> float:
+    """Reject incomplete/foreign diagnostics before the scientific readout.
+
+    A qualification flag or a scalar percentile cannot replace raw evidence.
+    The historical 4ms comparison is reported, never an admission threshold.
+    """
+    expected = {
+        **DIAGNOSTIC_SOFTWARE,
+        "schema": "spatial-student-latency/v1",
+        "system": "Darwin",
+        "device": "mps",
+        "threads": 1,
+        "fixture_count": 128,
+        "warmups_per_fixture": 12,
+        "repeats_per_fixture": 100,
+        "scope": DIAGNOSTIC_PROTOCOL["scope"],
+        "diagnostic_protocol": DIAGNOSTIC_PROTOCOL,
+        "diagnostic_complete": True,
+        "source_sha256": source_identity(),
+        "checkpoint_sha256": checkpoint_sha256,
+        "checkpoint_metadata": dict(metadata),
+        "config_sha256": cfg.sha256,
+        "namespace": cfg.namespace,
+        "allocation_index": cfg.allocation_index,
+        "root_uids": [r["uid"] for r in roots],
+        "parent_count": len({r["world_id"] for r in roots}),
+    }
+    if len(roots) != 128 or any(report.get(k) != v for k, v in expected.items()):
+        raise ValueError("latency diagnostic identity/protocol mismatch")
+    for key in ("platform", "torch", "python", "numpy", "load_observation"):
+        if not isinstance(report.get(key), str) or not report[key].strip():
+            raise ValueError("latency diagnostic missing software/load identity")
+    raw = report.get("sample_ms")
+    if (
+        not isinstance(raw, list)
+        or len(raw) != 12800
+        or any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in raw)
+    ):
+        raise ValueError("malformed or incomplete raw latency timings")
+    samples = np.asarray(raw, dtype=float)
+    if not np.isfinite(samples).all() or (samples < 0).any():
+        raise ValueError("nonfinite or negative latency timings")
+    pooled = _stats(raw)
+    per_fixture = [_stats(raw[i : i + 100]) for i in range(0, 12800, 100)]
+    if report.get("statistics") != pooled or report.get("per_fixture") != per_fixture:
+        raise ValueError("latency statistics differ from retained raw timings")
+    if report.get("within_p95_limit") is not (pooled["p95_ms"] <= 4.0):
+        raise ValueError("latency historical comparison differs from raw timings")
+    return pooled["p95_ms"]
 
 
 def snapshot_to_live(snapshot: dict[str, Any], cfg: PilotConfig) -> Any:
@@ -161,6 +244,9 @@ def _probe(
         "schema": "spatial-student-latency/v1",
         "device": str(target),
         "platform": platform.platform(),
+        "system": platform.system(),
+        "python": platform.python_version(),
+        "numpy": str(np.__version__),
         "torch": str(torch.__version__),
         "threads": torch.get_num_threads(),
         "fixture_count": len(fixtures),
@@ -337,6 +423,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--device", choices=("cpu", "mps"), default="mps")
     parser.add_argument("--warmups", type=int, default=12)
     parser.add_argument("--repeats", type=int, default=100)
+    parser.add_argument("--load-observation", help="document desktop load for the frozen session")
     args = parser.parse_args(argv)
     if platform.system() != "Darwin":
         raise ValueError("latency must be measured on the owner's Mac")
@@ -357,6 +444,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if not all((args.checkpoint, args.units_root, args.unit_id, args.config)):
         parser.error("scientific probe requires checkpoint, units-root, unit-id and config")
+    if (
+        args.device != "mps"
+        or args.warmups != 12
+        or args.repeats != 100
+        or not args.load_observation
+        or not args.load_observation.strip()
+    ):
+        parser.error("diagnostic requires MPS, exactly12 warmups/100 repeats and load-observation")
     from research.spatial_student_pilot.resume import load_verified_unit
 
     cfg = PilotConfig.from_dict(json.loads(args.config.read_text()))
@@ -396,10 +491,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             "checkpoint_sha256": checkpoint_digest,
             "root_uids": [r["uid"] for r in roots],
             "parent_count": len({r["world_id"] for r in roots}),
-            "threshold_qualified": args.warmups >= 12 and args.repeats >= 100,
+            "diagnostic_complete": True,
+            "diagnostic_protocol": DIAGNOSTIC_PROTOCOL,
+            "source_sha256": source_identity(),
+            "load_observation": args.load_observation,
             "within_p95_limit": report["statistics"]["p95_ms"] <= 4.0,
         }
     )
+    verify_diagnostic(report, cfg, roots, checkpoint_digest, metadata)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x") as stream:
         json.dump(report, stream, indent=2)

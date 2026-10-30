@@ -27,6 +27,17 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "research/spatial_student_pilot"
 SCRIPT = f"{PACKAGE}/job.sh"
 REQUIREMENTS = f"{PACKAGE}/requirements.txt"
+RULING = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/spatial-latency-ruling/RULING.md"
+)
+RULING_SHA256 = "887fba0553098638081382fea1e0fd5c6d1fc30b9f8fc8443f73479d82636e97"
+GOVERNANCE_FILES = (
+    "REGISTRATION.md",
+    "REGISTRATION_CLARIFICATION_01.md",
+    "REGISTRATION_CLARIFICATION_02.md",
+    "REGISTRATION_CLARIFICATION_03.md",
+    "REGISTRATION_AMENDMENT_04.md",
+)
 B8_SHA = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
 OPPONENT_SHAS = {
     "frp3-s12.pth": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
@@ -103,6 +114,21 @@ def binding(path: Path, dest: str | None = None) -> dict[str, str]:
     return result
 
 
+def governance_bytes(commit: str, ruling: Path) -> dict[str, bytes]:
+    """Refuse drift in the ruling or any source-pinned governance sibling."""
+    if ruling.is_symlink() or digest(ruling) != RULING_SHA256:
+        raise ValueError("binding latency ruling digest differs")
+    result = {"LATENCY_RULING.md": ruling.read_bytes()}
+    for name in GOVERNANCE_FILES:
+        pinned = subprocess.check_output(["git", "show", f"{commit}:{PACKAGE}/{name}"], cwd=ROOT)
+        if (ROOT / PACKAGE / name).read_bytes() != pinned:
+            raise ValueError(f"governance differs from committed pin: {name}")
+        result[name] = pinned
+    if RULING_SHA256.encode() not in result["REGISTRATION_AMENDMENT_04.md"]:
+        raise ValueError("amendment does not bind latency ruling")
+    return result
+
+
 def verify_ruler_receipt(path: Path, commit: str) -> None:
     """Require real, hash-bound integrated rate evidence before main packing."""
     receipt = json.loads(path.read_text())
@@ -143,6 +169,8 @@ def build_manifest(
     job_id: str,
     mode: str,
     registration_sha256: str,
+    ruling_sha256: str,
+    amendment_sha256: str,
     hardware_canaries: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Freeze separate 2x session envelopes without changing scientific N."""
@@ -184,6 +212,8 @@ def build_manifest(
             "max_outcome_blind_retries": 2,
         },
         "registration_sha256": registration_sha256,
+        "latency_ruling_sha256": ruling_sha256,
+        "registration_amendment_04_sha256": amendment_sha256,
         "technical_envelope": {
             "purpose": "whole-session runaway guard; units are informational",
             "useful_compute_estimate_minutes": estimate,
@@ -231,6 +261,7 @@ def prepare(
     seed_audit: Path | None = None,
     hardware_canaries: dict[str, Path] | None = None,
     job_id: str = "t34-spatial-pilot-01",
+    ruling: Path = RULING,
 ) -> dict[str, Any]:
     """Run clean import admission, then create a source/input-bound packet."""
     from research.spatial_student_pilot.config import PilotConfig, audit_seeds
@@ -259,12 +290,9 @@ def prepare(
     for required in (SCRIPT, REQUIREMENTS, f"{PACKAGE}/run.py"):
         if required not in source_paths:
             raise ValueError(f"runtime source is absent from the committed pin: {required}")
-    registration = ROOT / PACKAGE / "REGISTRATION.md"
-    registration_bytes = subprocess.check_output(
-        ["git", "show", f"{commit}:{PACKAGE}/REGISTRATION.md"], cwd=ROOT
-    )
-    if registration.read_bytes() != registration_bytes:
-        raise ValueError("registration differs from the committed pin")
+    governance = governance_bytes(commit, ruling)
+    registration_bytes = governance["REGISTRATION.md"]
+    amendment_hash = hashlib.sha256(governance["REGISTRATION_AMENDMENT_04.md"]).hexdigest()
     checkpoints = {dest: checkpoint_dir / name for dest, name in CHECKPOINT_NAMES.items()}
     if digest(checkpoints["b8-s3.pth"]) != B8_SHA:
         raise ValueError("B8 s3 checkpoint hash differs")
@@ -284,7 +312,8 @@ def prepare(
     packet.mkdir(parents=True, exist_ok=False)
     write_once(packet / "config.json", config.to_dict())
     write_once(packet / "verified-ledger.json", ledger)
-    (packet / "REGISTRATION.md").write_bytes(registration_bytes)
+    for name, content in governance.items():
+        (packet / name).write_bytes(content)
     write_once(packet / "import-preflight.json", import_receipt)
     write_once(packet / "seed-audit.json", seed_receipt)
     inputs = (
@@ -295,23 +324,11 @@ def prepare(
             for name in (
                 "config.json",
                 "verified-ledger.json",
-                "REGISTRATION.md",
                 "seed-audit.json",
             )
         ]
     )
-    clarification = ROOT / PACKAGE / "REGISTRATION_CLARIFICATION_01.md"
-    inputs.append(binding(clarification, "REGISTRATION_CLARIFICATION_01.md"))
-    inputs.append(
-        binding(
-            ROOT / PACKAGE / "REGISTRATION_CLARIFICATION_02.md", "REGISTRATION_CLARIFICATION_02.md"
-        )
-    )
-    inputs.append(
-        binding(
-            ROOT / PACKAGE / "REGISTRATION_CLARIFICATION_03.md", "REGISTRATION_CLARIFICATION_03.md"
-        )
-    )
+    inputs.extend(binding(packet / name, name) for name in governance)
     proofs = (
         {gpu: binding(path) for gpu, path in hardware_canaries.items()}
         if hardware_canaries is not None
@@ -327,6 +344,8 @@ def prepare(
             job_id=job_id + ("-ruler" if mode == "ruler" else ""),
             mode=mode,
             registration_sha256=hashlib.sha256(registration_bytes).hexdigest(),
+            ruling_sha256=RULING_SHA256,
+            amendment_sha256=amendment_hash,
             hardware_canaries=proofs if mode == "pilot" else None,
         )
         write_once(packet / f"{mode}.json", manifest)
@@ -383,6 +402,8 @@ def prepare(
         "status": "PREPARED_NOT_DISPATCHED",
         "commit": commit,
         "registration_sha256": digest(packet / "REGISTRATION.md"),
+        "latency_ruling_sha256": RULING_SHA256,
+        "registration_amendment_04_sha256": amendment_hash,
         "import_preflight": binding(packet / "import-preflight.json"),
         "manifests": {mode: binding(packet / f"{mode}.json") for mode in manifests},
         "hardware_canaries_bound": proofs is not None,
@@ -412,6 +433,7 @@ def main() -> None:
     parser.add_argument("--h100-canary", type=Path)
     parser.add_argument("--a100-canary", type=Path)
     parser.add_argument("--job-id", default="t34-spatial-pilot-01")
+    parser.add_argument("--ruling", type=Path, default=RULING)
     args = parser.parse_args()
     if bool(args.h100_canary) != bool(args.a100_canary):
         parser.error("bind both hardware canaries or neither")
@@ -428,6 +450,7 @@ def main() -> None:
             {"H100": args.h100_canary, "A100": args.a100_canary} if args.h100_canary else None
         ),
         job_id=args.job_id,
+        ruling=args.ruling,
     )
 
 
