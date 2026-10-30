@@ -175,6 +175,16 @@ export interface SessionState {
   serving_contract?: ServingContract | null;
   watch_roster?: string;
   watch_roster_reason?: string | null;
+  watch_source?: "live" | "replay";
+  replay?: {
+    label: string;
+    controller: string;
+    unit_id: string;
+    seed: number;
+    sha256: string;
+    frame: number;
+    horizon: number;
+  };
   safety_veto?: {
     active: boolean;
     scope: string | null;
