@@ -160,12 +160,6 @@ def evaluate_readout(
         )
         return result
     baseline_deaths = sum(_dead(r, "b8") for r in late)
-    if baseline_deaths < 16:
-        result["verdict"] = "KILL"
-        result["clauses"] = {"baseline_late_deaths_at_least16": False}
-        result["metrics"] = {"baseline_late_deaths": baseline_deaths}
-        result["reasons"] = ["fewer than16 baseline late roots die on both independent suffixes"]
-        return result
     try:
         teacher_delta = [float(np.mean(r["teacher_mass"]) - np.mean(r["b8_mass"])) for r in late]
         student_delta = [float(np.mean(r["student_mass"]) - np.mean(r["b8_mass"])) for r in late]
@@ -197,6 +191,7 @@ def evaluate_readout(
     collapse = float(counts.max() / counts.sum())
     illegal = any(bool(r.get("illegal_output", False)) for r in [*root_rows, *gameplay_rows])
     clauses = {
+        "baseline_late_deaths_at_least16": baseline_deaths >= 16,
         "teacher_mass_lb90_positive": teacher_lb > 0.0,
         "student_mass_lb90_positive": student_lb > 0.0,
         "student_retains_half_teacher": student_gain >= 0.5 * teacher_gain,

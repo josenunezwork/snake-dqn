@@ -198,8 +198,14 @@ def test_invalid_precedes_kill_and_requires_baseline_deaths() -> None:
     roots, gameplay = endpoint()
     for row in roots:
         row["b8_survival"] = [1, 1]
-    assert read(roots, gameplay)["verdict"] == "KILL"
+    result = read(roots, gameplay)
+    assert result["verdict"] == "KILL"
+    assert result["clauses"]["baseline_late_deaths_at_least16"] is False
     assert read(roots[:-1], gameplay)["verdict"] == "INVALID"
+    missing_counts = deepcopy(gameplay)
+    for row in missing_counts:
+        row.pop("student_action_counts")
+    assert read(roots, missing_counts)["verdict"] == "INVALID"
 
 
 def test_clustered_bootstrap_is_order_invariant_and_world_clustered() -> None:
