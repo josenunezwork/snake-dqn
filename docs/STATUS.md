@@ -5,6 +5,10 @@ This is a dated documentary snapshot, not a live job or deployment check. The ow
 documents named below take precedence over older launch notes and over memory; this file is updated
 when they change.
 
+## Served Watch source (owner "Switch now", 2026-10-30 ~16:10 PT)
+
+Watch now plays **Colab-precomputed replays** (exact-stop L2′ search hero over product Watch6 v2, 5× frp3-s12+v8 opponents, 6,000-frame sessions) labelled "Recorded assisted hero". Bank: `snake-dqn-artifacts/watch-replay-bank-live` (24 verified sessions = replay banks 01+02; banks 03/04 generating). Launch: `.claude/launch.json` `snake-web` sets `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR`. Live bare B8 s3 remains the fallback (empty/invalid/exhausted bank) and Play stays live. Rollback: unset `SNAKE_WATCH_SOURCE` (or set `live`). Efficacy vs bare B8 in the product setting is NOT yet measured (Watch6 96-pair test pending); bank-02 descriptive stats: mean 412 mass/session, 0 deaths in the 5 sessions reaching L>1,000.
+
 ## Fast-process rule (owner, 2026-10-30, standing) — overrides older ceremony rules
 
 Stronger models now; cut ceremony that does not pay for itself.

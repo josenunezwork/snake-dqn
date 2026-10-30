@@ -3,16 +3,42 @@
   "configurations": [
     {
       "name": "snake-web",
-      "runtimeExecutable": "./venv/bin/python",
-      "runtimeArgs": ["web/serve.py"],
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "SNAKE_WATCH_SOURCE=replay",
+        "SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/watch-replay-bank-live",
+        "./venv/bin/python",
+        "web/serve.py"
+      ],
       "port": 8000
     },
     {
       "name": "snake-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--host", "127.0.0.1", "--port", "5199", "--strictPort"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5199",
+        "--strictPort"
+      ],
       "cwd": "web/frontend",
       "port": 5199
+    },
+    {
+      "name": "watch-replay-preview",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=8017",
+        "SNAKE_WATCH_SOURCE=replay",
+        "SNAKE_WATCH_REPLAY_DIR=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/watch-replay-fix/bank02-installed-01",
+        "/Users/josenunez/Projects/ml/snake-dqn-watch-replay-serve/venv/bin/python",
+        "/Users/josenunez/Projects/ml/snake-dqn-watch-replay-serve/web/serve.py"
+      ],
+      "port": 8017
     }
   ]
 }
