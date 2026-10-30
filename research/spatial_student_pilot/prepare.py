@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import re
 import shlex
 import subprocess
+import tarfile
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +67,7 @@ def runtime_source_paths(commit: str) -> list[str]:
         "research/colab_cli/",
         PACKAGE + "/",
     )
-    return [
+    selected = [
         name
         for name in names
         if name in {"pyproject.toml", "research/__init__.py"}
@@ -74,6 +77,22 @@ def runtime_source_paths(commit: str) -> list[str]:
             and not Path(name).name.startswith("test_")
         )
     ]
+    # C/T's parity helpers have function-local imports reaching the production
+    # policy adapters. Resolve those imports from the PIN, never the ambient
+    # checkout; include code only, not historical research banks or outcomes.
+    from tools.ops.import_preflight import import_closure, module_path
+
+    python_paths = [name for name in names if name.endswith(".py")]
+    archive = subprocess.check_output(
+        ["git", "archive", commit, "--", *python_paths], cwd=ROOT, timeout=60
+    )
+    with tempfile.TemporaryDirectory(prefix="spatial-source-closure-") as directory:
+        frozen = Path(directory)
+        with tarfile.open(fileobj=io.BytesIO(archive)) as stream:
+            stream.extractall(frozen, filter="data")
+        closure, _ = import_closure(frozen, ["research.spatial_student_pilot.run"])
+        selected.extend(str(module_path(frozen, module).relative_to(frozen)) for module in closure)
+    return sorted(set(selected))
 
 
 def binding(path: Path, dest: str | None = None) -> dict[str, str]:
@@ -228,6 +247,8 @@ def prepare(
         binding(packet / name, name)
         for name in ("config.json", "verified-ledger.json", "REGISTRATION.md", "seed-audit.json")
     ]
+    clarification = ROOT / PACKAGE / "REGISTRATION_CLARIFICATION_01.md"
+    inputs.append(binding(clarification, "REGISTRATION_CLARIFICATION_01.md"))
     proofs = (
         {gpu: binding(path) for gpu, path in hardware_canaries.items()}
         if hardware_canaries is not None
