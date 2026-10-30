@@ -91,7 +91,12 @@ def verify_diagnostic(
         "root_uids": [r["uid"] for r in roots],
         "parent_count": len({r["world_id"] for r in roots}),
     }
-    if len(roots) != 128 or any(report.get(k) != v for k, v in expected.items()):
+    # JSON comparison also rejects booleans masquerading as numeric identities
+    # (Python otherwise considers True == 1), and nonfinite nested fields.
+    actual_identity = {key: report.get(key) for key in expected}
+    if len(roots) != 128 or json.dumps(
+        actual_identity, sort_keys=True, allow_nan=False
+    ) != json.dumps(expected, sort_keys=True, allow_nan=False):
         raise ValueError("latency diagnostic identity/protocol mismatch")
     for key in ("platform", "torch", "python", "numpy", "load_observation"):
         if not isinstance(report.get(key), str) or not report[key].strip():
@@ -108,7 +113,9 @@ def verify_diagnostic(
         raise ValueError("nonfinite or negative latency timings")
     pooled = _stats(raw)
     per_fixture = [_stats(raw[i : i + 100]) for i in range(0, 12800, 100)]
-    if report.get("statistics") != pooled or report.get("per_fixture") != per_fixture:
+    if json.dumps(
+        [report.get("statistics"), report.get("per_fixture")], sort_keys=True, allow_nan=False
+    ) != json.dumps([pooled, per_fixture], sort_keys=True, allow_nan=False):
         raise ValueError("latency statistics differ from retained raw timings")
     if report.get("within_p95_limit") is not (pooled["p95_ms"] <= 4.0):
         raise ValueError("latency historical comparison differs from raw timings")

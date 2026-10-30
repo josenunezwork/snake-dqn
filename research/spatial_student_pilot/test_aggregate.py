@@ -220,3 +220,21 @@ def test_diagnostic_requires_raw_samples_order_and_statistics() -> None:
     report["root_uids"].reverse()
     with pytest.raises(ValueError, match="identity/protocol"):
         verify_diagnostic(report, cfg, roots, "a" * 64, metadata)
+
+
+def test_diagnostic_rejects_boolean_numeric_identities_and_statistics() -> None:
+    from research.spatial_student_pilot.latency import _stats, verify_diagnostic
+
+    cfg, roots, metadata, report = diagnostic_fixture()
+    report["threads"] = True
+    with pytest.raises(ValueError, match="identity/protocol"):
+        verify_diagnostic(report, cfg, roots, "a" * 64, metadata)
+    cfg, roots, metadata, report = diagnostic_fixture()
+    report["sample_ms"] = [1.0] * 12800
+    report["statistics"] = _stats(report["sample_ms"])
+    report["per_fixture"] = [_stats([1.0] * 100) for _ in roots]
+    report["within_p95_limit"] = True
+    assert verify_diagnostic(report, cfg, roots, "a" * 64, metadata) == 1.0
+    report["statistics"]["p95_ms"] = True
+    with pytest.raises(ValueError, match="statistics"):
+        verify_diagnostic(report, cfg, roots, "a" * 64, metadata)
