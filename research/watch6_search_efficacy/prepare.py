@@ -15,7 +15,7 @@ from research.watch6_search_efficacy import protocol as p
 from research.watch6_search_efficacy.mirror import validate as validate_mirror
 from research.watch6_search_efficacy.performance import forecast as measured_forecast
 from research.watch6_search_efficacy.run import completed, ledger_identity
-from research.watch6_search_efficacy.uploads import checkpoint_inputs
+from research.watch6_search_efficacy.uploads import METADATA, checkpoint_inputs, pack_inputs
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
 
 
@@ -148,7 +148,7 @@ def prepare(
                     member.size = len(data)
                     archive.addfile(member, io.BytesIO(data))
     inputs.append(Input(release_bundle, "release-evidence.tar.gz"))
-    staged = stage_inputs(out / "staged", inputs)
+    staged = pack_inputs(stage_inputs(out / "staged", inputs), out / METADATA)
     report = None
     if main_shards:
         receipt = json.loads(canary_receipt.read_text())
@@ -182,6 +182,9 @@ def prepare(
             "COLAB_CLI_REQUIREMENTS": "research/bl_served_search/requirements.txt",
             "SNAKE_DQN_DEVICE": "cpu",
             "WATCH6_SCIENCE": p.identity(),
+            "WATCH6_METADATA_SHA256": next(
+                row["sha256"] for row in staged if row["dest"] == METADATA
+            ),
             "PYTHONUNBUFFERED": "1",
             **{
                 k: "1"

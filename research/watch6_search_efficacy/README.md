@@ -63,9 +63,28 @@ The unchanged4MiB per-file transport bound also applies to uploads. Both release
 checkpoints exceed it (6,562,005 and6,906,247 bytes). Preparation splits their
 original bytes into2MiB immutable parts; runtime verifies every part and the
 reassembled full checkpoint against the existing serving pin before startup.
+The eight checkpoint parts remain separate uploads. All 31 small input files
+(including the parts' SHA sidecars and completion markers, the empty ledger,
+approval, runtime contract, Mac mirror and release evidence) travel in one
+deterministic `input-metadata.tar.gz`. Its SHA256 is bound by both the manifest
+input and `WATCH6_METADATA_SHA256`. Before admission, runtime checks the archive
+SHA, exact member allowlist, sizes and per-member SHA inventory, then publishes
+create-only payloads and sidecars with completion markers last. Existing immutable
+part and full-checkpoint verification still runs before product construction.
+
 Preparation and study dispatch (including dry-run) build the actual sparse source
-fallback and check every input, sidecar, control and source-plan/archive against
-the manifest's same bound. No transport limit or checkpoint pin is increased.
+fallback and check every input, control and source-plan/archive against the
+manifest's same bound. They count actual `stage_upload` calls: nine input files
+plus bootstrap/source controls =11 normally, =12 with the sparse source fallback.
+Runtime/release code and the source plan are embedded control RPCs, not separate
+file transfers; the private credential upload precedes the staging clock.
+Offline admission refuses >20 transfers or an estimate reaching the unchanged
+150s transfer bar. The estimate uses 3s/file + bytes/(512KiB/s) +30s control margin;
+adding the source-fetch120s allowance must also fit the independent300s staging
+bar. These are forecasts requiring a real same-pin passing canary. No transport
+limit, time bar or checkpoint pin is increased. The old39-input layout refuses
+offline. Host admission unpacks the actual archive into a temporary directory;
+it cannot rely on small files left in the preparation staging tree.
 Approval, manifest and exported operational metadata disclose Astra as both judge
 and implementer; that authority does not constitute independent build review.
 

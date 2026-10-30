@@ -409,26 +409,98 @@ def test_execute_time_rederives_forecast_and_cli(
 def test_real_checkpoint_parts_reassemble_exact_released_bytes(tmp_path: Path) -> None:
     from research.watch6_search_efficacy.uploads import (
         CHECKPOINTS,
+        METADATA,
         PART_BYTES,
         checkpoint_inputs,
+        pack_inputs,
         stage_checkpoints,
+        stage_metadata,
     )
-    from tools.ops.package_spec import digest, stage_inputs
+    from tools.ops.package_spec import Input, digest, stage_inputs, verify_immutable
 
     saved = p.ROOT.parent / "snake-dqn/saved_snakes"
     if not all((saved / name).is_file() for name in CHECKPOINTS):
         pytest.skip("local released checkpoints required")
     inputs = checkpoint_inputs(saved, tmp_path / "parts")
     assert len(inputs) == 8
+    for name in (
+        "runtime-contract.json",
+        "verified-ledger.json",
+        "judge-approval.json",
+        "mac-mirror.json",
+        "release-evidence.tar.gz",
+    ):
+        path = tmp_path / name
+        path.write_bytes(b"small immutable fixture")
+        inputs.append(Input(path, name))
     staged = tmp_path / "inputs"
     rows_ = stage_inputs(staged, inputs)
     assert max(Path(row["path"]).stat().st_size for row in rows_) <= PART_BYTES
-    stage_checkpoints(staged)
+    packed = pack_inputs(rows_, tmp_path / METADATA)
+    assert len(rows_) == 39
+    assert len(packed) == 9
+    other = pack_inputs(rows_, tmp_path / "repeat.tar.gz")
+    assert other[-1]["sha256"] == packed[-1]["sha256"]
+    # Materialize ONLY manifest uploads, never the original staging tree.
+    remote = tmp_path / "remote"
+    remote.mkdir()
+    for item in packed:
+        target = remote / item["dest"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(Path(item["path"]).read_bytes())
+    stage_metadata(remote, packed[-1]["sha256"])
+    for item in inputs:
+        verify_immutable(remote / item.destination)
+    with pytest.raises(ValueError, match="destination exists"):
+        stage_metadata(remote, packed[-1]["sha256"])
+    stage_checkpoints(remote)
     for name in CHECKPOINTS:
-        assert digest(staged / "checkpoints" / name) == digest(saved / name)
-        assert (staged / "checkpoints" / name).read_bytes() == (saved / name).read_bytes()
+        assert digest(remote / "checkpoints" / name) == digest(saved / name)
+        assert (remote / "checkpoints" / name).read_bytes() == (saved / name).read_bytes()
     with pytest.raises(FileExistsError):
-        stage_checkpoints(staged)
+        stage_checkpoints(remote)
+
+
+@pytest.mark.parametrize(
+    "fault", ["sha", "member", "missing", "duplicate", "traversal", "symlink", "oversized"]
+)
+def test_metadata_refuses_corrupt_or_unsafe_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    import hashlib
+    import io
+    import tarfile
+
+    from research.watch6_search_efficacy import uploads
+    from tools.ops.package_spec import digest
+
+    monkeypatch.setattr(uploads, "metadata_names", lambda: {"fixture.json"})
+    data = b"fixture"
+    inventory = {"fixture.json": {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}}
+    payloads = [(uploads.INDEX, json.dumps(inventory).encode()), ("fixture.json", data)]
+    if fault == "member":
+        payloads[-1] = ("fixture.json", b"corrupt")
+    elif fault == "missing":
+        payloads.pop()
+    elif fault == "duplicate":
+        payloads.append(payloads[-1])
+    elif fault == "traversal":
+        payloads[-1] = ("../escaped.json", data)
+    elif fault == "oversized":
+        monkeypatch.setattr(uploads, "MAX_METADATA_BYTES", 100)
+    archive = tmp_path / uploads.METADATA
+    with tarfile.open(archive, "w:gz") as output:
+        for name, payload in payloads:
+            member = tarfile.TarInfo(name)
+            member.size = len(payload)
+            if fault == "symlink" and name == "fixture.json":
+                member.type = tarfile.SYMTYPE
+                member.linkname = "../escaped.json"
+            output.addfile(member, io.BytesIO(payload))
+    with pytest.raises(ValueError):
+        uploads.stage_metadata(tmp_path, "0" * 64 if fault == "sha" else digest(archive))
+    assert not (tmp_path / "fixture.json").exists()
+    assert not (tmp_path.parent / "escaped.json").exists()
 
 
 @pytest.mark.parametrize("fault", ["corrupt", "missing", "truncated", "foreign-pin"])
@@ -505,6 +577,43 @@ def test_upload_preflight_checks_every_candidate(
         report = uploads.check_uploads(manifest)
         assert report["status"] == "PASS"
         assert len(report["files"]) == 9
+        assert report["transfer_count"] == 5
+        assert report["normal_transfer_count"] == 4
+        assert report["transfer_cap_seconds"] == 150
+
+
+@pytest.mark.parametrize("fault", ["count", "time", "exact-cap"])
+def test_upload_forecast_refuses_offline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    from research.watch6_search_efficacy import uploads
+
+    path = tmp_path / "input"
+    path.write_bytes(b"x" * (2 * 1024**2 if fault == "time" else 1))
+
+    def source_fixture(repo, manifest, directory):
+        for name in ("source.tar.gz", "source-plan.json", "schema-validation.json"):
+            (directory / name).write_bytes(b"x")
+
+    monkeypatch.setattr(uploads.source, "prepare", source_fixture)
+    monkeypatch.setattr(uploads.subprocess, "check_output", lambda *a, **kw: b"x")
+    manifest = {
+        "max_export_bytes": 4 * 1024**2,
+        "commit": "a" * 40,
+        "inputs": [
+            {"path": str(path), "dest": f"input-{i}"}
+            for i in range(39 if fault == "count" else 17 if fault == "time" else 1)
+        ],
+    }
+    if fault == "exact-cap":
+        report = uploads.check_uploads(manifest)
+        monkeypatch.setattr(
+            uploads.transfer_policy,
+            "transfer_limit",
+            lambda m: report["estimated_transfer_seconds"],
+        )
+    with pytest.raises(ValueError, match="upload transfer forecast refuses offline"):
+        uploads.check_uploads(manifest)
 
 
 def test_inconclusive_is_replay_no_go_and_no_degenerate_superiority() -> None:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 from research.colab_cli import canary
@@ -11,7 +13,7 @@ from research.watch6_search_efficacy import protocol as p
 from research.watch6_search_efficacy.mirror import validate as validate_mirror
 from research.watch6_search_efficacy.performance import forecast
 from research.watch6_search_efficacy.run import completed
-from research.watch6_search_efficacy.uploads import check_uploads
+from research.watch6_search_efficacy.uploads import METADATA, check_uploads, stage_metadata
 from tools.ops.package_spec import digest, verify_immutable
 
 
@@ -56,9 +58,16 @@ def admit(manifest: dict) -> dict:
         if digest(Path(item["path"])) != item["sha256"]:
             raise ValueError("input digest mismatch")
     upload_report = check_uploads(manifest)
-    item = next(i for i in manifest["inputs"] if i["dest"] == "verified-ledger.json")
-    root = Path(item["path"]).parent
-    verify_runtime(root, env)
+    item = next(i for i in manifest["inputs"] if i["dest"] == METADATA)
+    if item["sha256"] != env.get("WATCH6_METADATA_SHA256"):
+        raise ValueError("runtime metadata SHA differs from uploaded manifest input")
+    # Exercise precisely the remote unpack/admission path, without trusting local
+    # unuploaded staging files or mutating the immutable package.
+    with tempfile.TemporaryDirectory(prefix="watch6-admission-") as temporary:
+        root = Path(temporary)
+        shutil.copyfile(item["path"], root / METADATA)
+        stage_metadata(root, env["WATCH6_METADATA_SHA256"])
+        verify_runtime(root, env)
     if not probe:
         canary.check(manifest, p.ROOT)
         receipt_path = Path(manifest["canary"]["receipt"]["path"])
