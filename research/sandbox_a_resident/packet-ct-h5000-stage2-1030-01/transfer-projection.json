@@ -1,0 +1,16 @@
+{
+  "bank_is_input_not_reexported": true,
+  "bank_payload_bytes": 126341023,
+  "downstream_projected_bytes": 25165824,
+  "fixed_input_bytes": 147943556,
+  "num_private_inputs": 11,
+  "num_total_uploads": 14,
+  "projected_worst_staging_seconds": 240.528,
+  "rationale": "126341023-byte bank input; ~22.4MiB original downstream forecast; caps allow serialization/diagnostics headroom without reexporting bank",
+  "recursive_cap_bytes": 536870912,
+  "resume_input_bytes": 0,
+  "source_archive_assumption_bytes": 1100000,
+  "stage_cap_bytes": 268435456,
+  "total_upload_bytes": 149059940,
+  "transfer_cap_bytes": 805306368
+}
