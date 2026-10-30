@@ -396,9 +396,115 @@ def test_execute_time_rederives_forecast_and_cli(
     monkeypatch.setenv("COLAB_INPUT_DIR", str(tmp_path))
     for key, value in env.items():
         monkeypatch.setenv(key, value)
+    monkeypatch.setattr("os.cpu_count", lambda: 12)
     runtime_admit(workers=8, shards=6, shard=0)
     with pytest.raises(ValueError, match="CLI"):
         runtime_admit(workers=4, shards=6, shard=0)
+    for cores in (None, 8, 11):
+        monkeypatch.setattr("os.cpu_count", lambda: cores)
+        with pytest.raises(ValueError, match=">=12 vCPU"):
+            runtime_admit(workers=8, shards=6, shard=0)
+
+
+def test_real_checkpoint_parts_reassemble_exact_released_bytes(tmp_path: Path) -> None:
+    from research.watch6_search_efficacy.uploads import (
+        CHECKPOINTS,
+        PART_BYTES,
+        checkpoint_inputs,
+        stage_checkpoints,
+    )
+    from tools.ops.package_spec import digest, stage_inputs
+
+    saved = p.ROOT.parent / "snake-dqn/saved_snakes"
+    if not all((saved / name).is_file() for name in CHECKPOINTS):
+        pytest.skip("local released checkpoints required")
+    inputs = checkpoint_inputs(saved, tmp_path / "parts")
+    assert len(inputs) == 8
+    staged = tmp_path / "inputs"
+    rows_ = stage_inputs(staged, inputs)
+    assert max(Path(row["path"]).stat().st_size for row in rows_) <= PART_BYTES
+    stage_checkpoints(staged)
+    for name in CHECKPOINTS:
+        assert digest(staged / "checkpoints" / name) == digest(saved / name)
+        assert (staged / "checkpoints" / name).read_bytes() == (saved / name).read_bytes()
+    with pytest.raises(FileExistsError):
+        stage_checkpoints(staged)
+
+
+@pytest.mark.parametrize("fault", ["corrupt", "missing", "truncated", "foreign-pin"])
+def test_checkpoint_reassembly_refuses_bad_parts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    import hashlib
+
+    from research.watch6_search_efficacy import uploads
+    from tools.ops.package_spec import stage_inputs
+
+    name = "b8_s3_t7_20261016.pth"
+    monkeypatch.setattr(uploads, "CHECKPOINTS", {name: ("b8-s3", 5)})
+    monkeypatch.setattr(uploads, "PART_BYTES", 3)
+    # Fake only the release-pin inventory; exercise real part/sidecar verification.
+    root = tmp_path / "repo"
+    (root / "web/backend").mkdir(parents=True)
+    payload = b"abcde"
+    pins = {"checkpoints": {"b8-s3": {"checkpoint_sha256": hashlib.sha256(payload).hexdigest()}}}
+    (root / "web/backend/served_checkpoint_pins.json").write_text(json.dumps(pins))
+    monkeypatch.setattr(p, "ROOT", root)
+    saved = tmp_path / "saved"
+    saved.mkdir()
+    (saved / name).write_bytes(payload)
+    inputs = uploads.checkpoint_inputs(saved, tmp_path / "parts")
+    staged = tmp_path / "inputs"
+    if fault == "truncated":
+        inputs[-1].source.write_bytes(b"d")
+    elif fault == "foreign-pin":
+        inputs[-1].source.write_bytes(b"zz")
+    stage_inputs(staged, inputs)
+    first = staged / inputs[0].destination
+    if fault == "corrupt":
+        first.chmod(0o600)
+        first.write_bytes(b"xxx")
+    elif fault == "missing":
+        first.unlink()
+    with pytest.raises((ValueError, FileNotFoundError)):
+        uploads.stage_checkpoints(staged)
+    assert not (staged / "checkpoints" / name).exists()
+    assert list((staged / "checkpoints").iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "oversized", ["input", "sidecar", "source.tar.gz", "source-plan.json", "runtime.py", None]
+)
+def test_upload_preflight_checks_every_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, oversized: str | None
+) -> None:
+    from research.watch6_search_efficacy import uploads
+
+    limit = 10
+    rows_ = []
+    for name in ("input", "sidecar"):
+        path = tmp_path / name
+        path.write_bytes(b"x" * (11 if name == oversized else limit))
+        rows_.append({"dest": name, "path": str(path)})
+
+    def source_fixture(repo, manifest, directory):
+        for name in ("source.tar.gz", "source-plan.json", "schema-validation.json"):
+            (directory / name).write_bytes(b"x" * (11 if name == oversized else limit))
+
+    monkeypatch.setattr(uploads.source, "prepare", source_fixture)
+    monkeypatch.setattr(
+        uploads.subprocess,
+        "check_output",
+        lambda argv, **kw: b"x" * (11 if argv[-1].endswith(str(oversized)) else limit),
+    )
+    manifest = {"max_export_bytes": limit, "commit": "a" * 40, "inputs": rows_}
+    if oversized:
+        with pytest.raises(ValueError, match="upload exceeds bounded transfer size"):
+            uploads.check_uploads(manifest)
+    else:
+        report = uploads.check_uploads(manifest)
+        assert report["status"] == "PASS"
+        assert len(report["files"]) == 9
 
 
 def test_inconclusive_is_replay_no_go_and_no_degenerate_superiority() -> None:

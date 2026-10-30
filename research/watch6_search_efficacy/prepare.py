@@ -15,6 +15,7 @@ from research.watch6_search_efficacy import protocol as p
 from research.watch6_search_efficacy.mirror import validate as validate_mirror
 from research.watch6_search_efficacy.performance import forecast as measured_forecast
 from research.watch6_search_efficacy.run import completed, ledger_identity
+from research.watch6_search_efficacy.uploads import checkpoint_inputs
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
 
 
@@ -111,6 +112,8 @@ def prepare(
         {
             "status": "RATIFIED",
             "judge": "Astra",
+            "implementer": "Astra",
+            "independent_implementation_review": False,
             "science": p.identity(),
             "registration_sha256": digest(p.registration()),
             "ruling_sha256": digest(Path(__file__).with_name("RULING.md")),
@@ -124,11 +127,7 @@ def prepare(
         Input(ledger_path, "verified-ledger.json"),
         Input(approval or pending, "judge-approval.json"),
         Input(mirror_receipt, "mac-mirror.json"),
-        Input(saved / "b8_s3_t7_20261016.pth", "checkpoints/b8_s3_t7_20261016.pth"),
-        Input(
-            saved / "frp3_m3_s12_u60000_20261005.pth",
-            "checkpoints/frp3_m3_s12_u60000_20261005.pth",
-        ),
+        *checkpoint_inputs(saved, out / "checkpoint-parts"),
     ]
     pins = json.loads((p.ROOT / "web/backend/served_checkpoint_pins.json").read_text())
     release_bundle = out / "release-evidence.tar.gz"
@@ -198,6 +197,13 @@ def prepare(
             },
         },
         "watch6_efficacy": {
+            "judge": "Astra",
+            "implementer": "Astra",
+            "independent_implementation_review": False,
+            "cost_limitations": (
+                "Late-game main-loop cost is unmeasured; "
+                "H300 fixtures are forecasts, not all-state bounds."
+            ),
             "science": p.identity(),
             "allocation": p.allocation(),
             "attempt": attempt,
@@ -262,7 +268,8 @@ def prepare(
             canary.check(value, p.ROOT)
         from research.watch6_search_efficacy.admission import admit
 
-        admit(value)
+        upload_report = admit(value)
+        publish_json(out / f"{label}-upload-preflight.json", upload_report)
         # The uploaded contract and complete input inventory are identical for
         # canary and all shards; per-shard controls are pinned manifest env.
         (out / f"{label}.json").write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")

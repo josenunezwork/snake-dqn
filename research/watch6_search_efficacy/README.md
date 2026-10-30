@@ -45,6 +45,11 @@ whole-pair worker waves. Select the fewest feasible shards among 3/6/12/24/48/96
 then smallest measured aggregate runtime, then smaller W. Refuse when none fits
 base<=660min; effective guard is twice that base, <=22h. Estimates, N and measured
 rates are never doubled. Fixture costs are forecasts, not all-state cost bounds.
+Late-game main-loop cost remains unmeasured: the H300 main-loop sample begins
+from a fresh world; the long-body sample times branches only. The forecast may
+underestimate later main loops despite its margin. Main shards assert >=12 vCPU
+again at execution; profiling barriers allow600s for W8 JIT/startup skew, within
+the unchanged30min canary wall guard.
 
 Main preparation/host admission checks the original immutable broker receipt,
 verified stop, same pin/transport/hardware, actual recovered report hashes and
@@ -53,6 +58,16 @@ manifest/CLI W, shards and wall against it. No manual capacity override is a
 substitute. The release-evidence archive is deterministic, so separately prepared
 canary/main packages preserve identical uploaded bytes, including empty ledgers.
 Live accounting remains the qualified dispatcher's responsibility.
+
+The unchanged4MiB per-file transport bound also applies to uploads. Both released
+checkpoints exceed it (6,562,005 and6,906,247 bytes). Preparation splits their
+original bytes into2MiB immutable parts; runtime verifies every part and the
+reassembled full checkpoint against the existing serving pin before startup.
+Preparation and study dispatch (including dry-run) build the actual sparse source
+fallback and check every input, sidecar, control and source-plan/archive against
+the manifest's same bound. No transport limit or checkpoint pin is increased.
+Approval, manifest and exported operational metadata disclose Astra as both judge
+and implementer; that authority does not constitute independent build review.
 
 `resume` constructs Mac-verified ledgers using only path/index/size/hash and
 completion metadata; outcomes remain sealed. Recovery uses `prepare --attempt 2

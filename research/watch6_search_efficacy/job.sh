@@ -10,6 +10,7 @@ export OMP_THREAD_LIMIT=1 TORCHINDUCTOR_COMPILE_THREADS=1
 export SNAKE_CKPT_DIR="$COLAB_INPUT_DIR/checkpoints"
 export WATCH6_RELEASE_EVIDENCE="$COLAB_INPUT_DIR/release-evidence"
 PY="$COLAB_CLI_ROOT/.venv/bin/python"
+"$PY" -c 'from pathlib import Path; import os; from research.watch6_search_efficacy.uploads import stage_checkpoints; stage_checkpoints(Path(os.environ["COLAB_INPUT_DIR"]))'
 "$PY" -c 'from pathlib import Path; import os; from research.watch6_search_efficacy.product import stage_release_evidence; stage_release_evidence(Path(os.environ["COLAB_INPUT_DIR"]))'
 "$PY" -c 'from research.watch6_search_efficacy.admission import runtime_admit; runtime_admit()'
 args=(--ledger "$COLAB_INPUT_DIR/verified-ledger.json" --out "$COLAB_OUTPUT_DIR/efficacy"

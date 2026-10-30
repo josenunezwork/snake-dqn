@@ -176,6 +176,9 @@ def main() -> None:
             "fixture": args.fixture,
             "elapsed_seconds": time.monotonic() - started,
             "science": p.identity(),
+            "judge": "Astra",
+            "implementer": "Astra",
+            "independent_implementation_review": False,
         },
     )
 

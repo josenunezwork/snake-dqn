@@ -11,10 +11,11 @@ from research.watch6_search_efficacy import protocol as p
 from research.watch6_search_efficacy.mirror import validate as validate_mirror
 from research.watch6_search_efficacy.performance import forecast
 from research.watch6_search_efficacy.run import completed
+from research.watch6_search_efficacy.uploads import check_uploads
 from tools.ops.package_spec import digest, verify_immutable
 
 
-def admit(manifest: dict) -> None:
+def admit(manifest: dict) -> dict:
     """Check controller, allocation, measured forecast and pre-data 2x envelopes."""
     binding = manifest["watch6_efficacy"]
     if binding["science"] != p.identity() or binding["allocation"] != p.allocation():
@@ -54,6 +55,7 @@ def admit(manifest: dict) -> None:
     for item in manifest["inputs"]:
         if digest(Path(item["path"])) != item["sha256"]:
             raise ValueError("input digest mismatch")
+    upload_report = check_uploads(manifest)
     item = next(i for i in manifest["inputs"] if i["dest"] == "verified-ledger.json")
     root = Path(item["path"]).parent
     verify_runtime(root, env)
@@ -63,6 +65,7 @@ def admit(manifest: dict) -> None:
         recovered = json.loads((receipt_path.parent / "exports/performance.json").read_text())
         if recovered != json.loads(env["WATCH6_MEASUREMENTS"]):
             raise ValueError("runtime measurements differ from verified canary export")
+    return upload_report
 
 
 def verify_runtime(root: Path, env: dict) -> None:
@@ -114,6 +117,8 @@ def runtime_admit(
     """Refuse direct CLI controls that differ from admitted manifest controls."""
     env = dict(os.environ)
     verify_runtime(Path(env["COLAB_INPUT_DIR"]), env)
+    if env["WATCH6_FIXTURE"] == "0" and (os.cpu_count() or 0) < 12:
+        raise ValueError("main shards require >=12 vCPU at execution time")
     for value, key in (
         (workers, "WATCH6_WORKERS"),
         (shards, "WATCH6_SHARDS"),

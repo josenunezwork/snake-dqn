@@ -15,6 +15,7 @@ from research.watch6_search_efficacy import protocol as p
 from tools.ops.package_spec import publish_json
 
 PROFILE_HORIZON = 300
+BARRIER_TIMEOUT_SECONDS = 600  # W8 cold load/JIT skew, within the unchanged30min canary
 MARGIN = 1.25
 SETUP_MINUTES = 20
 MAX_BASE_MINUTES = 660  # doubled guard22h, leaving two hours below provider lifetime
@@ -74,7 +75,7 @@ def profile_worker(index: int, barrier: object) -> dict:
     branch_fixture(seed)
     arms = {}
     for dense in (False, True):
-        barrier.wait(timeout=180)
+        barrier.wait(timeout=BARRIER_TIMEOUT_SECONDS)
         raw = run_arm(seed, dense, lambda: None, PROFILE_HORIZON)
         arms["exact_stop" if dense else "bare"] = {
             "main_seconds_per_frame": raw["timing"]["main_seconds"] / PROFILE_HORIZON,
@@ -82,7 +83,7 @@ def profile_worker(index: int, barrier: object) -> dict:
         }
     branches = []
     for fixture_seed in p.FIXTURE_SEEDS:
-        barrier.wait(timeout=180)
+        barrier.wait(timeout=BARRIER_TIMEOUT_SECONDS)
         branches.append(branch_fixture(fixture_seed))
     return {"index": index, "arms": arms, "branches": branches}
 
@@ -119,6 +120,10 @@ def measure() -> dict:
         "cpu_count": os.cpu_count(),
         "fixture": True,
         "horizon": PROFILE_HORIZON,
+        "cost_limitations": (
+            "Late-game main-loop cost is unmeasured; "
+            "H300 fixtures are forecasts, not all-state bounds."
+        ),
         "profiles": profiles,
     }
 
