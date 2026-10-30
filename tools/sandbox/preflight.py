@@ -157,13 +157,13 @@ def _validate_registry_inputs(payload: dict[str, Any], registry_path: Path) -> N
         # manifest validation has already rejected protected strings, before any
         # record path is opened by the registry loader/validator.
         validate_input(record, registry)
-    if payload["study"] in {"sandbox-a-train01", "t34-cf-1028"} or any(
+    if payload["study"] in {"sandbox-a-train01", "t34-cf-1028", "t34-ct-h5000-1029"} or any(
         r["kind"] == "frozen-opponent" for r in payload["inputs"]
     ):
         from .registry import TRAINING_OPPONENTS
 
         opponents = [r for r in payload["inputs"] if r["kind"] == "frozen-opponent"]
-        if payload["study"] not in {"sandbox-a-train01", "t34-cf-1028"} or (
+        if payload["study"] not in {"sandbox-a-train01", "t34-cf-1028", "t34-ct-h5000-1029"} or (
             len(opponents) != 2 or {r["sha256"] for r in opponents} != TRAINING_OPPONENTS
         ):
             raise PreflightError("TRAIN-01 requires exactly the two canonical fixed opponents")

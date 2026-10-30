@@ -157,6 +157,7 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
         if kind == "frozen-opponent" and payload["study"] not in {
             "sandbox-a-train01",
             "t34-cf-1028",
+            "t34-ct-h5000-1029",
         }:
             raise ManifestError(
                 "frozen-opponent inputs are exclusive to sandbox-a-train01 and t34-cf-1028"
