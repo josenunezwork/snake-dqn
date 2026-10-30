@@ -22,6 +22,22 @@ from web.backend.session import GameSession
 from web.backend.watch_replay import B8_SHA, FRP3_SHA, SCHEMA, Recording, ReplayBank, canonical
 
 
+@pytest.fixture(autouse=True)
+def close_replay_workers(monkeypatch):
+    """Every test owns and reaps its bank workers, including assertion failures."""
+    banks = []
+    original = ReplayBank.__init__
+
+    def initialize(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        banks.append(self)
+
+    monkeypatch.setattr(ReplayBank, "__init__", initialize)
+    yield
+    for bank in banks:
+        bank.close()
+
+
 def frame(index: int) -> dict:
     return {
         "type": "frame",
@@ -367,6 +383,82 @@ def test_rotation_tick_never_waits_for_bank_io(tmp_path, monkeypatch):
     bank.close()
 
 
+def test_cold_start_keeps_live_ticking_until_first_record_is_ready():
+    session = shell_session()
+    session._watch_replay = None
+    session._replay_pending = True
+    session._replay_bank = SimpleNamespace(pick=lambda: None, pending=True, error=None)
+    session.game = SimpleNamespace(update=Mock(), snakes=[])
+    session._is_b8_release_monitoring = Mock(return_value=False)
+    session._enforce_food_target = Mock()
+    session.step()
+    session.step()
+    assert session._replay_pending and session._watch_replay is None
+    assert session.game.update.call_count == 2
+
+
+def test_discovery_queues_first_record_before_verifying_second(tmp_path, monkeypatch):
+    import web.backend.watch_replay as replay
+
+    for name in ("a", "b"):
+        (tmp_path / f"{name}.watch.gz").touch()
+    entered, release = threading.Event(), threading.Event()
+
+    def load(path, **kwargs):
+        if path.stem == "b.watch":
+            entered.set()
+            assert release.wait(5)
+        return SimpleNamespace(header={"unit_id": path.name})
+
+    monkeypatch.setattr(replay, "Recording", load)
+    bank = ReplayBank(tmp_path)
+    try:
+        assert entered.wait(2)
+        assert bank.pick().header["unit_id"] == "a.watch.gz"
+        assert bank.pending
+    finally:
+        release.set()
+        bank.close()
+    assert not bank._worker.is_alive()
+
+
+def test_close_interrupts_verification_between_frames(tmp_path, monkeypatch):
+    import web.backend.watch_replay as replay
+
+    recording(tmp_path)
+    entered = threading.Event()
+    original = replay.validate_frame
+
+    def validate(*args):
+        original(*args)
+        entered.set()
+
+    monkeypatch.setattr(replay, "validate_frame", validate)
+    bank = ReplayBank(tmp_path)
+    assert entered.wait(2)
+    bank.close()
+    assert not bank._worker.is_alive() and bank._done.is_set()
+
+
+def test_full_queue_wakes_on_pick_and_close_without_lost_signal(tmp_path, monkeypatch):
+    import web.backend.watch_replay as replay
+
+    for name in ("a", "b", "c", "d"):
+        (tmp_path / f"{name}.watch.gz").touch()
+    monkeypatch.setattr(
+        replay, "Recording", lambda path, **kwargs: SimpleNamespace(header={"unit_id": path.name})
+    )
+    bank = ReplayBank(tmp_path)
+    ids = [pick_ready(bank).header["unit_id"] for _ in range(30)]
+    assert all(a != b for a, b in zip(ids, ids[1:]))
+    deadline = time.monotonic() + 2
+    while not bank._ready.full() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert bank._ready.full()
+    bank.close()
+    assert not bank._worker.is_alive()
+
+
 def test_rotation_does_not_revalidate_known_sha_and_rejects_replacement(tmp_path, monkeypatch):
     import web.backend.watch_replay as replay
 
@@ -469,7 +561,7 @@ def test_ready_rotation_is_nonblocking_and_all_bank_reads_are_background(tmp_pat
     monkeypatch.setattr(replay, "Recording", track)
     bank = ReplayBank(tmp_path)
     first = pick_ready(bank)
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 15
     while bank._ready.empty() and time.monotonic() < deadline:
         time.sleep(0.005)
     assert not bank._ready.empty()

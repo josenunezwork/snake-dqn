@@ -2,6 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import Inspector from "./Inspector";
 import type { InspectorDTO } from "../types";
+import recordedOverride from "./fixtures/watch-search-override.json";
 
 const inspector: InspectorDTO = {
   input_size: 61,
@@ -116,6 +117,13 @@ describe("Path B inspector identity", () => {
 
 
 describe("Recorded search inspector", () => {
+  it("renders the actual preview recording's override frame", () => {
+    render(<Inspector inspector={recordedOverride.inspector} tick={recordedOverride.frame} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Move from search: Boost S");
+    expect(screen.getByRole("status")).toHaveTextContent("bare action: Straight");
+    expect(screen.getByRole("status")).toHaveTextContent("Q-values show the bare network.");
+  });
+
   it("labels search overrides while retaining bare Q-values", () => {
     render(<Inspector inspector={{ ...inspector, chosen: 1, executed_action: 2,
       replay_search_override: true, replay_bare_action: 1 }} />);

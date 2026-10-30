@@ -157,7 +157,9 @@ def validate_frame(frame: dict, index: int) -> None:
             raise ValueError("invalid inspector labels")
 
 
-def verify_payload(payload: bytes, *, product: bool = True) -> dict:
+def verify_payload(
+    payload: bytes, *, product: bool = True, stop: threading.Event | None = None
+) -> dict:
     """Validate bounded compressed bytes before a producer marks them complete."""
     if len(payload) > MAX_COMPRESSED:
         raise ValueError("oversized replay")
@@ -167,6 +169,10 @@ def verify_payload(payload: bytes, *, product: bool = True) -> dict:
     count = 0
     for count, frame in enumerate(records, 1):
         validate_frame(frame, count)
+        # Serving verification cooperatively releases the GIL between bounded
+        # records. Producer verification keeps its original synchronous path.
+        if stop is not None and stop.wait(0.001):
+            raise InterruptedError("replay bank closed")
     if count != header["horizon"]:
         raise ValueError("truncated replay")
     return header
@@ -175,7 +181,14 @@ def verify_payload(payload: bytes, *, product: bool = True) -> dict:
 class Recording:
     """Pin compressed bytes once; verify every record before exposing frame one."""
 
-    def __init__(self, path: Path, *, product: bool = True, cache: dict | None = None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        product: bool = True,
+        cache: dict | None = None,
+        stop: threading.Event | None = None,
+    ) -> None:
         paths = [path, Path(str(path) + ".sha256"), Path(str(path) + ".complete")]
         if any(p.is_symlink() or not p.is_file() for p in paths):
             raise ValueError("incomplete replay")
@@ -192,7 +205,7 @@ class Recording:
         if cache is not None and key in cache:
             self.header = cache[key]
         else:
-            self.header = verify_payload(payload, product=product)
+            self.header = verify_payload(payload, product=product, stop=stop)
             if cache is not None:
                 cache[key] = self.header
         self._records = _records(payload)
@@ -244,13 +257,15 @@ class ReplayBank:
     The bounded queue holds compressed recordings, never decoded whole sessions.
     Every rotation rereads and hashes the file in the worker; the cursor then
     lazily decodes frames from its pinned in-memory bytes without disk I/O.
+    Verified recordings become available during discovery. A bank containing
+    only one distinct unit plays once, then returns to live B8 rather than
+    immediately repeating that session. Two distinct units permit rotation.
     """
 
     def __init__(self, root: Path) -> None:
         self.root = root
         self.error: str | None = None
         self._ready: queue.Queue = queue.Queue(maxsize=2)
-        self._wake = threading.Event()
         self._closed = threading.Event()
         self._done = threading.Event()
         self._worker = threading.Thread(
@@ -263,8 +278,11 @@ class ReplayBank:
         return not self._done.is_set() or not self._ready.empty()
 
     def close(self) -> None:
+        """Cancel verification/queue waits and reap the worker within two seconds."""
         self._closed.set()
-        self._wake.set()
+        self._worker.join(timeout=2)
+        if self._worker.is_alive():
+            logging.getLogger(__name__).warning("Replay worker close timed out")
 
     def pick(self) -> Recording | None:
         """Nonblocking rotation: no glob, stat, read, hash, or full validation."""
@@ -275,8 +293,17 @@ class ReplayBank:
                 self.error = "No verified replay without an immediate repeat; using live B8."
             return None
         self.error = None
-        self._wake.set()
         return record
+
+    def _enqueue(self, record: Recording) -> bool:
+        """Use the queue's condition wakeup; timed waits also observe close."""
+        while not self._closed.is_set():
+            try:
+                self._ready.put(record, timeout=0.1)
+                return True
+            except queue.Full:
+                pass
+        return False
 
     def _prefetch(self) -> None:
         cache: dict = {}
@@ -284,16 +311,24 @@ class ReplayBank:
         try:
             paths = sorted(self.root.glob("*.watch.gz"))[:1024]
             verified = []
+            last = None
+            seen: set[str] = set()
             for path in paths:
                 if self._closed.is_set():
                     return
                 try:
-                    record = Recording(path, cache=cache)
-                    verified.append((path, record.header["unit_id"]))
+                    record = Recording(path, cache=cache, stop=self._closed)
+                    uid = record.header["unit_id"]
+                    verified.append((path, uid))
+                    if uid != last and uid not in seen:
+                        if not self._enqueue(record):
+                            return
+                        last = uid
+                        seen.add(uid)
+                except InterruptedError:
+                    return
                 except Exception as exc:
                     logger.warning("Skipping replay %s: %s", path, exc)
-            last = None
-            seen: set[str] = set()
             while not self._closed.is_set():
                 candidates = [(p, uid) for p, uid in verified if uid != last and uid not in seen]
                 if not candidates:
@@ -306,26 +341,23 @@ class ReplayBank:
                 chosen = None
                 for path, uid in candidates:
                     try:
-                        chosen = Recording(path, cache=cache)
+                        chosen = Recording(path, cache=cache, stop=self._closed)
                         # A replaced file must retain its bank identity.
                         if chosen.header["unit_id"] != uid:
                             raise ValueError("replaced replay identity")
                         break
+                    except InterruptedError:
+                        return
                     except Exception as exc:
                         logger.warning("Skipping replay %s: %s", path, exc)
                         verified.remove((path, uid))
                         chosen = None
                 if chosen is None:
                     continue
-                while not self._closed.is_set():
-                    try:
-                        self._ready.put_nowait(chosen)
-                        last = chosen.header["unit_id"]
-                        seen.add(last)
-                        break
-                    except queue.Full:
-                        self._wake.wait(1)
-                        self._wake.clear()
+                if not self._enqueue(chosen):
+                    return
+                last = chosen.header["unit_id"]
+                seen.add(last)
         except Exception as exc:
             self.error = f"Replay bank unavailable; using live B8: {exc}"
             logger.exception("Replay prefetch failed")

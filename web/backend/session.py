@@ -944,7 +944,9 @@ class GameSession:
                 return
             if self.mode == MODE_WATCH and getattr(self, "_replay_pending", False):
                 self._select_watch_replay()
-                if self._replay_pending or self._watch_replay is not None:
+                # Cold verification must leave live B8 ticking. Hold a frame
+                # only when a previous recording is awaiting its successor.
+                if self._watch_replay is not None:
                     return
             if self.mode == MODE_WATCH and getattr(self, "_watch_replay", None) is not None:
                 try:
