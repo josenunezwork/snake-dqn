@@ -41,9 +41,9 @@ from research.sandbox_a_resident.ct_task import (
     ORDINARY_LENGTH_BIN_EDGES,
     ORDINARY_LENGTH_BIN_LABELS,
 )
-from research.sandbox_a_resident.prepare import runtime_source_paths
 from research.sandbox_a_resident.training_rosters import CHAMPION_SHA256, FRP3_S12_SHA256
 from tools.ops import import_preflight
+from tools.ops.import_preflight import import_closure, module_path
 from tools.ops.package_spec import Input, stage_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -94,58 +94,48 @@ def _length_bin_label(length: int) -> str:
     return ORDINARY_LENGTH_BIN_LABELS[idx]
 
 
-def r7_source_paths(commit: str, repo: Path = ROOT) -> list[str]:
-    """Return sparse runtime source closure for ``research.r7_macro_fallback.search``."""
-    tracked = subprocess.check_output(
-        [
-            "git",
-            "ls-tree",
-            "-r",
-            "--name-only",
-            commit,
-            "src",
-            "tools",
-            "research/sandbox_a_resident",
-            "research/r7_macro_fallback",
-        ],
-        cwd=repo,
-        text=True,
-    ).splitlines()
-    r7_runtime_names = {
-        "__init__.py",
-        "options.py",
-        "search.py",
-        "job.sh",
-        "requirements.txt",
-    }
-    ct_runtime_names = {
-        "__init__.py",
-        "ct_branching.py",
-        "ct_json.py",
-        "ct_liveness.py",
-        "ct_mechanics.py",
-        "ct_snapshots.py",
-        "ct_task.py",
-        "ct_topology.py",
-        "ct_units.py",
-        "device_sim.py",
-        "training_rosters.py",
-        "training_sim.py",
-    }
-    additions = [
-        name
-        for name in tracked
-        if name in {"tools/__init__.py", "tools/ops/__init__.py", "tools/ops/package_spec.py"}
-        or (
-            Path(name).parent.as_posix() == "research/r7_macro_fallback"
-            and Path(name).name in r7_runtime_names
+IMPORT_ROOTS = ["research.r7_macro_fallback.search", "research.bl_upload.inputs"]
+WHOLE_SOURCE_DIRS = (
+    "configs",
+    "research/r7_macro_fallback",
+    "research/colab_cli",
+    "research/bl_upload",
+)
+EXTRA_SOURCE_PATHS = (
+    *WHOLE_SOURCE_DIRS,
+    "web/backend/served_checkpoint_pins.json",
+    "research/t34_exit_b8/PUBLIC_INPUTS.json",
+    "research/apex_safety_20260926/deployment.yaml",
+    "requirements.txt",
+    "pyproject.toml",
+    *(
+        f"research/gpu_sim_spike/{stem}.{ext}"
+        for stem in (
+            "flood_cuda",
+            "move_cuda",
+            "event_cuda",
+            "vector_geometry",
+            "v8_indexed",
         )
-        or (
-            Path(name).parent.as_posix() == "research/sandbox_a_resident"
-            and Path(name).name in ct_runtime_names
-        )
-    ]
-    return sorted(set(runtime_source_paths(commit)) | set(additions))
+        for ext in ("cpp", "cu")
+    ),
+)
+
+
+def r7_source_paths(_commit: str | None = None, repo: Path = ROOT) -> list[str]:
+    """Return sparse runtime source closure covering static imports + CUDA/config assets."""
+    repo = repo.resolve()
+    closure, _ = import_closure(repo, list(IMPORT_ROOTS))
+    py_paths: set[str] = set()
+    for mod in closure:
+        resolved = module_path(repo, mod.partition(":")[0])
+        if resolved is None:
+            continue
+        rel = resolved.relative_to(repo).as_posix()
+        if any(rel == d or rel.startswith(f"{d}/") for d in WHOLE_SOURCE_DIRS):
+            continue
+        py_paths.add(rel)
+    return sorted(py_paths | set(EXTRA_SOURCE_PATHS))
 
 
 def prepare_inputs(
@@ -570,6 +560,7 @@ def prepare_packet(
         repo,
         full_commit,
         canary_raw["source_paths"],
+        "research/r7_macro_fallback/requirements.txt",
         ["research.r7_macro_fallback.search", "research.bl_upload.inputs"],
     )
     (queue_dir / "IMPORT_PREFLIGHT.json").write_text(
