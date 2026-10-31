@@ -27,9 +27,7 @@ def frozen_features(
 ) -> torch.Tensor:
     """Use the fitted head's uint8-to-float normalization at deployment."""
     return b8.fuse(
-        torch.cat(
-            (b8.local(local.float() / 255), b8.glob(glob.float() / 255), scalar.float()), 1
-        )
+        torch.cat((b8.local(local.float() / 255), b8.glob(glob.float() / 255), scalar.float()), 1)
     )
 
 
