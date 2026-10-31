@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -31,7 +32,13 @@ from research.t4_gate1.featurizer import (
     featurize_dataset_batch,
     featurize_live_sim,
 )
-from research.t4_gate1.harvest import GridBatchSim, compute_per_life_targets, watch6_v2_config
+from research.t4_gate1.harvest import (
+    BranchedRootsTable,
+    GridBatchSim,
+    _reduce_legal_branch_outcomes,
+    compute_per_life_targets,
+    watch6_v2_config,
+)
 from research.t4_gate1.model import (
     FORAGING_GAMMA,
     HAZARD_BIN_EDGES,
@@ -39,12 +46,16 @@ from research.t4_gate1.model import (
     PrivilegedFactoredCritic,
     compose_factored_value,
     discrete_survival_nll,
+    survival_logit_from_cum_hazard,
 )
 from research.t4_gate1.pipeline import (
     EVAL_STRATA,
     UNIT_SCHEMA,
+    compute_world_sufficient_stats,
     load_and_validate_ledger,
+    predict_critic_on_dataset,
     publish_verified_ledger,
+    train_privileged_critic,
 )
 from research.t4_gate1.prepare import (
     PACKAGE,
@@ -68,7 +79,7 @@ from research.t4_gate1.uploads import (
     check_uploads,
     stage_metadata,
 )
-from tools.ops.package_spec import publish_json
+from tools.ops.package_spec import publish_immutable, publish_json
 
 
 def test_featurizer_rng_invariance_and_live_dataset_parity() -> None:
@@ -676,3 +687,295 @@ def test_packed_metadata_and_upload_budget_gate(tmp_path: Path) -> None:
     assert budget_report["transfer_count"] <= MAX_TRANSFERS
     assert budget_report["normal_estimated_transfer_seconds"] <= MAX_ESTIMATED_TRANSFER_SECONDS
     assert budget_report["estimated_transfer_seconds"] <= MAX_ESTIMATED_TRANSFER_SECONDS
+
+
+def _build_small_critic_datasets() -> tuple:
+    """Construct compact 4-row fit, 2-row val, and 2-root branched datasets for critic tests."""
+    device = torch.device("cpu")
+    cfg = watch6_v2_config(4, max_capacity=256)
+    cpu_sim = GridBatchSim(
+        cfg,
+        seeds=[seed_for(MAIN_NAMESPACE, 200 + i) for i in range(4)],
+        train_mode=False,
+        allow_respawn=True,
+    )
+    sim = DeviceSim.from_reference(
+        cpu_sim,
+        device=device,
+        hero_respawn=True,
+        exact_mechanics=True,
+    )
+    actions = torch.ones((4, 6), dtype=torch.long, device=device)
+    for _ in range(6):
+        sim.step(actions)
+
+    # Fit dataset (4 rows)
+    fit_builder = CompactSampleBuilder()
+    fit_legal = np.array(
+        [
+            [True, True, True, False, False, False],
+            [True, True, False, True, True, False],
+            [True, True, True, True, True, True],
+            [False, True, True, False, False, False],
+        ],
+        dtype=bool,
+    )
+    fit_builder.append_from_sim(
+        sim,
+        env_indices=torch.tensor([0, 1, 2, 3], dtype=torch.long),
+        world_ids=np.array([0, 1, 2, 3], dtype=np.int32),
+        seeds=np.array([201, 202, 203, 204], dtype=np.int64),
+        life_ids=np.zeros(4, dtype=np.int32),
+        ticks=np.array([100, 200, 300, 400], dtype=np.int32),
+        h_rems=np.array([1200, 900, 600, 300], dtype=np.int32),
+        b8_actions=np.array([0, 1, 2, 1], dtype=np.int64),
+        legal_masks=fit_legal,
+    )
+    fit_ds = fit_builder.build(
+        tau_alive=np.array([180, 95, 600, 42], dtype=np.int32),
+        died_in_session=np.array([True, True, False, True], dtype=bool),
+        return_g=np.array([115.0, 64.0, 420.0, 28.0], dtype=np.float32),
+        forage_short=np.array([0.008, -0.004, 0.012, 0.002], dtype=np.float32),
+        forage_short_weight=np.array([0.92, 0.76, 0.99, 0.47], dtype=np.float32),
+        forage_long=np.array([0.005, 0.0, 0.009, 0.0], dtype=np.float32),
+        forage_long_valid=np.array([True, False, True, False], dtype=bool),
+    )
+
+    # Val dataset (2 rows)
+    val_builder = CompactSampleBuilder()
+    val_builder.append_from_sim(
+        sim,
+        env_indices=torch.tensor([0, 1], dtype=torch.long),
+        world_ids=np.array([10, 11], dtype=np.int32),
+        seeds=np.array([211, 212], dtype=np.int64),
+        life_ids=np.zeros(2, dtype=np.int32),
+        ticks=np.array([150, 250], dtype=np.int32),
+        h_rems=np.array([800, 450], dtype=np.int32),
+        b8_actions=np.array([1, 0], dtype=np.int64),
+        legal_masks=fit_legal[:2],
+    )
+    val_ds = val_builder.build(
+        tau_alive=np.array([220, 450], dtype=np.int32),
+        died_in_session=np.array([True, False], dtype=bool),
+        return_g=np.array([145.0, 310.0], dtype=np.float32),
+        forage_short=np.array([0.006, 0.010], dtype=np.float32),
+        forage_short_weight=np.array([0.95, 0.99], dtype=np.float32),
+        forage_long=np.array([0.004, 0.007], dtype=np.float32),
+        forage_long_valid=np.array([True, True], dtype=bool),
+    )
+
+    # Branched roots dataset (2 roots, with off-legal NaNs exactly as produced by harvest.py)
+    roots_builder = CompactSampleBuilder()
+    root_legal = np.array(
+        [
+            [True, True, True, False, False, False],
+            [True, False, True, True, False, True],
+        ],
+        dtype=bool,
+    )
+    roots_builder.append_from_sim(
+        sim,
+        env_indices=torch.tensor([2, 3], dtype=torch.long),
+        world_ids=np.array([2, 3], dtype=np.int32),
+        seeds=np.array([203, 204], dtype=np.int64),
+        life_ids=np.zeros(2, dtype=np.int32),
+        ticks=np.array([300, 400], dtype=np.int32),
+        h_rems=np.array([300, 300], dtype=np.int32),
+        b8_actions=np.array([0, 2], dtype=np.int64),
+        legal_masks=root_legal,
+    )
+    roots_ds = roots_builder.build()
+
+    s_sel = np.full((2, 6), np.nan, dtype=np.float64)
+    m_sel = np.full((2, 6), np.nan, dtype=np.float64)
+    s_sel[0, :3] = [1.0, 0.5, 0.0]
+    m_sel[0, :3] = [680.0, 390.0, 110.0]
+    s_sel[1, [0, 2, 3, 5]] = [0.0, 1.0, 0.5, 1.0]
+    m_sel[1, [0, 2, 3, 5]] = [95.0, 720.0, 410.0, 705.0]
+    q_sel = s_sel + 0.25 * (m_sel / 1000.0)
+    branched = BranchedRootsTable(
+        num_roots=2,
+        horizon=300,
+        legal_mask=root_legal,
+        b8_action=np.array([0, 2], dtype=np.int64),
+        s_sel=s_sel,
+        m_sel=m_sel,
+        q_sel=q_sel,
+        oracle_a_star=np.array([0, 2], dtype=np.int64),
+        s_score=s_sel.copy(),
+        m_score=m_sel.copy(),
+        q_score=q_sel.copy(),
+        telemetry={"num_roots": 2},
+    )
+    return fit_ds, val_ds, roots_ds, branched
+
+
+def test_train_privileged_critic_under_cpu_bf16_autocast() -> None:
+    """train_privileged_critic and eval must pass under bf16 autocast using survival logits."""
+    fit_ds, val_ds, roots_ds, branched = _build_small_critic_datasets()
+
+    # Exact survival logit numerical stability check across [1e-12, 1e3]:
+    cs = torch.tensor([1e-12, 1e-6, 0.05, 1.0, 12.0, 80.0, 500.0], dtype=torch.float32)
+    s_logits = survival_logit_from_cum_hazard(cs)
+    assert torch.isfinite(s_logits).all()
+    torch.testing.assert_close(torch.sigmoid(s_logits), torch.exp(-cs), rtol=1e-5, atol=1e-6)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+            critic, summary = train_privileged_critic(
+                fit_dataset=fit_ds,
+                val_dataset=val_ds,
+                fit_roots_dataset=roots_ds,
+                fit_branched_roots=branched,
+                branch_horizon=300,
+                min_mature_length=600,
+                epochs=2,
+                batch_size=2,
+                learning_rate=6e-4,
+                weight_decay=1e-3,
+                seed=17001,
+                device=torch.device("cpu"),
+            )
+            preds = predict_critic_on_dataset(
+                critic,
+                val_ds,
+                batch_size=2,
+                device=torch.device("cpu"),
+                h_rem_override=300.0,
+            )
+
+    assert summary["use_bf16_autocast"] is True
+    assert summary["epochs"] == 2
+    assert len(summary["epoch_history"]) == 2
+    for rec in summary["epoch_history"]:
+        for key in (
+            "train_loss",
+            "train_ret_loss",
+            "train_haz_loss",
+            "val_mature_mse",
+            "val_mature_hazard_nll",
+            "val_selection_score",
+        ):
+            assert np.isfinite(rec[key]), f"Non-finite {key}: {rec[key]}"
+    assert all(torch.isfinite(p).all() for p in critic.parameters())
+    assert np.isfinite(preds["s_hrem_logits_all"]).all()
+    sig = 1.0 / (1.0 + np.exp(-np.clip(preds["s_hrem_logits_all"], -40.0, 40.0)))
+    np.testing.assert_allclose(sig, preds["s_hrem_all"], rtol=1e-5, atol=1e-5)
+
+
+def test_nan_guards_and_empty_slice_warning_free(tmp_path: Path) -> None:
+    """Illegal-action NaNs must emit zero RuntimeWarnings while legal-action NaNs fail loudly."""
+    legal_arr = np.array(
+        [
+            [True, True, True, False, False, False],  # boost illegal (e.g., length < 5)
+            [False, True, False, True, False, True],
+        ],
+        dtype=bool,
+    )
+    surv_raw = np.full((2, 6, 3), np.nan, dtype=np.float64)
+    mass_raw = np.full((2, 6, 3), np.nan, dtype=np.float64)
+    surv_raw[0, :3, :] = [[1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 1.0]]
+    mass_raw[0, :3, :] = [[600.0, 630.0, 150.0], [120.0, 540.0, 90.0], [690.0, 705.0, 720.0]]
+    surv_raw[1, [1, 3, 5], :] = [[1.0, 0.0, 1.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]
+    mass_raw[1, [1, 3, 5], :] = [[510.0, 110.0, 520.0], [80.0, 95.0, 70.0], [640.0, 650.0, 660.0]]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        s_mean, m_mean = _reduce_legal_branch_outcomes(
+            surv_raw, mass_raw, legal_arr, phase_name="selection"
+        )
+
+    assert np.isfinite(s_mean[legal_arr]).all()
+    assert np.isfinite(m_mean[legal_arr]).all()
+    assert np.isnan(s_mean[~legal_arr]).all()
+    assert np.isnan(m_mean[~legal_arr]).all()
+    np.testing.assert_allclose(s_mean[0, :3], [2.0 / 3.0, 1.0 / 3.0, 1.0])
+
+    # NaN on a LEGAL action during branch reduction must raise ValueError immediately.
+    bad_surv = surv_raw.copy()
+    bad_surv[0, 1, 2] = np.nan
+    with pytest.raises(ValueError, match="Non-finite survival or mass outcome on legal action"):
+        _reduce_legal_branch_outcomes(bad_surv, mass_raw, legal_arr, phase_name="selection")
+
+    # NaN on a LEGAL action in fit_branched_roots or fit_dataset must raise ValueError in training.
+    fit_ds, val_ds, roots_ds, branched = _build_small_critic_datasets()
+    bad_s_sel = branched.s_sel.copy()
+    bad_s_sel[0, 0] = np.nan  # action 0 is legal on root 0
+    bad_branched = BranchedRootsTable(
+        num_roots=branched.num_roots,
+        horizon=branched.horizon,
+        legal_mask=branched.legal_mask,
+        b8_action=branched.b8_action,
+        s_sel=bad_s_sel,
+        m_sel=branched.m_sel,
+        q_sel=branched.q_sel,
+        oracle_a_star=branched.oracle_a_star,
+        s_score=branched.s_score,
+        m_score=branched.m_score,
+        q_score=branched.q_score,
+        telemetry=branched.telemetry,
+    )
+    with pytest.raises(ValueError, match="Non-finite selection branch target on legal action"):
+        train_privileged_critic(
+            fit_dataset=fit_ds,
+            val_dataset=val_ds,
+            fit_roots_dataset=roots_ds,
+            fit_branched_roots=bad_branched,
+            branch_horizon=300,
+            min_mature_length=600,
+            epochs=1,
+            batch_size=2,
+            learning_rate=6e-4,
+            weight_decay=1e-3,
+            seed=17001,
+            device=torch.device("cpu"),
+        )
+
+    orig_g0 = float(fit_ds.return_g[0])
+    fit_ds.return_g[0] = np.nan
+    try:
+        with pytest.raises(ValueError, match="Non-finite return_g"):
+            train_privileged_critic(
+                fit_dataset=fit_ds,
+                val_dataset=val_ds,
+                fit_roots_dataset=roots_ds,
+                fit_branched_roots=branched,
+                branch_horizon=300,
+                min_mature_length=600,
+                epochs=1,
+                batch_size=2,
+                learning_rate=6e-4,
+                weight_decay=1e-3,
+                seed=17001,
+                device=torch.device("cpu"),
+            )
+    finally:
+        fit_ds.return_g[0] = orig_g0
+
+    # NaN in world evaluation predictions or readout unit records must also raise ValueError.
+    with pytest.raises(ValueError, match="Non-finite target or prediction"):
+        compute_world_sufficient_stats(
+            world_ids=[0, 1, 2, 3],
+            world_seeds=[201, 202, 203, 204],
+            dataset=fit_ds,
+            v_base=np.zeros(4, dtype=np.float64),
+            v_critic=np.array([1.0, np.nan, 2.0, 3.0], dtype=np.float64),
+            hazard_nll=np.ones(4, dtype=np.float64),
+        )
+
+    bad_unit = _make_synthetic_unit(0)
+    bad_unit["held_out_test_roots"][0]["s_hat"][0] = float("nan")
+    att_nan = tmp_path / "attempt_nan"
+    bad_unit_path = att_nan / "exports" / "t4_gate1" / "units" / "replicate-0000.json"
+    with pytest.raises(ValueError, match="Out of range float values are not JSON compliant"):
+        publish_json(bad_unit_path, bad_unit)
+    publish_immutable(
+        bad_unit_path, (json.dumps(bad_unit, sort_keys=True, allow_nan=True) + "\n").encode()
+    )
+    (att_nan / "receipt.json").write_text(
+        json.dumps({"job_id": "m_nan", "status": "PASS", "stop_verified": True}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Non-finite legal-action outcome/prediction"):
+        aggregate_gate1_readout([att_nan], expected_replicates=1)

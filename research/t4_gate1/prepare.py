@@ -361,6 +361,10 @@ def run_local_preflight(
             f"Local preflight job.sh failed (rc={proc.returncode}):\n"
             f"STDOUT:\n{proc.stdout[-2000:]}\nSTDERR:\n{proc.stderr[-2000:]}"
         )
+    if "RuntimeWarning" in proc.stderr or "Mean of empty slice" in proc.stderr:
+        raise RuntimeError(
+            f"Local preflight emitted unexpected RuntimeWarning in stderr:\n{proc.stderr[-2000:]}"
+        )
 
     out_gate_dir = runtime_root / "output" / "t4_gate1"
     run_summary = json.loads((out_gate_dir / "run-summary.json").read_text(encoding="utf-8"))

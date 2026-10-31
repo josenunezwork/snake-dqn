@@ -11,6 +11,7 @@ Decomposes per-life standing-mass return into:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 from dataclasses import dataclass
@@ -94,6 +95,23 @@ def _weighted_geometric_sum_exp(alpha: torch.Tensor, w: torch.Tensor) -> torch.T
     return torch.where(w > 0.0, out, torch.zeros_like(out))
 
 
+_MIN_CUM_HAZARD_FOR_LOGIT = 1e-12
+_MAX_SURVIVAL_LOGIT = 27.631021  # float32 logit where sigmoid(x) == 1.0
+
+
+def _float32_no_autocast(device: torch.device) -> contextlib.AbstractContextManager[None]:
+    if device.type in ("cuda", "cpu"):
+        return torch.autocast(device_type=device.type, enabled=False)
+    return contextlib.nullcontext()
+
+
+def survival_logit_from_cum_hazard(cum_hazard: torch.Tensor) -> torch.Tensor:
+    """Exact float32 survival logit ``log(S / (1 - S))`` for ``S = exp(-cum_hazard)``."""
+    with _float32_no_autocast(cum_hazard.device):
+        cs = cum_hazard.float().clamp_min(_MIN_CUM_HAZARD_FOR_LOGIT)
+        return -cs - torch.log(-torch.expm1(-cs))
+
+
 def compose_factored_value(
     hazard_logits: torch.Tensor,
     forage_raw: torch.Tensor,
@@ -113,99 +131,113 @@ def compose_factored_value(
           - ``q_life``: ``(...)`` expected per-life standing-mass return over ``h_rem``
             (identically ``0.0`` wherever ``h_rem <= 0``).
           - ``e_tau``: ``(...)`` expected remaining alive ticks within ``h_rem``.
+          - ``s_hrem_logits``: ``(...)`` exact survival logit ``logit(S(H_rem | s, a))``.
+          - ``s_hrem``: ``(...)`` exact survival probability ``sigmoid(s_hrem_logits)``.
+          - ``s_300_logits``: ``(...)`` exact 300-tick survival logit ``logit(S(300 | s, a))``.
           - ``s_300``: ``(...)`` exact 300-tick survival probability ``S(300 | s, a)``.
           - ``m_300``: ``(...)`` exact 300-tick expected standing mass ``M_300(s, a)``.
           - ``g_short``: ``(...)`` short-gamma per-tick mass-flux prediction.
           - ``g_long``: ``(...)`` far-horizon alive mass-flux prediction.
           - ``hazards``: ``(..., 16)`` per-tick discrete hazards ``sigma(eta_k)``.
     """
-    eta = hazard_logits.float()
-    f_raw = forage_raw.float()
-    lead_shape = eta.shape[:-1]
-    dev = eta.device
+    with _float32_no_autocast(hazard_logits.device):
+        eta = hazard_logits.float()
+        f_raw = forage_raw.float()
+        lead_shape = eta.shape[:-1]
+        dev = eta.device
 
-    edges = torch.tensor(HAZARD_BIN_EDGES, dtype=torch.float32, device=dev)
-    b_start = edges[:-1]  # (16,)
-    b_end = edges[1:]  # (16,)
-    deltas = b_end - b_start  # (16,)
-    mids = 0.5 * (b_start + b_end)  # (16,)
+        edges = torch.tensor(HAZARD_BIN_EDGES, dtype=torch.float32, device=dev)
+        b_start = edges[:-1]  # (16,)
+        b_end = edges[1:]  # (16,)
+        deltas = b_end - b_start  # (16,)
+        mids = 0.5 * (b_start + b_end)  # (16,)
 
-    # alpha_k = -log(1 - sigma(eta_k)) = softplus(eta_k) >= 0.
-    alpha = F.softplus(eta)  # (..., 16)
-    hazards = torch.sigmoid(eta)
+        # alpha_k = -log(1 - sigma(eta_k)) = softplus(eta_k) >= 0.
+        alpha = F.softplus(eta)  # (..., 16)
+        hazards = torch.sigmoid(eta)
 
-    # Survival entering each bin: S(b_0) = 1, S(b_{k+1}) = exp(-sum_{j<=k} delta_j * alpha_j).
-    cum_decay = torch.cumsum(alpha * deltas, dim=-1)  # (..., 16)
-    zeros_lead = torch.zeros((*lead_shape, 1), dtype=torch.float32, device=dev)
-    log_s_edges = torch.cat((zeros_lead, -cum_decay), dim=-1)  # (..., 17)
-    s_edges = torch.exp(log_s_edges)
-    s_enter = s_edges[..., :-1]  # (..., 16)
-    s_300 = s_edges[..., H300_BIN_INDEX]  # (...,) exact at b_10 = 300
+        # Survival entering each bin: S(b_0) = 1, S(b_{k+1}) = exp(-sum_{j<=k} delta_j * alpha_j).
+        cum_decay = torch.cumsum(alpha * deltas, dim=-1)  # (..., 16)
+        zeros_lead = torch.zeros((*lead_shape, 1), dtype=torch.float32, device=dev)
+        log_s_edges = torch.cat((zeros_lead, -cum_decay), dim=-1)  # (..., 17)
+        s_edges = torch.exp(log_s_edges)
+        s_enter = s_edges[..., :-1]  # (..., 16)
+        s_300_logits = survival_logit_from_cum_hazard(cum_decay[..., H300_BIN_INDEX - 1])
+        s_300 = torch.sigmoid(s_300_logits)  # (...,) exact at b_10 = 300
 
-    g_short = MAX_FORAGE_FLUX * torch.tanh(f_raw[..., 0])
-    g_long = MAX_FORAGE_FLUX * torch.tanh(f_raw[..., 1])
-    c_cov = MAX_COV_CORRECTION * torch.tanh(f_raw[..., 2])
+        g_short = MAX_FORAGE_FLUX * torch.tanh(f_raw[..., 0])
+        g_long = MAX_FORAGE_FLUX * torch.tanh(f_raw[..., 1])
+        c_cov = MAX_COV_CORRECTION * torch.tanh(f_raw[..., 2])
 
-    decay_mid = torch.pow(
-        torch.tensor(FORAGING_GAMMA, dtype=torch.float32, device=dev), mids
-    )  # (16,)
-    g_bins = g_short[..., None] * decay_mid + g_long[..., None] * (1.0 - decay_mid)  # (..., 16)
+        decay_mid = torch.pow(
+            torch.tensor(FORAGING_GAMMA, dtype=torch.float32, device=dev), mids
+        )  # (16,)
+        g_bins = g_short[..., None] * decay_mid + g_long[..., None] * (1.0 - decay_mid)  # (..., 16)
 
-    len_scaled = hero_length.float() / 1000.0
-    if len_scaled.ndim < len(lead_shape):
-        len_scaled = len_scaled.unsqueeze(-1).expand(lead_shape)
+        len_scaled = hero_length.float() / 1000.0
+        if len_scaled.ndim < len(lead_shape):
+            len_scaled = len_scaled.unsqueeze(-1).expand(lead_shape)
 
-    def _integrate_horizon(
-        horizon: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        h_clamped = horizon.float().clamp(min=0.0, max=float(HAZARD_BIN_EDGES[-1]))
-        while h_clamped.ndim < len(lead_shape):
-            h_clamped = h_clamped.unsqueeze(-1)
-        h_exp = h_clamped.expand(lead_shape)[..., None]  # (..., 1)
-        w = (h_exp - b_start).clamp(min=0.0)
-        w = torch.minimum(w, deltas)  # (..., 16)
+        def _integrate_horizon(
+            horizon: torch.Tensor,
+        ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+            h_clamped = horizon.float().clamp(min=0.0, max=float(HAZARD_BIN_EDGES[-1]))
+            while h_clamped.ndim < len(lead_shape):
+                h_clamped = h_clamped.unsqueeze(-1)
+            h_exp = h_clamped.expand(lead_shape)[..., None]  # (..., 1)
+            w = (h_exp - b_start).clamp(min=0.0)
+            w = torch.minimum(w, deltas)  # (..., 16)
 
-        s_horizon = torch.exp(-(w * alpha).sum(dim=-1))
-        a_bins = s_enter * _geometric_sum_exp(alpha, w)  # (..., 16)
-        inner_double = s_enter * _weighted_geometric_sum_exp(alpha, w)  # (..., 16)
-        # Suffix sum R_k = sum_{j > k} A_j
-        rev_cum = torch.cumsum(torch.flip(a_bins, dims=(-1,)), dim=-1)
-        suffix_including = torch.flip(rev_cum, dims=(-1,))
-        r_after = suffix_including - a_bins
+            cum_hazard = (w * alpha).sum(dim=-1)
+            s_horizon_logits = survival_logit_from_cum_hazard(cum_hazard)
+            s_horizon = torch.sigmoid(s_horizon_logits)
+            a_bins = s_enter * _geometric_sum_exp(alpha, w)  # (..., 16)
+            inner_double = s_enter * _weighted_geometric_sum_exp(alpha, w)  # (..., 16)
+            # Suffix sum R_k = sum_{j > k} A_j
+            rev_cum = torch.cumsum(torch.flip(a_bins, dims=(-1,)), dim=-1)
+            suffix_including = torch.flip(rev_cum, dims=(-1,))
+            r_after = suffix_including - a_bins
 
-        j_bins = inner_double + w * r_after
-        e_tau = a_bins.sum(dim=-1)
-        base_mass_term = (1.0 + c_cov) * len_scaled * e_tau
-        flux_term = (g_bins * j_bins).sum(dim=-1)
-        q_val = (base_mass_term + flux_term).clamp_min(0.0)
-        zero_mask = h_exp.squeeze(-1) <= 0.0
-        q_val = torch.where(zero_mask, torch.zeros_like(q_val), q_val)
-        e_tau = torch.where(zero_mask, torch.zeros_like(e_tau), e_tau)
-        s_horizon = torch.where(zero_mask, torch.ones_like(s_horizon), s_horizon)
-        return q_val, e_tau, s_horizon
+            j_bins = inner_double + w * r_after
+            e_tau = a_bins.sum(dim=-1)
+            base_mass_term = (1.0 + c_cov) * len_scaled * e_tau
+            flux_term = (g_bins * j_bins).sum(dim=-1)
+            q_val = (base_mass_term + flux_term).clamp_min(0.0)
+            zero_mask = h_exp.squeeze(-1) <= 0.0
+            q_val = torch.where(zero_mask, torch.zeros_like(q_val), q_val)
+            e_tau = torch.where(zero_mask, torch.zeros_like(e_tau), e_tau)
+            s_horizon = torch.where(zero_mask, torch.ones_like(s_horizon), s_horizon)
+            s_horizon_logits = torch.where(
+                zero_mask,
+                torch.full_like(s_horizon_logits, _MAX_SURVIVAL_LOGIT),
+                s_horizon_logits,
+            )
+            return q_val, e_tau, s_horizon, s_horizon_logits
 
-    if isinstance(h_rem, (int, float)):
-        h_tensor = torch.full(lead_shape, float(h_rem), dtype=torch.float32, device=dev)
-    else:
-        h_tensor = h_rem.float().to(dev)
-    q_life, e_tau, s_hrem = _integrate_horizon(h_tensor)
+        if isinstance(h_rem, (int, float)):
+            h_tensor = torch.full(lead_shape, float(h_rem), dtype=torch.float32, device=dev)
+        else:
+            h_tensor = h_rem.float().to(dev)
+        q_life, e_tau, s_hrem, s_hrem_logits = _integrate_horizon(h_tensor)
 
-    h300_tensor = torch.full(lead_shape, 300.0, dtype=torch.float32, device=dev)
-    q_300, _, _ = _integrate_horizon(h300_tensor)
-    m_300 = (1000.0 / 300.0) * q_300
+        h300_tensor = torch.full(lead_shape, 300.0, dtype=torch.float32, device=dev)
+        q_300, _, _, _ = _integrate_horizon(h300_tensor)
+        m_300 = (1000.0 / 300.0) * q_300
 
-    return {
-        "q_life": q_life,
-        "e_tau": e_tau,
-        "s_hrem": s_hrem,
-        "s_300": s_300,
-        "m_300": m_300,
-        "q_300": q_300,
-        "g_short": g_short,
-        "g_long": g_long,
-        "c_cov": c_cov,
-        "hazards": hazards,
-    }
+        return {
+            "q_life": q_life,
+            "e_tau": e_tau,
+            "s_hrem": s_hrem,
+            "s_hrem_logits": s_hrem_logits,
+            "s_300": s_300,
+            "s_300_logits": s_300_logits,
+            "m_300": m_300,
+            "q_300": q_300,
+            "g_short": g_short,
+            "g_long": g_long,
+            "c_cov": c_cov,
+            "hazards": hazards,
+        }
 
 
 def discrete_survival_nll(
@@ -214,23 +246,24 @@ def discrete_survival_nll(
     died_in_session: torch.Tensor,
 ) -> torch.Tensor:
     """Exact right-censored discrete-time piecewise-geometric survival negative log-likelihood."""
-    eta = hazard_logits_taken.float()  # (B, 16)
-    dev = eta.device
-    edges = torch.tensor(HAZARD_BIN_EDGES, dtype=torch.float32, device=dev)
-    b_start = edges[:-1][None, :]  # (1, 16)
-    b_end = edges[1:][None, :]  # (1, 16)
-    deltas = b_end - b_start
+    with _float32_no_autocast(hazard_logits_taken.device):
+        eta = hazard_logits_taken.float()  # (B, 16)
+        dev = eta.device
+        edges = torch.tensor(HAZARD_BIN_EDGES, dtype=torch.float32, device=dev)
+        b_start = edges[:-1][None, :]  # (1, 16)
+        b_end = edges[1:][None, :]  # (1, 16)
+        deltas = b_end - b_start
 
-    tau = tau_alive.float().to(dev)[:, None]  # (B, 1)
-    died = died_in_session.to(device=dev, dtype=torch.bool)[:, None]  # (B, 1)
+        tau = tau_alive.float().to(dev)[:, None]  # (B, 1)
+        died = died_in_session.to(device=dev, dtype=torch.bool)[:, None]  # (B, 1)
 
-    n_surv = torch.minimum((tau - b_start).clamp_min(0.0), deltas)  # (B, 16)
-    event = (died & (tau >= b_start) & (tau < b_end)).float()  # (B, 16)
+        n_surv = torch.minimum((tau - b_start).clamp_min(0.0), deltas)  # (B, 16)
+        event = (died & (tau >= b_start) & (tau < b_end)).float()  # (B, 16)
 
-    log_one_minus_lam = -F.softplus(eta)
-    log_lam = -F.softplus(-eta)
-    nll = -(n_surv * log_one_minus_lam + event * log_lam).sum(dim=-1)
-    return nll
+        log_one_minus_lam = -F.softplus(eta)
+        log_lam = -F.softplus(-eta)
+        nll = -(n_surv * log_one_minus_lam + event * log_lam).sum(dim=-1)
+        return nll
 
 
 class _ResBlock2d(nn.Module):
@@ -719,19 +752,33 @@ class LengthHorizonBaseline:
         pred = np.maximum(vp + x @ self.ridge_weights, 0.0)
         return np.where(h_arr > 0.0, pred, 0.0)
 
-    def predict_h300(self, length: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Predict action-invariant ``(S_300_base(L_t), M_300_base(L_t))`` from ``L_t`` alone."""
+    def predict_h300_with_logits(
+        self, length: np.ndarray, *, horizon: float = 300.0
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Predict action-invariant ``(S_H_base, M_H_base, S_H_base_logit)`` from ``L_t`` alone."""
         l_arr = np.asarray(length, dtype=np.float64).reshape(-1)
         if l_arr.size == 0:
-            return np.zeros(0, dtype=np.float64), np.zeros(0, dtype=np.float64)
+            empty = np.zeros(0, dtype=np.float64)
+            return empty, empty.copy(), empty.copy()
+        if not bool(np.isfinite(l_arr).all()):
+            raise ValueError("Non-finite length passed to LengthHorizonBaseline")
+        h_val = float(horizon)
+        if h_val <= 0.0:
+            raise ValueError(f"horizon must be > 0, got {h_val}")
         b_idx = self._bin_indices(l_arr)
         haz_t = torch.as_tensor(self.bin_hazard_logits[b_idx], dtype=torch.float32)
         for_t = torch.as_tensor(self.bin_forage_raw[b_idx], dtype=torch.float32)
         len_t = torch.as_tensor(l_arr, dtype=torch.float32)
-        out = compose_factored_value(haz_t, for_t, len_t, 300.0)
-        s300 = out["s_300"].detach().cpu().numpy().astype(np.float64)
-        v300 = self.predict_v(l_arr, np.full_like(l_arr, 300.0))
-        m300 = (1000.0 / 300.0) * v300
+        out = compose_factored_value(haz_t, for_t, len_t, h_val)
+        sh = out["s_hrem"].float().detach().cpu().numpy().astype(np.float64)
+        sh_logits = out["s_hrem_logits"].float().detach().cpu().numpy().astype(np.float64)
+        vh = self.predict_v(l_arr, np.full_like(l_arr, h_val))
+        mh = (1000.0 / h_val) * vh
+        return sh, mh, sh_logits
+
+    def predict_h300(self, length: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Predict action-invariant ``(S_300_base(L_t), M_300_base(L_t))`` from ``L_t`` alone."""
+        s300, m300, _ = self.predict_h300_with_logits(length, horizon=300.0)
         return s300, m300
 
     def to_summary_dict(self) -> dict[str, Any]:

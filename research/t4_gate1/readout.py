@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
+import torch
+import torch.nn.functional as F
 
 from research.t4_gate1 import (
     ALLOCATION_INDEX,
@@ -182,6 +184,20 @@ def _aggregate_stratum_ev(
         [float(w["strata"][stratum]["sum_hazard_nll"]) for w in world_records],
         dtype=np.float64,
     )
+    for arr_name, arr in (
+        ("n", n_arr),
+        ("sum_y", sy_arr),
+        ("sum_y2", sy2_arr),
+        ("sse_base", sb_arr),
+        ("sse_critic", sc_arr),
+        ("sae_base", ab_arr),
+        ("sae_critic", ac_arr),
+        ("sum_hazard_nll", hn_arr),
+    ):
+        if arr.size > 0 and not bool(np.isfinite(arr).all()):
+            raise ValueError(f"Non-finite {arr_name} in stratum {stratum!r} world records")
+    if n_arr.size > 0 and bool(np.any(n_arr < 0)):
+        raise ValueError(f"Negative count in stratum {stratum!r} world records")
 
     total_n = int(np.sum(n_arr))
     contributing_worlds = int(np.sum(n_arr > 0))
@@ -284,6 +300,7 @@ def _aggregate_root_subset(
             "fraction_of_oracle_mass_ceiling": 0.0,
             "per_action_doom_auc": 0.5,
             "within_root_doom_concordance": 0.5,
+            "mean_per_action_survival_bce": 0.0,
             "actionable_roots_count": 0,
             "b8_action_agreement_rate": 1.0,
             "safe_root_b8_agreement_rate": 1.0,
@@ -308,18 +325,50 @@ def _aggregate_root_subset(
     doom_y_all: list[bool] = []
     doom_score_all: list[float] = []
     within_root_aucs: list[float] = []
+    surv_logits_leg_all: list[float] = []
+    surv_targets_leg_all: list[float] = []
 
     for i, r in enumerate(roots):
         wids[i] = int(r["world_id"])
         leg = np.asarray(r["legal_mask"], dtype=bool)
+        if leg.shape != (6,) or not bool(leg.any()):
+            raise ValueError(f"Root record {r.get('root_uid', i)!r} has invalid/empty legal_mask")
         s_sc = np.asarray(r["s_score"], dtype=np.float64)
         m_sc = np.asarray(r["m_score"], dtype=np.float64)
         s_ht = np.asarray(r["s_hat"], dtype=np.float64)
+        if not (
+            bool(np.isfinite(s_sc[leg]).all())
+            and bool(np.isfinite(m_sc[leg]).all())
+            and bool(np.isfinite(s_ht[leg]).all())
+        ):
+            raise ValueError(
+                f"Non-finite legal-action outcome/prediction in root {r.get('root_uid', i)!r}"
+            )
+        if "s_hat_logit" in r:
+            s_ht_logit = np.asarray(r["s_hat_logit"], dtype=np.float64)
+            if not bool(np.isfinite(s_ht_logit[leg]).all()):
+                raise ValueError(
+                    f"Non-finite legal-action s_hat_logit in root {r.get('root_uid', i)!r}"
+                )
+            s_logit_leg = s_ht_logit[leg]
+        else:
+            p_clip = np.clip(s_ht[leg], 1e-6, 1.0 - 1e-6)
+            s_logit_leg = np.log(p_clip / (1.0 - p_clip))
 
         b8_a = int(r["b8_action"])
         base_a = int(r["base_action"])
         crit_a = int(r["critic_action"])
         ora_a = int(r["oracle_a_star"])
+        for act_label, act_idx in (
+            ("b8_action", b8_a),
+            ("base_action", base_a),
+            ("critic_action", crit_a),
+            ("oracle_a_star", ora_a),
+        ):
+            if not (np.isfinite(s_sc[act_idx]) and np.isfinite(m_sc[act_idx])):
+                raise ValueError(
+                    f"Non-finite score at {act_label}={act_idx} in root {r.get('root_uid', i)!r}"
+                )
 
         b8_m[i] = m_sc[b8_a]
         b8_s[i] = s_sc[b8_a]
@@ -336,9 +385,11 @@ def _aggregate_root_subset(
         if s_sc[b8_a] >= 0.75 and s_sc[crit_a] <= 0.25:
             lethal_flip[i] = True
 
-        # Per-action doom classification (true doom = s_score <= 0.5, predicted doom = 1 - s_hat).
+        # Per-action doom classification (true doom = s_score <= 0.5, predicted doom = -s_logit).
         y_leg = s_sc[leg] <= 0.5
-        d_leg = 1.0 - s_ht[leg]
+        d_leg = -s_logit_leg
+        surv_logits_leg_all.extend(float(v) for v in s_logit_leg.tolist())
+        surv_targets_leg_all.extend(float(v) for v in leg_s.tolist())
         doom_y_all.extend(bool(v) for v in y_leg.tolist())
         doom_score_all.extend(float(v) for v in d_leg.tolist())
         if bool(np.any(y_leg)) and bool(np.any(~y_leg)):
@@ -403,6 +454,13 @@ def _aggregate_root_subset(
         float(np.mean(agree[safe_root])) if bool(np.any(safe_root)) else float(np.mean(agree))
     )
     ceiling_frac = (mean_dm / ora_dm) if ora_dm > 1e-6 else 0.0
+    if surv_logits_leg_all:
+        with torch.autocast(device_type="cpu", enabled=False):
+            logits_t = torch.tensor(surv_logits_leg_all, dtype=torch.float32).clamp(-12.0, 12.0)
+            targets_t = torch.tensor(surv_targets_leg_all, dtype=torch.float32)
+            mean_surv_bce = float(F.binary_cross_entropy_with_logits(logits_t, targets_t).item())
+    else:
+        mean_surv_bce = 0.0
 
     return {
         "num_roots": n,
@@ -422,6 +480,7 @@ def _aggregate_root_subset(
         "fraction_of_oracle_mass_ceiling": round(ceiling_frac, 4),
         "per_action_doom_auc": round(doom_auc, 6),
         "within_root_doom_concordance": round(within_conc, 6),
+        "mean_per_action_survival_bce": round(mean_surv_bce, 6),
         "actionable_roots_count": len(within_root_aucs),
         "b8_action_agreement_rate": round(float(np.mean(agree)), 6),
         "safe_root_b8_agreement_rate": round(safe_agree, 6),

@@ -365,7 +365,7 @@ def audit(
             "!**/*.watch.gz",
             "!**/t34-sol/watch6-efficacy*/**",
             "!**/t34-sol/argon-replay-banks/**",
-            "!**/t34-sol/argon-t4-gate1/**",
+            "!**/t34-sol/argon-t4-gate1*/**",
             "!**/research/t4_gate1/**",
         ):
             command += ["--glob", excluded]

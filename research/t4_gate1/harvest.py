@@ -915,6 +915,42 @@ class _RootBranchJob:
     rng_key: int
 
 
+def _reduce_legal_branch_outcomes(
+    surv_raw: np.ndarray,
+    mass_raw: np.ndarray,
+    legal_arr: np.ndarray,
+    *,
+    phase_name: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Average branch outcomes over legal actions without ``np.nanmean`` empty-slice warnings."""
+    leg = np.asarray(legal_arr, dtype=bool)
+    if leg.ndim != 2 or leg.shape[1] != 6:
+        raise ValueError(f"Expected (R, 6) legal_arr in {phase_name}, got {leg.shape}")
+    n_roots = leg.shape[0]
+    if n_roots == 0:
+        empty = np.zeros((0, 6), dtype=np.float64)
+        return empty, empty.copy()
+    if surv_raw.ndim != 3 or surv_raw.shape[:2] != (n_roots, 6) or surv_raw.shape[2] <= 0:
+        raise ValueError(f"Invalid surv_raw shape {surv_raw.shape} in {phase_name}")
+    if mass_raw.shape != surv_raw.shape:
+        raise ValueError(f"mass_raw shape {mass_raw.shape} != surv_raw shape {surv_raw.shape}")
+    if not bool(np.all(np.any(leg, axis=1))):
+        raise ValueError(f"Root with zero legal actions encountered in {phase_name}")
+
+    surv_leg = surv_raw[leg]
+    mass_leg = mass_raw[leg]
+    if not (bool(np.isfinite(surv_leg).all()) and bool(np.isfinite(mass_leg).all())):
+        raise ValueError(
+            f"Non-finite survival or mass outcome on legal action during {phase_name} branching"
+        )
+
+    s_mean = np.full((n_roots, 6), np.nan, dtype=np.float64)
+    m_mean = np.full((n_roots, 6), np.nan, dtype=np.float64)
+    s_mean[leg] = np.mean(surv_leg, axis=1)
+    m_mean[leg] = np.mean(mass_leg, axis=1)
+    return s_mean, m_mean
+
+
 @torch.inference_mode()
 def branch_prepared_roots(
     roots: Sequence[PreparedRootSnapshot],
@@ -967,6 +1003,8 @@ def branch_prepared_roots(
     )
 
     legal_arr = np.stack([r.legal_mask for r in roots], axis=0).astype(bool)
+    if not bool(np.all(np.any(legal_arr, axis=1))):
+        raise ValueError("Every branched root must have at least one legal action")
     b8_arr = np.asarray([r.b8_action for r in roots], dtype=np.int64)
 
     logical_steps = 0
@@ -978,6 +1016,8 @@ def branch_prepared_roots(
     ) -> tuple[np.ndarray, np.ndarray]:
         nonlocal logical_steps, executed_steps, last_log
         k_count = len(suffixes)
+        if k_count <= 0:
+            raise ValueError(f"suffixes for {phase_name} must be nonempty")
         surv_raw = np.full((n_roots, 6, k_count), np.nan, dtype=np.float64)
         mass_raw = np.full((n_roots, 6, k_count), np.nan, dtype=np.float64)
         jobs: list[_RootBranchJob] = []
@@ -1069,9 +1109,12 @@ def branch_prepared_roots(
                     }
                 )
 
-        s_mean = np.where(legal_arr, np.nanmean(surv_raw, axis=2), np.nan)
-        m_mean = np.where(legal_arr, np.nanmean(mass_raw, axis=2), np.nan)
-        return s_mean, m_mean
+        return _reduce_legal_branch_outcomes(
+            surv_raw,
+            mass_raw,
+            legal_arr,
+            phase_name=phase_name,
+        )
 
     s_sel, m_sel = _run_suffix_group("selection", selection_suffixes)
     q_sel, oracle_a_star, _ = select_a_star_and_forbidden(

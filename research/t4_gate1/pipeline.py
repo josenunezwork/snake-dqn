@@ -17,6 +17,7 @@ import argparse
 import contextlib
 import copy
 import json
+import math
 import tempfile
 import time
 from pathlib import Path
@@ -47,6 +48,7 @@ from research.t4_gate1.harvest import (
 from research.t4_gate1.model import (
     LengthHorizonBaseline,
     PrivilegedFactoredCritic,
+    _float32_no_autocast,
     discrete_survival_nll,
 )
 from research.t4_gate1.seed_audit import world_allocation
@@ -185,6 +187,51 @@ def _select_critic_action(
     return chosen, q_row
 
 
+def _assert_finite_dataset_targets(dataset: CompactBoardDataset, *, label: str) -> None:
+    """Reject any non-finite supervised targets before critic/baseline training or evaluation."""
+    if dataset.num_rows == 0:
+        return
+    checks = (
+        ("h_rem", dataset.h_rem),
+        ("tau_alive", dataset.tau_alive),
+        ("return_g", dataset.return_g),
+        ("forage_short", dataset.forage_short),
+        ("forage_short_weight", dataset.forage_short_weight),
+    )
+    for name, arr in checks:
+        if not bool(np.isfinite(arr).all()):
+            raise ValueError(f"Non-finite {name} values in {label}")
+    valid_long = np.asarray(dataset.forage_long_valid, dtype=bool)
+    if bool(valid_long.any()) and not bool(np.isfinite(dataset.forage_long[valid_long]).all()):
+        raise ValueError(f"Non-finite forage_long values on valid rows in {label}")
+
+
+def _assert_valid_branched_roots(
+    branched: BranchedRootsTable,
+    *,
+    require_score: bool,
+    label: str,
+) -> None:
+    """Ensure every root has >=1 legal action and strictly finite legal-action branch outcomes."""
+    if branched.num_roots == 0:
+        return
+    leg = np.asarray(branched.legal_mask, dtype=bool)
+    if leg.shape != (branched.num_roots, 6) or not bool(np.all(np.any(leg, axis=1))):
+        raise ValueError(f"Root with zero legal actions in {label}")
+    if not (
+        bool(np.isfinite(branched.s_sel[leg]).all())
+        and bool(np.isfinite(branched.m_sel[leg]).all())
+        and bool(np.isfinite(branched.q_sel[leg]).all())
+    ):
+        raise ValueError(f"Non-finite selection branch target on legal action in {label}")
+    if require_score and not (
+        bool(np.isfinite(branched.s_score[leg]).all())
+        and bool(np.isfinite(branched.m_score[leg]).all())
+        and bool(np.isfinite(branched.q_score[leg]).all())
+    ):
+        raise ValueError(f"Non-finite scoring branch outcome on legal action in {label}")
+
+
 @torch.inference_mode()
 def predict_critic_on_dataset(
     critic: PrivilegedFactoredCritic,
@@ -203,7 +250,9 @@ def predict_critic_on_dataset(
             "q_all": np.zeros((0, 6), dtype=np.float64),
             "greedy_action": np.zeros(0, dtype=np.int64),
             "s_hrem_all": np.zeros((0, 6), dtype=np.float64),
+            "s_hrem_logits_all": np.zeros((0, 6), dtype=np.float64),
             "s_300_all": np.zeros((0, 6), dtype=np.float64),
+            "s_300_logits_all": np.zeros((0, 6), dtype=np.float64),
             "m_300_all": np.zeros((0, 6), dtype=np.float64),
             "hazard_nll": np.zeros(0, dtype=np.float64),
         }
@@ -212,7 +261,9 @@ def predict_critic_on_dataset(
     q_all = np.zeros((n, 6), dtype=np.float64)
     greedy_action = np.zeros(n, dtype=np.int64)
     s_hrem_all = np.zeros((n, 6), dtype=np.float64)
+    s_hrem_logits_all = np.zeros((n, 6), dtype=np.float64)
     s_300_all = np.zeros((n, 6), dtype=np.float64)
+    s_300_logits_all = np.zeros((n, 6), dtype=np.float64)
     m_300_all = np.zeros((n, 6), dtype=np.float64)
     haz_nll = np.zeros(n, dtype=np.float64)
 
@@ -221,35 +272,48 @@ def predict_critic_on_dataset(
         idx = np.arange(start, end, dtype=np.int64)
         fb = featurize_dataset_batch(dataset, idx, device=device, h_rem_override=h_rem_override)
         out = critic(fb, h_rem_override=h_rem_override)
-        greedy_t = out["q_life"].argmax(dim=-1)
-        q_b = out["q_life"].detach().cpu().numpy().astype(np.float64)
+        q_f = out["q_life"].float()
+        greedy_t = q_f.argmax(dim=-1)
+        q_b = q_f.detach().cpu().numpy().astype(np.float64)
         acts_b = dataset.b8_action[idx]
         v_pred[start:end] = q_b[np.arange(end - start), acts_b]
         q_all[start:end] = q_b
         greedy_action[start:end] = greedy_t.detach().cpu().numpy().astype(np.int64)
-        s_hrem_all[start:end] = out["s_hrem"].detach().cpu().numpy().astype(np.float64)
-        s_300_all[start:end] = out["s_300"].detach().cpu().numpy().astype(np.float64)
-        m_300_all[start:end] = out["m_300"].detach().cpu().numpy().astype(np.float64)
+        s_hrem_all[start:end] = out["s_hrem"].float().detach().cpu().numpy().astype(np.float64)
+        s_hrem_logits_all[start:end] = (
+            out["s_hrem_logits"].float().detach().cpu().numpy().astype(np.float64)
+        )
+        s_300_all[start:end] = out["s_300"].float().detach().cpu().numpy().astype(np.float64)
+        s_300_logits_all[start:end] = (
+            out["s_300_logits"].float().detach().cpu().numpy().astype(np.float64)
+        )
+        m_300_all[start:end] = out["m_300"].float().detach().cpu().numpy().astype(np.float64)
 
         b_arange = torch.arange(end - start, device=device)
         acts_t = torch.as_tensor(acts_b, dtype=torch.long, device=device)
-        haz_taken = out["hazard_logits"][b_arange, acts_t]
+        haz_taken = out["hazard_logits"][b_arange, acts_t].float()
         nll_b = discrete_survival_nll(
             haz_taken,
             torch.as_tensor(dataset.tau_alive[idx], dtype=torch.float32, device=device),
             torch.as_tensor(dataset.died_in_session[idx], dtype=torch.bool, device=device),
         )
-        haz_nll[start:end] = nll_b.detach().cpu().numpy().astype(np.float64)
+        haz_nll[start:end] = nll_b.float().detach().cpu().numpy().astype(np.float64)
 
-    return {
+    result = {
         "v_pred": v_pred,
         "q_all": q_all,
         "greedy_action": greedy_action,
         "s_hrem_all": s_hrem_all,
+        "s_hrem_logits_all": s_hrem_logits_all,
         "s_300_all": s_300_all,
+        "s_300_logits_all": s_300_logits_all,
         "m_300_all": m_300_all,
         "hazard_nll": haz_nll,
     }
+    for key, arr in result.items():
+        if key != "greedy_action" and not bool(np.isfinite(arr).all()):
+            raise ValueError(f"Non-finite critic prediction in {key}")
+    return result
 
 
 def train_privileged_critic(
@@ -266,10 +330,14 @@ def train_privileged_critic(
     weight_decay: float,
     seed: int,
     device: torch.device,
+    use_bf16_autocast: bool | None = None,
     log_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[PrivilegedFactoredCritic, dict[str, Any]]:
     """Train clean-slate ``PrivilegedFactoredCritic`` strictly on ``fit`` and select on ``val``."""
     t0 = time.perf_counter()
+    _assert_finite_dataset_targets(fit_dataset, label="fit_dataset")
+    _assert_finite_dataset_targets(val_dataset, label="val_dataset")
+
     torch.manual_seed(int(seed))
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(int(seed))
@@ -283,7 +351,20 @@ def train_privileged_critic(
             p.requires_grad_(False)
         return critic, {"epochs": 0, "best_epoch": 0, "wall_sec": 0.0}
 
+    n_branch_roots = fit_roots_dataset.num_rows
+    if n_branch_roots > 0:
+        if fit_branched_roots.num_roots != n_branch_roots:
+            raise ValueError(
+                f"fit_branched_roots.num_roots ({fit_branched_roots.num_roots}) != "
+                f"fit_roots_dataset.num_rows ({n_branch_roots})"
+            )
+        _assert_valid_branched_roots(
+            fit_branched_roots, require_score=False, label="fit_branched_roots"
+        )
+
     var_g_fit = float(np.var(fit_dataset.return_g.astype(np.float64)))
+    if not math.isfinite(var_g_fit):
+        raise ValueError("Non-finite return_g variance in fit_dataset")
     ret_scale = max(var_g_fit, 1e-3)
 
     optimizer = torch.optim.AdamW(
@@ -297,8 +378,12 @@ def train_privileged_critic(
         optimizer, T_max=total_steps, eta_min=float(learning_rate) * 0.05
     )
 
-    use_bf16 = device.type == "cuda" and torch.cuda.is_bf16_supported()
-    n_branch_roots = fit_roots_dataset.num_rows
+    if use_bf16_autocast is None:
+        use_bf16 = (device.type == "cuda" and torch.cuda.is_bf16_supported()) or (
+            device.type == "cpu" and torch.is_autocast_enabled("cpu")
+        )
+    else:
+        use_bf16 = bool(use_bf16_autocast) and device.type in ("cuda", "cpu")
     branch_batch_size = min(32, n_branch_roots) if n_branch_roots > 0 else 0
 
     best_score = float("inf")
@@ -349,17 +434,31 @@ def train_privileged_critic(
 
                 optimizer.zero_grad(set_to_none=True)
                 amp_ctx = (
-                    torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+                    torch.autocast(device_type=device.type, dtype=torch.bfloat16)
                     if use_bf16
                     else contextlib.nullcontext()
                 )
                 with amp_ctx:
                     out = critic(fb)
+                    if branch_batch_size > 0:
+                        r_idx = rng.choice(n_branch_roots, size=branch_batch_size, replace=False)
+                        fb_r = featurize_dataset_batch(
+                            fit_roots_dataset,
+                            r_idx,
+                            device=device,
+                            h_rem_override=float(branch_horizon),
+                        )
+                        out_r = critic(fb_r, h_rem_override=float(branch_horizon))
+                    else:
+                        r_idx = None
+                        out_r = None
+
+                with _float32_no_autocast(device):
                     b_ar = torch.arange(b_cur, device=device)
-                    q_taken = out["q_life"][b_ar, acts_t]
-                    haz_taken = out["hazard_logits"][b_ar, acts_t]
-                    gs_taken = out["g_short"][b_ar, acts_t]
-                    gl_taken = out["g_long"][b_ar, acts_t]
+                    q_taken = out["q_life"][b_ar, acts_t].float()
+                    haz_taken = out["hazard_logits"][b_ar, acts_t].float()
+                    gs_taken = out["g_short"][b_ar, acts_t].float()
+                    gl_taken = out["g_long"][b_ar, acts_t].float()
 
                     mature_w = torch.where(
                         fb.hero_length >= float(min_mature_length),
@@ -381,35 +480,33 @@ def train_privileged_critic(
                         loss_fl = torch.zeros((), dtype=torch.float32, device=device)
 
                     loss_branch = torch.zeros((), dtype=torch.float32, device=device)
-                    if branch_batch_size > 0:
-                        r_idx = rng.choice(n_branch_roots, size=branch_batch_size, replace=False)
-                        fb_r = featurize_dataset_batch(
-                            fit_roots_dataset,
-                            r_idx,
-                            device=device,
-                            h_rem_override=float(branch_horizon),
-                        )
-                        out_r = critic(fb_r, h_rem_override=float(branch_horizon))
-                        leg_r = torch.as_tensor(
-                            fit_branched_roots.legal_mask[r_idx],
-                            dtype=torch.bool,
-                            device=device,
-                        )
-                        s_targ = torch.as_tensor(
-                            np.nan_to_num(fit_branched_roots.s_sel[r_idx], nan=0.0),
+                    if r_idx is not None and out_r is not None:
+                        leg_np = np.asarray(fit_branched_roots.legal_mask[r_idx], dtype=bool)
+                        if not bool(leg_np.any()):
+                            raise ValueError("Empty legal action slice in fit_branched_roots batch")
+                        s_leg_np = fit_branched_roots.s_sel[r_idx][leg_np]
+                        m_leg_np = fit_branched_roots.m_sel[r_idx][leg_np]
+                        if not (
+                            bool(np.isfinite(s_leg_np).all()) and bool(np.isfinite(m_leg_np).all())
+                        ):
+                            raise ValueError(
+                                "Non-finite branch survival/mass target on legal action"
+                            )
+                        leg_r = torch.as_tensor(leg_np, dtype=torch.bool, device=device)
+                        s_targ_leg = torch.as_tensor(
+                            s_leg_np,
                             dtype=torch.float32,
                             device=device,
                         )
-                        q_targ = torch.as_tensor(
-                            np.nan_to_num(fit_branched_roots.m_sel[r_idx], nan=0.0)
-                            * (float(branch_horizon) / 1000.0),
+                        q_targ_leg = torch.as_tensor(
+                            m_leg_np * (float(branch_horizon) / 1000.0),
                             dtype=torch.float32,
                             device=device,
                         )
-                        s_pred = out_r["s_hrem"].clamp(1e-5, 1.0 - 1e-5)
-                        q_pred = out_r["q_life"]
-                        bce_r = F.binary_cross_entropy(s_pred[leg_r], s_targ[leg_r])
-                        mse_r = F.huber_loss(q_pred[leg_r], q_targ[leg_r], delta=0.10)
+                        s_logit_leg = out_r["s_hrem_logits"][leg_r].float().clamp(-12.0, 12.0)
+                        q_pred_leg = out_r["q_life"][leg_r].float()
+                        bce_r = F.binary_cross_entropy_with_logits(s_logit_leg, s_targ_leg)
+                        mse_r = F.huber_loss(q_pred_leg, q_targ_leg, delta=0.10)
                         loss_branch = bce_r + 2.0 * mse_r
 
                     total_loss = (
@@ -419,6 +516,10 @@ def train_privileged_critic(
                         + 1.0 * loss_fl
                         + 0.5 * loss_branch
                     )
+                    if not bool(torch.isfinite(total_loss).item()):
+                        raise ValueError(
+                            "Non-finite total_loss encountered in train_privileged_critic"
+                        )
 
                 total_loss.backward()
                 torch.nn.utils.clip_grad_norm_(critic.parameters(), max_norm=1.0)
@@ -454,6 +555,9 @@ def train_privileged_critic(
                 val_mse = 0.0
                 val_nll = 0.0
                 val_score = sum_loss / max(n_batches, 1)
+
+            if not (math.isfinite(val_mse) and math.isfinite(val_nll) and math.isfinite(val_score)):
+                raise ValueError("Non-finite validation metric in train_privileged_critic")
 
             rec = {
                 "epoch": epoch,
@@ -526,8 +630,18 @@ def compute_world_sufficient_stats(
 ) -> list[dict[str, Any]]:
     """Compute exact per-test-world sufficient statistics across all strata."""
     y = dataset.return_g.astype(np.float64)
-    err_b = y - v_base.astype(np.float64)
-    err_c = y - v_critic.astype(np.float64)
+    vb = np.asarray(v_base, dtype=np.float64)
+    vc = np.asarray(v_critic, dtype=np.float64)
+    hn = np.asarray(hazard_nll, dtype=np.float64)
+    if dataset.num_rows > 0 and not (
+        bool(np.isfinite(y).all())
+        and bool(np.isfinite(vb).all())
+        and bool(np.isfinite(vc).all())
+        and bool(np.isfinite(hn).all())
+    ):
+        raise ValueError("Non-finite target or prediction in compute_world_sufficient_stats")
+    err_b = y - vb
+    err_c = y - vc
 
     strata_masks = {s: _stratum_mask(dataset, s) for s in EVAL_STRATA}
     records: list[dict[str, Any]] = []
@@ -549,7 +663,7 @@ def compute_world_sufficient_stats(
                     "sse_critic": float(np.sum(ec * ec)),
                     "sae_base": float(np.sum(np.abs(eb))),
                     "sae_critic": float(np.sum(np.abs(ec))),
-                    "sum_hazard_nll": float(np.sum(hazard_nll[m])),
+                    "sum_hazard_nll": float(np.sum(hn[m])),
                 }
             else:
                 s_dict[s_name] = {
@@ -585,6 +699,10 @@ def build_held_out_root_records(
     n = len(roots)
     if n == 0:
         return []
+    if branched.num_roots != n:
+        raise ValueError(f"branched.num_roots ({branched.num_roots}) != len(roots) ({n})")
+    _assert_valid_branched_roots(branched, require_score=True, label="held_out_branched_roots")
+
     horizon = float(branched.horizon)
     preds = predict_critic_on_dataset(
         critic,
@@ -594,20 +712,43 @@ def build_held_out_root_records(
         h_rem_override=horizon,
     )
     s_hat_all = preds["s_hrem_all"]  # (R, 6) exact at horizon (== s_300 when horizon == 300)
+    s_hat_logits_all = preds["s_hrem_logits_all"]  # (R, 6) exact survival logits at horizon
     m_hat_all = (1000.0 / horizon) * preds["q_all"]  # (R, 6) exact (== m_300 when horizon == 300)
 
     lengths_np = np.asarray([r.hero_length for r in roots], dtype=np.float64)
-    base_s, base_m = baseline.predict_h300(lengths_np)
+    base_s, base_m, base_s_logits = baseline.predict_h300_with_logits(lengths_np, horizon=horizon)
 
     out_rows: list[dict[str, Any]] = []
     for i, snap in enumerate(roots):
-        leg = branched.legal_mask[i]
+        leg = np.asarray(branched.legal_mask[i], dtype=bool)
+        if not bool(leg.any()):
+            raise ValueError(f"Held-out root {snap.root_uid} has zero legal actions")
         b8_a = int(branched.b8_action[i])
         oracle_a = int(branched.oracle_a_star[i])
         critic_a, _ = _select_critic_action(s_hat_all[i], m_hat_all[i], leg, b8_a)
         # Board/action-blind (L_t, H_rem) baseline assigns identical value to every legal action,
         # so tie-breaking selects b8_a whenever b8_a is legal.
         base_a = b8_a if bool(leg[b8_a]) else int(np.flatnonzero(leg)[0])
+
+        s_sc_leg = branched.s_score[i][leg]
+        m_sc_leg = branched.m_score[i][leg]
+        if not (bool(np.isfinite(s_sc_leg).all()) and bool(np.isfinite(m_sc_leg).all())):
+            raise ValueError(f"Non-finite scoring branch outcome on root {snap.root_uid}")
+
+        with _float32_no_autocast(torch.device("cpu")):
+            s_sc_leg_t = torch.as_tensor(s_sc_leg, dtype=torch.float32)
+            s_logit_leg_t = torch.as_tensor(s_hat_logits_all[i][leg], dtype=torch.float32).clamp(
+                -12.0, 12.0
+            )
+            base_logit_leg_t = torch.full_like(
+                s_sc_leg_t, float(np.clip(base_s_logits[i], -12.0, 12.0))
+            )
+            critic_s_bce = float(
+                F.binary_cross_entropy_with_logits(s_logit_leg_t, s_sc_leg_t).item()
+            )
+            base_s_bce = float(
+                F.binary_cross_entropy_with_logits(base_logit_leg_t, s_sc_leg_t).item()
+            )
 
         s_sc = np.where(leg, branched.s_score[i], 0.0)
         m_sc = np.where(leg, branched.m_score[i], 0.0)
@@ -629,9 +770,13 @@ def build_held_out_root_records(
                 "s_score": [round(float(x), 6) for x in s_sc.tolist()],
                 "m_score": [round(float(x), 4) for x in m_sc.tolist()],
                 "s_hat": [round(float(x), 6) for x in s_hat_all[i].tolist()],
+                "s_hat_logit": [round(float(x), 6) for x in s_hat_logits_all[i].tolist()],
                 "m_hat": [round(float(x), 4) for x in m_hat_all[i].tolist()],
                 "base_s_hat": round(float(base_s[i]), 6),
+                "base_s_hat_logit": round(float(base_s_logits[i]), 6),
                 "base_m_hat": round(float(base_m[i]), 4),
+                "critic_s_bce": round(critic_s_bce, 6),
+                "base_s_bce": round(base_s_bce, 6),
             }
         )
     return out_rows
