@@ -1,0 +1,567 @@
+"""Fail-closed serialized-staging Watch6 V3 dispatcher adapter wrapping tools/ops/dispatch.sh.
+
+Preserves all Watch6 V3 qualified dispatcher checks, staging locks (`watch6-staging.lock`),
+reconciliation fences (`watch6-staging-reconcile.json`), canary verification, L4-only W4
+admission, and baseline closure equality checks while recognizing PROVEN never-allocated
+attempts (Ruling Point 4) and requiring Astra's re-ratified accounting receipt before live dispatch.
+"""
+
+from __future__ import annotations
+
+import ast
+import fcntl
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+from research.watch6_search_efficacy_v3 import dispatch as v3_dispatch
+from research.watch6_search_efficacy_v3 import protocol as p
+from tools.watch6_v3_accounting import ADAPTER_ROOT, verify_baseline_closure
+from tools.watch6_v3_accounting.admission import admit
+from tools.watch6_v3_accounting.proof import (
+    is_proven_never_allocated_attempt,
+    strip_colab_update_notice,
+)
+from tools.watch6_v3_accounting.ratify import (
+    validate_ruling_receipt,
+    verify_amendment_document,
+)
+
+DEFAULT_OPERATOR_ROOT = v3_dispatch.DEFAULT_OPERATOR_ROOT
+DEFAULT_OPS_DIR = v3_dispatch.DEFAULT_OPS_DIR
+STAGING_WAIT_TIMEOUT_SECONDS = v3_dispatch.STAGING_WAIT_TIMEOUT_SECONDS
+RECONCILE_MARKER_NAME = v3_dispatch.RECONCILE_MARKER_NAME
+FALLBACK_SUFFIX = v3_dispatch.FALLBACK_SUFFIX
+RETRY_SUFFIX = v3_dispatch.RETRY_SUFFIX
+ALLOCATION_UNAVAILABLE = v3_dispatch.ALLOCATION_UNAVAILABLE
+POST_ALLOCATION_ARTIFACTS = v3_dispatch.POST_ALLOCATION_ARTIFACTS
+
+_fallback_sibling_name = v3_dispatch._fallback_sibling_name
+_read_regular_json_object = v3_dispatch._read_regular_json_object
+_log_has_exit = v3_dispatch._log_has_exit
+_has_upload_measurement = v3_dispatch._has_upload_measurement
+_has_stopped_or_unassigned_receipt = v3_dispatch._has_stopped_or_unassigned_receipt
+_has_post_allocation_artifacts = v3_dispatch._has_post_allocation_artifacts
+_has_live_unallocated_proof = v3_dispatch._has_live_unallocated_proof
+_is_aborted_prestart_dispatch = v3_dispatch._is_aborted_prestart_dispatch
+_load_ops_manifest = v3_dispatch._load_ops_manifest
+_collect_attempts = v3_dispatch._collect_attempts
+_collect_own_attempts = v3_dispatch._collect_own_attempts
+_parse_reconcile_ops_dir = v3_dispatch._parse_reconcile_ops_dir
+
+
+def _has_preassignment_refusal_receipt(
+    manifest_data: dict[str, object],
+    out_dir: Path,
+    log_path: Path,
+) -> bool:
+    """Positive proof that colab new was refused by the server before any endpoint assignment."""
+    if v3_dispatch._has_preassignment_refusal_receipt(manifest_data, out_dir, log_path):
+        return True
+    if not _log_has_exit(log_path, nonzero_only=True) or _has_post_allocation_artifacts(out_dir):
+        return False
+    receipt_path = out_dir / "receipt.json"
+    exec_path = out_dir / "manifest.json"
+    receipt = _read_regular_json_object(receipt_path)
+    exec_manifest = _read_regular_json_object(exec_path)
+    if receipt is None or exec_manifest is None:
+        return False
+    try:
+        exec_sha = hashlib.sha256(exec_path.read_bytes()).hexdigest()
+    except OSError:
+        return False
+    job_id = manifest_data.get("job_id")
+    commit = manifest_data.get("commit")
+    if (
+        receipt.get("manifest_sha256") != exec_sha
+        or not isinstance(job_id, str)
+        or not job_id
+        or receipt.get("job_id") != exec_manifest.get("job_id")
+        or exec_manifest.get("job_id") != job_id
+        or not isinstance(commit, str)
+        or not commit
+        or receipt.get("commit") != exec_manifest.get("commit")
+        or exec_manifest.get("commit") != commit
+    ):
+        return False
+
+    req = manifest_data.get("requirements")
+    accelerator = req.get("gpu") if isinstance(req, dict) else None
+    if not isinstance(accelerator, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", accelerator):
+        return False
+    session = receipt.get("session")
+    if not isinstance(session, str) or not re.fullmatch(r"snake-[a-z0-9_-]+-[a-f0-9]{12}", session):
+        return False
+    error = receipt.get("error", "")
+    if not isinstance(error, str) or not error.startswith("Refused(") or not error.endswith(")"):
+        return False
+    try:
+        detail = ast.literal_eval(error[len("Refused(") : -1])
+    except (ValueError, SyntaxError):
+        return False
+    if not isinstance(detail, str):
+        return False
+    normalized = strip_colab_update_notice(detail)
+    expected = (
+        f"colab new failed (1): [colab] Creating session '{session}'...\n"
+        f"{ALLOCATION_UNAVAILABLE}\n"
+    )
+    service_unavailable = normalized.startswith("colab new failed (1): ")
+    if service_unavailable:
+        lines = normalized.removeprefix("colab new failed (1): ").strip().splitlines()
+        service_unavailable = (
+            re.fullmatch(
+                r"ColabRequestError: Failed to issue request POST "
+                r"https://colab\.research\.google\.com/tun/m/assign"
+                r"\?nbh=[a-f0-9_.-]+&variant=GPU&accelerator=" + re.escape(accelerator) + r": "
+                r"(?:Service Unavailable|503(?: Service Unavailable)?)",
+                lines[-1] if lines else "",
+            )
+            is not None
+        )
+    calls = receipt.get("cli_calls")
+    return (
+        (normalized == expected or service_unavailable)
+        and receipt.get("status") == "INCOMPLETE"
+        and receipt.get("failure_class") == "SUPERVISOR"
+        and receipt.get("endpoint") is None
+        and isinstance(receipt.get("accounting"), dict)
+        and receipt["accounting"].get("allocated_endpoint") is None
+        and receipt.get("terminal") is None
+        and receipt.get("cleanup_error") == "ALLOCATION_UNRESOLVED: retained pending record"
+        and receipt.get("stop_verified") is False
+        and all(receipt.get(k) == [] for k in ("exports", "transfers", "contents_transfers"))
+        and receipt.get("control_operations", []) == []
+        and isinstance(calls, list)
+        and all(isinstance(call, dict) for call in calls)
+        and sum(call.get("command") == "new" for call in calls) == 1
+        and all(call.get("command") in {"version", "sessions", "usage", "new"} for call in calls)
+        and next(call for call in calls if call["command"] == "new").get("status") == "failed"
+    )
+
+
+def _attempt_state(
+    ops_dir: Path,
+    name: str,
+    manifest_file: Path | None,
+    data: dict[str, object],
+    out_dir: Path,
+    log_path: Path,
+) -> str:
+    if _has_upload_measurement(out_dir):
+        return "DONE"
+    if _has_stopped_or_unassigned_receipt(out_dir / "receipt.json"):
+        return "DONE"
+    if is_proven_never_allocated_attempt(None, out_dir, ops_dir=ops_dir, ops_name=name):
+        return "DONE"
+    if _has_live_unallocated_proof(ops_dir, name, out_dir):
+        return "DONE"
+    if _has_preassignment_refusal_receipt(data, out_dir, log_path):
+        return "DONE"
+    if _log_has_exit(log_path):
+        if not out_dir.exists() and not out_dir.is_symlink():
+            return "DONE"
+        return "FENCE"
+    if manifest_file is not None and _is_aborted_prestart_dispatch(
+        manifest_file, ops_dir, name, out_dir
+    ):
+        return "DONE"
+    return "STAGING"
+
+
+def _write_reconcile_fence(
+    ops_dir: Path, *, reason: str, job_name: str, details: dict[str, object]
+) -> Path:
+    ops_dir.mkdir(parents=True, exist_ok=True)
+    fence_path = ops_dir / RECONCILE_MARKER_NAME
+    payload = {
+        "schema": "watch6-v3-staging-reconcile-fence/v1",
+        "created_at": time.time(),
+        "reason": reason,
+        "job_name": job_name,
+        "details": details,
+        "reconcile_command": (
+            f"python -m tools.watch6_v3_accounting.dispatch "
+            f"--reconcile-staging --ops-dir {ops_dir}"
+        ),
+    }
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", dir=ops_dir, prefix=".reconcile-", delete=False
+    ) as tmp:
+        json.dump(payload, tmp, indent=2, sort_keys=True)
+        tmp.write("\n")
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp_path = Path(tmp.name)
+    os.replace(tmp_path, fence_path)
+    return fence_path
+
+
+def _require_no_reconcile_fence(ops_dir: Path) -> None:
+    fence_path = ops_dir / RECONCILE_MARKER_NAME
+    if fence_path.exists() or fence_path.is_symlink():
+        raise RuntimeError(
+            f"REFUSE: unreconciled staging serialization fence present at {fence_path}; "
+            "verify all active sessions/staging outputs and run "
+            "`python -m tools.watch6_v3_accounting.dispatch "
+            f"--reconcile-staging --ops-dir {ops_dir}`"
+        )
+
+
+def job_is_actively_staging(manifest_file: Path, ops_dir: Path) -> bool:
+    """True iff an ops/manifests/<name>.json job (or its sibling) is inside its staging window."""
+    if manifest_file.name.endswith(".live.json"):
+        return False
+    attempts = _collect_attempts(manifest_file, ops_dir)
+    any_staging = False
+    for attempt_name, attempt_mf, attempt_data, attempt_out, attempt_log in attempts:
+        state = _attempt_state(
+            ops_dir, attempt_name, attempt_mf, attempt_data, attempt_out, attempt_log
+        )
+        if state == "FENCE":
+            fence = _write_reconcile_fence(
+                ops_dir,
+                reason="exited_manifest_missing_staging_or_stop_evidence",
+                job_name=manifest_file.stem,
+                details={
+                    "manifest": str(manifest_file),
+                    "attempt": attempt_name,
+                    "output_dir": str(attempt_out),
+                },
+            )
+            raise RuntimeError(
+                f"REFUSE: exited ops manifest {manifest_file.name} left unreconciled output "
+                f"{attempt_out} without upload-measurement.json or stopped receipt.json "
+                f"(fence: {fence})"
+            )
+        if state == "STAGING":
+            any_staging = True
+    return any_staging
+
+
+def wait_other_jobs_staged(
+    ops_dir: Path,
+    exclude_name: str,
+    *,
+    timeout: float = STAGING_WAIT_TIMEOUT_SECONDS,
+    poll_seconds: float = 2.0,
+) -> None:
+    """Wait until zero other jobs are staging; on expiry fail CLOSED and write reconcile fence."""
+    _require_no_reconcile_fence(ops_dir)
+    manifests_dir = ops_dir / "manifests"
+    if not manifests_dir.is_dir():
+        return
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        busy = [
+            mf
+            for mf in sorted(manifests_dir.glob("*.json"))
+            if mf.stem != exclude_name and job_is_actively_staging(mf, ops_dir)
+        ]
+        if not busy:
+            return
+        if time.monotonic() >= deadline:
+            blocking = [mf.name for mf in busy]
+            fence = _write_reconcile_fence(
+                ops_dir,
+                reason="wait_other_jobs_staged_expired",
+                job_name=exclude_name,
+                details={
+                    "timeout_seconds": timeout,
+                    "blocking_manifests": blocking,
+                },
+            )
+            raise RuntimeError(
+                f"REFUSE: staging serialization wait expired after {timeout:g}s "
+                f"for {exclude_name}; active/stale staging manifests require "
+                f"reconciliation: {blocking} (fence: {fence})"
+            )
+        time.sleep(min(poll_seconds, max(0.01, deadline - time.monotonic())))
+
+
+def wait_own_job_staged(
+    ops_dir: Path,
+    job_name: str,
+    raw_output_dir: str,
+    log_path: Path,
+    *,
+    timeout: float = STAGING_WAIT_TIMEOUT_SECONDS,
+    poll_seconds: float = 1.0,
+) -> None:
+    """Hold watch6-staging.lock until own job finishes staging; on expiry fail CLOSED with fence."""
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        attempts = _collect_own_attempts(ops_dir, job_name, raw_output_dir, log_path)
+        staging_attempts: list[tuple[Path, Path]] = []
+        for attempt_name, attempt_mf, attempt_data, attempt_out, attempt_log in attempts:
+            state = _attempt_state(
+                ops_dir, attempt_name, attempt_mf, attempt_data, attempt_out, attempt_log
+            )
+            if state == "FENCE":
+                fence = _write_reconcile_fence(
+                    ops_dir,
+                    reason="own_job_exited_without_staging_or_stop_evidence",
+                    job_name=job_name,
+                    details={
+                        "attempt": attempt_name,
+                        "output_dir": str(attempt_out),
+                        "log_path": str(attempt_log),
+                    },
+                )
+                raise RuntimeError(
+                    f"REFUSE: own job {job_name} exited during staging without "
+                    f"upload-measurement.json or stopped receipt.json ({attempt_out}); "
+                    f"reconcile required (fence: {fence})"
+                )
+            if state == "STAGING":
+                staging_attempts.append((attempt_out, attempt_log))
+        if not staging_attempts:
+            return
+        if time.monotonic() >= deadline:
+            active_out, active_log = staging_attempts[-1]
+            fence = _write_reconcile_fence(
+                ops_dir,
+                reason="wait_own_job_staged_expired",
+                job_name=job_name,
+                details={
+                    "timeout_seconds": timeout,
+                    "output_dir": str(active_out),
+                    "log_path": str(active_log),
+                },
+            )
+            raise RuntimeError(
+                f"REFUSE: own staging wait expired after {timeout:g}s for {job_name} "
+                f"({active_out}); reconcile runtime before any further dispatch (fence: {fence})"
+            )
+        time.sleep(min(poll_seconds, max(0.01, deadline - time.monotonic())))
+
+
+def reconcile_staging(ops_dir: Path) -> dict[str, object]:
+    """Verify under watch6-staging.lock that zero manifests remain staging, then clear fence."""
+    resolved_ops = ops_dir.resolve()
+    resolved_ops.mkdir(parents=True, exist_ok=True)
+    lock_path = resolved_ops / "watch6-staging.lock"
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        manifests_dir = resolved_ops / "manifests"
+        busy: list[str] = []
+        checked = 0
+        if manifests_dir.is_dir():
+            for mf in sorted(manifests_dir.glob("*.json")):
+                if mf.name.endswith(".live.json"):
+                    continue
+                checked += 1
+                if job_is_actively_staging(mf, resolved_ops):
+                    busy.append(mf.name)
+        if busy:
+            raise RuntimeError(
+                "REFUSE: cannot clear staging reconciliation fence; "
+                f"manifests still staging: {busy}"
+            )
+        fence_path = resolved_ops / RECONCILE_MARKER_NAME
+        had_fence = fence_path.exists() or fence_path.is_symlink()
+        fence_path.unlink(missing_ok=True)
+        return {
+            "status": "RECONCILED",
+            "ops_dir": str(resolved_ops),
+            "checked_manifests": checked,
+            "cleared_fence": had_fence,
+        }
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def _parse_cli(
+    argv: list[str],
+) -> tuple[str, Path, list[str], bool, Path, Path | None, Path | None, Path | None]:
+    """Parse adapter options while preserving exact tools/ops/dispatch.sh pass-through flags."""
+    operator_override: Path | None = None
+    ruling_override: Path | None = None
+    amendment_override: Path | None = None
+    filtered: list[str] = []
+    idx = 0
+    while idx < len(argv):
+        arg = argv[idx]
+        if arg == "--operator-root":
+            if idx + 1 >= len(argv):
+                raise ValueError("--operator-root requires a path")
+            operator_override = Path(argv[idx + 1]).resolve()
+            idx += 2
+            continue
+        if arg == "--ruling-json":
+            if idx + 1 >= len(argv):
+                raise ValueError("--ruling-json requires a path")
+            ruling_override = Path(argv[idx + 1]).resolve()
+            idx += 2
+            continue
+        if arg == "--amendment":
+            if idx + 1 >= len(argv):
+                raise ValueError("--amendment requires a path")
+            amendment_override = Path(argv[idx + 1]).resolve()
+            idx += 2
+            continue
+        filtered.append(arg)
+        idx += 1
+
+    dry_run = "--dry-run" in filtered
+    broker_override: Path | None = None
+    positionals = []
+    idx = 0
+    while idx < len(filtered):
+        token = filtered[idx]
+        if token in ("--broker", "--cwd", "--state-dir", "--dispatch-txt"):
+            if token == "--broker" and idx + 1 < len(filtered):
+                broker_override = Path(filtered[idx + 1]).resolve()
+            idx += 2
+            continue
+        if token.startswith("-"):
+            idx += 1
+            continue
+        positionals.append(token)
+        idx += 1
+
+    if len(positionals) == 1 and Path(positionals[0]).suffix == ".json":
+        manifest_path = Path(positionals[0]).resolve()
+        manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        name = str(manifest_data["job_id"])
+        flags = [a for a in filtered if a != positionals[0]]
+        forward = [
+            name,
+            str(manifest_path),
+            "--broker",
+            str(p.ROOT),
+            "--cwd",
+            str(p.ROOT),
+            *flags,
+        ]
+    elif len(positionals) >= 2:
+        name = positionals[0]
+        manifest_path = Path(positionals[1]).resolve()
+        forward = list(filtered)
+    else:
+        raise ValueError("usage: dispatch.sh <NAME> <MANIFEST> --broker ... --cwd ... [--dry-run]")
+
+    if operator_override is not None:
+        operator_root = operator_override
+    elif os.environ.get("WATCH6_OPERATOR_ROOT"):
+        operator_root = Path(os.environ["WATCH6_OPERATOR_ROOT"]).resolve()
+    elif (DEFAULT_OPERATOR_ROOT / "tools/ops/dispatch.sh").is_file():
+        operator_root = DEFAULT_OPERATOR_ROOT.resolve()
+    else:
+        operator_root = p.ROOT
+    return (
+        name,
+        manifest_path,
+        forward,
+        dry_run,
+        operator_root,
+        ruling_override,
+        amendment_override,
+        broker_override,
+    )
+
+
+def run_dispatch(
+    argv: list[str],
+    *,
+    ops_dir: Path | None = None,
+    staging_timeout: float = STAGING_WAIT_TIMEOUT_SECONDS,
+    poll_seconds: float = 1.0,
+    repo: Path | None = None,
+) -> int:
+    """Execute baseline closure check + V3 admission + fail-closed staging around dispatch.sh."""
+    if "--reconcile-staging" in argv:
+        resolved = _parse_reconcile_ops_dir(argv, ops_dir)
+        print(json.dumps(reconcile_staging(resolved), indent=2), flush=True)
+        return 0
+
+    root = (repo or ADAPTER_ROOT).resolve()
+    (
+        name,
+        manifest_path,
+        forward,
+        dry_run,
+        operator_root,
+        ruling_override,
+        amendment_override,
+        broker_override,
+    ) = _parse_cli(argv)
+
+    verify_baseline_closure(root)
+    if (
+        broker_override is not None
+        and broker_override != root
+        and (broker_override / ".git").exists()
+    ):
+        verify_baseline_closure(broker_override)
+
+    resolved_ops = (
+        ops_dir.resolve()
+        if ops_dir is not None
+        else Path(os.environ.get("OPS_DIR", str(DEFAULT_OPS_DIR))).resolve()
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    admit(manifest, ops_dir=resolved_ops, repo=root)
+
+    target_dispatch = operator_root / "tools/ops/dispatch.sh"
+    if not target_dispatch.is_file():
+        raise ValueError(f"missing operator dispatch.sh: {target_dispatch}")
+
+    if dry_run:
+        if amendment_override is not None:
+            verify_amendment_document(amendment_override, repo=root)
+        completed = subprocess.run([str(target_dispatch), *forward], check=False)
+        return completed.returncode
+
+    validate_ruling_receipt(
+        ruling_override,
+        amendment_override=amendment_override,
+        repo=root,
+    )
+    resolved_ops.mkdir(parents=True, exist_ok=True)
+    lock_path = resolved_ops / "watch6-staging.lock"
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        wait_other_jobs_staged(
+            resolved_ops, name, timeout=staging_timeout, poll_seconds=max(poll_seconds, 0.02)
+        )
+        completed = subprocess.run([str(target_dispatch), *forward], check=False)
+        if completed.returncode == 0:
+            wait_own_job_staged(
+                resolved_ops,
+                name,
+                manifest["output_dir"],
+                resolved_ops / "logs" / f"{name}.log",
+                timeout=staging_timeout,
+                poll_seconds=max(poll_seconds, 0.02),
+            )
+        return completed.returncode
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def main() -> None:
+    try:
+        rc = run_dispatch(sys.argv[1:])
+    except Exception as exc:
+        print(str(exc), file=sys.stderr, flush=True)
+        sys.exit(2)
+    sys.exit(rc)
+
+
+if __name__ == "__main__":
+    main()
