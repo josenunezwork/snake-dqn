@@ -73,3 +73,48 @@ predictions was bitwise equal to the OOF seal; seven targeted tests pass.
 Argon independent review is NOT RUN because live Gemini quota is 0%; see
 `review/REVIEW_STATUS.json` and the retained review request. No main merge,
 release or serving change.
+
+## Closed-loop exploration
+
+`closedloop_prepare inputs` fits exactly one fresh head on all 2,048 original
+training roots with the same 3,000-update recipe. Only selection suffixes supply
+training targets. A full-history Mac seed audit runs before gameplay. The new
+namespace is `t34-b8-head-closedloop-20261030/v1`, with separate main, canary and
+preflight domains and independent world/opponent keys.
+
+`closedloop.py` compares bare B8 with fixed margins **0, 10, 25, 50** on 192
+fresh paired v1 terminal-hero H5000 worlds, 64 per scripted/frozen/mixed roster.
+The proposed legal action replaces B8 only when its predicted advantage minus
+the predicted component for B8's action is strictly greater than the margin.
+B8 wins equality. No margin or checkpoint is selected from the results.
+
+The GPU runner reuses the pilot CT simulator, canonical B8 observation/mask and
+batched frozen/scripted opponents. It duplicates the world and opponent RNG keys
+across all five arms, checks complete initial-state digests, excludes dead hero
+frames from mass, and divides mass/alive frames by H5000. Only living decisions
+enter override denominators. Opponents respawn; the hero does not. World batches
+are immutable, namespace/allocation/head-bound units. Partial batches are never
+published. A verified ledger skips exactly complete units; the Mac receipt-bound
+ledger builder refuses duplicate units and computes no outcomes.
+
+`closedloop_readout` opens the verified complete three-batch union only on the
+Mac. It reports every margin plus B8, each mix and equal-weight overall results:
+paired mass delta, one-sided LB90, central CI95, deaths, alive fraction and
+override rate. Percentile bootstrap uses 10,000 whole paired-world draws within
+mix, seed 343014; intervals condition on the single fitted head.
+
+Prepare inputs, run the tiny real Mac entrypoint, commit/publish the source, then
+seal a canary packet with `python -m research.b8_head_test.closedloop_prepare
+packet --input-dir INPUTS --output FRESH_PACKET --commit FULL_SHA`. Run its
+`DISPATCH.txt` dry-run and enqueue through the live `tools/ops/ready_queue.py`.
+The A100 canary uses three excluded full-arena H64 worlds and all five arms. A
+main packet uses the same source and inputs and binds its genuine stopped canary
+receipt via `--receipt CANARY_OUTPUT/receipt.json`. The ready queue may prepare
+that main only after the canary passes. The main forecast is 90 minutes; the
+whole-session runaway timeout is 180 minutes (base 90, doubled), with informational
+A100 cap 24 units and reserve 4 units. These are forecasts, not measured A100
+performance for this head.
+
+Watch6-v2 is omitted from this packet: the reused simulator's contract is v1
+terminal-hero skill, while product Watch6-v2 requires v2 mechanics, continuous
+hero respawn and a different roster. Adding that adapter is separate work.
