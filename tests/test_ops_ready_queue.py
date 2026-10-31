@@ -643,7 +643,8 @@ def test_lock_refusal_backs_off_only_without_identity_residue(tmp_path, residue)
         assert rq.occupancy(queue, {}, set()) == (0, 0)
 
 
-def test_real_worker_retries_lock_refusal_with_fresh_log(tmp_path):
+@pytest.mark.parametrize("kind", ["lock", "capacity"])
+def test_real_worker_retries_transient_refusal_with_fresh_log(tmp_path, kind):
     ops = add_jobs(tmp_path, 1)
     prepare = tmp_path / "prepare.py"
     prepare.write_text(
@@ -652,11 +653,14 @@ def test_real_worker_retries_lock_refusal_with_fresh_log(tmp_path):
     with rq.locked(ops) as queue:
         queue["jobs"][0]["prepare_command"] = [sys.executable, str(prepare)]
     script = tmp_path / "dispatch.sh"
+    refusal = (
+        'printf "REFUSE: account allocation lock is held: %s/alloc.lock\\n" "$OPS_DIR"\n'
+        if kind == "lock"
+        else 'printf "REFUSE: account-wide assignment cap 3 (including notebooks)\\n"\n'
+    )
     script.write_text(
         '#!/bin/sh\nif [ ! -f "$OPS_DIR/refused" ]; then\n'
-        'touch "$OPS_DIR/refused"\n'
-        'printf "REFUSE: account allocation lock is held: %s/alloc.lock\\n" "$OPS_DIR"\n'
-        'exit 1\nfi\nprintf called >> "$OPS_DIR/calls"\n'
+        'touch "$OPS_DIR/refused"\n' + refusal + 'exit 1\nfi\nprintf called >> "$OPS_DIR/calls"\n'
     )
     script.chmod(0o755)
     assert rq.tick(ops)["dispatched"] == ["q0"]
@@ -679,3 +683,134 @@ def test_real_worker_retries_lock_refusal_with_fresh_log(tmp_path):
     wait_status("LAUNCHED")
     assert (ops / "calls").read_text() == "called"
     assert len(list(ops.glob("queue-worker-q0*.log"))) == 2
+
+
+def account_cap_receipt(manifest, log):
+    receipt = pending_fence_receipt(manifest, log)
+    receipt.update(
+        failure_class="ACCOUNTING",
+        error="Refused('account-wide assignment cap 3 (including notebooks)')",
+        usage_before={"assignments": 3.0, "balance": 685.97, "rate": 10.61},
+        cli_calls=[
+            {"command": command, "operation": "control", "status": "completed", "attempt": 1}
+            for command in ("version", "sessions", "usage")
+        ],
+    )
+    write(Path(ar.read(manifest)["output_dir"]) / "receipt.json", receipt)
+    return receipt
+
+
+def test_account_cap_receipt_queues_fresh_completion_with_backoff(tmp_path):
+    ops = add_jobs(tmp_path, 1)
+    manifest = write(ops / "manifests/job0.json", ar.read(tmp_path / "job0.json"))
+    account_cap_receipt(manifest, ops / "logs/job0.log")
+    with rq.locked(ops) as queue:
+        queue["jobs"][0]["retry_limit"] = 2
+    assert rq.tick(ops, inventory=set())["dispatched"] == []
+    parent, retry = ar.read(ops / "ready-queue.json")["jobs"]
+    assert parent["status"] == "FAILED" and parent["retry_id"] == retry["id"]
+    assert retry["status"] == "READY" and retry["not_before"] > time.time()
+    successor = ar.read(Path(retry["manifest"]))
+    original = ar.read(manifest)
+    assert successor["job_id"] != original["job_id"]
+    assert successor["output_dir"] != original["output_dir"]
+    assert successor["completion_attempt"] == 1
+    for key in original.keys() - {"job_id", "output_dir", "completion_attempt"}:
+        assert successor[key] == original[key]
+    assert rq.occupancy(ar.read(ops / "ready-queue.json"), rq.observations(ops), set()) == (0, 0)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "new_call",
+        "failed_read",
+        "missing_read",
+        "active",
+        "pending",
+        "endpoint",
+        "error",
+        "exports",
+        "export_tree",
+        "export_file",
+        "hardware",
+        "terminal",
+        "cleanup",
+        "hash",
+        "usage_after",
+        "control_operation",
+        "transfers",
+        "contents_transfers",
+        "no_exit",
+    ],
+)
+def test_account_cap_retry_refuses_residue_and_ambiguous_evidence(packet, tmp_path, fault):
+    log = tmp_path / "job.log"
+    receipt = account_cap_receipt(packet, log)
+    value = ar.read(packet)
+    output = Path(value["output_dir"])
+    if fault in {"active", "pending"}:
+        write(Path.home() / ".config/colab-cli/snake" / f"{fault}-{receipt['session']}.json", {})
+    elif fault == "new_call":
+        receipt["cli_calls"].append({"command": "new", "status": "failed"})
+    elif fault == "failed_read":
+        receipt["cli_calls"][1]["status"] = "failed"
+    elif fault == "missing_read":
+        receipt["cli_calls"].pop()
+    elif fault == "endpoint":
+        receipt["endpoint"] = "allocated"
+    elif fault == "error":
+        receipt["error"] = "Refused('account-wide assignment cap exceeded during job')"
+    elif fault in {"exports", "transfers", "contents_transfers", "control_operation"}:
+        receipt["control_operations" if fault == "control_operation" else fault] = [{"path": "x"}]
+    elif fault == "export_tree":
+        write(output / "exports/unit", {})
+    elif fault == "export_file":
+        write(output / "exports", {})
+    elif fault in {"hardware", "terminal"}:
+        write(output / f"{fault}.json", {})
+    elif fault == "cleanup":
+        receipt["cleanup_error"] = "unknown"
+    elif fault == "usage_after":
+        receipt["usage_after"] = receipt["usage_before"]
+    elif fault == "no_exit":
+        log.write_text("still running\n")
+    else:
+        receipt["manifest_sha256"] = "0" * 64
+    write(output / "receipt.json", receipt)
+    with pytest.raises(ValueError):
+        ar.eligible(value, output, log)
+
+
+@pytest.mark.parametrize(
+    "residue", [None, "dispatch", "manifest", "live_manifest", "output", "log"]
+)
+def test_capacity_worker_backs_off_only_without_identity_residue(tmp_path, residue):
+    ops = add_jobs(tmp_path, 1)
+    script = tmp_path / "dispatch.sh"
+    script.write_text(
+        '#!/bin/sh\nprintf "REFUSE: account-wide assignment cap 3 (including notebooks)\\n"\n'
+        "exit 1\n"
+    )
+    script.chmod(0o755)
+    if residue == "dispatch":
+        (ops / "dispatch/job0").mkdir(parents=True)
+    elif residue == "manifest":
+        write(ops / "manifests/job0.json", {})
+    elif residue == "live_manifest":
+        write(ops / "manifests/job0.live.json", {})
+    elif residue == "output":
+        Path(ar.read(tmp_path / "job0.json")["output_dir"]).mkdir()
+    elif residue == "log":
+        (ops / "logs").mkdir()
+        (ops / "logs/job0.log").write_text("INCOMPLETE\n")
+    with rq.locked(ops) as queue:
+        queue["jobs"][0].update(status="DISPATCHING", token="claim")
+    rq.worker(ops, "q0", "claim")
+    queue = ar.read(ops / "ready-queue.json")
+    row = queue["jobs"][0]
+    assert row["status"] == ("LAUNCHED" if residue == "log" else "HELD" if residue else "READY")
+    if residue is None:
+        assert row["capacity_refusals"] == 1 and not row["claimed"]
+        assert not rq.ready(queue, row)
+        assert rq.occupancy(queue, {}, set()) == (0, 0)

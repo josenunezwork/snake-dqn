@@ -31,10 +31,11 @@ def digest(path: Path) -> str:
 
 
 def blocked_before_allocation(manifest: dict[str, Any], output: Path, log: Path) -> bool:
-    """Recognize the exact broker pending-fence refusal before any CLI operation.
+    """Recognize exact pending-fence or account-cap refusals before allocation.
 
-    This producer checks the fence before version/sessions/new and writes an
-    immutable receipt. It never acquired an assignment, so there is none to stop.
+    The cap check permits only completed read-only version/sessions/usage calls.
+    Neither refusal acquired an assignment, so there is none to stop. Any identity
+    residue or runtime operation keeps the attempt ineligible.
     """
     path = output / "receipt.json"
     if not path.is_file() or not (output / "manifest.json").is_file():
@@ -42,22 +43,41 @@ def blocked_before_allocation(manifest: dict[str, Any], output: Path, log: Path)
     receipt = read(path)
     session = receipt.get("session", "")
     account = Path.home() / ".config/colab-cli/snake"
+    calls = receipt.get("cli_calls")
+    pending_fence = (
+        receipt.get("error")
+        == "Refused('unresolved allocation/stop: reconcile pending records first')"
+        and receipt.get("failure_class") == "SUPERVISOR"
+        and receipt.get("usage_before") is None
+        and calls == []
+    )
+    account_cap = (
+        receipt.get("error") == "Refused('account-wide assignment cap 3 (including notebooks)')"
+        and receipt.get("failure_class") == "ACCOUNTING"
+        and isinstance(receipt.get("usage_before"), dict)
+        and isinstance(calls, list)
+        and len(calls) == 3
+        and all(
+            isinstance(call, dict)
+            and call.get("command") == command
+            and call.get("operation") == "control"
+            and call.get("status") == "completed"
+            and call.get("attempt") == 1
+            for call, command in zip(calls, ("version", "sessions", "usage"))
+        )
+    )
     return (
         re.search(r"^EXIT=[1-9]\d*$", log.read_text(), re.MULTILINE) is not None
-        and receipt.get("error")
-        == "Refused('unresolved allocation/stop: reconcile pending records first')"
+        and (pending_fence or account_cap)
         and receipt.get("status") == "INCOMPLETE"
-        and receipt.get("failure_class") == "SUPERVISOR"
         and receipt.get("endpoint") is None
         and receipt.get("accounting") is None
-        and receipt.get("usage_before") is None
         and receipt.get("usage_after") is None
         and receipt.get("cleanup_error") is None
         and receipt.get("terminal") is None
         and all(
             receipt.get(k) == []
             for k in (
-                "cli_calls",
                 "control_operations",
                 "exports",
                 "transfers",
@@ -70,6 +90,9 @@ def blocked_before_allocation(manifest: dict[str, Any], output: Path, log: Path)
         and not (account / f"pending-{session}.json").exists()
         and not (account / f"active-{session}.json").exists()
         and not any((output / name).exists() for name in ("hardware.json", "terminal.json"))
+        and not (output / "exports").is_symlink()
+        and not (output / "exports").is_file()
+        and not ((output / "exports").exists() and any((output / "exports").rglob("*")))
     )
 
 

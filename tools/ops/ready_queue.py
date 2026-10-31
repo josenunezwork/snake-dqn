@@ -541,7 +541,11 @@ def tick(
             row.update(status="DISPATCHING", token=uuid.uuid4().hex, claimed=False)
             save(ops / "ready-queue.json", queue)
             event(ops, "READY_DISPATCHING", id=row["id"], command=shlex.join(row["argv"]))
-            suffix = "-" + row["token"] if row.get("lock_refusals") else ""
+            suffix = (
+                "-" + row["token"]
+                if row.get("lock_refusals") or row.get("capacity_refusals")
+                else ""
+            )
             worker_log = ops / ("queue-worker-" + row["id"] + suffix + ".log")
             try:
                 with worker_log.open("xb") as stream:
@@ -585,6 +589,7 @@ def worker(ops: Path, identity: str, token: str) -> None:
     _, manifest, _, cwd = dispatch_parts(argv)
     no_submission = False
     lock_refused = False
+    capacity_refused = False
     try:
         if prepare_command:
             subprocess.run(prepare_command, cwd=cwd, check=True, timeout=600)
@@ -630,7 +635,15 @@ def worker(ops: Path, identity: str, token: str) -> None:
             and not (ops / "dispatch" / argv[1]).exists()
             and not (ops / "manifests" / (argv[1] + ".json")).exists()
         )
-        if lock_refused:
+        capacity_refused = (
+            no_submission
+            and output.strip() == "REFUSE: account-wide assignment cap 3 (including notebooks)"
+            and not (ops / "dispatch" / argv[1]).exists()
+            and not (ops / "manifests" / (argv[1] + ".json")).exists()
+            and not (ops / "manifests" / (argv[1] + ".live.json")).exists()
+            and not Path(auto_retry.read(manifest)["output_dir"]).exists()
+        )
+        if lock_refused or capacity_refused:
             status = "READY"
         error = None if result.returncode == 0 else f"dispatch exit={result.returncode}"
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
@@ -640,16 +653,21 @@ def worker(ops: Path, identity: str, token: str) -> None:
         row.update(status=status, error=error)
         if no_submission:
             row["dispatch_attempted"] = False
-        if lock_refused:
-            row["lock_refusals"] = row.get("lock_refusals", 0) + 1
-            row["not_before"] = time.time() + retry_backoff(row["lock_refusals"])
+        if lock_refused or capacity_refused:
+            counter = "lock_refusals" if lock_refused else "capacity_refusals"
+            row[counter] = row.get(counter, 0) + 1
+            row["not_before"] = time.time() + retry_backoff(row[counter])
             row["claimed"] = False
         event(
             ops,
             (
                 "READY_LOCK_BACKOFF"
                 if lock_refused
-                else ("READY_SUBMITTED" if status == "LAUNCHED" else "READY_HELD")
+                else (
+                    "READY_CAPACITY_BACKOFF"
+                    if capacity_refused
+                    else ("READY_SUBMITTED" if status == "LAUNCHED" else "READY_HELD")
+                )
             ),
             id=identity,
             error=error,

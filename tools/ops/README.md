@@ -427,7 +427,8 @@ exports, including partial files. Known classes are `RPC_EXEC_POLL_TIMEOUT`,
 `TRANSPORT_TIMEOUT`, `UPLOAD_CAP`, `ALLOCATION_REFUSED` and
 `ALLOCATION_UNAVAILABLE`; positive transport/error evidence is required and
 science, numerical, integrity and ambiguous timeout failures refuse. Historical
-pre-allocation `stop_verified: false` receipts are never retried. Standalone
+pre-allocation `stop_verified: false` receipts require the exact no-assignment
+proof described below; the flag alone never authorizes retry. Standalone
 accelerator refusal uses the existing exact GET-only no-assignment reconciliation
 before retiring its pending intent; it does not rewrite that receipt or authorize
 an automatic retry.
@@ -612,3 +613,16 @@ refusal is also retryable only with the exact bound pre-allocation receipt, zero
 CLI calls/transfers/exports and no pending/active identity for that session.
 Already consumed ready names are adopted only when their ops snapshot matches
 the enqueued manifest; mismatches are held. Dependencies follow the final retry.
+
+The exact `account-wide assignment cap 3 (including notebooks)` refusal is
+transient. Before any dispatch identity is reserved, a completed refusal with
+no dispatch directory, manifest snapshot, output directory or supervisor log
+returns the same queue row to READY with backoff and a fresh worker log. After
+the supervisor has written a bound refusal receipt, the name is consumed:
+only a fresh completion identity may become READY, counting against the package's
+two-completion limit. That receipt must show only successful read-only
+`version`, `sessions`, `usage` calls, `INCOMPLETE`/`ACCOUNTING`, no endpoint,
+accounting, runtime operations, transfers, exports, child result or cleanup error,
+and no pending/active identity or hardware/terminal file. The original receipt
+is retained unchanged. Cap errors during a job and ambiguous evidence remain
+ineligible. Neither path calls the provider allocator directly.
