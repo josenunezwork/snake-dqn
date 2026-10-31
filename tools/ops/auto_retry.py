@@ -158,6 +158,8 @@ def eligible(
         "UPLOAD_CAP": r"upload|transfer.*cap",
         "ALLOCATION_REFUSED": r"allocation|assign|capacity|unavailable|503",
         "ALLOCATION_UNAVAILABLE": r"allocation|assign|capacity|unavailable|503",
+        # Kernel-creation guard: a pre-start refusal; stop_verified + zero exports are checked above.
+        "SUPERVISOR": r"kernel creation already attempted; refusing uncertain retry",
     }
     if category not in patterns or not re.search(patterns[category], error, re.I):
         raise ValueError("unknown or ambiguous mechanical failure")
