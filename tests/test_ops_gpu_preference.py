@@ -918,3 +918,51 @@ def test_reconcile_honors_account_assignment_cap(fixture, case):
         assert result.returncode == 0, result.stderr
     else:
         assert result.returncode != 0 and "membership changed" in result.stderr
+
+
+@pytest.mark.parametrize("notice", [False, True])
+def test_precondition_refusal_matches_with_or_without_update_notice(tmp_path, notice):
+    import json
+
+    from tools.ops import dispatch as d
+
+    session = "snake-job-abc"
+    prefix = (
+        "[colab] A new version of Colab CLI is available: 0.7.5 (current: 0.7.4)\n"
+        "[colab] Run 'colab update' to update.\n"
+        '[colab] To silence this check, set "enable_update_check": false in x.json\n\n'
+        if notice
+        else ""
+    )
+    detail = (
+        f"colab new failed (1): {prefix}[colab] Creating session '{session}'...\n"
+        + d.ALLOCATION_UNAVAILABLE
+        + "\n"
+    )
+    receipt = {
+        "error": f"Refused({detail!r})",
+        "session": session,
+        "status": "INCOMPLETE",
+        "failure_class": "SUPERVISOR",
+        "endpoint": None,
+        "accounting": {"allocated_endpoint": None},
+        "terminal": None,
+        "cleanup_error": "ALLOCATION_UNRESOLVED: retained pending record",
+        "stop_verified": False,
+        "exports": [],
+        "transfers": [],
+        "contents_transfers": [],
+        "cli_calls": [
+            {"command": "version", "status": "ok"},
+            {"command": "sessions", "status": "ok"},
+            {"command": "usage", "status": "ok"},
+            {"command": "new", "status": "failed"},
+        ],
+    }
+    (tmp_path / "receipt.json").write_text(json.dumps(receipt))
+    log = tmp_path / "job.log"
+    log.write_text("EXIT=1\n")
+    assert d.allocation_unavailable(tmp_path, log, "L4")
+    receipt["error"] = f"Refused({detail.replace('precondition failed', 'quota')!r})"
+    (tmp_path / "receipt.json").write_text(json.dumps(receipt))
+    assert not d.allocation_unavailable(tmp_path, log, "L4")

@@ -2133,6 +2133,17 @@ def allocation_unavailable(output: Path, log: Path, accelerator: str) -> bool:
         )
     except (ValueError, SyntaxError):
         return False
+    if isinstance(detail, str) and detail.startswith("colab new failed (1): "):
+        # colab-cli prepends an update notice (seen from 0.7.5's release, 2026-10-31).
+        body = detail.removeprefix("colab new failed (1): ").splitlines(keepends=True)
+        while body and (
+            body[0].startswith("[colab] A new version of Colab CLI is available")
+            or body[0].startswith("[colab] Run 'colab update'")
+            or body[0].startswith("[colab] To silence this check")
+            or body[0] == "\n"
+        ):
+            body.pop(0)
+        detail = "colab new failed (1): " + "".join(body)
     session = receipt.get("session")
     expected = (
         f"colab new failed (1): [colab] Creating session '{session}'...\n"
