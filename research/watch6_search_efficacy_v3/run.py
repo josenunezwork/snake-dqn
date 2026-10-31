@@ -16,7 +16,7 @@ from tools.ops.package_spec import publish_json, read_ledger, unit_id
 
 
 def ledger_identity() -> dict:
-    """Bind runtime ledger to the frozen V3 source and primary/reserve allocations."""
+    """Bind runtime ledger to the frozen V3 source and primary allocation."""
     return {"science": p.identity()}
 
 
@@ -47,7 +47,10 @@ def pair(row: dict, fixture: bool = False) -> dict:
             faulthandler.dump_traceback_later(900, exit=True)
             last_watchdog = now
 
-    seed_kind = row.get("seed_kind", "fixture" if fixture else "primary")
+    expected_kind = "fixture" if fixture else "primary"
+    seed_kind = row.get("seed_kind", expected_kind)
+    if seed_kind != expected_kind:
+        raise ValueError(f"unexpected seed_kind {seed_kind!r} (expected {expected_kind!r})")
     allocation_row = {
         "index": int(row["index"]),
         "seed": int(row["seed"]),
@@ -131,14 +134,12 @@ def main() -> None:
     if args.fixture and not 1 <= args.fixture_horizon <= p.HORIZON:
         parser.error("fixture requires bounded horizon")
 
-    reserve_set: set[int] = set()
     if not args.fixture:
         if args.workers != p.WORKERS:
             parser.error("confirmation shards require W4")
         from research.watch6_search_efficacy_v3.admission import runtime_admit
 
-        contract = runtime_admit(workers=args.workers, shards=args.shards, shard=args.shard)
-        reserve_set = set(contract.get("reserve_slots", []))
+        runtime_admit(workers=args.workers, shards=args.shards, shard=args.shard)
 
     args.out.mkdir(parents=True, exist_ok=False)
     skip = {row["index"] for row in verified}
@@ -149,14 +150,11 @@ def main() -> None:
         ]
     else:
         primary_rows = p.allocation()
-        reserve_rows = p.reserve_allocation()
-        rows = []
-        for idx in p.shard_indices(args.shard, args.shards):
-            if idx in skip:
-                continue
-            kind = "reserve" if idx in reserve_set else "primary"
-            base = reserve_rows[idx] if kind == "reserve" else primary_rows[idx]
-            rows.append({**base, "seed_kind": kind})
+        rows = [
+            {**primary_rows[idx], "seed_kind": "primary"}
+            for idx in p.shard_indices(args.shard, args.shards)
+            if idx not in skip
+        ]
 
     started = time.monotonic()
     signal.signal(signal.SIGUSR1, lambda *_: (_ for _ in ()).throw(SystemExit(75)))
@@ -213,7 +211,7 @@ def main() -> None:
     publish_json(
         args.out / "operational.json",
         {
-            "schema": "watch6-v3-operational/v1",
+            "schema": "watch6-v3-operational/v2",
             "namespace": p.NAMESPACE,
             "shard": args.shard,
             "shards": args.shards,
@@ -221,9 +219,6 @@ def main() -> None:
             "completed": done_count,
             "skipped": sorted(i for i in skip if i % args.shards == args.shard),
             "skipped_total_ledger": len(skip),
-            "reserve_slots_executed": sorted(
-                r["index"] for r in rows if r["seed_kind"] == "reserve"
-            ),
             "fixture": args.fixture,
             "elapsed_seconds": time.monotonic() - started,
             "science": p.identity(),

@@ -1,4 +1,4 @@
-"""Frozen V3 primary/reserve allocations and source-closure identity."""
+"""Frozen V3 primary allocation and source-closure identity (no reserve substitution)."""
 
 from __future__ import annotations
 
@@ -16,12 +16,10 @@ ALLOWED_WORKERS = (4,)
 PAIRS_PER_SHARD = COUNT // SHARDS  # 4 pairs per shard
 FIXTURE_SEEDS = [34890123, 34890124, 34890125]
 
-# Pre-registered failure-handling caps (REGISTRATION_V3.md §3).
-MAX_PRESTART_RETRIES_PER_SHARD = 6
-MAX_PRESTART_RETRIES_STUDY = 72
+# Pre-registered failure-handling cap (REGISTRATION_V3.md §3):
+# Positively proven pre-start failures do not start compute and allow unlimited outcome-blind
+# retries; compute-started attempts allow 1 initial + at most 2 partial-shard resume completions.
 MAX_COMPUTE_COMPLETIONS_PER_SHARD = 2
-MAX_TOTAL_DISPATCHES_PER_SHARD = 10
-MAX_RESERVE_SUBSTITUTIONS = 16
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = "research/watch6_search_efficacy_v3/job.sh"
@@ -45,23 +43,9 @@ def primary_seed(index: int) -> int:
     )
 
 
-def reserve_seed(index: int) -> int:
-    """Deterministic 1-to-1 uint32 reserve world seed for slot index in 0..95."""
-    if index not in range(COUNT):
-        raise ValueError(f"slot index out of range: {index}")
-    return int.from_bytes(
-        hashlib.sha256(f"{NAMESPACE}/reserve/{index}".encode()).digest()[:4], "big"
-    )
-
-
 def allocation() -> list[dict]:
-    """Frozen 96-slot primary allocation."""
+    """Frozen 96-slot primary allocation (retained prospectively with no reserve replacement)."""
     return [{"index": i, "seed": primary_seed(i), "horizon": HORIZON} for i in range(COUNT)]
-
-
-def reserve_allocation() -> list[dict]:
-    """Frozen 1-to-1 96-slot reserve allocation; used only under strict MCAR rule."""
-    return [{"index": i, "seed": reserve_seed(i), "horizon": HORIZON} for i in range(COUNT)]
 
 
 def shard_indices(shard: int, shards: int = SHARDS) -> list[int]:
@@ -120,7 +104,7 @@ def source_paths() -> list[str]:
 
 @lru_cache(maxsize=1)
 def identity() -> str:
-    """Bind science code, world config, checkpoint pins, registration, and seed banks."""
+    """Bind science code, world config, checkpoint pins, registration, and primary seed bank."""
     paths = []
     for name in source_paths():
         path = ROOT / name
@@ -142,5 +126,4 @@ def identity() -> str:
     }
     values["namespace"] = NAMESPACE
     values["primary_allocation"] = allocation()
-    values["reserve_allocation"] = reserve_allocation()
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()

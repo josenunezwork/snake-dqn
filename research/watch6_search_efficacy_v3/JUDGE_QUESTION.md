@@ -1,54 +1,54 @@
-# Pre-Data Judge Request for Astra — Watch6 V3 Confirmation (`REGISTRATION_V3.md`)
+# Pre-Data Judge Re-Review Request for Astra — Watch6 V3 Confirmation (Rev 2)
 
 - **Study:** T34 Watch6 exact-stop efficacy ceiling V3 (`research/watch6_search_efficacy_v3`)
 - **Lane:** Confirmation (`OPUS_META.md` §2 item 1 & §3 row 1; owner authorized 2026-10-31)
 - **Implementer:** Argon (`snake-dqn-argon-v3-confirm`)
-- **Independent Judge:** Astra (author never reviews own build; `AGENTS.md` standing rule)
+- **Independent Judge:** Astra (responding to `/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/watch6-v3-ruling/RULING_V3.md`)
 - **Pre-registration under review:** `research/watch6_search_efficacy_v3/REGISTRATION_V3.md`
-- **Data status:** **Zero V3 scientific data exist.** Live Colab dispatch is mechanically blocked by `research/watch6_search_efficacy_v3/dispatch.py` until your ratified ruling is bound on the Mac via `python -m research.watch6_search_efficacy_v3.ratify --ruling <PATH_TO_RULING_V3.md>`. Watch6 V2's 88 exported pairs (`exports/` and `pair-*.json`) remain completely unopened and excluded from all V3 code and seed scans.
+- **Data status:** **Zero V3 scientific data exist.** Live dispatch remains mechanically blocked until your approved ruling (`Verdict: APPROVE` or `Verdict: APPROVE-WITH-CONDITIONS`) is bound via `ratify.py`. No `exports/` or `pair-*.json` files were opened.
 
 ---
 
-## Summary of What Is Unchanged vs. What Changed
+## 1. Science & Primary Seed Bank — 100% Unchanged
 
-### 1. Science, Controller, Product, and Analysis — 100% Unchanged from V2
-V3 imports `research.watch6_search_efficacy.{engine, product, run, analyze, uploads, performance}` directly with **zero edits to any V2 file**:
-- `N = 96` complete paired sessions (`df = 95`), `H = 14400` frames (10 min at 24 fps), hero slot 0, alternating arm execution order.
-- Bare B8 s3 (`3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8`) vs served exact-stop (`DenseTrigger(min_length=600, interval=5)`, `H = 300`, `exact_stop.run` + `ceiling._choose`), 5× `frp3-s12 + v8(lambda=8)` (`eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723`), default `GameSession` Watch6 mechanics v2 (`configs/mechanics_v2.yaml`, `SNAKE_WATCH_SOURCE=live`), continuous respawn, live + `GridBatchSim` mirror checked every frame.
-- Co-primary intersection-union pass bars:
-  1. Candidate minus bare `deaths / 1k` two-sided paired Student-t 95% CI (`df = 95`) wholly `< 0`, AND
-  2. Fieller paired two-sided 95% lower limit on pooled full-horizon mass ratio `(candidate - bare) / bare` `>= -0.05`.
-- Same verdicts: `GO_EFFICACY_ONLY`, `FAIL_EFFICACY`, `INCONCLUSIVE`, and `INVALID_OR_INCOMPLETE` prior to science.
-
-### 2. Failure-Handling Changes Only (`REGISTRATION_V3.md` §§2–4)
-1. **Fresh disjoint deterministic seed banks (§2):**
-   - `NAMESPACE = "t34-watch6-exact-stop-efficacy-20261031-v3"`
-   - Primary (`i in 0..95`): `uint32_be(SHA256(f"{NAMESPACE}/primary/{i}")[:4])`
-   - 1-to-1 reserve (`i in 0..95`): `uint32_be(SHA256(f"{NAMESPACE}/reserve/{i}")[:4])`
-   - Audited pre-data (`freshness.py`) for zero internal collisions across all 195 seeds (`96` primary + `96` reserve + `3` fixtures) and zero collisions against Watch6 V1, Watch6 V2, Watch replay banks 01–04 (and 01–32), exploration namespaces (`bl-*`, `t34-*`, `t15-*`, `s1-*`, `q0/q1-*`, `t34-watch6-alllen-screen-20261031*`), committed JSON banks, and historical FRP training exclusions, without opening any `exports/` or `pair-*.json`.
-2. **Smaller blast radius (`24` shards × `4` pairs on L4 `W4`, §3.1):**
-   - Sized from the same verified L4 W4 bare-loop + 24 H6000 W4 replay sessions (`7557.9914 s/pair`, 1 wave of 4 pairs on `W4`): `base_minutes_per_shard = 209` min, 2× wall `timeout_minutes = 418` min (`6h 58m`).
-   - One short same-pin L4 canary (`15` min base / `30` min effective, 3 tiny H12 `fixture-pair-00..02.json` pairs on `W4` + 1 long-body H300 `branch_fixture`, identical uploaded inputs) qualifies all 24 initial shard manifests.
-3. **Serialized staging per `RULING_SHARD6` §2 (§3.2):**
-   - `research/watch6_search_efficacy_v3/dispatch.sh` holds `<ops_dir>/watch6-staging.lock` silently around live `<operator_root>/tools/ops/dispatch.sh`, waiting for any active staging job in `<ops_dir>/manifests/*.json` to finish staging first and releasing the lock only after the newly allocated runtime writes `upload-measurement.json` (or `receipt.json` / `EXIT=`). At most one runtime stages at a time; already-staged computing shards run concurrently up to `ACCOUNT_ASSIGNMENT_CAP = 6`.
-4. **Pre-start zero-export transport retries (§3.3):**
-   - Verified pre-start transport failures (`exports == []`, `terminal is None`, `stop_verified is True`, `cleanup_error is None`, or proven unallocated pre-dispatch refusal, with zero child/scientific error) do not consume the 2 compute-started completion attempts and do not trigger reserve seeds.
-   - Bounded by sane caps: `MAX_PRESTART_RETRIES_PER_SHARD = 6`, `MAX_PRESTART_RETRIES_STUDY = 72`, and `MAX_TOTAL_DISPATCHES_PER_SHARD = 10`.
-5. **Partial-shard resume from verified pairs (§3.4):**
-   - Mid-compute external transport/VM loss (`stop_verified is True`, `cleanup_error is None`, zero child/scientific fault) seals already-exported `pair-XX.json` + `.meta.json` units into a Mac-verified outcome-blind ledger (`skip_verified: true`) and resumes only unverified slots of that shard for up to `MAX_COMPUTE_COMPLETIONS_PER_SHARD = 2` (3 compute-started primary attempts total).
-6. **Strict MCAR 1-to-1 reserve seeds (§3.5):**
-   - Slot `i` switches to `reserve_seed(i)` **only** if slot `i` has **zero** exported pair payload after **3 compute-started primary attempts** on its shard, where **all 3** failed due to external transport/VM infrastructure loss (`RPC_EXEC_POLL_TIMEOUT`, `TRANSPORT_TIMEOUT`, `RUNTIME_LOST`, or external `SUPERVISOR` transport disconnect with `terminal is None`, `stop_verified is True`, `cleanup_error is None`).
-   - **Explicitly excluded (fail closed to `INVALID_OR_INCOMPLETE`):** any `CHILD_NONZERO_EXIT`, mirror/Q/action fault, **shard 418-min wall-clock timeout**, or **900s `faulthandler` watchdog timeout** (preventing survival/length-correlated censoring).
-   - **Capped at:** `<= 1` reserve seed per slot (1 compute-started reserve attempt) and `<= 16` reserve substitutions study-wide across `N = 96`.
+Per your confirmation in `RULING_V3.md` (`lines 9–11`), none of the scientific or primary-bank specifications changed:
+- Same fresh 96-seed primary allocation `primary_seed(i) = uint32_be(SHA256("t34-watch6-exact-stop-efficacy-20261031-v3/primary/{i}")[:4])` (`i in 0..95`, `24` shards × `4` pairs on L4 `W4`), `H = 14400`, alternating arm order, `df = 95`.
+- Same bare B8 s3 vs served exact-stop (`L >= 600`, `H = 300`, `DenseTrigger(600, 5)`), 5× `frp3-s12 + v8(lambda=8)` opponents, default `GameSession` Watch6 mechanics v2 + per-frame `GridBatchSim` mirror, and identical co-primary pass bars delegated to unchanged `research.watch6_search_efficacy.analyze.decide`.
 
 ---
 
-## Binding Pre-Data Questions for Astra
+## 2. Exact Changes Per `RULING_V3.md` Point
 
-Please review `research/watch6_search_efficacy_v3/REGISTRATION_V3.md` and the V3 package implementation on `main` and issue a binding pre-data ruling (`RULING_V3.md`):
+1. **Ruling Point 1 — Real `supervisor.py` positive pre-start proof & traceback-verified external-transport classification (`admission.py`, `recover.py`):**
+   - Replaced nonexistent `telemetry-*.json` scanning and bare `not hardware.json` checks with `is_prestart_transport_failure(receipt, output_dir)` grounded in `research/colab_cli/supervisor.py` (line-1904 `ready.json` / line-1905 `hardware.json` / line-1982 `poll-*.json`):
+     - Presence of `hardware.json`, any `poll-*.json` / `usage-0*.json` / `spend-*.json`, `terminal.json`, or any `exports/*` immediately returns `False`.
+     - Missing evidence returns `False`: pre-start requires one of six **positive pre-1904 proofs** on disk (pre-allocation `endpoint is None`; `warmup-measurement.json` `INCOMPLETE`; pre-calibration startup transport failure after `warmup` `PASS` with zero `mkdir`/`source-fetch` ops and verified transport traceback; `rate-calibration.json` `INCOMPLETE`; `upload-measurement.json` with `staging_completed: False`; or post-staging `UPLOAD_CAP` gate at lines 1865–1871 before line 1904).
+   - Hardened `is_external_transport_compute_failure(receipt, output_dir)` to require real on-disk `output_dir` with `hardware.json`, clean `poll-*.json` audit (`state.status in {"starting", "running"}`, null `terminal`/`returncode`/`reason`/`error`, zero traceback or exception lines in `job_log_tail` and `supervisor_log_tail`), a failed CLI/RPC/transfer record, **and** explicit host/CLI `Traceback (most recent call last):` evidence (`has_verified_transport_traceback`) with zero application/study stack frames (`src/`, `web/`, `research/watch6_search_efficacy*`, `job.sh`) and a strict `has_non_transport_fault` veto rejecting any error/log text carrying scientific, numerical, mirror, hash, assertion/value, child, wall-cap, or `faulthandler` watchdog faults.
+   - Added unit tests reproducing both of your `RULING_V3.md` Point 1 acceptances and proving they are now refused.
 
-1. **Ratification of V3 Confirmation Pre-Registration:** Do you ratify `REGISTRATION_V3.md` pre-data (`STATUS: RATIFIED`) for live execution of the short L4 canary followed by the 24 L4 W4 confirmation shards?
-2. **MCAR Reserve-Seed Boundary (§3.5):** Confirm that the 1-to-1 slot-paired reserve rule (strictly after 3 external-transport failed compute attempts with zero export for slot `i`, excluding child faults and excluding wall-clock / 900s-watchdog timeouts, capped at `<= 1` per slot and `<= 16/96` study-wide) preserves unbiased `df = 95` paired inference without multiplicity or censoring adjustment.
-3. **Pre-Start Retry & Serialized Staging Envelope (§§3.2–3.4):** Confirm that separating pre-start zero-export transport retries (`<= 6/shard`, `<= 72` study-wide, `<= 10` total dispatches/shard) from mid-compute resume completions (`<= 2/shard`) under `watch6-staging.lock` serialization satisfies confirmation-lane operational integrity.
+2. **Ruling Point 2 — Removed reserve substitution entirely (`protocol.py`, `freshness.py`, `prepare.py`, `admission.py`, `run.py`, `resume.py`, `recover.py`, `analyze.py`, `REGISTRATION_V3.md` §2):**
+   - Dropped `reserve_seed`, `reserve_allocation`, `reserve_slots`, `reserve_lineage`, and `seed_kind == "reserve"` across the entire package; any reserve field or non-primary scientific `seed_kind` is rejected fail-closed.
+   - Retained the fixed prospective 96-seed primary bank (`primary/{0..95}`) with unlimited positively-proven pre-start retries (`prestart_retries_used >= 0`) plus capped partial-shard resume (`MAX_COMPUTE_COMPLETIONS_PER_SHARD = 2`, i.e., at most 3 compute-started attempts per shard; exceeding 2 failed compute-started attempts closes outcome-blind as `INVALID_OR_INCOMPLETE`), justified in `REGISTRATION_V3.md` §2.
 
-*(Note per `OPUS_META.md` §4: V2's 88 sealed pairs remain untouched on disk; any separate ruling on unsealing V2 for descriptive/exploration diagnostics only is deferred until after V3 is ratified and frozen/dispatched.)*
+3. **Ruling Point 3 — Staging serialization fails CLOSED (`dispatch.py`):**
+   - Removed the 600-second `STAGING_STALE_MANIFEST_SECONDS` bypass; old or corrupt `ops/manifests/*.json` entries never bypass serialization, and exited logs whose `output_dir` lacks `upload-measurement.json`, stop-verified `receipt.json`, or `LIVE` `unavailable.json` fail closed immediately.
+   - Both `wait_other_jobs_staged` and `wait_own_job_staged` now fail **closed** on expiry: they write durable `<ops_dir>/watch6-staging-reconcile.json` and raise `RuntimeError("REFUSE: ...")` (`exit 2`), never calling `tools/ops/dispatch.sh` on prior-job expiry and blocking all subsequent dispatches on own-job expiry until reconciled under `watch6-staging.lock` via `--reconcile-staging`.
+
+4. **Ruling Point 4 — Complete pre-outcome failure, lineage, stop & hash audit in `final_look.py`:**
+   - Before opening any `pair-XX.json` outcome payload, `run_final_look` audits every created attempt directory (including both `<output_dir>` and `<output_dir>-retry-1`, `auto-retry` `RETRY.json` links, and `recover.py` `prior_receipts` links) across all 24 shards / 96 slots:
+     - Verifies `stop_verified` (`cleanup_error is None`) and `manifest_sha256` on every runtime plus `>= 1` passing same-pin L4 canary;
+     - Rejects any forbidden failure class on **any** historical attempt (even if a later attempt exported all pairs);
+     - Verifies a single unbroken linear retry-cap chain `A_1 -> ... -> A_M` per shard rooted at `total_dispatches_for_shard == 1` with `<= 2` failed compute-started attempts;
+     - Verifies all `.sha256`/`.complete` sidecars, `.meta.json`, receipt export hashes, zero unrecorded/duplicate files, and `96/96` primary coverage via `resume.build` before reading outcomes.
+
+5. **Ruling Point 5 — Explicit verdict parsing in `ratify.py`:**
+   - `parse_ruling_verdict` requires an explicit non-fenced `Verdict: APPROVE` or `Verdict: APPROVE-WITH-CONDITIONS` line and refuses `REJECT`, `NOT_RATIFIED`, `STATUS: NOT_RATIFIED`, missing `Verdict:`, or conflicting verdicts both in `record_ruling` and on re-read in `validate_ruling_receipt` (verified by test directly against your `RULING_V3.md`).
+
+6. **Upload transfer bound (`<= 12` transfers and `<= 90 s`, `research/watch6_search_efficacy_v3/uploads.py`):**
+   - Packed `cost-evidence.json` and all `.sha256`/`.complete` sidecars (including checkpoint-part sidecars) into `input-metadata.tar.gz`, leaving only the `8` × `2 MiB` checkpoint `.part` files separate (`11` normal transfers, `12` worst-case fallback transfers `<= 12`, and `~74.8 s <= 90.0 s` under `5 s/RPC + 1 MB/s`).
+
+---
+
+## Binding Pre-Data Question for Astra
+
+Do you approve `research/watch6_search_efficacy_v3/REGISTRATION_V3.md` and the V3 rev 2 implementation (`Verdict: APPROVE`, `STATUS: RATIFIED`) for live execution of the short L4 canary followed by the 24 L4 W4 confirmation shards?

@@ -11,12 +11,12 @@ import tarfile
 from pathlib import Path
 
 from research.colab_cli import canary
-from research.watch6_search_efficacy.uploads import METADATA, checkpoint_inputs, pack_inputs
 from research.watch6_search_efficacy_v3 import protocol as p
 from research.watch6_search_efficacy_v3.admission import admit, completed_ledger
 from research.watch6_search_efficacy_v3.costs import empirical_forecast, verify_report_evidence
 from research.watch6_search_efficacy_v3.mirror import validate as validate_mirror
 from research.watch6_search_efficacy_v3.run import ledger_identity
+from research.watch6_search_efficacy_v3.uploads import METADATA, checkpoint_inputs, pack_inputs
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
 
 ALLOWED_REMOTE_BRANCHES = (
@@ -50,8 +50,6 @@ def prepare(
     pending_canary: bool = False,
     ledger: Path | None = None,
     target_shards: list[int] | None = None,
-    reserve_slots: list[int] | None = None,
-    reserve_lineage: dict | None = None,
     shard_meta: dict[int, dict] | None = None,
     reuse_staged_inputs: list[dict] | None = None,
 ) -> dict:
@@ -63,19 +61,17 @@ def prepare(
     if pending_canary and (not main_shards or canary_receipt is not None):
         raise ValueError("pending_canary requires main_shards and no pre-existing canary_receipt")
 
-    validate_mirror(json.loads(mirror_receipt.read_text()))
+    validate_mirror(json.loads(mirror_receipt.read_text(encoding="utf-8")))
     _require_published_pin(commit)
 
-    measured = json.loads(benchmark.read_text())
+    measured = json.loads(benchmark.read_text(encoding="utf-8"))
     if measured.get("science") != p.identity():
         raise ValueError("stale Mac preflight benchmark.json")
 
-    cost_report = json.loads(empirical_costs.read_text())
+    cost_report = json.loads(empirical_costs.read_text(encoding="utf-8"))
     verify_report_evidence(cost_report)
     forecast = empirical_forecast(cost_report)
 
-    reserve_slots = sorted(reserve_slots or [])
-    reserve_lineage = reserve_lineage or {}
     shard_meta = shard_meta or {}
     if ledger is not None:
         verified = completed_ledger(ledger)
@@ -92,7 +88,7 @@ def prepare(
         publish_json(
             ledger_path,
             (
-                json.loads(ledger.read_text())
+                json.loads(ledger.read_text(encoding="utf-8"))
                 if ledger is not None
                 else empty_ledger(p.NAMESPACE, "watch6", ledger_identity())
             ),
@@ -101,7 +97,7 @@ def prepare(
         publish_json(
             protocol_binding,
             {
-                "schema": "watch6-v3-protocol-binding/v1",
+                "schema": "watch6-v3-protocol-binding/v2",
                 "implementer": "Argon",
                 "judge": "Astra",
                 "namespace": p.NAMESPACE,
@@ -113,16 +109,14 @@ def prepare(
         publish_json(
             contract,
             {
-                "schema": "watch6-v3-runtime-contract/v1",
+                "schema": "watch6-v3-runtime-contract/v2",
                 "namespace": p.NAMESPACE,
                 "science": p.identity(),
                 "primary_allocation": p.allocation(),
-                "reserve_allocation": p.reserve_allocation(),
-                "reserve_slots": reserve_slots,
             },
         )
         saved = p.ROOT.parent / "snake-dqn/saved_snakes"
-        pins = json.loads((p.ROOT / "web/backend/served_checkpoint_pins.json").read_text())
+        pins = json.loads((p.ROOT / "web/backend/served_checkpoint_pins.json").read_text("utf-8"))
         release_bundle = out / "release-evidence.tar.gz"
         with (
             release_bundle.open("xb") as raw_bundle,
@@ -197,9 +191,6 @@ def prepare(
             "science": p.identity(),
             "registration_sha256": digest(p.registration()),
             "primary_allocation": p.allocation(),
-            "reserve_allocation": p.reserve_allocation(),
-            "reserve_slots": reserve_slots,
-            "reserve_lineage": reserve_lineage,
             "forecast_sha256": digest(out / "forecast.json"),
         },
     }
@@ -221,16 +212,15 @@ def prepare(
         base = 15 if probe else base_minutes
         unit = base / 60 * rate
         meta = shard_meta.get(shard, {})
-        phase = (
-            "canary"
-            if probe
-            else (
-                "reserve" if any(slot % p.SHARDS == shard for slot in reserve_slots) else "primary"
-            )
-        )
+        phase = "canary" if probe else "primary"
         prestart_used = 0 if probe else int(meta.get("prestart_retries_used", 0))
         compute_attempt = 0 if probe else int(meta.get("compute_completion_attempt", 0))
-        total_dispatches = 1 if probe else int(meta.get("total_dispatches_for_shard", 1))
+        total_dispatches = (
+            1
+            if probe
+            else int(meta.get("total_dispatches_for_shard", 1 + prestart_used + compute_attempt))
+        )
+        prior_receipts = [] if probe else list(meta.get("prior_receipts", []))
 
         value.update(
             job_id=f"watch6-v3-{label}-{out.name}",
@@ -255,6 +245,7 @@ def prepare(
             prestart_retries_used=prestart_used,
             compute_completion_attempt=compute_attempt,
             total_dispatches_for_shard=total_dispatches,
+            prior_receipts=prior_receipts,
             base_minutes=base,
             base_unit_cap=unit,
             base_reserve_units=unit * 0.2,
