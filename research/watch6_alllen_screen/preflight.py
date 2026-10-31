@@ -79,8 +79,8 @@ def branches(out: Path, canary_operational: Path | None = None) -> list[dict[str
     from src.simd_env.grid_scenarios import inject_serpentines
 
     configure_cpu()
-    timings: list[dict[str, Any]] = []
-    for seed in p.BRANCH_BENCHMARK_SEEDS:
+
+    def _probe_one(seed: int) -> tuple[float, dict[str, Any]]:
         session = open_watch({"seed": seed}, 24, "bare")
         try:
             world = session.world
@@ -94,18 +94,24 @@ def branches(out: Path, canary_operational: Path | None = None) -> list[dict[str
             legal, _ = _legal(q, world.sim.get_advisory_action_mask()[0, 0])
             started = time.monotonic()
             result = dense_batch(world, 0, q, legal)
-            timings.append(
-                {
-                    "seed": seed,
-                    "seconds": time.monotonic() - started,
-                    "branches": int(result["branches_evaluated"]),
-                    "chosen": int(result["chosen"]),
-                    "native_v8": result["native_v8"],
-                }
-            )
+            return time.monotonic() - started, result
         finally:
             session.close()
-    report: dict[str, Any] = {"branch_timings": timings}
+
+    warmup_seconds, _ = _probe_one(p.BRANCH_BENCHMARK_SEEDS[0])
+    timings: list[dict[str, Any]] = []
+    for seed in p.BRANCH_BENCHMARK_SEEDS:
+        elapsed, result = _probe_one(seed)
+        timings.append(
+            {
+                "seed": seed,
+                "seconds": elapsed,
+                "branches": int(result["branches_evaluated"]),
+                "chosen": int(result["chosen"]),
+                "native_v8": result["native_v8"],
+            }
+        )
+    report: dict[str, Any] = {"warmup_seconds": warmup_seconds, "branch_timings": timings}
     if canary_operational is not None:
         report["canary_segment"] = canary_proof(canary_operational)
     publish_json(out, report)

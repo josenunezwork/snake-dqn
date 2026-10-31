@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import statistics
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -156,29 +157,32 @@ def prepare(
     inputs.append(Input(bundle, "release-evidence.tar.gz"))
     staged = stage_inputs(out / "staged", inputs)
 
-    singleton = max(
-        float(item["seconds"]) / max(1, int(item["branches"]))
-        for item in measured["branch_timings"]
+    singleton = float(
+        statistics.median(
+            float(item["seconds"]) / max(1, int(item["branches"]))
+            for item in measured["branch_timings"]
+        )
     )
     # 3-arm H6000 unit forecast: bare (0 roots) + L2' (~420 roots at L>=600) +
-    # L>=1 (~1,140 roots across all lengths), ~1.2 branches/root via exact_stop,
-    # plus main-loop GridBatchSim step time, scaled for L4 Xeon vCPU at W=4.
+    # L>=1 (~720 roots at L<600 weighted 0.65x L=900 cost + ~420 roots at L>=600),
+    # ~1.2 branches/root via exact_stop, plus main-loop GridBatchSim step time.
     horizon_scale = horizon / 6000.0
     expected_roots_3arm = (420.0 + 1140.0) * horizon_scale
+    weighted_l900_equiv_roots = (840.0 + 720.0 * 0.65) * horizon_scale
     expected_branches_3arm = expected_roots_3arm * 1.2
-    mac_unit_seconds = expected_branches_3arm * singleton + 90.0 * horizon_scale
-    colab_unit_seconds = mac_unit_seconds * 2.0 * 1.15
+    mac_unit_seconds = weighted_l900_equiv_roots * 1.2 * singleton + 90.0 * horizon_scale
+    colab_unit_seconds = mac_unit_seconds * 1.35 * 1.15
     remaining_units = count - len(verified)
     waves = math.ceil(max(1, remaining_units) / workers)
-    base_minutes = max(360, math.ceil(colab_unit_seconds * waves / 60.0 + 20.0))
+    base_minutes = max(360, math.ceil(colab_unit_seconds * waves / 60.0 + 25.0))
     if base_minutes > 660:
         raise ValueError("base forecast exceeds 11h (22h effective 2x cap); split packet")
 
     forecast = {
-        "mac_h300_singleton_seconds": singleton,
+        "mac_h300_l900_singleton_median_seconds": singleton,
         "expected_roots_per_3arm_unit": expected_roots_3arm,
         "expected_branches_per_3arm_unit": expected_branches_3arm,
-        "cloud_slowdown_projection": 2.0,
+        "cloud_slowdown_projection": 1.35,
         "contention_projection": 1.15,
         "workers": workers,
         "remaining_units": remaining_units,
