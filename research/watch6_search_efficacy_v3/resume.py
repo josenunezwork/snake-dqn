@@ -10,7 +10,7 @@ from pathlib import Path
 
 from research.colab_cli import canary
 from research.watch6_search_efficacy_v3 import protocol as p
-from research.watch6_search_efficacy_v3.admission import verify_reserve_lineage
+from research.watch6_search_efficacy_v3.admission import is_prestart_transport_failure
 from research.watch6_search_efficacy_v3.run import ledger_identity
 from tools.ops.package_spec import digest, empty_ledger, publish_json, unit_id, verify_immutable
 
@@ -20,13 +20,27 @@ PAIR_NAME_RE = re.compile(r"^pair-([0-9]{2})\.json$")
 def verify_bound_receipt(receipt_path: Path) -> tuple[dict, dict]:
     """Verify a stopped V3 main-shard supervisor receipt and its executed manifest."""
     receipt_path = receipt_path.resolve(strict=True)
-    receipt = json.loads(receipt_path.read_text())
-    if receipt.get("stop_verified") is not True or receipt.get("cleanup_error") is not None:
-        raise ValueError(f"runtime stop not verified or cleanup_error present: {receipt_path}")
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     manifest_path = receipt_path.parent / "manifest.json"
     if not manifest_path.is_file() or digest(manifest_path) != receipt.get("manifest_sha256"):
         raise ValueError(f"receipt manifest_sha256 binding mismatch: {receipt_path}")
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if receipt.get("job_id") != manifest.get("job_id") or receipt.get("commit") != manifest.get(
+        "commit"
+    ):
+        raise ValueError(f"receipt job_id/commit mismatch against manifest.json: {receipt_path}")
+
+    prealloc_unassigned = (
+        receipt.get("endpoint") is None
+        and receipt.get("stop_verified") is False
+        and receipt.get("cleanup_error") is None
+        and is_prestart_transport_failure(receipt, receipt_path.parent)
+    )
+    if not prealloc_unassigned and (
+        receipt.get("stop_verified") is not True or receipt.get("cleanup_error") is not None
+    ):
+        raise ValueError(f"runtime stop not verified or cleanup_error present: {receipt_path}")
+
     binding = manifest.get("watch6_v3", {})
     env = manifest.get("env", {})
     if (
@@ -34,11 +48,14 @@ def verify_bound_receipt(receipt_path: Path) -> tuple[dict, dict]:
         or env.get("WATCH6_FIXTURE") != "0"
         or binding.get("namespace") != p.NAMESPACE
         or binding.get("science") != p.identity()
+        or binding.get("primary_allocation") != p.allocation()
+        or any(k in binding for k in ("reserve_allocation", "reserve_slots", "reserve_lineage"))
         or int(env.get("WATCH6_SHARDS", -1)) != p.SHARDS
         or int(env.get("WATCH6_SHARD", -1)) not in range(p.SHARDS)
     ):
         raise ValueError(
-            f"foreign, fixture, or canary receipt rejected from scientific ledger: {receipt_path}"
+            "foreign, fixture, reserve, or canary receipt rejected "
+            f"from scientific ledger: {receipt_path}"
         )
     return manifest, receipt
 
@@ -60,9 +77,7 @@ def build(paths: list[Path], receipts: list[Path]) -> dict:
 
     result = empty_ledger(p.NAMESPACE, "watch6", ledger_identity())
     seen_indices: set[int] = set()
-    reserve_indices_seen: list[int] = []
     primary_alloc = p.allocation()
-    reserve_alloc = p.reserve_allocation()
 
     for raw_path in sorted(paths, key=lambda item: item.name):
         match = PAIR_NAME_RE.fullmatch(raw_path.name)
@@ -77,7 +92,7 @@ def build(paths: list[Path], receipts: list[Path]) -> dict:
         descriptor = verify_immutable(path)
         meta_path = path.with_suffix(".meta.json")
         verify_immutable(meta_path)
-        meta = json.loads(meta_path.read_text())
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
         owners = [
             (r_path, manifest, receipt)
@@ -100,27 +115,14 @@ def build(paths: list[Path], receipts: list[Path]) -> dict:
         ):
             raise ValueError(f"unit {path.name} missing or mismatched in receipt export inventory")
 
-        seed_kind = meta.get("seed_kind")
-        if seed_kind not in ("primary", "reserve"):
-            raise ValueError(f"invalid seed_kind in {meta_path}: {seed_kind}")
-        owner_binding = owner_manifest["watch6_v3"]
-        declared_reserves = owner_binding.get("reserve_slots", [])
-        if seed_kind == "primary":
-            expected_alloc = primary_alloc[index]
-            if index in declared_reserves:
-                raise ValueError(f"primary unit {index} exported from reserve-slot manifest")
-        else:
-            expected_alloc = reserve_alloc[index]
-            if index not in declared_reserves or owner_binding.get("phase") != "reserve":
-                raise ValueError(f"reserve unit {index} lacks declared reserve authorization")
-            verify_reserve_lineage(declared_reserves, owner_binding.get("reserve_lineage", {}))
-            reserve_indices_seen.append(index)
+        if meta.get("seed_kind") != "primary":
+            raise ValueError(f"only primary seeds are permitted in V3 ({meta_path})")
 
         expected_meta = {
             "namespace": p.NAMESPACE,
             "science": p.identity(),
-            "seed_kind": seed_kind,
-            "allocation": expected_alloc,
+            "seed_kind": "primary",
+            "allocation": primary_alloc[index],
             "fixture": False,
             "sha256": descriptor["sha256"],
             "size": descriptor["size"],
@@ -137,11 +139,6 @@ def build(paths: list[Path], receipts: list[Path]) -> dict:
             }
         )
 
-    if len(reserve_indices_seen) > p.MAX_RESERVE_SUBSTITUTIONS:
-        n_res = len(reserve_indices_seen)
-        raise ValueError(
-            f"study-wide reserve substitutions {n_res} exceed cap {p.MAX_RESERVE_SUBSTITUTIONS}"
-        )
     result["units"].sort(key=lambda row: row["index"])
     return result
 

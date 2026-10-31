@@ -1,10 +1,10 @@
-"""Pre-data seed disjointness audit for Watch6 V3 primary and reserve banks.
+"""Pre-data seed disjointness audit for Watch6 V3 primary bank.
 
-Audits all 192 V3 scientific seeds (96 primary + 96 reserve) and 3 excluded
-fixtures against Watch6 V1, Watch6 V2, Watch replay banks 01-32, exploration
-namespaces, committed JSON banks, visible artifact text, and historical FRP
-training exclusions while strictly refusing to ever open any exports/ directory
-or pair-*.json outcome payload.
+Audits all 96 V3 primary scientific seeds and 3 excluded operational fixtures
+against Watch6 V1, Watch6 V2, Watch replay banks 01-32, exploration namespaces,
+committed JSON banks, visible artifact text, and historical FRP training
+exclusions while strictly refusing to ever open any exports/ directory or
+pair-*.json outcome payload.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from research.bl_served_search import bank
 from research.watch6_search_efficacy_v3 import protocol as p
 from tools.ops.package_spec import digest, publish_json
 
-STUDY_ARTIFACT_GLOB = "!**/t34-sol/argon-v3-confirm/**"
+STUDY_ARTIFACT_GLOB = "!**/t34-sol/argon-v3-confirm*/**"
 
 EXPLICIT_DISJOINT_NAMESPACES: list[tuple[str, int]] = [
     ("t34-watch6-exact-stop-efficacy-20261030-v1", 256),
@@ -85,19 +85,14 @@ def _assert_not_sealed_export(path: Path) -> None:
 
 
 def freshness(repo: Path = p.ROOT, artifacts: Path | None = None) -> dict:
-    """Audit V3 primary + reserve seeds without opening any sealed outcome export."""
+    """Audit V3 96 primary seeds + 3 fixtures without opening any sealed outcome export."""
     artifacts = artifacts if artifacts is not None else (repo.parent / "snake-dqn-artifacts")
     primary = [row["seed"] for row in p.allocation()]
-    reserve = [row["seed"] for row in p.reserve_allocation()]
     fixtures = list(p.FIXTURE_SEEDS)
-    scientific_seeds = set(primary) | set(reserve)
+    scientific_seeds = set(primary)
     all_v3_seeds = scientific_seeds | set(fixtures)
-    if (
-        len(primary) != p.COUNT
-        or len(reserve) != p.COUNT
-        or len(all_v3_seeds) != 2 * p.COUNT + len(fixtures)
-    ):
-        raise ValueError("internal V3 primary/reserve/fixture seed collision")
+    if len(primary) != p.COUNT or len(all_v3_seeds) != p.COUNT + len(fixtures):
+        raise ValueError("internal V3 primary/fixture seed collision")
 
     extra_namespaces, extra_seeds = _sibling_exploration_namespaces()
     checked_namespaces = [*EXPLICIT_DISJOINT_NAMESPACES, *extra_namespaces]
@@ -190,11 +185,11 @@ def freshness(repo: Path = p.ROOT, artifacts: Path | None = None) -> dict:
         raise ValueError(f"frozen V3 seed allocation collides: {collisions}")
 
     return {
-        "schema": "watch6-v3-freshness/v1",
+        "schema": "watch6-v3-freshness/v2",
         "status": "CLEAR",
         "namespace": p.NAMESPACE,
         "primary_count": p.COUNT,
-        "reserve_count": p.COUNT,
+        "reserve_count": 0,
         "fixture_count": len(fixtures),
         "explicit_disjoint_namespaces_checked": len(checked_namespaces),
         "roots": [str(r) for r in roots],
@@ -203,7 +198,6 @@ def freshness(repo: Path = p.ROOT, artifacts: Path | None = None) -> dict:
         "training_inventory_count": len(exclusions),
         "sealed_exports_excluded": ["**/exports/**", "**/pair-*.json", bank.SEALED],
         "primary_allocation": p.allocation(),
-        "reserve_allocation": p.reserve_allocation(),
         "fixtures": fixtures,
     }
 
