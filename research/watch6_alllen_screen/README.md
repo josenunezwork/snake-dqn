@@ -22,6 +22,11 @@ Adopt `L >= 1` exact-stop search for new Watch replay banks iff:
 
 Otherwise keep served `L2'` (`L >= 600`).
 
+## Input Upload Packing & Transfer Budget
+
+- Pinned checkpoints (`b8_s3_t7_20261016.pth`, `frp3_m3_s12_u60000_20261005.pth`) are split into eight `<= 2 MiB` single-chunk parts (`checkpoint-parts/*.part`), and all contracts, ledgers, `release-evidence.tar.gz`, and `.sha256`/`.complete` sidecars are packed into one deterministic `input-metadata.tar.gz` (`WATCH6_ALLLEN_METADATA_SHA256`), unpacked and verified by `job.sh` before execution.
+- `max_export_bytes = 4 MiB` (`4,194,304` B); total uploads = `11` transfers on the normal GitHub source path (`12` including optional `source.tar.gz` fallback), checked offline by `uploads.check_uploads` (`<= 12` transfers, `<= 90 s` at `5 s/RPC + 1 MB/s`, well below the `150 s` transfer and `300 s` staging caps).
+
 ## Entry Points
 
 - Seed disjointness audit: `python -m research.watch6_alllen_screen.seed_audit --out <audit.json>`

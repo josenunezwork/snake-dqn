@@ -14,6 +14,13 @@ from research.colab_cli import canary
 from research.watch6_alllen_screen import protocol as p
 from research.watch6_alllen_screen import seed_audit
 from research.watch6_alllen_screen.run import completed
+from research.watch6_alllen_screen.uploads import (
+    MAX_FILE_BYTES,
+    METADATA,
+    check_uploads,
+    checkpoint_inputs,
+    pack_inputs,
+)
 from research.watch_replay.prepare import release_bundle
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
 
@@ -146,8 +153,7 @@ def prepare(
     saved_dir = p.ROOT.parent / "snake-dqn" / "saved_snakes"
     if not saved_dir.is_dir():
         saved_dir = p.ROOT / "saved_snakes"
-    for ckpt_name in ("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth"):
-        inputs.append(Input(saved_dir / ckpt_name, f"checkpoints/{ckpt_name}"))
+    inputs.extend(checkpoint_inputs(saved_dir, out / "checkpoint-parts"))
 
     pins = json.loads(
         (p.ROOT / "web/backend/served_checkpoint_pins.json").read_text(encoding="utf-8")
@@ -155,7 +161,8 @@ def prepare(
     bundle = out / "release-evidence.tar.gz"
     release_bundle(bundle, pins)
     inputs.append(Input(bundle, "release-evidence.tar.gz"))
-    staged = stage_inputs(out / "staged", inputs)
+    staged = pack_inputs(stage_inputs(out / "staged", inputs), out / METADATA)
+    metadata_sha256 = next(row["sha256"] for row in staged if row["dest"] == METADATA)
 
     singleton = float(
         statistics.median(
@@ -208,7 +215,7 @@ def prepare(
             "lease_seconds": 300,
             "timeout_minutes": 2 * base,
             "output_dir": str(out / f"output-{label}"),
-            "max_export_bytes": 32 * 1024**2,
+            "max_export_bytes": MAX_FILE_BYTES,
             "requirements": {
                 "gpu": "L4",
                 "allowed_gpus": ["L4"],
@@ -248,6 +255,7 @@ def prepare(
                 "SNAKE_DQN_DEVICE": "cpu",
                 "WATCH6_ALLLEN_CONTRACT": f"{label}-contract.json",
                 "WATCH6_ALLLEN_LEDGER": f"{label}-ledger.json",
+                "WATCH6_ALLLEN_METADATA_SHA256": metadata_sha256,
                 "WATCH6_ALLLEN_WORKERS": "1" if is_probe else str(workers),
             },
         }
@@ -262,10 +270,14 @@ def prepare(
                 "mode": "probe",
                 "family": canary.family(manifest),
             }
+            upload_report = check_uploads(manifest)
+            publish_json(out / f"{label}-upload-preflight.json", upload_report)
             (out / "canary.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
         else:
+            upload_report = check_uploads(manifest)
+            publish_json(out / f"{label}-upload-preflight.json", upload_report)
             # Always write main-unsealed.json so ready_queue --prepare-command can seal
             # main.json create-only once the canary receipt exists.
             (out / "main-unsealed.json").write_text(
@@ -280,6 +292,7 @@ def prepare(
                         "sha256": digest(canary_receipt),
                     },
                 }
+                canary.check(sealed, p.ROOT)
                 (out / "main.json").write_text(
                     json.dumps(sealed, indent=2, sort_keys=True) + "\n", encoding="utf-8"
                 )

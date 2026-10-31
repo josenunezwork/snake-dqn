@@ -125,7 +125,9 @@ def run_local_preflight(
     horizon: int = p.PREFLIGHT_HORIZON,
 ) -> dict[str, Any]:
     """Execute the real job.sh bash entrypoint on tiny excluded inputs and measure timings."""
+    from research.watch6_alllen_screen.uploads import METADATA, checkpoint_inputs, pack_inputs
     from research.watch_replay.prepare import release_bundle
+    from tools.ops.package_spec import Input, stage_inputs
 
     out = out.resolve()
     out.mkdir(parents=True, exist_ok=False)
@@ -137,29 +139,45 @@ def run_local_preflight(
     (cli_root / "repo").symlink_to(p.ROOT)
     (venv_bin / "python").symlink_to(Path(sys.executable).resolve())
 
-    input_dir = out / "colab_input"
-    ckpt_dir = input_dir / "checkpoints"
-    ckpt_dir.mkdir(parents=True)
+    build_dir = out / "preflight_build"
+    build_dir.mkdir(parents=True)
     saved_dir = p.ROOT.parent / "snake-dqn" / "saved_snakes"
     if not saved_dir.is_dir():
         saved_dir = p.ROOT / "saved_snakes"
-    for ckpt_name in ("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth"):
-        (ckpt_dir / ckpt_name).symlink_to((saved_dir / ckpt_name).resolve())
 
+    inputs: list[Input] = []
+    for label, mirror in (("canary", True), ("main", False)):
+        contract = {
+            **p.allocation(p.PREFLIGHT_NAMESPACE, units, horizon, audit_live_mirror=mirror),
+            "commit": commit,
+        }
+        publish_json(build_dir / f"{label}-contract.json", contract)
+        publish_json(
+            build_dir / f"{label}-ledger.json",
+            empty_ledger(contract["namespace"], p.UNIT_KIND, p.contract_identity(contract)),
+        )
+        inputs.extend(
+            [
+                Input(build_dir / f"{label}-contract.json", f"{label}-contract.json"),
+                Input(build_dir / f"{label}-ledger.json", f"{label}-ledger.json"),
+            ]
+        )
+
+    inputs.extend(checkpoint_inputs(saved_dir, build_dir / "checkpoint-parts"))
     pins = json.loads(
         (p.ROOT / "web/backend/served_checkpoint_pins.json").read_text(encoding="utf-8")
     )
-    release_bundle(input_dir / "release-evidence.tar.gz", pins)
+    release_bundle(build_dir / "release-evidence.tar.gz", pins)
+    inputs.append(Input(build_dir / "release-evidence.tar.gz", "release-evidence.tar.gz"))
+    packed = pack_inputs(stage_inputs(build_dir / "staged", inputs), build_dir / METADATA)
+    metadata_sha256 = next(row["sha256"] for row in packed if row["dest"] == METADATA)
 
-    contract = {
-        **p.allocation(p.PREFLIGHT_NAMESPACE, units, horizon, audit_live_mirror=True),
-        "commit": commit,
-    }
-    publish_json(input_dir / "preflight-contract.json", contract)
-    publish_json(
-        input_dir / "preflight-ledger.json",
-        empty_ledger(contract["namespace"], p.UNIT_KIND, p.contract_identity(contract)),
-    )
+    input_dir = out / "colab_input"
+    input_dir.mkdir(parents=True)
+    for row in packed:
+        dest = input_dir / row["dest"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.link(Path(row["path"]), dest)
 
     output_dir = out / "colab_output"
     output_dir.mkdir()
@@ -169,8 +187,9 @@ def run_local_preflight(
         "COLAB_CLI_ROOT": str(cli_root),
         "COLAB_INPUT_DIR": str(input_dir),
         "COLAB_OUTPUT_DIR": str(output_dir),
-        "WATCH6_ALLLEN_CONTRACT": "preflight-contract.json",
-        "WATCH6_ALLLEN_LEDGER": "preflight-ledger.json",
+        "WATCH6_ALLLEN_CONTRACT": "canary-contract.json",
+        "WATCH6_ALLLEN_LEDGER": "canary-ledger.json",
+        "WATCH6_ALLLEN_METADATA_SHA256": metadata_sha256,
         "WATCH6_ALLLEN_WORKERS": "1",
         "SNAKE_COLAB_CANARY": "1",
         "SNAKE_DQN_DEVICE": "cpu",

@@ -5,6 +5,7 @@ set -euo pipefail
 : "${COLAB_OUTPUT_DIR:?output root required}"
 : "${WATCH6_ALLLEN_CONTRACT:?contract filename required}"
 : "${WATCH6_ALLLEN_LEDGER:?ledger filename required}"
+: "${WATCH6_ALLLEN_METADATA_SHA256:?metadata archive sha256 required}"
 : "${WATCH6_ALLLEN_WORKERS:?worker count required}"
 
 cd "$COLAB_CLI_ROOT/repo"
@@ -15,6 +16,7 @@ export SNAKE_CKPT_DIR="$COLAB_INPUT_DIR/checkpoints"
 export WATCH6_RELEASE_EVIDENCE="$COLAB_INPUT_DIR/release-evidence"
 
 PY="$COLAB_CLI_ROOT/.venv/bin/python"
+"$PY" -c 'from pathlib import Path; import os; from research.watch6_alllen_screen.uploads import stage_metadata, stage_checkpoints; root = Path(os.environ["COLAB_INPUT_DIR"]); stage_metadata(root, os.environ["WATCH6_ALLLEN_METADATA_SHA256"]); stage_checkpoints(root)'
 "$PY" -c 'from pathlib import Path; import os; from research.watch_replay.product import stage_release_evidence; stage_release_evidence(Path(os.environ["COLAB_INPUT_DIR"]))'
 "$PY" -m research.watch6_alllen_screen.run \
   --contract "$COLAB_INPUT_DIR/$WATCH6_ALLLEN_CONTRACT" \

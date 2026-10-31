@@ -21,8 +21,17 @@ from research.watch6_alllen_screen import (
     run,
     seal_main,
     seed_audit,
+    uploads,
 )
-from tools.ops.package_spec import digest, empty_ledger, publish_json, unit_id
+from tools.ops.package_spec import (
+    Input,
+    digest,
+    empty_ledger,
+    publish_json,
+    stage_inputs,
+    unit_id,
+    verify_immutable,
+)
 from web.backend.watch_replay import B8_SHA, FRP3_SHA
 
 
@@ -479,23 +488,42 @@ def test_prepare_packet_schema_and_canary_inventory_parity(tmp_path: Path) -> No
     )
     fake_root = tmp_path / "workspace" / "repo"
     (fake_root / "web" / "backend").mkdir(parents=True)
-    (fake_root / "web" / "backend" / "served_checkpoint_pins.json").write_text(
-        json.dumps({"checkpoints": {}}), encoding="utf-8"
-    )
     fake_saved = tmp_path / "workspace" / "snake-dqn" / "saved_snakes"
     fake_saved.mkdir(parents=True)
-    for ckpt in ("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth"):
-        (fake_saved / ckpt).write_bytes(b"ckpt-bytes-" + ckpt.encode())
 
-    def fake_git(cmd: list[str], **_kwargs: Any) -> str:
+    fake_ckpts: dict[str, tuple[str, int]] = {}
+    pins_payload: dict[str, Any] = {"checkpoints": {}}
+    for ckpt, pin in (
+        ("b8_s3_t7_20261016.pth", "b8-s3"),
+        ("frp3_m3_s12_u60000_20261005.pth", "frp3-s12"),
+    ):
+        payload = b"ckpt-bytes-" + ckpt.encode("utf-8")
+        path = fake_saved / ckpt
+        path.write_bytes(payload)
+        fake_ckpts[ckpt] = (pin, len(payload))
+        pins_payload["checkpoints"][pin] = {"checkpoint_sha256": digest(path)}
+
+    (fake_root / "web" / "backend" / "served_checkpoint_pins.json").write_text(
+        json.dumps(pins_payload), encoding="utf-8"
+    )
+
+    def fake_git(cmd: list[str], **kwargs: Any) -> Any:
         if "branch" in cmd:
             return "  origin/main\n"
-        return ""
+        if "show" in cmd:
+            return b"# pinned control\n"
+        return "" if kwargs.get("text") else b""
 
-    out = tmp_path / "packet-01"
+    def fake_source_prepare(_root: Path, _manifest: dict[str, Any], staging: Path) -> None:
+        (staging / "source-plan.json").write_bytes(b"{}")
+        (staging / "source.tar.gz").write_bytes(b"sparse-fallback")
+
+    out = tmp_path / "packet-02"
     with (
         patch.object(prepare.p, "ROOT", fake_root),
+        patch.object(uploads, "CHECKPOINTS", fake_ckpts),
         patch.object(prepare.subprocess, "check_output", side_effect=fake_git),
+        patch.object(uploads.source, "prepare", side_effect=fake_source_prepare),
         patch.object(prepare, "release_bundle", side_effect=lambda b, _p: b.write_bytes(b"tar-gz")),
     ):
         forecast = prepare.prepare(out, commit, benchmark, skip_seed_audit=True)
@@ -503,6 +531,8 @@ def test_prepare_packet_schema_and_canary_inventory_parity(tmp_path: Path) -> No
     assert forecast["effective_timeout_minutes"] == 2 * forecast["base_minutes"]
     assert (out / "canary.json").is_file()
     assert (out / "main-unsealed.json").is_file()
+    assert (out / "canary-upload-preflight.json").is_file()
+    assert (out / "main-upload-preflight.json").is_file()
     assert not (out / "main.json").exists()
 
     canary_m = json.loads((out / "canary.json").read_text(encoding="utf-8"))
@@ -510,10 +540,15 @@ def test_prepare_packet_schema_and_canary_inventory_parity(tmp_path: Path) -> No
 
     assert canary.is_canary(canary_m) is True
     assert canary_m["timeout_minutes"] == 30
+    assert canary_m["max_export_bytes"] == main_m["max_export_bytes"] == 4 * 1024**2
     assert canary_m["device"] == main_m["device"] == "cpu"
     assert canary_m["requirements"]["gpu"] == main_m["requirements"]["gpu"] == "L4"
     assert canary_m["requirements"]["min_vcpu"] == main_m["requirements"]["min_vcpu"] == 12
     assert canary.input_inventory(canary_m) == canary.input_inventory(main_m)
+    assert (
+        canary_m["env"]["WATCH6_ALLLEN_METADATA_SHA256"]
+        == main_m["env"]["WATCH6_ALLLEN_METADATA_SHA256"]
+    )
     assert set(main_m["required_exports"]) <= set(canary_m["required_exports"])
     assert main_m["resume"] == {
         "unit_kind": protocol.UNIT_KIND,
@@ -525,3 +560,137 @@ def test_prepare_packet_schema_and_canary_inventory_parity(tmp_path: Path) -> No
     assert main_m["timeout_minutes"] == 2 * meta["base_minutes"]
     assert main_m["budget"]["unit_cap"] == round(2.0 * meta["base_unit_cap"], 4)
     assert main_m["budget"]["reserve_units"] == round(2.0 * meta["base_reserve_units"], 4)
+
+
+def test_real_upload_budget_roundtrip_and_refusals(tmp_path: Path) -> None:
+    import subprocess as sp
+
+    from research.watch_replay.prepare import release_bundle
+
+    saved = _saved_snakes_dir()
+    if saved is None:
+        pytest.skip("product checkpoints unavailable in test environment")
+
+    commit = sp.check_output(["git", "rev-parse", "HEAD"], cwd=protocol.ROOT, text=True).strip()
+    build = tmp_path / "build"
+    build.mkdir()
+
+    inputs: list[Input] = []
+    for label, ns, cnt, hor, mirror in (
+        ("main", protocol.NAMESPACE, protocol.COUNT, protocol.HORIZON, False),
+        (
+            "canary",
+            protocol.CANARY_NAMESPACE,
+            protocol.CANARY_COUNT,
+            protocol.CANARY_HORIZON,
+            True,
+        ),
+    ):
+        contract = {**protocol.allocation(ns, cnt, hor, audit_live_mirror=mirror), "commit": commit}
+        publish_json(build / f"{label}-contract.json", contract)
+        publish_json(
+            build / f"{label}-ledger.json",
+            empty_ledger(
+                contract["namespace"], protocol.UNIT_KIND, protocol.contract_identity(contract)
+            ),
+        )
+        inputs.extend(
+            [
+                Input(build / f"{label}-contract.json", f"{label}-contract.json"),
+                Input(build / f"{label}-ledger.json", f"{label}-ledger.json"),
+            ]
+        )
+
+    inputs.extend(uploads.checkpoint_inputs(saved, build / "checkpoint-parts"))
+    pins = json.loads(
+        (protocol.ROOT / "web/backend/served_checkpoint_pins.json").read_text(encoding="utf-8")
+    )
+    release_bundle(build / "release-evidence.tar.gz", pins)
+    inputs.append(Input(build / "release-evidence.tar.gz", "release-evidence.tar.gz"))
+
+    packed = uploads.pack_inputs(stage_inputs(build / "staged", inputs), build / uploads.METADATA)
+    assert len(packed) == 9  # 8 x <=2 MiB checkpoint parts + 1 input-metadata.tar.gz
+    metadata_row = next(row for row in packed if row["dest"] == uploads.METADATA)
+    for row in packed:
+        size = Path(row["path"]).stat().st_size
+        assert size <= uploads.MAX_FILE_BYTES
+        if row["dest"] != uploads.METADATA:
+            assert size <= uploads.PART_BYTES
+
+    manifest = {
+        "commit": commit,
+        "script": protocol.SCRIPT,
+        "source_paths": protocol.source_paths(),
+        "max_export_bytes": uploads.MAX_FILE_BYTES,
+        "inputs": [{k: row[k] for k in ("path", "dest", "sha256")} for row in packed],
+    }
+    report = uploads.check_uploads(manifest)
+    assert report["status"] == "PASS"
+    assert report["max_upload_bytes"] == 4 * 1024**2
+    assert all(int(f["size_bytes"]) <= 4 * 1024**2 for f in report["files"])
+    assert report["normal_transfer_count"] == 11 <= 12
+    assert report["transfer_count"] == 12 <= 12
+    assert report["normal_estimated_transfer_seconds"] <= 90.0
+    assert report["estimated_transfer_seconds"] <= 90.0
+    assert report["estimated_transfer_seconds"] < report["transfer_cap_seconds"] == 150.0
+    assert report["estimated_staging_seconds"] < report["staging_cap_seconds"] == 300.0
+
+    # Round-trip runtime staging from ONLY the 9 uploaded files (simulating $COLAB_INPUT_DIR).
+    runtime_in = tmp_path / "colab_input"
+    runtime_in.mkdir()
+    for row in packed:
+        dest = runtime_in / row["dest"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.link(Path(row["path"]), dest)
+
+    with pytest.raises(ValueError, match="SHA256"):
+        uploads.stage_metadata(runtime_in, "0" * 64)
+
+    uploads.stage_metadata(runtime_in, metadata_row["sha256"])
+    uploads.stage_checkpoints(runtime_in)
+    for name in (
+        "main-contract.json",
+        "main-ledger.json",
+        "canary-contract.json",
+        "canary-ledger.json",
+        "release-evidence.tar.gz",
+    ):
+        verify_immutable(runtime_in / name)
+    assert digest(runtime_in / "checkpoints/b8_s3_t7_20261016.pth") == B8_SHA
+    assert digest(runtime_in / "checkpoints/frp3_m3_s12_u60000_20261005.pth") == FRP3_SHA
+
+    # Budget refusals: >4 MiB file, >12 transfers, and >90 s transfer estimate.
+    oversized = tmp_path / "oversized.bin"
+    oversized.write_bytes(b"x" * (uploads.MAX_FILE_BYTES + 1))
+    bad_size = {
+        **manifest,
+        "inputs": [
+            *manifest["inputs"],
+            {"path": str(oversized), "dest": "big.bin", "sha256": "0" * 64},
+        ],
+    }
+    with pytest.raises(ValueError, match="exceeds bounded transfer size"):
+        uploads.check_uploads(bad_size)
+
+    tiny = tmp_path / "tiny.bin"
+    tiny.write_bytes(b"ok")
+    bad_count = {
+        **manifest,
+        "inputs": [
+            *manifest["inputs"],
+            {"path": str(tiny), "dest": "extra.bin", "sha256": "0" * 64},
+        ],
+    }
+    with pytest.raises(ValueError, match="upload transfer forecast refuses offline"):
+        uploads.check_uploads(bad_count)
+
+    chunk = tmp_path / "chunk4m.bin"
+    chunk.write_bytes(b"y" * uploads.MAX_FILE_BYTES)
+    bad_time = {
+        **manifest,
+        "inputs": [
+            {"path": str(chunk), "dest": f"c-{i}.bin", "sha256": "0" * 64} for i in range(9)
+        ],
+    }
+    with pytest.raises(ValueError, match="upload transfer forecast refuses offline"):
+        uploads.check_uploads(bad_time)
