@@ -55,7 +55,7 @@ def _make(device: str, case: str) -> tuple[Any, Any]:
         mechanics_version=2,
     )
     left, right = _frozen_class()(cfg, device=device), DeviceSim(
-        cfg, device=device, move_backend="indexed"
+        cfg, device=device, move_backend="indexed", exact_mechanics=False
     )
     for sim in (left, right):
         sim.bodies.fill_(-7)  # Stale padding must survive the optimization.

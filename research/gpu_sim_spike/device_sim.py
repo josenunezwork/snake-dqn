@@ -12,6 +12,7 @@ divergence; this module must never be used as a promotion or serving simulator.
 from __future__ import annotations
 
 import copy
+import weakref
 from typing import Any
 
 import numpy as np
@@ -24,6 +25,49 @@ from src.core.reward_events import PHI_LENGTH_DIVISOR
 from src.simd_env.batch_sim import DEATH_BODY, DEATH_HEAD, DEATH_SELF, DEATH_WALL
 
 _CARDINAL = ((0, -1), (1, 0), (0, 1), (-1, 0))
+_ENV_TENSOR_FIELDS = (
+    "bodies",
+    "head_ptr",
+    "seg_count",
+    "length",
+    "alive",
+    "direction",
+    "boost_frames",
+    "frames_since_food",
+    "respawn_timer",
+    "_reward_prev_length",
+    "frame",
+    "rng_counter",
+    "rng_key",
+    "food_cells",
+    "food_present",
+    "corpse_food",
+    "food_count",
+    "_last_reward",
+    "_last_done",
+    "_last_death_cause",
+    "_last_kills",
+    "_last_food_ate",
+    "_last_ambient_food_ate",
+    "_last_corpse_food_ate",
+    "_last_transition_valid",
+    "_boosted_this_step",
+    "terminal_slots",
+    "capacity_overflow",
+)
+_EXACT_MECHANICS: "weakref.WeakKeyDictionary[Any, bool]" = weakref.WeakKeyDictionary()
+
+
+def _splitmix_positive(key: torch.Tensor, counter: torch.Tensor) -> torch.Tensor:
+    """Device-portable 63-bit positive mixer using unsigned-equivalent wraparound."""
+    c1 = -7046029254386353131  # 0x9E3779B97F4A7C15 - 2**64
+    c2 = -4658895280553007687  # 0xBF58476D1CE4E5B9 - 2**64
+    c3 = -7723592293110705685  # 0x94D049BB133111EB - 2**64
+    z = key ^ (counter * c1)
+    z = (z ^ ((z >> 30) & 0x3_FFFF_FFFF)) * c2
+    z = (z ^ ((z >> 27) & 0x1F_FFFF_FFFF)) * c3
+    z = z ^ ((z >> 31) & 0x1_FFFF_FFFF)
+    return z & 0x7FFF_FFFF_FFFF_FFFF
 
 
 class DeviceSim:
@@ -43,6 +87,8 @@ class DeviceSim:
         allow_respawn: bool = True,
         cap: int | None = None,
         move_backend: str = "reference",
+        hero_respawn: bool = False,
+        exact_mechanics: bool = True,
     ) -> None:
         if move_backend not in ("reference", "indexed"):
             raise ValueError("move_backend must be reference or indexed")
@@ -100,11 +146,14 @@ class DeviceSim:
         self._last_corpse_food_ate = torch.zeros(es, dtype=torch.bool, device=self.device)
         self._last_transition_valid = torch.zeros(es, dtype=torch.bool, device=self.device)
         self._boosted_this_step = torch.zeros(es, dtype=torch.bool, device=self.device)
-        # Dense-search heroes terminate at death.  Opponents can retain the
-        # reference respawn behaviour when the reference world enables it.
-        self.terminal_slots = (
-            (torch.arange(self.S, device=self.device)[None, :] == 0).expand(self.E, -1).clone()
-        )
+        # Dense-search heroes terminate at death unless continuous hero respawn
+        # is requested (Watch6 product sessions).
+        if hero_respawn:
+            self.terminal_slots = torch.zeros(es, dtype=torch.bool, device=self.device)
+        else:
+            self.terminal_slots = (
+                (torch.arange(self.S, device=self.device)[None, :] == 0).expand(self.E, -1).clone()
+            )
         self.port_limitations = (
             "Counter RNG is intentionally not CPython MT; bounded device rejection "
             "sampling can exhaust on crowded boards; circular arena uses "
@@ -113,10 +162,35 @@ class DeviceSim:
         )
         self._prepared = False
         self._timing = StageTiming(self.device)
+        self.exact_mechanics = bool(exact_mechanics)
+
+    @property
+    def exact_mechanics(self) -> bool:
+        try:
+            return _EXACT_MECHANICS.get(self, True)
+        except TypeError:
+            return True
+
+    @exact_mechanics.setter
+    def exact_mechanics(self, enabled: bool) -> None:
+        try:
+            if enabled:
+                _EXACT_MECHANICS.pop(self, None)
+            else:
+                _EXACT_MECHANICS[self] = False
+        except TypeError:
+            pass
 
     @classmethod
     def from_reference(
-        cls, sim: Any, device: str | torch.device = "cpu", repeat: int = 1
+        cls,
+        sim: Any,
+        device: str | torch.device = "cpu",
+        repeat: int = 1,
+        *,
+        hero_respawn: bool = False,
+        prepared: bool | None = None,
+        exact_mechanics: bool = True,
     ) -> "DeviceSim":
         """Copy a CPU GridBatchSim snapshot once; host access ends on return."""
         if repeat < 1:
@@ -127,6 +201,8 @@ class DeviceSim:
             train_mode=sim.train_mode,
             allow_respawn=sim.allow_respawn,
             cap=sim.cap,
+            hero_respawn=hero_respawn,
+            exact_mechanics=exact_mechanics,
         )
         names = (
             "bodies",
@@ -171,11 +247,18 @@ class DeviceSim:
                     flags, dtype=torch.bool, device=out.device
                 )
             out.food_count[dst] = n
-        out._prepared = bool(getattr(sim, "_policy_phase_prepared", False))
+        if prepared is None:
+            out._prepared = bool(
+                getattr(sim, "_policy_phase_prepared", False)
+                or getattr(sim, "_policy_step_in_progress", False)
+            )
+        else:
+            out._prepared = bool(prepared)
         # Counter RNG deliberately differs from CPython MT, but its key is
         # bound to the source world seed and phase so branch worlds are neither
         # accidentally identical across fixtures nor reset at offset seams.
-        seeds = getattr(sim, "_seeds", list(range(sim.E)))
+        raw_seeds = getattr(sim, "_seeds", list(range(sim.E)))
+        seeds = [int(s) if int(s) < (1 << 63) else int(s) - (1 << 64) for s in raw_seeds]
         out.rng_key = (
             torch.as_tensor(seeds, dtype=torch.long, device=out.device) & 0x7FFF_FFFF_FFFF_FFFF
         )
@@ -190,11 +273,12 @@ class DeviceSim:
 
     def clone(self) -> "DeviceSim":
         """Deep-copy every tensor without a device-to-host round trip."""
-        out = object.__new__(DeviceSim)
+        out = object.__new__(type(self))
         for key, value in self.__dict__.items():
             setattr(
                 out, key, value.clone() if isinstance(value, torch.Tensor) else copy.copy(value)
             )
+        out.exact_mechanics = self.exact_mechanics
         # R2 mode follows the clone; its cache never does (fresh generation).
         r2_cache.inherit(out, self)
         return out
@@ -369,9 +453,22 @@ class DeviceSim:
 
         return advisory_mask(self)
 
+    def _spawn_bounds(self) -> tuple[int, int, int, int]:
+        cfg = getattr(self, "cfg", None)
+        margin = 0 if cfg is None else max(0, int(cfg.wall_thickness) // int(cfg.segment_size))
+        span_w = max(1, int(self.grid_w) - 2 * margin)
+        span_h = max(1, int(self.grid_h) - 2 * margin)
+        return margin, span_w, margin, span_h
+
     def _random_cells(self) -> torch.Tensor:
-        # Counter-based integer mixer: reproducible across branch cloning.
         self.rng_counter += 1
+        if self.exact_mechanics:
+            mx, span_w, my, span_h = self._spawn_bounds()
+            z = _splitmix_positive(self.rng_key, self.rng_counter)
+            x = mx + z.remainder(span_w)
+            y = my + (z >> 32).remainder(span_h)
+            return torch.stack((x, y), dim=-1)
+        # Legacy counter-based integer mixer retained for frozen spike replay.
         z = (
             self.rng_key * 6364136223846793005 + self.rng_counter * 1442695040888963407
         ) & 0x7FFF_FFFF_FFFF_FFFF
@@ -379,12 +476,35 @@ class DeviceSim:
         y = (z // self.grid_w).remainder(self.grid_h)
         return torch.stack((x, y), dim=-1)
 
+    def _draw_for_rows(self, active_rows: torch.Tensor) -> torch.Tensor:
+        """Draw one candidate cell per active row, advancing only active rng_counters."""
+        if "_random_cells" in self.__dict__:
+            before = self.rng_counter.clone()
+            full_cand = self._random_cells()
+            after_active = torch.where(
+                self.rng_counter.index_select(0, active_rows)
+                == before.index_select(0, active_rows),
+                before.index_select(0, active_rows) + 1,
+                self.rng_counter.index_select(0, active_rows),
+            )
+            self.rng_counter.copy_(before)
+            self.rng_counter[active_rows] = after_active
+            return full_cand.index_select(0, active_rows)
+        if int(active_rows.numel()) == self.E:
+            return self._random_cells()
+        self.rng_counter[active_rows] = self.rng_counter.index_select(0, active_rows) + 1
+        mx, span_w, my, span_h = self._spawn_bounds()
+        z = _splitmix_positive(
+            self.rng_key.index_select(0, active_rows),
+            self.rng_counter.index_select(0, active_rows),
+        )
+        x = mx + z.remainder(span_w)
+        y = my + (z >> 32).remainder(span_h)
+        return torch.stack((x, y), dim=-1)
+
     def _append_food(
         self, cells: torch.Tensor, mask: torch.Tensor, corpse: torch.Tensor | bool
     ) -> None:
-        slots = self.food_count.clamp_max(self.food_capacity - 1)
-        room = self.food_count < self.food_capacity
-        use = mask & room
         e = torch.arange(self.E, device=self.device)
         old_grid = self.food_grid()
         duplicate = (
@@ -393,13 +513,25 @@ class DeviceSim:
             ]
             != 0
         )
-        use &= ~duplicate
+        want = mask & ~duplicate
+        corpse_value = torch.full_like(want, bool(corpse)) if isinstance(corpse, bool) else corpse
+        is_corpse = (isinstance(corpse, bool) and corpse) or isinstance(corpse, torch.Tensor)
+        if is_corpse and self.exact_mechanics:
+            cap = corpse_food_cap(int(self.cfg.max_food))
+            if cap <= 0:
+                want = want & ~corpse_value
+            else:
+                corpse_full = want & corpse_value & (self.corpse_food.sum(dim=1) >= cap)
+                if self.device.type == "meta" or bool(corpse_full.any().item()):
+                    self._evict_oldest_corpse(corpse_full.long())
+        slots = self.food_count.clamp_max(self.food_capacity - 1)
+        room = self.food_count < self.food_capacity
+        use = want & room
         self.food_cells[e, slots] = torch.where(use[:, None], cells, self.food_cells[e, slots])
         self.food_present[e, slots] = self.food_present[e, slots] | use
-        corpse_value = torch.full_like(use, bool(corpse)) if isinstance(corpse, bool) else corpse
         self.corpse_food[e, slots] = torch.where(use, corpse_value, self.corpse_food[e, slots])
         self.food_count += use.long()
-        if isinstance(corpse, bool) and corpse:
+        if is_corpse:
             self._trim_corpse_food()
 
     def _append_many(self, cells: torch.Tensor, mask: torch.Tensor, corpse: bool) -> None:
@@ -533,8 +665,85 @@ class DeviceSim:
             self._maintain_food_impl()
         r2_cache.bump(self)
 
+    def _refill_food_rows(self, active_mask: torch.Tensor) -> None:
+        """Refill ambient deficit up to max_food matching GridBatchSim._spawn nested rejection."""
+        max_food = int(self.cfg.max_food)
+        ambient = (self.food_present & ~self.corpse_food).sum(dim=1)
+        need = active_mask & (ambient < max_food)
+        rows = need.nonzero(as_tuple=False).flatten()
+        if not rows.numel():
+            return
+
+        sub = object.__new__(type(self))
+        sub.__dict__ = self.__dict__.copy()
+        for name in _ENV_TENSOR_FIELDS:
+            value = getattr(self, name, None)
+            if isinstance(value, torch.Tensor):
+                setattr(sub, name, value.index_select(0, rows))
+        sub.E = int(rows.numel())
+        sub.exact_mechanics = self.exact_mechanics
+        r2_cache.inherit(sub, self)
+        occupied = sub.occupancy()
+
+        remaining = (max_food - ambient.index_select(0, rows)).clamp_min(0)
+        outer_tries = torch.zeros(sub.E, dtype=torch.long, device=self.device)
+        inner_tries = torch.zeros(sub.E, dtype=torch.long, device=self.device)
+        exhausted = torch.zeros(sub.E, dtype=torch.bool, device=self.device)
+
+        while True:
+            active_local = (remaining > 0) & (~exhausted)
+            if not bool(active_local.any()):
+                break
+            local_idx = active_local.nonzero(as_tuple=False).flatten()
+            global_idx = rows.index_select(0, local_idx)
+            cand = self._draw_for_rows(global_idx)
+            cx = cand[:, 0]
+            cy = cand[:, 1]
+            in_bounds = (cx >= 0) & (cx < self.grid_w) & (cy >= 0) & (cy < self.grid_h)
+            safe_x = cx.clamp(0, self.grid_w - 1)
+            safe_y = cy.clamp(0, self.grid_h - 1)
+            occ_free = in_bounds & (occupied[local_idx, safe_y, safe_x] < 0)
+
+            sub_cells = sub.food_cells.index_select(0, local_idx)
+            sub_pres = sub.food_present.index_select(0, local_idx)
+            dup = (
+                sub_pres & (sub_cells[:, :, 0] == cx[:, None]) & (sub_cells[:, :, 1] == cy[:, None])
+            ).any(dim=1)
+
+            placed = occ_free & (~dup)
+            if bool(placed.any()):
+                placed_local = local_idx[placed]
+                placed_cand = cand[placed]
+                insert_mask = torch.zeros(sub.E, dtype=torch.bool, device=self.device)
+                insert_full = torch.zeros((sub.E, 2), dtype=torch.long, device=self.device)
+                insert_mask[placed_local] = True
+                insert_full[placed_local] = placed_cand
+                prev_fc = sub.food_count.clone()
+                sub._append_food(insert_full, insert_mask, False)
+                added = (sub.food_count - prev_fc) > 0
+                remaining = torch.where(added, remaining - 1, remaining)
+                exhausted |= insert_mask & (~added)
+                inner_tries = torch.where(insert_mask, torch.zeros_like(inner_tries), inner_tries)
+                outer_tries = torch.where(insert_mask, torch.zeros_like(outer_tries), outer_tries)
+
+            dup_only = occ_free & dup
+            if bool(dup_only.any()):
+                dup_local = local_idx[dup_only]
+                inner_tries[dup_local] = 0
+                outer_tries[dup_local] += 1
+                exhausted[dup_local] |= outer_tries[dup_local] >= 100
+
+            occ_blocked = ~occ_free
+            if bool(occ_blocked.any()):
+                occ_local = local_idx[occ_blocked]
+                inner_tries[occ_local] += 1
+                exhausted[occ_local] |= inner_tries[occ_local] >= 100
+
+        for name in ("food_cells", "food_present", "corpse_food", "food_count"):
+            getattr(self, name)[rows] = getattr(sub, name)
+
     def _maintain_food_impl(self) -> None:
-        """Refill needy worlds while consuming exactly the old fixed RNG budget."""
+        """Refill needy worlds matching GridBatchSim nested rejection (or legacy LCG)."""
         trials = int(self.cfg.max_food)
         if self.device.type == "meta":
             # Static shape-only oracle; no data-dependent scalar extraction.
@@ -546,6 +755,10 @@ class DeviceSim:
                 self._append_food(
                     candidate, want & (occ[e, candidate[:, 1], candidate[:, 0]] < 0), False
                 )
+            return
+        if self.exact_mechanics:
+            all_rows = torch.ones(self.E, dtype=torch.bool, device=self.device)
+            self._refill_food_rows(all_rows)
             return
         ambient = (self.food_present & ~self.corpse_food).sum(dim=1)
         active = (ambient < trials).nonzero(as_tuple=False).flatten()
@@ -560,6 +773,7 @@ class DeviceSim:
             if isinstance(value, torch.Tensor) and value.ndim and value.shape[0] == self.E:
                 setattr(sub, name, value.index_select(0, active))
         sub.E = active.numel()
+        sub.exact_mechanics = False
         occ = sub.occupancy()
         e = torch.arange(sub.E, device=self.device)
         ambient = ambient.index_select(0, active)
@@ -641,13 +855,70 @@ class DeviceSim:
 
     def _respawn(self) -> None:
         r2_cache.bump(self)
-        if self.move_backend == "indexed" and self.device.type != "meta":
+        if self.exact_mechanics and self.device.type != "meta":
+            self._respawn_exact()
+        elif self.move_backend == "indexed" and self.device.type != "meta":
             from research.gpu_sim_spike.move_cuda import respawn
 
             respawn(self)
         else:
             self._respawn_reference()
         r2_cache.bump(self)
+
+    def _respawn_exact(self) -> None:
+        """Sequential per-slot 100-trial margined respawn matching GridBatchSim._respawn_dead."""
+        dead = ~self.alive
+        self.respawn_timer = torch.where(
+            dead & (self.respawn_timer > 0), self.respawn_timer - 1, self.respawn_timer
+        )
+        pending = ~self.alive & ~self.terminal_slots & (self.respawn_timer <= 0)
+        if not bool(pending.any()):
+            return
+        for sidx in range(self.S):
+            slot_need = pending[:, sidx]
+            if not bool(slot_need.any()):
+                continue
+            rows = slot_need.nonzero(as_tuple=False).flatten()
+            r2_cache.bump(self)
+            sub = object.__new__(type(self))
+            sub.__dict__ = self.__dict__.copy()
+            for name in _ENV_TENSOR_FIELDS:
+                value = getattr(self, name, None)
+                if isinstance(value, torch.Tensor):
+                    setattr(sub, name, value.index_select(0, rows))
+            sub.E = int(rows.numel())
+            sub.exact_mechanics = self.exact_mechanics
+            r2_cache.inherit(sub, self)
+            occupied = sub.occupancy()
+
+            unplaced = torch.ones(sub.E, dtype=torch.bool, device=self.device)
+            for _ in range(100):
+                if not bool(unplaced.any()):
+                    break
+                local_idx = unplaced.nonzero(as_tuple=False).flatten()
+                global_idx = rows.index_select(0, local_idx)
+                cand = self._draw_for_rows(global_idx)
+                cx = cand[:, 0]
+                cy = cand[:, 1]
+                in_bounds = (cx >= 0) & (cx < self.grid_w) & (cy >= 0) & (cy < self.grid_h)
+                safe_x = cx.clamp(0, self.grid_w - 1)
+                safe_y = cy.clamp(0, self.grid_h - 1)
+                free = in_bounds & (occupied[local_idx, safe_y, safe_x] < 0)
+                if bool(free.any()):
+                    win_global = global_idx[free]
+                    win_local = local_idx[free]
+                    win_cand = cand[free]
+                    self.bodies[win_global, sidx, 0] = win_cand.to(self.bodies.dtype)
+                    self.head_ptr[win_global, sidx] = 0
+                    self.seg_count[win_global, sidx] = 1
+                    self.length[win_global, sidx] = 1
+                    self.direction[win_global, sidx] = 1
+                    self.alive[win_global, sidx] = True
+                    self.respawn_timer[win_global, sidx] = 0
+                    self.boost_frames[win_global, sidx] = 0
+                    self.frames_since_food[win_global, sidx] = 0
+                    self._reward_prev_length[win_global, sidx] = 1
+                    unplaced[win_local] = False
 
     def _respawn_reference(self) -> None:
         dead = ~self.alive
@@ -910,34 +1181,74 @@ class DeviceSim:
                 )
         traversed = torch.stack((head1, head2), dim=2)
         traversed_valid = torch.stack((move1, boost), dim=2)
-        # Food is consumed at the first traversed cell.  Matching is vectorized,
-        # then stable-compacted once, retaining append order of survivors.
-        live_food = self.food_present
-        eq = (traversed[:, :, :, None, :] == self.food_cells[:, None, None, :, :]).all(dim=-1)
-        hit = eq & live_food[:, None, None, :] & traversed_valid[..., None]
-        # CPU resolves food in snake-slot order and rechecks the remaining food
-        # for each snake.  The fixed-S loop preserves that contested-boost case
-        # while all state and selection work remain device tensors.
-        picked = torch.zeros_like(self.food_present)
         ate = torch.zeros_like(self.alive)
         ate_corpse = torch.zeros_like(self.alive)
-        food_slots = torch.arange(self.food_capacity, device=self.device)[None, :]
-        for slot in range(self.S):
-            available = hit[:, slot] & ~picked[:, None, :]
-            by_t = available.any(dim=2)
-            first_t = by_t.long().argmax(dim=1)
-            tmask = torch.arange(2, device=self.device)[None, :] == first_t[:, None]
-            candidates = (available & tmask[:, :, None]).any(dim=1)
-            has = candidates.any(dim=1) & self.alive[:, slot]
-            chosen = candidates.long().argmax(dim=1)
-            select = has[:, None] & (food_slots == chosen[:, None])
-            ate[:, slot] = has
-            ate_corpse[:, slot] = (select & self.corpse_food).any(dim=1)
-            picked |= select
-        self.length += ate.long()
-        self.food_present &= ~picked
-        self.corpse_food &= self.food_present
-        self._compact_food()
+        if self.exact_mechanics and not self.train_mode and self.device.type != "meta":
+            # Ordered per-slot food consumption and immediate per-eat ambient refill
+            # matching CPU GridBatchSim._consume_food (train_mode=False).
+            eq_any = (traversed[:, :, :, None, :] == self.food_cells[:, None, None, :, :]).all(
+                dim=-1
+            )
+            any_candidate = bool(
+                (eq_any & self.food_present[:, None, None, :] & traversed_valid[..., None]).any()
+            )
+            if any_candidate:
+                food_slots = torch.arange(self.food_capacity, device=self.device)[None, :]
+                t_idx = torch.arange(2, device=self.device)[None, :]
+                for slot in range(self.S):
+                    eq_s = (traversed[:, slot, :, None, :] == self.food_cells[:, None, :, :]).all(
+                        dim=-1
+                    )
+                    available = (
+                        eq_s & self.food_present[:, None, :] & traversed_valid[:, slot, :, None]
+                    )
+                    by_t = available.any(dim=2)
+                    first_t = by_t.long().argmax(dim=1)
+                    tmask = t_idx == first_t[:, None]
+                    candidates = (available & tmask[:, :, None]).any(dim=1)
+                    has = candidates.any(dim=1) & self.alive[:, slot]
+                    if not bool(has.any()):
+                        continue
+                    chosen = candidates.long().argmax(dim=1)
+                    select = has[:, None] & (food_slots == chosen[:, None])
+                    is_corpse = (select & self.corpse_food).any(dim=1)
+                    ate[:, slot] = has
+                    ate_corpse[:, slot] = is_corpse
+                    self.length[:, slot] += has.long()
+                    self.food_present &= ~select
+                    self.corpse_food &= self.food_present
+                    self._compact_food()
+                    r2_cache.bump(self)
+                    with self.stage("food"):
+                        self._refill_food_rows(has)
+                    r2_cache.bump(self)
+        else:
+            # Food is consumed at the first traversed cell.  Matching is vectorized,
+            # then stable-compacted once, retaining append order of survivors.
+            live_food = self.food_present
+            eq = (traversed[:, :, :, None, :] == self.food_cells[:, None, None, :, :]).all(dim=-1)
+            hit = eq & live_food[:, None, None, :] & traversed_valid[..., None]
+            # CPU resolves food in snake-slot order and rechecks the remaining food
+            # for each snake.  The fixed-S loop preserves that contested-boost case
+            # while all state and selection work remain device tensors.
+            picked = torch.zeros_like(self.food_present)
+            food_slots = torch.arange(self.food_capacity, device=self.device)[None, :]
+            for slot in range(self.S):
+                available = hit[:, slot] & ~picked[:, None, :]
+                by_t = available.any(dim=2)
+                first_t = by_t.long().argmax(dim=1)
+                tmask = torch.arange(2, device=self.device)[None, :] == first_t[:, None]
+                candidates = (available & tmask[:, :, None]).any(dim=1)
+                has = candidates.any(dim=1) & self.alive[:, slot]
+                chosen = candidates.long().argmax(dim=1)
+                select = has[:, None] & (food_slots == chosen[:, None])
+                ate[:, slot] = has
+                ate_corpse[:, slot] = (select & self.corpse_food).any(dim=1)
+                picked |= select
+            self.length += ate.long()
+            self.food_present &= ~picked
+            self.corpse_food &= self.food_present
+            self._compact_food()
         movement_stage.__exit__(None, None, None)
         if self.train_mode:
             self._maintain_food()

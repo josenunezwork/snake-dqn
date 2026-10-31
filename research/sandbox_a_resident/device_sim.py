@@ -60,6 +60,10 @@ class ResidentDeviceSim(_CertifiedDeviceSim):
     implementation verbatim.
     """
 
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        kwargs.setdefault("exact_mechanics", False)
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+
     def _row_subset(self, rows: torch.Tensor) -> _CertifiedDeviceSim:
         """Return a private compact view over complete environment rows."""
         sub = object.__new__(_CertifiedDeviceSim)
@@ -69,6 +73,7 @@ class ResidentDeviceSim(_CertifiedDeviceSim):
             if isinstance(value, torch.Tensor):
                 setattr(sub, name, value.index_select(0, rows))
         sub.E = int(rows.numel())
+        sub.exact_mechanics = self.exact_mechanics
         return sub
 
     def _copy_food_rows(self, rows: torch.Tensor, sub: _CertifiedDeviceSim) -> None:
@@ -151,10 +156,20 @@ def food_mechanics_parity_probe(
     requested = torch.device(device)
     backend = "indexed" if requested.type == "cuda" else "reference"
     frozen = _CertifiedDeviceSim(
-        cfg, device=device, train_mode=False, allow_respawn=True, move_backend=backend
+        cfg,
+        device=device,
+        train_mode=False,
+        allow_respawn=True,
+        move_backend=backend,
+        exact_mechanics=False,
     )
     candidate = ResidentDeviceSim(
-        cfg, device=device, train_mode=False, allow_respawn=True, move_backend=backend
+        cfg,
+        device=device,
+        train_mode=False,
+        allow_respawn=True,
+        move_backend=backend,
+        exact_mechanics=False,
     )
     if rng_keys is not None:
         frozen.rng_key.copy_(rng_keys.to(frozen.device))

@@ -46,6 +46,7 @@ class DevicePolicy:
         *,
         backend: str = "device",
         sim: Any = None,
+        prepared: bool | None = None,
     ) -> "DevicePolicy":
         target = torch.device(device)
         if target.type == "cuda" and target.index is None:
@@ -69,8 +70,21 @@ class DevicePolicy:
         from research.gpu_sim_spike.vector_device import DeviceVectorRuntime
 
         if sim is None:
-            sim = DeviceSim.from_reference(world.sim, device=target)
+            sim = DeviceSim.from_reference(world.sim, device=target, prepared=prepared)
         out.vector_runtime = DeviceVectorRuntime.from_reference(world.runtime, sim)
+        ctrl = out.vector_runtime.controlled
+        ready_expected = ctrl & sim.alive.to(out.device, dtype=torch.bool)
+        if prepared is not None:
+            out.vector_prepared = bool(prepared)
+        elif out.device.type == "meta":
+            out.vector_prepared = bool(getattr(sim, "_prepared", False))
+        elif bool(ready_expected.any()):
+            out.vector_prepared = bool(
+                torch.equal(out.vector_runtime.sel_ready, ready_expected)
+                and not bool((out.vector_runtime._carry_valid & ctrl).any())
+            )
+        else:
+            out.vector_prepared = bool(getattr(sim, "_prepared", False))
         nets, kinds, tables = [], [], []
         memo: dict[int, nn.Module] = {}
         for slot, policy in enumerate(world.opponents, start=1):

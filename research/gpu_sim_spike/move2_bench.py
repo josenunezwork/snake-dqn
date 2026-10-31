@@ -94,6 +94,8 @@ def _build(
     )
     sim.move_backend = backend
     template.move_backend = backend
+    sim.exact_mechanics = False
+    template.exact_mechanics = False
     return sim, policy, template, policy_template
 
 
@@ -117,6 +119,7 @@ def _cpu_discrepancies(checkpoint: Path, device: str = "cpu") -> dict[str, Any]:
         candidate, baseline = DeviceSim.from_reference(
             grid, device=device
         ), _frozen_class().from_reference(grid, device=device)
+        candidate.exact_mechanics = False
         for sim in (candidate, baseline):
             sim.train_mode = False
             sim.allow_respawn = False

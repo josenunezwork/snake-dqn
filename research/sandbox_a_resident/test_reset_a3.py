@@ -37,7 +37,9 @@ def copy_tensor_state(source: DeviceSim, destination: DeviceSim) -> None:
 
 def test_batched_empty_initial_food_matches_frozen_counter_stream_and_order() -> None:
     torch.set_num_threads(1)
-    frozen = DeviceSim(make_cfg(), device="cpu", train_mode=False, allow_respawn=True)
+    frozen = DeviceSim(
+        make_cfg(), device="cpu", train_mode=False, allow_respawn=True, exact_mechanics=False
+    )
     candidate = ResidentDeviceSim(make_cfg(), device="cpu", train_mode=False, allow_respawn=True)
     frozen.rng_key.copy_(torch.tensor([19, 31, 47, 59]))
     frozen.rng_counter.copy_(torch.tensor([32, 32, 7, 11]))
@@ -72,7 +74,7 @@ def test_batched_empty_initial_food_matches_frozen_counter_stream_and_order() ->
 
 def test_batched_append_preserves_rejected_duplicate_occupied_and_boundary_candidates() -> None:
     torch.set_num_threads(1)
-    frozen = DeviceSim(make_cfg(1), device="cpu", train_mode=False)
+    frozen = DeviceSim(make_cfg(1), device="cpu", train_mode=False, exact_mechanics=False)
     candidate = ResidentDeviceSim(make_cfg(1), device="cpu", train_mode=False)
     # Existing food creates an occupied-cell rejection.  The stream also has
     # two boundary candidates and a duplicate accepted candidate.
@@ -101,7 +103,9 @@ def test_batched_append_preserves_rejected_duplicate_occupied_and_boundary_candi
 
 def test_initial_food_adapter_preserves_mechanics_across_following_steps() -> None:
     torch.set_num_threads(1)
-    frozen = DeviceSim(make_cfg(3), device="cpu", train_mode=False, allow_respawn=True)
+    frozen = DeviceSim(
+        make_cfg(3), device="cpu", train_mode=False, allow_respawn=True, exact_mechanics=False
+    )
     candidate = ResidentDeviceSim(make_cfg(3), device="cpu", train_mode=False, allow_respawn=True)
     frozen.rng_key.copy_(torch.tensor([101, 211, 307]))
     frozen.rng_counter.fill_(32)
@@ -116,7 +120,7 @@ def test_initial_food_adapter_preserves_mechanics_across_following_steps() -> No
 def test_zero_ambient_with_corpse_food_uses_frozen_path() -> None:
     """A corpse-only row is not an empty reset row and must not take the fast path."""
     torch.set_num_threads(1)
-    frozen = DeviceSim(make_cfg(2), device="cpu", train_mode=False)
+    frozen = DeviceSim(make_cfg(2), device="cpu", train_mode=False, exact_mechanics=False)
     candidate = ResidentDeviceSim(make_cfg(2), device="cpu", train_mode=False)
     frozen.food_cells[0, 0] = torch.tensor([4, 4])
     frozen.food_present[0, 0] = True
@@ -147,7 +151,7 @@ def test_compact_food_rows_do_not_reinterpret_slot_constant_when_worlds_equal_se
 def test_naturally_depleted_food_preserves_inactive_padding_bytes() -> None:
     torch.set_num_threads(1)
     cfg = make_cfg(1)
-    frozen = DeviceSim(cfg, device="cpu", train_mode=False)
+    frozen = DeviceSim(cfg, device="cpu", train_mode=False, exact_mechanics=False)
     candidate = ResidentDeviceSim(cfg, device="cpu", train_mode=False)
     frozen.food_cells.copy_(
         torch.arange(frozen.food_cells.numel()).reshape_as(frozen.food_cells) % 12

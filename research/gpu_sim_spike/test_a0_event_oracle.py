@@ -147,7 +147,7 @@ def _seed_body(
 
 def _new_pair(cfg: BatchSimConfig) -> tuple[Any, Any]:
     frozen = _frozen_module().DeviceSim(cfg, device="cpu", cap=cfg.max_capacity)
-    candidate = DeviceSim(cfg, device="cpu", cap=cfg.max_capacity)
+    candidate = DeviceSim(cfg, device="cpu", cap=cfg.max_capacity, exact_mechanics=False)
     return frozen, candidate
 
 

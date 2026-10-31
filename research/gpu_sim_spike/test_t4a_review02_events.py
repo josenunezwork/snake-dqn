@@ -65,7 +65,7 @@ def test_internal_mismatch_seals_offending_e64_row_before_later_mutation() -> No
 
 
 def test_eval_food_refills_on_next_prepare_after_consumption() -> None:
-    """Eval-mode maintenance occurs at prepare, not at the consuming step."""
+    """Eval-mode (train_mode=False) refills immediately per eating slot during step()."""
     cfg = BatchSimConfig(
         num_envs=1, num_snakes=3, game_width=100, game_height=80, initial_food=0, max_food=1
     )
@@ -84,6 +84,6 @@ def test_eval_food_refills_on_next_prepare_after_consumption() -> None:
 
     sim.step(torch.ones((1, 3), dtype=torch.long))
     assert sim._last_ambient_food_ate[0, 0].item()
-    assert not (sim.food_present[0] & ~sim.corpse_food[0]).any().item()
+    assert (sim.food_present[0] & ~sim.corpse_food[0]).sum().item() == 1
     sim.prepare()
     assert (sim.food_present[0] & ~sim.corpse_food[0]).sum().item() == 1

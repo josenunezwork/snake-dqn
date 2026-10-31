@@ -320,7 +320,7 @@ def build_observation(
     local[:, 5] = _reach_time(torch.maximum(own, enemy), ~inside)
     # Enemy next (including the second cell after a prior boost) is an exact ego crop scatter.
     forward = cardinal[sim.direction[env]]
-    boosted = sim._boosted_this_step[env] & sim.alive[env]
+    boosted = sim._boosted_this_step[env] & sim.alive[env] & (sim.length[env] > 1)
     for other in range(S):
         valid = (snake != other) & sim.alive[env, other] & alive
         for step in (1, 2):

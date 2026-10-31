@@ -60,7 +60,7 @@ def seeded(
         mechanics_version=version,
     )
     left = frozen_class()(cfg, device=device)
-    right = DeviceSim(cfg, device=device, move_backend="indexed")
+    right = DeviceSim(cfg, device=device, move_backend="indexed", exact_mechanics=False)
     rng = np.random.default_rng(241)
     for name, value in left.__dict__.items():
         if isinstance(value, torch.Tensor):

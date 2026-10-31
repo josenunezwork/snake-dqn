@@ -214,6 +214,7 @@ class CTDeviceSim(TrainingDeviceSim):
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("exact_mechanics", True)
         super().__init__(*args, **kwargs)
         if not hasattr(self, "capacity_overflow"):
             self.capacity_overflow = torch.zeros(
@@ -222,10 +223,21 @@ class CTDeviceSim(TrainingDeviceSim):
 
     @classmethod
     def from_reference(
-        cls, sim: Any, device: str | torch.device = "cpu", repeat: int = 1
+        cls,
+        sim: Any,
+        device: str | torch.device = "cpu",
+        repeat: int = 1,
+        *,
+        hero_respawn: bool = False,
+        prepared: bool | None = None,
     ) -> "CTDeviceSim":
         out = super().from_reference(sim, device=device, repeat=repeat)
         out.__class__ = cls
+        out.exact_mechanics = True
+        if hero_respawn:
+            out.terminal_slots = torch.zeros_like(out.terminal_slots)
+        if prepared is not None:
+            out._prepared = bool(prepared)
         if not hasattr(out, "capacity_overflow"):
             out.capacity_overflow = torch.zeros((out.E, out.S), dtype=torch.bool, device=out.device)
         return out  # type: ignore[return-value]
@@ -259,11 +271,11 @@ class CTDeviceSim(TrainingDeviceSim):
                 self.rng_counter.index_select(0, active_rows),
             )
             self.rng_counter.copy_(before)
-            self.rng_counter.index_copy_(0, active_rows, after_active)
+            self.rng_counter[active_rows] = after_active
             return full_cand.index_select(0, active_rows)
         if int(active_rows.numel()) == self.E:
             return self._random_cells()
-        self.rng_counter.index_add_(0, active_rows, torch.ones_like(active_rows))
+        self.rng_counter[active_rows] = self.rng_counter.index_select(0, active_rows) + 1
         mx, span_w, my, span_h = self._spawn_bounds()
         z = _splitmix_positive(
             self.rng_key.index_select(0, active_rows),
@@ -347,7 +359,7 @@ class CTDeviceSim(TrainingDeviceSim):
                 exhausted[occ_local] |= inner_tries[occ_local] >= 100
 
         for name in ("food_cells", "food_present", "corpse_food", "food_count"):
-            getattr(self, name).index_copy_(0, rows, getattr(sub, name))
+            getattr(self, name)[rows] = getattr(sub, name)
 
     def _maintain_food_impl(self) -> None:
         """Pre-decision maintenance phase called once per frame for all worlds."""
