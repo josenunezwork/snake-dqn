@@ -90,3 +90,54 @@ def test_go_and_kill_boundaries() -> None:
     assert decide(stats)[0] == "GRAY"
     late["teacher_mass"]["point"] = 0
     assert decide(stats)[0] == "KILL"
+
+
+def test_selection_join_ignores_assessment_rows_and_never_accesses_scoring(monkeypatch) -> None:
+    from pathlib import Path
+
+    from research.b8_head_test import run
+
+    class SelectionOnly(dict):
+        def __getitem__(self, key):
+            if "score" in key:
+                raise AssertionError("scoring field accessed before seal")
+            return super().__getitem__(key)
+
+    roots = torch.cat([torch.arange(i * 320, i * 320 + 256) for i in range(8)])
+    data = dict(
+        ids=roots,
+        legal=torch.ones(2048, 6, dtype=torch.bool),
+        b8=torch.zeros(2048, dtype=torch.long),
+    )
+
+    def synthetic_load(path, sha):
+        index = int(path.stem.split("-")[1]) - 1
+        mass = torch.ones(320, 6, 4) * index
+        survival = torch.ones(320, 6, 4)
+        # Poison synthetic assessment rows: numerical validation must exclude them.
+        mass[256:] = -100
+        survival[256:] = 12
+        return SelectionOnly(
+            schema="ct-scored-root-chunk/v1",
+            chunk_index=index,
+            root_indices=torch.arange(index * 320, (index + 1) * 320),
+            legal_mask=torch.ones(320, 6, dtype=torch.bool),
+            b8_action=torch.zeros(320, dtype=torch.long),
+            telemetry=dict(horizon=300),
+            mass_sel_raw=mass,
+            survive_sel_raw=survival,
+        )
+
+    monkeypatch.setattr(run, "checked_load", synthetic_load)
+    mass, survival = run.outcomes(data, Path("/synthetic"), "sel")
+    assert torch.equal(mass[:, 0, 0], torch.arange(8).repeat_interleave(256).float())
+    assert survival.eq(1).all()
+
+
+def test_foreign_input_hash_refused(tmp_path) -> None:
+    from research.b8_head_test.run import checked_load
+
+    path = tmp_path / "foreign.pt"
+    torch.save(dict(value=1), path)
+    with pytest.raises(ValueError, match="SHA mismatch"):
+        checked_load(path, "0" * 64)

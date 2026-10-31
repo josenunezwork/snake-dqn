@@ -54,3 +54,22 @@ Run targeted tests with the same CPU/thread environment:
 interpreter above). Results and checkpoints stay outside Git. The runner refuses
 an existing output directory and checks a one-hour deadline in fitting. Argon is
 the required independent reviewer; quota unavailability must be disclosed.
+
+## Completed run (2026-10-30)
+
+Run pin `61fb8b00359c159720f24cfc011b7ec2f538a205`; artifacts:
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/b8-head-test/`.
+See `RESULT.md`, `run-01/result.json`, `verification.json`, and `pytest-final.log`.
+
+Exploratory mass-rule **GO**: late mass +30.089, LB90 +23.962, CI95
+[20.958, 39.943]; independently scored teacher +50.682; retention 59.37%.
+Ordinary relative mass LB90 −0.756% (guard −5%); ordinary survival point delta
+−0.391pp (guard −1pp). Fable bar **FAIL**: late rescue 26.42% vs 35%,
+non-death late action changes 97.60% vs 15%. No post-look tuning.
+
+Five final heads, 3,000 updates each; main-to-scoring wall time 5.023s,
+CPU process time 4.978s (imports/slot wait excluded). A replay of all checkpoint
+predictions was bitwise equal to the OOF seal; seven targeted tests pass.
+Argon independent review is NOT RUN because live Gemini quota is 0%; see
+`review/REVIEW_STATUS.json` and the retained review request. No main merge,
+release or serving change.
