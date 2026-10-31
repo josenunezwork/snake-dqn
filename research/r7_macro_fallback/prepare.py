@@ -18,10 +18,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import torch
 
-from research.bl_upload import convert_public_checkpoints
-from research.bl_upload import qualify as qualify_upload_budget
 from research.colab_cli.supervisor import validate as validate_colab_manifest
-from research.gpu_sim_spike.make_manifests import checkpoint_inputs
 from research.r7_macro_fallback import CT_BANK_SHA256, CT_LABEL_SHA256S
 from research.r7_macro_fallback.options import (
     run_mac_timing_probe,
@@ -31,6 +28,12 @@ from research.r7_macro_fallback.search import (
     B8_S3_SHA256,
     UNIT_KIND,
     publish_verified_ledger,
+)
+from research.r7_macro_fallback.uploads import (
+    MAX_FILE_BYTES,
+    METADATA,
+    check_uploads,
+    pack_inputs,
 )
 from research.sandbox_a_resident.ct_branching import (
     ScoredRootChunk,
@@ -42,6 +45,7 @@ from research.sandbox_a_resident.ct_task import (
     ORDINARY_LENGTH_BIN_LABELS,
 )
 from research.sandbox_a_resident.training_rosters import CHAMPION_SHA256, FRP3_S12_SHA256
+from research.t34_exit_b8.public_inputs import _load as load_public_catalog
 from tools.ops import import_preflight
 from tools.ops.import_preflight import import_closure, module_path
 from tools.ops.package_spec import Input, stage_inputs
@@ -57,7 +61,8 @@ DEFAULT_CT_STAGE2_DIR = Path(
     "t34-ct-h5000-stage2-1030/attempt-01/output-a100-fallback/exports/ct"
 )
 DEFAULT_CKPT_DIR = Path("/Users/josenunez/Projects/ml/snake-dqn/saved_snakes")
-DEFAULT_OUT_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/argon-mac-checks")
+DEFAULT_OUT_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/t34-sol/argon-r7-repack")
+DEFAULT_QUEUE_SUBDIR = "r7-queue-02"
 
 
 def _sha256_file(path: Path) -> str:
@@ -94,17 +99,17 @@ def _length_bin_label(length: int) -> str:
     return ORDINARY_LENGTH_BIN_LABELS[idx]
 
 
-IMPORT_ROOTS = ["research.r7_macro_fallback.search", "research.bl_upload.inputs"]
+IMPORT_ROOTS = [
+    "research.r7_macro_fallback.search",
+    "research.r7_macro_fallback.uploads",
+]
 WHOLE_SOURCE_DIRS = (
     "configs",
     "research/r7_macro_fallback",
     "research/colab_cli",
-    "research/bl_upload",
 )
 EXTRA_SOURCE_PATHS = (
     *WHOLE_SOURCE_DIRS,
-    "web/backend/served_checkpoint_pins.json",
-    "research/t34_exit_b8/PUBLIC_INPUTS.json",
     "research/apex_safety_20260926/deployment.yaml",
     "requirements.txt",
     "pyproject.toml",
@@ -144,9 +149,10 @@ def prepare_inputs(
     ct_stage2_dir: Path,
     checkpoint_dir: Path,
     out_root: Path,
+    queue_subdir: str = DEFAULT_QUEUE_SUBDIR,
     num_batches: int = 3,
 ) -> dict[str, Any]:
-    """Extract C/T train-only 1-step-all-die roots & baseline without opening assessment."""
+    """Extract C/T train-only 1-step-all-die roots & pack upload bundle without assessment."""
     if not ct_bank_path.is_file():
         raise FileNotFoundError(f"Missing C/T Stage-1 bank at {ct_bank_path}")
     stage1_sha = _verify_sidecar_file(ct_bank_path)
@@ -229,7 +235,7 @@ def prepare_inputs(
         ct4_m_score = float(chunk.m_score[pos, ct4_a])
         lbin = _length_bin_label(int(meta.hero_length))
 
-        row_meta = {
+        runtime_meta = {
             "root_index": int(r_idx),
             "root_uid": str(meta.root_uid),
             "partition": "train",
@@ -242,22 +248,27 @@ def prepare_inputs(
             "lookback": None if meta.lookback is None else int(meta.lookback),
             "hero_length": int(meta.hero_length),
             "length_bin": lbin,
-            "b8_action": b8_a,
             "exact_stop_action_sel0": int(a_sel0),
             "exact_stop_s_sel0": round(best_s_sel0, 6),
             "all_die_sel0": all_die_sel0,
             "exact_stop_s_score": round(es_s_score, 6),
             "exact_stop_m_score": round(es_m_score, 4),
-            "ct4_a_star": ct4_a,
-            "ct4_a_star_s_score": round(ct4_s_score, 6),
-            "ct4_a_star_m_score": round(ct4_m_score, 4),
         }
-        train_baseline_rows.append(row_meta)
+        train_baseline_rows.append(
+            {
+                **runtime_meta,
+                "b8_action": b8_a,
+                "ct4_a_star": ct4_a,
+                "ct4_a_star_s_score": round(ct4_s_score, 6),
+                "ct4_a_star_m_score": round(ct4_m_score, 4),
+            }
+        )
 
+        # Drop all 1-step-surviving roots and Mac-only ct4/b8 comparison fields from upload.
         if all_die_sel0:
             snap = store.snapshots[r_idx]
             snap_dict = snap.to_state_dict()
-            all_die_entries.append({**row_meta, "snapshot": snap_dict})
+            all_die_entries.append({**runtime_meta, "snapshot": snap_dict})
             if int(meta.hero_length) >= 800:
                 l800_timing_snapshots.append(snap_dict)
 
@@ -266,7 +277,7 @@ def prepare_inputs(
         entry["batch_index"] = int(pos % num_batches)
 
     preflight_dir = out_root / "r7-preflight"
-    queue_dir = out_root / "r7-queue"
+    queue_dir = out_root / queue_subdir
     preflight_dir.mkdir(parents=True, exist_ok=True)
     queue_dir.mkdir(parents=True, exist_ok=True)
 
@@ -377,6 +388,7 @@ def prepare_inputs(
         encoding="utf-8",
     )
 
+    # Verify ONLY the 3 checkpoints R7 uses (and the public release catalog).
     b8_src = checkpoint_dir / "b8_s3_t7_20261016.pth"
     frp3_src = checkpoint_dir / "frp3_m3_s12_u60000_20261005.pth"
     champ_src = checkpoint_dir / "champion_a5_freespace_20260621.pth"
@@ -386,7 +398,8 @@ def prepare_inputs(
         raise ValueError(f"Unexpected FRP3 SHA at {frp3_src}")
     if _sha256_file(champ_src) != CHAMPION_SHA256:
         raise ValueError(f"Unexpected champion SHA at {champ_src}")
-    checkpoint_inputs(checkpoint_dir)
+    public_catalog_src = ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json"
+    load_public_catalog(public_catalog_src)
 
     raw_ledger_path = staging_tmp / "verified-ledger.json"
     for suffix in ("", ".sha256", ".complete"):
@@ -394,9 +407,12 @@ def prepare_inputs(
     publish_verified_ledger(raw_ledger_path, {})
 
     stage_seq = 1
-    while (queue_dir / f"inputs-{stage_seq:02d}").exists():
+    while (queue_dir / f"inputs-{stage_seq:02d}").exists() or (
+        queue_dir / f"packed-{stage_seq:02d}"
+    ).exists():
         stage_seq += 1
     inputs_dir = queue_dir / f"inputs-{stage_seq:02d}"
+    packed_dir = queue_dir / f"packed-{stage_seq:02d}"
     staged_rows = stage_inputs(
         inputs_dir,
         [
@@ -404,9 +420,25 @@ def prepare_inputs(
             Input(source=canary_cfg_raw, destination="canary-config.json"),
             Input(source=main_cfg_raw, destination="main-config.json"),
             Input(source=raw_ledger_path, destination="verified-ledger.json"),
+            Input(source=public_catalog_src, destination="public-inputs.json"),
         ],
     )
-    staged = [
+    packed_rows = pack_inputs(
+        staged_rows,
+        packed_dir / METADATA,
+        parts_dir=packed_dir / "parts",
+    )
+    metadata_sha256 = next(row["sha256"] for row in packed_rows if row["dest"] == METADATA)
+    packed_manifest_inputs = [
+        {
+            "dest": row["dest"],
+            "path": row["path"],
+            "sha256": row["sha256"],
+            "size_bytes": int(row["size_bytes"]),
+        }
+        for row in packed_rows
+    ]
+    unpacked_staged = [
         {"dest": row["dest"], "path": row["path"], "sha256": row["sha256"]}
         for row in sorted(staged_rows, key=lambda item: item["dest"])
     ]
@@ -415,7 +447,10 @@ def prepare_inputs(
             {
                 "checkpoint_dir": str(checkpoint_dir.resolve()),
                 "staged_inputs_dir": str(inputs_dir.resolve()),
-                "inputs": staged,
+                "packed_inputs_dir": str(packed_dir.resolve()),
+                "metadata_sha256": metadata_sha256,
+                "inputs": packed_manifest_inputs,
+                "unpacked_inputs": unpacked_staged,
             },
             indent=2,
             sort_keys=True,
@@ -423,7 +458,7 @@ def prepare_inputs(
         + "\n",
         encoding="utf-8",
     )
-    total_upload_bytes = sum(Path(item["path"]).stat().st_size for item in staged)
+    total_upload_bytes = sum(int(item["size_bytes"]) for item in packed_manifest_inputs)
     summary = {
         "assessment_roots_used": 0,
         "train_roots_total": len(train_baseline_rows),
@@ -432,6 +467,9 @@ def prepare_inputs(
         "train_l800_death_all_die_sel0": baseline_payload["train_l800_death_all_die_sel0"],
         "num_batches": num_batches,
         "staged_inputs_dir": str(inputs_dir),
+        "packed_inputs_dir": str(packed_dir),
+        "packed_input_count": len(packed_manifest_inputs),
+        "metadata_sha256": metadata_sha256,
         "total_upload_bytes": int(total_upload_bytes),
     }
     print(f"PREPARED_R7_INPUTS {json.dumps(summary, sort_keys=True)}")
@@ -472,10 +510,15 @@ def prepare_packet(
     commit: str,
     out_root: Path,
     repo: Path = ROOT,
-    canary_job_id: str = "r7-macro-fallback-canary-01",
-    main_job_id: str = "r7-macro-fallback-main-01",
+    queue_subdir: str = DEFAULT_QUEUE_SUBDIR,
+    packet_tag: str = "02",
+    canary_job_id: str | None = None,
+    main_job_id: str | None = None,
 ) -> dict[str, Any]:
-    """Verify published commit + sparse import closure, and write canary + main template."""
+    """Verify published commit + sparse import closure + upload budget, write canary + template."""
+    resolved_canary_id = canary_job_id or f"r7-macro-fallback-canary-{packet_tag}"
+    resolved_main_id = main_job_id or f"r7-macro-fallback-main-{packet_tag}"
+
     full_commit = subprocess.check_output(
         ["git", "rev-parse", f"{commit}^{{commit}}"], cwd=repo, text=True
     ).strip()
@@ -497,147 +540,143 @@ def prepare_packet(
         )
 
     paths = r7_source_paths(full_commit, repo=repo)
-    queue_dir = out_root / "r7-queue"
+    queue_dir = out_root / queue_subdir
     staged_doc = json.loads((queue_dir / "STAGED_INPUTS.json").read_text(encoding="utf-8"))
-    staged = staged_doc["inputs"]
-    ckpt_dir = Path(staged_doc.get("checkpoint_dir", str(DEFAULT_CKPT_DIR)))
-    combined_inputs = [*checkpoint_inputs(ckpt_dir), *staged]
+    metadata_sha256 = str(staged_doc["metadata_sha256"])
+    manifest_inputs = [
+        {"dest": row["dest"], "path": row["path"], "sha256": row["sha256"]}
+        for row in staged_doc["inputs"]
+    ]
+    if METADATA not in {row["dest"] for row in manifest_inputs}:
+        raise ValueError(f"Packed {METADATA} missing from STAGED_INPUTS.json")
     required_exports = ["r7/run-summary.json", "r7/skip-proof.json"]
 
-    canary_dir = queue_dir / "canary-01"
+    canary_dir = queue_dir / f"canary-{packet_tag}"
     canary_output_dir = (canary_dir / "output").resolve()
-    canary_raw = convert_public_checkpoints(
-        {
-            "job_id": canary_job_id,
-            "commit": full_commit,
-            "script": "research/r7_macro_fallback/job.sh",
-            "device": "cuda",
-            "source_paths": paths,
-            "requirements_file": "research/r7_macro_fallback/requirements.txt",
-            "requirements": {
-                "gpu": "A100",
-                "allowed_gpus": ["A100"],
-                "min_vcpu": 2,
-                "est_minutes": 15,
-            },
-            "timeout_minutes": 30,
-            "output_dir": str(canary_output_dir),
-            "max_export_bytes": 256 * 1024 * 1024,
-            "inputs": combined_inputs,
-            "required_exports": required_exports,
-            "env": {
-                "COLAB_CLI_REQUIREMENTS": "research/r7_macro_fallback/requirements.txt",
-                "R7_SOURCE_COMMIT": full_commit,
-                "R7_CONFIG_NAME": "canary-config.json",
-                "SNAKE_COLAB_CANARY": "1",
-                "SNAKE_COLAB_CANARY_PACKAGE": "research/r7_macro_fallback",
-            },
-            "budget": {
-                "rate_units_per_hour": 8.0,
-                "unit_cap": 4.0,
-                "reserve_units": 0.8,
-                "other_assignments": {},
-            },
-            "resume_exemption": {
-                "kind": "short-canary",
-                "reason": (
-                    "target-platform A100 transport, sidecar export, and CUDA B8/CTDeviceSim "
-                    "execution proof on 3 tiny C/T train roots before main dispatch"
-                ),
-            },
-            "canary": {
-                "schema": "colab-family-canary/v1",
-                "mode": "probe",
-                "family": "research/r7_macro_fallback/job.sh",
-            },
+    canary_raw = {
+        "job_id": resolved_canary_id,
+        "commit": full_commit,
+        "script": "research/r7_macro_fallback/job.sh",
+        "device": "cuda",
+        "source_paths": paths,
+        "requirements_file": "research/r7_macro_fallback/requirements.txt",
+        "requirements": {
+            "gpu": "A100",
+            "allowed_gpus": ["A100"],
+            "min_vcpu": 2,
+            "est_minutes": 15,
         },
-        repo=repo,
-    )
-    if "public-inputs.json" not in {row["dest"] for row in canary_raw["inputs"]}:
-        raise ValueError("convert_public_checkpoints did not bind public-inputs.json")
+        "timeout_minutes": 30,
+        "output_dir": str(canary_output_dir),
+        "max_export_bytes": MAX_FILE_BYTES,
+        "inputs": manifest_inputs,
+        "required_exports": required_exports,
+        "env": {
+            "COLAB_CLI_REQUIREMENTS": "research/r7_macro_fallback/requirements.txt",
+            "R7_SOURCE_COMMIT": full_commit,
+            "R7_CONFIG_NAME": "canary-config.json",
+            "R7_METADATA_SHA256": metadata_sha256,
+            "SNAKE_COLAB_CANARY": "1",
+            "SNAKE_COLAB_CANARY_PACKAGE": "research/r7_macro_fallback",
+        },
+        "budget": {
+            "rate_units_per_hour": 8.0,
+            "unit_cap": 4.0,
+            "reserve_units": 0.8,
+            "other_assignments": {},
+        },
+        "resume_exemption": {
+            "kind": "short-canary",
+            "reason": (
+                "target-platform A100 transport, sidecar export, and CUDA B8/CTDeviceSim "
+                "execution proof on 3 tiny C/T train roots before main dispatch"
+            ),
+        },
+        "canary": {
+            "schema": "colab-family-canary/v1",
+            "mode": "probe",
+            "family": "research/r7_macro_fallback/job.sh",
+        },
+    }
 
     preflight_report = import_preflight.check(
         repo,
         full_commit,
         canary_raw["source_paths"],
         "research/r7_macro_fallback/requirements.txt",
-        ["research.r7_macro_fallback.search", "research.bl_upload.inputs"],
+        list(IMPORT_ROOTS),
     )
     (queue_dir / "IMPORT_PREFLIGHT.json").write_text(
         json.dumps(preflight_report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
 
     validated_canary = validate_colab_manifest(canary_raw, repo=repo)
-    upload_qual = qualify_upload_budget(
-        validated_canary,
-        repo=repo,
-        receipt_path=queue_dir / "UPLOAD_QUALIFICATION_CANARY.json",
-    )
+    canary_budget = check_uploads(validated_canary, repo=repo)
+    _write_once_json(queue_dir / "UPLOAD_BUDGET_CANARY.json", canary_budget)
     _write_once_json(canary_dir / "manifest.json", validated_canary)
 
-    main_dir = queue_dir / "main-01"
+    main_dir = queue_dir / f"main-{packet_tag}"
     main_output_dir = (main_dir / "output").resolve()
     # Owner's 2x rule on 0.4 A100-h (24 min base forecast -> 25 min est, 50 min effective timeout,
     # 3.33 u base -> 8.0 u effective unit_cap).
-    main_template = convert_public_checkpoints(
-        {
-            "job_id": main_job_id,
-            "commit": full_commit,
-            "script": "research/r7_macro_fallback/job.sh",
-            "device": "cuda",
-            "source_paths": paths,
-            "requirements_file": "research/r7_macro_fallback/requirements.txt",
-            "requirements": {
-                "gpu": "A100",
-                "allowed_gpus": ["A100"],
-                "min_vcpu": 2,
-                "est_minutes": 25,
-            },
-            "timeout_minutes": 50,
-            "output_dir": str(main_output_dir),
-            "max_export_bytes": 256 * 1024 * 1024,
-            "inputs": combined_inputs,
-            "required_exports": required_exports,
-            "env": {
-                "COLAB_CLI_REQUIREMENTS": "research/r7_macro_fallback/requirements.txt",
-                "R7_SOURCE_COMMIT": full_commit,
-                "R7_CONFIG_NAME": "main-config.json",
-            },
-            "budget": {
-                "rate_units_per_hour": 8.0,
-                "unit_cap": 8.0,
-                "reserve_units": 1.6,
-                "other_assignments": {},
-            },
-            "resume": {
-                "unit_kind": UNIT_KIND,
-                "ledger_path": "inputs/verified-ledger.json",
-                "skip_verified": True,
-                "max_outcome_blind_retries": 2,
-            },
-            "technical_envelope": {
-                "base_forecast_a100_hours": 0.4,
-                "base_est_minutes": 25,
-                "effective_timeout_minutes_2x": 50,
-                "base_unit_cap": 4.0,
-                "effective_unit_cap_2x": 8.0,
-                "assessment_roots_used": 0,
-            },
+    main_template = {
+        "job_id": resolved_main_id,
+        "commit": full_commit,
+        "script": "research/r7_macro_fallback/job.sh",
+        "device": "cuda",
+        "source_paths": paths,
+        "requirements_file": "research/r7_macro_fallback/requirements.txt",
+        "requirements": {
+            "gpu": "A100",
+            "allowed_gpus": ["A100"],
+            "min_vcpu": 2,
+            "est_minutes": 25,
         },
-        repo=repo,
-    )
-    if "public-inputs.json" not in {row["dest"] for row in main_template["inputs"]}:
-        raise ValueError("convert_public_checkpoints did not bind public-inputs.json in main")
+        "timeout_minutes": 50,
+        "output_dir": str(main_output_dir),
+        "max_export_bytes": MAX_FILE_BYTES,
+        "inputs": manifest_inputs,
+        "required_exports": required_exports,
+        "env": {
+            "COLAB_CLI_REQUIREMENTS": "research/r7_macro_fallback/requirements.txt",
+            "R7_SOURCE_COMMIT": full_commit,
+            "R7_CONFIG_NAME": "main-config.json",
+            "R7_METADATA_SHA256": metadata_sha256,
+        },
+        "budget": {
+            "rate_units_per_hour": 8.0,
+            "unit_cap": 8.0,
+            "reserve_units": 1.6,
+            "other_assignments": {},
+        },
+        "resume": {
+            "unit_kind": UNIT_KIND,
+            "ledger_path": "inputs/verified-ledger.json",
+            "skip_verified": True,
+            "max_outcome_blind_retries": 2,
+        },
+        "technical_envelope": {
+            "base_forecast_a100_hours": 0.4,
+            "base_est_minutes": 25,
+            "effective_timeout_minutes_2x": 50,
+            "base_unit_cap": 4.0,
+            "effective_unit_cap_2x": 8.0,
+            "assessment_roots_used": 0,
+        },
+    }
+    main_budget = check_uploads(main_template, repo=repo)
+    _write_once_json(queue_dir / "UPLOAD_BUDGET_MAIN.json", main_budget)
     _write_once_json(main_dir / "manifest.template.json", main_template)
     summary = {
         "commit": full_commit,
         "transport_tree": transport_tree,
         "source_paths_count": len(canary_raw["source_paths"]),
-        "normal_upload_bytes": upload_qual["normal_upload_bytes"],
-        "normal_forecast_seconds": round(float(upload_qual["normal_forecast_seconds"]), 3),
-        "fallback_upload_forecast_seconds": round(
-            float(upload_qual["fallback_upload_forecast_seconds"]), 3
-        ),
+        "normal_transfer_count": canary_budget["normal_transfer_count"],
+        "normal_transfer_bytes": canary_budget["normal_transfer_bytes"],
+        "normal_estimated_transfer_seconds": canary_budget["normal_estimated_transfer_seconds"],
+        "fallback_transfer_count": canary_budget["transfer_count"],
+        "fallback_transfer_bytes": canary_budget["transfer_bytes"],
+        "fallback_estimated_transfer_seconds": canary_budget["estimated_transfer_seconds"],
         "canary_manifest": str(canary_dir / "manifest.json"),
         "main_template": str(main_dir / "manifest.template.json"),
     }
@@ -680,9 +719,10 @@ def seal_main_manifest(
     canary_receipt: Path | None = None,
     ops_dir: Path | None = None,
     canary_queue_id: str | None = None,
+    idempotent: bool = False,
     repo: Path = ROOT,
 ) -> dict[str, Any]:
-    """Bind the passing family canary receipt into ``main-01/manifest.json`` create-only."""
+    """Bind the passing family canary receipt into ``main-XX/manifest.json`` create-only."""
     if canary_receipt is not None:
         receipt_path = canary_receipt.expanduser().resolve(strict=True)
     elif ops_dir is not None and canary_queue_id:
@@ -702,7 +742,15 @@ def seal_main_manifest(
         },
     }
     validated = validate_colab_manifest(template, repo=repo)
-    _write_once_json(manifest_out_path, validated)
+    check_uploads(validated, repo=repo)
+    if idempotent and manifest_out_path.exists():
+        existing = json.loads(manifest_out_path.read_text(encoding="utf-8"))
+        if existing != validated:
+            raise ValueError(
+                f"Existing sealed manifest {manifest_out_path} differs from expected bytes"
+            )
+    else:
+        _write_once_json(manifest_out_path, validated)
     summary = {
         "main_manifest": str(manifest_out_path),
         "main_manifest_sha256": _sha256_file(manifest_out_path),
@@ -722,6 +770,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p_in.add_argument("--ct-stage2-dir", type=Path, default=DEFAULT_CT_STAGE2_DIR)
     p_in.add_argument("--checkpoint-dir", type=Path, default=DEFAULT_CKPT_DIR)
     p_in.add_argument("--out-root", type=Path, default=DEFAULT_OUT_ROOT)
+    p_in.add_argument("--queue-subdir", type=str, default=DEFAULT_QUEUE_SUBDIR)
     p_in.add_argument("--num-batches", type=int, default=3)
 
     p_tm = sub.add_parser("mac-timing")
@@ -732,6 +781,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     p_pk = sub.add_parser("packet")
     p_pk.add_argument("--commit", required=True)
     p_pk.add_argument("--out-root", type=Path, default=DEFAULT_OUT_ROOT)
+    p_pk.add_argument("--queue-subdir", type=str, default=DEFAULT_QUEUE_SUBDIR)
+    p_pk.add_argument("--packet-tag", type=str, default="02")
+    p_pk.add_argument("--canary-job-id", type=str, default=None)
+    p_pk.add_argument("--main-job-id", type=str, default=None)
 
     p_sm = sub.add_parser("seal-main")
     p_sm.add_argument("--template", type=Path, required=True)
@@ -739,6 +792,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p_sm.add_argument("--canary-receipt", type=Path, default=None)
     p_sm.add_argument("--ops", type=Path, default=None)
     p_sm.add_argument("--canary-queue-id", type=str, default=None)
+    p_sm.add_argument("--idempotent", action="store_true")
 
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.cmd == "inputs":
@@ -747,6 +801,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ct_stage2_dir=args.ct_stage2_dir,
             checkpoint_dir=args.checkpoint_dir,
             out_root=args.out_root,
+            queue_subdir=args.queue_subdir,
             num_batches=args.num_batches,
         )
     elif args.cmd == "mac-timing":
@@ -756,7 +811,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             warmup_ticks=args.warmup_ticks,
         )
     elif args.cmd == "packet":
-        prepare_packet(commit=args.commit, out_root=args.out_root)
+        prepare_packet(
+            commit=args.commit,
+            out_root=args.out_root,
+            queue_subdir=args.queue_subdir,
+            packet_tag=args.packet_tag,
+            canary_job_id=args.canary_job_id,
+            main_job_id=args.main_job_id,
+        )
     elif args.cmd == "seal-main":
         seal_main_manifest(
             template_path=args.template,
@@ -764,6 +826,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             canary_receipt=args.canary_receipt,
             ops_dir=args.ops,
             canary_queue_id=args.canary_queue_id,
+            idempotent=args.idempotent,
         )
     return 0
 

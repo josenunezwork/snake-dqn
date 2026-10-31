@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import lzma
+import shutil
+import subprocess
+import tarfile
 from pathlib import Path
 
 import numpy as np
@@ -13,11 +17,13 @@ import torch
 
 from research.gpu_sim_spike import r2_cache
 from research.r7_macro_fallback import ALLOCATION_NAME, NAMESPACE, R7_KILL_THRESHOLDS
+from research.r7_macro_fallback import uploads as r7_uploads
 from research.r7_macro_fallback.options import (
     WorldGridState,
     evaluate_all_options,
     run_mac_timing_probe,
 )
+from research.r7_macro_fallback.prepare import ROOT, r7_source_paths
 from research.r7_macro_fallback.readout import (
     collect_verified_batch_units,
     evaluate_r7_readout,
@@ -44,7 +50,14 @@ from research.sandbox_a_resident.training_rosters import (
 from src.model.apex_network import ApexNetwork
 from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint
 from src.simd_env.batch_sim import BatchSimConfig
-from tools.ops.package_spec import PackageRefused, publish_json, read_ledger
+from tools.ops.package_spec import (
+    Input,
+    PackageRefused,
+    publish_json,
+    read_ledger,
+    stage_inputs,
+    verify_immutable,
+)
 
 
 def _make_grid_state(
@@ -472,3 +485,237 @@ def test_r7_readout_kill_thresholds_and_zero_ordinary_flips() -> None:
     )
     assert rep_kill["verdict"] == "KILL"
     assert "passes_l800_all_die_rescue_ge_25pct" in rep_kill["failed_bars"]
+
+
+def test_r7_repack_upload_budget_canary_and_main(tmp_path: Path) -> None:
+    assert r7_uploads.MAX_TRANSFERS == 8
+    assert r7_uploads.SECONDS_PER_TRANSFER == 6.0
+    assert r7_uploads.BYTES_PER_SECOND == 800_000
+    assert r7_uploads.MAX_ESTIMATED_TRANSFER_SECONDS == 60.0
+    assert r7_uploads.PART_BYTES == 2 * 1024**2
+
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    # Deterministic 520 KB pseudo-random payload (>= real 506 KB train-all-die-roots.pt.xz).
+    rng = np.random.default_rng(3407)
+    roots_file = raw_dir / "train-all-die-roots.pt.xz"
+    roots_file.write_bytes(rng.bytes(520_000))
+    canary_cfg = raw_dir / "canary-config.json"
+    canary_cfg.write_text('{"schema":"t34-r7-search-config/v1","canary_only":true}\n')
+    main_cfg = raw_dir / "main-config.json"
+    main_cfg.write_text('{"schema":"t34-r7-search-config/v1","canary_only":false}\n')
+    ledger = raw_dir / "verified-ledger.json"
+    publish_verified_ledger(ledger, {})
+    public_catalog = ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json"
+
+    staged_rows = stage_inputs(
+        tmp_path / "staged",
+        [
+            Input(roots_file, "train-all-die-roots.pt.xz"),
+            Input(canary_cfg, "canary-config.json"),
+            Input(main_cfg, "main-config.json"),
+            Input(ledger, "verified-ledger.json"),
+            Input(public_catalog, "public-inputs.json"),
+        ],
+    )
+    packed = r7_uploads.pack_inputs(staged_rows, tmp_path / "packed" / r7_uploads.METADATA)
+    assert len(packed) == 1
+    assert packed[0]["dest"] == r7_uploads.METADATA
+    meta_sha = str(packed[0]["sha256"])
+
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    source_paths = r7_source_paths(head, repo=ROOT)
+    assert "research/bl_upload" not in source_paths
+    manifest_inputs = [{k: row[k] for k in ("path", "dest", "sha256")} for row in packed]
+
+    for role, cfg_name in (("canary", "canary-config.json"), ("main", "main-config.json")):
+        manifest = {
+            "job_id": f"r7-macro-fallback-{role}-test",
+            "commit": head,
+            "script": "research/r7_macro_fallback/job.sh",
+            "device": "cuda",
+            "source_paths": source_paths,
+            "requirements": {"gpu": "A100", "allowed_gpus": ["A100"], "min_vcpu": 2},
+            "timeout_minutes": 30 if role == "canary" else 50,
+            "output_dir": str(tmp_path / f"out-{role}"),
+            "max_export_bytes": r7_uploads.MAX_FILE_BYTES,
+            "inputs": manifest_inputs,
+            "required_exports": ["r7/run-summary.json", "r7/skip-proof.json"],
+            "env": {
+                "COLAB_CLI_REQUIREMENTS": "research/r7_macro_fallback/requirements.txt",
+                "R7_SOURCE_COMMIT": head,
+                "R7_CONFIG_NAME": cfg_name,
+                "R7_METADATA_SHA256": meta_sha,
+            },
+        }
+        report = r7_uploads.check_uploads(manifest, repo=ROOT)
+        assert report["status"] == "PASS"
+        assert report["normal_transfer_count"] == 3
+        assert report["transfer_count"] == 4
+        assert report["normal_transfer_count"] <= 8
+        assert report["transfer_count"] <= 8
+        assert report["normal_estimated_transfer_seconds"] <= 60.0
+        assert report["estimated_transfer_seconds"] <= 60.0
+
+    # Budget gate must refuse > 8 transfers or > 60 s forecast.
+    too_many_inputs = [
+        {"path": packed[0]["path"], "dest": f"extra-{idx}.tar.gz", "sha256": meta_sha}
+        for idx in range(7)
+    ]
+    with pytest.raises(ValueError, match="R7 upload transfer forecast refuses offline"):
+        r7_uploads.check_uploads({**manifest, "inputs": too_many_inputs}, repo=ROOT)
+
+    # Round-trip unpack verification + tamper refusal.
+    runtime_in = tmp_path / "runtime-inputs"
+    runtime_in.mkdir()
+    shutil.copyfile(packed[0]["path"], runtime_in / r7_uploads.METADATA)
+    with pytest.raises(ValueError, match="SHA256 or size mismatch"):
+        r7_uploads.stage_metadata(runtime_in, "0" * 64)
+
+    unpacked = r7_uploads.stage_metadata(runtime_in, meta_sha)
+    assert unpacked["split_payloads"] == []
+    for name in r7_uploads.BASE_PAYLOADS:
+        verify_immutable(runtime_in / name)
+    assert (runtime_in / "train-all-die-roots.pt.xz").read_bytes() == roots_file.read_bytes()
+
+
+def test_r7_split_over_2mib_and_slim_three_checkpoint_materialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    rng = np.random.default_rng(99)
+    # 2.4 MiB incompressible payload (> 2 MiB) -> must split into 2 parts (2 MiB + 0.4 MiB),
+    # while small files + all sidecars remain inside input-metadata.tar.gz.
+    big_bytes = rng.bytes(int(2.4 * 1024**2))
+    roots_big = raw_dir / "train-all-die-roots.pt.xz"
+    roots_big.write_bytes(big_bytes)
+    canary_cfg = raw_dir / "canary-config.json"
+    canary_cfg.write_text('{"canary":true}\n')
+    main_cfg = raw_dir / "main-config.json"
+    main_cfg.write_text('{"canary":false}\n')
+    ledger = raw_dir / "verified-ledger.json"
+    publish_verified_ledger(ledger, {})
+    public_catalog = ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json"
+
+    staged = stage_inputs(
+        tmp_path / "staged",
+        [
+            Input(roots_big, "train-all-die-roots.pt.xz"),
+            Input(canary_cfg, "canary-config.json"),
+            Input(main_cfg, "main-config.json"),
+            Input(ledger, "verified-ledger.json"),
+            Input(public_catalog, "public-inputs.json"),
+        ],
+    )
+    packed = r7_uploads.pack_inputs(
+        staged,
+        tmp_path / "packed" / r7_uploads.METADATA,
+        parts_dir=tmp_path / "packed" / "parts",
+    )
+    assert len(packed) == 3  # 2 split parts + 1 input-metadata.tar.gz (<= 8 transfers!)
+    for row in packed:
+        assert int(row["size_bytes"]) <= r7_uploads.PART_BYTES
+
+    runtime_in = tmp_path / "runtime-split"
+    runtime_in.mkdir()
+    meta_sha = ""
+    for row in packed:
+        dest_path = runtime_in / str(row["dest"])
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(row["path"], dest_path)
+        if row["dest"] == r7_uploads.METADATA:
+            meta_sha = str(row["sha256"])
+
+    res = r7_uploads.stage_metadata(runtime_in, meta_sha)
+    assert res["split_payloads"] == ["train-all-die-roots.pt.xz"]
+    verify_immutable(runtime_in / "train-all-die-roots.pt.xz")
+    assert (runtime_in / "train-all-die-roots.pt.xz").read_bytes() == big_bytes
+
+    # Slim checkpoint materialization: verify ONLY the 3 needed checkpoints are extracted
+    # and the 3 unused Apex league members are dropped.
+    b8_bytes = b"synthetic-b8-checkpoint"
+    frp3_bytes = b"synthetic-frp3-checkpoint"
+    champ_bytes = b"synthetic-champion-checkpoint"
+    unused_bytes = b"unused-apex-league-checkpoint"
+    b8_sha = hashlib.sha256(b8_bytes).hexdigest()
+    frp3_sha = hashlib.sha256(frp3_bytes).hexdigest()
+    champ_sha = hashlib.sha256(champ_bytes).hexdigest()
+
+    league_buf = io.BytesIO()
+    with tarfile.open(fileobj=league_buf, mode="w:gz") as tar:
+        for member_name, data in (
+            ("checkpoints/frp3_m3_s12_u60000_20261005.pth", frp3_bytes),
+            ("checkpoints/champion_a5_freespace_20260621.pth", champ_bytes),
+            ("checkpoints/best_apex_fs.pth", unused_bytes),
+            ("checkpoints/best_apex_stage1_fs.pth", unused_bytes),
+            ("checkpoints/best_apex_pre_fs.pth", unused_bytes),
+        ):
+            info = tarfile.TarInfo(member_name)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    league_bytes = league_buf.getvalue()
+    league_sha = hashlib.sha256(league_bytes).hexdigest()
+
+    monkeypatch.setattr(
+        r7_uploads,
+        "REQUIRED_B8_CHECKPOINT",
+        ("b8-s3.pth", len(b8_bytes), b8_sha),
+    )
+    monkeypatch.setattr(
+        r7_uploads,
+        "REQUIRED_LEAGUE_CHECKPOINTS",
+        {
+            "frp3_m3_s12_u60000_20261005.pth": ("frp3-s12.pth", len(frp3_bytes), frp3_sha),
+            "champion_a5_freespace_20260621.pth": ("champion.pth", len(champ_bytes), champ_sha),
+        },
+    )
+    monkeypatch.setattr(
+        r7_uploads,
+        "load_public_catalog",
+        lambda _p: (
+            [],
+            {
+                "B8_s3_final.pth": {
+                    "name": "B8_s3_final.pth",
+                    "url": "https://example.invalid/B8_s3_final.pth",
+                    "size_bytes": len(b8_bytes),
+                    "sha256": b8_sha,
+                },
+                "league.tar.gz": {
+                    "name": "league.tar.gz",
+                    "url": "https://example.invalid/league.tar.gz",
+                    "size_bytes": len(league_bytes),
+                    "sha256": league_sha,
+                },
+            },
+        ),
+    )
+
+    class _FakeResp(io.BytesIO):
+        def __enter__(self) -> _FakeResp:
+            return self
+
+        def __exit__(self, *_exc: object) -> None:
+            self.close()
+
+    def _fake_opener(url: str, timeout: int = 60) -> _FakeResp:
+        assert timeout == 60
+        if url.endswith("B8_s3_final.pth"):
+            return _FakeResp(b8_bytes)
+        if url.endswith("league.tar.gz"):
+            return _FakeResp(league_bytes)
+        raise AssertionError(f"unexpected URL {url}")
+
+    published = r7_uploads.materialize_r7_checkpoints(runtime_in, opener=_fake_opener)
+    assert set(published) == {"b8-s3.pth", "frp3-s12.pth", "champion.pth"}
+    assert (runtime_in / "b8-s3.pth").read_bytes() == b8_bytes
+    assert (runtime_in / "frp3-s12.pth").read_bytes() == frp3_bytes
+    assert (runtime_in / "champion.pth").read_bytes() == champ_bytes
+    for dropped in (
+        "best_apex_fs.pth",
+        "best_apex_stage1_fs.pth",
+        "best_apex_pre_fs.pth",
+        "league.tar.gz",
+    ):
+        assert not (runtime_in / dropped).exists()
