@@ -286,6 +286,22 @@ def test_provider_probe_refuses_unknown_inventory_and_counts_all_assignments(mon
         rq.provider_sessions()
 
 
+@pytest.mark.parametrize(
+    ("usage", "expected"),
+    [("Current balance: 9\nActive assignments: 0\n", set()), ("Active assignments: 2\n", None)],
+)
+def test_provider_probe_accepts_silent_idle_only_with_zero_usage(monkeypatch, usage, expected):
+    outputs = {"sessions": "[colab] update notice\n\n", "usage": usage}
+    monkeypatch.setattr(
+        rq.subprocess, "run", lambda argv, **k: SimpleNamespace(stdout=outputs[argv[-1]])
+    )
+    if expected is None:
+        with pytest.raises(ValueError, match="empty account sessions inventory"):
+            rq.provider_sessions()
+    else:
+        assert rq.provider_sessions() == expected
+
+
 def test_package_helper_is_used_before_preparation(packet, tmp_path, monkeypatch):
     value = ar.read(packet)
     value["script"] = "research/doom_auc_smoke/job.sh"

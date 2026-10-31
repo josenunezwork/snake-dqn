@@ -458,7 +458,21 @@ def provider_sessions() -> set[str]:
             raise ValueError("unrecognized account sessions inventory")
         endpoints.add(match[1])
     if not endpoints:
-        raise ValueError("empty account sessions inventory")
+        # colab-cli 0.7.4 prints nothing when idle; accept only a corroborated zero count.
+        usage = subprocess.run(
+            [
+                os.environ.get("OPS_QUEUE_COLAB", str(Path.home() / ".local/bin/colab")),
+                "--auth",
+                "oauth2",
+                "usage",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=15,
+        ).stdout
+        if re.search(r"^Active assignments: 0$", usage, re.MULTILINE) is None:
+            raise ValueError("empty account sessions inventory")
     return endpoints
 
 
