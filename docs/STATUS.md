@@ -7,7 +7,7 @@ when they change.
 
 ## Served Watch source (owner "Switch now", 2026-10-30 ~16:10 PT)
 
-Watch now plays **Colab-precomputed replays** (exact-stop L2′ search hero over product Watch6 v2, 5× frp3-s12+v8 opponents, 6,000-frame sessions) labelled "Recorded assisted hero". Bank: `snake-dqn-artifacts/watch-replay-bank-live` (24 verified sessions = replay banks 01+02; banks 03/04 generating). Launch: `.claude/launch.json` `snake-web` sets `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR`. Live bare B8 s3 remains the fallback (empty/invalid/exhausted bank) and Play stays live. Rollback: unset `SNAKE_WATCH_SOURCE` (or set `live`). Efficacy vs bare B8 in the product setting is NOT yet measured (Watch6 96-pair test pending); bank-02 descriptive stats: mean 412 mass/session, 0 deaths in the 5 sessions reaching L>1,000.
+Watch now plays **Colab-precomputed replays** (exact-stop L2′ search hero over product Watch6 v2, 5× frp3-s12+v8 opponents, 6,000-frame sessions) labelled "Recorded assisted hero". Bank: `snake-dqn-artifacts/watch-replay-bank-live` (24 verified sessions = replay banks 01+02; banks 03/04 generating). Launch: `.claude/launch.json` `snake-web` sets `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR`. Live bare B8 s3 remains the fallback (empty/invalid/exhausted bank) and Play stays live. Rollback: unset `SNAKE_WATCH_SOURCE` (or set `live`). Efficacy vs bare B8 in the product setting is NOT measured: the Watch6 V2 96-pair confirmation ended **INVALID_OR_INCOMPLETE** on 2026-10-31 (shard 6 exhausted original + 2 completions on pre-start transport failures; Astra rulings t34-sol/watch6-shard6-ruling/RULING_SHARD6.md and t34-sol/watch6-v3-registration-q/ANSWER.md deny extra attempts and an 88+8 V3; running shards stopped 10:10 PT with verified stops; no outcome was read). A future confirmation needs a fresh, prospectively registered bank; bank-02 descriptive stats: mean 412 mass/session, 0 deaths in the 5 sessions reaching L>1,000.
 
 ## Fast-process rule (owner, 2026-10-30, standing) — overrides older ceremony rules
 
@@ -18,7 +18,7 @@ Stronger models now; cut ceremony that does not pay for itself.
 3. **Fewer canaries.** Unchanged transport tree + unchanged job package (only parameters/seeds differ) → dispatch the main run directly. One canary on H100 *or* A100 suffices; never block on an H100 proof when H100 returns 503.
 4. **Automatic mechanical retries.** Verified stop + no outputs + known mechanical class (transport timeout, upload cap, allocation refused) → retry automatically with a fresh identity up to the package's limit, no new review/packet cycle; report afterwards.
 5. **Transport registry holds several qualified trees.** Activating a fixed transport must never block or race jobs queued/running on the previous qualified tree.
-6. **Dispatch.** Keep all 3 Colab runtimes busy from a ready queue; don't ask the owner about operational steps; do multiple requested things in parallel.
+6. **Dispatch.** Keep all Colab runtimes busy (account cap 6 since 2026-10-31; transport tree with cap 6 pending canary) from a ready queue; don't ask the owner about operational steps; do multiple requested things in parallel.
 7. **Always kept, any lane:** held-out/test data never used for training or tuning; honest reporting of what was actually measured; verified stops and runtime cleanup; safety-prohibited actions excluded; releases need the confirmation lane plus normal sign-off.
 
 ## Campaign authority (owner-ratified 2026-10-19) — overrides older text
