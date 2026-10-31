@@ -203,6 +203,13 @@ def test_seed_audit_disjointness_and_never_opens_exports(tmp_path: Path) -> None
     loose_pair = fake_artifacts / "other" / "pair-000001.json"
     loose_pair.parent.mkdir(parents=True)
     loose_pair.write_text(json.dumps({"seed": own_seed}), encoding="utf-8")
+    own_fix_bench = (
+        fake_artifacts / "t34-sol" / "argon-alllen-screen-fix1" / "preflight" / "benchmark.json"
+    )
+    own_fix_bench.parent.mkdir(parents=True)
+    own_fix_bench.write_text(
+        json.dumps({"seed": protocol.BRANCH_BENCHMARK_SEEDS[0]}), encoding="utf-8"
+    )
 
     report = seed_audit.audit(repo=protocol.ROOT, artifacts=fake_artifacts, extra_worktrees=[])
     assert report["status"] == "CLEAR"
