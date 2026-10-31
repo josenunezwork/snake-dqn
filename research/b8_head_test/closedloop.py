@@ -22,6 +22,17 @@ ARMS = ("b8", "m0", "m10", "m25", "m50")
 MIXES = ("scripted", "frozen", "mixed")
 
 
+def frozen_features(
+    b8: nn.Module, local: torch.Tensor, glob: torch.Tensor, scalar: torch.Tensor
+) -> torch.Tensor:
+    """Use the fitted head's uint8-to-float normalization at deployment."""
+    return b8.fuse(
+        torch.cat(
+            (b8.local(local.float() / 255), b8.glob(glob.float() / 255), scalar.float()), 1
+        )
+    )
+
+
 def seed(domain: str, world: int, opponent: bool = False) -> int:
     """Independent counter-RNG keys; no replacement after a collision."""
     raw = f"{NAMESPACE}/a0/{domain}/{world}/{'opponent' if opponent else 'world'}".encode()
@@ -207,7 +218,7 @@ def play(
                 slots = slots[keep]
         sim.prepare()
         local, glob, scalar, legal, _, base = observe_hero_bv8(sim, b8)
-        phi = b8.fuse(torch.cat((b8.local(local), b8.glob(glob), scalar), 1))
+        phi = frozen_features(b8, local, glob, scalar)
         predicted = head((phi - mean) / std)
         chosen = actions(predicted, legal, base, arm_margins[slots])
         living = sim.alive[:, 0].clone()

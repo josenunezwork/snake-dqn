@@ -10,6 +10,7 @@ from research.b8_head_test.closedloop import (
     ARMS,
     NAMESPACE,
     actions,
+    frozen_features,
     ledger,
     publish,
     seed,
@@ -17,6 +18,21 @@ from research.b8_head_test.closedloop import (
     validate_ledger,
     verified,
 )
+
+
+def test_deployment_features_match_b8_forward() -> None:
+    from src.model.ego2s_network import Ego2sNet
+
+    torch.manual_seed(9)
+    b8 = Ego2sNet(local_channels=7, n_scalars=60).eval()
+    local = torch.randint(256, (2, 7, 31, 31), dtype=torch.uint8)
+    glob = torch.randint(256, (2, 4, 39, 39), dtype=torch.uint8)
+    scalars = torch.rand(2, 60)
+    with torch.inference_mode():
+        phi = frozen_features(b8, local, glob, scalars)
+        adv = b8.adv(phi)
+        rebuilt = b8.value(phi) + adv - adv.mean(1, keepdim=True)
+        torch.testing.assert_close(rebuilt, b8(local, glob, scalars), atol=1e-6, rtol=1e-6)
 
 
 def test_margin_is_relative_strict_and_legal() -> None:
