@@ -884,3 +884,37 @@ def test_fallback_accounts_for_added_own_assignment(fixture):
     assert [row["job"] for row in trace(f, "run")] == ["job", "job-a100-fallback"]
     proof = json.loads((f["ops"] / "dispatch/lane/unavailable.json").read_text())
     assert set(proof["membership"]["added"]) == {"running"}
+
+
+@pytest.mark.parametrize("case", ["at_cap_ok", "before_at_cap_refused", "rows_over_cap_refused"])
+def test_reconcile_honors_account_assignment_cap(fixture, case):
+    from research.colab_cli.accounting import ACCOUNT_ASSIGNMENT_CAP
+
+    f = fixture
+    pending = retained_pending(f)
+    intent = json.loads(pending.read_text())
+    before_count = (
+        ACCOUNT_ASSIGNMENT_CAP if case == "before_at_cap_refused" else ACCOUNT_ASSIGNMENT_CAP - 1
+    )
+    rows_count = (
+        ACCOUNT_ASSIGNMENT_CAP + 1 if case == "rows_over_cap_refused" else ACCOUNT_ASSIGNMENT_CAP
+    )
+    total = max(before_count, rows_count)
+    for idx in range(total):
+        owned_dispatch(f, f"ep-{idx}", name=f"job-{idx}")
+    intent["before"] = [f"ep-{idx}" for idx in range(before_count)]
+    Path(f["env"]["INVENTORY"]).write_text(
+        json.dumps({f"ep-{idx}": "L4" for idx in range(rows_count)})
+    )
+    pending.write_text(json.dumps(intent))
+    result = subprocess.run(
+        reconcile_command(f, pending, live=False),
+        env=f["env"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if case == "at_cap_ok":
+        assert result.returncode == 0, result.stderr
+    else:
+        assert result.returncode != 0 and "membership changed" in result.stderr

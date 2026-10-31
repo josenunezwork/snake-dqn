@@ -25,6 +25,12 @@ else:
     from qualification import OPS, save
 
 HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from research.colab_cli.accounting import ACCOUNT_ASSIGNMENT_CAP  # noqa: E402
+
 SCHEMA = "snake-dqn-ready-queue/v1"
 # Cover the 600s lock wait, two 1200s host admissions, two 600s allocation
 # windows for H100/A100 preference, and bounded qualification overhead.
@@ -498,7 +504,7 @@ def tick(
     dry_run: bool = False,
     inventory: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Reserve up to three occupied or pending runtime slots across all daemons."""
+    """Reserve up to ACCOUNT_ASSIGNMENT_CAP occupied or pending runtime slots across all daemons."""
     if dry_run:
         queue = auto_retry.read(ops / "ready-queue.json")
         observed = observations(ops)
@@ -508,7 +514,7 @@ def tick(
             "reserved": pending,
             "would_dispatch": [
                 row["id"] for row in queue["jobs"] if row["status"] == "READY" and ready(queue, row)
-            ][: max(0, 3 - active - pending)],
+            ][: max(0, ACCOUNT_ASSIGNMENT_CAP - active - pending)],
         }
     with locked(ops) as queue:
         observed = observations(ops)
@@ -530,7 +536,7 @@ def tick(
         if pending_records:
             return {"dispatched": [], "blocked_pending": [str(p) for p in pending_records]}
         active, reserved = occupancy(queue, observed, inventory)
-        slots = max(0, 3 - active - reserved)
+        slots = max(0, ACCOUNT_ASSIGNMENT_CAP - active - reserved)
         selected = []
         # FIFO among ready entries: an unmet dependency doesn't idle other lanes.
         for row in queue["jobs"]:
@@ -637,7 +643,11 @@ def worker(ops: Path, identity: str, token: str) -> None:
         )
         capacity_refused = (
             no_submission
-            and output.strip() == "REFUSE: account-wide assignment cap 3 (including notebooks)"
+            and output.strip()
+            in {
+                f"REFUSE: account-wide assignment cap {cap} (including notebooks)"
+                for cap in (ACCOUNT_ASSIGNMENT_CAP, 3)
+            }
             and not (ops / "dispatch" / argv[1]).exists()
             and not (ops / "manifests" / (argv[1] + ".json")).exists()
             and not (ops / "manifests" / (argv[1] + ".live.json")).exists()

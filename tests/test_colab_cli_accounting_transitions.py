@@ -215,7 +215,12 @@ def test_unknown_endpoint_is_never_graced_as_a_transition() -> None:
 def test_cap_and_rate_envelope_violations_refuse_without_transition_grace() -> None:
     tracker = _tracker()
     with pytest.raises(accounting.AccountingError, match="cap exceeded"):
-        tracker.check(_usage(2.0, 4), now=1.0, sessions={"ours": "our-lane"}, active_records=[])
+        tracker.check(
+            _usage(2.0, accounting.ACCOUNT_ASSIGNMENT_CAP + 1),
+            now=1.0,
+            sessions={"ours": "our-lane"},
+            active_records=[],
+        )
 
     tracker = _tracker()
     with _warns("PROVIDER_RATE_DRIFT"):

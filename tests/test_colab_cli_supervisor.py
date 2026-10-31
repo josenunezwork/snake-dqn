@@ -188,15 +188,37 @@ def _isolate_account(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def test_allocation_cap_counts_existing_notebook_assignments(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    binary = _fake_env(monkeypatch, tmp_path, assignments=3)
+    binary = _fake_env(monkeypatch, tmp_path, assignments=supervisor.ACCOUNT_ASSIGNMENT_CAP)
     manifest = _manifest(tmp_path)
 
-    with pytest.raises(supervisor.Refused, match="account concurrency cap 3|assignment cap 3"):
+    cap = supervisor.ACCOUNT_ASSIGNMENT_CAP
+    with pytest.raises(
+        supervisor.Refused,
+        match=f"account concurrency cap {cap}|assignment cap {cap}",
+    ):
         supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
 
     events = _events(tmp_path)
     assert not any(event["argv"][4] == "new" for event in events)
     _assert_transport(tmp_path)
+
+
+def test_allocation_admits_sixth_assignment_below_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    existing = supervisor.ACCOUNT_ASSIGNMENT_CAP - 1
+    binary = _fake_env(monkeypatch, tmp_path, assignments=existing)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _seconds: None)
+    manifest = _manifest(tmp_path)
+    manifest["budget"]["other_assignments"] = {
+        f"gpu-notebook-{i + 1}": 6.84 / existing for i in range(existing)
+    }
+
+    supervisor.Broker(tmp_path / "lanes", binary).run(manifest)
+
+    receipt = json.loads((tmp_path / "job-output" / "receipt.json").read_text())
+    assert receipt["status"] == "PASS"
+    assert receipt["stop_verified"] is True
 
 
 def test_normal_job_stops_and_verifies_backend_release(

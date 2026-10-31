@@ -35,6 +35,7 @@ READ_TIMEOUT_SECONDS = 120
 HELPER_TIMEOUT_SECONDS = 150
 READ_HELPER_ATTEMPTS = 3
 READ_HELPER_BACKOFF_SECONDS = (2.0, 5.0)
+KERNEL_CREATION_GUARD_ERROR = "kernel creation already attempted; refusing uncertain retry"
 
 
 class GuardError(RuntimeError):
@@ -117,7 +118,7 @@ def install_hooks() -> None:
         if str(method).upper() == "POST" and str(url).endswith("/api/kernels"):
             capture = _kernel_creation_target(url, kwargs, record_path)
             if kernel_creation_attempted:
-                raise GuardError("kernel creation already attempted; refusing uncertain retry")
+                raise GuardError(KERNEL_CREATION_GUARD_ERROR)
             kernel_creation_attempted = True
         response = original_session_request(self, *args, **_timeout_kwargs(kwargs))
         if capture is not None:

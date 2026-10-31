@@ -614,7 +614,8 @@ CLI calls/transfers/exports and no pending/active identity for that session.
 Already consumed ready names are adopted only when their ops snapshot matches
 the enqueued manifest; mismatches are held. Dependencies follow the final retry.
 
-The exact `account-wide assignment cap 3 (including notebooks)` refusal is
+The exact `account-wide assignment cap 6 (including notebooks)` refusal (and
+legacy `cap 3` on older qualified broker trees) is
 transient. Before any dispatch identity is reserved, a completed refusal with
 no dispatch directory, manifest snapshot, output directory or supervisor log
 returns the same queue row to READY with backoff and a fresh worker log. After
@@ -624,5 +625,7 @@ two-completion limit. That receipt must show only successful read-only
 `version`, `sessions`, `usage` calls, `INCOMPLETE`/`ACCOUNTING`, no endpoint,
 accounting, runtime operations, transfers, exports, child result or cleanup error,
 and no pending/active identity or hardware/terminal file. The original receipt
-is retained unchanged. Cap errors during a job and ambiguous evidence remain
-ineligible. Neither path calls the provider allocator directly.
+is retained unchanged. Exact `ACCOUNTING` `account-wide assignment cap exceeded
+during polling` failures with `stop_verified: true`, `cleanup_error: null` and
+zero exports are also retryable; other cap errors during a job and ambiguous
+evidence remain ineligible. Neither path calls the provider allocator directly.

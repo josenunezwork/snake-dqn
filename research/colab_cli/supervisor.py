@@ -26,7 +26,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterator
 
 from research.colab_cli import policy
-from research.colab_cli.accounting import budget_warning, measurement_rate, warning_threshold
+from research.colab_cli.accounting import (
+    ACCOUNT_ASSIGNMENT_CAP,
+    budget_warning,
+    measurement_rate,
+    warning_threshold,
+)
 
 ACCOUNT_ROOT = Path.home() / ".config/colab-cli/snake"
 REPO = Path(__file__).resolve().parents[2]
@@ -790,7 +795,7 @@ class CLI:
             raise Refused("supervised assignment disappeared during telemetry recovery")
         if sessions[endpoint] != self.session:
             raise Refused("assignment identity changed during telemetry recovery")
-        if len(sessions) > 3:
+        if len(sessions) > ACCOUNT_ASSIGNMENT_CAP:
             raise Refused("account-wide assignment cap exceeded during telemetry recovery")
 
     def poll_rpc(self, code: str, timeout: float | None = None) -> Any:
@@ -1168,8 +1173,14 @@ class Broker:
                         endpoint = retained["endpoint"]
                         if before.get(endpoint) != session:
                             raise Refused("retained assignment vanished; no replacement allocation")
-                    if not reusing and max(len(before), usage_before["assignments"]) >= 3:
-                        raise Refused("account-wide assignment cap 3 (including notebooks)")
+                    if (
+                        not reusing
+                        and max(len(before), usage_before["assignments"]) >= ACCOUNT_ASSIGNMENT_CAP
+                    ):
+                        raise Refused(
+                            f"account-wide assignment cap {ACCOUNT_ASSIGNMENT_CAP}"
+                            " (including notebooks)"
+                        )
                     reservations = [
                         json.loads(p.read_text())
                         for p in ACCOUNT_ROOT.glob("active-*.json")
@@ -1238,7 +1249,7 @@ class Broker:
                         after = {**before, endpoint: session}
                     else:
                         after = before
-                    if len(after) > 3:
+                    if len(after) > ACCOUNT_ASSIGNMENT_CAP:
                         raise Refused("account concurrency changed during allocation")
                     write_once(
                         lane / "assignment.json",
@@ -1505,7 +1516,7 @@ class Broker:
                     }
                     evidence["samples"].append(reading)
                     write_once(output / f"rate-calibration-{sample:03d}.json", reading)
-                    if max(len(assignments), usage["assignments"]) > 3:
+                    if max(len(assignments), usage["assignments"]) > ACCOUNT_ASSIGNMENT_CAP:
                         raise Refused("account concurrency changed during allocation")
                     if usage["balance"] <= m["budget"]["reserve_units"]:
                         budget_warning(
@@ -1958,7 +1969,7 @@ class Broker:
                         file=sys.stderr,
                         flush=True,
                     )
-                if current["assignments"] > 3:
+                if current["assignments"] > ACCOUNT_ASSIGNMENT_CAP:
                     raise Refused("account-wide assignment cap exceeded during job")
                 if current["balance"] <= m["budget"]["reserve_units"]:
                     budget_warning(

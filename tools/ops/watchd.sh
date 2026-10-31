@@ -64,14 +64,15 @@ while true; do
     fi
     journal_reconcile
   done < "$OPS/watch-pids.txt"
+  cap=$(PYTHONPATH="$HERE/../.." python3 -c "from research.colab_cli.accounting import ACCOUNT_ASSIGNMENT_CAP; print(ACCOUNT_ASSIGNMENT_CAP)" 2>/dev/null || echo 6)
   if sessions=$(bounded_capture colab --auth oauth2 sessions 2>/dev/null); then
     n=$(printf '%s\n' "$sessions" | grep -c Hardware)
   else
-    n=3; ev 'COLAB_SESSIONS_UNKNOWN'
+    n=$cap; ev 'COLAB_SESSIONS_UNKNOWN'
   fi
   okuntil=$(cat "$OPS/colab-idle-ok-until" 2>/dev/null || echo 0)
   now=$(date +%s)
-  if [ "${n:-0}" -lt 3 ] && [ "$now" -ge "${okuntil:-0}" ]; then
+  if [ "${n:-0}" -lt "$cap" ] && [ "$now" -ge "${okuntil:-0}" ]; then
     [ -z "$colab_low_since" ] && colab_low_since=$now
     if [ $((now-colab_low_since)) -ge 600 ]; then
       ev "COLAB_UNDERUSED sessions=$n for >=10min"; colab_low_since=$now

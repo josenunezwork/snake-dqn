@@ -37,7 +37,11 @@ _guard_spec.loader.exec_module(_guard_module)
 _guard_module.verify(HERE.parents[1])
 if str(HERE.parents[1]) not in sys.path:
     sys.path.insert(0, str(HERE.parents[1]))
-from research.colab_cli.accounting import budget_warning, warning_threshold  # noqa: E402
+from research.colab_cli.accounting import (  # noqa: E402
+    ACCOUNT_ASSIGNMENT_CAP,
+    budget_warning,
+    warning_threshold,
+)
 from research.compute.colab_control import POLICY_ID as CONTROL_POLICY_ID  # noqa: E402
 from research.compute.colab_control import RULING_SHA256 as CONTROL_RULING_SHA256  # noqa: E402
 from research.compute.gpu_preference import FALLBACK_SUFFIX, sibling_id, variants  # noqa: E402
@@ -2342,10 +2346,10 @@ def reconcile_unavailable(
         before = intent.get("before")
         if (
             not isinstance(before, list)
-            or len(before) >= 3
+            or len(before) >= ACCOUNT_ASSIGNMENT_CAP
             or any(not isinstance(endpoint, str) or not endpoint for endpoint in before)
             or len(set(before)) != len(before)
-            or len(rows) > 3
+            or len(rows) > ACCOUNT_ASSIGNMENT_CAP
             or any(name == session for name, _, _ in rows)
         ):
             raise Refused("account membership changed; fallback forbidden")

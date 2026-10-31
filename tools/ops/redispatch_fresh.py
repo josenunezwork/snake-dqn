@@ -21,12 +21,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from research.colab_cli.cli_guard import KERNEL_CREATION_GUARD_ERROR as KERNEL_ERROR  # noqa: E402
 from research.colab_cli.supervisor import validate  # noqa: E402
 from tools.ops import qualification  # noqa: E402
 from tools.ops.dispatch import BLOCK, require_resume_policy  # noqa: E402
 from tools.ops.spend import read_spend  # noqa: E402
-
-KERNEL_ERROR = "kernel creation already attempted; refusing uncertain retry"
 
 
 class Refused(ValueError):

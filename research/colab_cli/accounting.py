@@ -27,6 +27,11 @@ class AccountingError(ValueError):
 BALANCE_ROUNDING_TOLERANCE_UNITS = 0.01
 BALANCE_LAG_TOLERANCE_SECONDS = 300.0
 TRANSITION_MISMATCH_POLLS = 2
+# Upgraded account probe (2026-10-31 08:49-08:51 PT, balance 2547.65 units):
+# 6 concurrent assignments accepted; 7th (A100/L4) refused ("Allocation refused
+# (precondition failed)").
+ACCOUNT_ASSIGNMENT_CAP = 6
+POLLING_ASSIGNMENT_CAP_ERROR = "account-wide assignment cap exceeded during polling"
 
 
 def budget_warning(code: str, **evidence: Any) -> None:
@@ -429,8 +434,8 @@ class AccountTracker:
         if self.endpoint is None:
             raise AccountingError("allocation was not rate-confirmed")
         current = _usage(usage)
-        if int(current["assignments"]) > 3:
-            raise AccountingError("account-wide assignment cap exceeded during polling")
+        if int(current["assignments"]) > ACCOUNT_ASSIGNMENT_CAP:
+            raise AccountingError(POLLING_ASSIGNMENT_CAP_ERROR)
         now = time.monotonic() if now is None else _number(now, "now")
         elapsed = now - self.started_monotonic
         if elapsed < 0:
@@ -455,8 +460,8 @@ class AccountTracker:
         self.last_reconciled_monotonic = now
         if sessions is not None:
             current_sessions = dict(sessions)
-            if max(int(current["assignments"]), len(current_sessions)) > 3:
-                raise AccountingError("account-wide assignment cap exceeded during polling")
+            if max(int(current["assignments"]), len(current_sessions)) > ACCOUNT_ASSIGNMENT_CAP:
+                raise AccountingError(POLLING_ASSIGNMENT_CAP_ERROR)
             previous_other_rates = dict(self.current_other_rates)
             active_records = list(active_records)
             broker_active_rates = _active_rates(active_records)
@@ -617,7 +622,7 @@ def admit_account(
     if any(not isinstance(endpoint, str) or not endpoint for endpoint in endpoint_sessions):
         raise AccountingError("session endpoint must be a nonempty string")
     baseline = _usage(usage)
-    if max(int(baseline["assignments"]), len(endpoint_sessions)) > 3:
+    if max(int(baseline["assignments"]), len(endpoint_sessions)) > ACCOUNT_ASSIGNMENT_CAP:
         raise AccountingError("account-wide assignment cap exceeded at admission")
     if int(baseline["assignments"]) != len(endpoint_sessions):
         raise AccountingError("provider assignment count disagrees with sessions at admission")

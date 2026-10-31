@@ -122,6 +122,33 @@ def test_owned_calibrated_assignment(tmp_path: Path) -> None:
     assert result["rates"] == {"ep": 0.08}
 
 
+def test_owned_calibrated_assignments_honor_account_cap(tmp_path: Path) -> None:
+    allowed = op.ACCOUNT_ASSIGNMENT_CAP - 1
+    lines = "".join(f"[cpu{i}] ep{i} | Hardware: CPU\n" for i in range(allowed))
+    config, proof = evidence(tmp_path, lines, round(0.08 * allowed, 4), allowed)
+    for i in range(allowed):
+        (Path(config["account_root"]) / f"active-cpu{i}.json").write_text(
+            json.dumps(
+                {
+                    "endpoint": f"ep{i}",
+                    "session": f"cpu{i}",
+                    "unit_cap": 4,
+                    "observed_rate_units_per_hour": 0.08,
+                }
+            )
+        )
+    result = op.live_checks(config, proof)
+    assert len(result["assignments"]) == allowed
+
+    over_dir = tmp_path / "over"
+    over_dir.mkdir()
+    at_cap = op.ACCOUNT_ASSIGNMENT_CAP
+    over_lines = "".join(f"[cpu{i}] ep{i} | Hardware: CPU\n" for i in range(at_cap))
+    over_cfg, over_proof = evidence(over_dir, over_lines, round(0.08 * at_cap, 4), at_cap)
+    with pytest.raises(ValueError, match="cap/count mismatch"):
+        op.live_checks(over_cfg, over_proof)
+
+
 @pytest.mark.parametrize("cap", [0, -1, True, float("nan"), float("inf")])
 def test_active_assignment_requires_finite_positive_cap(tmp_path: Path, cap) -> None:
     config, proof = evidence(tmp_path, "[cpu] ep | Hardware: CPU\n", 0.08, 1)

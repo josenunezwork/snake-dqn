@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import copy
 import hashlib
 import json
@@ -15,6 +16,19 @@ from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from research.colab_cli.accounting import (  # noqa: E402
+    ACCOUNT_ASSIGNMENT_CAP,
+    POLLING_ASSIGNMENT_CAP_ERROR,
+    AccountingError,
+)
+from research.colab_cli.cli_guard import (  # noqa: E402
+    KERNEL_CREATION_GUARD_ERROR,
+    GuardError,
+)
 
 
 def read(path: Path) -> dict[str, Any]:
@@ -52,7 +66,11 @@ def blocked_before_allocation(manifest: dict[str, Any], output: Path, log: Path)
         and calls == []
     )
     account_cap = (
-        receipt.get("error") == "Refused('account-wide assignment cap 3 (including notebooks)')"
+        receipt.get("error")
+        in {
+            f"Refused('account-wide assignment cap {cap} (including notebooks)')"
+            for cap in (ACCOUNT_ASSIGNMENT_CAP, 3)
+        }
         and receipt.get("failure_class") == "ACCOUNTING"
         and isinstance(receipt.get("usage_before"), dict)
         and isinstance(calls, list)
@@ -93,6 +111,40 @@ def blocked_before_allocation(manifest: dict[str, Any], output: Path, log: Path)
         and not (output / "exports").is_symlink()
         and not (output / "exports").is_file()
         and not ((output / "exports").exists() and any((output / "exports").rglob("*")))
+    )
+
+
+def is_kernel_creation_guard_error(error: Any) -> bool:
+    """Match the shared cli_guard kernel-creation refusal, never a Rich source excerpt."""
+    if not isinstance(error, str):
+        return False
+    if error in {
+        KERNEL_CREATION_GUARD_ERROR,
+        repr(GuardError(KERNEL_CREATION_GUARD_ERROR)),
+        f"Refused({KERNEL_CREATION_GUARD_ERROR!r})",
+    }:
+        return True
+    try:
+        call = ast.parse(error, mode="eval").body
+        if (
+            not isinstance(call, ast.Call)
+            or not isinstance(call.func, ast.Name)
+            or call.func.id != "Refused"
+            or len(call.args) != 1
+            or call.keywords
+        ):
+            return False
+        detail = ast.literal_eval(call.args[0])
+    except (ValueError, SyntaxError):
+        return False
+    return (
+        isinstance(detail, str)
+        and detail.startswith("colab exec failed (1): ")
+        and re.search(
+            r"(?:\n|: )GuardError: " + re.escape(KERNEL_CREATION_GUARD_ERROR) + r"\s*\Z",
+            detail,
+        )
+        is not None
     )
 
 
@@ -152,14 +204,24 @@ def eligible(
     ):
         raise ValueError("scientific/integrity failure is never retryable")
     category = receipt.get("failure_class")
+    if category == "SUPERVISOR":
+        # Kernel-creation guard: pre-start refusal; stop_verified + zero exports are checked above.
+        if not is_kernel_creation_guard_error(error):
+            raise ValueError("unknown or ambiguous mechanical failure")
+        return receipt
+    if category == "ACCOUNTING":
+        if error not in {
+            POLLING_ASSIGNMENT_CAP_ERROR,
+            repr(AccountingError(POLLING_ASSIGNMENT_CAP_ERROR)),
+        }:
+            raise ValueError("unknown or ambiguous mechanical failure")
+        return receipt
     patterns = {
         "RPC_EXEC_POLL_TIMEOUT": r"telemetry|kernel|rpc|colab.*exec|transport|poll timed out",
         "TRANSPORT_TIMEOUT": r"transport|rpc|colab.*exec|telemetry",
         "UPLOAD_CAP": r"upload|transfer.*cap",
         "ALLOCATION_REFUSED": r"allocation|assign|capacity|unavailable|503",
         "ALLOCATION_UNAVAILABLE": r"allocation|assign|capacity|unavailable|503",
-        # Kernel-creation guard: a pre-start refusal; stop_verified + zero exports are checked above.
-        "SUPERVISOR": r"kernel creation already attempted; refusing uncertain retry",
     }
     if category not in patterns or not re.search(patterns[category], error, re.I):
         raise ValueError("unknown or ambiguous mechanical failure")

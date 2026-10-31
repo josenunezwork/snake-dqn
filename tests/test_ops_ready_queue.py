@@ -164,16 +164,16 @@ def add_jobs(tmp_path, count):
 
 
 def test_capacity_dry_run_and_duplicate_claims(tmp_path, monkeypatch):
-    ops = add_jobs(tmp_path, 4)
+    ops = add_jobs(tmp_path, 7)
     before = (ops / "ready-queue.json").read_bytes()
-    assert rq.tick(ops, dry_run=True)["would_dispatch"] == ["q0", "q1", "q2"]
+    assert rq.tick(ops, dry_run=True)["would_dispatch"] == ["q0", "q1", "q2", "q3", "q4", "q5"]
     assert (ops / "ready-queue.json").read_bytes() == before
     calls = []
     monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: calls.append(a))
     with ThreadPoolExecutor(2) as pool:
         results = list(pool.map(lambda _: rq.tick(ops), range(2)))
-    assert sum(len(result["dispatched"]) for result in results) == 3
-    assert len(calls) == 3
+    assert sum(len(result["dispatched"]) for result in results) == 6
+    assert len(calls) == 6
     assert rq.tick(ops)["dispatched"] == []
     with pytest.raises(ValueError, match="already enqueued"):
         rq.enqueue(ops, "q0", command(tmp_path, tmp_path / "job0.json", "job0"))
@@ -265,10 +265,10 @@ def test_live_inventory_counts_unmanaged_jobs_and_does_not_trust_old_receipts(pa
     historical = ar.read(packet)
     snapshot = write(ops / "manifests/historical.json", historical)
     finish(snapshot, ops / "logs/historical.log", stop_verified=False)
-    assert rq.tick(ops, dry_run=True, inventory={"external1", "external2"})["would_dispatch"] == [
-        "q0"
-    ]
-    assert rq.tick(ops, dry_run=True, inventory={"a", "b", "c"})["would_dispatch"] == []
+    five_external = {f"external{i}" for i in range(rq.ACCOUNT_ASSIGNMENT_CAP - 1)}
+    six_external = {f"external{i}" for i in range(rq.ACCOUNT_ASSIGNMENT_CAP)}
+    assert rq.tick(ops, dry_run=True, inventory=five_external)["would_dispatch"] == ["q0"]
+    assert rq.tick(ops, dry_run=True, inventory=six_external)["would_dispatch"] == []
     assert rq.observations(ops)["historical"]["active"]  # remains ineligible for retry
 
 
@@ -814,3 +814,152 @@ def test_capacity_worker_backs_off_only_without_identity_residue(tmp_path, resid
         assert row["capacity_refusals"] == 1 and not row["claimed"]
         assert not rq.ready(queue, row)
         assert rq.occupancy(queue, {}, set()) == (0, 0)
+
+
+@pytest.mark.parametrize("cap", [6, 3])
+def test_capacity_refusal_supports_cap6_and_legacy_cap3_brokers(packet, tmp_path, cap):
+    ops = add_jobs(tmp_path, 1)
+    script = tmp_path / "dispatch.sh"
+    script.write_text(
+        f'#!/bin/sh\nprintf "REFUSE: account-wide assignment cap {cap} (including notebooks)\\n"\n'
+        "exit 1\n"
+    )
+    script.chmod(0o755)
+    with rq.locked(ops) as queue:
+        queue["jobs"][0].update(status="DISPATCHING", token="claim")
+    rq.worker(ops, "q0", "claim")
+    assert ar.read(ops / "ready-queue.json")["jobs"][0]["status"] == "READY"
+
+    log = tmp_path / f"cap-{cap}.log"
+    receipt = account_cap_receipt(packet, log)
+    receipt["error"] = f"Refused('account-wide assignment cap {cap} (including notebooks)')"
+    receipt["usage_before"] = {"assignments": float(cap), "balance": 2547.65, "rate": 10.61}
+    write(Path(ar.read(packet)["output_dir"]) / "receipt.json", receipt)
+    assert ar.eligible(ar.read(packet), Path(ar.read(packet)["output_dir"]), log) == receipt
+
+
+@pytest.mark.parametrize(
+    "error_shape",
+    [
+        "AccountingError('account-wide assignment cap exceeded during polling')",
+        ar.POLLING_ASSIGNMENT_CAP_ERROR,
+    ],
+)
+def test_polling_assignment_cap_accounting_failure_is_retryable(packet, tmp_path, error_shape):
+    log = tmp_path / "job.log"
+    finish(
+        packet,
+        log,
+        failure_class="ACCOUNTING",
+        error=error_shape,
+        stop_verified=True,
+        cleanup_error=None,
+        exports=[],
+    )
+    successor = ar.prepare(packet, log, tmp_path / "retry", tmp_path)
+    assert ar.read(successor)["completion_attempt"] == 1
+
+
+@pytest.mark.parametrize(
+    "reject_case",
+    [
+        {"exports": [{"path": "exports/pair-04.json"}]},
+        {"disk_export": True},
+        {"stop_verified": False},
+        {"cleanup_error": "stop timed out"},
+        {"error": "AccountingError('account-wide assignment cap exceeded at admission')"},
+        {"error": "Refused('account-wide assignment cap exceeded during job')"},
+        {"error": "AccountingError('unaccounted active assignment: ep')"},
+        {"error": "AccountingError('account-wide assignment cap exceeded during polling (extra)')"},
+    ],
+)
+def test_polling_assignment_cap_accounting_rejects_partial_or_other_errors(
+    packet, tmp_path, reject_case
+):
+    log = tmp_path / "job.log"
+    changes = {
+        "failure_class": "ACCOUNTING",
+        "error": "AccountingError('account-wide assignment cap exceeded during polling')",
+        "stop_verified": True,
+        "cleanup_error": None,
+        "exports": [],
+        **reject_case,
+    }
+    disk_export = changes.pop("disk_export", False)
+    finish(packet, log, **changes)
+    output = Path(ar.read(packet)["output_dir"])
+    if disk_export:
+        write(output / "exports/pair-04.json", {"index": 4})
+    with pytest.raises(ValueError):
+        ar.prepare(packet, log, tmp_path / "retry", tmp_path)
+
+
+@pytest.mark.parametrize(
+    "error_shape",
+    [
+        "Refused('colab exec failed (1): Traceback (most recent call last):\\n"
+        '  File "/Users/josenunez/research/colab_cli/cli_guard.py", line 120\\n'
+        f"GuardError: {ar.KERNEL_CREATION_GUARD_ERROR}\\n')",
+        repr(ar.GuardError(ar.KERNEL_CREATION_GUARD_ERROR)),
+        ar.KERNEL_CREATION_GUARD_ERROR,
+    ],
+)
+def test_supervisor_kernel_creation_guard_uses_shared_constant_and_accepts(
+    packet, tmp_path, error_shape
+):
+    from research.colab_cli import cli_guard
+
+    assert ar.KERNEL_CREATION_GUARD_ERROR is cli_guard.KERNEL_CREATION_GUARD_ERROR
+    log = tmp_path / "job.log"
+    finish(
+        packet,
+        log,
+        failure_class="SUPERVISOR",
+        error=error_shape,
+        stop_verified=True,
+        cleanup_error=None,
+        exports=[],
+    )
+    successor = ar.prepare(packet, log, tmp_path / "retry", tmp_path)
+    assert ar.read(successor)["completion_attempt"] == 1
+
+
+@pytest.mark.parametrize(
+    "reject_case",
+    [
+        {"exports": [{"path": "exports/unit.json"}]},
+        {"disk_export": True},
+        {"stop_verified": False},
+        {"cleanup_error": "stop timed out"},
+        {
+            "error": "Refused('colab exec failed (1): Traceback (most recent call last):\\n"
+            f'    raise GuardError("{ar.KERNEL_CREATION_GUARD_ERROR}")\\n'
+            "RuntimeError: different terminal failure\\n')"
+        },
+        {"error": "Refused('supervised assignment disappeared during telemetry recovery')"},
+        {"error": "Refused('kernel creation returned malformed kernel identity')"},
+    ],
+)
+def test_supervisor_kernel_creation_guard_rejects_partial_unstopped_or_other_errors(
+    packet, tmp_path, reject_case
+):
+    log = tmp_path / "job.log"
+    default_err = (
+        "Refused('colab exec failed (1): Traceback (most recent call last):\\n"
+        f"GuardError: {ar.KERNEL_CREATION_GUARD_ERROR}\\n')"
+    )
+    changes = {
+        "failure_class": "SUPERVISOR",
+        "error": default_err,
+        "stop_verified": True,
+        "cleanup_error": None,
+        "exports": [],
+        **reject_case,
+    }
+    disk_export = changes.pop("disk_export", False)
+    finish(packet, log, **changes)
+    output = Path(ar.read(packet)["output_dir"])
+    if disk_export:
+        write(output / "exports/unit.json", {"index": 0})
+    with pytest.raises(ValueError):
+        ar.prepare(packet, log, tmp_path / "retry", tmp_path)
