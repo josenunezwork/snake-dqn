@@ -598,15 +598,75 @@ def test_canary_long_body_segment_coverage_guard(tmp_path, damage):
         segment_proof(path)
 
 
-def test_uploads_pack_and_stage_metadata_deterministically(tmp_path):
+def test_uploads_pack_and_stage_metadata_deterministically(tmp_path, monkeypatch):
+    import hashlib
+    import io
+    import tarfile
+
+    from research.t34_exit_b8 import public_inputs
     from research.watch_replay.uploads import (
         CHECKPOINTS,
+        MAX_ESTIMATED_TRANSFER_SECONDS,
+        MAX_TRANSFERS,
         METADATA,
         SMALL_PAYLOADS,
         pack_inputs,
         stage_metadata,
     )
     from tools.ops.package_spec import Input, stage_inputs, verify_immutable
+
+    assert MAX_TRANSFERS == 8
+    assert MAX_ESTIMATED_TRANSFER_SECONDS == 60.0
+
+    b8_bytes = b"ckpt:b8_s3_t7_20261016.pth\n"
+    frp3_bytes = b"ckpt:frp3_m3_s12_u60000_20261005.pth\n"
+    unused_bytes = b"ckpt:unused_apex.pth\n"
+    league_buf = io.BytesIO()
+    with tarfile.open(fileobj=league_buf, mode="w:gz") as tar:
+        for member_name, payload in (
+            ("checkpoints/frp3_m3_s12_u60000_20261005.pth", frp3_bytes),
+            ("checkpoints/best_apex_fs.pth", unused_bytes),
+        ):
+            info = tarfile.TarInfo(member_name)
+            info.size = len(payload)
+            tar.addfile(info, io.BytesIO(payload))
+    league_bytes = league_buf.getvalue()
+
+    catalog_payload = {
+        "inputs": [
+            {
+                "name": "B8_s3_final.pth",
+                "dest": "B8_s3_final.pth",
+                "size_bytes": len(b8_bytes),
+                "sha256": hashlib.sha256(b8_bytes).hexdigest(),
+            },
+            {
+                "name": "frp3_m3_s12_u60000_20261005.pth",
+                "dest": "checkpoints/frp3_m3_s12_u60000_20261005.pth",
+                "size_bytes": len(frp3_bytes),
+                "sha256": hashlib.sha256(frp3_bytes).hexdigest(),
+            },
+        ],
+        "assets": {
+            "B8_s3_final.pth": {
+                "name": "B8_s3_final.pth",
+                "url": "https://example.invalid/B8_s3_final.pth",
+                "size_bytes": len(b8_bytes),
+                "sha256": hashlib.sha256(b8_bytes).hexdigest(),
+            },
+            "league.tar.gz": {
+                "name": "league.tar.gz",
+                "url": "https://example.invalid/league.tar.gz",
+                "size_bytes": len(league_bytes),
+                "sha256": hashlib.sha256(league_bytes).hexdigest(),
+            },
+        },
+    }
+    monkeypatch.setattr(
+        public_inputs,
+        "_load",
+        lambda _path: (catalog_payload["inputs"], catalog_payload["assets"]),
+    )
 
     src = tmp_path / "src"
     src.mkdir()
@@ -615,39 +675,44 @@ def test_uploads_pack_and_stage_metadata_deterministically(tmp_path):
         path = src / name
         path.write_bytes(f"payload:{name}\n".encode())
         inputs.append(Input(path, name))
-    for name in CHECKPOINTS:
-        path = src / name
-        path.write_bytes(f"ckpt:{name}\n".encode())
-        inputs.append(Input(path, "checkpoints/" + name))
 
     raw = stage_inputs(tmp_path / "staged", inputs)
-    assert len(raw) == 21
+    assert len(raw) == 18
     archive_a = tmp_path / "a.tar.gz"
     archive_b = tmp_path / "b.tar.gz"
     packed_a = pack_inputs(raw, archive_a, verify_pins=False)
     packed_b = pack_inputs(raw, archive_b, verify_pins=False)
-    assert packed_a[-1]["sha256"] == packed_b[-1]["sha256"]
+    assert packed_a[0]["sha256"] == packed_b[0]["sha256"]
     assert archive_a.read_bytes() == archive_b.read_bytes()
-    assert [row["dest"] for row in packed_a] == [
-        "checkpoints/b8_s3_t7_20261016.pth",
-        "checkpoints/frp3_m3_s12_u60000_20261005.pth",
-        METADATA,
-    ]
+    assert [row["dest"] for row in packed_a] == [METADATA]
 
     remote = tmp_path / "remote_inputs"
-    (remote / "checkpoints").mkdir(parents=True)
+    remote.mkdir(parents=True)
     for row in packed_a:
         target = remote / row["dest"]
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(Path(row["path"]).read_bytes())
 
-    stage_metadata(remote, packed_a[-1]["sha256"], verify_pins=False)
+    by_url = {
+        "https://example.invalid/B8_s3_final.pth": b8_bytes,
+        "https://example.invalid/league.tar.gz": league_bytes,
+    }
+
+    def fake_opener(url: str, timeout: int = 60):
+        assert timeout == 60
+        return io.BytesIO(by_url[url])
+
+    stage_metadata(remote, packed_a[0]["sha256"], verify_pins=False, opener=fake_opener)
     for name in SMALL_PAYLOADS:
         assert verify_immutable(remote / name)["size"] == len(f"payload:{name}\n")
-    for name in CHECKPOINTS:
-        assert verify_immutable(remote / "checkpoints" / name)["size"] == len(f"ckpt:{name}\n")
+    assert verify_immutable(remote / "checkpoints/b8_s3_t7_20261016.pth")["size"] == len(b8_bytes)
+    assert verify_immutable(remote / "checkpoints/frp3_m3_s12_u60000_20261005.pth")["size"] == len(
+        frp3_bytes
+    )
+    assert not (remote / "checkpoints/best_apex_fs.pth").exists()
+    assert set(CHECKPOINTS) == {"b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth"}
     with pytest.raises(ValueError, match="already exists"):
-        stage_metadata(remote, packed_a[-1]["sha256"], verify_pins=False)
+        stage_metadata(remote, packed_a[0]["sha256"], verify_pins=False, opener=fake_opener)
 
 
 def test_seal_main_follows_ready_queue_retry_chain_and_writes_once(tmp_path, monkeypatch):
@@ -737,3 +802,54 @@ def test_seed_audit_detects_collisions_without_opening_exports(tmp_path):
             artifacts=fake_artifacts,
             extra_worktrees=[],
         )
+
+
+def test_prepare_a100_defaults_to_w6_and_single_metadata_input(tmp_path, monkeypatch):
+    from research.watch_replay import prepare as prep
+
+    commit = "1" * 40
+    monkeypatch.setattr(
+        prep.subprocess,
+        "check_output",
+        lambda argv, **kw: ("  origin/main\n" if "branch" in argv else b""),
+    )
+    monkeypatch.setattr(
+        prep,
+        "check_uploads",
+        lambda manifest: {
+            "status": "PASS",
+            "normal_transfer_count": len(manifest["inputs"]) + 2,
+            "transfer_count": len(manifest["inputs"]) + 3,
+            "estimated_transfer_seconds": 21.6,
+        },
+    )
+    benchmark = tmp_path / "benchmark.json"
+    benchmark.write_text(
+        json.dumps({"commit": commit, "branch_timings": [{"seconds": 9.9, "branches": 6}]}) + "\n"
+    )
+    out = tmp_path / "packet-bank05-a100"
+    forecast = prep.prepare(
+        out,
+        commit,
+        benchmark,
+        "t34-watch-replay-20261031-bank05",
+        12,
+        "exact-stop-l2-prime",
+        gpu="A100",
+    )
+    assert forecast["gpu"] == "A100"
+    assert forecast["workers"] == 6
+    canary_manifest = json.loads((out / "canary.json").read_text())
+    main_manifest = json.loads((out / "main-unsealed.json").read_text())
+    assert canary_manifest["requirements"]["gpu"] == "A100"
+    assert canary_manifest["requirements"]["allowed_gpus"] == ["A100"]
+    assert canary_manifest["requirements"]["min_vcpu"] == 12
+    assert canary_manifest["budget"]["rate_units_per_hour"] == 8.0
+    assert canary_manifest["env"]["WATCH_REPLAY_WORKERS"] == "1"
+    assert main_manifest["requirements"]["gpu"] == "A100"
+    assert main_manifest["requirements"]["allowed_gpus"] == ["A100"]
+    assert main_manifest["budget"]["rate_units_per_hour"] == 8.0
+    assert main_manifest["env"]["WATCH_REPLAY_WORKERS"] == "6"
+    assert len(canary_manifest["inputs"]) == 1
+    assert canary_manifest["inputs"][0]["dest"] == "input-metadata.tar.gz"
+    assert main_manifest["inputs"] == canary_manifest["inputs"]

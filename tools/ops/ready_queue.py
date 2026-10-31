@@ -14,6 +14,8 @@ import subprocess
 import sys
 import time
 import uuid
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -30,6 +32,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from research.colab_cli.accounting import ACCOUNT_ASSIGNMENT_CAP  # noqa: E402
+
+# Measured 2026-10-31: the Colab account allows at most 3 concurrent L4 runtimes
+# (4th L4 refused "Allocation refused (precondition failed)" with 3 L4 active at
+# 13:39 and 14:20 PT) and ACCOUNT_ASSIGNMENT_CAP=6 total (3 L4 + 3 A100 accepted
+# in the 08:49 PT probe; 7th refused).
+ACCOUNT_L4_CAP = 3
 
 SCHEMA = "snake-dqn-ready-queue/v1"
 # Cover the 600s lock wait, two 1200s host admissions, two 600s allocation
@@ -232,6 +240,19 @@ def observations(ops: Path) -> dict[str, dict[str, Any]]:
         # A run cannot allocate before it creates its output/manifest.json.
         never_started = exited and not output.exists()
         preallocation_blocked = exited and auto_retry.blocked_before_allocation(value, output, log)
+        hw_path = output / "hardware.json"
+        actual_gpu = None
+        if hw_path.is_file():
+            with contextlib.suppress(OSError, ValueError):
+                hw_doc = auto_retry.read(hw_path)
+                if isinstance(hw_doc, Mapping) and isinstance(hw_doc.get("hardware"), Mapping):
+                    kind = hw_doc["hardware"].get("kind")
+                    if isinstance(kind, str) and kind.strip():
+                        actual_gpu = kind.strip().upper()
+        if actual_gpu is None and isinstance(value.get("requirements"), Mapping):
+            declared = value["requirements"].get("gpu")
+            if isinstance(declared, str) and declared.strip():
+                actual_gpu = declared.strip().upper()
         result[name] = {
             "active": not (
                 exited and (stopped or unavailable or never_started or preallocation_blocked)
@@ -244,6 +265,7 @@ def observations(ops: Path) -> dict[str, dict[str, Any]]:
             "exited": exited,
             "endpoint": (receipt.get("endpoint") if receipt else None)
             or assignments.get(str(output.resolve())),
+            "gpu": actual_gpu,
         }
     return result
 
@@ -437,8 +459,8 @@ def retire_unavailable(ops: Path, row: dict[str, Any], state: dict[str, Any]) ->
     event(ops, "READY_ALLOCATION_UNAVAILABLE", id=row["id"], proof=str(proof))
 
 
-def provider_sessions() -> set[str]:
-    """Read all account assignments; unknown inventory always blocks submission."""
+def provider_sessions() -> dict[str, str]:
+    """Read all account assignments and hardware; unknown inventory blocks submission."""
     result = subprocess.run(
         [
             os.environ.get("OPS_QUEUE_COLAB", str(Path.home() / ".local/bin/colab")),
@@ -453,16 +475,20 @@ def provider_sessions() -> set[str]:
     )
     text = result.stdout.strip()
     if text == "No active sessions found on server.":
-        return set()
+        return {}
     rows = text.splitlines()
-    endpoints = set()
+    endpoints: dict[str, str] = {}
     for line in rows:
         if not line.strip() or line.startswith("[colab]"):
             continue
-        match = re.fullmatch(r"\[.*?\]\s+(\S+)\s+\| Hardware: .+", line.strip())
-        if match is None or match[1] in endpoints:
+        match = re.fullmatch(
+            r"\[.*?\]\s+(\S+)\s+\| Hardware:\s*([^|]+?)(?:\s+\|.*)?",
+            line.strip(),
+        )
+        hardware = match[2].strip().upper() if match is not None else ""
+        if match is None or not hardware or match[1] in endpoints:
             raise ValueError("unrecognized account sessions inventory")
-        endpoints.add(match[1])
+        endpoints[match[1]] = hardware
     if not endpoints:
         # colab-cli 0.7.4 prints nothing when idle; accept only a corroborated zero count.
         usage = subprocess.run(
@@ -482,10 +508,45 @@ def provider_sessions() -> set[str]:
     return endpoints
 
 
+def _manifest_gpu(path: Path, prepare_command: Sequence[str] = ()) -> str | None:
+    """Read requirements.gpu from a manifest or its unsealed prepare template."""
+    candidates = [
+        path,
+        path.with_suffix(".pending.json"),
+        path.with_name(f"{path.stem}-unsealed.json"),
+        path.with_suffix(".template.json"),
+        path.with_name(f"{path.stem}-template.json"),
+    ]
+    if "--template" in prepare_command:
+        idx = list(prepare_command).index("--template")
+        if idx + 1 < len(prepare_command):
+            candidates.append(Path(prepare_command[idx + 1]))
+    for candidate in candidates:
+        if candidate.is_file():
+            with contextlib.suppress(OSError, ValueError):
+                data = auto_retry.read(candidate)
+                if isinstance(data, Mapping) and isinstance(data.get("requirements"), Mapping):
+                    gpu = data["requirements"].get("gpu")
+                    if isinstance(gpu, str) and gpu.strip():
+                        return gpu.strip().upper()
+                return None
+    return None
+
+
+def row_gpu(row: Mapping[str, Any]) -> str | None:
+    """Return the declared primary accelerator for a queued row."""
+    manifest = row.get("manifest")
+    if isinstance(manifest, str) and manifest:
+        manifest_path = Path(manifest)
+    else:
+        _, manifest_path, _, _ = dispatch_parts(list(row["argv"]))
+    return _manifest_gpu(manifest_path, row.get("prepare_command", ()))
+
+
 def occupancy(
     queue: dict[str, Any],
     observed: dict[str, Any],
-    inventory: set[str] | None,
+    inventory: Mapping[str, str] | set[str] | None,
 ) -> tuple[int, int]:
     """Combine dispatch evidence with account-wide inventory and durable claims.
 
@@ -512,23 +573,81 @@ def occupancy(
     return (len(occupied) if inventory is None else len(inventory)), reserved
 
 
+def accelerator_occupancy(
+    queue: dict[str, Any],
+    observed: dict[str, Any],
+    inventory: Mapping[str, str] | set[str] | None,
+) -> Counter[str]:
+    """Count active + reserved slots per accelerator using actual hardware for prefer rows."""
+    counts: Counter[str] = Counter()
+    occupied = {name for name, state in observed.items() if state["active"]}
+    if inventory is None:
+        for state in observed.values():
+            if state["active"] and state.get("gpu"):
+                counts[state["gpu"]] += 1
+    elif isinstance(inventory, Mapping):
+        for hardware in inventory.values():
+            hw = str(hardware).strip().upper()
+            if hw:
+                counts[hw] += 1
+    else:
+        by_endpoint = {
+            state["endpoint"]: state["gpu"]
+            for state in observed.values()
+            if state["active"] and state.get("endpoint") and state.get("gpu")
+        }
+        for endpoint in inventory:
+            if endpoint in by_endpoint:
+                counts[by_endpoint[endpoint]] += 1
+    for row in queue["jobs"]:
+        pending = row["status"] in {"DISPATCHING", "LAUNCHED"} or (
+            row["status"] == "HELD" and row.get("dispatch_attempted")
+        )
+        if not pending:
+            continue
+        current_name, state = current_observation(observed, row["argv"][1])
+        counted = (
+            current_name in occupied
+            if inventory is None
+            else state is not None and state.get("endpoint") in inventory
+        )
+        if not counted:
+            gpu = (state.get("gpu") if state else None) or row_gpu(row)
+            if gpu:
+                counts[gpu] += 1
+    return counts
+
+
 def tick(
     ops: Path,
     *,
     dry_run: bool = False,
-    inventory: set[str] | None = None,
+    inventory: Mapping[str, str] | set[str] | None = None,
 ) -> dict[str, Any]:
     """Reserve up to ACCOUNT_ASSIGNMENT_CAP occupied or pending runtime slots across all daemons."""
     if dry_run:
         queue = auto_retry.read(ops / "ready-queue.json")
         observed = observations(ops)
         active, pending = occupancy(queue, observed, inventory)
+        by_gpu = accelerator_occupancy(queue, observed, inventory)
+        slots = max(0, ACCOUNT_ASSIGNMENT_CAP - active - pending)
+        would_dispatch = []
+        for row in queue["jobs"]:
+            if not slots:
+                break
+            if row["status"] != "READY" or not ready(queue, row):
+                continue
+            gpu = row_gpu(row)
+            if gpu == "L4" and by_gpu["L4"] >= ACCOUNT_L4_CAP:
+                continue
+            would_dispatch.append(row["id"])
+            slots -= 1
+            if gpu:
+                by_gpu[gpu] += 1
         return {
             "active": active,
             "reserved": pending,
-            "would_dispatch": [
-                row["id"] for row in queue["jobs"] if row["status"] == "READY" and ready(queue, row)
-            ][: max(0, ACCOUNT_ASSIGNMENT_CAP - active - pending)],
+            "would_dispatch": would_dispatch,
         }
     with locked(ops) as queue:
         observed = observations(ops)
@@ -550,13 +669,17 @@ def tick(
         if pending_records:
             return {"dispatched": [], "blocked_pending": [str(p) for p in pending_records]}
         active, reserved = occupancy(queue, observed, inventory)
+        by_gpu = accelerator_occupancy(queue, observed, inventory)
         slots = max(0, ACCOUNT_ASSIGNMENT_CAP - active - reserved)
         selected = []
-        # FIFO among ready entries: an unmet dependency doesn't idle other lanes.
+        # FIFO among ready entries: an unmet dependency or L4 cap doesn't idle other lanes.
         for row in queue["jobs"]:
             if not slots:
                 break
             if row["status"] != "READY" or not ready(queue, row):
+                continue
+            gpu = row_gpu(row)
+            if gpu == "L4" and by_gpu["L4"] >= ACCOUNT_L4_CAP:
                 continue
             row.update(status="DISPATCHING", token=uuid.uuid4().hex, claimed=False)
             save(ops / "ready-queue.json", queue)
@@ -593,6 +716,8 @@ def tick(
                 continue
             selected.append(row["id"])
             slots -= 1
+            if gpu:
+                by_gpu[gpu] += 1
         return {"active": active, "reserved": reserved, "dispatched": selected}
 
 

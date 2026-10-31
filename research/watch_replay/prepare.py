@@ -12,10 +12,14 @@ import tarfile
 from pathlib import Path
 
 from research.colab_cli import canary
+from research.t34_exit_b8 import public_inputs
 from research.watch_replay.run import ROOT, allocation, completed, identity
 from research.watch_replay.source import source_paths
-from research.watch_replay.uploads import METADATA, check_uploads, pack_inputs
+from research.watch_replay.uploads import CHECKPOINTS, METADATA, check_uploads, pack_inputs
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
+
+GPU_RATES: dict[str, float] = {"L4": 1.54, "A100": 8.0}
+DEFAULT_WORKERS_BY_GPU: dict[str, int] = {"L4": 4, "A100": 6}
 
 
 def release_bundle(bundle: Path, pins: dict) -> None:
@@ -46,10 +50,18 @@ def prepare(
     canary_receipt: Path | None = None,
     ledger: Path | None = None,
     previous_receipts: list[Path] | None = None,
+    *,
+    gpu: str = "L4",
+    workers: int | None = None,
 ) -> dict:
     """Ship identical inputs for an excluded long-body canary and N sessions."""
     if not 1 <= count <= 12:
         raise ValueError("one packet contains 1..12 sessions within bounded exports")
+    if gpu not in GPU_RATES:
+        raise ValueError(f"unsupported watch_replay gpu {gpu!r}; expected one of {list(GPU_RATES)}")
+    resolved_workers = DEFAULT_WORKERS_BY_GPU[gpu] if workers is None else workers
+    if type(resolved_workers) is not int or not 1 <= resolved_workers <= 12:
+        raise ValueError("workers must be an integer in 1..12")
     refs = subprocess.check_output(
         ["git", "branch", "-r", "--contains", commit], cwd=ROOT, text=True
     )
@@ -141,9 +153,18 @@ def prepare(
     saved = ROOT.parent / "snake-dqn/saved_snakes"
     if not saved.is_dir():
         saved = ROOT / "saved_snakes"
-    for name in ("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth"):
-        inputs.append(Input(saved / name, "checkpoints/" + name))
     pins = json.loads((ROOT / "web/backend/served_checkpoint_pins.json").read_text())
+    for name, (pin, size) in CHECKPOINTS.items():
+        local_ckpt = saved / name
+        if (
+            not local_ckpt.is_file()
+            or local_ckpt.stat().st_size != size
+            or digest(local_ckpt) != pins["checkpoints"][pin]["checkpoint_sha256"]
+        ):
+            raise ValueError(f"local checkpoint differs from released pin: {local_ckpt}")
+    public_catalog = ROOT / "research/t34_exit_b8/PUBLIC_INPUTS.json"
+    public_inputs._load(public_catalog)
+    inputs.append(Input(public_catalog, "public-inputs.json"))
     bundle = out / "release-evidence.tar.gz"
     release_bundle(bundle, pins)
     inputs.append(Input(bundle, "release-evidence.tar.gz"))
@@ -153,7 +174,7 @@ def prepare(
     singleton = max(t["seconds"] / t["branches"] for t in measured["branch_timings"])
     # Planning assumptions, explicitly not measured Colab throughput or a hard bound.
     session_seconds = 1200 * 1.2 * singleton * 3 * 1.5
-    minutes = math.ceil(session_seconds * math.ceil(count / 4) / 60 + 20)
+    minutes = math.ceil(session_seconds * math.ceil(count / resolved_workers) / 60 + 20)
     if minutes > 600:
         raise ValueError("forecast exceeds bounded runtime; use separate frozen packets")
     forecast = {
@@ -163,16 +184,17 @@ def prepare(
         "branches_per_root_max": 6,
         "cloud_slowdown_projection": 3,
         "contention_projection": 1.5,
-        "workers": 4,
+        "gpu": gpu,
+        "workers": resolved_workers,
         "base_minutes": minutes,
         "effective_minutes": 2 * minutes,
-        "expected_sessions_per_colab_hour": 4 * 3600 / session_seconds,
+        "expected_sessions_per_colab_hour": resolved_workers * 3600 / session_seconds,
         "scope": "projection, not measured Colab throughput; excludes setup/export",
     }
     publish_json(out / "forecast.json", forecast)
+    rate = GPU_RATES[gpu]
     for label in ("canary", "main"):
         base = 15 if label == "canary" else minutes
-        rate = 1.54
         unit = base / 60 * rate
         manifest = {
             "job_id": f"watch-replay-{label}-{out.name}",
@@ -187,8 +209,8 @@ def prepare(
                 2 * 1024**3, max(4 * 1024**2, contracts[label]["count"] * 128 * 1024**2 + 1024**2)
             ),
             "requirements": {
-                "gpu": "L4",
-                "allowed_gpus": ["L4"],
+                "gpu": gpu,
+                "allowed_gpus": [gpu],
                 "min_vcpu": 12,
                 "est_minutes": base,
             },
@@ -221,7 +243,7 @@ def prepare(
                 "WATCH_REPLAY_CONTRACT": f"{label}-contract.json",
                 "WATCH_REPLAY_LEDGER": f"{label}-ledger.json",
                 "WATCH_REPLAY_METADATA_SHA256": metadata_sha256,
-                "WATCH_REPLAY_WORKERS": "1" if label == "canary" else "4",
+                "WATCH_REPLAY_WORKERS": "1" if label == "canary" else str(resolved_workers),
             },
         }
         skipped = {row["index"] for row in verified} if label == "main" else set()
@@ -275,6 +297,8 @@ def main() -> None:
     parser.add_argument(
         "--controller", choices=["exact-stop-l2-prime", "bare-b8"], default="exact-stop-l2-prime"
     )
+    parser.add_argument("--gpu", choices=list(GPU_RATES), default="L4")
+    parser.add_argument("--workers", type=int)
     parser.add_argument("--canary-receipt", type=Path)
     parser.add_argument("--ledger", type=Path)
     parser.add_argument("--previous-receipts", type=Path, nargs="*", default=[])
@@ -291,6 +315,8 @@ def main() -> None:
                 args.canary_receipt,
                 args.ledger,
                 args.previous_receipts,
+                gpu=args.gpu,
+                workers=args.workers,
             ),
             indent=2,
         )

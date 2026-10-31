@@ -277,10 +277,14 @@ def test_provider_probe_refuses_unknown_inventory_and_counts_all_assignments(mon
         rq.subprocess,
         "run",
         lambda *a, **k: SimpleNamespace(
-            stdout="[colab] update notice\n\n[?] endpoint1 | Hardware: L4 | Shape: Standard\n"
+            stdout=(
+                "[colab] update notice\n\n"
+                "[?] endpoint1 | Hardware: L4 | Shape: Standard\n"
+                "[?] endpoint2 | Hardware: A100 | Shape: Standard | Variant: GPU\n"
+            )
         ),
     )
-    assert rq.provider_sessions() == {"endpoint1"}
+    assert rq.provider_sessions() == {"endpoint1": "L4", "endpoint2": "A100"}
     monkeypatch.setattr(rq.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="unknown"))
     with pytest.raises(ValueError, match="unrecognized"):
         rq.provider_sessions()
@@ -288,7 +292,7 @@ def test_provider_probe_refuses_unknown_inventory_and_counts_all_assignments(mon
 
 @pytest.mark.parametrize(
     ("usage", "expected"),
-    [("Current balance: 9\nActive assignments: 0\n", set()), ("Active assignments: 2\n", None)],
+    [("Current balance: 9\nActive assignments: 0\n", {}), ("Active assignments: 2\n", None)],
 )
 def test_provider_probe_accepts_silent_idle_only_with_zero_usage(monkeypatch, usage, expected):
     outputs = {"sessions": "[colab] update notice\n\n", "usage": usage}
@@ -1012,3 +1016,138 @@ def test_supervisor_kernel_creation_guard_rejects_partial_unstopped_or_other_err
         write(output / "exports/unit.json", {"index": 0})
     with pytest.raises(ValueError):
         ar.prepare(packet, log, tmp_path / "retry", tmp_path)
+
+
+def add_gpu_job(
+    tmp_path,
+    ops,
+    identity,
+    gpu,
+    *,
+    prefer=None,
+    unsealed=False,
+):
+    manifest = tmp_path / f"{identity}.json"
+    requirements = {"gpu": gpu}
+    if prefer is not None:
+        requirements["prefer"] = list(prefer)
+    payload = {
+        "job_id": identity,
+        "commit": "a" * 40,
+        "output_dir": str(tmp_path / f"output-{identity}"),
+        "requirements": requirements,
+    }
+    if unsealed:
+        template = tmp_path / f"{identity}-unsealed.json"
+        write(template, payload)
+        rq.enqueue(
+            ops,
+            identity,
+            command(tmp_path, manifest, identity),
+            prepare_command=[sys.executable, "-c", "pass"],
+        )
+    else:
+        write(manifest, payload)
+        rq.enqueue(ops, identity, command(tmp_path, manifest, identity))
+    return manifest
+
+
+def test_l4_cap_skips_l4_without_holding_or_reordering_and_dispatches_a100(tmp_path, monkeypatch):
+    assert rq.ACCOUNT_L4_CAP == 3
+    assert rq.ACCOUNT_ASSIGNMENT_CAP == 6
+    ops = tmp_path / "ops"
+    add_gpu_job(tmp_path, ops, "l4-first", "L4")
+    add_gpu_job(tmp_path, ops, "l4-unsealed", "L4", unsealed=True)
+    add_gpu_job(tmp_path, ops, "a100-next", "A100")
+
+    three_l4 = {"ep-l4-1": "L4", "ep-l4-2": "L4", "ep-l4-3": "L4"}
+    dry = rq.tick(ops, dry_run=True, inventory=three_l4)
+    assert dry == {"active": 3, "reserved": 0, "would_dispatch": ["a100-next"]}
+
+    monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: None)
+    live = rq.tick(ops, inventory=three_l4)
+    assert live == {"active": 3, "reserved": 0, "dispatched": ["a100-next"]}
+
+    queue = ar.read(ops / "ready-queue.json")
+    assert [row["id"] for row in queue["jobs"]] == ["l4-first", "l4-unsealed", "a100-next"]
+    assert queue["jobs"][0]["status"] == "READY" and "error" not in queue["jobs"][0]
+    assert queue["jobs"][1]["status"] == "READY" and "error" not in queue["jobs"][1]
+    assert queue["jobs"][2]["status"] == "DISPATCHING"
+
+
+def test_six_total_assignments_dispatches_nothing(tmp_path, monkeypatch):
+    ops = tmp_path / "ops"
+    add_gpu_job(tmp_path, ops, "l4-job", "L4")
+    add_gpu_job(tmp_path, ops, "a100-job", "A100")
+    add_gpu_job(tmp_path, ops, "h100-pref", "H100", prefer=["H100", "A100"])
+
+    six_active = {
+        "ep-l4-1": "L4",
+        "ep-l4-2": "L4",
+        "ep-l4-3": "L4",
+        "ep-a100-1": "A100",
+        "ep-a100-2": "A100",
+        "ep-a100-3": "A100",
+    }
+    assert rq.tick(ops, dry_run=True, inventory=six_active) == {
+        "active": 6,
+        "reserved": 0,
+        "would_dispatch": [],
+    }
+    monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: None)
+    assert rq.tick(ops, inventory=six_active) == {
+        "active": 6,
+        "reserved": 0,
+        "dispatched": [],
+    }
+
+
+def test_reserved_l4_and_prefer_actual_accelerator_accounting(tmp_path, monkeypatch):
+    ops = tmp_path / "ops"
+    add_gpu_job(tmp_path, ops, "l4-reserved", "L4")
+    add_gpu_job(tmp_path, ops, "pref-running", "H100", prefer=["H100", "A100"])
+    add_gpu_job(tmp_path, ops, "l4-candidate-1", "L4")
+    add_gpu_job(tmp_path, ops, "l4-candidate-2", "L4")
+    add_gpu_job(tmp_path, ops, "pref-candidate", "H100", prefer=["H100", "A100"])
+
+    # Mark l4-reserved DISPATCHING (unallocated reserved L4) and pref-running LAUNCHED on
+    # A100 fallback.
+    with rq.locked(ops) as queue:
+        queue["jobs"][0]["status"] = "DISPATCHING"
+        queue["jobs"][1]["status"] = "LAUNCHED"
+
+    fallback_manifest = {
+        "job_id": "pref-running-a100-fallback",
+        "commit": "a" * 40,
+        "output_dir": str(tmp_path / "output-pref-running-a100-fallback"),
+        "requirements": {"gpu": "A100"},
+    }
+    write(ops / "manifests/pref-running-a100-fallback.json", fallback_manifest)
+    log = ops / "logs/pref-running-a100-fallback.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("running\n")
+    write(
+        tmp_path / "home/.config/colab-cli/snake/active-pref.json",
+        {"output": fallback_manifest["output_dir"], "endpoint": "ep-a100-live"},
+    )
+
+    # 1 active L4 + 1 active A100 (from H100->A100 prefer row) + 1 reserved L4:
+    # L4 count is 2 (< 3), total occupied is 3 (< 6).
+    # First ready L4 dispatches (bringing L4 to 3), second L4 skips, H100->A100 dispatches.
+    inventory = {"ep-l4-1": "L4", "ep-a100-live": "A100"}
+    observed = rq.observations(ops)
+    counts = rq.accelerator_occupancy(ar.read(ops / "ready-queue.json"), observed, inventory)
+    assert counts == {"L4": 2, "A100": 1}
+
+    monkeypatch.setattr(rq.subprocess, "Popen", lambda *a, **k: None)
+    result = rq.tick(ops, inventory=inventory)
+    assert result == {
+        "active": 2,
+        "reserved": 1,
+        "dispatched": ["l4-candidate-1", "pref-candidate"],
+    }
+    queue = ar.read(ops / "ready-queue.json")
+    by_id = {row["id"]: row for row in queue["jobs"]}
+    assert by_id["l4-candidate-1"]["status"] == "DISPATCHING"
+    assert by_id["l4-candidate-2"]["status"] == "READY"
+    assert by_id["pref-candidate"]["status"] == "DISPATCHING"
