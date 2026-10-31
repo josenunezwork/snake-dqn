@@ -659,7 +659,7 @@ def test_lock_refusal_backs_off_only_without_identity_residue(tmp_path, residue)
         assert rq.occupancy(queue, {}, set()) == (0, 0)
 
 
-@pytest.mark.parametrize("kind", ["lock", "capacity"])
+@pytest.mark.parametrize("kind", ["lock", "capacity-6", "capacity-3"])
 def test_real_worker_retries_transient_refusal_with_fresh_log(tmp_path, kind):
     ops = add_jobs(tmp_path, 1)
     prepare = tmp_path / "prepare.py"
@@ -669,10 +669,11 @@ def test_real_worker_retries_transient_refusal_with_fresh_log(tmp_path, kind):
     with rq.locked(ops) as queue:
         queue["jobs"][0]["prepare_command"] = [sys.executable, str(prepare)]
     script = tmp_path / "dispatch.sh"
+    cap = 6 if kind == "capacity-6" else 3
     refusal = (
         'printf "REFUSE: account allocation lock is held: %s/alloc.lock\\n" "$OPS_DIR"\n'
         if kind == "lock"
-        else 'printf "REFUSE: account-wide assignment cap 3 (including notebooks)\\n"\n'
+        else f'printf "REFUSE: account-wide assignment cap {cap} (including notebooks)\\n"\n'
     )
     script.write_text(
         '#!/bin/sh\nif [ ! -f "$OPS_DIR/refused" ]; then\n'
@@ -701,12 +702,12 @@ def test_real_worker_retries_transient_refusal_with_fresh_log(tmp_path, kind):
     assert len(list(ops.glob("queue-worker-q0*.log"))) == 2
 
 
-def account_cap_receipt(manifest, log):
+def account_cap_receipt(manifest, log, cap: int = 6):
     receipt = pending_fence_receipt(manifest, log)
     receipt.update(
         failure_class="ACCOUNTING",
-        error="Refused('account-wide assignment cap 3 (including notebooks)')",
-        usage_before={"assignments": 3.0, "balance": 685.97, "rate": 10.61},
+        error=f"Refused('account-wide assignment cap {cap} (including notebooks)')",
+        usage_before={"assignments": float(cap), "balance": 685.97, "rate": 10.61},
         cli_calls=[
             {"command": command, "operation": "control", "status": "completed", "attempt": 1}
             for command in ("version", "sessions", "usage")
@@ -716,10 +717,11 @@ def account_cap_receipt(manifest, log):
     return receipt
 
 
-def test_account_cap_receipt_queues_fresh_completion_with_backoff(tmp_path):
+@pytest.mark.parametrize("cap", [6, 3])
+def test_account_cap_receipt_queues_fresh_completion_with_backoff(tmp_path, cap):
     ops = add_jobs(tmp_path, 1)
     manifest = write(ops / "manifests/job0.json", ar.read(tmp_path / "job0.json"))
-    account_cap_receipt(manifest, ops / "logs/job0.log")
+    account_cap_receipt(manifest, ops / "logs/job0.log", cap=cap)
     with rq.locked(ops) as queue:
         queue["jobs"][0]["retry_limit"] = 2
     assert rq.tick(ops, inventory=set())["dispatched"] == []
@@ -805,7 +807,7 @@ def test_capacity_worker_backs_off_only_without_identity_residue(tmp_path, resid
     ops = add_jobs(tmp_path, 1)
     script = tmp_path / "dispatch.sh"
     script.write_text(
-        '#!/bin/sh\nprintf "REFUSE: account-wide assignment cap 3 (including notebooks)\\n"\n'
+        '#!/bin/sh\nprintf "REFUSE: account-wide assignment cap 6 (including notebooks)\\n"\n'
         "exit 1\n"
     )
     script.chmod(0o755)
@@ -844,14 +846,45 @@ def test_capacity_refusal_supports_cap6_and_legacy_cap3_brokers(packet, tmp_path
     with rq.locked(ops) as queue:
         queue["jobs"][0].update(status="DISPATCHING", token="claim")
     rq.worker(ops, "q0", "claim")
-    assert ar.read(ops / "ready-queue.json")["jobs"][0]["status"] == "READY"
+    row = ar.read(ops / "ready-queue.json")["jobs"][0]
+    assert row["status"] == "READY" and row["capacity_refusals"] == 1
 
     log = tmp_path / f"cap-{cap}.log"
-    receipt = account_cap_receipt(packet, log)
-    receipt["error"] = f"Refused('account-wide assignment cap {cap} (including notebooks)')"
-    receipt["usage_before"] = {"assignments": float(cap), "balance": 2547.65, "rate": 10.61}
-    write(Path(ar.read(packet)["output_dir"]) / "receipt.json", receipt)
-    assert ar.eligible(ar.read(packet), Path(ar.read(packet)["output_dir"]), log) == receipt
+    receipt = account_cap_receipt(packet, log, cap=cap)
+    value = ar.read(packet)
+    output = Path(value["output_dir"])
+    assert ar.blocked_before_allocation(value, output, log) is True
+    assert ar.eligible(value, output, log) == receipt
+    successor = ar.prepare(packet, log, tmp_path / f"retry-{cap}", tmp_path / f"ops-{cap}")
+    assert ar.read(successor)["completion_attempt"] == 1
+
+
+@pytest.mark.parametrize("bad_cap", [0, 4, 5, 7])
+def test_unrecognized_assignment_cap_refusal_strings_are_not_retried(packet, tmp_path, bad_cap):
+    ops = add_jobs(tmp_path, 1)
+    script = tmp_path / "dispatch.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'printf "REFUSE: account-wide assignment cap {bad_cap} (including notebooks)\\n"\n'
+        "exit 1\n"
+    )
+    script.chmod(0o755)
+    with rq.locked(ops) as queue:
+        queue["jobs"][0].update(status="DISPATCHING", token="claim")
+    rq.worker(ops, "q0", "claim")
+    row = ar.read(ops / "ready-queue.json")["jobs"][0]
+    assert row["status"] == "HELD"
+    assert not row.get("capacity_refusals")
+
+    log = tmp_path / f"bad-cap-{bad_cap}.log"
+    account_cap_receipt(packet, log, cap=bad_cap)
+    value = ar.read(packet)
+    output = Path(value["output_dir"])
+    assert ar.blocked_before_allocation(value, output, log) is False
+    with pytest.raises(ValueError):
+        ar.eligible(value, output, log)
+    with pytest.raises(ValueError):
+        ar.prepare(packet, log, tmp_path / f"retry-bad-{bad_cap}", tmp_path / f"ops-bad-{bad_cap}")
 
 
 @pytest.mark.parametrize(
