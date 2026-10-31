@@ -72,10 +72,16 @@ uses FastAPI's real WebSocket handler for recorded DTO, live fallback and Play.
 All output directories are fresh; no evidence is overwritten.
 
 `prepare --commit FULL_PUBLISHED_BRANCH_SHA --benchmark ABSOLUTE/benchmark.json
---out ABSOLUTE/FRESH_PACKET` defaults to N=12 (1..12 per packet). It uploads both
-main and excluded long-body single-session canary contracts/empty ledgers, the two exact checkpoints,
-and portable pinned release evidence. Sparse source includes the static research
-closure plus product source/config. No runtime `/Users` dependency or Drive.
+--out ABSOLUTE/FRESH_PACKET` defaults to N=12 (1..12 per packet) against any
+published `origin/*` commit pin. It packs both main and excluded long-body
+single-session canary contracts/empty ledgers, portable pinned release evidence,
+and all `.sha256`/`.complete` sidecars into deterministic `input-metadata.tar.gz`
+alongside the two exact checkpoints (`<=12` transfers, well under the 150 s
+staging transfer cap), writing `canary.json` and `main-unsealed.json` (plus
+`main.json` when `--canary-receipt` is passed, or create-only via
+`python -m research.watch_replay.seal_main` from `ready_queue.py --prepare-command`).
+Sparse source includes the static research closure plus product source/config.
+No runtime `/Users` dependency or Drive.
 
 Use L4 with >=12 vCPUs, four independent one-thread CPU session workers; GPU is
 unused. This is CPU singleton policy/v8/simulator/search work. L4 supplies the

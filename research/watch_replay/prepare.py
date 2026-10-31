@@ -14,6 +14,7 @@ from pathlib import Path
 from research.colab_cli import canary
 from research.watch_replay.run import ROOT, allocation, completed, identity
 from research.watch_replay.source import source_paths
+from research.watch_replay.uploads import METADATA, check_uploads, pack_inputs
 from tools.ops.package_spec import Input, digest, empty_ledger, publish_json, stage_inputs
 
 
@@ -52,7 +53,9 @@ def prepare(
     refs = subprocess.check_output(
         ["git", "branch", "-r", "--contains", commit], cwd=ROOT, text=True
     )
-    if len(commit) != 40 or "origin/astra-watch-replay" not in refs:
+    if len(commit) != 40 or not any(
+        line.strip().startswith("origin/") for line in refs.splitlines()
+    ):
         raise ValueError("requires full published branch pin")
     if subprocess.check_output(["git", "diff", commit, "--", *source_paths()], cwd=ROOT):
         raise ValueError("working executable bytes differ from source pin")
@@ -136,13 +139,17 @@ def prepare(
             ]
         )
     saved = ROOT.parent / "snake-dqn/saved_snakes"
+    if not saved.is_dir():
+        saved = ROOT / "saved_snakes"
     for name in ("b8_s3_t7_20261016.pth", "frp3_m3_s12_u60000_20261005.pth"):
         inputs.append(Input(saved / name, "checkpoints/" + name))
     pins = json.loads((ROOT / "web/backend/served_checkpoint_pins.json").read_text())
     bundle = out / "release-evidence.tar.gz"
     release_bundle(bundle, pins)
     inputs.append(Input(bundle, "release-evidence.tar.gz"))
-    staged = stage_inputs(out / "staged", inputs)
+    raw_staged = stage_inputs(out / "staged", inputs)
+    staged = pack_inputs(raw_staged, out / METADATA)
+    metadata_sha256 = next(row["sha256"] for row in staged if row["dest"] == METADATA)
     singleton = max(t["seconds"] / t["branches"] for t in measured["branch_timings"])
     # Planning assumptions, explicitly not measured Colab throughput or a hard bound.
     session_seconds = 1200 * 1.2 * singleton * 3 * 1.5
@@ -213,6 +220,7 @@ def prepare(
                 "SNAKE_DQN_DEVICE": "cpu",
                 "WATCH_REPLAY_CONTRACT": f"{label}-contract.json",
                 "WATCH_REPLAY_LEDGER": f"{label}-ledger.json",
+                "WATCH_REPLAY_METADATA_SHA256": metadata_sha256,
                 "WATCH_REPLAY_WORKERS": "1" if label == "canary" else "4",
             },
         }
@@ -223,7 +231,6 @@ def prepare(
                 for row in contracts[label]["rows"]
                 if row["index"] not in skipped
             )
-        if label == "canary":
             manifest["env"].update(
                 SNAKE_COLAB_CANARY="1", SNAKE_COLAB_CANARY_PACKAGE="research/watch_replay"
             )
@@ -233,15 +240,28 @@ def prepare(
                 "family": canary.family(manifest),
             }
             manifest["required_exports"].append("branches.json")
-        elif canary_receipt is not None:
-            manifest["canary"] = {
-                "schema": canary.SCHEMA,
-                "receipt": {
-                    "path": str(canary_receipt.resolve()),
-                    "sha256": digest(canary_receipt),
-                },
-            }
-        (out / f"{label}.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+            upload_report = check_uploads(manifest)
+            publish_json(out / f"{label}-upload-preflight.json", upload_report)
+            (out / "canary.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        else:
+            upload_report = check_uploads(manifest)
+            publish_json(out / f"{label}-upload-preflight.json", upload_report)
+            (out / "main-unsealed.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+            )
+            if canary_receipt is not None:
+                sealed = {
+                    **manifest,
+                    "canary": {
+                        "schema": canary.SCHEMA,
+                        "receipt": {
+                            "path": str(canary_receipt.resolve()),
+                            "sha256": digest(canary_receipt),
+                        },
+                    },
+                }
+                canary.check(sealed, ROOT)
+                (out / "main.json").write_text(json.dumps(sealed, indent=2, sort_keys=True) + "\n")
     return forecast
 
 

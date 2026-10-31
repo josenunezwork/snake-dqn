@@ -596,3 +596,144 @@ def test_canary_long_body_segment_coverage_guard(tmp_path, damage):
     path.write_text(json.dumps(report))
     with pytest.raises(ValueError, match="canary"):
         segment_proof(path)
+
+
+def test_uploads_pack_and_stage_metadata_deterministically(tmp_path):
+    from research.watch_replay.uploads import (
+        CHECKPOINTS,
+        METADATA,
+        SMALL_PAYLOADS,
+        pack_inputs,
+        stage_metadata,
+    )
+    from tools.ops.package_spec import Input, stage_inputs, verify_immutable
+
+    src = tmp_path / "src"
+    src.mkdir()
+    inputs = []
+    for name in SMALL_PAYLOADS:
+        path = src / name
+        path.write_bytes(f"payload:{name}\n".encode())
+        inputs.append(Input(path, name))
+    for name in CHECKPOINTS:
+        path = src / name
+        path.write_bytes(f"ckpt:{name}\n".encode())
+        inputs.append(Input(path, "checkpoints/" + name))
+
+    raw = stage_inputs(tmp_path / "staged", inputs)
+    assert len(raw) == 21
+    archive_a = tmp_path / "a.tar.gz"
+    archive_b = tmp_path / "b.tar.gz"
+    packed_a = pack_inputs(raw, archive_a, verify_pins=False)
+    packed_b = pack_inputs(raw, archive_b, verify_pins=False)
+    assert packed_a[-1]["sha256"] == packed_b[-1]["sha256"]
+    assert archive_a.read_bytes() == archive_b.read_bytes()
+    assert [row["dest"] for row in packed_a] == [
+        "checkpoints/b8_s3_t7_20261016.pth",
+        "checkpoints/frp3_m3_s12_u60000_20261005.pth",
+        METADATA,
+    ]
+
+    remote = tmp_path / "remote_inputs"
+    (remote / "checkpoints").mkdir(parents=True)
+    for row in packed_a:
+        target = remote / row["dest"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(Path(row["path"]).read_bytes())
+
+    stage_metadata(remote, packed_a[-1]["sha256"], verify_pins=False)
+    for name in SMALL_PAYLOADS:
+        assert verify_immutable(remote / name)["size"] == len(f"payload:{name}\n")
+    for name in CHECKPOINTS:
+        assert verify_immutable(remote / "checkpoints" / name)["size"] == len(f"ckpt:{name}\n")
+    with pytest.raises(ValueError, match="already exists"):
+        stage_metadata(remote, packed_a[-1]["sha256"], verify_pins=False)
+
+
+def test_seal_main_follows_ready_queue_retry_chain_and_writes_once(tmp_path, monkeypatch):
+    from research.colab_cli import canary
+    from research.watch_replay.seal_main import resolve_canary_receipt, seal
+    from tools.ops.package_spec import digest
+
+    ops = tmp_path / "ops"
+    (ops / "manifests").mkdir(parents=True)
+    retry_out = tmp_path / "canary-out-retry-1"
+    retry_out.mkdir()
+    receipt = retry_out / "receipt.json"
+    receipt.write_text('{"status": "PASS"}\n')
+    (ops / "manifests/watch-replay-bank05-canary-01-r1-retry-1.json").write_text(
+        json.dumps({"output_dir": str(retry_out)}) + "\n"
+    )
+    (ops / "ready-queue.json").write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "id": "watch-replay-bank05-canary-01",
+                        "status": "FAILED",
+                        "retry_id": "watch-replay-bank05-canary-01-r1",
+                        "manifest": "/unused.json",
+                        "argv": ["dispatch.sh", "watch-replay-bank05-canary-01"],
+                    },
+                    {
+                        "id": "watch-replay-bank05-canary-01-r1",
+                        "retry_of": "watch-replay-bank05-canary-01",
+                        "status": "PASS",
+                        "manifest": "/orig.json",
+                        "argv": ["dispatch.sh", "watch-replay-bank05-canary-01-r1"],
+                    },
+                ]
+            }
+        )
+        + "\n"
+    )
+    assert resolve_canary_receipt(ops, "watch-replay-bank05-canary-01") == receipt
+
+    packet = tmp_path / "packet"
+    packet.mkdir()
+    (packet / "main-unsealed.json").write_text(json.dumps({"job_id": "main-test"}) + "\n")
+    checked = []
+    monkeypatch.setattr(canary, "check", lambda manifest, broker: checked.append(manifest))
+    out = seal(packet, tmp_path, ops=ops, canary_id="watch-replay-bank05-canary-01")
+    assert out == packet / "main.json"
+    sealed = json.loads(out.read_text())
+    assert sealed["canary"] == {
+        "schema": canary.SCHEMA,
+        "receipt": {"path": str(receipt.resolve()), "sha256": digest(receipt)},
+    }
+    assert len(checked) == 1
+    with pytest.raises(FileExistsError):
+        seal(packet, tmp_path, canary_receipt=receipt)
+
+
+def test_seed_audit_detects_collisions_without_opening_exports(tmp_path):
+    from research.watch_replay.seed_audit import DEFAULT_NAMESPACES, audit
+
+    fake_artifacts = tmp_path / "artifacts"
+    # Poison an exports/ and pair-*.json file with a candidate seed; audit must NEVER open them.
+    report_probe_seed = audit(
+        namespaces=DEFAULT_NAMESPACES,
+        artifacts=tmp_path / "empty-artifacts",
+        extra_worktrees=[],
+    )
+    assert report_probe_seed["status"] == "CLEAR"
+    assert report_probe_seed["total_seeds"] == 36
+
+    first_seed = report_probe_seed["banks"][DEFAULT_NAMESPACES[0]][0]["seed"]
+    exports_dir = fake_artifacts / "t34-sol/watch6-v3/output/exports"
+    exports_dir.mkdir(parents=True)
+    (exports_dir / "pair-000000.json").write_text(json.dumps({"seed": first_seed}) + "\n")
+    for idx in range(7):
+        inv = fake_artifacts / f"frp-{idx}/namespaces/training_exclusions.json"
+        inv.parent.mkdir(parents=True)
+        inv.write_text(json.dumps([idx + 100]) + "\n")
+
+    clear = audit(namespaces=DEFAULT_NAMESPACES, artifacts=fake_artifacts, extra_worktrees=[])
+    assert clear["status"] == "CLEAR"
+
+    with pytest.raises(ValueError, match="disjointness"):
+        audit(
+            namespaces=["t34-watch-replay-fix-20261030-bank01"],
+            artifacts=fake_artifacts,
+            extra_worktrees=[],
+        )
