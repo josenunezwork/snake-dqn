@@ -14,7 +14,7 @@ for the current program state. This page has two parts:
 |---|---|
 | **Project & experiment map** | [../INDEX.md](../INDEX.md) |
 | **Current served state & standing rules** | [../STATUS.md](../STATUS.md) |
-| **Research roadmap (Round-11 advice, not decisions)** | [ROADMAP.md](ROADMAP.md) |
+| **Research roadmap (Round-12 advice, not decisions)** | [ROADMAP.md](ROADMAP.md) |
 | **Current campaign (T34, search teacher & Watch6)** | [final_run_20261019/](final_run_20261019/) (`HANDOFF_2026-10-20.md`, `CAMPAIGN_LOG.md`, `SUCCESS_CONTRACT.md`, `FINAL_PLAN.md`, `P7_STATISTICS.md`) |
 | Specs and pre-registrations | [specs/INDEX.md](specs/INDEX.md) |
 | Advisor and panel advice | [advice/INDEX.md](advice/INDEX.md) |
@@ -222,7 +222,7 @@ screen or diagnostic is never promotion evidence.
 | Date | File | Type | One line | Status |
 |---|---|---|---|---|
 | through 2026-10-08 | [GLOSSARY.md](GLOSSARY.md) | reference | Research glossary (supplemented by [../notes/GLOSSARY.md](../notes/GLOSSARY.md)) | Not updated after 2026-10-08 |
-| 2026-11-01 | [ROADMAP.md](ROADMAP.md) | plan | Round-11 synthesized current-round and later-round research roadmap | Advice only, not ratified decisions |
+| 2026-11-01 | [ROADMAP.md](ROADMAP.md) | plan | Round-12 synthesized current-round and later-round research roadmap | Advice only, not ratified decisions |
 | 2026-11-01 | [INDEX.md](INDEX.md) | reference | This index | Current |
 
 ---
