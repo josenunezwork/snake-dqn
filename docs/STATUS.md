@@ -38,10 +38,11 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   `set_epsilon`/`set_food`-scoped `_replay_opted_out`
   (cleared on `_build` / split `"new_game"`, leaving `Play -> Watch` intact), and the multi-entrypoint
   mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1 land on `main`
-  (leaving V3 worktrees untouched, patching `"SNAKE_WATCH_SOURCE": "live"` in `open_watch`, and
-  explicitly excluding `tools/ops/package_spec.py` — hashed in `watch6_search_efficacy_v3/protocol.py:94` —
-  `watch_replay.py` — imported by `session.py:568` — and `app.py` from
-  confirmation source closures).
+  (leaving V3 worktrees untouched, patching `"SNAKE_WATCH_SOURCE": "live"` in `open_watch`,
+  isolating future confirmation state in `ops/studies/<namespace>/`, and hashing `git ls-tree`
+  science-only `identity()` excluding `tools/ops/*` — `package_spec.py` is hashed in
+  `watch6_search_efficacy_v3/protocol.py:94` — `watch_replay.py` — imported by `session.py:568` —
+  and `app.py`).
 - **`exact-stop-l1` validator, mixed-controller bank & first-cycle ordering (`73974411` & `395eacbb`, 2026-11-01):**
   `web/backend/watch_replay.py` and `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`,
   `interval = 5`, `H = 300`) in `ASSISTED_CONTROLLERS` alongside `"exact-stop-l2-prime"`, and
@@ -56,7 +57,7 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   playback to a single confirmed controller (`exact-stop-l2-prime`-only via
   `watch-replay-bank-live-132`, or `exact-stop-l1`-only after confirmation) requires a
   single-controller `SNAKE_WATCH_REPLAY_DIR` or landing line-1 `.watch.gz` header filtering via
-  `SNAKE_WATCH_REPLAY_CONTROLLER`.
+  `SNAKE_WATCH_REPLAY_CONTROLLER` (alongside `horizon in {6000, 14400}` in `validate_header`).
 - **Product efficacy measurement status:** synchronous `exact-stop-l2-prime` efficacy vs bare B8 in the
   product H14400 setting is **not yet confirmed and is currently running in Watch6 V3**
   ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)), and `exact-stop-l1`
@@ -147,7 +148,7 @@ For synthesized current-round and later-round research plans (**advice, not deci
 - **Completed Oct 30 Claim-A exploration receipts awaiting Mac readout (and `spatial-student-pilot` fit canceled):**
   - `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, `N = 192` v1 H5000 worlds, `m in {0, 10, 25, 50}`, run without `boost_decisions` logging): A100 receipt **`PASS`** (`t34-sol/b8-head-closedloop/main-01/output/receipt.json`), awaiting `< 3 min` Mac `closedloop_readout.py` (plus a `0 u`, `10 min` v2 boost `[0.5%, 10%]` check if any arm survives).
   - `spatial-qbytes-01` (`origin/astra-spatial-student-pilot`): A100 Q-byte ruler receipt **`PASS`** (`t34-sol/spatial-qbytes-fix/t34-spatial-qbytes-01/ruler-output-a100-fallback/receipt.json`), awaiting Mac parity/timing audit; the `40–48 A100 u` `spatial-student-pilot` GPU fit is canceled (`0 u`, retaining compiled `.so` caches) per `t34-sol/student-direction/{astra,fable}.md` and T4 Gate-1 `KILL_T4`.
-- **Colab concurrency caps:** **`6` concurrent runtimes total** (`ACCOUNT_ASSIGNMENT_CAP = 6`, tree `36285bc6` active in `ops/colab-cli-qualified.json` and verified live at `6/6` concurrent runtimes — `3 A100 @ 6.73 u/h + 3 L4 @ 1.94 u/h = 26.01 u/h`, balance `~2,154.66 u`, all `3` A100 slots now free after `14l1–16l1` finished), at most **`3` concurrent L4** (`ACCOUNT_L4_CAP = 3` in `tools/ops/ready_queue.py`).
+- **Colab concurrency caps:** **`6` concurrent runtimes total** (`ACCOUNT_ASSIGNMENT_CAP = 6`, tree `36285bc6` active in `ops/colab-cli-qualified.json` and verified live at `6/6` concurrent runtimes — `3 A100 @ 6.73 u/h + 3 L4 @ 1.94 u/h = 26.01 u/h`, balance `~2,154.66 u`, all `3` A100 slots now free after `14l1–16l1` finished), at most **`3` concurrent L4** (`ACCOUNT_L4_CAP = 3` in `tools/ops/ready_queue.py`; direct-dispatch `L4 < 3` locking in `tools/ops/dispatch.py` tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.2).
 - **Closed Oct 29–31 learned-policy, critic, and macro-fallback verdicts (`KILL` / `FAIL`):**
   - **TRAIN-01 GPU-resident PPO** ([`research/sandbox_a_resident/`](../research/sandbox_a_resident/),
     `t34-sol/train01-closeout/SUMMARY.md`) — **Closed** after `384` updates (`100.7M` rows): H5000 equal-mix
@@ -176,7 +177,7 @@ For synthesized current-round and later-round research plans (**advice, not deci
     uncertified coils and `options.py` hardcoded `min_boost_length = 10` vs live `5`, restricted `omega1` to
     static `tau <= 1`, and vacuously set `t_cert = 1` on `ext_gain == 0` internal tail cells —
     failing `+3.85 pp < +10.0 pp` total `L >= 600` lift and `2 > 0` newly caused ordinary lethal flips from
-    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs `TailExitCert` + `TailFollow` advice
+    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs closed-loop `CS-L1` (`TailExitCert_v8` + every-tick `CertShield` + `TailFollow`) advice
     in [research/ROADMAP.md](research/ROADMAP.md) §3).
 
 ---
