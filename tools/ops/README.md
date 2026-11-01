@@ -423,12 +423,16 @@ for current capacity. Unknown inventory stops submissions. It reserves at most
 **six** occupied/pending runtime slots across competing daemons (`ACCOUNT_ASSIGNMENT_CAP = 6`
 since 2026-10-31) and enforces an L4 sub-cap of at most **three** concurrent L4 runtimes
 (`ACCOUNT_L4_CAP = 3` in `ready_queue.py`; standalone `dispatch.sh` calls must also respect
-`L4 <= 3`). Proposed Round-04 transport/ops hardening — unconditional REST `_put_lease` (`0`
-post-`hardware.json` WS calls, `lease_seconds <= 1,800`, `180 s` pre-stop drain with
-`prestop-{terminal,state}.json` and `16 KB` `stderr_tail`), warn-only mid-run `accounting.check`
-while `len(sessions) <= 6`, `reconcile_unavailable` + `L4 <= 3` in non-`prefer` `dispatch.py`,
-4-PUT staging with monotonic-ledger `canary.check`, sidecar-only wave-resetting retries ignoring
-`contract.json`, and reusable `tools/ops/confirm_audit.py` — is tracked as advice (pending
+`L4 <= 3`). Proposed Round-05 two-layer transport/ops hardening — **Layer A** (`0` `colab_cli`
+edits: `L4 <= 3` / `total <= 6` + `reconcile_unavailable` in `dispatch.py`, freezing
+`completion_attempt` on `unallocated`, `.meta.json`-only ledgers, post-loop `contract.json`,
+HTTPS checkpoint staging) and **Layer B** (additive v2 `publish` with explicit authority +
+`50`-seed `fake_colab.py` + `~0.4–0.7 L4 u` canary: `0` post-`ready.json` WS calls via `30 s`
+Contents `state.json` GET / OAuth PUT / `< 4 MiB` `export_file` / no `_verify_remote_file`,
+`lease_seconds = 600` preserving OAuth margins + `< 300 s` Mac-loss release,
+`KERNEL_CREATION_GUARD_ERROR` REST reconnect, `180 s` `timeout`/`runtime_error` drain, warn-only
+`AccountTracker.check` `<= 6`, monotonic-ledger `canary.check`, `16 KB` stderr, and
+`tools/ops/confirm_audit.py`) — is tracked as advice (pending
 requalification) in [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md); the supervisor independently enforces account
 allocation and pending-identity fences. Packages with many small contract/sidecar inputs
 should pack them into one deterministic `input-metadata.tar.gz` via

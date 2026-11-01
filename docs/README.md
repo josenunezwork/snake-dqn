@@ -15,7 +15,7 @@ permission to resume an old plan.
 | --- | --- | --- |
 | [INDEX.md](INDEX.md) | **Current entry map** | Project overview, served Watch (168-session replay bank) & Play (live `b8-s3`), active T34 state, package locations, and commands. |
 | [STATUS.md](STATUS.md) | **Current authority** | Served Watch/Play setup, released `b8-s3` without a veto, standing owner rules, active campaign verdicts, and historical snapshots. |
-| [research/ROADMAP.md](research/ROADMAP.md) | **Advice only (not ratified decisions)** | Round-04 synthesized current-round and later-round research roadmap (Claim-A readout, Watch replay guards, zero-WS transport, `Watch6 V3` / `Watch6-L1-V1` routing, and `CycleLatch-v4` + `LiveMac-C15-Latch`), plus settled panel disagreements. |
+| [research/ROADMAP.md](research/ROADMAP.md) | **Advice only (not ratified decisions)** | Round-05 synthesized current-round and later-round research roadmap (Claim-A readout, Watch replay fixes, two-layer transport, `Watch6 V3` / `Watch6-L1-V1` routing, and `LeafCert-v5` + `DTO-Split / PlanLatch`), plus settled panel disagreements. |
 | [../research/INDEX.md](../research/INDEX.md) | **Current package map** | One-row-per-directory index of all 162 study and tooling packages under `research/`. |
 | [research/INDEX.md](research/INDEX.md) | **Current record map** | Chronological locator for loose research and decision documents in `docs/research/`. |
 | [notes/README.md](notes/README.md) | **Cited reference (as of 2026-10-25)** | Fact-only, line-cited topic notes and [notes glossary](notes/GLOSSARY.md) covering models, redesign, T34, Big-Lever, F0/F4, and compute. |
@@ -40,9 +40,10 @@ permission to resume an old plan.
 
 Today, **Watch** plays the 168-session Colab-precomputed exact-stop
 replay bank (`watch-replay-bank-live-168`: `132` `exact-stop-l2-prime` sessions from banks `01–08, 10–12` + `36` `exact-stop-l1` sessions from banks `14l1–16l1`, visibly
-labelled `"Recorded assisted hero"`, with live bare `b8-s3` as fallback; rollback:
-`SNAKE_WATCH_SOURCE=live`), while **Play** runs live **b8-s3 without a veto**
-(`3e649783`, mixed `frp3-s12 + v8` opponents). `b8-s3`'s release claim is **more
+labelled `"Recorded assisted hero"`, with live bare `b8-s3` against the mixed
+`5× frp3-s12 + v8` roster as fallback; rollback: `SNAKE_WATCH_SOURCE=live`),
+while **Play** runs `1` human against live bare **b8-s3 without a veto**
+(`3e649783`, default `5` AI opponents, adjustable `1–11`). `b8-s3`'s release claim is **more
 mass at equal survival against the previously served agent, with no veto**; it is
 not a safety claim. To roll back
 the live checkpoint, restart the server with `SNAKE_WATCH_SOURCE=live` (or unset

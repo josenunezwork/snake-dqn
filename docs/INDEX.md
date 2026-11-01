@@ -18,7 +18,7 @@ Three model stacks coexist in [`src/`](../src/):
 | Stack | Network & Obs | Simulator | Current role |
 | --- | --- | --- | --- |
 | **ego2s-bv8 CNN (`B8`)** | `Ego2sNet` ([`src/model/ego2s_network.py`](../src/model/ego2s_network.py), ~1.64M params; dual-scale ego raster + 60 scalars incl. 30 `v8` safety inputs) | `GridBatchSim` (Numba cell-exact) & GPU `DeviceSim` | **Served baseline (`b8-s3`)** and **T34 ExIt-B8** main research line |
-| **Apex MLP** | `ApexNetwork` (`vector61`: 58-D rays/scalars + 3 free-space features), optionally wrapped by `v8` safety veto | Live Python `GameState` / SIMD `vector61` | **Frozen** for new governed studies; `frp3-s12 + v8` serves as the 5 Watch/Play opponents and rollback target |
+| **Apex MLP** | `ApexNetwork` (`vector61`: 58-D rays/scalars + 3 free-space features), optionally wrapped by `v8` safety veto | Live Python `GameState` / SIMD `vector61` | **Frozen** for new governed studies; `frp3-s12 + v8` serves as the 5 Watch opponents and rollback target |
 | **Raster / PQN** | `RasterDuelingNetwork` (`raster31v2` tactical + strategic rasters + 26 scalars) | NumPy `BatchSim` | Historical July redesign prototype ([blueprint](ml_redesign_blueprint_2026-07.md)); not promoted |
 
 ---
@@ -31,9 +31,9 @@ approval ([STATUS.md](STATUS.md)).
 | Mode | What runs today | Hero & roster | Configuration / launch |
 | --- | --- | --- | --- |
 | **Watch** | **168-session exact-search replay bank** (`132` `exact-stop-l2-prime` + `36` `exact-stop-l1`, 6,000 frames/session), visibly labelled **"Recorded assisted hero"** | `b8-s3` hero + `exact_stop` (`L >= 600` or `L >= 1`, interval 5, `H = 300`) vs `5× frp3-s12 + v8` | `.claude/launch.json` (`snake-web`): `SNAKE_WATCH_SOURCE=replay` and `SNAKE_WATCH_REPLAY_DIR=.../snake-dqn-artifacts/watch-replay-bank-live-168` (banks `01–08`, `10–12`, and `14l1–16l1`; `395eacbb`). Live bare `b8-s3` is the automatic fallback if the bank is unset, empty, or invalid. |
-| **Play** | **Live bare `b8-s3`** (no veto, no replay) | Live `b8-s3` (SHA prefix `3e649783`) + `frp3-s12 + v8` mixed roster | Always runs live server simulation and inference ([`web/backend/served_checkpoint.py`](../web/backend/served_checkpoint.py)). |
+| **Play** | **Live bare `b8-s3`** (no veto, no replay) | `1` human vs `N` (default `5`, adjustable `1–11`) live bare `b8-s3` AI opponents (SHA prefix `3e649783`; the `mixed` `frp3-s12 + v8` opponent roster is Watch-only) | Always runs live server simulation and inference ([`web/backend/served_checkpoint.py`](../web/backend/served_checkpoint.py)). |
 
-**Rollbacks** (restart [`web/serve.py`](../web/serve.py) with explicit env vars; always unset `SNAKE_WATCH_SOURCE` or set `SNAKE_WATCH_SOURCE=live` when rolling back live rosters or checkpoints, because `GameSession.__init__` attaches `ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None`):
+**Rollbacks** (restart [`web/serve.py`](../web/serve.py) with explicit env vars; always unset `SNAKE_WATCH_SOURCE` or set `SNAKE_WATCH_SOURCE=live` when rolling back live rosters or checkpoints, because `GameSession` `__init__`, `reset_game`, and `set_mode` select `ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None`):
 
 - **Watch back to live bare `b8-s3`:** unset `SNAKE_WATCH_SOURCE` (or `SNAKE_WATCH_SOURCE=live`).
 - **All-B8 Watch roster (live):** `SNAKE_WATCH_SOURCE=live SNAKE_SERVE_WATCH_ROSTER=all_b8`.
@@ -55,9 +55,9 @@ research plans (**advice, not decisions**) are synthesized in **[research/ROADMA
 
 ### Running / active
 
-- **Watch6 V3 confirmation (running, confirmation lane):** [`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/) — `24 × 4` L4 `W = 4` shards (`96` fresh paired `H = 14,400` Watch6-v2 sessions) testing synchronous `exact-stop-l2-prime` (`L >= 600`, `H = 300`) against bare `b8-s3` with frame-by-frame live/`GridBatchSim` mirror verification. Accounting adapter **V6.1** is ratified (`75471246`; sole final look via `tools.watch6_v3_accounting.final_look`). Follows Watch6 V2 ([`research/watch6_search_efficacy/`](../research/watch6_search_efficacy/)), which closed `INVALID_OR_INCOMPLETE` on 2026-10-31 after pre-start transport failures exhausted attempts on one shard (no outcome read).
-- **Watch replay pipeline & `watch-replay-bank-live-168` (`395eacbb`):** [`research/watch_replay/`](../research/watch_replay/) — deterministic `snake-watch-replay/v1` (`.watch.gz`, gzipped canonical JSONL) session generator, verifier, and bank installer feeding the live 168-session Watch replay bank (`132` `exact-stop-l2-prime` sessions from banks `01–08, 10–12` + `36` all-length `exact-stop-l1` sessions from banks `14l1–16l1`, verified `36/36` and live on `web/serve.py` restarted at `b5b63cd1`; prospective `Watch6-L1-V1` H14400 confirmation remains pending).
-- **Completed Oct 30 Claim-A exploration receipts awaiting Mac readout:** `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, 192-world v1 H5000 margin screen; A100 receipt `PASS`) and `spatial-qbytes-01` (`origin/astra-spatial-student-pilot`; A100 Q-byte ruler receipt `PASS`) await `< 2.5 min` Mac readouts; the `40–48 A100 u` `spatial-student-pilot` GPU fit is canceled (`0 u`, retaining `.so` caches; `t34-sol/student-direction/{astra,fable}.md`, T4 Gate-1 `KILL_T4`).
+- **Watch6 V3 confirmation (running, confirmation lane):** [`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/) — `24 × 4` L4 `W = 4` shards (`96` fresh paired `H = 14,400` Watch6-v2 sessions) confirming synchronous `exact-stop-l2-prime` (`L >= 600`, `H = 300`, only) against bare `b8-s3` with frame-by-frame live/`GridBatchSim` mirror verification. Accounting adapter **V6.1** is ratified (`75471246`; sole final look **must run under `python -B`** via `python -B -m tools.watch6_v3_accounting.final_look`). Follows Watch6 V2 ([`research/watch6_search_efficacy/`](../research/watch6_search_efficacy/)), which closed `INVALID_OR_INCOMPLETE` on 2026-10-31 after pre-start transport failures exhausted attempts on one shard (no outcome read).
+- **Watch replay pipeline & `watch-replay-bank-live-168` (`395eacbb`):** [`research/watch_replay/`](../research/watch_replay/) — deterministic `snake-watch-replay/v1` (`.watch.gz`, gzipped canonical JSONL) session generator, verifier, and bank installer feeding the live 168-session Watch replay bank (`132` `exact-stop-l2-prime` sessions from banks `01–08, 10–12` + `36` all-length `exact-stop-l1` sessions from banks `14l1–16l1`, finished `36/36` on active Cap-6 `36285bc6` in `3.03–3.07 h/bank`, `~61.5 A100 u` observed total, and live on `web/serve.py` restarted at `b5b63cd1`; prospective `Watch6-L1-V1` H14400 confirmation remains pending).
+- **Completed Oct 30 Claim-A exploration receipts awaiting Mac readout:** `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, 192-world v1 H5000 margin screen without `boost_decisions`; A100 receipt `PASS`) and `spatial-qbytes-01` (`origin/astra-spatial-student-pilot`; A100 Q-byte ruler receipt `PASS`) await `< 3 min` Mac readouts; the `40–48 A100 u` `spatial-student-pilot` GPU fit is canceled (`0 u`, retaining `.so` caches; `t34-sol/student-direction/{astra,fable}.md`, T4 Gate-1 `KILL_T4`).
 
 ### Oct 29 – Nov 1 exploration, parity & development verdicts
 
@@ -81,7 +81,7 @@ research plans (**advice, not decisions**) are synthesized in **[research/ROADMA
 | Document | Purpose |
 | --- | --- |
 | [STATUS.md](STATUS.md) | **Single source of truth** for current served state, standing owner rules, release pins, monitoring thresholds, and historical milestones. |
-| [research/ROADMAP.md](research/ROADMAP.md) | **Synthesized research roadmap (Round-04 advice, not decisions):** current-round Claim-A Mac readout, Watch replay serving guards, zero-WS transport & Watch6 V3 / `Watch6-L1-V1` confirmation routing, plus later-round `CycleLatch-v4` & `LiveMac-C15-Latch` plan. |
+| [research/ROADMAP.md](research/ROADMAP.md) | **Synthesized research roadmap (Round-05 advice, not decisions):** current-round Claim-A Mac readout, Watch replay serving fixes, two-layer transport (`Layer A` + additive `Layer B` `lease_seconds = 600`) & Watch6 V3 / `Watch6-L1-V1` confirmation routing, plus later-round `LeafCert-v5` & `DTO-Split / PlanLatch` plan. |
 | [README.md](README.md) | Per-document status guide (`Current`, `Historical`, `Superseded`) and reconciled historical discrepancies. |
 | [MAP.md](MAP.md) | Directory-by-directory layout of `docs/`. |
 | [TIMELINE.md](TIMELINE.md) | Chronological project milestones from 2026-06-16 through the T34 launch. |
