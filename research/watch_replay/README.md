@@ -63,7 +63,10 @@ Search overrides are marked “Move from search” in the inspector alongside th
 bare action; displayed Q-values remain the bare network. Pause/speed operate on playback. Inspector follows recorded hero #0; roster
 remains visible. Hero selection reports that limit. Food/epsilon or a valid
 checkpoint load return to live operation. Play always clears replay and uses
-the live game/input/scoring path. Explicit checkpoint constructors bypass replay.
+the live game/input/scoring path. Explicit `GameSession(checkpoint=...)` constructors bypass replay
+(note: env-var `SNAKE_SERVE_CHECKPOINT` or `SNAKE_SERVE_WATCH_ROSTER` rollbacks still construct
+`GameSession(checkpoint=None)`, so unset `SNAKE_WATCH_SOURCE` or set `SNAKE_WATCH_SOURCE=live` when
+rolling back live checkpoints/rosters).
 Playback statistics are recorded session statistics, not live B8 release-monitor
 samples. Fresh viewer count, pause/speed and errors overlay the stored DTO.
 
@@ -87,10 +90,11 @@ staging transfer cap), writing `canary.json` and `main-unsealed.json` (plus
 Sparse source includes the static research closure plus product source/config.
 No runtime `/Users` dependency or Drive.
 
-Use L4 with >=12 vCPUs, four independent one-thread CPU session workers; GPU is
-unused. This is CPU singleton policy/v8/simulator/search work. L4 supplies the
-known host/core configuration; A100/H100 adds idle accelerator capacity. CPU
-runtime remains an alternative only after its actual vCPU count and useful rate
+Use L4 (default, four independent one-thread CPU session workers) or A100 (`--gpu A100 --workers 6`
+added in `73974411` for `exact-stop-l1` banks `14l1–16l1` on 12-vCPU A100 runtimes) with >=12 vCPUs;
+GPU is unused. This is CPU singleton policy/v8/simulator/search work. L4 supplies the
+known host/core configuration; A100/H100 adds idle accelerator capacity when the `L4 <= 3` sub-cap is
+saturated. CPU runtime remains an alternative only after its actual vCPU count and useful rate
 are qualified. Planning L4 rate=1.54 u/h is refreshed by dispatch, never assumed
 to be a guaranteed current provider rate.
 

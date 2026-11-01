@@ -15,7 +15,7 @@ the bare/paced study records. The Colab arm uses the same 144 terminal worlds
 and 32 product sessions, but it cannot affect a Mac verdict, fault, multiplicity
 calculation, or Claim B decision. A missing or failed Colab row remains
 descriptive evidence; only an unconditional fault in the Mac bare/paced arms can
-KILL. See the [descriptive-arm amendment](PREREGISTRATION_RETENTION_V2.md#amendment-3-addendum--pre-data-descriptive-unpaced-colab)
+KILL. See the [descriptive-arm amendment](PREREGISTRATION_RETENTION_V2.md#amendment-3-addendum--pre-data-descriptive-unpaced-colab-arm)
 and [contention/fault amendment](PREREGISTRATION_RETENTION_V2.md#amendment-4-addendum--pre-data-contention-accounting-and-arm-scoped-faults)
 for the binding rationale and caps. The later [FIX-FIRST #4 timing amendment](PREREGISTRATION_RETENTION_V2.md#amendment-5-addendum--fix-first-4-timing-cap-and-contention-precedence)
 supersedes the earlier 40-hour timing-contention wording in place.

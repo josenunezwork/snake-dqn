@@ -72,7 +72,7 @@ steering is ignored. Unknown/malformed controls set `session.last_error`, never 
 | `SNAKE_SERVE_VETO_WATCH_HERO` | ON | Master switch for the Watch-hero veto; `0/false/no/off` disables. |
 | `SNAKE_SERVE_VETO_PLAY_AI` | OFF | `1/true/yes/on` wraps Play AI snakes with v2. |
 | `SNAKE_SERVE_WATCH_ROSTER` | `mixed` | `mixed` (frp3-s12 opponent) or `all_b8` (rollback). |
-| `SNAKE_WATCH_SOURCE` | `live` (`replay` in `.claude/launch.json`) | `replay` streams verified precomputed `snake-watch-replay/v1` Watch sessions (`"Recorded assisted hero"`) with live `b8-s3` fallback; `live` forces live simulation. Play is always live. |
+| `SNAKE_WATCH_SOURCE` | `live` (`replay` in `.claude/launch.json`) | `replay` streams verified precomputed `snake-watch-replay/v1` Watch sessions (`"Recorded assisted hero"`) whenever `GameSession(checkpoint=None)` runs in Watch mode (unset or set `=live` when rolling back `SNAKE_SERVE_CHECKPOINT` or `SNAKE_SERVE_WATCH_ROSTER`, or running `Watch8/12`), with live fallback; `live` forces live simulation. Play is always live. |
 | `SNAKE_WATCH_REPLAY_DIR` | unset (`.../watch-replay-bank-live-132` in `.claude/launch.json`) | Directory of verified `.watch.gz` (gzipped canonical JSONL) + `.sha256` + `.complete` triplets read when `SNAKE_WATCH_SOURCE=replay` (`watch-replay-bank-live-132` contains only `exact-stop-l2-prime`; serving `exact-stop-l1` files requires `web/serve.py` restarted at `>= 73974411`). |
 | `SNAKE_SERVE_PATHB` | OFF | Path B assistance, only when eligible (see `pathb.eligible`). |
 | `SNAKE_MECHANICS_V2` | ON | `0/false/no` serves legacy v1 mechanics. |

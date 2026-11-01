@@ -13,8 +13,10 @@ over a WebSocket. No game logic or model inference runs in the browser.
 recordings visibly labelled `"Recorded assisted hero"`), with live bare `b8-s3` as automatic
 fallback (`SNAKE_WATCH_SOURCE=live`). Commit `73974411` also enabled `"exact-stop-l1"` in
 `watch_replay.py` (`ASSISTED_CONTROLLERS`; serving `exact-stop-l1` recordings requires owner
-approval plus `git pull` and restarting `web/serve.py`). Checkpoint rollback by restart:
-`SNAKE_SERVE_CHECKPOINT=frp3-s12` (or `=champion`). Full map of modules, the WebSocket
+approval plus `git pull` and restarting `web/serve.py`). Live checkpoint/roster rollback by restart:
+unset `SNAKE_WATCH_SOURCE` (or set `SNAKE_WATCH_SOURCE=live`, because `GameSession.__init__` attaches
+`ReplayBank` whenever `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None`) and set
+`SNAKE_SERVE_CHECKPOINT=frp3-s12` (or `=champion`, or `SNAKE_SERVE_WATCH_ROSTER=all_b8`). Full map of modules, the WebSocket
 protocol, and every `SNAKE_SERVE_*` / `SNAKE_WATCH_*` env var:
 [docs/architecture/WEB_MAP.md](../docs/architecture/WEB_MAP.md).
 

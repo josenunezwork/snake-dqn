@@ -421,9 +421,13 @@ for current capacity. Unknown inventory stops submissions. It reserves at most
 **six** occupied/pending runtime slots across competing daemons (`ACCOUNT_ASSIGNMENT_CAP = 6`
 since 2026-10-31) and enforces an L4 sub-cap of at most **three** concurrent L4 runtimes
 (`ACCOUNT_L4_CAP = 3` in `ready_queue.py`; standalone `dispatch.sh` calls must also respect
-`L4 <= 3`, with standalone `dispatch.py` mirroring and zero-WS / monotonic-ledger / two-counter
-retry / `confirm_audit.py` improvements tracked as advice in
-[`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md)); the supervisor independently enforces account
+`L4 <= 3`). Proposed Round-04 transport/ops hardening — unconditional REST `_put_lease` (`0`
+post-`hardware.json` WS calls, `lease_seconds <= 1,800`, `180 s` pre-stop drain with
+`prestop-{terminal,state}.json` and `16 KB` `stderr_tail`), warn-only mid-run `accounting.check`
+while `len(sessions) <= 6`, `reconcile_unavailable` + `L4 <= 3` in non-`prefer` `dispatch.py`,
+4-PUT staging with monotonic-ledger `canary.check`, sidecar-only wave-resetting retries ignoring
+`contract.json`, and reusable `tools/ops/confirm_audit.py` — is tracked as advice (pending
+requalification) in [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md); the supervisor independently enforces account
 allocation and pending-identity fences. Packages with many small contract/sidecar inputs
 should pack them into one deterministic `input-metadata.tar.gz` via
 `research/metadata_archive.py` (`<= 12` total transfers) to stay well within the 300 s
