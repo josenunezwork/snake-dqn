@@ -127,10 +127,15 @@ def verify_amendment_document(
     broker_root: Path | None = None,
     require_clean_git: bool = True,
     expected_adapter_commit: str | None = None,
+    _verified_closure: dict[str, str] | None = None,
 ) -> dict:
     """Verify immutable accounting amendment sidecars and exact adapter/broker hash bindings."""
     adapter_repo = (repo or ADAPTER_ROOT).resolve()
-    closure_info = verify_baseline_closure(broker_root, require_head_at_baseline=True)
+    closure_info = (
+        _verified_closure
+        if _verified_closure is not None
+        else verify_baseline_closure(broker_root, require_head_at_baseline=True)
+    )
     resolved_broker = Path(closure_info["broker_root"])
     broker_proto = compute_broker_protocol(resolved_broker)
     source_paths = [str(item) for item in broker_proto["source_paths"]]  # type: ignore[union-attr]
@@ -253,6 +258,7 @@ def record_ruling(
         repo=adapter_repo,
         broker_root=resolved_broker,
         require_clean_git=require_clean_git,
+        _verified_closure=closure_info,
     )
     target = resolve_ruling_json(out, repo=adapter_repo)
     payload = {
@@ -372,6 +378,7 @@ def validate_ruling_receipt(
         broker_root=resolved_broker,
         require_clean_git=require_clean_git,
         expected_adapter_commit=rec_commit,
+        _verified_closure=closure_info,
     )
     if (
         receipt.get("amendment_sha256") != amend["amendment_sha256"]
@@ -401,7 +408,7 @@ def main() -> None:
         "--amendment",
         type=Path,
         default=None,
-        help="Path to immutable WATCH6_V3_ACCOUNTING_AMENDMENT_V3_20261031.md",
+        help="Path to immutable WATCH6_V3_ACCOUNTING_AMENDMENT_V4_20261031.md",
     )
     parser.add_argument(
         "--out",

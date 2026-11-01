@@ -4,9 +4,16 @@ for the Mac-only Watch6 V3 accounting adapter (Astra Ruling Points 1-7).
 
 from __future__ import annotations
 
+import functools
+import importlib.machinery
+import importlib.util
 import json
+import marshal
+import py_compile
 import shutil
+import struct
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -80,7 +87,7 @@ def _render_amendment_markdown(repo: Path | None = None, commit_sha: str | None 
     f_map = adapter_files_map(root)
     inv_sha = adapter_inventory_sha256(root)
     lines = [
-        "# Watch6 V3 Pre-Look Accounting Amendment V3 (2026-10-31)",
+        "# Watch6 V3 Pre-Look Accounting Amendment V4 (2026-10-31)",
         "",
         f"- Namespace: `{BASELINE_NAMESPACE}`",
         f"- V3 Broker Root: `{V3_BROKER_ROOT}`",
@@ -107,6 +114,12 @@ def _render_amendment_markdown(repo: Path | None = None, commit_sha: str | None 
     return "\n".join(lines)
 
 
+@functools.lru_cache(maxsize=1)
+def _cached_synthetic_v3_rows_by_slot() -> dict[int, dict]:
+    with bind_broker_protocol(V3_BROKER_ROOT):
+        return {r["allocation"]["index"]: r for r in _synthetic_v3_rows()}
+
+
 def _write_immutable_text(path: Path, content: str) -> Path:
     publish_immutable(path, content.encode("utf-8"))
     return path
@@ -119,7 +132,7 @@ def _write_accounting_ruling_fixture(
 ) -> tuple[Path, Path]:
     commit_sha = adapter_commit(ADAPTER_ROOT, require_clean=False)
     amend_path = _write_immutable_text(
-        tmp_path / "WATCH6_V3_ACCOUNTING_AMENDMENT_20261031.md",
+        tmp_path / "WATCH6_V3_ACCOUNTING_AMENDMENT_V4_20261031.md",
         _render_amendment_markdown(ADAPTER_ROOT, commit_sha),
     )
     ruling_md = tmp_path / "ASTRA_RERATIFICATION_RULING.md"
@@ -175,7 +188,7 @@ def _write_v3_attempt(
     if prefer is not None:
         req["prefer"] = list(prefer)
 
-    broker_science = compute_broker_identity(V3_BROKER_ROOT)
+    broker_science = BASELINE_SCIENCE
     manifest: dict = {
         "job_id": f"watch6-v3-shard-{shard:02d}-{out_dir.name}"[:64],
         "output_dir": str(out_dir),
@@ -416,7 +429,7 @@ def _write_never_allocated_shard_fixture(
     generation = "d271c5f9b85947908f90f023c6c0f76c"
     session = f"snake-{job_id}-{generation[:12]}"
 
-    broker_science = compute_broker_identity(V3_BROKER_ROOT)
+    broker_science = BASELINE_SCIENCE
     manifest = {
         "job_id": job_id,
         "output_dir": str(out_dir),
@@ -1327,6 +1340,7 @@ def _setup_24_shard_accounting_ops(
     tmp_path: Path,
     *,
     shard0_extra_compute_failures: int = 0,
+    sealed_placeholders: bool = False,
 ) -> tuple[Path, Path, Path, dict[int, dict]]:
     """Build a complete 24-shard V3 ops registry where shard 00 has a never-allocated A_1."""
     ops_dir = tmp_path / "ops"
@@ -1337,7 +1351,7 @@ def _setup_24_shard_accounting_ops(
     # Passing L4 canary:
     canary_out = tmp_path / "output-canary"
     canary_out.mkdir(parents=True)
-    broker_science = compute_broker_identity(V3_BROKER_ROOT)
+    broker_science = BASELINE_SCIENCE
     canary_mf = {
         "job_id": "watch6-v3-canary",
         "output_dir": str(canary_out),
@@ -1372,8 +1386,8 @@ def _setup_24_shard_accounting_ops(
     )
     (ops_dir / "manifests/watch6-v3-canary.json").write_text(json.dumps(canary_mf) + "\n")
 
-    with bind_broker_protocol(V3_BROKER_ROOT):
-        all_rows = {r["allocation"]["index"]: r for r in _synthetic_v3_rows()}
+    all_rows = {} if sealed_placeholders else _cached_synthetic_v3_rows_by_slot()
+    rows_arg = None if sealed_placeholders else all_rows
 
     # Shard 00: A_1 is PROVEN never-allocated (`cleanup_error` retained, `stop_verified=False`),
     # optionally followed by `shard0_extra_compute_failures` stopped compute transport failures,
@@ -1393,7 +1407,7 @@ def _setup_24_shard_accounting_ops(
             shard=0,
             mode="compute_transport",
             export_slots=[0] if c_idx == 0 else [],
-            pair_rows_by_slot=all_rows,
+            pair_rows_by_slot=rows_arg,
             prestart_retries_used=1,
             compute_completion_attempt=c_idx,
             prior_receipts=priors,
@@ -1416,7 +1430,7 @@ def _setup_24_shard_accounting_ops(
         shard=0,
         mode="pass",
         export_slots=rem_slots,
-        pair_rows_by_slot=all_rows,
+        pair_rows_by_slot=rows_arg,
         prestart_retries_used=1,
         compute_completion_attempt=shard0_extra_compute_failures,
         prior_receipts=priors,
@@ -1431,7 +1445,7 @@ def _setup_24_shard_accounting_ops(
             shard=s,
             mode="pass",
             export_slots=p.shard_indices(s),
-            pair_rows_by_slot=all_rows,
+            pair_rows_by_slot=rows_arg,
         )
         (ops_dir / f"manifests/watch6-v3-fix3-shard-{s:02d}.json").write_text(
             (r_path.parent / "manifest.json").read_text()
@@ -1571,7 +1585,7 @@ def test_recover_and_final_look_lineage_retry_caps_and_zero_outcome_peek(tmp_pat
     # 3. Exceeded compute retry cap (3 compute failures after never-allocated prestart)
     #    MUST raise INVALID_OR_INCOMPLETE with ZERO calls to decide_v3!
     ops_cap, ruling_cap, amend_cap, rows_cap = _setup_24_shard_accounting_ops(
-        tmp_path / "full-cap", shard0_extra_compute_failures=2
+        tmp_path / "full-cap", shard0_extra_compute_failures=2, sealed_placeholders=True
     )
     # Replace terminal pass with a 3rd failed compute auto-retry + 4th pass auto-retry:
     auto1_dir = tmp_path / "full-cap/auto-retry-1"
@@ -1651,7 +1665,9 @@ def test_recover_and_final_look_lineage_retry_caps_and_zero_outcome_peek(tmp_pat
             )
 
     # 4. Incomplete slot coverage (95/96) MUST write incomplete-status.json & never call decide_v3:
-    ops_inc, ruling_inc, amend_inc, _ = _setup_24_shard_accounting_ops(tmp_path / "full-inc")
+    ops_inc, ruling_inc, amend_inc, _ = _setup_24_shard_accounting_ops(
+        tmp_path / "full-inc", sealed_placeholders=True
+    )
     rec_s1_path = tmp_path / "full-inc/out-shard-01/receipt.json"
     rec_s1 = json.loads(rec_s1_path.read_text())
     rec_s1["exports"] = [e for e in rec_s1["exports"] if "pair-73" not in e["path"]]
@@ -1679,7 +1695,9 @@ def test_recover_and_final_look_lineage_retry_caps_and_zero_outcome_peek(tmp_pat
     assert (tmp_path / "full-inc/look-out/incomplete-status.json").is_file()
 
     # 5. A100 substitution in ops registry MUST fail closed with INVALID_OR_INCOMPLETE:
-    ops_a100, ruling_a100, amend_a100, _ = _setup_24_shard_accounting_ops(tmp_path / "full-a100")
+    ops_a100, ruling_a100, amend_a100, _ = _setup_24_shard_accounting_ops(
+        tmp_path / "full-a100", sealed_placeholders=True
+    )
     mf_s2_path = ops_a100 / "manifests/watch6-v3-fix3-shard-02.json"
     mf_s2 = json.loads(mf_s2_path.read_text())
     mf_s2["requirements"]["gpu"] = "A100"
@@ -1954,7 +1972,9 @@ def _create_clean_baseline_clone(dest: Path) -> Path:
             "--no-cone",
             "/.gitignore",
             "/pyproject.toml",
-            "/research/",
+            "/research/**/*.py",
+            "/research/watch6_search_efficacy_v3/",
+            "/research/bl_served_search/requirements.txt",
             "/src/",
             "/web/backend/",
             "/configs/",
@@ -1971,6 +1991,17 @@ def _create_clean_baseline_clone(dest: Path) -> Path:
         check=True,
         timeout=30,
     )
+    return dest
+
+
+@pytest.fixture(scope="module")
+def clean_baseline_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    base = tmp_path_factory.mktemp("clean_baseline_tpl") / "broker_357e3504"
+    return _create_clean_baseline_clone(base)
+
+
+def _fresh_baseline_clone(template: Path, dest: Path) -> Path:
+    shutil.copytree(template, dest, symlinks=True)
     return dest
 
 
@@ -2049,10 +2080,11 @@ def test_live_v3_broker_identity_and_main_checkout_refusal(tmp_path: Path) -> No
 
 
 def test_same_root_pass_on_clean_copy_and_stray_untracked_or_ignored_refusal(
+    clean_baseline_template: Path,
     tmp_path: Path,
 ) -> None:
     """Point 3 requirement (4): same-root pass on clean copy; refuse untracked/ignored drift."""
-    clean_copy = _create_clean_baseline_clone(tmp_path / "clean-v3-copy")
+    clean_copy = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clean-v3-copy")
 
     # 1. Cross-root pass (p.ROOT != clean_copy) and same-root pass (p.ROOT == clean_copy):
     assert compute_broker_identity(clean_copy) == BASELINE_SCIENCE
@@ -2144,10 +2176,13 @@ def test_same_root_pass_on_clean_copy_and_stray_untracked_or_ignored_refusal(
     proto_file.write_bytes(orig_proto_bytes)
 
 
-def test_refusal_of_any_cross_root_substitution_across_entrypoints(tmp_path: Path) -> None:
+def test_refusal_of_any_cross_root_substitution_across_entrypoints(
+    clean_baseline_template: Path,
+    tmp_path: Path,
+) -> None:
     """Point 3 req (4): refuse every cross-root substitution across dispatch/recover/look."""
-    clean_copy = _create_clean_baseline_clone(tmp_path / "clean-broker")
-    dirty_copy = _create_clean_baseline_clone(tmp_path / "dirty-egg-broker")
+    clean_copy = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clean-broker")
+    dirty_copy = _fresh_baseline_clone(clean_baseline_template, tmp_path / "dirty-egg-broker")
     (dirty_copy / "src/snake_dqn.egg-info").mkdir(parents=True)
     (dirty_copy / "src/snake_dqn.egg-info/SOURCES.txt").write_text(
         "src/main.py\n",
@@ -2373,3 +2408,490 @@ def test_refusal_of_any_cross_root_substitution_across_entrypoints(tmp_path: Pat
     p.identity.cache_clear()
     logged = called_log.read_text(encoding="utf-8")
     assert f"--broker {V3_BROKER_ROOT.resolve()} --cwd {V3_BROKER_ROOT.resolve()}" in logged
+
+
+def _assert_all_broker_entrypoints_refuse_clone(
+    clone: Path,
+    tmp_path: Path,
+    *,
+    expected_match: str,
+) -> None:
+    """Assert verify_baseline_closure (cross-root & same-root) + all entrypoints refuse clone."""
+    with pytest.raises(ValueError, match=expected_match):
+        verify_baseline_closure(clone, require_head_at_baseline=True)
+
+    with patch.object(p, "ROOT", clone):
+        p.source_paths.cache_clear()
+        p.identity.cache_clear()
+        with pytest.raises(ValueError, match=expected_match):
+            verify_baseline_closure(clone, require_head_at_baseline=True)
+    p.source_paths.cache_clear()
+    p.identity.cache_clear()
+
+    with pytest.raises(ValueError, match=expected_match):
+        with bind_broker_protocol(clone):
+            pass
+
+    op_root = tmp_path / "op"
+    (op_root / "tools/ops").mkdir(parents=True, exist_ok=True)
+    fake_dispatch = op_root / "tools/ops/dispatch.sh"
+    fake_dispatch.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    fake_dispatch.chmod(0o755)
+    mf = tmp_path / "probe-mf.json"
+    mf.write_text(
+        json.dumps(
+            {
+                "job_id": "watch6-v3-point3-probe",
+                "commit": BASELINE_COMMIT,
+                "output_dir": str(tmp_path / "probe-out"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    with patch.object(dispatch, "admit", return_value={"status": "PASS"}):
+        with pytest.raises(ValueError, match=expected_match):
+            dispatch.run_dispatch(
+                [
+                    "watch6-v3-point3-probe",
+                    str(mf),
+                    "--broker",
+                    str(clone),
+                    "--cwd",
+                    str(clone),
+                    "--operator-root",
+                    str(op_root),
+                    "--dry-run",
+                ],
+                ops_dir=tmp_path / "ops",
+            )
+
+    with pytest.raises(ValueError, match=expected_match):
+        recover.recover(
+            base_package=tmp_path,
+            receipts=[],
+            target_shards=[0],
+            out=tmp_path / "rec-out",
+            benchmark=tmp_path / "b.json",
+            mirror_receipt=tmp_path / "m.json",
+            empirical_costs=tmp_path / "c.json",
+            commit=BASELINE_COMMIT,
+            broker_root=clone,
+        )
+    with pytest.raises(ValueError, match=f"INVALID_OR_INCOMPLETE.*{expected_match}"):
+        final_look.run_final_look(
+            ops_dir=tmp_path / "ops",
+            out_dir=tmp_path / "look-out",
+            broker_root=clone,
+            require_clean_git=False,
+        )
+    with pytest.raises(ValueError, match=expected_match):
+        admission.admit({}, broker_root=clone)
+    with pytest.raises(ValueError, match=expected_match):
+        resume.build([], [], broker_root=clone)
+    with pytest.raises(ValueError, match=expected_match):
+        prepare.prepare(
+            tmp_path / "prep-out",
+            tmp_path / "b.json",
+            BASELINE_COMMIT,
+            tmp_path / "m.json",
+            tmp_path / "c.json",
+            broker_root=clone,
+        )
+    amend_path, _ = _write_accounting_ruling_fixture(tmp_path / "gov-probe")
+    with pytest.raises(ValueError, match=expected_match):
+        ratify.verify_amendment_document(
+            amend_path,
+            broker_root=clone,
+            require_clean_git=False,
+        )
+
+
+def test_point3_refuses_lone_egg_info_pkg_info_unmasked(
+    clean_baseline_template: Path,
+    tmp_path: Path,
+) -> None:
+    """Astra Ruling 3 Point 3 reproducer 1: lone ignored src/snake_dqn.egg-info/PKG-INFO."""
+    clone = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-lone-pkg-info")
+    assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
+        BASELINE_SCIENCE
+    )
+
+    pkg_info = clone / "src/snake_dqn.egg-info/PKG-INFO"
+    pkg_info.parent.mkdir(parents=True, exist_ok=True)
+    pkg_info.write_text("Metadata-Version: 2.1\nName: snake-dqn\n", encoding="utf-8")
+
+    # Ensure strictly unmasked: no .txt siblings, git status without --ignored is empty,
+    # and unmodified protocol.identity() still hashes to BASELINE_SCIENCE:
+    assert list(pkg_info.parent.iterdir()) == [pkg_info]
+    porcelain = subprocess.check_output(
+        ["git", "--no-optional-locks", "status", "--porcelain", "--untracked-files=all"],
+        cwd=clone,
+        text=True,
+        timeout=10,
+    ).strip()
+    assert porcelain == ""
+    assert compute_broker_identity(clone) == BASELINE_SCIENCE
+
+    _assert_all_broker_entrypoints_refuse_clone(
+        clone,
+        tmp_path / "ep-pkg-info",
+        expected_match=r"packaging metadata.*src/snake_dqn\.egg-info",
+    )
+
+
+def test_point3_refuses_lone_extension_module_so_shadowing_py_unmasked(
+    clean_baseline_template: Path,
+    tmp_path: Path,
+) -> None:
+    """Astra Ruling 3 Point 3 reproducer 2: lone ignored src/model/ego2s_network.so."""
+    clone = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-lone-ego2s-so")
+    assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
+        BASELINE_SCIENCE
+    )
+
+    planted_so = clone / "src/model/ego2s_network.so"
+    planted_so.write_bytes(b"\xcf\xfa\xed\xfe\x00foreign-macho-stub")
+
+    # Confirm git status without --ignored omits *.so AND protocol.identity() stays b26f7fa0...:
+    porcelain = subprocess.check_output(
+        ["git", "--no-optional-locks", "status", "--porcelain", "--untracked-files=all"],
+        cwd=clone,
+        text=True,
+        timeout=10,
+    ).strip()
+    assert porcelain == ""
+    assert compute_broker_identity(clone) == BASELINE_SCIENCE
+
+    # Confirm Python's FileFinder prefers .so over tracked ego2s_network.py (without loading it):
+    if ".so" in importlib.machinery.EXTENSION_SUFFIXES:
+        finder = importlib.machinery.FileFinder(
+            str(clone / "src/model"),
+            (importlib.machinery.ExtensionFileLoader, importlib.machinery.EXTENSION_SUFFIXES),
+            (importlib.machinery.SourceFileLoader, importlib.machinery.SOURCE_SUFFIXES),
+        )
+        spec = finder.find_spec("ego2s_network")
+        assert spec is not None and spec.origin == str(planted_so)
+
+    _assert_all_broker_entrypoints_refuse_clone(
+        clone,
+        tmp_path / "ep-ego2s-so",
+        expected_match=r"extension module.*src/model/ego2s_network\.so",
+    )
+
+
+def test_point3_refuses_each_foreign_closure_artifact_class_alone(
+    clean_baseline_template: Path,
+    tmp_path: Path,
+) -> None:
+    """Each foreign/ignored closure file or directory class is refused strictly ALONE."""
+    clone = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-foreign-classes")
+    ext_tag = sys.implementation.cache_tag
+
+    def _assert_clean() -> None:
+        res = verify_baseline_closure(clone, require_head_at_baseline=True)
+        assert res["science"] == BASELINE_SCIENCE
+
+    _assert_clean()
+
+    lone_file_cases: list[tuple[str, bytes, bool, str]] = [
+        # (relative_path, payload, identity_unchanged, expected_error_regex)
+        (
+            f"src/model/ego2s_network.{ext_tag}-darwin.so",
+            b"\xcf\xfa\xed\xfe\x00abi-so",
+            True,
+            r"extension module.*ego2s_network",
+        ),
+        (
+            "src/model/ego2s_network.pyd",
+            b"MZ\x90\x00foreign-pyd",
+            True,
+            r"extension module.*src/model/ego2s_network\.pyd",
+        ),
+        (
+            "src/simd_env/libgrid_override.dylib",
+            b"\xcf\xfa\xed\xfe\x00dylib",
+            True,
+            r"extension module.*src/simd_env/libgrid_override\.dylib",
+        ),
+        (
+            "tools/ops/package_spec.so",
+            b"\xcf\xfa\xed\xfe\x00ops-so",
+            True,
+            r"extension module.*tools/ops/package_spec\.so",
+        ),
+        (
+            "research/bl_served_search/analyze.so",
+            b"\xcf\xfa\xed\xfe\x00research-so",
+            True,
+            r"extension module.*research/bl_served_search/analyze\.so",
+        ),
+        (
+            "src/foreign_hook.pth",
+            b"import os\n",
+            True,
+            r"path-hook.*src/foreign_hook\.pth",
+        ),
+        (
+            "foreign_top_level.pth",
+            b"import sys\n",
+            True,
+            r"path-hook.*foreign_top_level\.pth",
+        ),
+        (
+            "src/foreign_bundle.egg",
+            b"PK\x03\x04egg",
+            True,
+            r"packaging metadata.*src/foreign_bundle\.egg",
+        ),
+        (
+            "src/snake_dqn-0.1.0.dist-info/METADATA",
+            b"Metadata-Version: 2.1\nName: snake-dqn\n",
+            True,
+            r"packaging metadata.*src/snake_dqn-0\.1\.0\.dist-info",
+        ),
+        (
+            "sitecustomize.py",
+            b"# foreign top-level startup module\n",
+            True,
+            r"stray Python source or bytecode.*sitecustomize\.py",
+        ),
+    ]
+
+    for rel_path, payload, expect_same_science, err_regex in lone_file_cases:
+        target = clone / rel_path
+        created_parent = not target.parent.exists()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+        try:
+            if expect_same_science:
+                assert compute_broker_identity(clone) == BASELINE_SCIENCE
+            with pytest.raises(ValueError, match=err_regex):
+                verify_baseline_closure(clone, require_head_at_baseline=True)
+        finally:
+            target.unlink(missing_ok=True)
+            if created_parent:
+                shutil.rmtree(target.parent, ignore_errors=True)
+        _assert_clean()
+
+    # Empty ignored src/snake_dqn.egg-info/ directory alone:
+    empty_egg = clone / "src/snake_dqn.egg-info"
+    empty_egg.mkdir(parents=True)
+    try:
+        assert compute_broker_identity(clone) == BASELINE_SCIENCE
+        with pytest.raises(ValueError, match=r"packaging metadata.*src/snake_dqn\.egg-info"):
+            verify_baseline_closure(clone, require_head_at_baseline=True)
+    finally:
+        empty_egg.rmdir()
+    _assert_clean()
+
+    # Git-ignored stray .py (via .git/info/exclude) inside a single-file-entry closure parent dir
+    # (`tools/ops/shadow_helper.py`), where BOTH git status and protocol.identity() stay unchanged:
+    exclude_file = clone / ".git/info/exclude"
+    exclude_file.parent.mkdir(parents=True, exist_ok=True)
+    orig_exclude = exclude_file.read_text(encoding="utf-8") if exclude_file.is_file() else ""
+    ignored_py = clone / "tools/ops/shadow_helper.py"
+    try:
+        exclude_file.write_text(orig_exclude + "\nshadow_helper.py\n", encoding="utf-8")
+        ignored_py.write_text("SHADOW = 1\n", encoding="utf-8")
+        porcelain = subprocess.check_output(
+            ["git", "--no-optional-locks", "status", "--porcelain", "--untracked-files=all"],
+            cwd=clone,
+            text=True,
+            timeout=10,
+        ).strip()
+        assert porcelain == ""
+        assert compute_broker_identity(clone) == BASELINE_SCIENCE
+        with pytest.raises(
+            ValueError,
+            match=r"stray Python source or bytecode.*tools/ops/shadow_helper\.py",
+        ):
+            verify_baseline_closure(clone, require_head_at_baseline=True)
+    finally:
+        ignored_py.unlink(missing_ok=True)
+        exclude_file.write_text(orig_exclude, encoding="utf-8")
+    _assert_clean()
+
+
+def test_point3_pycache_and_bytecode_verification_rules(
+    clean_baseline_template: Path,
+    tmp_path: Path,
+) -> None:
+    """Verify safe __pycache__/.pyc + Numba .nbi/.nbc rules: genuine caches pass, forgeries fail."""
+    # 1. Untouched live V3 broker passes as-is (with existing Numba src/simd_env/__pycache__):
+    assert verify_baseline_closure(V3_BROKER_ROOT, require_head_at_baseline=True)["science"] == (
+        BASELINE_SCIENCE
+    )
+
+    clone = _fresh_baseline_clone(clean_baseline_template, tmp_path / "clone-pycache")
+    tag = sys.implementation.cache_tag
+    tracked_py = clone / "src/model/ego2s_network.py"
+    pycache_dir = clone / "src/model/__pycache__"
+    valid_pyc = pycache_dir / f"ego2s_network.{tag}.pyc"
+
+    # 2. Genuine CPython .pyc compiled from tracked ego2s_network.py (TIMESTAMP, CHECKED_HASH,
+    #    and UNCHECKED_HASH modes) PASSES:
+    for mode in (
+        py_compile.PycInvalidationMode.TIMESTAMP,
+        py_compile.PycInvalidationMode.CHECKED_HASH,
+        py_compile.PycInvalidationMode.UNCHECKED_HASH,
+    ):
+        py_compile.compile(
+            str(tracked_py),
+            cfile=str(valid_pyc),
+            dfile="src/model/ego2s_network.py",
+            doraise=True,
+            invalidation_mode=mode,
+        )
+        assert valid_pyc.is_file()
+        assert compute_broker_identity(clone) == BASELINE_SCIENCE
+        assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
+            BASELINE_SCIENCE
+        )
+        valid_pyc.unlink()
+
+    # 3. Stray .pyc outside __pycache__/ is unconditionally REFUSED:
+    stray_pyc = clone / "src/model/ego2s_network.pyc"
+    py_compile.compile(str(tracked_py), cfile=str(stray_pyc), doraise=True)
+    try:
+        assert compute_broker_identity(clone) == BASELINE_SCIENCE
+        with pytest.raises(
+            ValueError, match=r"stray Python source or bytecode.*src/model/ego2s_network\.pyc"
+        ):
+            verify_baseline_closure(clone, require_head_at_baseline=True)
+    finally:
+        stray_pyc.unlink()
+
+    # 4. Orphan .pyc in __pycache__/ without a tracked baseline .py is REFUSED:
+    orphan_pyc = pycache_dir / f"ghost_module.{tag}.pyc"
+    py_compile.compile(str(tracked_py), cfile=str(orphan_pyc), doraise=True)
+    try:
+        assert compute_broker_identity(clone) == BASELINE_SCIENCE
+        with pytest.raises(ValueError, match=r"orphan \.pyc.*ghost_module"):
+            verify_baseline_closure(clone, require_head_at_baseline=True)
+    finally:
+        orphan_pyc.unlink()
+
+    # 5. Foreign interpreter tag .pyc is REFUSED:
+    foreign_tag_pyc = pycache_dir / "ego2s_network.cpython-311.pyc"
+    py_compile.compile(str(tracked_py), cfile=str(foreign_tag_pyc), doraise=True)
+    try:
+        with pytest.raises(ValueError, match="foreign interpreter cache tag"):
+            verify_baseline_closure(clone, require_head_at_baseline=True)
+    finally:
+        foreign_tag_pyc.unlink()
+
+    # 6. Stale timestamp/size .pyc header is REFUSED:
+    py_compile.compile(
+        str(tracked_py),
+        cfile=str(valid_pyc),
+        invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP,
+    )
+    raw_valid = bytearray(valid_pyc.read_bytes())
+    orig_mtime, orig_size = struct.unpack("<II", raw_valid[8:16])
+    raw_valid[8:16] = struct.pack("<II", (orig_mtime + 1) & 0xFFFFFFFF, orig_size)
+    valid_pyc.write_bytes(bytes(raw_valid))
+    try:
+        with pytest.raises(ValueError, match=r"stale or mismatched timestamp \.pyc header"):
+            verify_baseline_closure(clone, require_head_at_baseline=True)
+    finally:
+        valid_pyc.unlink()
+
+    # 7. Mismatched PEP-552 source-hash .pyc (UNCHECKED_HASH bit_field=1) is REFUSED:
+    forged_evil_code = marshal.dumps(compile("EVIL_PAYLOAD = 999\n", "ego2s_network.py", "exec"))
+    bad_hash_pyc = (
+        importlib.util.MAGIC_NUMBER + struct.pack("<I", 1) + (b"\xaa" * 8) + forged_evil_code
+    )
+    valid_pyc.write_bytes(bad_hash_pyc)
+    try:
+        with pytest.raises(ValueError, match="mismatched PEP-552 source_hash"):
+            verify_baseline_closure(clone, require_head_at_baseline=True)
+    finally:
+        valid_pyc.unlink()
+
+    # 8. FORGED-HEADER .pyc (exact MAGIC_NUMBER + exact tracked mtime/size OR exact PEP-552
+    #    SipHash of tracked ego2s_network.py, but marshalled evil CodeType!) is REFUSED:
+    st = tracked_py.stat()
+    tracked_bytes = tracked_py.read_bytes()
+    for forged_header in (
+        importlib.util.MAGIC_NUMBER
+        + struct.pack("<III", 0, int(st.st_mtime) & 0xFFFFFFFF, st.st_size & 0xFFFFFFFF),
+        importlib.util.MAGIC_NUMBER
+        + struct.pack("<I", 1)
+        + importlib.util.source_hash(tracked_bytes),
+    ):
+        valid_pyc.write_bytes(forged_header + forged_evil_code)
+        try:
+            assert compute_broker_identity(clone) == BASELINE_SCIENCE
+            with pytest.raises(
+                ValueError, match="bytecode body .* does not match compiled tracked"
+            ):
+                verify_baseline_closure(clone, require_head_at_baseline=True)
+        finally:
+            valid_pyc.unlink()
+
+    # 9. Foreign non-bytecode file inside __pycache__/ (e.g. .so) is REFUSED:
+    pycache_so = pycache_dir / "stealth.so"
+    pycache_so.write_bytes(b"\xcf\xfa\xed\xfe")
+    try:
+        with pytest.raises(ValueError, match=r"foreign file inside __pycache__"):
+            verify_baseline_closure(clone, require_head_at_baseline=True)
+    finally:
+        pycache_so.unlink()
+
+    # 10. Numba cache (.nbi/.nbc) verification: genuine pair passes; tampered stamp, orphan .nbc,
+    #     and unsafe pickle global opcode each FAIL CLOSED without executing pickle.loads:
+    broker_simd_cache = V3_BROKER_ROOT / "src/simd_env/__pycache__"
+    clone_simd_cache = clone / "src/simd_env/__pycache__"
+    clone_simd_cache.mkdir(parents=True, exist_ok=True)
+
+    orphan_nbc = clone_simd_cache / "v8_nb.fake_kernel-1.py312.1.nbc"
+    orphan_nbc.write_bytes(b"\x80\x04\x95\x02\x00\x00\x00\x00\x00\x00\x00N.")
+    try:
+        with pytest.raises(ValueError, match=r"orphan Numba \.nbc"):
+            verify_baseline_closure(clone, require_head_at_baseline=True)
+    finally:
+        orphan_nbc.unlink()
+
+    sample_nbis = sorted(broker_simd_cache.glob("v8_nb.*.nbi"))
+    if sample_nbis:
+        src_nbi = sample_nbis[0]
+        stem = src_nbi.name[: -len(".nbi")]
+        sibling_nbcs = sorted(broker_simd_cache.glob(f"{stem}.*.nbc"))
+        copied: list[Path] = []
+        try:
+            dst_nbi = clone_simd_cache / src_nbi.name
+            shutil.copy2(src_nbi, dst_nbi)
+            copied.append(dst_nbi)
+            for s_nbc in sibling_nbcs:
+                d_nbc = clone_simd_cache / s_nbc.name
+                shutil.copy2(s_nbc, d_nbc)
+                copied.append(d_nbc)
+            # Genuine Numba cache pair copied onto clean baseline clone PASSES:
+            assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
+                BASELINE_SCIENCE
+            )
+
+            # Mutating the 32-byte SHA-256 source stamp inside .nbi REFUSES:
+            v8_sha = (
+                __import__("hashlib")
+                .sha256((clone / "src/simd_env/v8_nb.py").read_bytes())
+                .digest()
+            )
+            orig_nbi_bytes = dst_nbi.read_bytes()
+            assert v8_sha in orig_nbi_bytes
+            corrupted_stamp = bytes([v8_sha[0] ^ 0xFF]) + v8_sha[1:]
+            dst_nbi.write_bytes(orig_nbi_bytes.replace(v8_sha, corrupted_stamp, 1))
+            with pytest.raises(ValueError, match="stale or mismatched SHA-256 source stamp"):
+                verify_baseline_closure(clone, require_head_at_baseline=True)
+
+            # Unsafe pickle GLOBAL opcode (e.g. `cos\nsystem\n`) REFUSES safely via pickletools:
+            dst_nbi.write_bytes(b"cos\nsystem\n(S'echo NO'\ntR.")
+            with pytest.raises(ValueError, match="foreign pickle global"):
+                verify_baseline_closure(clone, require_head_at_baseline=True)
+        finally:
+            for p_item in copied:
+                p_item.unlink(missing_ok=True)
+
+    assert verify_baseline_closure(clone, require_head_at_baseline=True)["science"] == (
+        BASELINE_SCIENCE
+    )

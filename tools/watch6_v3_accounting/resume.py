@@ -40,11 +40,15 @@ def verify_bound_receipt(
     *,
     ops_dir: Path | None = None,
     broker_root: Path | None = None,
+    _verified_broker: tuple[dict[str, str], dict[str, object]] | None = None,
 ) -> tuple[dict, dict]:
     """Verify a stopped or proven never-allocated V3 main-shard receipt and executed manifest."""
-    target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
-    closure_info = verify_baseline_closure(target_broker)
-    broker_proto = compute_broker_protocol(Path(closure_info["broker_root"]))
+    if _verified_broker is not None:
+        closure_info, broker_proto = _verified_broker
+    else:
+        target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
+        closure_info = verify_baseline_closure(target_broker)
+        broker_proto = compute_broker_protocol(Path(closure_info["broker_root"]))
     broker_science = closure_info["science"]
     broker_namespace = closure_info["namespace"]
     broker_alloc = broker_proto["allocation"]
@@ -128,6 +132,7 @@ def build(
     target_broker = broker_root if broker_root is not None else V3_BROKER_ROOT
     with bind_broker_protocol(target_broker, require_head_at_baseline=True) as closure_info:
         resolved_broker = Path(closure_info["broker_root"])
+        broker_proto = compute_broker_protocol(resolved_broker)
         broker_science = closure_info["science"]
         if paths and not receipts:
             raise ValueError("completed units require stopped supervisor receipts")
@@ -145,6 +150,7 @@ def build(
                 resolved,
                 ops_dir=ops_dir,
                 broker_root=resolved_broker,
+                _verified_broker=(closure_info, broker_proto),
             )
             bound_receipts.append((resolved, manifest, receipt))
 
