@@ -324,7 +324,12 @@ from the owner's reported final-only PASS `acceptance-1792685115` on
 `04ae4cbfa6194e7afbdff53fe22be9de1a6cd152`. The transport tree is
 `40985ca47b3c1f82cdab2ee77849daf937e71865`. The merge commit message corroborates
 that result; `research/colab_cli/REQUALIFICATION.md` retains its earlier pending text.
-No new acceptance was run to initialize the pointer.
+No new acceptance was run to initialize the pointer. On 2026-11-01, the Cap-6
+(`ACCOUNT_ASSIGNMENT_CAP = 6`) transport tree `36285bc6cbb637b392b234f67b55cbaa03b37614`
+was packaged for additive registration via `qualification.py add`
+(`t34-sol/argon-qual-cap6/tree-entry-36285bc6.json`), keeping `40985ca4...` active in
+the v1 view for in-flight jobs. Do not edit any file inside `research/colab_cli/`
+(including `.md` files) without requalification, because doing so alters that Git tree SHA.
 
 ```bash
 python3 "$REPO/tools/ops/qualification.py" check \
@@ -415,7 +420,10 @@ unmanaged/legacy assignments and avoid mistaking historical unverified receipts
 for current capacity. Unknown inventory stops submissions. It reserves at most
 **six** occupied/pending runtime slots across competing daemons (`ACCOUNT_ASSIGNMENT_CAP = 6`
 since 2026-10-31) and enforces an L4 sub-cap of at most **three** concurrent L4 runtimes
-(`ACCOUNT_L4_CAP = 3` in `ready_queue.py`); the supervisor independently enforces account
+(`ACCOUNT_L4_CAP = 3` in `ready_queue.py`; standalone `dispatch.sh` calls must also respect
+`L4 <= 3`, with standalone `dispatch.py` mirroring and zero-WS / monotonic-ledger / two-counter
+retry / `confirm_audit.py` improvements tracked as advice in
+[`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md)); the supervisor independently enforces account
 allocation and pending-identity fences. Packages with many small contract/sidecar inputs
 should pack them into one deterministic `input-metadata.tar.gz` via
 `research/metadata_archive.py` (`<= 12` total transfers) to stay well within the 300 s

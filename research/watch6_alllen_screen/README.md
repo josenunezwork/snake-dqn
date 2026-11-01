@@ -34,4 +34,19 @@ Otherwise keep served `L2'` (`L >= 600`).
 - Packet preparation (`canary.json` + `main-unsealed.json` with identical staged inputs): `python -m research.watch6_alllen_screen.prepare --out <packet_dir> --commit <40_char_sha> --benchmark <preflight_dir>/benchmark.json`
 - Ready-queue canary-to-main sealer (`--prepare-command`): `python -m research.watch6_alllen_screen.seal_main --ops <ops_dir> --canary-id <id> --packet <packet_dir> --broker <repo>`
 - Mac outcome-blind resume ledger builder: `python -m research.watch6_alllen_screen.resume --contract <main-contract.json> --roots <exports_units_dir>... --out <ledger.json>`
+- Outcome-blind A100 shard completion builder (branch `origin/argon-watch6-alllen-a100-1031` @ `73c26ccc`): `python -m research.watch6_alllen_screen.prepare_resume ...`
 - Mac paired-CI readout & decision rule evaluation: `python -m research.watch6_alllen_screen.analyze --units <exports_units_dir>... --out <readout.json>`
+
+## Measured Outcome (2026-11-01 — `ADOPT_EXACT_STOP_L_GE_1_FOR_NEW_BANKS`)
+
+Completed across all **48/48** paired `H = 6,000` Watch6-v2 sessions (`snake-dqn-artifacts/t34-sol/argon-alllen-a100/analysis.json`, uniting `23` verified units from the stopped L4 `W = 4` run with `25` disjoint units across three `W = 6` 12-vCPU A100 completion shards):
+
+| Arm | Mean full-horizon mass | Mean `deaths/1k` | Total deaths (`L < 600` / `L >= 600` / `L >= 800`) | Mean branches/session |
+| --- | --- | --- | --- | --- |
+| `bare` (`b8-s3`) | `351.07` (`CI95 [320.23, 381.91]`) | `0.2882` (`CI95 [0.2289, 0.3474]`) | `83` (`53` / `30` / `21`) | `0.0` |
+| `l2_prime_600` (`L >= 600`) | `461.16` (`CI95 [424.90, 497.42]`) | `0.1597` (`CI95 [0.1157, 0.2038]`) | `46` (`34` / `12` / `11`) | `449.6` |
+| **`exact_stop_alllen` (`L >= 1`)** | **`559.43`** (`CI95 [531.69, 587.17]`) | **`0.0521`** (`CI95 [0.0252, 0.0790]`) | **`15`** (**`1`** / **`14`** / **`13`**) | **`1,268.5`** (`2.821×`) |
+
+- **Paired deltas (`exact_stop_alllen - l2_prime_600`):** **`+98.27` mass** (`CI95 [+50.57, +145.98]`, bar `>= +15.0`) and **`-0.1076` `deaths/1k`** (`-67.4%`, `CI95 [-0.1609, -0.0544]`, bar `<= 0.0`).
+- **Paired deltas (`exact_stop_alllen - bare`):** **`+208.37` mass** (`CI95 [+170.07, +246.66]`, `+59.35%`) and **`-0.2361` `deaths/1k`** (`-81.9%`, `CI95 [-0.2995, -0.1727]`); `L < 600` override share = `0.142%`, `mean_max_length = 1,096.0`.
+- **Follow-up:** Commit `73974411` wired `"exact-stop-l1"` into [`research/watch_replay/`](../watch_replay/) and [`web/backend/watch_replay.py`](../../web/backend/watch_replay.py) (`banks 14l1–16l1` prepared/generating in `t34-sol/argon-banks-l1/SUMMARY.md`). This exploration screen is not release evidence; serving `exact-stop-l1` requires prospective confirmation plus owner sign-off ([`docs/STATUS.md`](../../docs/STATUS.md)).
