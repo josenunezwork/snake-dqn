@@ -1209,15 +1209,19 @@ class GameSession:
 
     def set_hero(self, snake_id: int) -> None:
         with self._lock:
+            target = int(snake_id)
             if getattr(self, "_watch_replay", None) is not None:
-                if int(snake_id) != 0:
+                if target != 0:
                     self.last_error = "Recorded inspector follows hero #0; roster remains visible."
                 return
-            if self.obs_spec == RASTER31V3 and int(snake_id) != self.hero_id:
+            if self.obs_spec == RASTER31V3 and target != self.hero_id:
                 raise ValueError("promotion-v2-watch-rect hero is pinned to the deployment profile")
             ids = [s.id for s in self.game.snakes]
-            if int(snake_id) in ids:
-                self.hero_id = int(snake_id)
+            if target in ids:
+                if target != self.hero_id:
+                    self._replay_opted_out = True
+                    self._leave_watch_replay()
+                self.hero_id = target
 
     def set_food(self, target) -> None:
         """Set the live food target (count maintained on the board).
@@ -1560,10 +1564,19 @@ class GameSession:
                 ):
                     self._select_watch_replay()
             except Exception as exc:  # contract mismatch etc. -> fall back to watch
-                self.last_error = f"Cannot enter {mode} mode: {exc}"
+                error_msg = f"Cannot enter {mode} mode: {exc}"
+                self.last_error = error_msg
                 self.last_error_overridable = False
                 if self.mode != MODE_WATCH:
                     self._build(self.checkpoint_path, mode=MODE_WATCH)
+                if (
+                    self.mode == MODE_WATCH
+                    and getattr(self, "_replay_bank", None) is not None
+                    and not getattr(self, "_replay_opted_out", False)
+                    and self._is_clean_mixed_watch6_b8()
+                ):
+                    self._select_watch_replay()
+                    self.last_error = error_msg
 
     def load_checkpoint(self, name: str, override_reward_contract: bool = False) -> None:
         """Load a checkpoint named by an untrusted client (a WebSocket control).

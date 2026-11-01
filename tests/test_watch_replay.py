@@ -1483,3 +1483,187 @@ def test_qualify_bank_header_scan_and_reverse_filter_proof(tmp_path):
     assert proof["l1_headers_peeked_and_skipped_before_first_pick"] == 1
     assert proof["non_target_verify_payload_calls"] == 0
     assert proof["first_picked_controller"] == "exact-stop-l2-prime"
+
+
+def test_set_hero_during_live_fallback_opts_out_and_cancels_pending_replay(tmp_path, monkeypatch):
+    import web.backend.watch_replay as replay
+    from web.backend import app as app_mod
+
+    for key in (
+        "SNAKE_SERVE_WATCH_ROSTER",
+        "SNAKE_SERVE_CHECKPOINT",
+        "SNAKE_SERVE_VETO_WATCH_HERO",
+        "SNAKE_SERVE_VETO_PLAY_AI",
+        "SNAKE_SERVE_VETO_VARIANT",
+        "SNAKE_WATCH_REPLAY_CONTROLLER",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    _install_local_release_fixtures(monkeypatch, tmp_path)
+
+    bank_dir = tmp_path / "bank"
+    bank_dir.mkdir()
+    recording(bank_dir, "00_l2a", controller="exact-stop-l2-prime")
+    recording(bank_dir, "01_l2b", controller="exact-stop-l2-prime")
+
+    entered, release = threading.Event(), threading.Event()
+    original_recording = replay.Recording
+
+    def gated_recording(*args, **kwargs):
+        entered.set()
+        assert release.wait(10)
+        return original_recording(*args, **kwargs)
+
+    monkeypatch.setattr(replay, "Recording", gated_recording)
+    monkeypatch.setenv("SNAKE_WATCH_SOURCE", "replay")
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_DIR", str(bank_dir))
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_CONTROLLER", "exact-stop-l2-prime")
+
+    session = GameSession()
+    try:
+        assert entered.wait(5)
+        assert session._watch_replay is None
+        assert session._replay_pending is True
+        assert session._replay_opted_out is False
+
+        # Malformed, same-hero, and unknown-id requests must not opt out or drop pending replay.
+        app_mod._apply_control(session, {"type": "control", "action": "set_hero", "value": None})
+        assert session.last_error is not None
+        session.last_error = None
+        session.set_hero(0)
+        session.set_hero(99)
+        assert session.hero_id == 0
+        assert session._replay_opted_out is False
+        assert session._replay_pending is True
+
+        # Re-targeting the hero during live fallback opts out and cancels pending replay.
+        session.set_hero(1)
+        assert session.hero_id == 1
+        assert session._replay_opted_out is True
+        assert session._replay_pending is False
+        assert session._watch_replay is None
+
+        release.set()
+        deadline = time.monotonic() + 10
+        while session._replay_bank._ready.empty() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not session._replay_bank._ready.empty()
+
+        # Subsequent ticks must keep live Watch serving hero #1 instead of cutting in a recording.
+        session.step()
+        session.step()
+        assert session._watch_replay is None
+        assert session._replay_pending is False
+        assert session.hero_id == 1
+        assert session.snapshot()["session"]["watch_source"] == "live"
+
+        # Returning to hero #0 stays opted out across reset_game until explicit new_game.
+        session.set_hero(0)
+        assert session.hero_id == 0
+        assert session._replay_opted_out is True
+        session.reset_game()
+        assert session._watch_replay is None
+        assert session._replay_opted_out is True
+
+        session.new_game()
+        assert session._replay_opted_out is False
+        assert session._watch_replay is not None
+        assert session.snapshot()["session"]["watch_source"] == "replay"
+    finally:
+        release.set()
+        session.close()
+
+
+def test_set_mode_exception_in_watch_reselects_replay_under_clean_gate(tmp_path, monkeypatch):
+    for key in (
+        "SNAKE_SERVE_WATCH_ROSTER",
+        "SNAKE_SERVE_CHECKPOINT",
+        "SNAKE_SERVE_VETO_WATCH_HERO",
+        "SNAKE_SERVE_VETO_PLAY_AI",
+        "SNAKE_SERVE_VETO_VARIANT",
+        "SNAKE_WATCH_REPLAY_CONTROLLER",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    _install_local_release_fixtures(monkeypatch, tmp_path)
+
+    bank_dir = tmp_path / "bank"
+    bank_dir.mkdir()
+    for name in ("00_l2a", "01_l2b", "02_l2c"):
+        recording(bank_dir, name, controller="exact-stop-l2-prime")
+
+    monkeypatch.setenv("SNAKE_WATCH_SOURCE", "replay")
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_DIR", str(bank_dir))
+    monkeypatch.setenv("SNAKE_WATCH_REPLAY_CONTROLLER", "exact-stop-l2-prime")
+
+    session = GameSession()
+    try:
+        deadline = time.monotonic() + 10
+        while (
+            session._watch_replay is None or session._replay_bank._ready.empty()
+        ) and time.monotonic() < deadline:
+            session.step()
+            time.sleep(0.01)
+        assert session._watch_replay is not None
+        assert not session._replay_bank._ready.empty()
+
+        original_build_impl = session._build_impl
+        mutate_mode_before_fail = False
+
+        def failing_play_build(checkpoint, mode, override_reward_contract=False):
+            if mode == "play":
+                if mutate_mode_before_fail:
+                    session.mode = "play"
+                    raise RuntimeError("late play build boom")
+                raise RuntimeError("play build boom")
+            return original_build_impl(checkpoint, mode, override_reward_contract)
+
+        monkeypatch.setattr(session, "_build_impl", failing_play_build)
+
+        # 1. Clean Watch6 b8-s3: failed set_mode("play") re-selects replay and keeps error.
+        first_replay = session._watch_replay
+        session.set_mode("play")
+        assert session.mode == "watch"
+        assert session._watch_replay is not None
+        assert session._watch_replay is not first_replay
+        assert session.last_error == "Cannot enter play mode: play build boom"
+        assert session.last_error_overridable is False
+        snap = session.snapshot()
+        assert snap["session"]["watch_source"] == "replay"
+        assert snap["session"]["error"] == "Cannot enter play mode: play build boom"
+
+        # 2. Opted-out Watch: failed set_mode("play") preserves _replay_opted_out (stays live).
+        session.set_epsilon(0.2)
+        assert session._replay_opted_out is True
+        assert session._watch_replay is None
+        deadline = time.monotonic() + 10
+        while session._replay_bank._ready.empty() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        session.set_mode("play")
+        assert session.mode == "watch"
+        assert session._replay_opted_out is True
+        assert session._watch_replay is None
+        assert session._replay_pending is False
+        assert session.last_error == "Cannot enter play mode: play build boom"
+
+        # 3. Unclean Watch gate (watch_roster != mixed): does not re-select replay.
+        session.new_game()
+        assert session._watch_replay is not None
+        deadline = time.monotonic() + 10
+        while session._replay_bank._ready.empty() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        session.watch_roster = "all_b8"
+        assert not session._is_clean_mixed_watch6_b8()
+        session.set_mode("play")
+        assert session.mode == "watch"
+        assert session._watch_replay is None
+        assert session._replay_pending is False
+        assert session.last_error == "Cannot enter play mode: play build boom"
+
+        # 4. Post-mutation failure falling back via _build(..., mode=MODE_WATCH) also re-selects.
+        mutate_mode_before_fail = True
+        session.set_mode("play")
+        assert session.mode == "watch"
+        assert session._is_clean_mixed_watch6_b8()
+        assert session._watch_replay is not None
+        assert session.last_error == "Cannot enter play mode: late play build boom"
+    finally:
+        session.close()
