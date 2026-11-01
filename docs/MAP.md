@@ -1,39 +1,45 @@
 # docs/ tree map
 
-One line for every top-level file and folder in `docs/` (snapshot 2026-10-20). For per-document
-status tables see [README.md](README.md); this file is only the whole-tree layout. Descriptions come
-from each file's own header; "unclear" means the header did not say.
+One line for every top-level file and folder in `docs/` (updated 2026-11-01). For the project
+overview and command reference start at [INDEX.md](INDEX.md); for per-document status tables see
+[README.md](README.md).
 
 ## Start here (new reader)
 
-1. [STATUS.md](STATUS.md): released agent, standing decisions, campaign authority.
-2. [research/final_run_20261019/HANDOFF_2026-10-20.md](research/final_run_20261019/HANDOFF_2026-10-20.md),
-   then [CAMPAIGN_LOG.md](research/final_run_20261019/CAMPAIGN_LOG.md): the active T34 campaign.
-3. [research/final_run_20261019/SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CONTRACT.md) and
-   [P7_STATISTICS.md](research/final_run_20261019/P7_STATISTICS.md): the ratified pass rules.
-4. [GLOSSARY.md](GLOSSARY.md) (or [research/GLOSSARY.md](research/GLOSSARY.md)) and [TIMELINE.md](TIMELINE.md).
-5. [architecture/](architecture/) and [ml_algorithm.md](ml_algorithm.md): how the system works.
-6. [research/INDEX.md](research/INDEX.md): find any dated result or decision.
-
-Files being added in parallel on 2026-10-20 (links may 404 until they land): [GLOSSARY.md](GLOSSARY.md),
-[TIMELINE.md](TIMELINE.md), [architecture/](architecture/), [experiments/README.md](experiments/README.md),
-and a rewrite of [research/INDEX.md](research/INDEX.md).
+1. [INDEX.md](INDEX.md): project overview, served Watch/Play setup today, active experiments, and commands.
+2. [STATUS.md](STATUS.md): released agent, Watch replay bank status, standing owner rules, and campaign authority.
+3. [research/ROADMAP.md](research/ROADMAP.md): synthesized current-round and later-round research plans (*advice, not decisions*).
+4. [research/final_run_20261019/CAMPAIGN_LOG.md](research/final_run_20261019/CAMPAIGN_LOG.md) and
+   [HANDOFF_2026-10-20.md](research/final_run_20261019/HANDOFF_2026-10-20.md): active T34 campaign log and initial handoff.
+5. [research/final_run_20261019/SUCCESS_CONTRACT.md](research/final_run_20261019/SUCCESS_CONTRACT.md) and
+   [P7_STATISTICS.md](research/final_run_20261019/P7_STATISTICS.md): ratified pass rules.
+6. [notes/README.md](notes/README.md) ([notes/GLOSSARY.md](notes/GLOSSARY.md)),
+   [research/GLOSSARY.md](research/GLOSSARY.md), and [TIMELINE.md](TIMELINE.md).
+7. [architecture/WEB_MAP.md](architecture/WEB_MAP.md), [architecture/TESTS_MAP.md](architecture/TESTS_MAP.md),
+   and [ml_algorithm.md](ml_algorithm.md): how the system works.
+8. [../research/INDEX.md](../research/INDEX.md) and [research/INDEX.md](research/INDEX.md): find any study package or dated decision.
 
 ## Current campaign & governance
 
 | Path | What it is |
 | --- | --- |
-| [STATUS.md](STATUS.md) | Current state (release updated 2026-10-17) and owner-ratified campaign authority. |
+| [INDEX.md](INDEX.md) | Top-level project map: what the repo is, served Watch/Play today, active T34 studies, experiment locations, and run commands. |
+| [STATUS.md](STATUS.md) | Current state (snapshot 2026-11-01; Watch bank 2026-10-31; live `b8-s3` release 2026-10-17) and standing owner rules. |
+| [research/ROADMAP.md](research/ROADMAP.md) | Round-01 synthesized current-round and later-round research roadmap (advice only, not ratified decisions). |
 | [research/final_run_20261019/](research/final_run_20261019/) | T34 "ExIt-B8" campaign: handoff, campaign log, final/merged plans, design v2, success contract, P7 statistics, speed advice. |
-| `research/governance_*.md` (in [research/](research/)) | Governance tiers (2026-09-26) and dated amendments; [README.md](README.md) lists which are current. |
+| `research/governance_*.md` & [research/governance_a100_sandbox_20261026/](research/governance_a100_sandbox_20261026/) | Governance tiers (2026-09-26), dated amendments, and A100 sandbox governance; [README.md](README.md) lists which are current. |
 | [research/ops/](research/ops/) | 2026-10-20 operational snapshots: artifacts inventory, worktree inventory, Colab units ledger. |
 
 ## Research results & indexes
 
 | Path | What it is |
 | --- | --- |
-| [research/](research/) | ~135 dated records (T1..T16 studies, M3..M6 results, releases, death censuses, perf notes, JSON evidence). |
-| [research/INDEX.md](research/INDEX.md) | Chronological locator for research and decision documents. |
+| [research/](research/) | Dated records (T1..T16 studies, M3..M6 results, releases, death censuses, Round 30/32 & Watch6 notes, JSON evidence). |
+| [research/INDEX.md](research/INDEX.md) | Chronological locator for loose research and decision documents in `docs/research/`. |
+| [research/catalog/](research/catalog/) | Detailed narrative catalogs of historical `research/*` packages. |
+| [research/results/](research/results/) | Sidecars and decision summaries (e.g. `P1_Y3_offline_critic_DECISION_20261022.md`, `L2prime_mac_analysis_20261022.json`). |
+| [research/round30_postf4_20261025/](research/round30_postf4_20261025/) | Post-F4 Round 30 intent, handoff, and ruling records. |
+| [notes/](notes/) | Fact-checked, line-cited topic notes and [notes/GLOSSARY.md](notes/GLOSSARY.md) (snapshot 2026-10-25). |
 | [research/GLOSSARY.md](research/GLOSSARY.md) | Evaluation vocabulary used in release, gate and redesign records. |
 | [research_findings_2026-09-24.md](research_findings_2026-09-24.md) | September evidence index (superseded as a status source 2026-10-08). |
 | [research_review_2026-09-24/](research_review_2026-09-24/) | Astra four-agent review of the learning program (evaluation, learning, operations, strategy). |
@@ -64,7 +70,7 @@ and a rewrite of [research/INDEX.md](research/INDEX.md).
 
 | Path | What it is |
 | --- | --- |
-| [architecture/](architecture/) | Architecture write-ups (being added 2026-10-20). |
+| [architecture/](architecture/) | Architecture maps: [WEB_MAP.md](architecture/WEB_MAP.md) (`web/`) and [TESTS_MAP.md](architecture/TESTS_MAP.md) (`tests/`). |
 | [architecture.svg](architecture.svg) | System architecture diagram. |
 | [ml_algorithm.md](ml_algorithm.md) | Apex DQN algorithm design (historical vector policy; limited current scope). |
 | [colab-cli.md](colab-cli.md) | Operator guide for the Mac-side Colab CLI supervisor. |

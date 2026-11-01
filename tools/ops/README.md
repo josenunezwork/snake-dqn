@@ -51,9 +51,10 @@ supervisor continues to own cleanup. A submitted job records its `EXIT=` marker
 when the supervisor exits; an uncertain tmux submission is labelled in the log.
 Logs are registered with `watchd.sh`, which is started if needed.
 
-The dispatch wrapper's built-in automatic retry is the exact supervisor accounting failure
-`AccountingError('assignment endpoints changed during allocation')`, after the
-failed attempt has terminated and its receipt proves cleanup/release. All other
+The dispatch wrapper's built-in automatic retry handles pre-allocation account-inventory
+races (`AccountingError('assignment endpoints changed during allocation')` and
+`reconcile_other_assignments_race`), after the failed attempt has terminated and its
+receipt (or exact unallocated reconciliation) proves cleanup/release. All other
 errors, uncertain release, and a second failure stop. The retry uses a saved copy
 of the original manifest with a new job ID (bounded to 64 characters) and fresh
 output directory; the original
@@ -98,7 +99,8 @@ in `Service Unavailable`/503, supervisor termination, and independent proof that
 endpoint was assigned and no VM compute or transfers occurred. Under the broker's
 account lock, dispatch verifies the exact pending/config identity, absence of all
 durable endpoint records, a GET-only notebook recovery returning no endpoint, and
-unchanged account membership below three assignments. It archives that pending
+unchanged account membership below the account assignment cap (`ACCOUNT_ASSIGNMENT_CAP = 6`
+since 2026-10-31). It archives that pending
 record in `unavailable.json` before retiring just that proven empty intent. The
 supervisor's original incomplete receipt remains unchanged; it does not acquire
 an invented `stop_verified` flag. Unknown errors, timeout, 400 entitlement errors,
@@ -411,8 +413,13 @@ The daemon polls every 15 seconds. It counts dispatch snapshots/logs/receipts an
 durable queued submissions, and reads account-wide `colab sessions` to count
 unmanaged/legacy assignments and avoid mistaking historical unverified receipts
 for current capacity. Unknown inventory stops submissions. It reserves at most
-three occupied/pending runtime slots across competing daemons; the supervisor
-independently enforces account allocation and pending-identity fences. A durable
+**six** occupied/pending runtime slots across competing daemons (`ACCOUNT_ASSIGNMENT_CAP = 6`
+since 2026-10-31) and enforces an L4 sub-cap of at most **three** concurrent L4 runtimes
+(`ACCOUNT_L4_CAP = 3` in `ready_queue.py`); the supervisor independently enforces account
+allocation and pending-identity fences. Packages with many small contract/sidecar inputs
+should pack them into one deterministic `input-metadata.tar.gz` via
+`research/metadata_archive.py` (`<= 12` total transfers) to stay well within the 300 s
+staging window. A durable
 claim precedes starting each worker. Restarting cannot repeat an ambiguous claim.
 `HELD` or an interrupted `DISPATCHING` entry requires inspection; do not reset it
 to READY without reconciling the original submission. The daemon keeps polling

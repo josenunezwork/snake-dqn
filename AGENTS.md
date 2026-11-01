@@ -13,7 +13,7 @@ Stronger models now; cut ceremony that does not pay for itself.
 3. **Fewer canaries.** Unchanged transport tree + unchanged job package (only parameters/seeds differ) → dispatch the main run directly. One canary on H100 *or* A100 suffices; never block on an H100 proof when H100 returns 503.
 4. **Automatic mechanical retries.** Verified stop + no outputs + known mechanical class (transport timeout, upload cap, allocation refused) → retry automatically with a fresh identity up to the package's limit, no new review/packet cycle; report afterwards.
 5. **Transport registry holds several qualified trees.** Activating a fixed transport must never block or race jobs queued/running on the previous qualified tree.
-6. **Dispatch.** Keep all 3 Colab runtimes busy from a ready queue; don't ask the owner about operational steps; do multiple requested things in parallel.
+6. **Dispatch.** Keep Colab runtimes busy (account cap `6` total, L4 sub-cap `3` in `tools/ops/ready_queue.py` since 2026-10-31) from a ready queue; don't ask the owner about operational steps; do multiple requested things in parallel.
 7. **Always kept, any lane:** held-out/test data never used for training or tuning; honest reporting of what was actually measured; verified stops and runtime cleanup; safety-prohibited actions excluded; releases need the confirmation lane plus normal sign-off.
 
 
@@ -33,8 +33,7 @@ Kept: Mac-only strict gate and serving qualification, fresh paired banks, surviv
 
 **Colab credits (owner, 2026-10-20):** use the owner's Colab Pro+ credits whenever they speed up our work or add a parallel research lane — do not wait for the Mac or ask first. Go through the qualified CLI supervisor (`research/colab_cli`, QUALIFICATION.md), L4 by default, price per useful result, stay within each study's registered caps. Mac-only work stays on the Mac: Path B timing/paced tests, the strict gate, serving qualification. **Goal (owner, 2026-10-20): spend all ~1,160 Colab units by ~2026-11-20 (~39 u/day) on lanes that produce decisions** — see the compute portfolio in docs/research/final_run_20261019/CAMPAIGN_LOG.md. **Units never block (owner, 2026-10-24, STANDING):** Colab units are never by themselves a reason to decline, shrink or delay work that could speed up the campaign. Only science/pre-registration, integrity, safety and the owner's release rules may block; budgets/caps are generous runaway guards (timeouts, per-job caps), not rationing — no judge rulings over unit shortfalls, the operator raises the guard and logs it. Caps written into a pre-registration before data still need a pre-data judge amendment. **No Colab budgets (owner, 2026-10-24 later, STANDING):** 'remove budget — fine using all Colab credits in 1 week if even possible.' There are no unit budgets or ceilings; per-job timeouts remain as runaway guards; pre-registered science caps remain unless a pre-data judge amends them; actively seek high-value uses for the credits. **Approvals (owner, 2026-10-20):** all Colab use is pre-approved; any other decision needing approval (ratifying a registration, funding gates) goes to one independent Fable judge instead of the owner, is recorded in CAMPAIGN_LOG.md, and is reported to the owner. **Release/serving changes still need the owner's OK** (SUCCESS_CONTRACT §4; corrected 2026-10-20 per RULING_label_ordering.md §4 — a Fable judge may only recommend a release).
 
-Older summary (2026-10-08; released-agent and goal bullets are SUPERSEDED — B8 s3 is served since
-2026-10-17, see docs/STATUS.md):
+Older summary (2026-10-08; released-agent and goal bullets are SUPERSEDED — Watch serves the 132-session `exact-stop-l2-prime` replay bank `watch-replay-bank-live-132` with live bare `b8-s3` fallback, and Play serves live bare `b8-s3` since 2026-10-17; see [docs/STATUS.md](docs/STATUS.md) and [docs/INDEX.md](docs/INDEX.md)):
 
 [docs/STATUS.md](docs/STATUS.md) is the current-truth source. Where it conflicts with older
 text below or in dated docs, STATUS.md wins. Summary:
@@ -65,8 +64,9 @@ text below or in dated docs, STATUS.md wins. Summary:
 
 All **new** Colab work uses the Mac-side supervisor in `research/colab_cli/` and the official CLI. It is the only
 allocator: it serializes allocation and stop, uses `--auth oauth2`, `COLAB_CLI_ASSIGN_RETRIES=0`, unique session
-names and per-lane state files, and counts every account assignment (including notebook workers) against the cap of
-three. Do not call `colab new`, `stop`, `exec`, `upload`, or `download` directly for a job. The supervisor validates
+names and per-lane state files, and counts every account assignment (including notebook workers) against the
+account-wide cap of **six** (`ACCOUNT_ASSIGNMENT_CAP = 6` since 2026-10-31, with `ACCOUNT_L4_CAP = 3` concurrent L4
+runtimes enforced by `tools/ops/ready_queue.py`). Do not call `colab new`, `stop`, `exec`, `upload`, or `download` directly for a job. The supervisor validates
 the pinned commit/script/input hashes and fresh absolute output directory, uploads rather than mounts Drive, starts a
 lease-fenced runtime subprocess, polls file telemetry with explicit timeouts, verifies bounded immutable exports on
 the Mac, writes a create-only receipt, stops, and confirms disappearance from `colab sessions`.
@@ -75,7 +75,7 @@ Use `snake-dqn-colab-jobs` before preparing or reviewing either transport. Keep 
 Mac-only inputs; Python 3.12 uv environment; cu126 for L4/A100/H100 and cu128 for Blackwell; measured estimates and
 first-cap-wins wall/unit limits; deterministic use of available vCPUs; progress about every two minutes; fresh output
 directories; complete checkpoint state; hash-bound inputs and receipts. A CLI exit code is not job success: inspect
-telemetry and the terminal receipt. Never retry an allocation or a job automatically, buy units, run
+telemetry and the terminal receipt. Never perform ad-hoc manual retries inside a CLI session (only `tools/ops/dispatch.sh`'s single pre-allocation accounting-race retry and `tools/ops/ready_queue.py`/`auto_retry.py`'s bounded outcome-blind mechanical retries after verified stop + zero outputs under Fast-process Rule #4 are permitted), buy units, run
 `colab auth`/`drivemount`, or use Drive inside a CLI runtime. `auth` and `drivemount` are human-interactive only.
 
 `research/colab_queue/`, its manifests, and `notebooks/colab_queue_worker*.ipynb` are legacy **only for the two
@@ -271,12 +271,17 @@ BaseReplayBuffer (ABC) - provides add(), sample(), is_ready()
 
 ### Model (src/model/)
 
-**Two** networks ship, one per stack:
+**Three** networks ship, one per stack:
 
 ```
+Ego2sNet             # Dual-scale ego-raster + 60-scalar conv Dueling DQN (~1.64M params; served B8 / T34)
 ApexNetwork          # Feedforward Dueling DQN (58 or 61 → 512 → 256 → V+A streams)
-RasterDuelingNetwork # Dual-scale conv Dueling DQN, LayerNorm fusion trunk
+RasterDuelingNetwork # Dual-scale conv Dueling DQN, LayerNorm fusion trunk (raster31v2 / PQN)
 ```
+
+`Ego2sNet` (`src/model/ego2s_network.py`) powers the released `b8-s3` checkpoint (`obs_spec: ego2s-bv8`)
+and the active T34 ExIt-B8 campaign. It fuses dual-scale heading-aligned ego rasters with 60 scalars
+(including 30 `v8` free-space safety inputs) into a 256-D trunk before dueling value/advantage streams.
 
 `ApexNetwork` owns its feature layer and value/advantage streams directly.
 `dueling_q` combines the streams, shared initialization helpers set their
@@ -482,10 +487,12 @@ gate and serving qualification (see "Campaign authority" above). Key properties 
 - [src/training/apex_actor.py](src/training/apex_actor.py) - Distributed actor process
 - [src/training/apex_learner.py](src/training/apex_learner.py) - Centralized GPU learner
 - [src/training/apex_buffer.py](src/training/apex_buffer.py) - Distributed buffer process with IPC
+- [src/model/ego2s_network.py](src/model/ego2s_network.py) - `Ego2sNet`: dual-scale ego-raster + 60-scalar Dueling CNN (`ego2s-bv8`, ~1.64M params); the served `b8-s3` and T34 network
 - [src/model/apex_network.py](src/model/apex_network.py) - Feedforward Dueling DQN (`vector61`); the Apex stack's network
 - [src/model/raster_network.py](src/model/raster_network.py) - `RasterDuelingNetwork`: dual-scale conv Dueling DQN (`raster31v2`); the PQN stack's network
-- [src/model/obs_spec.py](src/model/obs_spec.py) - Observation contract: `vector61` vs `raster31v2`, the `obs_spec` checkpoint key, raster shapes
+- [src/model/obs_spec.py](src/model/obs_spec.py) - Observation contract: `vector61`, `ego2s-*`, and `raster31v2`, the `obs_spec` checkpoint key, raster shapes
 - [src/model/inference_agent.py](src/model/inference_agent.py) - Forward-only `InferenceAgent` (load checkpoint → greedy/masked action); no optimizer/replay/target. Dispatches on `obs_spec`, so it loads both stacks. Use for eval/serving.
+- [src/simd_env/grid_sim.py](src/simd_env/grid_sim.py) - `GridBatchSim`: cell-exact Numba batched simulator used by B8 and T34/Watch6 exact-stop search
 - [src/simd_env/batch_sim.py](src/simd_env/batch_sim.py) - `BatchSim`: NumPy-vectorized E x S batched arena, bit-exact with the Python game
 - [src/training/pqn_trainer.py](src/training/pqn_trainer.py) - `PQNTrainer` / `PQNConfig` / `PQNTelemetry`: synchronous Q(λ), no replay/target/PER
 - [src/training/pqn_selfplay.py](src/training/pqn_selfplay.py) - `OpponentPool`: frozen-opponent pool for PQN self-play rollouts
@@ -498,6 +505,8 @@ gate and serving qualification (see "Campaign authority" above). Key properties 
 - [src/data/score_store.py](src/data/score_store.py) - SQLite `ScoreStore` for the human-play leaderboard (`scores.db`, separate from the replay DB)
 - [src/core/game_config.py](src/core/game_config.py) - Immutable configuration system
 - [web/backend/session.py](web/backend/session.py) - Live `GameSession`: watch / train / **play** (human-vs-AI, scored) modes
+- [web/backend/served_checkpoint.py](web/backend/served_checkpoint.py) - Pinned served checkpoint registry (`b8-s3`, `frp3-s12`, `champion`) and Watch roster resolution
+- [web/backend/watch_replay.py](web/backend/watch_replay.py) - Verified `snake-watch-replay/v1` `ReplayBank` playback for Watch replay mode (`SNAKE_WATCH_SOURCE=replay`)
 - [configs/default.yaml](configs/default.yaml) - Default configuration values
 - [configs/free_space_v2.yaml](configs/free_space_v2.yaml) - Training config for the 61-D free-space incumbent champion
 - [configs/eval_free_space.yaml](configs/eval_free_space.yaml) - Eval arena (widens frozen opponents to 61-D)

@@ -6,10 +6,14 @@ vector or raster policy) is the
 single source of truth; the React frontend is a pure view that renders frames streamed
 over a WebSocket. No game logic or model inference runs in the browser.
 
-**Served agent:** since 2026-10-17 the default Watch hero is bare **B8 seed 3** (`b8-s3`,
-no veto) in the `mixed` Watch roster. Rollback by restart: `SNAKE_SERVE_CHECKPOINT=frp3-s12`
-(or `=champion`). Full map of modules, the WebSocket protocol and every `SNAKE_SERVE_*`
-env var: [docs/architecture/WEB_MAP.md](../docs/architecture/WEB_MAP.md).
+**Served setup:** Play runs live bare **B8 seed 3** (`b8-s3`, no veto) in the `mixed`
+`frp3-s12 + v8` roster (released 2026-10-17). In `.claude/launch.json`, Watch plays the
+132-session Colab-precomputed `exact-stop-l2-prime` replay bank (`SNAKE_WATCH_SOURCE=replay`,
+`SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132`, visibly labelled `"Recorded assisted hero"`),
+with live bare `b8-s3` as automatic fallback (`SNAKE_WATCH_SOURCE=live`). Checkpoint rollback by
+restart: `SNAKE_SERVE_CHECKPOINT=frp3-s12` (or `=champion`). Full map of modules, the WebSocket
+protocol, and every `SNAKE_SERVE_*` / `SNAKE_WATCH_*` env var:
+[docs/architecture/WEB_MAP.md](../docs/architecture/WEB_MAP.md).
 
 ```
 React + TS (canvas)  ──WebSocket──►  FastAPI  ──►  GameState · selected policy
@@ -80,6 +84,7 @@ web/
     served_checkpoint.py  pinned registry (b8-s3 / frp3-s12 / champion), env-selected
     safety_veto_serving.py  v2/v5/v7/v8 veto wrappers (vector61 only)
     ego2s_policy.py, raster_policy.py  serving policies for raster/ego checkpoints
+    watch_replay.py     verified snake-watch-replay/v1 precomputed Watch replay bank
     pathb*.py, serving_speed.py, release_monitoring.py  see WEB_MAP.md
     metrics.py          dashboard data from saved_snakes/ + logs/eval_*.json
     state_labels.py     vector feature grouping for the inspector

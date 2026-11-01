@@ -1,6 +1,11 @@
-# Job A: resident collector + learner feasibility
+# Job A: resident collector + learner feasibility & TRAIN-01 closeout
 
-## Current packets: eager 01 and compiled reseal 03
+## Current status (2026-10-31)
+
+- **A-3 throughput matrix (`a3-eager-attempt-02`, `a3-attempt-04`):** **PASS (`24/24` cells each)** — integrated collection + PPO steady hero rows/s on A100 reached `14,846` eager / `21,133` compiled at `E1024`, `21,936` / `25,710` at `E2048`, and `25,257` / `28,113` at `E4096` (learner-only `~140k` rows/s).
+- **`TRAIN-01` long-horizon GPU-resident PPO (`t34-sol/train01-closeout/SUMMARY.md`):** **Closed** after completing all `384` updates (`100,663,296` rows from `b8-s3`). Endpoint H5000 equal-mix paired mass vs bare `b8-s3` was **`+8.09`** (`CI95 [-18.66, +34.85]`; scripted `+26.32`, frozen `+2.85`, mixed `-4.90`; update-320 peak `+14.23` `[-11.86, +40.32]`), below the `>= +40` nomination bar; zero checkpoints crossed into the Mac strict gate.
+
+## Packet provenance: eager 01 and compiled reseal 03
 
 [`A3_EAGER01.md`](A3_EAGER01.md) documents the separately sealed
 `packet-a3-eager-01`: `compile_mode=none`, the four non-compile repairs, and the
