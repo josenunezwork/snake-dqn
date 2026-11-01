@@ -16,7 +16,7 @@ Watch plays **Colab-precomputed replays** (`exact-stop-l2-prime` search hero ove
 `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline in [`research/watch_replay/`](../research/watch_replay/))
 visibly labelled **"Recorded assisted hero"**:
 
-- **Active bank:** `snake-dqn-artifacts/watch-replay-bank-live-132` (**132 verified sessions** = banks
+- **Active bank:** `snake-dqn-artifacts/watch-replay-bank-live-168` (**132 verified sessions** = banks
   `01–08` and `10–12`, all `exact-stop-l2-prime`, distinct seeds; switched 2026-10-31; previous
   48-session bank kept at `watch-replay-bank-live`). Bank-02 descriptive stats: mean 412 mass/session,
   0 deaths in the 5 sessions reaching `L > 1,000`.
@@ -33,7 +33,7 @@ visibly labelled **"Recorded assisted hero"**:
 - **`exact-stop-l1` validator support (`73974411`, 2026-11-01):** `web/backend/watch_replay.py` and
   `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`, `interval = 5`, `H = 300`) in
   `ASSISTED_CONTROLLERS` alongside `"exact-stop-l2-prime"`. The active served directory
-  `watch-replay-bank-live-132` contains only `exact-stop-l2-prime` `.watch.gz` recordings
+  `watch-replay-bank-live-168` contains only `exact-stop-l2-prime` `.watch.gz` recordings
   (`ReplayBank._prefetch` accepts any valid controller in `CONTROLLERS` without per-controller env
   pinning; A100 `W = 6` banks `14l1–16l1` are actively generating into separate artifact packets, and
   serving any future `exact-stop-l1` bank requires prospective confirmation, owner approval, `git pull`
@@ -171,7 +171,7 @@ Active campaign: **T34 ExIt-B8**. Binding documents on `main`, in order:
 These rules replace older conflicting text (e.g. the 5× RunPod rule, "always serverless", or
 `champion + v8` / `frp3-s12 + v8` as the served agent).
 
-- **Served defaults:** Watch = 132-session `exact-stop-l2-prime` replay bank (`watch-replay-bank-live-132`, banks `01–08` and `10–12`) with live `b8-s3` fallback; Play = live bare `b8-s3` (`3e649783`) without a veto. Rollbacks and monitoring thresholds are at the top of this file.
+- **Served defaults:** Watch = 132-session `exact-stop-l2-prime` replay bank (`watch-replay-bank-live-168`, banks `01–08` and `10–12`) with live `b8-s3` fallback; Play = live bare `b8-s3` (`3e649783`) without a veto. Rollbacks and monitoring thresholds are at the top of this file.
 - **Implementers (owner, 2026-10-27, standing):** project code is implemented and reviewed only by **Argon** (Gemini 4 Argon via Antigravity CLI, own git worktree, local commits) and **Astra** (Codex). The reviewer is always the other one; authors never review their own builds. Do not use the Sol implementer persona (`AGENTS.md`, commit `1ad5dc95`).
 - **Standing scope decisions (2026-10-17):**
   - *October redesign goal met and closed:* `b8-s3` beat `frp3-s12 + v8` without a veto.
