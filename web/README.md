@@ -9,9 +9,12 @@ over a WebSocket. No game logic or model inference runs in the browser.
 **Served setup:** Play runs live bare **B8 seed 3** (`b8-s3`, no veto) in the `mixed`
 `frp3-s12 + v8` roster (released 2026-10-17). In `.claude/launch.json`, Watch plays the
 132-session Colab-precomputed `exact-stop-l2-prime` replay bank (`SNAKE_WATCH_SOURCE=replay`,
-`SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132`, visibly labelled `"Recorded assisted hero"`),
-with live bare `b8-s3` as automatic fallback (`SNAKE_WATCH_SOURCE=live`). Checkpoint rollback by
-restart: `SNAKE_SERVE_CHECKPOINT=frp3-s12` (or `=champion`). Full map of modules, the WebSocket
+`SNAKE_WATCH_REPLAY_DIR=.../watch-replay-bank-live-132`, `.watch.gz` gzipped canonical JSONL
+recordings visibly labelled `"Recorded assisted hero"`), with live bare `b8-s3` as automatic
+fallback (`SNAKE_WATCH_SOURCE=live`). Commit `73974411` also enabled `"exact-stop-l1"` in
+`watch_replay.py` (`ASSISTED_CONTROLLERS`; serving `exact-stop-l1` recordings requires owner
+approval plus `git pull` and restarting `web/serve.py`). Checkpoint rollback by restart:
+`SNAKE_SERVE_CHECKPOINT=frp3-s12` (or `=champion`). Full map of modules, the WebSocket
 protocol, and every `SNAKE_SERVE_*` / `SNAKE_WATCH_*` env var:
 [docs/architecture/WEB_MAP.md](../docs/architecture/WEB_MAP.md).
 

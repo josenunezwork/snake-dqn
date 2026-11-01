@@ -24,6 +24,13 @@ visibly labelled **"Recorded assisted hero"**:
   `SNAKE_WATCH_REPLAY_DIR`. **Live bare `b8-s3` remains the automatic fallback** (empty, invalid, or
   exhausted bank), and **Play always stays live** (`b8-s3` without a veto).
 - **Watch replay rollback:** unset `SNAKE_WATCH_SOURCE` (or set `SNAKE_WATCH_SOURCE=live`) and restart.
+- **`exact-stop-l1` validator support (`73974411`, 2026-11-01):** `web/backend/watch_replay.py` and
+  `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`, `interval = 5`, `H = 300`) in
+  `ASSISTED_CONTROLLERS` alongside `"exact-stop-l2-prime"`. The active served directory
+  `watch-replay-bank-live-132` contains only `exact-stop-l2-prime` `.watch.gz` recordings
+  (`ReplayBank._prefetch` accepts any valid controller in `CONTROLLERS` without per-controller env
+  pinning; serving any future `exact-stop-l1` bank requires owner approval, `git pull` on the main
+  checkout, and a `web/serve.py` restart).
 - **Product efficacy measurement status:** synchronous `exact-stop-l2-prime` efficacy vs bare B8 in the
   product H14400 setting is **not yet confirmed and is currently running in Watch6 V3**
   ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)). The earlier Watch6 V2
@@ -185,7 +192,7 @@ pass, serving qualification, or release was established by this snapshot.
   [CAMPAIGN_LOG.md](research/final_run_20261019/CAMPAIGN_LOG.md) closure row dated 2026-10-26). Work
   redirected to GPU-resident training and Mac served search. The `A-3` throughput result (`88ba3f56`)
   measured collection + PPO throughput only, not skill or live-game identity.
-- **GPU training (`TRAIN-01`, simulator-D development):** At 2026-10-27 23:56 PT, packet 15
+- **GPU training (`TRAIN-01`, simulator-D development; closed 2026-10-30 at `384` updates without nomination — see active campaign section above):** At 2026-10-27 23:56 PT, packet 15
   (runtime/seal/verification `5c0a101a` / `a51380c1` / `6e54ed4c`, log
   `ops/logs/sandbox-a-train01-20261027-15.log`) had completed finite learner updates through update
   16 with diagnostic-update-16 proxy in progress (`sandbox-a-resident/train01-attempt-15/output/receipt.json`

@@ -108,7 +108,7 @@ corrected claims, for example that CNNs were never trained in the older trials.
 |---|---|
 | Project & experiment map (start here) | [docs/INDEX.md](docs/INDEX.md) |
 | Current status & standing rules | [docs/STATUS.md](docs/STATUS.md) |
-| Research roadmap (Round-01 advice, not decisions) | [docs/research/ROADMAP.md](docs/research/ROADMAP.md) |
+| Research roadmap (Round-03 advice, not decisions) | [docs/research/ROADMAP.md](docs/research/ROADMAP.md) |
 | Documentation status guide | [docs/README.md](docs/README.md) |
 | `docs/` directory layout | [docs/MAP.md](docs/MAP.md) |
 | Cited project notes & glossary | [docs/notes/README.md](docs/notes/README.md) ([docs/notes/GLOSSARY.md](docs/notes/GLOSSARY.md); evaluation glossary: [docs/research/GLOSSARY.md](docs/research/GLOSSARY.md)) |

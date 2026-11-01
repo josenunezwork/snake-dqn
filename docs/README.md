@@ -15,7 +15,7 @@ permission to resume an old plan.
 | --- | --- | --- |
 | [INDEX.md](INDEX.md) | **Current entry map** | Project overview, served Watch (132-session replay bank) & Play (live `b8-s3`), active T34 state, package locations, and commands. |
 | [STATUS.md](STATUS.md) | **Current authority** | Served Watch/Play setup, released `b8-s3` without a veto, standing owner rules, active campaign verdicts, and historical snapshots. |
-| [research/ROADMAP.md](research/ROADMAP.md) | **Advice only (not ratified decisions)** | Round-01 synthesized current-round and later-round research roadmap, Watch6 V3 routing tree, and settled panel disagreements. |
+| [research/ROADMAP.md](research/ROADMAP.md) | **Advice only (not ratified decisions)** | Round-03 synthesized current-round and later-round research roadmap (`Watch6 V3` / `Watch6-L1-V1` routing, ops hardening, and `TopoStop-v3`), plus settled panel disagreements. |
 | [../research/INDEX.md](../research/INDEX.md) | **Current package map** | One-row-per-directory index of all 162 study and tooling packages under `research/`. |
 | [research/INDEX.md](research/INDEX.md) | **Current record map** | Chronological locator for loose research and decision documents in `docs/research/`. |
 | [notes/README.md](notes/README.md) | **Cited reference (as of 2026-10-25)** | Fact-only, line-cited topic notes and [notes glossary](notes/GLOSSARY.md) covering models, redesign, T34, Big-Lever, F0/F4, and compute. |

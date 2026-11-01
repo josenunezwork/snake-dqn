@@ -30,7 +30,7 @@ is missing, `GET /` returns a JSON hint instead of the UI.
 | [`served_checkpoint_pins.json`](../../web/backend/served_checkpoint_pins.json) | Strict-gate receipt pins (sha256 + evidence paths) authorizing non-champion checkpoints. |
 | [`safety_veto_serving.py`](../../web/backend/safety_veto_serving.py) | Free-space safety veto wrappers (v2/v5/v7/v8) for vector61 policies, each bound fail closed to its strict receipt hashes. |
 | [`ego2s_policy.py`](../../web/backend/ego2s_policy.py) | `Ego2sServingPolicy`: forward-only serving of `ego2s-*` students (b8-s3 is served through this path, per `session.py`). |
-| [`watch_replay.py`](../../web/backend/watch_replay.py) | `ReplayBank`: verified `snake-watch-replay/v1` (`.watch.jsonl.gz`) precomputed Watch playback (`SNAKE_WATCH_SOURCE=replay`) with background SHA prefetch and automatic live `b8-s3` fallback. |
+| [`watch_replay.py`](../../web/backend/watch_replay.py) | `ReplayBank`: verified `snake-watch-replay/v1` (`.watch.gz`, gzipped canonical JSONL) precomputed Watch playback (`SNAKE_WATCH_SOURCE=replay`; `ASSISTED_CONTROLLERS = {"exact-stop-l2-prime", "exact-stop-l1"}`) with background SHA prefetch and automatic live `b8-s3` fallback. |
 | [`raster_policy.py`](../../web/backend/raster_policy.py) | `RasterServingPolicy`: serves `raster31v2` checkpoints with the training featurizer. |
 | [`pathb.py`](../../web/backend/pathb.py), [`pathb_controller.py`](../../web/backend/pathb_controller.py) | T34 Path B staged assistance, default OFF; only for the released mixed Watch6 b8-s3 hero on macOS. |
 | [`serving_speed.py`](../../web/backend/serving_speed.py) | Frame-rate ceilings for expensive policies (`DEFAULT_SERVER_SPEED_CEILING = 120.0`). |
@@ -73,7 +73,7 @@ steering is ignored. Unknown/malformed controls set `session.last_error`, never 
 | `SNAKE_SERVE_VETO_PLAY_AI` | OFF | `1/true/yes/on` wraps Play AI snakes with v2. |
 | `SNAKE_SERVE_WATCH_ROSTER` | `mixed` | `mixed` (frp3-s12 opponent) or `all_b8` (rollback). |
 | `SNAKE_WATCH_SOURCE` | `live` (`replay` in `.claude/launch.json`) | `replay` streams verified precomputed `snake-watch-replay/v1` Watch sessions (`"Recorded assisted hero"`) with live `b8-s3` fallback; `live` forces live simulation. Play is always live. |
-| `SNAKE_WATCH_REPLAY_DIR` | unset (`.../watch-replay-bank-live-132` in `.claude/launch.json`) | Directory of verified `.watch.jsonl.gz` + `.sha256` + `.complete` triplets read when `SNAKE_WATCH_SOURCE=replay`. |
+| `SNAKE_WATCH_REPLAY_DIR` | unset (`.../watch-replay-bank-live-132` in `.claude/launch.json`) | Directory of verified `.watch.gz` (gzipped canonical JSONL) + `.sha256` + `.complete` triplets read when `SNAKE_WATCH_SOURCE=replay` (`watch-replay-bank-live-132` contains only `exact-stop-l2-prime`; serving `exact-stop-l1` files requires `web/serve.py` restarted at `>= 73974411`). |
 | `SNAKE_SERVE_PATHB` | OFF | Path B assistance, only when eligible (see `pathb.eligible`). |
 | `SNAKE_MECHANICS_V2` | ON | `0/false/no` serves legacy v1 mechanics. |
 | `SNAKE_SCORES_DB` | `DEFAULT_SCORES_DB` | Play leaderboard SQLite path. |
