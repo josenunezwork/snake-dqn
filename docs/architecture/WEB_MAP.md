@@ -32,7 +32,7 @@ is missing, `GET /` returns a JSON hint instead of the UI.
 | [`ego2s_policy.py`](../../web/backend/ego2s_policy.py) | `Ego2sServingPolicy`: forward-only serving of `ego2s-*` students (b8-s3 is served through this path, per `session.py`). |
 | [`watch_replay.py`](../../web/backend/watch_replay.py) | `ReplayBank`: verified `snake-watch-replay/v1` (`.watch.gz`, gzipped canonical JSONL) precomputed Watch playback (`SNAKE_WATCH_SOURCE=replay`; `ASSISTED_CONTROLLERS = {"exact-stop-l2-prime", "exact-stop-l1"}`) with background SHA prefetch and automatic live `b8-s3` fallback. |
 | [`raster_policy.py`](../../web/backend/raster_policy.py) | `RasterServingPolicy`: serves `raster31v2` checkpoints with the training featurizer. |
-| [`pathb.py`](../../web/backend/pathb.py), [`pathb_controller.py`](../../web/backend/pathb_controller.py) | T34 Path B staged assistance, default OFF; only for the released mixed Watch6 b8-s3 hero on macOS. |
+| [`pathb.py`](../../web/backend/pathb.py), [`pathb_controller.py`](../../web/backend/pathb_controller.py) | T34 Path B staged live assistance (currently wires retired v1 `research.t34_pathb.live` at `depth = 40`; live `P1+3W` `ShadowSpine` replacement tracked as advice in [ROADMAP.md](../research/ROADMAP.md) §3.2), default OFF; only for the released mixed Watch6 `b8-s3` hero on macOS. |
 | [`serving_speed.py`](../../web/backend/serving_speed.py) | Frame-rate ceilings for expensive policies (`DEFAULT_SERVER_SPEED_CEILING = 120.0`). |
 | [`release_monitoring.py`](../../web/backend/release_monitoring.py) | JSONL telemetry (prefix `b8-release-monitor:`) to stderr for the B8 release window. |
 | [`checkpoints.py`](../../web/backend/checkpoints.py) | Containment-safe catalog of loadable checkpoints (`saved_snakes/*.pth` etc.). |

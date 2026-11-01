@@ -150,9 +150,9 @@ For synthesized current-round and later-round research plans (**advice, not deci
   steps/s under 5-opponent CUDA flood launches, SplitMix64 RNG, commit `b500d111`, subject to `<= 1e-4`
   CUDA FP32 near-tie Q re-decision checks), following `553 passed` local tests and Mac
   `E = 4 × 8` preflight `PASS`.
-- **Completed Oct 30 Claim-A exploration receipts awaiting Mac readout (and `spatial-student-pilot` fit canceled):**
-  - `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, `N = 192` v1 H5000 worlds, `m in {0, 10, 25, 50}`, run without `boost_decisions` logging): A100 receipt **`PASS`** (`t34-sol/b8-head-closedloop/main-01/output/receipt.json`), awaiting `< 3 min` Mac `closedloop_readout.py` against binding v1 `H = 5,000` `>= +40` pooled-mass / survival / `<= 15%` override bars (plus a `0 u`, `10 min` v2 boost `[0.5%, 10%]` check if any arm survives).
-  - `spatial-qbytes-01` (`origin/astra-spatial-student-pilot`): A100 Q-byte ruler receipt **`PASS`** (`t34-sol/spatial-qbytes-fix/t34-spatial-qbytes-01/ruler-output-a100-fallback/receipt.json`), awaiting Mac parity/timing audit; the `40–48 A100 u` `spatial-student-pilot` GPU fit is canceled (`0 u`, retaining compiled `.so` caches) per `t34-sol/student-direction/{astra,fable}.md` and T4 Gate-1 `KILL_T4`.
+- **Completed Oct 30 Claim-A & ruler receipts awaiting Mac readout (and `spatial-student-pilot` fit canceled):**
+  - `b8-head-closedloop` (`origin/astra-doom-auc-smoke`, `N = 192` v1 H5000 worlds, `m in {0, 10, 25, 50}`, run without `boost_decisions` logging): **sole remaining Claim-A gameplay screen**; A100 receipt **`PASS`** (`t34-sol/b8-head-closedloop/main-01/output/receipt.json`, `SUMMARY.md:50-52`), awaiting `< 2 min` Mac `closedloop_readout.py` against binding v1 `H = 5,000` `>= +40` pooled-mass / survival / `<= 15%` override bars (plus a `0 u`, `10 min` v2 boost `[0.5%, 10%]` check if any arm survives).
+  - `spatial-qbytes-01` (`origin/astra-spatial-student-pilot`, `t34-sol/spatial-qbytes-fix/SUMMARY.md:85-88`): **GPU Q-byte / `.so` cache throughput & parity ruler only** (not a Claim-A gameplay screen); A100 receipt **`PASS`** (`t34-sol/spatial-qbytes-fix/t34-spatial-qbytes-01/ruler-output-a100-fallback/receipt.json`), awaiting Mac parity/timing audit while the `40–48 A100 u` `spatial-student-pilot` GPU fit is canceled (`0 u`, retaining compiled `.so` caches) per `t34-sol/student-direction/{astra,fable}.md` and T4 Gate-1 `KILL_T4`.
 - **Colab concurrency caps:** **`6` concurrent runtimes total** (`ACCOUNT_ASSIGNMENT_CAP = 6`, tree `36285bc6` active in `ops/colab-cli-qualified.json` and verified live at `6/6` concurrent runtimes — `3 A100 @ 6.73 u/h + 3 L4 @ 1.94 u/h = 26.01 u/h`, balance `~2,154.66 u`, all `3` A100 slots now free after `14l1–16l1` finished), at most **`3` concurrent L4** (`ACCOUNT_L4_CAP = 3` in `tools/ops/ready_queue.py`; direct-dispatch `L4 < 3` locking in `tools/ops/dispatch.py` tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.2).
 - **Closed Oct 29–31 learned-policy, critic, and macro-fallback verdicts (`KILL` / `FAIL`):**
   - **TRAIN-01 GPU-resident PPO** ([`research/sandbox_a_resident/`](../research/sandbox_a_resident/),
@@ -183,10 +183,10 @@ For synthesized current-round and later-round research plans (**advice, not deci
     static `tau <= 1` with `2 * min(black, white)` acting only as an upper bound on non-Hamiltonian 2-cores,
     and vacuously set `t_cert = 1` on `ext_gain == 0` internal tail cells —
     failing `+3.85 pp < +10.0 pp` total `L >= 600` lift and `2 > 0` newly caused ordinary lethal flips from
-    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs food-exact `FECSS-L1`
-    (`TimeClearCert_v2`, pre-pocket `TimeClearCert_v2 == 0` trigger, `OUTCOME_NO_SPACIOUS` 1-step head-on mask)
-    + `3`-tick/frame incremental-refill Branch-Grafted `W = 4` `D = 384` `ShadowSpine` advice
-    in [research/ROADMAP.md](research/ROADMAP.md) §3).
+    single-suffix `sel0` and aggressive `O3`/`O5`; `0` assessment roots opened; informs closed-loop `PCCS-L1`
+    (step-exact `2.33`-pop/tick boost `TimeClearCert_v3` + hysteretic `COIL_HOLD` `π_shield` online and in rollouts +
+    dual `1.15×` `v8` head-on rules) + `P1+3W` Branch-Grafted `D = 384` `ShadowSpine` (`P1` `3`-tick/frame refill +
+    `P2–P4` `3` `20.13×` `v8_decide` workers without `dto_split.py`) advice in [research/ROADMAP.md](research/ROADMAP.md) §3).
 
 ---
 
