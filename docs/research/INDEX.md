@@ -1,8 +1,9 @@
 # Research record index
 
-Start with [../STATUS.md](../STATUS.md) for the current program state. This page has two parts:
+Start with **[../INDEX.md](../INDEX.md)** for the full project map and **[../STATUS.md](../STATUS.md)**
+for the current program state. This page has two parts:
 
-1. **Navigation and loose-file catalog** (added 2026-10-20). It lists every file directly in
+1. **Navigation and loose-file catalog** (updated 2026-11-01). It lists every file directly in
    `docs/research/` on `main`, grouped by campaign and date, with one row per file.
 2. **Chronological record** (kept from the earlier index). It includes branch-only reports and
    results recorded outside this directory.
@@ -11,12 +12,17 @@ Start with [../STATUS.md](../STATUS.md) for the current program state. This page
 
 | What | Where |
 |---|---|
-| **Current campaign (T34, search teacher)** | [final_run_20261019/](final_run_20261019/) (`HANDOFF_2026-10-20.md`, `CAMPAIGN_LOG.md`, `SUCCESS_CONTRACT.md`, `FINAL_PLAN.md`, `P7_STATISTICS.md`) |
+| **Project & experiment map** | [../INDEX.md](../INDEX.md) |
+| **Current served state & standing rules** | [../STATUS.md](../STATUS.md) |
+| **Current campaign (T34, search teacher & Watch6)** | [final_run_20261019/](final_run_20261019/) (`HANDOFF_2026-10-20.md`, `CAMPAIGN_LOG.md`, `SUCCESS_CONTRACT.md`, `FINAL_PLAN.md`, `P7_STATISTICS.md`) |
 | Specs and pre-registrations | [specs/INDEX.md](specs/INDEX.md) |
 | Advisor and panel advice | [advice/INDEX.md](advice/INDEX.md) |
 | Research code packages (`research/`) | [../../research/INDEX.md](../../research/INDEX.md) |
+| Package narrative catalogs | [catalog/](catalog/) |
+| Cited project notes (through 2026-10-25) | [../notes/README.md](../notes/README.md) |
 | Ops inventories (artifacts, worktrees, Colab units) | [ops/](ops/) |
-| Terms and definitions | [GLOSSARY.md](GLOSSARY.md) (as recorded through 2026-10-08) |
+| Terms and definitions | [GLOSSARY.md](GLOSSARY.md) (through 2026-10-08; see also [../notes/GLOSSARY.md](../notes/GLOSSARY.md)) |
+| Results & governance subfolders | [results/](results/), [round30_postf4_20261025/](round30_postf4_20261025/), [governance_a100_sandbox_20261026/](governance_a100_sandbox_20261026/) |
 | Evidence subfolders | [panel_2026-10-15/](panel_2026-10-15/), [m3c_m3d_evidence/](m3c_m3d_evidence/), [t3_diagnostics_2026-10-16_evidence/](t3_diagnostics_2026-10-16_evidence/), [t4a_posthoc_2026-10-16_evidence/](t4a_posthoc_2026-10-16_evidence/), [t5_separability_2026-10-16_evidence/](t5_separability_2026-10-16_evidence/), [t5b_risk_and_fuse_2026-10-16_evidence/](t5b_risk_and_fuse_2026-10-16_evidence/), [t8_probes_2026-10-17_evidence/](t8_probes_2026-10-17_evidence/), [t10_certificate_horizon_2026-10-17_evidence/](t10_certificate_horizon_2026-10-17_evidence/), [colab_cli_receipts/](colab_cli_receipts/), [colab_cli_ref/](colab_cli_ref/) |
 
 ## Loose-file catalog
@@ -195,12 +201,27 @@ screen or diagnostic is never promotion evidence.
 | 2026-10-18 | [q0_mass_mac_timing_20261018.json](q0_mass_mac_timing_20261018.json) | receipt | Q0 local timing on the Mac | bank_audit_pass = true |
 | 2026-10-18 | [q0_mass_worker_parity_20261018.json](q0_mass_worker_parity_20261018.json) | receipt | Q0 worker parity | PASS |
 
+### Big-Lever Round 30/32, Colab upload cap & Watch6 forecast (2026-10-24 to 10-30)
+
+| Date | File | Type | One line | Status |
+|---|---|---|---|---|
+| 2026-10-24 | [colab_upload_cap_diagnosis_2026-10-24.md](colab_upload_cap_diagnosis_2026-10-24.md) | diagnostic | Colab CLI upload-cap diagnosis and packing guidance | Diagnostic |
+| 2026-10-24 | [round30_qualification_20261024.md](round30_qualification_20261024.md) | tooling | Round 30 calibration qualification note (with `round30_codex_v_light_20261024.json`) | Qualification note |
+| 2026-10-24 | [round30_upload_relaunch_20261024.md](round30_upload_relaunch_20261024.md) | tooling | Round 30 upload-repacked relaunch note (with `round30_upload_codex_v_light_20261024.json`) | Operational note |
+| 2026-10-24 | [round30_round32_mechanical_relaunch_20261024.md](round30_round32_mechanical_relaunch_20261024.md) | tooling | Round 30 & Round 32 mechanical relaunch note (with `codex_v_light` JSON receipts) | Operational note |
+| 2026-10-25 | [round30_timing_probe_20261025.md](round30_timing_probe_20261025.md) | diagnostic | Round 30 timing probe 01 | Diagnostic |
+| 2026-10-25 | [r30_timing_upload_cap_probe02_20261025.md](r30_timing_upload_cap_probe02_20261025.md) | diagnostic | Round 30 timing & upload-cap probe 02 | Diagnostic |
+| 2026-10-25 | [r30_timing_observability_probe03_20261025.md](r30_timing_observability_probe03_20261025.md) | diagnostic | Round 30 observability probe 03 | Diagnostic |
+| 2026-10-25 | [r30_timing_certificate_probe04_20261025.md](r30_timing_certificate_probe04_20261025.md) | diagnostic | Round 30 certificate-deadline probe 04 | Diagnostic |
+| 2026-10-25 | [r30_postf4_g5_preparation_hold_20261025.md](r30_postf4_g5_preparation_hold_20261025.md) | decision | Post-F4 G5 preparation hold note (see [round30_postf4_20261025/](round30_postf4_20261025/)) | HOLD |
+| 2026-10-30 | [watch6_forecast_fix_status_2026-10-30.md](watch6_forecast_fix_status_2026-10-30.md) | tooling | Watch6 empirical W4 forecast preparation from replay banks (superseded in execution by V2/V3) | Preparation evidence |
+
 ### Reference
 
 | Date | File | Type | One line | Status |
 |---|---|---|---|---|
-| through 2026-10-08 | [GLOSSARY.md](GLOSSARY.md) | reference | Research glossary | Not updated after 2026-10-08 |
-| 2026-10-20 | [INDEX.md](INDEX.md) | reference | This index | Current |
+| through 2026-10-08 | [GLOSSARY.md](GLOSSARY.md) | reference | Research glossary (supplemented by [../notes/GLOSSARY.md](../notes/GLOSSARY.md)) | Not updated after 2026-10-08 |
+| 2026-11-01 | [INDEX.md](INDEX.md) | reference | This index | Current |
 
 ---
 
