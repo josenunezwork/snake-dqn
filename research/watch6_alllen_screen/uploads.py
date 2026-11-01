@@ -16,7 +16,6 @@ from typing import Any, Callable
 from urllib.error import URLError
 from urllib.request import urlopen
 
-from research.colab_cli import source, transfer_policy
 from research.t34_exit_b8 import public_inputs
 from research.watch6_alllen_screen import protocol as p
 from tools.ops.package_spec import _relative, digest, publish_immutable, verify_immutable
@@ -374,6 +373,8 @@ def _serial_rpcs_for_size(size: int) -> int:
 
 def check_uploads(manifest: dict[str, Any]) -> dict[str, Any]:
     """Enforce <= 8 transfers, <= 2 MiB per local input, <= 4 MiB max file, and <= 60 s est."""
+    from research.colab_cli import source, transfer_policy
+
     limit = int(manifest["max_export_bytes"])
     if limit <= 0 or limit > MAX_FILE_BYTES:
         raise ValueError(f"manifest max_export_bytes must be in 1..{MAX_FILE_BYTES}, got {limit}")

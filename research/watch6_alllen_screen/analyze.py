@@ -13,7 +13,7 @@ import numpy as np
 from scipy.stats import t
 
 from research.watch6_alllen_screen import protocol as p
-from tools.ops import auto_retry, ready_queue
+from tools.ops import auto_retry
 from tools.ops.package_spec import publish_json, verify_immutable
 from web.backend.watch_replay import B8_SHA, FRP3_SHA
 
@@ -277,16 +277,32 @@ def analyze(
 
 
 def resolve_queue_unit_dirs(ops: Path, queue_ids: list[str]) -> list[Path]:
-    """Resolve queue IDs across auto-retry and -retry-1 chains to their exports/units dirs."""
+    """Resolve queue IDs across full retry_id and -retry-1 chains to all exports/units dirs."""
     queue = auto_retry.read(ops / "ready-queue.json")
+    by_id = {str(row["id"]): row for row in queue["jobs"]}
     dirs: list[Path] = []
+    seen_dirs: set[Path] = set()
     for qid in queue_ids:
-        row = ready_queue.latest(queue, qid)
-        name = row["argv"][1]
-        internal = ops / "manifests" / f"{name}-retry-1.json"
-        manifest_path = internal if internal.exists() else Path(row["manifest"])
-        manifest = auto_retry.read(manifest_path)
-        dirs.append(Path(manifest["output_dir"]) / "exports" / "units")
+        if qid not in by_id:
+            raise ValueError(f"unknown queue identity: {qid}")
+        cur_id: str | None = qid
+        visited: set[str] = set()
+        while cur_id is not None:
+            if cur_id in visited:
+                raise ValueError(f"cyclic retry chain at {cur_id}")
+            visited.add(cur_id)
+            row = by_id[cur_id]
+            name = row["argv"][1]
+            candidates = [Path(row["manifest"]), ops / "manifests" / f"{name}-retry-1.json"]
+            for manifest_path in candidates:
+                if manifest_path.is_file():
+                    manifest = auto_retry.read(manifest_path)
+                    unit_dir = (Path(manifest["output_dir"]) / "exports" / "units").resolve()
+                    if unit_dir not in seen_dirs:
+                        seen_dirs.add(unit_dir)
+                        dirs.append(unit_dir)
+            next_id = row.get("retry_id")
+            cur_id = str(next_id) if isinstance(next_id, str) and next_id in by_id else None
     return dirs
 
 

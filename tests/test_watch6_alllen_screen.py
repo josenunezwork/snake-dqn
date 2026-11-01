@@ -601,7 +601,7 @@ def test_measured_2h_forecast_and_prepare_resume_3shards_a100(tmp_path: Path) ->
         patch.object(prepare.subprocess, "check_output", side_effect=fake_git),
         patch.object(prepare_resume.subprocess, "check_output", side_effect=fake_git),
         patch.object(uploads.subprocess, "check_output", side_effect=fake_git),
-        patch.object(uploads.source, "prepare", side_effect=fake_source_prepare),
+        patch("research.colab_cli.source.prepare", side_effect=fake_source_prepare),
         patch.object(prepare, "release_bundle", side_effect=lambda b, _p: b.write_bytes(b"tar-gz")),
         patch.object(
             prepare_resume, "release_bundle", side_effect=lambda b, _p: b.write_bytes(b"tar-gz")
