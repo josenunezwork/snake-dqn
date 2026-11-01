@@ -423,17 +423,17 @@ for current capacity. Unknown inventory stops submissions. It reserves at most
 **six** occupied/pending runtime slots across competing daemons (`ACCOUNT_ASSIGNMENT_CAP = 6`
 since 2026-10-31) and enforces an L4 sub-cap of at most **three** concurrent L4 runtimes
 (`ACCOUNT_L4_CAP = 3` in `ready_queue.py`; standalone `dispatch.sh` calls must also respect
-`L4 <= 3`). Proposed Round-05 two-layer transport/ops hardening — **Layer A** (`0` `colab_cli`
-edits: `L4 <= 3` / `total <= 6` + `reconcile_unavailable` in `dispatch.py`, freezing
-`completion_attempt` on `unallocated`, `.meta.json`-only ledgers, post-loop `contract.json`,
-HTTPS checkpoint staging) and **Layer B** (additive v2 `publish` with explicit authority +
-`50`-seed `fake_colab.py` + `~0.4–0.7 L4 u` canary: `0` post-`ready.json` WS calls via `30 s`
-Contents `state.json` GET / OAuth PUT / `< 4 MiB` `export_file` / no `_verify_remote_file`,
-`lease_seconds = 600` preserving OAuth margins + `< 300 s` Mac-loss release,
-`KERNEL_CREATION_GUARD_ERROR` REST reconnect, `180 s` `timeout`/`runtime_error` drain, warn-only
-`AccountTracker.check` `<= 6`, monotonic-ledger `canary.check`, `16 KB` stderr, and
-`tools/ops/confirm_audit.py`) — is tracked as advice (pending
-requalification) in [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md); the supervisor independently enforces account
+`L4 <= 3`). Proposed Round-06 unified v2 transport/ops hardening — additive `qualification.py add`
+qualified via `0 u` `fake_colab.py` fault replay + `~0.4–0.5 L4 u` 2-unit poll-drop canary
+(unbundled `inputs/verified-ledger.json` + HTTPS checkpoint URLs for `4` PUTs `< 150 KB`,
+outcome-free `.meta.json` + post-loop `contract.json`, `0` post-`ready.json` WS calls via `60 s`
+Contents `state.json` GET, `release-credential.next.json` PUT $\rightarrow$ in-VM `chmod(0o600)` +
+atomic `os.replace` satisfying `load_release_credential`, keeping `lease_seconds = 180` + `900 s`
+OAuth floor inside the `1,800 s` L4 acceptance budget, `2×` `body == []` warmup recovery, `<= 90 s`
+`finally:` Contents `export_file` salvage before `stop_verified`, `alloc.lock` `L4 <= 3` /
+`total <= 6` + `reconcile_unavailable`, monotonic-ledger `canary.check` + `ops-ledger-retry/v2`, and
+zero-judge `python -B -m tools.ops.confirm_audit`) — is tracked as advice (pending
+requalification) in [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.2; the supervisor independently enforces account
 allocation and pending-identity fences. Packages with many small contract/sidecar inputs
 should pack them into one deterministic `input-metadata.tar.gz` via
 `research/metadata_archive.py` (`<= 12` total transfers) to stay well within the 300 s

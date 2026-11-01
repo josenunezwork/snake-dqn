@@ -58,8 +58,9 @@ Path B live search is disabled in replay-source Watch. `ReplayBank._prefetch`
 traverses `sorted(root.glob("*.watch.gz"))[:1024]` deterministically on cycle 1
 (so lexicographically earlier banks play first after a restart) and runs
 `SystemRandom().shuffle` without reusing a unit within a cycle or immediately
-repeating the boundary unit from cycle 2 onward (pre-cycle-1 shuffle and
-`verify_payload` `stop.is_set()` cold-load speedup are tracked in
+repeating the boundary unit from cycle 2 onward (injectable `shuffle_discovery=True`
+for cycle 1 and `64`-frame cooperative `stop.wait(0.0005)` cold-load speedup in
+`verify_payload` are tracked in
 [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.1). Empty/exhausted single-session banks use live B8. No bad file is repeatedly
 hashed on live ticks.
 
@@ -67,7 +68,9 @@ The header visibly says replay and “Recorded assisted hero” for exact-stop.
 Search overrides are marked “Move from search” in the inspector alongside the
 bare action; displayed Q-values remain the bare network. Pause/speed operate on playback. Inspector follows recorded hero #0; roster
 remains visible. Hero selection reports that limit. Food/epsilon or a valid
-checkpoint load return to live operation. Play always clears replay and uses
+checkpoint load return to live operation (note: `reset_game` currently re-enters
+`_select_watch_replay()` after `set_food`/`set_epsilon` until `_replay_opted_out`
+in [`docs/research/ROADMAP.md`](../../docs/research/ROADMAP.md) §2.1 lands). Play always clears replay and uses
 the live game/input/scoring path. Explicit `GameSession(checkpoint=...)` constructors bypass replay
 (note: env-var `SNAKE_SERVE_CHECKPOINT` or `SNAKE_SERVE_WATCH_ROSTER` rollbacks still construct
 `GameSession(checkpoint=None)`, and `reset_game` / `set_mode` also re-select `_replay_bank`, so unset

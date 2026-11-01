@@ -29,10 +29,11 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   `SNAKE_WATCH_SOURCE=live`) and restart. Note: [`GameSession`](../web/backend/session.py)
   (`__init__`, `reset_game`, and `set_mode`) currently selects `ReplayBank` whenever
   `SNAKE_WATCH_SOURCE=replay` and `checkpoint is None` (without checking
-  `served_checkpoint == "b8-s3"`, `watch_roster == "mixed"`, or `Watch6`), so any env-var
-  checkpoint/roster rollback (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or
-  `SNAKE_SERVE_WATCH_ROSTER=all_b8`) must also unset `SNAKE_WATCH_SOURCE` (or set `=live`) until the
-  multi-entrypoint mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1 lands.
+  `served_checkpoint == "b8-s3"`, `watch_roster == "mixed"`, `Watch6`, or prior `set_epsilon`/`set_food`
+  live opt-outs across `reset_game`), so any env-var checkpoint/roster rollback
+  (`SNAKE_SERVE_CHECKPOINT=frp3-s12|champion` or `SNAKE_SERVE_WATCH_ROSTER=all_b8`) must also unset
+  `SNAKE_WATCH_SOURCE` (or set `=live`) until `_replay_opted_out` and the multi-entrypoint
+  mixed-Watch6 `b8-s3` guard tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1 land.
 - **`exact-stop-l1` validator, mixed-controller bank & first-cycle ordering (`73974411` & `395eacbb`, 2026-11-01):**
   `web/backend/watch_replay.py` and `research/watch_replay/` accept `"exact-stop-l1"` (`L >= 1`,
   `interval = 5`, `H = 300`) in `ASSISTED_CONTROLLERS` alongside `"exact-stop-l2-prime"`, and
@@ -41,10 +42,12 @@ product Watch6 v2, `5× frp3-s12 + v8` opponents, 6,000-frame sessions; pipeline
   details tracked in [research/ROADMAP.md](research/ROADMAP.md) §2.1: (1) `ReplayBank._prefetch`
   walks `sorted(root.glob("*.watch.gz"))[:1024]` on cycle 1 before `SystemRandom().shuffle` runs on
   cycle 2 (`132 × 250 s = 9.17 h` of `bank01–12` `l2-prime` play before `bank14l1–16l1` after a
-  restart), while `verify_payload` sleeps `stop.wait(0.001)` per frame (`~8–10 s` cold load); and
-  (2) restricting playback to a single confirmed controller (`exact-stop-l2-prime`-only via
-  `watch-replay-bank-live-132`, or `exact-stop-l1`-only after confirmation) requires a
-  single-controller `SNAKE_WATCH_REPLAY_DIR` or landing `SNAKE_WATCH_REPLAY_CONTROLLER`.
+  restart, fixable via injectable `shuffle_discovery=True`), while `verify_payload` sleeps
+  `stop.wait(0.001)` per frame (`~8–10 s` cold load, fixable via a `64`-frame cooperative yield
+  without `24 fps` GIL stalls); and (2) restricting playback to a single confirmed controller
+  (`exact-stop-l2-prime`-only via `watch-replay-bank-live-132`, or `exact-stop-l1`-only after
+  confirmation) requires a single-controller `SNAKE_WATCH_REPLAY_DIR` or landing
+  `SNAKE_WATCH_REPLAY_CONTROLLER`.
 - **Product efficacy measurement status:** synchronous `exact-stop-l2-prime` efficacy vs bare B8 in the
   product H14400 setting is **not yet confirmed and is currently running in Watch6 V3**
   ([`research/watch6_search_efficacy_v3/`](../research/watch6_search_efficacy_v3/)), and `exact-stop-l1`
@@ -100,10 +103,16 @@ For synthesized current-round and later-round research plans (**advice, not deci
   shards (`96` fresh paired `H = 14,400` Watch6-v2 sessions: `b8-s3` bare vs synchronous
   `exact-stop-l2-prime` at `L >= 600`, `H = 300`, `5× frp3-s12 + v8`, frame-exact live/`GridBatchSim`
   mirror; governs `exact-stop-l2-prime` only, not the `36` `exact-stop-l1` recordings in
-  `watch-replay-bank-live-168`). Accounting adapter **V6.1** ratified (`75471246`: shard-00
-  never-allocated, shard-12 WebSocket renewal drop); sole final look **must be invoked under
-  `python -B`** (`./venv/bin/python -B -m tools.watch6_v3_accounting.final_look ...`) because
-  `_forbid_pycache_directory` fails closed on any `__pycache__`/`.pyc` inside the V3 closure.
+  `watch-replay-bank-live-168`). Accounting adapter **V6.1** ratified (`75471246`; at `05:01 PT` on
+  2026-11-01: `14/24` `PASS` shards `01..08, 10, 11, 13..16`, `6/24` active `17, 18, 20..23`, and
+  `4/24` V6.1-accepted mechanical failures `00, 09, 12, 19`). **Linear-retry & bytecode guards:**
+  `final_look.py:_verify_shard_lineage` rejects forked attempt trees sharing a parent receipt, so
+  shards `09, 19` must use **only** their already-staged `ops/auto-retry` packets (**never** run
+  `recover.py` on `09, 19`), shards `00, 12` dispatch `recovery-shard-{00,12}-01` via
+  `python -B -m tools.watch6_v3_accounting.dispatch`, and the sole final look **must be invoked under
+  `python -B`** (`./venv/bin/python -B -m tools.watch6_v3_accounting.final_look ...`) from clean
+  `snake-dqn-argon-v3-accounting` because `_forbid_pycache_directory` fails closed on any
+  `__pycache__`/`.pyc` inside the V3 closure.
 - **Completed exploration — Watch6 all-length screen (`ADOPT` for new replay banks)**
   ([`research/watch6_alllen_screen/`](../research/watch6_alllen_screen/), readout
   `t34-sol/argon-alllen-a100/analysis.json`, `N = 48` paired 6,000-frame Watch6-v2 sessions):
